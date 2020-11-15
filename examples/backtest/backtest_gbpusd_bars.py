@@ -36,7 +36,7 @@ from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 from tests.test_kit import PACKAGE_ROOT
-from tests.test_kit.data import TestDataProvider
+from tests.test_kit.data_provider import TestDataProvider
 
 
 if __name__ == "__main__":
@@ -48,16 +48,16 @@ if __name__ == "__main__":
     data = BacktestDataContainer()
     data.add_instrument(GBPUSD)
     data.add_bars(
-        GBPUSD.symbol,
-        BarAggregation.MINUTE,
-        PriceType.BID,
-        TestDataProvider.gbpusd_1min_bid(),  # Stub data from the test kit
+        symbol=GBPUSD.symbol,
+        aggregation=BarAggregation.MINUTE,
+        price_type=PriceType.BID,
+        data=TestDataProvider.gbpusd_1min_bid(),  # Stub data from the test kit
     )
     data.add_bars(
-        GBPUSD.symbol,
-        BarAggregation.MINUTE,
-        PriceType.ASK,
-        TestDataProvider.gbpusd_1min_bid(),  # Stub data from the test kit
+        symbol=GBPUSD.symbol,
+        aggregation=BarAggregation.MINUTE,
+        price_type=PriceType.ASK,
+        data=TestDataProvider.gbpusd_1min_ask(),  # Stub data from the test kit
     )
 
     # Instantiate your strategy
@@ -109,7 +109,7 @@ if __name__ == "__main__":
 
     # Optional plug in module to simulate rollover interest,
     # the data is coming from packaged test data.
-    interest_rate_data = pd.read_csv(os.path.join(PACKAGE_ROOT + "/data/", "short-term-interest.csv"))
+    interest_rate_data = pd.read_csv(os.path.join(PACKAGE_ROOT + "/data/", "short-term-interest.csv.zip"))
     fx_rollover_interest = FXRolloverInterestModule(rate_data=interest_rate_data)
 
     engine.load_module(Venue('SIM'), fx_rollover_interest)
@@ -117,8 +117,8 @@ if __name__ == "__main__":
     input("Press Enter to continue...")  # noqa (always Python 3)
 
     # Set backtest start and stop times
-    start = datetime(2008, 2, 1, 0, 0, 0, 0)
-    stop = datetime(2008, 3, 1, 0, 0, 0, 0)
+    start = datetime(2012, 2, 1, 0, 0, 0, 0)
+    stop = datetime(2012, 3, 1, 0, 0, 0, 0)
 
     # Run the engine
     engine.run(start, stop)
