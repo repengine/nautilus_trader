@@ -13,13 +13,13 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from datetime import datetime
 import cProfile
+from datetime import datetime
 import os
-import pandas as pd
 import pstats
 import unittest
 
+import pandas as pd
 import pytz
 
 from nautilus_trader.backtest.config import BacktestConfig
@@ -28,13 +28,12 @@ from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.loaders import InstrumentLoader
 from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.backtest.modules import FXRolloverInterestModule
-from nautilus_trader.common.logging import LogLevel
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import OMSType
 from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import Venue
 from tests.test_kit import PACKAGE_ROOT
-from tests.test_kit.data import TestDataProvider
+from tests.test_kit.data_provider import TestDataProvider
 from tests.test_kit.strategies import EMACross
 from tests.test_kit.strategies import EmptyStrategy
 from tests.test_kit.stubs import TestStubs
@@ -143,7 +142,6 @@ class BacktestEnginePerformanceTests(unittest.TestCase):
         config = BacktestConfig(
             exec_db_type="in-memory",
             bypass_logging=True,
-            # level_console=LogLevel.DEBUG,
             console_prints=False,
         )
 
@@ -193,3 +191,4 @@ class BacktestEnginePerformanceTests(unittest.TestCase):
         # 07/11/20  4345844 function calls (4320541 primitive calls) in 6.051 seconds (performance check)
         # 08/11/20  4345844 function calls (4320541 primitive calls) in 5.960 seconds (centralize exchange rate calculations)
         # 12/11/20  4346944 function calls (4321640 primitive calls) in 5.809 seconds (change value object API)
+        # 15/11/20  4378755 function calls (4353255 primitive calls) in 5.927 seconds (performance check)
