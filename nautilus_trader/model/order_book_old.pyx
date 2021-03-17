@@ -37,7 +37,6 @@ cdef class OrderBook:
     ):
         """
         Initialize a new instance of the `OrderBook` class.
-
         Parameters
         ----------
         instrument_id : InstrumentId
@@ -58,12 +57,10 @@ cdef class OrderBook:
             The initial update identifier.
         timestamp : long
             The initial order book update timestamp (Unix time).
-
         Raises
         ------
         ValueError
             If level is not in range 1-3.
-
         """
         Condition.in_range_int(level, 1, 3, "level")
         Condition.not_negative(price_precision, "price_precision")
@@ -95,35 +92,28 @@ cdef class OrderBook:
     cpdef list bids(self):
         """
         Return the order book bids.
-
         Returns
         -------
         double[:, :]
-
         """
         return self._bids
 
     cpdef list asks(self):
         """
         Return the order book asks.
-
         Returns
         -------
         double[:, :]
-
         """
         return self._asks
 
     cpdef list bids_as_decimals(self):
         """
         Return the bids with prices and quantities as decimals.
-
         Decimal type is the built-in `decimal.Decimal`.
-
         Returns
         -------
         list[list[Decimal, Decimal]]
-
         """
         cdef double[:] entry
         return [[Decimal(f"{entry[0]:.{self.price_precision}f}"), Decimal(f"{entry[1]:.{self.size_precision}f}")] for entry in self._bids]
@@ -131,13 +121,10 @@ cdef class OrderBook:
     cpdef list asks_as_decimals(self):
         """
         Return the asks with prices and quantities as decimals.
-
         Decimal type is the built-in `decimal.Decimal`.
-
         Returns
         -------
         list[list[Decimal, Decimal]]
-
         """
         cdef double[:] entry
         return [[Decimal(f"{entry[0]:.{self.price_precision}f}"), Decimal(f"{entry[1]:.{self.size_precision}f}")] for entry in self._asks]
@@ -145,55 +132,45 @@ cdef class OrderBook:
     cpdef double spread(self):
         """
         Return the top of book spread.
-
         Returns
         -------
         double
-
         """
         return self._asks[0][0] - self._bids[0][0]
 
     cpdef double best_bid_price(self):
         """
         Return the current best bid price.
-
         Returns
         -------
         double
-
         """
         return self._bids[0][0]
 
     cpdef double best_ask_price(self):
         """
         Return the current best ask price.
-
         Returns
         -------
         double
-
         """
         return self._asks[0][0]
 
     cpdef double best_bid_qty(self):
         """
         Return the current size at the best bid.
-
         Returns
         -------
         double
-
         """
         return self._bids[0][1]
 
     cpdef double best_ask_qty(self):
         """
         Return the current size at the best ask.
-
         Returns
         -------
         double
-
         """
         return self._asks[0][1]
 
@@ -206,7 +183,6 @@ cdef class OrderBook:
     ) except *:
         """
         Apply the snapshot with the given parameters.
-
         Parameters
         ----------
         bids : list[[double, double]]
@@ -217,7 +193,6 @@ cdef class OrderBook:
             The identifier of this update.
         timestamp : unsigned long
             The timestamp of this update.
-
         """
         self._bids = bids
         self._asks = asks
