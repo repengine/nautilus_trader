@@ -13,32 +13,35 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from libc.stdint cimport int64_t
+import asyncio
+import json
+import os
+
+import pytest
+
+from nautilus_trader.adapters.ftx.factories import get_cached_ftx_http_client
+from nautilus_trader.adapters.ftx.http.client import FTXHttpClient
+from nautilus_trader.common.clock import LiveClock
+from nautilus_trader.common.logging import Logger
 
 
-cdef class Data:
-    """
-    The abstract base class for all data.
+@pytest.mark.asyncio
+async def test_ftx_http_client():
+    loop = asyncio.get_event_loop()
+    clock = LiveClock()
 
-    Parameters
-    ----------
-    ts_event : int64
-        The UNIX timestamp (nanoseconds) when the data event occurred.
-    ts_init : int64
-        The UNIX timestamp (nanoseconds) when the object was initialized.
+    client: FTXHttpClient = get_cached_ftx_http_client(
+        loop=loop,
+        clock=clock,
+        logger=Logger(clock=clock),
+        key=os.getenv("FTX_API_KEY"),
+        secret=os.getenv("FTX_API_SECRET"),
+    )
+    await client.connect()
 
-    Warnings
-    --------
-    This class should not be used directly, but through a concrete subclass.
-    """
+    response = await client.get_order_history(
+        market="ETH-PERP",
+    )
+    print(json.dumps(response, indent=4))
 
-    def __init__(self, int64_t ts_event, int64_t ts_init):
-        # Design-time invariant: correct ordering of timestamps
-        assert ts_event <= ts_init
-        self.ts_event = ts_event
-        self.ts_init = ts_init
-
-    def __repr__(self) -> str:
-        return (f"{type(self).__name__}("
-                f"ts_event={self.ts_event}, "
-                f"ts_init{self.ts_init})")
+    await client.disconnect()
