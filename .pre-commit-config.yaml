@@ -58,11 +58,77 @@ repos:
 
       - id: check-todo-exclamation
         name: check todo! markers
-        description: Prevents committing TODO! markers that indicate incomplete work
+        description: Prevents committing T O D O ! markers (without spaces) that indicate incomplete work
         entry: .pre-commit-hooks/check_todo_exclamation.sh
         language: script
         types: [text]
-        pass_filenames: false
+        pass_filenames: true
+
+      - id: check-tests-pass
+        name: check tests pass
+        description: Runs tests for changed files and all ML tests if ML files changed
+        entry: .pre-commit-hooks/check_tests_pass.py
+        language: script
+        types: [python]
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-ml-test-coverage
+        name: check ML test coverage
+        description: Ensures new ML modules have ≥90% test coverage
+        entry: .pre-commit-hooks/check_test_coverage.py
+        language: script
+        types: [python]
+        files: 'ml/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-ml-performance
+        name: check ML performance
+        description: Ensures ML inference doesn't regress beyond 20% tolerance
+        entry: .pre-commit-hooks/check_ml_performance.py
+        language: script
+        types: [python]
+        files: 'ml/(inference|core)/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-feature-parity
+        name: check ML feature parity
+        description: Validates training/inference compute identical features
+        entry: .pre-commit-hooks/check_feature_parity.py
+        language: script
+        types: [python]
+        files: 'ml/(training|inference)/features\.py$'
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-test-coverage
+        name: check test coverage (>80%)
+        description: Ensures all Python code has >80% test coverage
+        entry: .pre-commit-hooks/check_test_coverage_general.py
+        language: script
+        types: [python]
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-tests-clean
+        name: check tests pass cleanly
+        description: Ensures tests pass with no failures, errors, or warnings
+        entry: .pre-commit-hooks/check_tests_clean.py
+        language: script
+        types: [python]
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-mypy-clean
+        name: check mypy (0 errors)
+        description: Ensures mypy type checking passes with zero errors
+        entry: .pre-commit-hooks/check_mypy_clean.py
+        language: script
+        types: [python]
+        pass_filenames: true
+        stages: [pre-commit]
 
   ##############################################################################
   #  Rust formatting and linting
