@@ -130,6 +130,36 @@ repos:
         pass_filenames: true
         stages: [pre-commit]
 
+      - id: check-docstrings
+        name: check docstrings
+        description: Ensures all public symbols have proper docstrings
+        entry: .pre-commit-hooks/check_docstrings.py
+        language: script
+        types: [python]
+        files: 'ml/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-nautilus-patterns
+        name: check Nautilus patterns
+        description: Validates ML code follows Nautilus architectural patterns
+        entry: .pre-commit-hooks/check_nautilus_patterns.py
+        language: script
+        types: [python]
+        files: 'ml/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: check-prometheus-metrics
+        name: check Prometheus metrics
+        description: Ensures ML components have proper monitoring
+        entry: .pre-commit-hooks/check_prometheus_metrics.py
+        language: script
+        types: [python]
+        files: 'ml/(actors|strategies)/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit]
+
   ##############################################################################
   #  Rust formatting and linting
   ##############################################################################
