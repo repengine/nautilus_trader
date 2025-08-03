@@ -108,3 +108,6 @@ tests/test_data/**/backtest/**
 # ML performance and feature tracking
 .ml_performance_baseline.json
 .ml_feature_manifest.json
+
+# Old/archived code
+OLD/
