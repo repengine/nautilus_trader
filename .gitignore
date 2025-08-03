@@ -104,3 +104,7 @@ tests/test_data/**/backtest/**
 !tests/test_data/nautilus/*/**.parquet
 !tests/integration_tests/adapters/betfair/responses/*.log
 !/nautilus_core/adapters/src/databento/test_data/*
+
+# ML performance and feature tracking
+.ml_performance_baseline.json
+.ml_feature_manifest.json

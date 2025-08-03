@@ -381,6 +381,22 @@ pytest-memory-tracking:  #-- Run Python tests with memory tracking enabled
 test-performance:  #-- Run performance tests with codspeed benchmarking
 	uv run --active --no-sync pytest tests/performance_tests --benchmark-disable-gc --codspeed
 
+#== ML Development
+
+.PHONY: update-ml-baseline
+update-ml-baseline:  #-- Update ML performance baseline after optimization
+	@echo "Updating ML performance baseline..."
+	@python .pre-commit-hooks/check_ml_performance.py --update-baseline
+	@echo "Baseline updated in .ml_performance_baseline.json"
+
+.PHONY: test-feature-parity
+test-feature-parity:  #-- Run ML feature parity tests manually
+	@python -m pytest tests/test_feature_parity.py -v
+
+.PHONY: benchmark-ml
+benchmark-ml:  #-- Run ML performance benchmarks manually
+	@python benchmarks/ml_performance.py --report
+
 #== CLI Tools
 
 .PHONY: install-cli
