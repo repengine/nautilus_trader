@@ -19,10 +19,18 @@ ML actors for real-time inference in Nautilus Trader.
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
 from ml.actors.base import PickleMLInferenceActor
+from ml.actors.signal import AdaptiveSignal
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
+from ml.actors.signal import SignalStrategy
 
 
 __all__ = [
+    "AdaptiveSignal",
     "BaseMLInferenceActor",
     "MLSignal",
+    "MLSignalActor",
+    "MLSignalActorConfig",
     "PickleMLInferenceActor",
+    "SignalStrategy",
 ]

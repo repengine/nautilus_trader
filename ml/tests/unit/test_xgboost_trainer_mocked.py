@@ -179,7 +179,7 @@ class TestXGBoostTrainer:
         assert "metrics" in results
         assert "model" in results
         assert "feature_names" in results
-        # Check that metrics exist (structure may vary based on whether train/val metrics are present)
+        # Check that metrics exist (structure may vary based on train/val metrics)
         assert isinstance(results["metrics"], dict)
 
     @patch("ml.training.base.HAS_POLARS", True)

@@ -31,19 +31,16 @@ from typing import Any
 
 import numpy as np
 
+from ml._imports import HAS_POLARS
+from ml._imports import HAS_XGBOOST
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
+from ml._imports import xgb
 from ml.config.xgboost import XGBoostTrainingConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.training.base import BaseMLTrainer
 
-
-try:
-    import polars as pl
-
-    HAS_POLARS = True
-except ImportError:
-    HAS_POLARS = False
-    pl = None
 
 try:
     from sklearn.preprocessing import StandardScaler
@@ -453,16 +450,12 @@ class XGBoostTrainer(BaseMLTrainer):
             Dictionary containing trained model and metrics.
 
         """
-        # Import XGBoost (lazy import)
-        if self._xgb is None:
-            try:
-                import xgboost as xgb
+        # Check XGBoost availability
+        if not HAS_XGBOOST:
+            check_ml_dependencies(["xgboost"])  # This will raise with proper error message
 
-                self._xgb = xgb
-            except ImportError:
-                raise ImportError(
-                    "XGBoost is required for training. Install with: pip install xgboost",
-                )
+        if self._xgb is None:
+            self._xgb = xgb
 
         print("Training XGBoost model...")
 
