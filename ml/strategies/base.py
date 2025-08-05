@@ -29,8 +29,6 @@ from decimal import Decimal
 from typing import Any
 
 from ml.actors.base import MLSignal
-
-# Import metrics utilities
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import MLStrategyConfig
