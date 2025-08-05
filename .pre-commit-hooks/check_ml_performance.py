@@ -63,7 +63,7 @@ class PerformanceBenchmark:
         Benchmark feature computation speed.
         """
         # Create minimal test setup
-        test_code = """
+        test_code = f"""
 import numpy as np
 import time
 from nautilus_ml.inference.features import FeatureEngine
@@ -74,21 +74,19 @@ price = 100.0
 volume = 1000.0
 
 # Warm-up
-for _ in range({warm_up}):
+for _ in range({self.warm_up_runs}):
     engine.compute_features(price, volume)
 
 # Benchmark
 times = []
-for _ in range({runs}):
+for _ in range({self.benchmark_runs}):
     start = time.perf_counter_ns()
     features = engine.compute_features(price, volume)
     end = time.perf_counter_ns()
     times.append((end - start) / 1000)  # Convert to microseconds
 
 print("RESULT:" + json.dumps(times))
-""".format(
-            warm_up=self.warm_up_runs, runs=self.benchmark_runs
-        )
+"""
 
         # Run benchmark
         result = subprocess.run(
@@ -118,7 +116,7 @@ print("RESULT:" + json.dumps(times))
         """
         Benchmark model inference speed.
         """
-        test_code = """
+        test_code = f"""
 import numpy as np
 import time
 import onnxruntime as ort
@@ -138,7 +136,7 @@ except:
 test_features = np.random.randn(1, n_features).astype(np.float32)
 
 # Warm-up
-for _ in range({warm_up}):
+for _ in range({self.warm_up_runs}):
     if session:
         _ = session.run(None, {{input_name: test_features}})
     else:
@@ -147,7 +145,7 @@ for _ in range({warm_up}):
 
 # Benchmark
 times = []
-for _ in range({runs}):
+for _ in range({self.benchmark_runs}):
     start = time.perf_counter_ns()
     if session:
         prediction = session.run(None, {{input_name: test_features}})
@@ -157,9 +155,7 @@ for _ in range({runs}):
     times.append((end - start) / 1000)  # Convert to microseconds
 
 print("RESULT:" + json.dumps(times))
-""".format(
-            warm_up=self.warm_up_runs, runs=self.benchmark_runs
-        )
+"""
 
         result = subprocess.run(
             [sys.executable, "-c", test_code],
@@ -181,6 +177,42 @@ print("RESULT:" + json.dumps(times))
                 }
 
         return None
+
+    def _check_component_performance(self, component, metrics, baseline):
+        """
+        Check performance for a single component.
+        """
+        messages = []
+        failed = False
+
+        if component not in baseline:
+            messages.append(f"INFO: {component}: No baseline, setting current as baseline")
+            return failed, messages
+
+        # Check mean performance
+        baseline_mean = baseline[component]["mean_us"]
+        current_mean = metrics["mean_us"]
+        regression = (current_mean - baseline_mean) / baseline_mean
+
+        if regression > self.tolerance:
+            failed = True
+            messages.append(
+                f"FAIL: {component}: {current_mean:.1f}us "
+                f"(+{regression*100:.1f}% from baseline {baseline_mean:.1f}us)",
+            )
+        else:
+            messages.append(
+                f"OK: {component}: {current_mean:.1f}us " f"({regression*100:+.1f}% from baseline)",
+            )
+
+        # Also check p99 for consistency
+        if metrics["p99_us"] > 5000:  # 5ms hard limit
+            failed = True
+            messages.append(
+                f"FAIL: {component}: p99 latency {metrics['p99_us']:.1f}us exceeds 5ms limit",
+            )
+
+        return failed, messages
 
     def check_performance(self, changed_files):
         """
@@ -214,54 +246,40 @@ print("RESULT:" + json.dumps(times))
 
         # Check for regressions
         failed = False
-        messages = []
+        all_messages = []
 
         for component, metrics in results.items():
-            if component not in baseline:
-                messages.append(f"ℹ️  {component}: No baseline, setting current as baseline")
-                continue
-
-            # Check mean performance
-            baseline_mean = baseline[component]["mean_us"]
-            current_mean = metrics["mean_us"]
-            regression = (current_mean - baseline_mean) / baseline_mean
-
-            if regression > self.tolerance:
+            component_failed, messages = self._check_component_performance(
+                component,
+                metrics,
+                baseline,
+            )
+            if component_failed:
                 failed = True
-                messages.append(
-                    f"❌ {component}: {current_mean:.1f}μs "
-                    f"(+{regression*100:.1f}% from baseline {baseline_mean:.1f}μs)",
-                )
-            else:
-                messages.append(
-                    f"✅ {component}: {current_mean:.1f}μs "
-                    f"({regression*100:+.1f}% from baseline)",
-                )
-
-            # Also check p99 for consistency
-            if metrics["p99_us"] > 5000:  # 5ms hard limit
-                failed = True
-                messages.append(
-                    f"❌ {component}: p99 latency {metrics['p99_us']:.1f}μs exceeds 5ms limit"
-                )
+            all_messages.extend(messages)
 
         # Update baseline if no regression or first run
         if not failed and results:
-            # Only update if performance improved or within tolerance
-            updated_baseline = baseline.copy()
-            for component, metrics in results.items():
-                if component not in baseline or metrics["mean_us"] < baseline[component][
-                    "mean_us"
-                ] * (1 + self.tolerance):
-                    updated_baseline[component] = metrics
-            self.save_baseline(updated_baseline)
+            self._update_baseline_if_needed(baseline, results)
 
-        return not failed, "\n".join(messages)
+        return not failed, "\n".join(all_messages)
+
+    def _update_baseline_if_needed(self, baseline, results):
+        """
+        Update baseline if performance improved or within tolerance.
+        """
+        updated_baseline = baseline.copy()
+        for component, metrics in results.items():
+            if component not in baseline or metrics["mean_us"] < baseline[component]["mean_us"] * (
+                1 + self.tolerance
+            ):
+                updated_baseline[component] = metrics
+        self.save_baseline(updated_baseline)
 
 
 def main():
     """
-    Main entry point.
+    Run ML performance benchmarks on changed files.
     """
     changed_files = sys.argv[1:]
 
@@ -290,7 +308,7 @@ def main():
     print(message)
 
     if not passed:
-        print("\n⚠️  Performance regression detected!")
+        print("\nPerformance regression detected!")
         print("Options:")
         print("1. Optimize your code to meet performance targets")
         print("2. If this is expected, update baseline with: make update-ml-baseline")
