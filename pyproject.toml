@@ -97,6 +97,12 @@ dydx = [
 polymarket = [
     "py-clob-client==0.23.0,<1.0.0",  # Pinned to 0.23.0 for stability
 ]
+ml = [
+    "onnxruntime>=1.20.0,<2.0.0",
+    "polars>=1.17.0,<2.0.0",
+    "prometheus-client>=0.21.0,<1.0.0",
+    "xgboost>=2.1.0,<3.0.0",
+]
 
 [dependency-groups]
 dev = [

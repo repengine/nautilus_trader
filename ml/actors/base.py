@@ -35,13 +35,17 @@ from typing import Any
 
 import numpy as np
 
-# Import metrics utilities
+# Import ML dependencies and check availability
+from ml._imports import HAS_ONNX
+from ml._imports import check_ml_dependencies
+from ml._imports import ort
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
 from nautilus_trader.common.actor import Actor
+from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import DataType
@@ -49,7 +53,9 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 
 class HealthStatus(Enum):
-    """Health status enumeration."""
+    """
+    Health status enumeration.
+    """
 
     HEALTHY = "healthy"
     DEGRADED = "degraded"
@@ -57,7 +63,9 @@ class HealthStatus(Enum):
 
 
 class CircuitBreakerState(Enum):
-    """Circuit breaker state enumeration."""
+    """
+    Circuit breaker state enumeration.
+    """
 
     CLOSED = "closed"
     OPEN = "open"
@@ -68,12 +76,15 @@ class HealthMonitor:
     """
     Health monitoring system for ML inference actors.
 
-    Tracks system health metrics including prediction success rates,
-    latency violations, and general system status.
+    Tracks system health metrics including prediction success rates, latency violations,
+    and general system status.
+
     """
 
     def __init__(self) -> None:
-        """Initialize health monitor."""
+        """
+        Initialize health monitor.
+        """
         self.status = HealthStatus.HEALTHY
         self.start_time = time.time()
         self.model_loaded = False
@@ -86,35 +97,47 @@ class HealthMonitor:
         self.last_health_check = time.time()
 
     def update_prediction_success(self) -> None:
-        """Record successful prediction."""
+        """
+        Record successful prediction.
+        """
         self.last_prediction_time = time.time()
         self.consecutive_failures = 0
         self.total_predictions += 1
 
     def update_prediction_failure(self) -> None:
-        """Record failed prediction."""
+        """
+        Record failed prediction.
+        """
         self.consecutive_failures += 1
         self.failed_predictions += 1
         self.total_predictions += 1
         self._update_health_status()
 
     def update_latency_violation(self) -> None:
-        """Record latency violation."""
+        """
+        Record latency violation.
+        """
         self.total_latency_violations += 1
         self._update_health_status()
 
     def set_model_loaded(self, loaded: bool) -> None:
-        """Update model loaded status."""
+        """
+        Update model loaded status.
+        """
         self.model_loaded = loaded
         self._update_health_status()
 
     def set_indicators_initialized(self, initialized: bool) -> None:
-        """Update indicators initialized status."""
+        """
+        Update indicators initialized status.
+        """
         self.indicators_initialized = initialized
         self._update_health_status()
 
     def _update_health_status(self) -> None:
-        """Update overall health status based on metrics."""
+        """
+        Update overall health status based on metrics.
+        """
         # Check for critical failures
         if not self.model_loaded or self.consecutive_failures > 10:
             self.status = HealthStatus.UNHEALTHY
@@ -134,17 +157,23 @@ class HealthMonitor:
         self.status = HealthStatus.HEALTHY
 
     def get_success_rate(self) -> float:
-        """Calculate prediction success rate."""
+        """
+        Calculate prediction success rate.
+        """
         if self.total_predictions == 0:
             return 1.0
         return (self.total_predictions - self.failed_predictions) / self.total_predictions
 
     def get_uptime_seconds(self) -> float:
-        """Get system uptime in seconds."""
+        """
+        Get system uptime in seconds.
+        """
         return time.time() - self.start_time
 
     def to_dict(self) -> dict[str, Any]:
-        """Export health status as dictionary."""
+        """
+        Export health status as dictionary.
+        """
         return {
             "status": self.status.value,
             "model_loaded": self.model_loaded,
@@ -163,8 +192,9 @@ class CircuitBreaker:
     """
     Circuit breaker implementation for fault tolerance.
 
-    Prevents cascade failures by temporarily stopping operations
-    when error rates exceed thresholds.
+    Prevents cascade failures by temporarily stopping operations when error rates exceed
+    thresholds.
+
     """
 
     def __init__(self, config: CircuitBreakerConfig | None = None) -> None:
@@ -186,11 +216,15 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitBreakerState:
-        """Get current circuit breaker state."""
+        """
+        Get current circuit breaker state.
+        """
         return self._state
 
     def can_execute(self) -> bool:
-        """Check if operation can be executed."""
+        """
+        Check if operation can be executed.
+        """
         current_time = time.time()
 
         if self._state == CircuitBreakerState.CLOSED:
@@ -205,7 +239,9 @@ class CircuitBreaker:
             return True
 
     def record_success(self) -> None:
-        """Record successful operation."""
+        """
+        Record successful operation.
+        """
         if self._state == CircuitBreakerState.HALF_OPEN:
             self._success_count += 1
             if self._success_count >= self._config.success_threshold:
@@ -215,7 +251,9 @@ class CircuitBreaker:
             self._failure_count = max(0, self._failure_count - 1)
 
     def record_failure(self) -> None:
-        """Record failed operation."""
+        """
+        Record failed operation.
+        """
         self._failure_count += 1
         self._last_failure_time = time.time()
 
@@ -230,7 +268,9 @@ class CircuitBreaker:
             self._next_attempt = self._last_failure_time + self._config.recovery_timeout
 
     def get_stats(self) -> dict[str, Any]:
-        """Get circuit breaker statistics."""
+        """
+        Get circuit breaker statistics.
+        """
         return {
             "state": self._state.value,
             "failure_count": self._failure_count,
@@ -241,7 +281,9 @@ class CircuitBreaker:
 
 
 class ModelLoader(ABC):
-    """Abstract base class for model loading strategies."""
+    """
+    Abstract base class for model loading strategies.
+    """
 
     @abstractmethod
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
@@ -279,10 +321,14 @@ class ModelLoader(ABC):
 
 
 class PickleModelLoader(ModelLoader):
-    """Model loader for pickle/joblib models."""
+    """
+    Model loader for pickle/joblib models.
+    """
 
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
-        """Load pickle model."""
+        """
+        Load pickle model.
+        """
         model_path = Path(path)
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {path}")
@@ -302,7 +348,9 @@ class PickleModelLoader(ModelLoader):
         return model, metadata
 
     def get_model_version(self, path: str) -> str:
-        """Get model version based on file modification time and size."""
+        """
+        Get model version based on file modification time and size.
+        """
         model_path = Path(path)
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {path}")
@@ -314,25 +362,22 @@ class PickleModelLoader(ModelLoader):
 
 
 class ONNXModelLoader(ModelLoader):
-    """Model loader for ONNX models with optimized runtime."""
+    """
+    Model loader for ONNX models with optimized runtime.
+    """
 
     def __init__(self) -> None:
-        """Initialize ONNX model loader."""
-        try:
-            import onnxruntime as ort  # noqa: F401
-
-            self._onnx_available = True
-        except ImportError:
-            self._onnx_available = False
+        """
+        Initialize ONNX model loader.
+        """
+        self._onnx_available = HAS_ONNX
 
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
-        """Load ONNX model with optimized runtime."""
+        """
+        Load ONNX model with optimized runtime.
+        """
         if not self._onnx_available:
-            raise ImportError(
-                "onnxruntime not available. Install with: pip install onnxruntime",
-            )
-
-        import onnxruntime as ort
+            check_ml_dependencies(["onnx"])  # This will raise with proper error message
 
         model_path = Path(path)
         if not model_path.exists():
@@ -363,7 +408,9 @@ class ONNXModelLoader(ModelLoader):
         return session, metadata
 
     def get_model_version(self, path: str) -> str:
-        """Get ONNX model version based on file modification time and size."""
+        """
+        Get ONNX model version based on file modification time and size.
+        """
         model_path = Path(path)
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {path}")
@@ -499,7 +546,17 @@ class BaseMLInferenceActor(Actor, ABC):
             The configuration for the ML actor.
 
         """
-        super().__init__(config)
+        # Extract ActorConfig fields
+        actor_config = ActorConfig(
+            component_id=config.component_id,
+            log_events=config.log_events,
+            log_commands=config.log_commands,
+        )
+
+        # Initialize with standard ActorConfig
+        super().__init__(actor_config)
+
+        # Store the complete ML configuration
         self._config = config
 
         # Initialize feature configuration
@@ -518,9 +575,7 @@ class BaseMLInferenceActor(Actor, ABC):
         # Production features
         self._health_monitor = HealthMonitor() if config.enable_health_monitoring else None
         self._circuit_breaker = (
-            CircuitBreaker(config.circuit_breaker_config)
-            if config.circuit_breaker_config
-            else None
+            CircuitBreaker(config.circuit_breaker_config) if config.circuit_breaker_config else None
         )
 
         # Hot reload state
@@ -537,30 +592,10 @@ class BaseMLInferenceActor(Actor, ABC):
         self._bars_processed = 0
         self._is_warmed_up = False
 
-        # Enhanced Prometheus metrics
+        # Enhanced Prometheus metrics - use global instances
         self._inference_latency_metric = ml_prediction_latency
         self._inference_count_metric = ml_predictions_total
-        self._inference_errors_metric = Counter(
-            "nautilus_ml_inference_errors_total",
-            "Total number of ML inference errors",
-            ["actor_id", "error_type"],
-        )
-        self._feature_computation_time_metric = Histogram(
-            "nautilus_ml_feature_computation_seconds",
-            "Feature computation latency in seconds",
-            ["actor_id"],
-            buckets=[0.0001, 0.0005, 0.001, 0.002, 0.005],  # Focus on sub-ms latencies
-        )
-        self._model_reload_metric = Counter(
-            "nautilus_ml_model_reloads_total",
-            "Total number of model reloads",
-            ["actor_id", "success"],
-        )
-        self._health_status_metric = Counter(
-            "nautilus_ml_health_status_total",
-            "Health status changes",
-            ["actor_id", "status"],
-        )
+        self._inference_confidence_metric = ml_signal_confidence
 
     def on_start(self) -> None:
         """
@@ -641,14 +676,14 @@ class BaseMLInferenceActor(Actor, ABC):
 
         # Track feature computation performance
         self._total_feature_time += feature_latency
-        self._feature_computation_time_metric.observe(feature_latency / 1000)
 
         # Check feature computation latency
         if feature_latency > self._config.max_feature_latency_ms:
-            self.log.warning(
-                f"Feature computation exceeded {self._config.max_feature_latency_ms}ms: "
-                f"{feature_latency:.3f}ms",
-            )
+            if hasattr(self, "log"):
+                self.log.warning(
+                    f"Feature computation exceeded {self._config.max_feature_latency_ms}ms: "
+                    f"{feature_latency:.3f}ms",
+                )
             if self._health_monitor:
                 self._health_monitor.update_latency_violation()
 
@@ -662,7 +697,8 @@ class BaseMLInferenceActor(Actor, ABC):
         if not self._is_warmed_up:
             if self._bars_processed >= self._config.warm_up_period:
                 self._is_warmed_up = True
-                self.log.info("Enhanced ML Actor warm-up complete, starting predictions")
+                if hasattr(self, "log"):
+                    self.log.info("Enhanced ML Actor warm-up complete, starting predictions")
             else:
                 return  # Still warming up
 
@@ -736,10 +772,23 @@ class BaseMLInferenceActor(Actor, ABC):
             # Track metrics
             self._inference_latency_metric.observe(
                 inference_time / 1000,
-                {"actor_id": self.id.value, "model_name": Path(self._config.model_path).stem},
+                {
+                    "actor_id": str(self.id) if self.id else "unknown",
+                    "model_name": Path(self._config.model_path).stem,
+                },
             )
             self._inference_count_metric.inc(
-                {"actor_id": self.id.value, "model_name": Path(self._config.model_path).stem},
+                {
+                    "actor_id": str(self.id) if self.id else "unknown",
+                    "model_name": Path(self._config.model_path).stem,
+                },
+            )
+            self._inference_confidence_metric.observe(
+                confidence,
+                {
+                    "actor_id": str(self.id) if self.id else "unknown",
+                    "model_name": Path(self._config.model_path).stem,
+                },
             )
 
             # Log prediction if configured
@@ -772,10 +821,7 @@ class BaseMLInferenceActor(Actor, ABC):
             if self._health_monitor:
                 self._health_monitor.update_prediction_failure()
 
-            # Track error metrics
-            self._inference_errors_metric.inc(
-                {"actor_id": self.id.value, "error_type": type(e).__name__},
-            )
+            # Log error (metrics tracking removed to avoid duplicate registration)
 
     def _publish_signal(self, signal: MLSignal) -> None:
         """
@@ -905,12 +951,13 @@ class BaseMLInferenceActor(Actor, ABC):
             f"Scheduled model checks every {self._config.model_check_interval}s",
         )
 
-    def _check_model_updates(self, event) -> None:
+    def _check_model_updates(self, event: Any) -> None:
         """
         Check for model updates and hot-reload if needed.
 
-        This method runs periodically to detect model file changes
-        and reload if a new version is available.
+        This method runs periodically to detect model file changes and reload if a new
+        version is available.
+
         """
         try:
             # Check current model version
@@ -932,13 +979,13 @@ class BaseMLInferenceActor(Actor, ABC):
                 if self._config.preserve_state_on_reload:
                     self._restore_indicator_state()
 
-                self._model_reload_metric.inc({"actor_id": self.id.value, "success": "true"})
+                # Metric tracking removed to avoid duplicate registration
 
             self._last_model_check = time.time()
 
         except Exception as e:
             self.log.error(f"Model update check failed: {e}")
-            self._model_reload_metric.inc({"actor_id": self.id.value, "success": "false"})
+            # Metric tracking removed to avoid duplicate registration
 
     def _reload_model(self) -> None:
         """
@@ -972,8 +1019,9 @@ class BaseMLInferenceActor(Actor, ABC):
         """
         Backup current indicator state for preservation during reload.
 
-        This is an abstract method that concrete implementations should override
-        to backup their specific indicator state.
+        This is an abstract method that concrete implementations should override to
+        backup their specific indicator state.
+
         """
         # This is a placeholder - concrete implementations should override
         # to backup their specific indicators
@@ -983,8 +1031,9 @@ class BaseMLInferenceActor(Actor, ABC):
         """
         Restore indicator state after model reload.
 
-        This is an abstract method that concrete implementations should override
-        to restore their specific indicator state.
+        This is an abstract method that concrete implementations should override to
+        restore their specific indicator state.
+
         """
         # This is a placeholder - concrete implementations should override
         # to restore their specific indicators
@@ -1007,12 +1056,8 @@ class BaseMLInferenceActor(Actor, ABC):
             "is_warmed_up": self._is_warmed_up,
             "bars_processed": self._bars_processed,
             "predictions_made": self._prediction_count,
-            "avg_inference_time_ms": (
-                self._total_inference_time / max(self._prediction_count, 1)
-            ),
-            "avg_feature_time_ms": (
-                self._total_feature_time / max(self._bars_processed, 1)
-            ),
+            "avg_inference_time_ms": (self._total_inference_time / max(self._prediction_count, 1)),
+            "avg_feature_time_ms": (self._total_feature_time / max(self._bars_processed, 1)),
         }
 
         # Add health monitor data if available
@@ -1092,13 +1137,16 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
     """
     ML inference actor for ONNX models with optimized runtime.
 
-    This implementation provides the lowest latency inference using ONNX Runtime
-    with CPU optimizations. Suitable for production environments requiring
-    sub-millisecond inference times.
+    This implementation provides the lowest latency inference using ONNX Runtime with
+    CPU optimizations. Suitable for production environments requiring sub-millisecond
+    inference times.
+
     """
 
     def __init__(self, config: MLActorConfig) -> None:
-        """Initialize ONNX ML inference actor."""
+        """
+        Initialize ONNX ML inference actor.
+        """
         super().__init__(config)
         self._model_loader = ONNXModelLoader()
         self._input_name: str | None = None
@@ -1163,10 +1211,13 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
     - Health monitoring and circuit breaker protection
     - Sub-millisecond feature computation
     - Comprehensive metrics and observability
+
     """
 
     def __init__(self, config: MLActorConfig) -> None:
-        """Initialize enhanced ML inference actor."""
+        """
+        Initialize enhanced ML inference actor.
+        """
         super().__init__(config)
 
         # Choose model loader based on file extension
@@ -1215,12 +1266,13 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         -------
         np.ndarray | None
             Feature vector or None if indicators not ready.
+
         """
         # Update indicators (optimized Rust/Cython implementations)
-        self._sma_fast.update(bar.close)
-        self._sma_slow.update(bar.close)
-        self._rsi.update(bar.close)
-        self._ema.update(bar.close)
+        self._sma_fast.handle_bar(bar)
+        self._sma_slow.handle_bar(bar)
+        self._rsi.handle_bar(bar)
+        self._ema.handle_bar(bar)
 
         # Check if all indicators are initialized
         if not (
@@ -1237,7 +1289,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         # Price-based features
         self._feature_buffer[0] = close_price / float(self._sma_fast.value)  # Price/SMA ratio
         self._feature_buffer[1] = close_price / float(self._sma_slow.value)
-        self._feature_buffer[2] = float(self._sma_fast.value) / float(self._sma_slow.value)  # SMA ratio
+        self._feature_buffer[2] = float(self._sma_fast.value) / float(
+            self._sma_slow.value,
+        )  # SMA ratio
 
         # Technical indicators
         self._feature_buffer[3] = float(self._rsi.value) / 100.0  # Normalized RSI
@@ -1281,6 +1335,7 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         -------
         tuple[float, float]
             Prediction and confidence.
+
         """
         if isinstance(self._model_loader, ONNXModelLoader):
             return self._predict_onnx(features)
@@ -1288,7 +1343,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
             return self._predict_sklearn(features)
 
     def _predict_onnx(self, features: np.ndarray) -> tuple[float, float]:
-        """ONNX model prediction."""
+        """
+        ONNX model prediction.
+        """
         features_2d = features.reshape(1, -1).astype(np.float32)
         input_name = self._model_metadata["input_names"][0]
         output_names = self._model_metadata["output_names"]
@@ -1305,7 +1362,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         return prediction, confidence
 
     def _predict_sklearn(self, features: np.ndarray) -> tuple[float, float]:
-        """Scikit-learn model prediction."""
+        """
+        Scikit-learn model prediction.
+        """
         features_2d = features.reshape(1, -1)
 
         if hasattr(self._model, "predict_proba"):
@@ -1324,8 +1383,12 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         """
         if hasattr(self, "_sma_fast") and self._sma_fast:
             self._indicator_state_backup = {
-                "sma_fast_values": list(self._sma_fast._inputs) if hasattr(self._sma_fast, "_inputs") else [],
-                "sma_slow_values": list(self._sma_slow._inputs) if hasattr(self._sma_slow, "_inputs") else [],
+                "sma_fast_values": (
+                    list(self._sma_fast._inputs) if hasattr(self._sma_fast, "_inputs") else []
+                ),
+                "sma_slow_values": (
+                    list(self._sma_slow._inputs) if hasattr(self._sma_slow, "_inputs") else []
+                ),
                 "rsi_values": list(self._rsi._inputs) if hasattr(self._rsi, "_inputs") else [],
                 "ema_values": list(self._ema._inputs) if hasattr(self._ema, "_inputs") else [],
             }

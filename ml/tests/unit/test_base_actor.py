@@ -190,12 +190,12 @@ class MockMLInferenceActor(BaseMLInferenceActor):
         self._mocked_subscribe_bars = Mock()
         self._mocked_log = Mock()
         self._mocked_clock_timestamp_ns = Mock(return_value=1234567890000000000)
-        
+
         # Mock the model loader to avoid file system access
         self._model_loader = Mock()
         self._model_loader.load_model.return_value = (
             Mock(),  # mock model
-            {"version": "test_v1", "type": "mock", "size_bytes": 1024}  # mock metadata
+            {"version": "test_v1", "type": "mock", "size_bytes": 1024},  # mock metadata
         )
 
     def _load_model(self) -> None:

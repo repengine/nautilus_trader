@@ -28,16 +28,9 @@ from typing import Any
 
 import numpy as np
 
-
-# Optional polars import - fallback to pandas if not available
-try:
-    import polars as pl
-
-    POLARS_AVAILABLE = True
-except ImportError:
-
-    POLARS_AVAILABLE = False
-
+# Import ML dependencies with centralized management
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.constants import MLConstants
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
@@ -51,6 +44,9 @@ from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+
+POLARS_AVAILABLE = HAS_POLARS
 
 
 class FeatureParityError(Exception):

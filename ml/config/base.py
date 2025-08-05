@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
@@ -32,6 +31,7 @@ from nautilus_trader.common.config import PositiveFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import ComponentId
 from nautilus_trader.model.identifiers import InstrumentId
 
 
@@ -111,7 +111,7 @@ class CircuitBreakerConfig(NautilusConfig, kw_only=True, frozen=True):
     success_threshold: PositiveInt = 3
 
 
-class MLActorConfig(ActorConfig, kw_only=True, frozen=True):
+class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     """
     Configuration for ML actors with enhanced production features.
 
@@ -151,6 +151,12 @@ class MLActorConfig(ActorConfig, kw_only=True, frozen=True):
         Whether to enable health status monitoring and reporting.
     max_feature_latency_ms : PositiveFloat, default 0.5
         Maximum allowed feature computation latency in milliseconds.
+    component_id : ComponentId, optional
+        The component ID. If None then the identifier will be taken from the actor class name.
+    log_events : bool, default True
+        If events should be logged by the actor.
+    log_commands : bool, default True
+        If commands should be logged by the actor.
 
     """
 
@@ -171,6 +177,9 @@ class MLActorConfig(ActorConfig, kw_only=True, frozen=True):
     circuit_breaker_config: CircuitBreakerConfig | None = None
     enable_health_monitoring: bool = True
     max_feature_latency_ms: PositiveFloat = 0.5
+    component_id: ComponentId | None = None
+    log_events: bool = True
+    log_commands: bool = True
 
 
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):

@@ -22,80 +22,10 @@ strategies, with optional Prometheus support.
 
 from __future__ import annotations
 
-from typing import Any
-
-
-# Optional prometheus_client for metrics
-try:
-    from prometheus_client import Counter
-    from prometheus_client import Histogram
-
-    HAS_PROMETHEUS = True
-except ImportError:
-    # Create dummy classes for when prometheus is not available
-    class Counter:  # type: ignore[no-redef]
-        """
-        Dummy Counter class when prometheus is not available.
-        """
-
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            """
-            Initialize dummy Counter.
-
-            Parameters
-            ----------
-            *args : Any
-                Ignored arguments.
-            **kwargs : Any
-                Ignored keyword arguments.
-
-            """
-
-        def inc(self, *args: Any, **kwargs: Any) -> None:
-            """
-            Increment counter (no-op in dummy implementation).
-
-            Parameters
-            ----------
-            *args : Any
-                Ignored arguments.
-            **kwargs : Any
-                Ignored keyword arguments.
-
-            """
-
-    class Histogram:  # type: ignore[no-redef]
-        """
-        Dummy Histogram class when prometheus is not available.
-        """
-
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            """
-            Initialize dummy Histogram.
-
-            Parameters
-            ----------
-            *args : Any
-                Ignored arguments.
-            **kwargs : Any
-                Ignored keyword arguments.
-
-            """
-
-        def observe(self, *args: Any, **kwargs: Any) -> None:
-            """
-            Observe value (no-op in dummy implementation).
-
-            Parameters
-            ----------
-            *args : Any
-                Ignored arguments.
-            **kwargs : Any
-                Ignored keyword arguments.
-
-            """
-
-    HAS_PROMETHEUS = False
+# Import ML dependencies with centralized management
+from ml._imports import HAS_PROMETHEUS
+from ml._imports import Counter
+from ml._imports import Histogram
 
 
 __all__ = ["HAS_PROMETHEUS", "Counter", "Histogram"]

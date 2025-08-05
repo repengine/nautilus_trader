@@ -28,7 +28,13 @@ from typing import Any
 import msgspec
 import numpy as np
 
+# Import ML dependencies with centralized management
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.config.base import MLFeatureConfig
+from ml.constants import IndicatorNames
+from ml.constants import SystemConstants
+from ml.constants import TechnicalIndicatorPeriods
 
 
 # Optional sklearn import - StandardScaler is only needed for scaling
@@ -40,17 +46,6 @@ except ImportError:
     StandardScaler = None
     SKLEARN_AVAILABLE = False
 
-# Optional polars import - fallback to pandas if not available
-try:
-    import polars as pl
-
-    POLARS_AVAILABLE = True
-except ImportError:
-    pl = None
-    POLARS_AVAILABLE = False
-from ml.constants import IndicatorNames
-from ml.constants import SystemConstants
-from ml.constants import TechnicalIndicatorPeriods
 from nautilus_trader.indicators.atr import AverageTrueRange
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.indicators.average.sma import SimpleMovingAverage
@@ -58,6 +53,10 @@ from nautilus_trader.indicators.bollinger_bands import BollingerBands
 from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence as MACD
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from nautilus_trader.model.data import Bar
+
+
+# Use centralized polars availability
+POLARS_AVAILABLE = HAS_POLARS
 
 
 def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
