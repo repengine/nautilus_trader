@@ -91,9 +91,29 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
     warm_up_period: NonNegativeInt = 50
 
 
+class CircuitBreakerConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for circuit breaker pattern.
+
+    Parameters
+    ----------
+    failure_threshold : PositiveInt, default 5
+        Number of consecutive failures before opening circuit.
+    recovery_timeout : PositiveInt, default 60
+        Time in seconds before attempting to close circuit.
+    success_threshold : PositiveInt, default 3
+        Number of consecutive successes required to close circuit.
+
+    """
+
+    failure_threshold: PositiveInt = 5
+    recovery_timeout: PositiveInt = 60
+    success_threshold: PositiveInt = 3
+
+
 class MLActorConfig(ActorConfig, kw_only=True, frozen=True):
     """
-    Configuration for ML actors.
+    Configuration for ML actors with enhanced production features.
 
     Parameters
     ----------
@@ -119,6 +139,18 @@ class MLActorConfig(ActorConfig, kw_only=True, frozen=True):
         The data type name for published ML signals.
     log_predictions : bool, default False
         Whether to log individual predictions (useful for debugging).
+    enable_hot_reload : bool, default False
+        Whether to enable model hot-reloading capability.
+    model_check_interval : PositiveInt, default 300
+        Interval in seconds to check for model updates (if hot reload enabled).
+    preserve_state_on_reload : bool, default True
+        Whether to preserve indicator state during model reloads.
+    circuit_breaker_config : CircuitBreakerConfig, optional
+        Configuration for circuit breaker fault tolerance.
+    enable_health_monitoring : bool, default True
+        Whether to enable health status monitoring and reporting.
+    max_feature_latency_ms : PositiveFloat, default 0.5
+        Maximum allowed feature computation latency in milliseconds.
 
     """
 
@@ -133,6 +165,12 @@ class MLActorConfig(ActorConfig, kw_only=True, frozen=True):
     publish_signals: bool = True
     signal_data_type: str = "MLSignal"
     log_predictions: bool = False
+    enable_hot_reload: bool = False
+    model_check_interval: PositiveInt = 300
+    preserve_state_on_reload: bool = True
+    circuit_breaker_config: CircuitBreakerConfig | None = None
+    enable_health_monitoring: bool = True
+    max_feature_latency_ms: PositiveFloat = 0.5
 
 
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
