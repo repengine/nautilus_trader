@@ -190,13 +190,20 @@ class MockMLInferenceActor(BaseMLInferenceActor):
         self._mocked_subscribe_bars = Mock()
         self._mocked_log = Mock()
         self._mocked_clock_timestamp_ns = Mock(return_value=1234567890000000000)
+        
+        # Mock the model loader to avoid file system access
+        self._model_loader = Mock()
+        self._model_loader.load_model.return_value = (
+            Mock(),  # mock model
+            {"version": "test_v1", "type": "mock", "size_bytes": 1024}  # mock metadata
+        )
 
     def _load_model(self) -> None:
         """
         Mock model loading.
         """
         self.model_loaded = True
-        self._model = Mock()
+        # Don't override self._model as it's set by _load_model_with_metadata
 
     def _initialize_features(self) -> None:
         """
@@ -246,6 +253,7 @@ class MockMLInferenceActor(BaseMLInferenceActor):
         """
         mock_clock = Mock()
         mock_clock.timestamp_ns = self._mocked_clock_timestamp_ns
+        mock_clock.set_timer = Mock()  # Mock timer functionality for hot reload
         return mock_clock
 
 
@@ -442,7 +450,7 @@ class TestBaseMLInferenceActor:
         features = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 
         # Act
-        actor._generate_prediction(sample_bar, features)
+        actor._generate_prediction_protected(sample_bar, features)
 
         # Assert
         assert actor._prediction_count == 1
@@ -468,7 +476,7 @@ class TestBaseMLInferenceActor:
 
         with patch.object(actor, "_publish_signal") as mock_publish:
             # Act
-            actor._generate_prediction(sample_bar, features)
+            actor._generate_prediction_protected(sample_bar, features)
 
             # Assert - debug the config values
             assert actor._config.prediction_threshold == 0.5
@@ -509,7 +517,7 @@ class TestBaseMLInferenceActor:
 
         with patch.object(actor, "_publish_signal") as mock_publish:
             # Act
-            actor._generate_prediction(sample_bar, features)
+            actor._generate_prediction_protected(sample_bar, features)
 
             # Assert
             mock_publish.assert_not_called()
@@ -536,7 +544,7 @@ class TestBaseMLInferenceActor:
 
         with patch.object(actor, "_publish_signal") as mock_publish:
             # Act
-            actor._generate_prediction(sample_bar, features)
+            actor._generate_prediction_protected(sample_bar, features)
 
             # Assert
             mock_publish.assert_not_called()
@@ -571,7 +579,7 @@ class TestBaseMLInferenceActor:
         setattr(actor, "_predict", slow_predict)
 
         # Act
-        actor._generate_prediction(sample_bar, features)
+        actor._generate_prediction_protected(sample_bar, features)
 
         # Assert
         actor.log.warning.assert_called_once()
@@ -591,7 +599,7 @@ class TestBaseMLInferenceActor:
         setattr(actor, "_predict", Mock(side_effect=Exception("Model error")))
 
         # Act
-        actor._generate_prediction(sample_bar, features)
+        actor._generate_prediction_protected(sample_bar, features)
 
         # Assert
         actor.log.error.assert_called_once()
@@ -638,7 +646,7 @@ class TestBaseMLInferenceActor:
         assert actor.log.info.called
         log_message = actor.log.info.call_args[0][0]
         assert "Predictions: 10" in log_message
-        assert "Avg inference time: 5.00ms" in log_message
+        assert "Avg inference time: 5.000ms" in log_message
 
     def test_on_stop_with_zero_predictions(self, actor: MockMLInferenceActor) -> None:
         """
@@ -657,7 +665,7 @@ class TestBaseMLInferenceActor:
         assert actor.log.info.call_count >= 1
         log_message = actor.log.info.call_args[0][0]
         assert "Predictions: 0" in log_message
-        assert "Avg inference time: 0.00ms" in log_message
+        assert "Avg inference time: 0.000ms" in log_message
 
     def test_prometheus_metrics_initialization(
         self,
