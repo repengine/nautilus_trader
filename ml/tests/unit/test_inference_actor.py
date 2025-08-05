@@ -17,7 +17,7 @@ Comprehensive tests for enhanced ML inference actor implementations.
 
 Tests cover all production features:
 - Health monitoring functionality
-- Circuit breaker behavior 
+- Circuit breaker behavior
 - Model hot-reload capability
 - ONNX model support
 - Performance requirements (<500μs feature computation, <2ms inference)
@@ -28,32 +28,26 @@ Tests cover all production features:
 
 from __future__ import annotations
 
-import hashlib
 import os
 import pickle
 import tempfile
 import time
 from collections import deque
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 from unittest.mock import Mock
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import CircuitBreaker
 from ml.actors.base import CircuitBreakerState
-from ml.actors.base import EnhancedMLInferenceActor
 from ml.actors.base import HealthMonitor
 from ml.actors.base import HealthStatus
 from ml.actors.base import MLSignal
 from ml.actors.base import ModelLoader
 from ml.actors.base import ONNXMLInferenceActor
 from ml.actors.base import ONNXModelLoader
-from ml.actors.base import PickleMLInferenceActor
 from ml.actors.base import PickleModelLoader
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import MLActorConfig
@@ -71,31 +65,44 @@ from nautilus_trader.model.objects import Quantity
 
 
 def _onnx_available() -> bool:
-    """Check if ONNX Runtime is available."""
+    """
+    Check if ONNX Runtime is available.
+    """
     try:
         import onnxruntime  # noqa: F401
+
         return True
     except ImportError:
         return False
 
 
 class SimpleTestModel:
-    """Simple test model for pickle loading."""
+    """
+    Simple test model for pickle loading.
+    """
 
     def predict(self, X: Any) -> np.ndarray:
-        """Return simple prediction."""
+        """
+        Return simple prediction.
+        """
         return np.array([0.75])
 
     def predict_proba(self, X: Any) -> np.ndarray:
-        """Return prediction probabilities."""
+        """
+        Return prediction probabilities.
+        """
         return np.array([[0.25, 0.75]])
 
 
 class TestHealthMonitor:
-    """Test health monitoring functionality."""
+    """
+    Test health monitoring functionality.
+    """
 
     def test_initialization(self) -> None:
-        """Test health monitor initialization."""
+        """
+        Test health monitor initialization.
+        """
         # Act
         monitor = HealthMonitor()
 
@@ -108,7 +115,9 @@ class TestHealthMonitor:
         assert monitor.failed_predictions == 0
 
     def test_successful_prediction_tracking(self) -> None:
-        """Test tracking successful predictions."""
+        """
+        Test tracking successful predictions.
+        """
         # Arrange
         monitor = HealthMonitor()
 
@@ -122,7 +131,9 @@ class TestHealthMonitor:
         assert monitor.last_prediction_time > 0
 
     def test_failed_prediction_tracking(self) -> None:
-        """Test tracking failed predictions."""
+        """
+        Test tracking failed predictions.
+        """
         # Arrange
         monitor = HealthMonitor()
 
@@ -135,11 +146,13 @@ class TestHealthMonitor:
         assert monitor.failed_predictions == 1
 
     def test_health_status_degraded_on_low_success_rate(self) -> None:
-        """Test health status becomes degraded with low success rate."""
+        """
+        Test health status becomes degraded with low success rate.
+        """
         # Arrange
         monitor = HealthMonitor()
         monitor.set_model_loaded(True)
-        
+
         # Act - Create low success rate
         for _ in range(5):
             monitor.update_prediction_failure()
@@ -151,7 +164,9 @@ class TestHealthMonitor:
         assert monitor.status == HealthStatus.DEGRADED
 
     def test_health_status_unhealthy_on_model_not_loaded(self) -> None:
-        """Test health status becomes unhealthy when model not loaded."""
+        """
+        Test health status becomes unhealthy when model not loaded.
+        """
         # Arrange
         monitor = HealthMonitor()
 
@@ -162,7 +177,9 @@ class TestHealthMonitor:
         assert monitor.status == HealthStatus.UNHEALTHY
 
     def test_health_status_unhealthy_on_excessive_failures(self) -> None:
-        """Test health status becomes unhealthy with excessive consecutive failures."""
+        """
+        Test health status becomes unhealthy with excessive consecutive failures.
+        """
         # Arrange
         monitor = HealthMonitor()
         monitor.set_model_loaded(True)
@@ -176,7 +193,9 @@ class TestHealthMonitor:
         assert monitor.status == HealthStatus.UNHEALTHY
 
     def test_latency_violation_tracking(self) -> None:
-        """Test latency violation tracking."""
+        """
+        Test latency violation tracking.
+        """
         # Arrange
         monitor = HealthMonitor()
         monitor.set_model_loaded(True)
@@ -190,7 +209,9 @@ class TestHealthMonitor:
         assert monitor.status == HealthStatus.DEGRADED
 
     def test_success_rate_calculation(self) -> None:
-        """Test success rate calculation."""
+        """
+        Test success rate calculation.
+        """
         # Arrange
         monitor = HealthMonitor()
 
@@ -204,7 +225,9 @@ class TestHealthMonitor:
         assert monitor.get_success_rate() == 0.7
 
     def test_success_rate_with_no_predictions(self) -> None:
-        """Test success rate returns 1.0 with no predictions."""
+        """
+        Test success rate returns 1.0 with no predictions.
+        """
         # Arrange
         monitor = HealthMonitor()
 
@@ -212,7 +235,9 @@ class TestHealthMonitor:
         assert monitor.get_success_rate() == 1.0
 
     def test_to_dict_export(self) -> None:
-        """Test exporting health status to dictionary."""
+        """
+        Test exporting health status to dictionary.
+        """
         # Arrange
         monitor = HealthMonitor()
         monitor.set_model_loaded(True)
@@ -234,10 +259,14 @@ class TestHealthMonitor:
 
 
 class TestCircuitBreaker:
-    """Test circuit breaker functionality."""
+    """
+    Test circuit breaker functionality.
+    """
 
     def test_initialization_with_defaults(self) -> None:
-        """Test circuit breaker initialization with default config."""
+        """
+        Test circuit breaker initialization with default config.
+        """
         # Act
         breaker = CircuitBreaker()
 
@@ -246,7 +275,9 @@ class TestCircuitBreaker:
         assert breaker.can_execute() is True
 
     def test_initialization_with_custom_config(self) -> None:
-        """Test circuit breaker initialization with custom config."""
+        """
+        Test circuit breaker initialization with custom config.
+        """
         # Arrange
         config = CircuitBreakerConfig(
             failure_threshold=3,
@@ -263,7 +294,9 @@ class TestCircuitBreaker:
         assert breaker._config.success_threshold == 2
 
     def test_circuit_opens_after_threshold_failures(self) -> None:
-        """Test circuit opens after reaching failure threshold."""
+        """
+        Test circuit opens after reaching failure threshold.
+        """
         # Arrange
         config = CircuitBreakerConfig(failure_threshold=3)
         breaker = CircuitBreaker(config)
@@ -277,7 +310,9 @@ class TestCircuitBreaker:
         assert breaker.can_execute() is False
 
     def test_circuit_stays_closed_below_threshold(self) -> None:
-        """Test circuit stays closed below failure threshold."""
+        """
+        Test circuit stays closed below failure threshold.
+        """
         # Arrange
         config = CircuitBreakerConfig(failure_threshold=5)
         breaker = CircuitBreaker(config)
@@ -291,17 +326,20 @@ class TestCircuitBreaker:
         assert breaker.can_execute() is True
 
     def test_circuit_transitions_to_half_open_after_timeout(self) -> None:
-        """Test circuit transitions to half-open after recovery timeout."""
+        """
+        Test circuit transitions to half-open after recovery timeout.
+        """
         # Arrange
-        config = CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0)  # 0 timeout for testing
+        # 0 timeout for testing
+        config = CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0)
         breaker = CircuitBreaker(config)
-        
+
         # Act - Trip circuit and wait
         breaker.record_failure()
         assert breaker.state == CircuitBreakerState.OPEN
-        
+
         # Advance time by mocking the internal timing
-        with patch('time.time', return_value=time.time() + 1):
+        with patch("time.time", return_value=time.time() + 1):
             can_execute = breaker.can_execute()
 
         # Assert
@@ -309,17 +347,19 @@ class TestCircuitBreaker:
         assert can_execute is True
 
     def test_circuit_closes_after_successful_recovery(self) -> None:
-        """Test circuit closes after successful recovery."""
+        """
+        Test circuit closes after successful recovery.
+        """
         # Arrange
         config = CircuitBreakerConfig(failure_threshold=1, success_threshold=2)
         breaker = CircuitBreaker(config)
-        
+
         # Trip circuit
         breaker.record_failure()
         assert breaker.state == CircuitBreakerState.OPEN
-        
+
         # Transition to half-open
-        with patch('time.time', return_value=time.time() + 61):
+        with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
         assert breaker.state == CircuitBreakerState.HALF_OPEN
 
@@ -331,14 +371,16 @@ class TestCircuitBreaker:
         assert breaker.state == CircuitBreakerState.CLOSED
 
     def test_circuit_reopens_on_failure_in_half_open(self) -> None:
-        """Test circuit reopens on failure when in half-open state."""
+        """
+        Test circuit reopens on failure when in half-open state.
+        """
         # Arrange
         config = CircuitBreakerConfig(failure_threshold=1)
         breaker = CircuitBreaker(config)
-        
+
         # Trip circuit and transition to half-open
         breaker.record_failure()
-        with patch('time.time', return_value=time.time() + 61):
+        with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
         assert breaker.state == CircuitBreakerState.HALF_OPEN
 
@@ -349,10 +391,12 @@ class TestCircuitBreaker:
         assert breaker.state == CircuitBreakerState.OPEN
 
     def test_success_reduces_failure_count_when_closed(self) -> None:
-        """Test success reduces failure count when circuit is closed."""
+        """
+        Test success reduces failure count when circuit is closed.
+        """
         # Arrange
         breaker = CircuitBreaker()
-        
+
         # Build up some failures
         breaker.record_failure()
         breaker.record_failure()
@@ -365,7 +409,9 @@ class TestCircuitBreaker:
         assert breaker._failure_count == initial_count - 1
 
     def test_get_stats_returns_complete_info(self) -> None:
-        """Test get_stats returns complete circuit breaker information."""
+        """
+        Test get_stats returns complete circuit breaker information.
+        """
         # Arrange
         breaker = CircuitBreaker()
         breaker.record_failure()
@@ -383,10 +429,14 @@ class TestCircuitBreaker:
 
 
 class TestModelLoaders:
-    """Test model loading strategies."""
+    """
+    Test model loading strategies.
+    """
 
     def test_pickle_model_loader_success(self) -> None:
-        """Test successful pickle model loading."""
+        """
+        Test successful pickle model loading.
+        """
         # Arrange
         model = SimpleTestModel()
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
@@ -401,7 +451,7 @@ class TestModelLoaders:
 
             # Assert
             assert loaded_model is not None
-            assert hasattr(loaded_model, 'predict')
+            assert hasattr(loaded_model, "predict")
             assert metadata["path"] == model_path
             assert metadata["type"] == "pickle"
             assert "size_bytes" in metadata
@@ -410,7 +460,9 @@ class TestModelLoaders:
             os.unlink(model_path)
 
     def test_pickle_model_loader_file_not_found(self) -> None:
-        """Test pickle model loader with non-existent file."""
+        """
+        Test pickle model loader with non-existent file.
+        """
         # Arrange
         loader = PickleModelLoader()
 
@@ -419,7 +471,9 @@ class TestModelLoaders:
             loader.load_model("/nonexistent/model.pkl")
 
     def test_pickle_model_loader_version_generation(self) -> None:
-        """Test pickle model loader version generation."""
+        """
+        Test pickle model loader version generation.
+        """
         # Arrange
         model = SimpleTestModel()
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
@@ -431,12 +485,12 @@ class TestModelLoaders:
         try:
             # Act
             version1 = loader.get_model_version(model_path)
-            
+
             # Modify file and get version again
             time.sleep(0.01)  # Ensure different mtime
             with open(model_path, "ab") as f:
                 f.write(b"extra")
-            
+
             version2 = loader.get_model_version(model_path)
 
             # Assert
@@ -445,12 +499,11 @@ class TestModelLoaders:
         finally:
             os.unlink(model_path)
 
-    @pytest.mark.skipif(
-        not _onnx_available(),
-        reason="ONNX Runtime not available"
-    )
+    @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_loader_initialization(self) -> None:
-        """Test ONNX model loader initialization."""
+        """
+        Test ONNX model loader initialization.
+        """
         # Act
         loader = ONNXModelLoader()
 
@@ -458,10 +511,15 @@ class TestModelLoaders:
         assert loader._onnx_available is True
 
     def test_onnx_model_loader_without_onnx(self) -> None:
-        """Test ONNX model loader when ONNX is not available."""
+        """
+        Test ONNX model loader when ONNX is not available.
+        """
         # Arrange
-        with patch.dict('sys.modules', {'onnxruntime': None}):
-            with patch('builtins.__import__', side_effect=ImportError("No module named 'onnxruntime'")):
+        with patch.dict("sys.modules", {"onnxruntime": None}):
+            with patch(
+                "builtins.__import__",
+                side_effect=ImportError("No module named 'onnxruntime'"),
+            ):
                 # Act
                 loader = ONNXModelLoader()
 
@@ -472,12 +530,11 @@ class TestModelLoaders:
                 with pytest.raises(ImportError, match="onnxruntime not available"):
                     loader.load_model("dummy.onnx")
 
-    @pytest.mark.skipif(
-        not _onnx_available(),
-        reason="ONNX Runtime not available"
-    )
+    @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_loader_file_not_found(self) -> None:
-        """Test ONNX model loader with non-existent file."""
+        """
+        Test ONNX model loader with non-existent file.
+        """
         # Arrange
         loader = ONNXModelLoader()
 
@@ -487,12 +544,14 @@ class TestModelLoaders:
 
 
 class MockMLInferenceActor:
-    """Enhanced mock implementation for testing production features."""
+    """
+    Enhanced mock implementation for testing production features.
+    """
 
     def __init__(self, config: MLActorConfig) -> None:
         # Initialize like BaseMLInferenceActor but without calling super().__init__
         self._config = config
-        
+
         # Initialize feature configuration
         self._feature_config = config.feature_config or MLFeatureConfig()
 
@@ -509,9 +568,7 @@ class MockMLInferenceActor:
         # Production features
         self._health_monitor = HealthMonitor() if config.enable_health_monitoring else None
         self._circuit_breaker = (
-            CircuitBreaker(config.circuit_breaker_config)
-            if config.circuit_breaker_config
-            else None
+            CircuitBreaker(config.circuit_breaker_config) if config.circuit_breaker_config else None
         )
 
         # Hot reload state
@@ -527,13 +584,18 @@ class MockMLInferenceActor:
         # Warm-up tracking
         self._bars_processed = 0
         self._is_warmed_up = False
-        
+
         # Test-specific attributes
         self.model_loaded = False
         self.features_initialized = False
         self.prediction_calls = 0
         self.feature_calls = 0
-        
+
+        # Simulation control attributes for testing
+        self._simulate_slow_features = False
+        self._simulate_slow_inference = False
+        self._prediction_result: tuple[float, float] | None = None
+
         # Mock external dependencies
         self._mock_publish_data = Mock()
         self._mock_subscribe_bars = Mock()
@@ -544,18 +606,22 @@ class MockMLInferenceActor:
 
         # Mock indicators for state preservation testing
         self._mock_indicators = {
-            'sma_fast': Mock(),
-            'sma_slow': Mock(),
-            'rsi': Mock(),
+            "sma_fast": Mock(),
+            "sma_slow": Mock(),
+            "rsi": Mock(),
         }
 
     def _load_model(self) -> None:
-        """Mock model loading."""
+        """
+        Mock model loading.
+        """
         self.model_loaded = True
         self._model = Mock()
 
     def _load_model_with_metadata(self) -> None:
-        """Mock model loading with metadata to avoid file system access."""
+        """
+        Mock model loading with metadata to avoid file system access.
+        """
         self._model = Mock()
         self._model_metadata = {
             "version": "test_version",
@@ -567,46 +633,56 @@ class MockMLInferenceActor:
         self._load_model()  # Call the original mock method
 
     def _initialize_features(self) -> None:
-        """Mock feature initialization."""
+        """
+        Mock feature initialization.
+        """
         self.features_initialized = True
         self._features_buffer = np.zeros(10, dtype=np.float32)
 
     def _compute_features(self, bar: Bar) -> np.ndarray | None:
-        """Mock feature computation with timing simulation."""
+        """
+        Mock feature computation with timing simulation.
+        """
         self.feature_calls += 1
         if not self.features_initialized:
             return None
-        
+
         # Simulate feature computation time
-        if hasattr(self, '_simulate_slow_features') and self._simulate_slow_features:
+        if hasattr(self, "_simulate_slow_features") and self._simulate_slow_features:
             time.sleep(0.001)  # 1ms delay
-        
+
         return np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 
     def _predict(self, features: np.ndarray) -> tuple[float, float]:
-        """Mock prediction with configurable behavior."""
+        """
+        Mock prediction with configurable behavior.
+        """
         self.prediction_calls += 1
-        
+
         # Simulate prediction time
-        if hasattr(self, '_simulate_slow_inference') and self._simulate_slow_inference:
+        if hasattr(self, "_simulate_slow_inference") and self._simulate_slow_inference:
             time.sleep(0.003)  # 3ms delay
-        
+
         # Allow test to control prediction results
-        if hasattr(self, '_prediction_result'):
+        if hasattr(self, "_prediction_result") and self._prediction_result is not None:
             return self._prediction_result
-        
+
         return 0.75, 0.85
 
     def _backup_indicator_state(self) -> None:
-        """Mock indicator state backup."""
+        """
+        Mock indicator state backup.
+        """
         self._indicator_state_backup = {
-            'sma_fast_state': [1.0, 2.0, 3.0],
-            'sma_slow_state': [1.5, 2.5, 3.5],
-            'rsi_state': [45.0, 55.0, 65.0],
+            "sma_fast_state": [1.0, 2.0, 3.0],
+            "sma_slow_state": [1.5, 2.5, 3.5],
+            "rsi_state": [45.0, 55.0, 65.0],
         }
 
     def _restore_indicator_state(self) -> None:
-        """Mock indicator state restoration."""
+        """
+        Mock indicator state restoration.
+        """
         if self._indicator_state_backup:
             # Simulate restoration
             for key, values in self._indicator_state_backup.items():
@@ -636,7 +712,9 @@ class MockMLInferenceActor:
 
     # Add methods from BaseMLInferenceActor that we need for testing
     def on_start(self) -> None:
-        """Mock on_start method."""
+        """
+        Mock on_start method.
+        """
         try:
             # Load model during initialization (not in hot path)
             self._load_model_with_metadata()
@@ -645,7 +723,7 @@ class MockMLInferenceActor:
             self._initialize_features()
 
             # Update health monitor
-            if self._health_monitor:
+            if self._health_monitor is not None:
                 self._health_monitor.set_model_loaded(True)
                 self._health_monitor.set_indicators_initialized(True)
 
@@ -656,15 +734,17 @@ class MockMLInferenceActor:
             # Subscribe to market data
             self.subscribe_bars(self._config.bar_type)
 
-        except Exception as e:
-            if self._health_monitor:
+        except Exception:
+            if self._health_monitor is not None:
                 self._health_monitor.set_model_loaded(False)
             raise
 
     def on_bar(self, bar: Bar) -> None:
-        """Mock on_bar method."""
+        """
+        Mock on_bar method.
+        """
         # Check circuit breaker before processing
-        if self._circuit_breaker and not self._circuit_breaker.can_execute():
+        if self._circuit_breaker is not None and not self._circuit_breaker.can_execute():
             return  # Circuit is open, skip processing
 
         # Track bars for warm-up period
@@ -681,10 +761,9 @@ class MockMLInferenceActor:
         # Check feature computation latency
         if feature_latency > self._config.max_feature_latency_ms:
             self.log.warning(
-                f"Feature computation exceeded {self._config.max_feature_latency_ms}ms: "
-                f"{feature_latency:.3f}ms",
+                f"Feature computation exceeded {self._config.max_feature_latency_ms}ms: {feature_latency:.3f}ms",
             )
-            if self._health_monitor:
+            if self._health_monitor is not None:
                 self._health_monitor.update_latency_violation()
 
         if features is None:
@@ -704,7 +783,9 @@ class MockMLInferenceActor:
         self._generate_prediction_protected(bar, features)
 
     def _generate_prediction_protected(self, bar: Bar, features: np.ndarray) -> None:
-        """Mock prediction generation."""
+        """
+        Mock prediction generation.
+        """
         start_time = time.perf_counter()
 
         try:
@@ -727,8 +808,7 @@ class MockMLInferenceActor:
             # Check latency requirement
             if inference_time > self._config.max_inference_latency_ms:
                 self.log.warning(
-                    f"Inference latency exceeded: {inference_time:.3f}ms > "
-                    f"{self._config.max_inference_latency_ms}ms",
+                    f"Inference latency exceeded: {inference_time:.3f}ms > {self._config.max_inference_latency_ms}ms",
                 )
                 if self._health_monitor:
                     self._health_monitor.update_latency_violation()
@@ -757,15 +837,20 @@ class MockMLInferenceActor:
                 self._health_monitor.update_prediction_failure()
 
     def _publish_signal(self, signal: MLSignal) -> None:
-        """Mock signal publishing."""
+        """
+        Mock signal publishing.
+        """
         from nautilus_trader.model.data import DataType
+
         self.publish_data(
             DataType(MLSignal, metadata={"source": self.id.value}),
             signal,
         )
 
     def _schedule_model_checks(self) -> None:
-        """Mock model check scheduling."""
+        """
+        Mock model check scheduling.
+        """
         if not self._config.enable_hot_reload:
             return
 
@@ -777,8 +862,10 @@ class MockMLInferenceActor:
             handler=self._check_model_updates,
         )
 
-    def _check_model_updates(self, event) -> None:
-        """Mock model update checking."""
+    def _check_model_updates(self, event: Any) -> None:
+        """
+        Mock model update checking.
+        """
         try:
             # Check current model version
             current_version = self._model_loader.get_model_version(self._config.model_path)
@@ -805,7 +892,9 @@ class MockMLInferenceActor:
             self.log.error(f"Model update check failed: {e}")
 
     def _reload_model(self) -> None:
-        """Mock model reload."""
+        """
+        Mock model reload.
+        """
         try:
             # Load new model
             new_model, new_metadata = self._model_loader.load_model(self._config.model_path)
@@ -831,7 +920,9 @@ class MockMLInferenceActor:
             raise
 
     def get_health_status(self) -> dict[str, Any]:
-        """Mock health status retrieval."""
+        """
+        Mock health status retrieval.
+        """
         base_status = {
             "actor_id": self.id.value,
             "model_path": self._config.model_path,
@@ -839,12 +930,8 @@ class MockMLInferenceActor:
             "is_warmed_up": self._is_warmed_up,
             "bars_processed": self._bars_processed,
             "predictions_made": self._prediction_count,
-            "avg_inference_time_ms": (
-                self._total_inference_time / max(self._prediction_count, 1)
-            ),
-            "avg_feature_time_ms": (
-                self._total_feature_time / max(self._bars_processed, 1)
-            ),
+            "avg_inference_time_ms": (self._total_inference_time / max(self._prediction_count, 1)),
+            "avg_feature_time_ms": (self._total_feature_time / max(self._bars_processed, 1)),
         }
 
         # Add health monitor data if available
@@ -858,13 +945,17 @@ class MockMLInferenceActor:
         return base_status
 
     def reset_health_status(self) -> None:
-        """Mock health status reset."""
+        """
+        Mock health status reset.
+        """
         if self._health_monitor:
             self._health_monitor = HealthMonitor()
             self.log.info("Health status reset")
 
     def on_stop(self) -> None:
-        """Mock on_stop method."""
+        """
+        Mock on_stop method.
+        """
         avg_inference_time = self._total_inference_time / max(self._prediction_count, 1)
         avg_feature_time = self._total_feature_time / max(self._bars_processed, 1)
 
@@ -884,7 +975,9 @@ class MockMLInferenceActor:
 
 
 class TestEnhancedMLInferenceActor:
-    """Test enhanced ML inference actor with all production features."""
+    """
+    Test enhanced ML inference actor with all production features.
+    """
 
     @pytest.fixture
     def instrument_id(self) -> InstrumentId:
@@ -900,7 +993,7 @@ class TestEnhancedMLInferenceActor:
     @pytest.fixture
     def basic_config(self, bar_type: BarType, instrument_id: InstrumentId) -> MLActorConfig:
         return MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
         )
@@ -908,7 +1001,7 @@ class TestEnhancedMLInferenceActor:
     @pytest.fixture
     def enhanced_config(self, bar_type: BarType, instrument_id: InstrumentId) -> MLActorConfig:
         return MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
             enable_health_monitoring=True,
@@ -936,7 +1029,9 @@ class TestEnhancedMLInferenceActor:
         )
 
     def test_initialization_with_health_monitoring(self, enhanced_config: MLActorConfig) -> None:
-        """Test actor initialization with health monitoring enabled."""
+        """
+        Test actor initialization with health monitoring enabled.
+        """
         # Act
         actor = MockMLInferenceActor(enhanced_config)
 
@@ -946,7 +1041,9 @@ class TestEnhancedMLInferenceActor:
         assert actor._config.enable_health_monitoring is True
 
     def test_initialization_without_health_monitoring(self, basic_config: MLActorConfig) -> None:
-        """Test actor initialization with health monitoring disabled."""
+        """
+        Test actor initialization with health monitoring disabled.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -962,7 +1059,9 @@ class TestEnhancedMLInferenceActor:
         assert actor._health_monitor is None
 
     def test_on_start_with_health_monitoring(self, enhanced_config: MLActorConfig) -> None:
-        """Test on_start with health monitoring enabled."""
+        """
+        Test on_start with health monitoring enabled.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
 
@@ -970,13 +1069,16 @@ class TestEnhancedMLInferenceActor:
         actor.on_start()
 
         # Assert
+        assert actor._health_monitor is not None
         assert actor._health_monitor.model_loaded is True
         assert actor._health_monitor.indicators_initialized is True
         assert actor.model_loaded is True
         assert actor.features_initialized is True
 
     def test_on_start_with_hot_reload_scheduling(self, enhanced_config: MLActorConfig) -> None:
-        """Test on_start schedules hot reload checks."""
+        """
+        Test on_start schedules hot reload checks.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
 
@@ -990,19 +1092,23 @@ class TestEnhancedMLInferenceActor:
         assert timer_call[1]["interval_ns"] == 300 * 1_000_000_000  # 300 seconds default
 
     def test_circuit_breaker_protection_during_bar_processing(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test circuit breaker prevents processing when open."""
+        """
+        Test circuit breaker prevents processing when open.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Trip circuit breaker
         for _ in range(5):  # Default failure threshold
+            assert actor._circuit_breaker is not None
             actor._circuit_breaker.record_failure()
-        
+
+        assert actor._circuit_breaker is not None
         assert actor._circuit_breaker.state == CircuitBreakerState.OPEN
 
         # Act
@@ -1013,11 +1119,13 @@ class TestEnhancedMLInferenceActor:
         assert actor.prediction_calls == 0
 
     def test_feature_latency_violation_detection(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test detection of feature computation latency violations."""
+        """
+        Test detection of feature computation latency violations.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor._simulate_slow_features = True  # Enable slow feature simulation
@@ -1032,36 +1140,43 @@ class TestEnhancedMLInferenceActor:
         assert "Feature computation exceeded" in warning_msg
 
     def test_inference_latency_violation_detection(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test detection of inference latency violations."""
+        """
+        Test detection of inference latency violations.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor._simulate_slow_inference = True  # Enable slow inference simulation
         actor.on_start()
-        
+
         # Complete warmup
         for _ in range(enhanced_config.warm_up_period):
             actor.on_bar(sample_bar)
 
         # Assert
         actor.log.warning.assert_called()
-        warning_calls = [call for call in actor.log.warning.call_args_list 
-                        if "Inference latency exceeded" in str(call)]
+        warning_calls = [
+            call
+            for call in actor.log.warning.call_args_list
+            if "Inference latency exceeded" in str(call)
+        ]
         assert len(warning_calls) > 0
 
     def test_health_monitoring_integration(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test health monitoring integration during normal operation."""
+        """
+        Test health monitoring integration during normal operation.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Complete warmup and make predictions
         for _ in range(enhanced_config.warm_up_period + 5):
             actor.on_bar(sample_bar)
@@ -1077,13 +1192,15 @@ class TestEnhancedMLInferenceActor:
         assert "success_rate" in health_status
 
     def test_hot_reload_model_version_check(self, enhanced_config: MLActorConfig) -> None:
-        """Test model version checking for hot reload."""
+        """
+        Test model version checking for hot reload.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Mock model loader to return different version
-        with patch.object(actor._model_loader, 'get_model_version') as mock_version:
+        with patch.object(actor._model_loader, "get_model_version") as mock_version:
             mock_version.return_value = "new_version_123"
             actor._model_version = "old_version_456"
 
@@ -1094,23 +1211,27 @@ class TestEnhancedMLInferenceActor:
             # Assert
             actor.log.info.assert_called()
             info_calls = [str(call) for call in actor.log.info.call_args_list]
-            version_change_calls = [call for call in info_calls if "version change detected" in call.lower()]
+            version_change_calls = [
+                call for call in info_calls if "version change detected" in call.lower()
+            ]
             assert len(version_change_calls) > 0
 
     def test_model_reload_with_state_preservation(self, enhanced_config: MLActorConfig) -> None:
-        """Test model hot reload with indicator state preservation."""
+        """
+        Test model hot reload with indicator state preservation.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Setup for reload test
         old_model = actor._model
         new_model = Mock()
         new_metadata = {"version": "new_version", "size_bytes": 1024, "type": "test"}
-        
-        with patch.object(actor._model_loader, 'load_model') as mock_load:
+
+        with patch.object(actor._model_loader, "load_model") as mock_load:
             mock_load.return_value = (new_model, new_metadata)
-            
+
             # Act
             actor._reload_model()
 
@@ -1118,40 +1239,46 @@ class TestEnhancedMLInferenceActor:
             assert actor._model is not old_model
             assert actor._model is new_model
             assert actor._model_version == "new_version"
+            assert actor._health_monitor is not None
             assert actor._health_monitor.model_loaded is True
 
     def test_prediction_error_handling_with_circuit_breaker(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test prediction error handling and circuit breaker integration."""
+        """
+        Test prediction error handling and circuit breaker integration.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
-        # Mock prediction to raise exception
-        actor._predict = Mock(side_effect=Exception("Model inference error"))
-        
-        # Complete warmup
-        for _ in range(enhanced_config.warm_up_period):
-            actor.on_bar(sample_bar)
 
-        # Assert
-        assert actor._circuit_breaker._failure_count > 0
-        assert actor._health_monitor.failed_predictions > 0
-        actor.log.error.assert_called()
+        # Mock prediction to raise exception using patch
+        with patch.object(actor, "_predict", side_effect=Exception("Model inference error")):
+            # Complete warmup
+            for _ in range(enhanced_config.warm_up_period):
+                actor.on_bar(sample_bar)
+
+            # Assert
+            assert actor._circuit_breaker is not None
+            assert actor._circuit_breaker._failure_count > 0
+            assert actor._health_monitor is not None
+            assert actor._health_monitor.failed_predictions > 0
+            actor.log.error.assert_called()
 
     def test_performance_metrics_tracking(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test performance metrics are properly tracked."""
+        """
+        Test performance metrics are properly tracked.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Process multiple bars
         num_bars = enhanced_config.warm_up_period + 10
         for _ in range(num_bars):
@@ -1168,11 +1295,13 @@ class TestEnhancedMLInferenceActor:
         assert health_status["avg_feature_time_ms"] >= 0
 
     def test_signal_publishing_with_threshold(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test signal publishing based on confidence threshold."""
+        """
+        Test signal publishing based on confidence threshold.
+        """
         # Arrange - Create new config with high threshold
         config = MLActorConfig(
             model_path=enhanced_config.model_path,
@@ -1185,7 +1314,7 @@ class TestEnhancedMLInferenceActor:
         actor = MockMLInferenceActor(config)
         actor._prediction_result = (0.75, 0.85)  # Below threshold
         actor.on_start()
-        
+
         # Complete warmup and make prediction
         for _ in range(config.warm_up_period + 1):
             actor.on_bar(sample_bar)
@@ -1196,20 +1325,18 @@ class TestEnhancedMLInferenceActor:
         # Test with high confidence
         actor._prediction_result = (0.75, 0.95)  # Above threshold
         actor.on_bar(sample_bar)
-        
+
         # Assert - signal should be published
         actor._mock_publish_data.assert_called()
 
-    def test_warm_up_period_behavior(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
-    ) -> None:
-        """Test warm-up period prevents predictions."""
+    def test_warm_up_period_behavior(self, enhanced_config: MLActorConfig, sample_bar: Bar) -> None:
+        """
+        Test warm-up period prevents predictions.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Process bars during warmup
         for i in range(enhanced_config.warm_up_period - 1):
             actor.on_bar(sample_bar)
@@ -1218,21 +1345,23 @@ class TestEnhancedMLInferenceActor:
 
         # Process final warmup bar
         actor.on_bar(sample_bar)
-        
+
         # Assert
         assert actor._is_warmed_up is True
         assert actor.prediction_calls == 1
 
     def test_get_health_status_comprehensive(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test comprehensive health status reporting."""
+        """
+        Test comprehensive health status reporting.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Generate some activity
         for _ in range(enhanced_config.warm_up_period + 5):
             actor.on_bar(sample_bar)
@@ -1242,23 +1371,35 @@ class TestEnhancedMLInferenceActor:
 
         # Assert - Check all expected fields
         expected_fields = [
-            "actor_id", "model_path", "model_version", "is_warmed_up",
-            "bars_processed", "predictions_made", "avg_inference_time_ms",
-            "avg_feature_time_ms", "status", "model_loaded",
-            "indicators_initialized", "uptime_seconds", "success_rate",
-            "circuit_breaker"
+            "actor_id",
+            "model_path",
+            "model_version",
+            "is_warmed_up",
+            "bars_processed",
+            "predictions_made",
+            "avg_inference_time_ms",
+            "avg_feature_time_ms",
+            "status",
+            "model_loaded",
+            "indicators_initialized",
+            "uptime_seconds",
+            "success_rate",
+            "circuit_breaker",
         ]
-        
+
         for field in expected_fields:
             assert field in health_status, f"Missing field: {field}"
 
     def test_reset_health_status(self, enhanced_config: MLActorConfig) -> None:
-        """Test health status reset functionality."""
+        """
+        Test health status reset functionality.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Generate some activity to change health status
+        assert actor._health_monitor is not None
         actor._health_monitor.update_prediction_failure()
         initial_failures = actor._health_monitor.failed_predictions
 
@@ -1266,20 +1407,23 @@ class TestEnhancedMLInferenceActor:
         actor.reset_health_status()
 
         # Assert
+        assert actor._health_monitor is not None
         assert actor._health_monitor.failed_predictions == 0
         assert actor._health_monitor.failed_predictions != initial_failures
         actor.log.info.assert_called_with("Health status reset")
 
     def test_on_stop_comprehensive_logging(
-        self, 
-        enhanced_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test comprehensive logging on actor stop."""
+        """
+        Test comprehensive logging on actor stop.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Generate activity
         for _ in range(enhanced_config.warm_up_period + 3):
             actor.on_bar(sample_bar)
@@ -1290,19 +1434,21 @@ class TestEnhancedMLInferenceActor:
         # Assert
         actor.log.info.assert_called()
         log_message = actor.log.info.call_args[0][0]
-        
+
         expected_content = ["Predictions:", "Avg inference time:", "Health:", "Circuit breaker:"]
         for content in expected_content:
             assert content in log_message
 
 
 class TestPerformanceRequirements:
-    """Test performance requirements and benchmarks."""
+    """
+    Test performance requirements and benchmarks.
+    """
 
     @pytest.fixture
     def performance_config(self, bar_type: BarType, instrument_id: InstrumentId) -> MLActorConfig:
         return MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
             max_feature_latency_ms=0.5,
@@ -1337,15 +1483,17 @@ class TestPerformanceRequirements:
         )
 
     def test_feature_computation_performance_benchmark(
-        self, 
-        performance_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        performance_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Benchmark feature computation performance (<500μs requirement)."""
+        """
+        Benchmark feature computation performance (<500μs requirement).
+        """
         # Arrange
         actor = MockMLInferenceActor(performance_config)
         actor.on_start()
-        
+
         # Warmup
         for _ in range(10):
             actor._compute_features(sample_bar)
@@ -1353,30 +1501,29 @@ class TestPerformanceRequirements:
         # Act - Benchmark feature computation
         start_time = time.perf_counter()
         iterations = 1000
-        
+
         for _ in range(iterations):
             features = actor._compute_features(sample_bar)
             assert features is not None
 
         end_time = time.perf_counter()
-        
+
         # Assert
         avg_time_ms = ((end_time - start_time) / iterations) * 1000
         print(f"Average feature computation time: {avg_time_ms:.3f}ms")
-        
+
         # Performance requirement: <500μs (0.5ms)
         assert avg_time_ms < 0.5, f"Feature computation too slow: {avg_time_ms:.3f}ms > 0.5ms"
 
-    def test_inference_performance_benchmark(
-        self, 
-        performance_config: MLActorConfig
-    ) -> None:
-        """Benchmark inference performance (<2ms requirement)."""
+    def test_inference_performance_benchmark(self, performance_config: MLActorConfig) -> None:
+        """
+        Benchmark inference performance (<2ms requirement).
+        """
         # Arrange
         actor = MockMLInferenceActor(performance_config)
         actor.on_start()
-        features = np.random.rand(10).astype(np.float32)
-        
+        features = np.random.default_rng().random(10).astype(np.float32)
+
         # Warmup
         for _ in range(10):
             actor._predict(features)
@@ -1384,31 +1531,33 @@ class TestPerformanceRequirements:
         # Act - Benchmark inference
         start_time = time.perf_counter()
         iterations = 1000
-        
+
         for _ in range(iterations):
             prediction, confidence = actor._predict(features)
             assert prediction is not None
             assert confidence is not None
 
         end_time = time.perf_counter()
-        
+
         # Assert
         avg_time_ms = ((end_time - start_time) / iterations) * 1000
         print(f"Average inference time: {avg_time_ms:.3f}ms")
-        
+
         # Performance requirement: <2ms
         assert avg_time_ms < 2.0, f"Inference too slow: {avg_time_ms:.3f}ms > 2.0ms"
 
     def test_end_to_end_performance_benchmark(
-        self, 
-        performance_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        performance_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Benchmark end-to-end performance (<5ms requirement)."""
+        """
+        Benchmark end-to-end performance (<5ms requirement).
+        """
         # Arrange
         actor = MockMLInferenceActor(performance_config)
         actor.on_start()
-        
+
         # Complete warmup
         for _ in range(performance_config.warm_up_period):
             actor.on_bar(sample_bar)
@@ -1416,71 +1565,78 @@ class TestPerformanceRequirements:
         # Act - Benchmark end-to-end processing
         start_time = time.perf_counter()
         iterations = 100
-        
+
         for _ in range(iterations):
             actor.on_bar(sample_bar)
 
         end_time = time.perf_counter()
-        
+
         # Assert
         avg_time_ms = ((end_time - start_time) / iterations) * 1000
         print(f"Average end-to-end time: {avg_time_ms:.3f}ms")
-        
+
         # Performance requirement: <5ms
         assert avg_time_ms < 5.0, f"End-to-end too slow: {avg_time_ms:.3f}ms > 5.0ms"
 
     def test_memory_stability_during_extended_operation(
-        self, 
-        performance_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        performance_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test memory stability during extended operation."""
-        import psutil
+        """
+        Test memory stability during extended operation.
+        """
         import os
-        
+
+        import psutil
+
         # Arrange
         actor = MockMLInferenceActor(performance_config)
         actor.on_start()
-        
+
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
-        
+
         # Act - Run extended operation
         for _ in range(10000):  # Simulate extended operation
             actor.on_bar(sample_bar)
-            
+
             # Periodically check memory
             if _ % 1000 == 0:
                 current_memory = process.memory_info().rss / 1024 / 1024  # MB
                 memory_growth = current_memory - initial_memory
-                
+
                 # Assert memory growth is bounded
                 assert memory_growth < 50, f"Excessive memory growth: {memory_growth:.1f}MB"
 
     def test_no_allocations_in_hot_path(
-        self, 
-        performance_config: MLActorConfig, 
-        sample_bar: Bar
+        self,
+        performance_config: MLActorConfig,
+        sample_bar: Bar,
     ) -> None:
-        """Test that hot path operations don't allocate new memory."""
+        """
+        Test that hot path operations don't allocate new memory.
+        """
         # Arrange
         actor = MockMLInferenceActor(performance_config)
         actor.on_start()
-        
+
         # Complete warmup
         for _ in range(performance_config.warm_up_period):
             actor.on_bar(sample_bar)
 
         # This test verifies that feature buffers are pre-allocated
         # and reused rather than creating new arrays each time
-        
+
         # Get initial feature buffer reference
-        initial_features = actor._compute_features(sample_bar)
-        initial_buffer_id = id(actor._features_buffer) if actor._features_buffer is not None else None
-        
+        actor._compute_features(sample_bar)
+        initial_buffer_id = (
+            id(actor._features_buffer) if actor._features_buffer is not None else None
+        )
+
         # Process more bars
         for _ in range(100):
-            features = actor._compute_features(sample_bar)
+            actor._compute_features(sample_bar)
             # Verify same buffer is reused (in real implementation)
             if actor._features_buffer is not None:
                 current_buffer_id = id(actor._features_buffer)
@@ -1495,26 +1651,32 @@ class TestPerformanceRequirements:
 
 @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
 class TestONNXMLInferenceActorEnhanced:
-    """Test ONNXMLInferenceActor with production features."""
+    """
+    Test ONNXMLInferenceActor with production features.
+    """
 
     @pytest.fixture
     def config(self) -> MLActorConfig:
-        """Create configuration for ONNX actor."""
+        """
+        Create configuration for ONNX actor.
+        """
         instrument_id = InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE"))
         bar_type = BarType(
             instrument_id,
             BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST),
         )
-        
+
         return MLActorConfig(
-            model_path="/tmp/test_model.onnx",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.onnx"),
             bar_type=bar_type,
             instrument_id=instrument_id,
             enable_health_monitoring=True,
         )
 
     def test_onnx_actor_initialization(self, config: MLActorConfig) -> None:
-        """Test ONNX actor initialization."""
+        """
+        Test ONNX actor initialization.
+        """
         # Act
         actor = ONNXMLInferenceActor(config)
 
@@ -1524,10 +1686,12 @@ class TestONNXMLInferenceActorEnhanced:
         assert actor._output_names == []
 
     def test_onnx_model_metadata_processing(self, config: MLActorConfig) -> None:
-        """Test ONNX model metadata processing."""
+        """
+        Test ONNX model metadata processing.
+        """
         # Arrange
         actor = ONNXMLInferenceActor(config)
-        
+
         # Mock metadata
         actor._model_metadata = {
             "input_names": ["input_features"],
@@ -1544,19 +1708,23 @@ class TestONNXMLInferenceActorEnhanced:
 
 
 class TestONNXModelLoaderComprehensive:
-    """Comprehensive tests for ONNX model loader with proper mocking."""
+    """
+    Comprehensive tests for ONNX model loader with proper mocking.
+    """
 
     @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_loader_successful_load(self) -> None:
-        """Test successful ONNX model loading with proper mocking."""
+        """
+        Test successful ONNX model loading with proper mocking.
+        """
         # Arrange
         loader = ONNXModelLoader()
-        
+
         # Create a temporary file to simulate model
         with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
             model_path = f.name
             f.write(b"fake_onnx_model_data")
-        
+
         try:
             # Mock ONNX runtime components
             mock_session = Mock()
@@ -1564,19 +1732,20 @@ class TestONNXModelLoaderComprehensive:
             mock_input.name = "input_features"
             mock_output = Mock()
             mock_output.name = "prediction"
-            
+
             mock_session.get_inputs.return_value = [mock_input]
             mock_session.get_outputs.return_value = [mock_output]
             mock_session.get_providers.return_value = ["CPUExecutionProvider"]
-            
-            with patch('onnxruntime.InferenceSession', return_value=mock_session), \
-                 patch('onnxruntime.SessionOptions'), \
-                 patch('onnxruntime.GraphOptimizationLevel'), \
-                 patch('onnxruntime.ExecutionMode'):
-                
+
+            with (
+                patch("onnxruntime.InferenceSession", return_value=mock_session),
+                patch("onnxruntime.SessionOptions"),
+                patch("onnxruntime.GraphOptimizationLevel"),
+                patch("onnxruntime.ExecutionMode"),
+            ):
                 # Act
                 model, metadata = loader.load_model(model_path)
-                
+
                 # Assert
                 assert model is mock_session
                 assert metadata["type"] == "onnx"
@@ -1586,133 +1755,151 @@ class TestONNXModelLoaderComprehensive:
                 assert metadata["input_names"] == ["input_features"]
                 assert metadata["output_names"] == ["prediction"]
                 assert metadata["providers"] == ["CPUExecutionProvider"]
-                
+
         finally:
             os.unlink(model_path)
 
     @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_loader_onnx_error_handling(self) -> None:
-        """Test ONNX model loader error handling during session creation."""
+        """
+        Test ONNX model loader error handling during session creation.
+        """
         # Arrange
         loader = ONNXModelLoader()
-        
+
         # Create a temporary file
         with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
             model_path = f.name
             f.write(b"invalid_onnx_data")
-        
+
         try:
             # Mock ONNX runtime to raise exception
-            with patch('onnxruntime.InferenceSession', side_effect=Exception("Invalid ONNX model")):
-                
+            with patch("onnxruntime.InferenceSession", side_effect=Exception("Invalid ONNX model")):
                 # Act & Assert
                 with pytest.raises(Exception, match="Invalid ONNX model"):
                     loader.load_model(model_path)
-                    
+
         finally:
             os.unlink(model_path)
 
     @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_version_generation_comprehensive(self) -> None:
-        """Test ONNX model version generation with various scenarios."""
+        """
+        Test ONNX model version generation with various scenarios.
+        """
         # Arrange
         loader = ONNXModelLoader()
-        
+
         # Create temporary files with different content
         with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f1:
             f1.write(b"model_data_v1")
             model_path1 = f1.name
-            
+
         with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f2:
             f2.write(b"model_data_v2_different")
             model_path2 = f2.name
-        
+
         try:
             # Act
             version1 = loader.get_model_version(model_path1)
             version2 = loader.get_model_version(model_path2)
-            
+
             # Modify first file
             time.sleep(0.01)  # Ensure different mtime
             with open(model_path1, "ab") as f:
                 f.write(b"_modified")
-                
+
             version1_modified = loader.get_model_version(model_path1)
-            
+
             # Assert
             assert len(version1) == 8  # MD5 hash truncated
             assert len(version2) == 8
             assert version1 != version2  # Different content
             assert version1 != version1_modified  # Modified file
             assert all(c in "0123456789abcdef" for c in version1)  # Valid hex
-            
+
         finally:
             os.unlink(model_path1)
             os.unlink(model_path2)
 
     def test_onnx_model_loader_file_not_found_error(self) -> None:
-        """Test ONNX model loader with non-existent file."""
+        """
+        Test ONNX model loader with non-existent file.
+        """
         # Arrange
         loader = ONNXModelLoader()
-        
+
         # Act & Assert
         with pytest.raises(FileNotFoundError):
             loader.get_model_version("/nonexistent/model.onnx")
 
     @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_loader_session_options_configuration(self) -> None:
-        """Test ONNX session options are properly configured."""
+        """
+        Test ONNX session options are properly configured.
+        """
         # Arrange
         loader = ONNXModelLoader()
-        
+
         with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
             model_path = f.name
             f.write(b"fake_model")
-            
+
         try:
             mock_session_options = Mock()
             mock_session = Mock()
             mock_session.get_inputs.return_value = []
             mock_session.get_outputs.return_value = []
             mock_session.get_providers.return_value = ["CPUExecutionProvider"]
-            
-            with patch('onnxruntime.SessionOptions', return_value=mock_session_options) as mock_options_class, \
-                 patch('onnxruntime.InferenceSession', return_value=mock_session) as mock_session_class, \
-                 patch('onnxruntime.GraphOptimizationLevel') as mock_graph_opt, \
-                 patch('onnxruntime.ExecutionMode') as mock_exec_mode:
-                
+
+            with (
+                patch(
+                    "onnxruntime.SessionOptions",
+                    return_value=mock_session_options,
+                ) as mock_options_class,
+                patch(
+                    "onnxruntime.InferenceSession",
+                    return_value=mock_session,
+                ) as mock_session_class,
+                patch("onnxruntime.GraphOptimizationLevel") as mock_graph_opt,
+                patch("onnxruntime.ExecutionMode") as mock_exec_mode,
+            ):
                 # Configure mock attributes
                 mock_graph_opt.ORT_ENABLE_ALL = "ORT_ENABLE_ALL"
                 mock_exec_mode.ORT_SEQUENTIAL = "ORT_SEQUENTIAL"
-                
+
                 # Act
                 loader.load_model(model_path)
-                
+
                 # Assert session options were configured
                 mock_options_class.assert_called_once()
                 assert mock_session_options.graph_optimization_level == "ORT_ENABLE_ALL"
                 assert mock_session_options.execution_mode == "ORT_SEQUENTIAL"
-                
+
                 # Assert session was created with correct parameters
                 mock_session_class.assert_called_once_with(
-                    model_path, 
-                    mock_session_options, 
-                    providers=["CPUExecutionProvider"]
+                    model_path,
+                    mock_session_options,
+                    providers=["CPUExecutionProvider"],
                 )
-                
+
         finally:
             os.unlink(model_path)
 
 
 class TestMLSignalEnhanced:
-    """Enhanced tests for MLSignal data type."""
+    """
+    Enhanced tests for MLSignal data type.
+    """
 
     def test_signal_with_performance_metadata(self) -> None:
-        """Test MLSignal with additional performance metadata."""
+        """
+        Test MLSignal with additional performance metadata.
+        """
         # Arrange
         instrument_id = InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE"))
         features = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        
+
         # Act
         signal = MLSignal(
             instrument_id=instrument_id,
@@ -1727,12 +1914,15 @@ class TestMLSignalEnhanced:
         assert signal.instrument_id == instrument_id
         assert signal.prediction == 0.75
         assert signal.confidence == 0.85
+        assert signal.features is not None
         assert np.array_equal(signal.features, features)
         assert signal.ts_event == 1234567890000000000
         assert signal.ts_init == 1234567890000000001
 
     def test_signal_serialization_compatibility(self) -> None:
-        """Test MLSignal is compatible with Nautilus serialization."""
+        """
+        Test MLSignal is compatible with Nautilus serialization.
+        """
         # Arrange
         instrument_id = InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE"))
         signal = MLSignal(
@@ -1744,15 +1934,17 @@ class TestMLSignalEnhanced:
         )
 
         # Act & Assert - Should not raise exceptions
-        assert hasattr(signal, 'ts_event')
-        assert hasattr(signal, 'ts_init')
+        assert hasattr(signal, "ts_event")
+        assert hasattr(signal, "ts_init")
         # These are properties, not methods
         assert signal.ts_event == 1234567890000000000
         assert signal.ts_init == 1234567890000000000
 
 
 class TestBaseMLInferenceActorEdgeCases:
-    """Test edge cases and error handling in BaseMLInferenceActor."""
+    """
+    Test edge cases and error handling in BaseMLInferenceActor.
+    """
 
     @pytest.fixture
     def instrument_id(self) -> InstrumentId:
@@ -1768,7 +1960,7 @@ class TestBaseMLInferenceActorEdgeCases:
     @pytest.fixture
     def basic_config(self, bar_type: BarType, instrument_id: InstrumentId) -> MLActorConfig:
         return MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
         )
@@ -1790,25 +1982,32 @@ class TestBaseMLInferenceActorEdgeCases:
         )
 
     def test_model_loading_failure_handling(self, basic_config: MLActorConfig) -> None:
-        """Test model loading failure handling."""
+        """
+        Test model loading failure handling.
+        """
         # Arrange
         actor = MockMLInferenceActor(basic_config)
-        
+
         # Mock model loader to raise exception
-        with patch.object(actor, '_load_model_with_metadata', side_effect=FileNotFoundError("Model not found")):
-            
+        with patch.object(
+            actor,
+            "_load_model_with_metadata",
+            side_effect=FileNotFoundError("Model not found"),
+        ):
             # Act & Assert
             with pytest.raises(FileNotFoundError, match="Model not found"):
                 actor.on_start()
 
     def test_model_loading_success_logging(self, basic_config: MLActorConfig) -> None:
-        """Test successful model loading logs metadata."""
+        """
+        Test successful model loading logs metadata.
+        """
         # Arrange
         actor = MockMLInferenceActor(basic_config)
-        
+
         # Act
         actor.on_start()
-        
+
         # Assert - verify model and metadata were loaded properly
         assert actor.model_loaded is True
         assert actor._model_version is not None
@@ -1816,7 +2015,9 @@ class TestBaseMLInferenceActorEdgeCases:
         # The actual logging is tested through integration with base class
 
     def test_schedule_model_checks_disabled(self, basic_config: MLActorConfig) -> None:
-        """Test model check scheduling when hot reload is disabled."""
+        """
+        Test model check scheduling when hot reload is disabled.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1825,15 +2026,17 @@ class TestBaseMLInferenceActorEdgeCases:
             enable_hot_reload=False,
         )
         actor = MockMLInferenceActor(config)
-        
+
         # Act
         actor._schedule_model_checks()
-        
+
         # Assert - no timer should be set
         actor.clock.set_timer.assert_not_called()
 
     def test_schedule_model_checks_enabled_logging(self, basic_config: MLActorConfig) -> None:
-        """Test model check scheduling logs interval."""
+        """
+        Test model check scheduling logs interval.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1843,10 +2046,10 @@ class TestBaseMLInferenceActorEdgeCases:
             model_check_interval=120,  # Custom interval
         )
         actor = MockMLInferenceActor(config)
-        
+
         # Act
         actor._schedule_model_checks()
-        
+
         # Assert - verify timer was set with correct interval
         actor.clock.set_timer.assert_called_once()
         timer_call = actor.clock.set_timer.call_args
@@ -1854,7 +2057,9 @@ class TestBaseMLInferenceActorEdgeCases:
         assert timer_call[1]["interval_ns"] == expected_interval_ns
 
     def test_check_model_updates_no_version_change(self, basic_config: MLActorConfig) -> None:
-        """Test model update check when version hasn't changed."""
+        """
+        Test model update check when version hasn't changed.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1864,22 +2069,23 @@ class TestBaseMLInferenceActorEdgeCases:
         )
         actor = MockMLInferenceActor(config)
         actor.on_start()
-        
+
         # Set same version
         current_version = "same_version_123"
         actor._model_version = current_version
-        
-        with patch.object(actor._model_loader, 'get_model_version', return_value=current_version):
-            
+
+        with patch.object(actor._model_loader, "get_model_version", return_value=current_version):
             # Act
             mock_event = Mock()
             actor._check_model_updates(mock_event)
-            
+
             # Assert - no reload should occur
             assert actor._last_model_check > 0
 
     def test_check_model_updates_error_handling(self, basic_config: MLActorConfig) -> None:
-        """Test model update check error handling."""
+        """
+        Test model update check error handling.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1889,21 +2095,29 @@ class TestBaseMLInferenceActorEdgeCases:
         )
         actor = MockMLInferenceActor(config)
         actor.on_start()
-        
+
         # Mock model loader to raise exception
-        with patch.object(actor._model_loader, 'get_model_version', side_effect=Exception("Version check failed")):
-            
+        with patch.object(
+            actor._model_loader,
+            "get_model_version",
+            side_effect=Exception("Version check failed"),
+        ):
             # Act
             mock_event = Mock()
             actor._check_model_updates(mock_event)
-            
+
             # Assert
             actor.log.error.assert_called()
             error_message = actor.log.error.call_args[0][0]
             assert "Model update check failed" in error_message
 
-    def test_check_model_updates_with_state_preservation_disabled(self, basic_config: MLActorConfig) -> None:
-        """Test model update without state preservation."""
+    def test_check_model_updates_with_state_preservation_disabled(
+        self,
+        basic_config: MLActorConfig,
+    ) -> None:
+        """
+        Test model update without state preservation.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1914,23 +2128,30 @@ class TestBaseMLInferenceActorEdgeCases:
         )
         actor = MockMLInferenceActor(config)
         actor.on_start()
-        
+
         # Mock different version
         new_version = "new_version_456"
         actor._model_version = "old_version_123"
-        
-        with patch.object(actor._model_loader, 'get_model_version', return_value=new_version), \
-             patch.object(actor._model_loader, 'load_model', return_value=(Mock(), {"version": new_version})):
-            
+
+        with (
+            patch.object(actor._model_loader, "get_model_version", return_value=new_version),
+            patch.object(
+                actor._model_loader,
+                "load_model",
+                return_value=(Mock(), {"version": new_version}),
+            ),
+        ):
             # Act
             mock_event = Mock()
             actor._check_model_updates(mock_event)
-            
+
             # Assert - backup/restore should not be called
             assert actor._model_version == new_version
 
     def test_reload_model_error_handling(self, basic_config: MLActorConfig) -> None:
-        """Test model reload error handling."""
+        """
+        Test model reload error handling.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1940,20 +2161,26 @@ class TestBaseMLInferenceActorEdgeCases:
         )
         actor = MockMLInferenceActor(config)
         actor.on_start()
-        
+
         # Mock model loader to raise exception
-        with patch.object(actor._model_loader, 'load_model', side_effect=Exception("Reload failed")):
-            
+        with patch.object(
+            actor._model_loader,
+            "load_model",
+            side_effect=Exception("Reload failed"),
+        ):
             # Act & Assert
             with pytest.raises(Exception, match="Reload failed"):
                 actor._reload_model()
-            
+
             # Assert health monitor was updated
+            assert actor._health_monitor is not None
             assert actor._health_monitor.model_loaded is False
             actor.log.error.assert_called()
 
     def test_get_health_status_without_health_monitor(self, basic_config: MLActorConfig) -> None:
-        """Test health status retrieval without health monitoring."""
+        """
+        Test health status retrieval without health monitoring.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1963,10 +2190,10 @@ class TestBaseMLInferenceActorEdgeCases:
         )
         actor = MockMLInferenceActor(config)
         actor.on_start()
-        
+
         # Act
         health_status = actor.get_health_status()
-        
+
         # Assert
         assert "actor_id" in health_status
         assert "model_path" in health_status
@@ -1976,7 +2203,9 @@ class TestBaseMLInferenceActorEdgeCases:
         assert "success_rate" not in health_status
 
     def test_get_health_status_without_circuit_breaker(self, basic_config: MLActorConfig) -> None:
-        """Test health status retrieval without circuit breaker."""
+        """
+        Test health status retrieval without circuit breaker.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -1987,16 +2216,18 @@ class TestBaseMLInferenceActorEdgeCases:
         )
         actor = MockMLInferenceActor(config)
         actor.on_start()
-        
+
         # Act
         health_status = actor.get_health_status()
-        
+
         # Assert
         assert "circuit_breaker" not in health_status
         assert "status" in health_status  # Health monitor present
 
     def test_reset_health_status_without_monitor(self, basic_config: MLActorConfig) -> None:
-        """Test health status reset without health monitor."""
+        """
+        Test health status reset without health monitor.
+        """
         # Arrange
         config = MLActorConfig(
             model_path=basic_config.model_path,
@@ -2005,16 +2236,18 @@ class TestBaseMLInferenceActorEdgeCases:
             enable_health_monitoring=False,
         )
         actor = MockMLInferenceActor(config)
-        
+
         # Act - should not raise exception
         actor.reset_health_status()
-        
+
         # Assert - no logging should occur
         actor.log.info.assert_not_called()
 
 
 class TestEnhancedMLInferenceActorStatePreservation:
-    """Test state preservation functionality in detail."""
+    """
+    Test state preservation functionality in detail.
+    """
 
     @pytest.fixture
     def instrument_id(self) -> InstrumentId:
@@ -2030,7 +2263,7 @@ class TestEnhancedMLInferenceActorStatePreservation:
     @pytest.fixture
     def enhanced_config(self, bar_type: BarType, instrument_id: InstrumentId) -> MLActorConfig:
         return MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
             enable_health_monitoring=True,
@@ -2039,65 +2272,79 @@ class TestEnhancedMLInferenceActorStatePreservation:
         )
 
     def test_backup_indicator_state_comprehensive(self, enhanced_config: MLActorConfig) -> None:
-        """Test comprehensive indicator state backup."""
+        """
+        Test comprehensive indicator state backup.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Act
         actor._backup_indicator_state()
-        
+
         # Assert
         assert len(actor._indicator_state_backup) > 0
-        expected_keys = ['sma_fast_state', 'sma_slow_state', 'rsi_state']
+        expected_keys = ["sma_fast_state", "sma_slow_state", "rsi_state"]
         for key in expected_keys:
             assert key in actor._indicator_state_backup
             assert isinstance(actor._indicator_state_backup[key], list)
 
     def test_restore_indicator_state_comprehensive(self, enhanced_config: MLActorConfig) -> None:
-        """Test comprehensive indicator state restoration."""
+        """
+        Test comprehensive indicator state restoration.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Backup state first
         actor._backup_indicator_state()
-        
+
         # Act
         actor._restore_indicator_state()
-        
+
         # Assert - verify mock indicators restore_state was called
         # This is tested through the mock implementation
 
     def test_restore_indicator_state_empty_backup(self, enhanced_config: MLActorConfig) -> None:
-        """Test indicator state restoration with empty backup."""
+        """
+        Test indicator state restoration with empty backup.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
         actor._indicator_state_backup = {}  # Empty backup
-        
+
         # Act - should not raise exception
         actor._restore_indicator_state()
-        
+
         # Assert - no restoration should occur
 
-    def test_model_reload_with_state_preservation_enabled(self, enhanced_config: MLActorConfig) -> None:
-        """Test model reload with state preservation enabled."""
+    def test_model_reload_with_state_preservation_enabled(
+        self,
+        enhanced_config: MLActorConfig,
+    ) -> None:
+        """
+        Test model reload with state preservation enabled.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Setup for state preservation test
-        initial_backup = actor._indicator_state_backup.copy() if actor._indicator_state_backup else {}
-        
+        # Note: initial_backup would be used for state comparison in a full implementation
+
         new_model = Mock()
         new_metadata = {"version": "new_version_preserved", "size_bytes": 2048, "type": "test"}
-        
-        with patch.object(actor._model_loader, 'load_model', return_value=(new_model, new_metadata)):
-            
+
+        with patch.object(
+            actor._model_loader,
+            "load_model",
+            return_value=(new_model, new_metadata),
+        ):
             # Act
             actor._reload_model()
-            
+
             # Assert
             assert actor._model is new_model
             assert actor._model_version == "new_version_preserved"
@@ -2105,57 +2352,65 @@ class TestEnhancedMLInferenceActorStatePreservation:
 
 
 class TestCircuitBreakerEdgeCases:
-    """Additional tests for circuit breaker edge cases."""
+    """
+    Additional tests for circuit breaker edge cases.
+    """
 
     def test_circuit_breaker_half_open_timeout_edge_case(self) -> None:
-        """Test circuit breaker half-open timeout at exact boundary."""
+        """
+        Test circuit breaker half-open timeout at exact boundary.
+        """
         # Arrange
         config = CircuitBreakerConfig(failure_threshold=1, recovery_timeout=60)
         breaker = CircuitBreaker(config)
-        
+
         # Trip circuit
         breaker.record_failure()
         assert breaker.state == CircuitBreakerState.OPEN
-        
+
         # Test exactly at timeout boundary
         future_time = time.time() + 60
-        with patch('time.time', return_value=future_time):
+        with patch("time.time", return_value=future_time):
             can_execute = breaker.can_execute()
-        
+
         # Assert
         assert breaker.state == CircuitBreakerState.HALF_OPEN
         assert can_execute is True
 
     def test_circuit_breaker_multiple_success_threshold(self) -> None:
-        """Test circuit breaker with multiple success threshold."""
+        """
+        Test circuit breaker with multiple success threshold.
+        """
         # Arrange
         config = CircuitBreakerConfig(failure_threshold=1, success_threshold=3)
         breaker = CircuitBreaker(config)
-        
+
         # Trip and recover to half-open
         breaker.record_failure()
-        with patch('time.time', return_value=time.time() + 61):
+        with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
         assert breaker.state == CircuitBreakerState.HALF_OPEN
-        
+
         # Record partial successes
         breaker.record_success()
         breaker.record_success()
         assert breaker.state == CircuitBreakerState.HALF_OPEN  # Still half-open
-        
+
         # Final success should close circuit
         breaker.record_success()
         assert breaker.state == CircuitBreakerState.CLOSED
 
     def test_circuit_breaker_success_count_tracking(self) -> None:
-        """Test circuit breaker success count tracking."""
+        """
+        Test circuit breaker success count tracking.
+        """
         # Arrange
         breaker = CircuitBreaker()
-        
+
         # Act
         for _ in range(5):
             breaker.record_success()
-        
+
         # Assert
         stats = breaker.get_stats()
         # Note: Success count may be reset based on circuit breaker logic
@@ -2163,30 +2418,36 @@ class TestCircuitBreakerEdgeCases:
         assert stats["success_count"] >= 0
 
     def test_circuit_breaker_failure_count_reduction_limit(self) -> None:
-        """Test circuit breaker failure count doesn't go below zero."""
+        """
+        Test circuit breaker failure count doesn't go below zero.
+        """
         # Arrange
         breaker = CircuitBreaker()
-        
+
         # Record success without prior failures
         breaker.record_success()
-        
+
         # Assert
         assert breaker._failure_count == 0  # Should not go negative
 
 
 class TestHealthMonitorEdgeCases:
-    """Additional tests for health monitor edge cases."""
+    """
+    Additional tests for health monitor edge cases.
+    """
 
     def test_health_monitor_latency_violation_accumulation(self) -> None:
-        """Test latency violation accumulation over time."""
+        """
+        Test latency violation accumulation over time.
+        """
         # Arrange
         monitor = HealthMonitor()
         monitor.set_model_loaded(True)
-        
+
         # Act - Add violations gradually
         for i in range(1, 151):  # Up to 150 violations
             monitor.update_latency_violation()
-            
+
             # Check status changes at thresholds
             if i <= 100:
                 assert monitor.status == HealthStatus.HEALTHY
@@ -2194,50 +2455,54 @@ class TestHealthMonitorEdgeCases:
                 assert monitor.status == HealthStatus.DEGRADED
 
     def test_health_monitor_mixed_success_failure_patterns(self) -> None:
-        """Test health monitor with mixed success/failure patterns."""
+        """
+        Test health monitor with mixed success/failure patterns.
+        """
         # Arrange
         monitor = HealthMonitor()
         monitor.set_model_loaded(True)
-        
+
         # Pattern: 3 successes, 2 failures, repeat
         for cycle in range(10):
             for _ in range(3):
                 monitor.update_prediction_success()
             for _ in range(2):
                 monitor.update_prediction_failure()
-        
+
         # Act
         success_rate = monitor.get_success_rate()
         status = monitor.status
-        
+
         # Assert
         expected_rate = 30 / 50  # 30 successes out of 50 total
         assert success_rate == expected_rate
         assert status == HealthStatus.DEGRADED  # Below 0.9 threshold
 
     def test_health_monitor_status_calculation_edge_cases(self) -> None:
-        """Test health monitor status calculation edge cases."""
+        """
+        Test health monitor status calculation edge cases.
+        """
         # Arrange
         monitor = HealthMonitor()
-        
+
         # Initial status is HEALTHY but model_loaded is False
         # Status updates only when _update_health_status is called
         assert monitor.status == HealthStatus.HEALTHY  # Initial state
         assert monitor.model_loaded is False
-        
+
         # Trigger status update - should become unhealthy due to model not loaded
         monitor._update_health_status()
         assert monitor.status == HealthStatus.UNHEALTHY
-        
+
         # Load model and verify status updates to healthy
         monitor.set_model_loaded(True)
         assert monitor.status == HealthStatus.HEALTHY
-        
+
         # Test degraded status with consecutive failures > 3
         for _ in range(4):  # More than 3 consecutive failures
             monitor.update_prediction_failure()
         assert monitor.status == HealthStatus.DEGRADED
-        
+
         # Reset and test unhealthy with consecutive failures > 10
         monitor.consecutive_failures = 0
         monitor.set_model_loaded(True)  # Ensure model is loaded
@@ -2247,7 +2512,9 @@ class TestHealthMonitorEdgeCases:
 
 
 class TestEnhancedMLInferenceActorConcrete:
-    """Test concrete EnhancedMLInferenceActor functionality."""
+    """
+    Test concrete EnhancedMLInferenceActor functionality.
+    """
 
     @pytest.fixture
     def instrument_id(self) -> InstrumentId:
@@ -2263,7 +2530,7 @@ class TestEnhancedMLInferenceActorConcrete:
     @pytest.fixture
     def enhanced_config(self, bar_type: BarType, instrument_id: InstrumentId) -> MLActorConfig:
         return MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
             enable_health_monitoring=True,
@@ -2287,8 +2554,13 @@ class TestEnhancedMLInferenceActorConcrete:
             ts_init=1234567890000000000,
         )
 
-    def test_enhanced_actor_initialization_with_all_features(self, enhanced_config: MLActorConfig) -> None:
-        """Test EnhancedMLInferenceActor initialization with all features enabled."""
+    def test_enhanced_actor_initialization_with_all_features(
+        self,
+        enhanced_config: MLActorConfig,
+    ) -> None:
+        """
+        Test EnhancedMLInferenceActor initialization with all features enabled.
+        """
         # Arrange - Add circuit breaker config to enable it
         config_with_cb = MLActorConfig(
             model_path=enhanced_config.model_path,
@@ -2299,10 +2571,10 @@ class TestEnhancedMLInferenceActorConcrete:
             preserve_state_on_reload=True,
             circuit_breaker_config=CircuitBreakerConfig(),
         )
-        
+
         # Act
         actor = MockMLInferenceActor(config_with_cb)
-        
+
         # Assert
         assert actor._config.enable_health_monitoring is True
         assert actor._config.enable_hot_reload is True
@@ -2310,84 +2582,112 @@ class TestEnhancedMLInferenceActorConcrete:
         assert actor._health_monitor is not None
         assert actor._circuit_breaker is not None
 
-    def test_enhanced_actor_feature_computation_with_all_indicators(self, enhanced_config: MLActorConfig, sample_bar: Bar) -> None:
-        """Test feature computation using all technical indicators."""
+    def test_enhanced_actor_feature_computation_with_all_indicators(
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
+    ) -> None:
+        """
+        Test feature computation using all technical indicators.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Process enough bars to initialize all indicators
         for _ in range(50):  # Ensure all indicators are warmed up
             actor.on_bar(sample_bar)
-        
+
         # Act
         features = actor._compute_features(sample_bar)
-        
+
         # Assert
         assert features is not None
         assert len(features) == 5  # Based on mock implementation
-        assert all(isinstance(f, (int, float)) for f in features)
+        assert all(isinstance(f, int | float) for f in features)
 
     def test_enhanced_actor_with_onnx_model_loader(self, enhanced_config: MLActorConfig) -> None:
-        """Test EnhancedMLInferenceActor with ONNX model loader pattern."""
+        """
+        Test EnhancedMLInferenceActor with ONNX model loader pattern.
+        """
         # Note: ONNXMLInferenceActor is abstract, so we test the loader directly
         # This tests the initialization pattern that would be used by concrete implementations
-        
+
         # Act
         loader = ONNXModelLoader()
-        
+
         # Assert
         assert loader is not None
         assert loader._onnx_available is not None  # Depends on environment
 
-    def test_enhanced_actor_metrics_tracking(self, enhanced_config: MLActorConfig, sample_bar: Bar) -> None:
-        """Test metrics tracking in enhanced actor."""
+    def test_enhanced_actor_metrics_tracking(
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
+    ) -> None:
+        """
+        Test metrics tracking in enhanced actor.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Process multiple bars
         num_bars = 25
         for _ in range(num_bars):
             actor.on_bar(sample_bar)
-        
+
         # Act
         health_status = actor.get_health_status()
-        
+
         # Assert
         assert health_status["bars_processed"] == num_bars
         assert health_status["predictions_made"] >= 0
         assert "avg_inference_time_ms" in health_status
         assert "avg_feature_time_ms" in health_status
 
-    def test_enhanced_actor_on_stop_comprehensive_summary(self, enhanced_config: MLActorConfig, sample_bar: Bar) -> None:
-        """Test comprehensive summary on actor stop."""
+    def test_enhanced_actor_on_stop_comprehensive_summary(
+        self,
+        enhanced_config: MLActorConfig,
+        sample_bar: Bar,
+    ) -> None:
+        """
+        Test comprehensive summary on actor stop.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Generate some activity
         for _ in range(15):
             actor.on_bar(sample_bar)
-        
+
         # Act
         actor.on_stop()
-        
+
         # Assert
         actor.log.info.assert_called()
         log_message = actor.log.info.call_args[0][0]
-        
+
         # Verify comprehensive logging
-        expected_fields = ["Predictions:", "Avg inference time:", "Avg feature time:", "Health:", "Circuit breaker:"]
+        expected_fields = [
+            "Predictions:",
+            "Avg inference time:",
+            "Avg feature time:",
+            "Health:",
+            "Circuit breaker:",
+        ]
         for field in expected_fields:
             assert field in log_message
 
     def test_enhanced_actor_model_reload_integration(self, enhanced_config: MLActorConfig) -> None:
-        """Test model reload integration with all features."""
+        """
+        Test model reload integration with all features.
+        """
         # Arrange
         actor = MockMLInferenceActor(enhanced_config)
         actor.on_start()
-        
+
         # Mock model reload scenario
         new_model = Mock()
         new_metadata = {
@@ -2396,20 +2696,26 @@ class TestEnhancedMLInferenceActorConcrete:
             "type": "test",
             "path": enhanced_config.model_path,
         }
-        
-        with patch.object(actor._model_loader, 'load_model', return_value=(new_model, new_metadata)):
-            
+
+        with patch.object(
+            actor._model_loader,
+            "load_model",
+            return_value=(new_model, new_metadata),
+        ):
             # Act
             actor._reload_model()
-            
+
             # Assert
             assert actor._model is new_model
             assert actor._model_version == "integration_test_v2"
+            assert actor._health_monitor is not None
             assert actor._health_monitor.model_loaded is True
 
 
 class TestPickleMLInferenceActorConcrete:
-    """Test PickleMLInferenceActor concrete implementation."""
+    """
+    Test PickleMLInferenceActor concrete implementation.
+    """
 
     @pytest.fixture
     def instrument_id(self) -> InstrumentId:
@@ -2425,20 +2731,24 @@ class TestPickleMLInferenceActorConcrete:
     @pytest.fixture
     def config(self, bar_type: BarType, instrument_id: InstrumentId) -> MLActorConfig:
         return MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
         )
 
     def test_pickle_actor_initialization(self, config: MLActorConfig) -> None:
-        """Test PickleMLInferenceActor initialization (concrete class)."""
+        """
+        Test PickleMLInferenceActor initialization (concrete class).
+        """
         # Note: PickleMLInferenceActor is abstract, so we test the model loader directly
         # This tests the initialization pattern that would be used by concrete implementations
         loader = PickleModelLoader()
         assert loader is not None
 
     def test_pickle_actor_with_health_monitoring(self, config: MLActorConfig) -> None:
-        """Test PickleMLInferenceActor pattern with health monitoring enabled."""
+        """
+        Test PickleMLInferenceActor pattern with health monitoring enabled.
+        """
         # Note: Since concrete class is abstract, we test with mock actor
         config_with_health = MLActorConfig(
             model_path=config.model_path,
@@ -2446,28 +2756,32 @@ class TestPickleMLInferenceActorConcrete:
             instrument_id=config.instrument_id,
             enable_health_monitoring=True,
         )
-        
+
         # Act - Use mock actor to test the pattern
         actor = MockMLInferenceActor(config_with_health)
-        
+
         # Assert
         assert isinstance(actor._model_loader, PickleModelLoader)
         assert actor._health_monitor is not None
 
 
 class TestModelLoaderErrorHandling:
-    """Test model loader error handling scenarios."""
+    """
+    Test model loader error handling scenarios.
+    """
 
     def test_pickle_model_loader_corrupt_file(self) -> None:
-        """Test pickle model loader with corrupt file."""
+        """
+        Test pickle model loader with corrupt file.
+        """
         # Arrange
         loader = PickleModelLoader()
-        
+
         # Create a file with invalid pickle data
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
             f.write(b"not_valid_pickle_data")
             corrupt_path = f.name
-        
+
         try:
             # Act & Assert
             with pytest.raises(Exception):  # Could be various pickle exceptions
@@ -2476,14 +2790,16 @@ class TestModelLoaderErrorHandling:
             os.unlink(corrupt_path)
 
     def test_pickle_model_loader_empty_file(self) -> None:
-        """Test pickle model loader with empty file."""
+        """
+        Test pickle model loader with empty file.
+        """
         # Arrange
         loader = PickleModelLoader()
-        
+
         # Create empty file
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
             empty_path = f.name  # File is empty
-        
+
         try:
             # Act & Assert
             with pytest.raises(Exception):  # EOFError or similar
@@ -2492,42 +2808,49 @@ class TestModelLoaderErrorHandling:
             os.unlink(empty_path)
 
     def test_model_loader_permissions_error(self) -> None:
-        """Test model loader with permission denied error."""
+        """
+        Test model loader with permission denied error.
+        """
         # This test would be platform-specific and may not work in all environments
         # Skipping for now as it requires specific file system setup
-        pass
 
 
 class TestConcurrentAccess:
-    """Test concurrent access patterns and thread safety."""
+    """
+    Test concurrent access patterns and thread safety.
+    """
 
     def test_health_monitor_concurrent_updates(self) -> None:
-        """Test health monitor with concurrent prediction updates."""
+        """
+        Test health monitor with concurrent prediction updates.
+        """
         # Arrange
         monitor = HealthMonitor()
         monitor.set_model_loaded(True)
         monitor.set_indicators_initialized(True)
-        
+
         # Act - Simulate concurrent updates
         for _ in range(100):
             monitor.update_prediction_success()
             monitor.update_prediction_failure()
-            
+
         # Assert - Should not crash and maintain consistent state
         assert monitor.total_predictions == 200
         assert monitor.get_success_rate() == 0.5
 
     def test_circuit_breaker_concurrent_operations(self) -> None:
-        """Test circuit breaker with concurrent operations."""
+        """
+        Test circuit breaker with concurrent operations.
+        """
         # Arrange
         breaker = CircuitBreaker()
-        
+
         # Act - Simulate concurrent operations
         for _ in range(50):
             breaker.record_success()
             breaker.record_failure()
             breaker.can_execute()
-            
+
         # Assert - Should maintain consistent state
         stats = breaker.get_stats()
         # Note: Actual counts may vary due to circuit breaker state transitions
@@ -2538,13 +2861,17 @@ class TestConcurrentAccess:
 
 
 class TestMemoryManagement:
-    """Test memory management and resource cleanup."""
+    """
+    Test memory management and resource cleanup.
+    """
 
     def test_feature_buffer_reuse(self) -> None:
-        """Test that feature buffers are reused to prevent memory leaks."""
+        """
+        Test that feature buffers are reused to prevent memory leaks.
+        """
         # Arrange
         config = MLActorConfig(
-            model_path="/tmp/test.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=BarType(
                 InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE")),
                 BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST),
@@ -2553,7 +2880,7 @@ class TestMemoryManagement:
         )
         actor = MockMLInferenceActor(config)
         actor.on_start()
-        
+
         # Act - Process many bars
         sample_bar = Bar(
             bar_type=config.bar_type,
@@ -2565,22 +2892,26 @@ class TestMemoryManagement:
             ts_event=1234567890000000000,
             ts_init=1234567890000000000,
         )
-        
-        initial_buffer_id = id(actor._features_buffer) if actor._features_buffer is not None else None
-        
+
+        initial_buffer_id = (
+            id(actor._features_buffer) if actor._features_buffer is not None else None
+        )
+
         for _ in range(1000):
             actor._compute_features(sample_bar)
-        
+
         # Assert - Buffer should be reused
         if actor._features_buffer is not None:
             final_buffer_id = id(actor._features_buffer)
             assert initial_buffer_id == final_buffer_id
 
     def test_feature_window_bounded_growth(self) -> None:
-        """Test that feature window maintains bounded size."""
+        """
+        Test that feature window maintains bounded size.
+        """
         # Arrange
         config = MLActorConfig(
-            model_path="/tmp/test.pkl",
+            model_path=os.path.join(tempfile.gettempdir(), "test_model.pkl"),
             bar_type=BarType(
                 InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE")),
                 BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST),
@@ -2589,25 +2920,30 @@ class TestMemoryManagement:
             feature_config=MLFeatureConfig(lookback_window=10),
         )
         actor = MockMLInferenceActor(config)
-        
+
         # Act - Add many features
         for i in range(100):
             feature_array = np.array([float(i)] * 5)
             actor._feature_window.append(feature_array)
-        
+
         # Assert - Window should be bounded
         assert len(actor._feature_window) == 10  # Max size
+        assert config.feature_config is not None
         assert len(actor._feature_window) <= config.feature_config.lookback_window
 
 
 class TestMissingCoverageAreas:
-    """Tests specifically targeting uncovered lines to reach 80% coverage."""
+    """
+    Tests specifically targeting uncovered lines to reach 80% coverage.
+    """
 
     def test_ml_signal_creation_with_none_features(self) -> None:
-        """Test MLSignal creation with None features."""
+        """
+        Test MLSignal creation with None features.
+        """
         # Arrange
         instrument_id = InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE"))
-        
+
         # Act
         signal = MLSignal(
             instrument_id=instrument_id,
@@ -2617,109 +2953,121 @@ class TestMissingCoverageAreas:
             ts_event=1234567890000000000,
             ts_init=1234567890000000001,
         )
-        
+
         # Assert
         assert signal.features is None
         assert signal.prediction == 0.75
         assert signal.confidence == 0.85
 
     def test_health_monitor_additional_edge_cases(self) -> None:
-        """Test additional health monitor edge cases."""
+        """
+        Test additional health monitor edge cases.
+        """
         # Arrange
         monitor = HealthMonitor()
-        
+
         # Test latency violation boundary
         monitor.set_model_loaded(True)
         monitor.set_indicators_initialized(True)
-        
+
         # Add exactly 100 latency violations (boundary case)
         for _ in range(100):
             monitor.update_latency_violation()
         assert monitor.status == HealthStatus.HEALTHY
-        
+
         # Add one more to cross threshold
         monitor.update_latency_violation()
         assert monitor.status == HealthStatus.DEGRADED
 
     def test_circuit_breaker_last_failure_time_tracking(self) -> None:
-        """Test circuit breaker tracks last failure time."""
+        """
+        Test circuit breaker tracks last failure time.
+        """
         # Arrange
         breaker = CircuitBreaker()
         initial_time = breaker._last_failure_time
-        
+
         # Act
         breaker.record_failure()
-        
+
         # Assert
         assert breaker._last_failure_time > initial_time
 
     def test_circuit_breaker_half_open_state_transitions(self) -> None:
-        """Test detailed half-open state transitions."""
+        """
+        Test detailed half-open state transitions.
+        """
         # Arrange
         config = CircuitBreakerConfig(failure_threshold=1, success_threshold=1)
         breaker = CircuitBreaker(config)
-        
+
         # Trip circuit
         breaker.record_failure()
         assert breaker.state == CircuitBreakerState.OPEN
-        
+
         # Move to half-open after timeout
-        with patch('time.time', return_value=time.time() + 61):
+        with patch("time.time", return_value=time.time() + 61):
             can_execute = breaker.can_execute()
             assert breaker.state == CircuitBreakerState.HALF_OPEN
             assert can_execute is True
-        
+
         # Success in half-open should close circuit
         breaker.record_success()
         assert breaker.state == CircuitBreakerState.CLOSED
 
     def test_onnx_model_loader_import_error_paths(self) -> None:
-        """Test ONNX model loader import error handling."""
+        """
+        Test ONNX model loader import error handling.
+        """
         # Arrange & Act
-        with patch.dict('sys.modules', {'onnxruntime': None}):
-            with patch('builtins.__import__', side_effect=ImportError("No ONNX")):
+        with patch.dict("sys.modules", {"onnxruntime": None}):
+            with patch("builtins.__import__", side_effect=ImportError("No ONNX")):
                 loader = ONNXModelLoader()
-                
+
                 # Assert
                 assert loader._onnx_available is False
-                
+
                 # Test that methods raise ImportError
                 with pytest.raises(ImportError, match="onnxruntime not available"):
                     loader.load_model("dummy.onnx")
 
     def test_pickle_model_loader_metadata_generation(self) -> None:
-        """Test pickle model loader metadata generation."""
+        """
+        Test pickle model loader metadata generation.
+        """
         # Arrange
         loader = PickleModelLoader()
         model = SimpleTestModel()
-        
+
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
             pickle.dump(model, f)
             model_path = f.name
-        
+
         try:
             # Act
             loaded_model, metadata = loader.load_model(model_path)
-            
+
             # Assert metadata completeness
             required_fields = ["path", "size_bytes", "modified_time", "version", "type"]
             for field in required_fields:
                 assert field in metadata
-            
+
             assert metadata["type"] == "pickle"
             assert metadata["path"] == model_path
             assert metadata["size_bytes"] > 0
-            
+
         finally:
             os.unlink(model_path)
 
     def test_model_loader_abc_coverage(self) -> None:
-        """Test ModelLoader abstract base class coverage."""
+        """
+        Test ModelLoader abstract base class coverage.
+        """
         # This tests the abstract methods are defined
         loader = PickleModelLoader()
-        
+
         # These methods should exist (abstract methods implemented)
-        assert hasattr(loader, 'load_model')
-        assert hasattr(loader, 'get_model_version')
+        assert hasattr(loader, "load_model")
+        assert hasattr(loader, "get_model_version")
         assert callable(loader.load_model)
         assert callable(loader.get_model_version)
