@@ -1,0 +1,205 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+"""
+Base configuration classes for ML components using msgspec.
+
+These configuration classes provide type-safe configuration for ML actors, strategies,
+and training components, following Nautilus conventions.
+
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from nautilus_trader.common.config import ActorConfig
+from nautilus_trader.common.config import NautilusConfig
+from nautilus_trader.common.config import NonNegativeFloat
+from nautilus_trader.common.config import NonNegativeInt
+from nautilus_trader.common.config import PositiveFloat
+from nautilus_trader.common.config import PositiveInt
+from nautilus_trader.config import StrategyConfig
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
+
+
+class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML feature engineering.
+
+    Parameters
+    ----------
+    lookback_window : PositiveInt, default 100
+        The number of historical bars to consider for feature engineering.
+    indicators : dict[str, dict[str, Any]], optional
+        Dictionary of indicator configurations, where keys are indicator names
+        and values are dictionaries of indicator parameters.
+    feature_names : list[str], optional
+        List of feature names to compute. If None, all available features are computed.
+    normalize_features : bool, default True
+        Whether to normalize features to [0, 1] range.
+    fill_missing_with : float, default 0.0
+        Value to use for missing data imputation.
+
+    """
+
+    lookback_window: PositiveInt = 100
+    indicators: dict[str, dict[str, Any]] | None = None
+    feature_names: list[str] | None = None
+    normalize_features: bool = True
+    fill_missing_with: float = 0.0
+
+
+class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML inference components.
+
+    Parameters
+    ----------
+    model_path : str
+        Path to the trained model file (supports .pkl, .joblib, .onnx formats).
+    prediction_threshold : NonNegativeFloat, default 0.5
+        Minimum confidence threshold for predictions to be considered valid.
+    max_inference_latency_ms : PositiveFloat, default 5.0
+        Maximum allowed inference latency in milliseconds.
+    feature_config : MLFeatureConfig, optional
+        Configuration for feature engineering. If None, uses default configuration.
+    batch_size : PositiveInt, default 1
+        Batch size for model inference (for models that support batching).
+    warm_up_period : NonNegativeInt, default 50
+        Number of bars to process before starting predictions (for indicator initialization).
+
+    """
+
+    model_path: str
+    prediction_threshold: NonNegativeFloat = 0.5
+    max_inference_latency_ms: PositiveFloat = 5.0
+    feature_config: MLFeatureConfig | None = None
+    batch_size: PositiveInt = 1
+    warm_up_period: NonNegativeInt = 50
+
+
+class MLActorConfig(ActorConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML actors.
+
+    Parameters
+    ----------
+    model_path : str
+        Path to the trained model file (supports .pkl, .joblib, .onnx formats).
+    bar_type : BarType
+        The bar type to subscribe to for ML inference.
+    instrument_id : InstrumentId
+        The instrument to perform ML inference on.
+    prediction_threshold : NonNegativeFloat, default 0.5
+        Minimum confidence threshold for predictions to be considered valid.
+    max_inference_latency_ms : PositiveFloat, default 5.0
+        Maximum allowed inference latency in milliseconds.
+    feature_config : MLFeatureConfig, optional
+        Configuration for feature engineering. If None, uses default configuration.
+    batch_size : PositiveInt, default 1
+        Batch size for model inference (for models that support batching).
+    warm_up_period : NonNegativeInt, default 50
+        Number of bars to process before starting predictions (for indicator initialization).
+    publish_signals : bool, default True
+        Whether to publish ML signals to the message bus.
+    signal_data_type : str, default "MLSignal"
+        The data type name for published ML signals.
+    log_predictions : bool, default False
+        Whether to log individual predictions (useful for debugging).
+
+    """
+
+    model_path: str
+    bar_type: BarType
+    instrument_id: InstrumentId
+    prediction_threshold: NonNegativeFloat = 0.5
+    max_inference_latency_ms: PositiveFloat = 5.0
+    feature_config: MLFeatureConfig | None = None
+    batch_size: PositiveInt = 1
+    warm_up_period: NonNegativeInt = 50
+    publish_signals: bool = True
+    signal_data_type: str = "MLSignal"
+    log_predictions: bool = False
+
+
+class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML-based trading strategies.
+
+    Parameters
+    ----------
+    instrument_id : InstrumentId
+        The instrument to trade.
+    ml_signal_source : str
+        The actor ID or data source for ML signals.
+    position_size_pct : PositiveFloat, default 0.1
+        Percentage of account balance to risk per trade (0.0 to 1.0).
+    min_confidence : NonNegativeFloat, default 0.7
+        Minimum ML signal confidence required to place trades.
+    max_positions : PositiveInt, default 1
+        Maximum number of concurrent positions allowed.
+    stop_loss_pct : NonNegativeFloat, default 0.02
+        Stop loss as percentage of entry price (0.0 to disable).
+    take_profit_pct : NonNegativeFloat, default 0.04
+        Take profit as percentage of entry price (0.0 to disable).
+
+    """
+
+    instrument_id: InstrumentId
+    ml_signal_source: str
+    position_size_pct: PositiveFloat = 0.1
+    min_confidence: NonNegativeFloat = 0.7
+    max_positions: PositiveInt = 1
+    stop_loss_pct: NonNegativeFloat = 0.02
+    take_profit_pct: NonNegativeFloat = 0.04
+
+
+class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML model training.
+
+    Parameters
+    ----------
+    data_source : str
+        Path or identifier for training data source.
+    target_column : str, default "target"
+        Name of the target column in training data.
+    feature_config : MLFeatureConfig, optional
+        Configuration for feature engineering. If None, uses default configuration.
+    train_test_split : PositiveFloat, default 0.8
+        Fraction of data to use for training (remainder used for validation).
+    random_seed : NonNegativeInt, default 42
+        Random seed for reproducible training results.
+    model_params : dict[str, Any], optional
+        Model-specific hyperparameters.
+    early_stopping_rounds : PositiveInt, default 50
+        Number of rounds without improvement before stopping training.
+    validation_metric : str, default "accuracy"
+        Metric to use for model validation and early stopping.
+    save_model_path : str, optional
+        Path to save the trained model. If None, model is not saved.
+
+    """
+
+    data_source: str
+    target_column: str = "target"
+    feature_config: MLFeatureConfig | None = None
+    train_test_split: PositiveFloat = 0.8
+    random_seed: NonNegativeInt = 42
+    model_params: dict[str, Any] | None = None
+    early_stopping_rounds: PositiveInt = 50
+    validation_metric: str = "accuracy"
+    save_model_path: str | None = None

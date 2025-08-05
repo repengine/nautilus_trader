@@ -29,6 +29,7 @@ The modern consensus is a **three-layer architecture**:
 ### 2. Why This Architecture Works
 
 **Benefits:**
+
 - **Ensemble Power**: Multiple models vote, reducing single-model risk
 - **Specialization**: Each model can focus on different patterns
 - **Risk Distribution**: No single point of ML failure
@@ -36,6 +37,7 @@ The modern consensus is a **three-layer architecture**:
 - **Gradual Rollout**: Can weight new models lower initially
 
 **Modern Wisdom:**
+
 - Netflix/Uber use similar ensemble approaches for recommendations
 - Renaissance Technologies reportedly uses 100s of weak predictors
 - Two Sigma emphasizes ensemble diversity over single complex models
@@ -123,6 +125,7 @@ services:
 #### A. Model Serving Options
 
 **Option 1: Embedded Models (Current Approach)**
+
 ```python
 class MLInferenceActor(Actor):
     def __init__(self, config):
@@ -130,6 +133,7 @@ class MLInferenceActor(Actor):
 ```
 
 **Option 2: Model Server (Modern Approach)**
+
 ```python
 class MLInferenceActor(Actor):
     def __init__(self, config):
@@ -138,18 +142,20 @@ class MLInferenceActor(Actor):
             model_name="momentum_model",
             version="2"
         )
-    
+
     async def predict(self, features):
         return await self.model_server.predict_async(features)
 ```
 
 **Benefits of Model Servers:**
+
 - **Hot Swapping**: Update models without restarting
 - **GPU Sharing**: Multiple models share GPU resources
 - **Optimization**: TensorRT, ONNX optimizations
 - **Monitoring**: Built-in metrics and logging
 
 **Popular Model Servers:**
+
 - NVIDIA Triton (supports all frameworks)
 - TorchServe (PyTorch specific)
 - TensorFlow Serving
@@ -158,17 +164,18 @@ class MLInferenceActor(Actor):
 #### B. Feature Computation Optimization
 
 **1. Incremental Updates (Critical for Latency)**
+
 ```python
 class IncrementalFeatureEngine:
     def __init__(self):
         self.sma_20 = SimpleMovingAverage(20)
         self.rsi = RelativeStrengthIndex(14)
-        
+
     def update(self, bar: Bar) -> dict:
         # O(1) updates instead of O(n) recalculation
         self.sma_20.update(bar.close)
         self.rsi.update(bar.close)
-        
+
         return {
             'sma_20': self.sma_20.value,
             'rsi': self.rsi.value,
@@ -177,14 +184,15 @@ class IncrementalFeatureEngine:
 ```
 
 **2. Feature Store Pattern**
+
 ```python
 # Shared feature computation service
 class FeatureStoreActor(Actor):
     """Computes features once, broadcasts to all models."""
-    
+
     def on_bar(self, bar: Bar):
         features = self.compute_features(bar)
-        
+
         # Broadcast to all inference actors
         self.publish_data(
             DataType(MLFeatures),
@@ -199,6 +207,7 @@ class FeatureStoreActor(Actor):
 #### C. Ensemble Strategies
 
 **1. Simple Voting**
+
 ```python
 class PortfolioConstructionActor(Actor):
     def aggregate_signals(self, signals: list[MLSignal]) -> float:
@@ -207,6 +216,7 @@ class PortfolioConstructionActor(Actor):
 ```
 
 **2. Weighted Ensemble**
+
 ```python
 def aggregate_signals(self, signals: list[MLSignal]) -> float:
     # Weight by recent performance
@@ -215,6 +225,7 @@ def aggregate_signals(self, signals: list[MLSignal]) -> float:
 ```
 
 **3. Stacking/Meta-Learning**
+
 ```python
 def aggregate_signals(self, signals: list[MLSignal]) -> float:
     # Use another model to combine predictions
@@ -231,11 +242,11 @@ class MLInferenceActor(Actor):
     def __init__(self, config):
         self.model_a = self.load_model(config.model_a_uri)  # 80% weight
         self.model_b = self.load_model(config.model_b_uri)  # 20% weight (new)
-        
+
     def predict(self, features):
         pred_a = self.model_a.predict(features)
         pred_b = self.model_b.predict(features)
-        
+
         # Gradual rollout
         return 0.8 * pred_a + 0.2 * pred_b
 ```
@@ -247,18 +258,18 @@ class MLInferenceActor(Actor):
     def __init__(self, config):
         self.prediction_bounds = (-3.0, 3.0)  # 3 sigma
         self.daily_loss_limit = -0.05  # -5%
-        
+
     def validate_prediction(self, pred: float) -> float:
         # Sanity checks
         if not self.prediction_bounds[0] <= pred <= self.prediction_bounds[1]:
             self.log.warning(f"Prediction {pred} out of bounds!")
             return 0.0  # Neutral
-            
+
         # Circuit breaker
         if self.daily_pnl < self.daily_loss_limit:
             self.log.warning("Daily loss limit hit, going neutral")
             return 0.0
-            
+
         return pred
 ```
 
@@ -269,15 +280,15 @@ class ABTestPortfolioActor(Actor):
     def __init__(self, config):
         self.control_allocation = 0.7
         self.experiment_allocation = 0.3
-        
+
     def construct_portfolio(self, signals):
         control_weights = self.control_strategy(signals)
         experiment_weights = self.experiment_strategy(signals)
-        
+
         # Track separately for analysis
         self.track_performance('control', control_weights)
         self.track_performance('experiment', experiment_weights)
-        
+
         # Blend allocations
         return blend_weights(
             control_weights, self.control_allocation,
@@ -295,12 +306,12 @@ class MLMonitoringActor(Actor):
         # Model Performance
         self.track("prediction_latency_ms", self.last_inference_time)
         self.track("feature_computation_ms", self.feature_time)
-        
+
         # Model Quality
         self.track("prediction_mean", np.mean(self.recent_predictions))
         self.track("prediction_std", np.std(self.recent_predictions))
         self.track("signal_hit_rate", self.calculate_hit_rate())
-        
+
         # Business Metrics
         self.track("signal_to_trade_ratio", self.signals_sent / self.trades_executed)
         self.track("model_pnl_attribution", self.calculate_model_pnl())
@@ -335,15 +346,15 @@ class AdaptiveMLActor(Actor):
     def __init__(self, config):
         self.base_model = self.load_model(config.model_uri)
         self.online_adjuster = OnlineGradientBooster()
-        
+
     def on_trade_fill(self, fill):
         # Learn from outcomes
         features = self.get_features_at_entry(fill)
         outcome = self.calculate_trade_outcome(fill)
-        
+
         # Update online component
         self.online_adjuster.partial_fit(features, outcome)
-        
+
     def predict(self, features):
         base_pred = self.base_model.predict(features)
         adjustment = self.online_adjuster.predict(features)
@@ -360,13 +371,13 @@ class MultiTimeframeMLActor(Actor):
             '5min': self.load_model('models/momentum_5min'),
             '1hour': self.load_model('models/trend_1hour'),
         }
-        
+
     def generate_signals(self):
         signals = {}
         for timeframe, model in self.models.items():
             features = self.feature_stores[timeframe].get_latest()
             signals[timeframe] = model.predict(features)
-            
+
         # Combine with time-decay weights
         return self.combine_timeframes(signals)
 ```

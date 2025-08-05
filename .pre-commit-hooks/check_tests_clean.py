@@ -51,7 +51,7 @@ def get_test_files_for_changed_files(changed_files):
                 [
                     Path("tests") / "unit_tests" / rel_path.parent / f"test_{path.name}",
                     Path("tests") / "integration_tests" / rel_path.parent / f"test_{path.name}",
-                ]
+                ],
             )
         elif "ml" in path.parts or "nautilus_ml" in path.parts:
             # For ML files
@@ -61,7 +61,7 @@ def get_test_files_for_changed_files(changed_files):
                     Path("tests") / "integration_tests" / "ml" / f"test_{path.name}",
                     Path("nautilus_ml") / "tests" / f"test_{path.name}",
                     path.parent / "tests" / f"test_{path.name}",
-                ]
+                ],
             )
 
         # Check which test files exist
@@ -71,6 +71,61 @@ def get_test_files_for_changed_files(changed_files):
                 break
 
     return list(test_files)
+
+
+def _parse_test_issues(output):
+    """
+    Parse test output for specific issues.
+    """
+    issues = []
+
+    # Check for failures
+    failure_match = re.search(r"(\d+) failed", output)
+    if failure_match:
+        issues.append(f"Test failures: {failure_match.group(1)}")
+
+    # Check for errors
+    error_match = re.search(r"(\d+) error", output)
+    if error_match:
+        issues.append(f"Test errors: {error_match.group(1)}")
+
+    # Check for warnings (already treated as errors)
+    warning_match = re.search(r"(\d+) warning", output)
+    if warning_match:
+        issues.append(f"Test warnings: {warning_match.group(1)}")
+
+    return issues
+
+
+def _extract_failed_tests(output):
+    """
+    Extract failed test details from output.
+    """
+    issues = []
+    if "FAILED" in output:
+        failed_tests = re.findall(r"FAILED (.*?) -", output)
+        if failed_tests:
+            issues.append("Failed tests:")
+            for test in failed_tests[:5]:  # Show first 5
+                issues.append(f"  - {test}")
+            if len(failed_tests) > 5:
+                issues.append(f"  ... and {len(failed_tests) - 5} more")
+    return issues
+
+
+def _extract_warnings(output):
+    """
+    Extract warning details from output.
+    """
+    issues = []
+    if "warnings summary" in output:
+        warning_section = output.split("warnings summary")[1].split("=")[0]
+        warning_lines = [line.strip() for line in warning_section.split("\n") if line.strip()][:3]
+        if warning_lines:
+            issues.append("Warnings detected:")
+            for line in warning_lines:
+                issues.append(f"  {line}")
+    return issues
 
 
 def run_tests_clean(test_files):
@@ -93,68 +148,35 @@ def run_tests_clean(test_files):
         "-W",
         "error",  # Treat warnings as errors
         "--no-header",
-    ] + test_files
+        *test_files,  # Unpack test files
+    ]
 
     # Run tests
     result = subprocess.run(cmd, capture_output=True, text=True)
 
-    # Check for various issues
-    issues = []
-
     # Check return code
     if result.returncode != 0:
-        # Parse output for specific issues
         output = result.stdout + result.stderr
 
-        # Check for failures
-        failure_match = re.search(r"(\d+) failed", output)
-        if failure_match:
-            issues.append(f"Test failures: {failure_match.group(1)}")
-
-        # Check for errors
-        error_match = re.search(r"(\d+) error", output)
-        if error_match:
-            issues.append(f"Test errors: {error_match.group(1)}")
-
-        # Check for warnings (already treated as errors)
-        warning_match = re.search(r"(\d+) warning", output)
-        if warning_match:
-            issues.append(f"Test warnings: {warning_match.group(1)}")
-
-        # Extract specific failure info
-        if "FAILED" in output:
-            failed_tests = re.findall(r"FAILED (.*?) -", output)
-            if failed_tests:
-                issues.append("Failed tests:")
-                for test in failed_tests[:5]:  # Show first 5
-                    issues.append(f"  - {test}")
-                if len(failed_tests) > 5:
-                    issues.append(f"  ... and {len(failed_tests) - 5} more")
-
-        # Extract warning details if present
-        if "warnings summary" in output:
-            warning_section = output.split("warnings summary")[1].split("=")[0]
-            warning_lines = [line.strip() for line in warning_section.split("\n") if line.strip()][
-                :3
-            ]
-            if warning_lines:
-                issues.append("Warnings detected:")
-                for line in warning_lines:
-                    issues.append(f"  {line}")
+        # Collect all issues
+        issues = []
+        issues.extend(_parse_test_issues(output))
+        issues.extend(_extract_failed_tests(output))
+        issues.extend(_extract_warnings(output))
 
         return False, "\n".join(issues) if issues else "Tests failed"
 
     # All tests passed
     passed_match = re.search(r"(\d+) passed", result.stdout)
     if passed_match:
-        return True, f"✅ All {passed_match.group(1)} tests passed cleanly (no warnings)"
+        return True, f"All {passed_match.group(1)} tests passed cleanly (no warnings)"
 
-    return True, "✅ All tests passed cleanly"
+    return True, "All tests passed cleanly"
 
 
 def main():
     """
-    Main entry point.
+    Check that tests pass cleanly without failures, errors, or warnings.
     """
     changed_files = sys.argv[1:]
 
@@ -174,7 +196,7 @@ def main():
     print(message)
 
     if not passed:
-        print("\n❌ Tests must pass without failures, errors, or warnings!")
+        print("\nTests must pass without failures, errors, or warnings!")
         print("Fix the issues above before committing.")
         return 1
 

@@ -24,11 +24,11 @@ The trainer handles the Polars → Pandas → Numpy transformation cleanly:
 def prepare_data(self, data: pl.DataFrame, target_col: str = "close") -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     # 1. Use Polars for feature engineering
     features_df, scaler = self.feature_engineer.calculate_features_batch(data, fit_scaler=True)
-    
+
     # 2. Convert to Pandas for NeuralForecast
     df = DataFrameConverter.polars_to_pandas(data)
     features_pd = DataFrameConverter.polars_to_pandas(features_df)
-    
+
     # 3. Create NeuralForecast format
     nf_df = pd.DataFrame({
         "unique_id": "series_1",
@@ -46,11 +46,11 @@ def _save_artifacts(self, results: dict[str, Any]):
     # Save scaler
     with open("scaler.pkl", "wb") as f:
         pickle.dump(results["scaler"], f)
-    
+
     # Save feature config
     with open("feature_config.pkl", "wb") as f:
         pickle.dump(self.feature_engineer.config, f)
-    
+
     # Save model config as JSON
     model_config = {
         "model_type": self.model_type,
@@ -86,6 +86,7 @@ with open(model_path, "wb") as f:
 ## How This Avoids Polars/msgspec Conflicts
 
 ### 1. **Training Script Pattern**
+
 - This is a standalone training script, not a Nautilus Actor/Strategy
 - It freely uses Polars for data processing
 - Saves everything to disk as .pkl files
@@ -98,18 +99,18 @@ To use this in Nautilus, you would create an inference actor that:
 class NeuralForecastInferenceActor(Actor):
     def __init__(self, config: ActorConfig):
         super().__init__(config)
-        
+
         # Load from disk - no Polars in config!
         with open(config.model_bundle_path, 'rb') as f:
             self.model_bundle = pickle.load(f)
-            
+
         self.model = self.model_bundle['model']
         self.scaler = self.model_bundle['scaler']
         self.feature_names = self.model_bundle['feature_names']
-        
+
         # No Polars in hot path!
         self.feature_buffer = deque(maxlen=self.model_bundle['input_size'])
-        
+
     def on_bar(self, bar: Bar):
         # Update features without Polars
         features = self._extract_features_numpy(bar)
@@ -134,19 +135,23 @@ config = {
 ## Lessons for Our ML Integration
 
 ### 1. **Two-Stage Pattern**
+
 - **Stage 1**: Training scripts (use Polars freely)
 - **Stage 2**: Inference actors (load from disk, no Polars)
 
 ### 2. **Model Bundle Concept**
+
 - Save everything needed for inference in one .pkl file
 - Include model, scaler, feature config, metadata
 - Load this bundle in inference actor
 
 ### 3. **Feature Engineering Bridge**
+
 - Training: Polars → Pandas → Numpy
 - Inference: Nautilus Bar → Numpy directly
 
 ### 4. **MLflow Integration**
+
 - Use MLflow for experiment tracking
 - Save artifacts for reproducibility
 - But load from local .pkl for inference
@@ -163,7 +168,7 @@ class NeuralForecastTrainer:
         # ... training code ...
         self.save_model_bundle("models/neural_forecast.pkl")
 
-# ml/actors/neural_forecast_actor.py  
+# ml/actors/neural_forecast_actor.py
 class NeuralForecastActor(Actor):
     """Online inference - no Polars!"""
     def __init__(self, config: ActorConfig):
