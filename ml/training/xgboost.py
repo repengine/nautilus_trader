@@ -54,6 +54,15 @@ except ImportError:
     StandardScaler = None
 
 
+# Explicitly export for mypy
+__all__ = [
+    "HAS_POLARS",
+    "HAS_SKLEARN",
+    "StandardScaler",
+    "XGBoostTrainer",
+]
+
+
 class XGBoostTrainer(BaseMLTrainer):
     """
     XGBoost trainer for financial time series prediction.

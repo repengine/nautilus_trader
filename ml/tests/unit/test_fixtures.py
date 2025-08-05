@@ -210,7 +210,7 @@ class MockPolarsModule:
             Mock to_numpy method.
             """
             if hasattr(self.data, "shape"):  # Already a numpy array
-                return self.data
+                return np.asarray(self.data)
             if self._columns and self._len > 0:
                 # Generate appropriate data for the DataFrame
                 return rng.standard_normal((self._len, len(self._columns)))
@@ -416,7 +416,12 @@ class MockPolarsModule:
         if not dfs:
             return MockPolarsModule.DataFrame({})
         # Simple concatenation - just return first df for testing
-        return dfs[0]
+        first_df = dfs[0]
+        if isinstance(first_df, MockPolarsModule.DataFrame):
+            return first_df
+        else:
+            # If not a MockPolarsModule.DataFrame, wrap it
+            return MockPolarsModule.DataFrame(first_df)
 
     @staticmethod
     def lit(value: Any) -> Any:
