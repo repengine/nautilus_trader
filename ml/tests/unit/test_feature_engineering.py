@@ -30,6 +30,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -729,7 +731,16 @@ class TestFeatureEngineer:
         features_df, _ = fe.calculate_features_batch(df)
 
         # Check return calculations
-        last_features = features_df.iloc[-1]
+        # Handle both pandas and polars DataFrames
+        if HAS_POLARS and isinstance(features_df, pl.DataFrame):
+            last_features = features_df.row(-1, named=True)
+        else:
+            # Handle both pandas and polars DataFrames
+            if hasattr(features_df, "iloc"):
+                last_features = features_df.iloc[-1]
+            else:
+                # Polars DataFrame
+                last_features = features_df.row(-1, named=True)
 
         # 1-period return should be 5%
         assert abs(last_features["return_1"] - 0.05) < 1e-6
@@ -763,7 +774,12 @@ class TestFeatureEngineer:
         features_df, _ = fe.calculate_features_batch(df)
 
         # Check momentum calculations
-        last_features = features_df.iloc[-1]
+        # Handle both pandas and polars DataFrames
+        if hasattr(features_df, "iloc"):
+            last_features = features_df.iloc[-1]
+        else:
+            # Polars DataFrame
+            last_features = features_df.row(-1, named=True)
 
         # 5-period momentum
         expected_mom_5 = (119 - 114) / 114
@@ -800,7 +816,12 @@ class TestFeatureEngineer:
         features_df, _ = fe.calculate_features_batch(df)
 
         # Check volatility is reasonable (should be around 0.01)
-        last_features = features_df.iloc[-1]
+        # Handle both pandas and polars DataFrames
+        if hasattr(features_df, "iloc"):
+            last_features = features_df.iloc[-1]
+        else:
+            # Polars DataFrame
+            last_features = features_df.row(-1, named=True)
         assert 0.001 < last_features["volatility_5"] < 0.025
         assert 0.001 < last_features["volatility_20"] < 0.025
 
@@ -882,7 +903,12 @@ class TestFeatureEngineer:
         features_df, _ = fe.calculate_features_batch(df)
 
         # Volume ratio should show the spike
-        last_features = features_df.iloc[-1]
+        # Handle both pandas and polars DataFrames
+        if hasattr(features_df, "iloc"):
+            last_features = features_df.iloc[-1]
+        else:
+            # Polars DataFrame
+            last_features = features_df.row(-1, named=True)
         # Average of last 5 is (1M + 1M + 1M + 1M + 2M) / 5 = 1.2M
         # Ratio is 2M / 1.2M = 1.667
         expected_ratio = 2000000 / 1200000
@@ -921,7 +947,12 @@ class TestFeatureEngineer:
         assert len(features_df) == 1
 
         # Most features should be 0 or default values
-        features = features_df.iloc[0]
+        # Handle both pandas and polars DataFrames
+        if hasattr(features_df, "iloc"):
+            features = features_df.iloc[0]
+        else:
+            # Polars DataFrame
+            features = features_df.row(0, named=True)
         assert features["return_1"] == 0.0
         assert features["momentum_5"] == 0.0
         assert features["volatility_5"] == 0.0

@@ -279,6 +279,9 @@ class TestMLSignalActor:
 
         actor = self.create_test_actor(config)
 
+        # Verify model was loaded
+        assert actor._model is not None, f"Model not loaded from {self.temp_model_file.name}"
+
         # Subscribe to signals
         signals_received = []
 
@@ -292,13 +295,20 @@ class TestMLSignalActor:
         )
 
         # Process bars to warm up indicators
-        for i in range(25):  # More than warm up period
+        # Need at least 30 bars for MACD/EMA initialization
+        for i in range(35):  # Ensure all indicators are initialized
             bar = self.create_test_bar(close_price=1.1000 + i * 0.0001)
             actor.on_bar(bar)
 
+        # Check if indicators are initialized
+        assert actor._indicator_manager is not None, "Indicator manager not initialized"
+        assert (
+            actor._indicator_manager.all_initialized()
+        ), "Indicators not initialized after 35 bars"
+
         # Should have generated signals after warm-up
-        assert actor._prediction_count > 0
-        assert actor._is_warmed_up
+        assert actor._is_warmed_up, "Actor not warmed up"
+        assert actor._prediction_count > 0, f"No predictions made (count={actor._prediction_count})"
 
     def test_extremes_signal_generation(self):
         """
@@ -332,10 +342,15 @@ class TestMLSignalActor:
                 return result
             return 0.5, 0.6
 
+        # First process enough bars to initialize indicators
+        for i in range(30):
+            actor.on_bar(self.create_test_bar(close_price=1.1000))
+
+        # Now mock predict and process more bars
         actor._predict = mock_predict
 
         # Process bars to build prediction history
-        for i in range(len(predictions) + 20):
+        for i in range(len(predictions) + 5):
             actor.on_bar(self.create_test_bar(close_price=1.1000 + i * 0.0001))
 
         # Check that prediction history was built
@@ -390,8 +405,8 @@ class TestMLSignalActor:
 
         actor = self.create_test_actor(config)
 
-        # Process bars to enable ensemble strategy
-        for i in range(25):
+        # Process bars to enable ensemble strategy (need at least 26 for EMA slow + some for predictions)
+        for i in range(35):
             actor.on_bar(self.create_test_bar(close_price=1.1000 + i * 0.0001))
 
         assert actor._prediction_count > 0
@@ -431,7 +446,7 @@ class TestMLSignalActor:
         # Process bars to trigger adaptive threshold updates
         initial_threshold = actor._adaptive_threshold
 
-        for i in range(20):
+        for i in range(30):
             bar = self.create_test_bar(close_price=1.1000 + i * 0.0010)  # High volatility
             actor.on_bar(bar)
 
@@ -532,8 +547,8 @@ class TestMLSignalActor:
         """
         actor = self.create_test_actor()
 
-        # Process bars to build state
-        for i in range(15):
+        # Process bars to build state (need at least 26 for indicators)
+        for i in range(30):
             actor.on_bar(self.create_test_bar(close_price=1.1000 + i * 0.0001))
 
         # Backup state
@@ -577,7 +592,7 @@ class TestMLSignalActor:
         actor._model.predict_proba.side_effect = Exception("Model error")
 
         # Process bar with failing model - should not raise
-        for i in range(25):
+        for i in range(30):
             bar = self.create_test_bar()
             actor.on_bar(bar)  # Should handle error gracefully
 
@@ -610,8 +625,8 @@ class TestMLSignalActor:
         """
         actor = self.create_test_actor()
 
-        # Process some bars
-        for i in range(10):
+        # Process some bars (need at least 26 for indicators)
+        for i in range(30):
             actor.on_bar(self.create_test_bar())
 
         # Get statistics
@@ -1122,7 +1137,7 @@ class TestMLSignalActor:
         actor._indicator_manager.update_from_bar = slow_update
 
         # Process bar - should log warning
-        for i in range(25):
+        for i in range(30):
             bar = self.create_test_bar()
             actor.on_bar(bar)
 
@@ -1360,8 +1375,8 @@ class TestMLSignalActor:
         actor._predict = Mock(return_value=(0.8, 0.9))
         actor._publish_signal = Mock()
 
-        # Process enough bars to warm up
-        for i in range(25):
+        # Process enough bars to warm up and initialize indicators
+        for i in range(35):
             bar = self.create_test_bar(close_price=1.1000 + i * 0.0001)
             actor.on_bar(bar)
 

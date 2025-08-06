@@ -473,6 +473,9 @@ class MLSignalActor(BaseMLInferenceActor):
             # Get prediction from model
             prediction, confidence = self._predict(features)
 
+            # Increment counter early (will also be incremented in _track_performance_metrics)
+            self._prediction_count += 1
+
             # Update prediction history for adaptive strategies
             self._update_prediction_history(prediction, confidence, bar)
 
@@ -545,6 +548,16 @@ class MLSignalActor(BaseMLInferenceActor):
             Current bar for volatility calculation.
 
         """
+        # Update history lists (bounded to prevent memory growth)
+        self._prediction_history.append(prediction)
+        self._confidence_history.append(confidence)
+
+        # Keep history bounded to adaptive_window size
+        max_history_size = max(self._signal_config.adaptive_window * 2, 1000)
+        if len(self._prediction_history) > max_history_size:
+            self._prediction_history = self._prediction_history[-max_history_size:]
+            self._confidence_history = self._confidence_history[-max_history_size:]
+
         # Update circular buffers
         self._prediction_window[self._window_index] = prediction
         self._confidence_window[self._window_index] = confidence
@@ -869,42 +882,51 @@ class MLSignalActor(BaseMLInferenceActor):
             Signal generation time in milliseconds.
 
         """
-        # Update performance counters
-        self._prediction_count += 1
+        # Update performance counters (already incremented in _generate_prediction_protected)
+        # self._prediction_count += 1  # Already incremented earlier
         self._total_inference_time += signal_time
 
         # Track prediction distribution
-        if not hasattr(self, "_prediction_distribution_metric"):
-            self._prediction_distribution_metric = Histogram(
-                "nautilus_ml_prediction_distribution",
-                "Distribution of model predictions",
-                ["actor_id"],
+        try:
+            if not hasattr(self, "_prediction_distribution_metric"):
+                self._prediction_distribution_metric = Histogram(
+                    "nautilus_ml_prediction_distribution",
+                    "Distribution of model predictions",
+                    ["actor_id"],
+                )
+
+            self._prediction_distribution_metric.observe(
+                prediction,
+                {"actor_id": self.id.value},
             )
 
-        self._prediction_distribution_metric.observe(
-            prediction,
-            {"actor_id": self.id.value},
-        )
+            # Track confidence distribution
+            if not hasattr(self, "_confidence_distribution_metric"):
+                self._confidence_distribution_metric = Histogram(
+                    "nautilus_ml_confidence_distribution",
+                    "Distribution of prediction confidence scores",
+                    ["actor_id"],
+                )
 
-        # Track confidence distribution
-        if not hasattr(self, "_confidence_distribution_metric"):
-            self._confidence_distribution_metric = Histogram(
-                "nautilus_ml_confidence_distribution",
-                "Distribution of prediction confidence scores",
-                ["actor_id"],
+            self._confidence_distribution_metric.observe(
+                confidence,
+                {"actor_id": self.id.value},
             )
-
-        self._confidence_distribution_metric.observe(
-            confidence,
-            {"actor_id": self.id.value},
-        )
+        except Exception as e:
+            # Don't fail if metrics can't be created (e.g., in tests)
+            if hasattr(self, "log"):
+                self.log.debug(f"Could not create metrics: {e}")
 
         # Log detailed performance if enabled
-        if self._config.log_predictions:
-            self.log.debug(
-                f"Prediction: {prediction:.4f}, Confidence: {confidence:.4f}, "
-                f"Signal time: {signal_time:.3f}ms, Strategy: {self._signal_config.signal_strategy.value}",
-            )
+        try:
+            if self._config.log_predictions:
+                self.log.debug(
+                    f"Prediction: {prediction:.4f}, Confidence: {confidence:.4f}, "
+                    f"Signal time: {signal_time:.3f}ms, Strategy: {self._signal_config.signal_strategy.value}",
+                )
+        except Exception as e:
+            # Silently ignore logging errors to prevent disrupting trading
+            _ = e  # Acknowledge exception for linting
 
     def _backup_indicator_state(self) -> None:
         """

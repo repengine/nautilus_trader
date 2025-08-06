@@ -192,15 +192,24 @@ class TestPolarsIntegration:
         config = FeatureConfig()
         fe = FeatureEngineer(config)
 
-        # Create polars DataFrame
+        # Create polars DataFrame with valid OHLC data
         rng = np.random.default_rng(42)
         n = 50
+        # Generate close prices first
+        close_prices = 100 + np.cumsum(rng.standard_normal(n) * 0.5)
+
+        # Ensure OHLC consistency
+        opens = np.roll(close_prices, 1)
+        opens[0] = close_prices[0]
+        highs = np.maximum(opens, close_prices) + np.abs(rng.standard_normal(n) * 0.2)
+        lows = np.minimum(opens, close_prices) - np.abs(rng.standard_normal(n) * 0.2)
+
         df = pl.DataFrame(
             {
-                "open": 100 + np.cumsum(rng.standard_normal(n)),
-                "high": 101 + np.cumsum(rng.standard_normal(n)),
-                "low": 99 + np.cumsum(rng.standard_normal(n)),
-                "close": 100 + np.cumsum(rng.standard_normal(n)),
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": close_prices,
                 "volume": rng.uniform(900000, 1100000, n),
             },
         )

@@ -29,6 +29,7 @@ from decimal import Decimal
 from typing import Any
 
 from ml.actors.base import MLSignal
+from ml.common.metrics import HAS_PROMETHEUS
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import MLStrategyConfig
@@ -48,21 +49,97 @@ from nautilus_trader.trading.strategy import Strategy
 
 
 # Prometheus metrics for monitoring
-ml_signals_received = Counter(
-    "nautilus_ml_signals_received_total",
-    "Total number of ML signals received",
-    ["strategy_id", "signal_source"],
-)
-ml_trades_executed = Counter(
-    "nautilus_ml_trades_executed_total",
-    "Total number of trades executed based on ML signals",
-    ["strategy_id", "order_side"],
-)
-ml_signal_to_trade_latency = Histogram(
-    "nautilus_ml_signal_to_trade_latency_seconds",
-    "Latency from signal reception to trade execution",
-    ["strategy_id"],
-)
+# These are module-level singletons to avoid registry collisions
+_metrics_initialized = False
+ml_signals_received = None
+ml_trades_executed = None
+ml_signal_to_trade_latency = None
+ml_position_count = None
+
+
+def _initialize_metrics():
+    """
+    Initialize Prometheus metrics once.
+    """
+    global _metrics_initialized, ml_signals_received, ml_trades_executed, ml_signal_to_trade_latency, ml_position_count
+
+    if _metrics_initialized:
+        return
+
+    # Check if metrics already exist in registry
+    if HAS_PROMETHEUS:
+        from prometheus_client import REGISTRY
+
+        # Try to get existing metrics or create new ones
+        existing_names = set(REGISTRY._names_to_collectors.keys())
+
+        if "nautilus_ml_signals_received_total" not in existing_names:
+            ml_signals_received = Counter(
+                "nautilus_ml_signals_received_total",
+                "Total number of ML signals received",
+                ["strategy_id", "signal_source"],
+            )
+        else:
+            ml_signals_received = REGISTRY._names_to_collectors[
+                "nautilus_ml_signals_received_total"
+            ]
+
+        if "nautilus_ml_trades_executed_total" not in existing_names:
+            ml_trades_executed = Counter(
+                "nautilus_ml_trades_executed_total",
+                "Total number of trades executed based on ML signals",
+                ["strategy_id", "order_side"],
+            )
+        else:
+            ml_trades_executed = REGISTRY._names_to_collectors["nautilus_ml_trades_executed_total"]
+
+        if "nautilus_ml_signal_to_trade_latency_seconds" not in existing_names:
+            ml_signal_to_trade_latency = Histogram(
+                "nautilus_ml_signal_to_trade_latency_seconds",
+                "Latency from signal reception to trade execution",
+                ["strategy_id"],
+            )
+        else:
+            ml_signal_to_trade_latency = REGISTRY._names_to_collectors[
+                "nautilus_ml_signal_to_trade_latency_seconds"
+            ]
+
+        if "nautilus_ml_position_count" not in existing_names:
+            ml_position_count = Counter(
+                "nautilus_ml_position_count",
+                "Current number of open positions",
+                ["strategy_id", "instrument"],
+            )
+        else:
+            ml_position_count = REGISTRY._names_to_collectors["nautilus_ml_position_count"]
+    else:
+        # Use dummy metrics when Prometheus is not available
+        ml_signals_received = Counter(
+            "nautilus_ml_signals_received_total",
+            "Total number of ML signals received",
+            ["strategy_id", "signal_source"],
+        )
+        ml_trades_executed = Counter(
+            "nautilus_ml_trades_executed_total",
+            "Total number of trades executed based on ML signals",
+            ["strategy_id", "order_side"],
+        )
+        ml_signal_to_trade_latency = Histogram(
+            "nautilus_ml_signal_to_trade_latency_seconds",
+            "Latency from signal reception to trade execution",
+            ["strategy_id"],
+        )
+        ml_position_count = Counter(
+            "nautilus_ml_position_count",
+            "Current number of open positions",
+            ["strategy_id", "instrument"],
+        )
+
+    _metrics_initialized = True
+
+
+# Initialize metrics on module load
+_initialize_metrics()
 
 
 class BaseMLStrategy(Strategy, ABC):
@@ -112,11 +189,7 @@ class BaseMLStrategy(Strategy, ABC):
         # Prometheus metrics
         self._signals_received_metric = ml_signals_received
         self._orders_submitted_metric = ml_trades_executed
-        self._position_count_metric = Counter(
-            "nautilus_ml_position_count",
-            "Current number of open positions",
-            ["strategy_id", "instrument"],
-        )
+        self._position_count_metric = ml_position_count
 
     def on_start(self) -> None:
         """
