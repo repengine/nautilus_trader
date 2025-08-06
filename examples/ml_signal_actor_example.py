@@ -188,7 +188,7 @@ async def run_signal_actor_example():
                         print(
                             f"  📊 Signal generated at bar {i}: "
                             f"price={current_price:.5f}, "
-                            f"regime={actor._market_regime}"
+                            f"regime={actor._market_regime}",
                         )
 
             # Get final statistics

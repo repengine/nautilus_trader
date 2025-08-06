@@ -118,7 +118,7 @@ class SimpleMLActor(BaseMLInferenceActor):
                 self._sma_slow.initialized,
                 self._rsi.initialized,
                 self._ema.initialized,
-            ]
+            ],
         ):
             return None
 

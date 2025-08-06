@@ -204,20 +204,16 @@ class MLSignalActor(BaseMLInferenceActor):
         self._signal_config = config
 
         # Feature engineering components
-        # Convert MLFeatureConfig to FeatureConfig if needed
+        # Use FeatureConfig directly (it inherits from MLFeatureConfig)
         if config.feature_config is None:
             self._feature_config = FeatureConfig()
-        elif isinstance(config.feature_config, FeatureConfig):
-            self._feature_config = config.feature_config
         else:
-            # Create FeatureConfig from MLFeatureConfig
-            self._feature_config = FeatureConfig(
-                lookback_window=config.feature_config.lookback_window,
-                include_returns=config.feature_config.include_returns,
-                include_ratios=config.feature_config.include_ratios,
-                include_time_features=config.feature_config.include_time_features,
-                custom_features=config.feature_config.custom_features,
-            )
+            # Ensure we have a FeatureConfig instance
+            if isinstance(config.feature_config, FeatureConfig):
+                self._feature_config = config.feature_config
+            else:
+                # If it's just MLFeatureConfig, create a default FeatureConfig
+                self._feature_config = FeatureConfig()
         self._feature_engineer = FeatureEngineer(self._feature_config)
         self._indicator_manager: IndicatorManager | None = None
 
@@ -298,11 +294,17 @@ class MLSignalActor(BaseMLInferenceActor):
 
         """
         # Initialize indicator manager with feature configuration
-        self._indicator_manager = IndicatorManager(self._feature_config)
+        # IndicatorManager expects FeatureConfig, ensure we have the right type
+        if isinstance(self._feature_config, FeatureConfig):
+            self._indicator_manager = IndicatorManager(self._feature_config)
+        else:
+            # Create a default FeatureConfig if needed
+            feature_config = FeatureConfig()
+            self._indicator_manager = IndicatorManager(feature_config)
 
         # Verify feature buffer size matches configuration
         # Use FeatureEngineer's feature count or configured feature names
-        if hasattr(self._feature_config, 'feature_names') and self._feature_config.feature_names:
+        if hasattr(self._feature_config, "feature_names") and self._feature_config.feature_names:
             expected_features = len(self._feature_config.feature_names)
         else:
             expected_features = self._feature_engineer.n_features
@@ -548,7 +550,11 @@ class MLSignalActor(BaseMLInferenceActor):
         self._confidence_window[self._window_index] = confidence
 
         # Calculate current volatility (simplified)
-        if len(self._indicator_manager.price_history["closes"]) >= 2:
+        if (
+            self._indicator_manager is not None
+            and "closes" in self._indicator_manager.price_history
+            and len(self._indicator_manager.price_history["closes"]) >= 2
+        ):
             closes = self._indicator_manager.price_history["closes"]
             recent_return = abs(closes[-1] - closes[-2]) / closes[-2]
             self._volatility_window[self._window_index] = recent_return
@@ -599,7 +605,11 @@ class MLSignalActor(BaseMLInferenceActor):
             Current bar data.
 
         """
-        if len(self._indicator_manager.price_history["closes"]) < 20:
+        if (
+            self._indicator_manager is None
+            or "closes" not in self._indicator_manager.price_history
+            or len(self._indicator_manager.price_history["closes"]) < 20
+        ):
             return
 
         closes = np.array(self._indicator_manager.price_history["closes"][-20:])
@@ -841,7 +851,10 @@ class MLSignalActor(BaseMLInferenceActor):
         return None
 
     def _track_performance_metrics(
-        self, prediction: float, confidence: float, signal_time: float
+        self,
+        prediction: float,
+        confidence: float,
+        signal_time: float,
     ) -> None:
         """
         Track detailed performance metrics.
@@ -904,7 +917,9 @@ class MLSignalActor(BaseMLInferenceActor):
         if self._indicator_manager is not None:
             self._indicator_state_backup = {
                 "indicators": {},
-                "price_history": self._indicator_manager.price_history.copy(),
+                "price_history": (
+                    self._indicator_manager.price_history.copy() if self._indicator_manager else {}
+                ),
                 "prediction_history": self._prediction_history.copy(),
                 "confidence_history": self._confidence_history.copy(),
                 "prediction_window": self._prediction_window.copy(),
@@ -956,16 +971,18 @@ class MLSignalActor(BaseMLInferenceActor):
             # Restore state variables
             self._window_index = self._indicator_state_backup.get("window_index", 0)
             self._adaptive_threshold = self._indicator_state_backup.get(
-                "adaptive_threshold", self._config.prediction_threshold
+                "adaptive_threshold",
+                self._config.prediction_threshold,
             )
             self._market_regime = self._indicator_state_backup.get("market_regime", "unknown")
             self._last_signal_bar = self._indicator_state_backup.get(
-                "last_signal_bar", -self._signal_config.min_signal_separation_bars
+                "last_signal_bar",
+                -self._signal_config.min_signal_separation_bars,
             )
 
             # Restore price history
             price_history = self._indicator_state_backup.get("price_history", {})
-            if price_history:
+            if price_history and self._indicator_manager is not None:
                 self._indicator_manager.price_history = price_history
 
             self.log.info("Indicator state restored after hot reload")

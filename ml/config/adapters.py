@@ -102,7 +102,7 @@ class ConfigurationHelper:
             return config.instrument_id
 
         raise AttributeError(
-            f"No instrument_id found in configuration of type {type(config).__name__}"
+            f"No instrument_id found in configuration of type {type(config).__name__}",
         )
 
     @staticmethod
@@ -125,5 +125,5 @@ class ConfigurationHelper:
             return config.model_path
 
         raise AttributeError(
-            f"No model_path found in configuration of type {type(config).__name__}"
+            f"No model_path found in configuration of type {type(config).__name__}",
         )

@@ -358,7 +358,7 @@ class PickleModelLoader(ModelLoader):
         stat = model_path.stat()
         # Create version hash from file size and modification time
         version_string = f"{stat.st_size}_{stat.st_mtime}"
-        return hashlib.md5(version_string.encode()).hexdigest()[:8]
+        return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
 
 
 class ONNXModelLoader(ModelLoader):
@@ -418,7 +418,7 @@ class ONNXModelLoader(ModelLoader):
         stat = model_path.stat()
         # Create version hash from file size and modification time
         version_string = f"onnx_{stat.st_size}_{stat.st_mtime}"
-        return hashlib.md5(version_string.encode()).hexdigest()[:8]
+        return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
 
 
 class MLSignal(Data):
@@ -778,6 +778,7 @@ class BaseMLInferenceActor(Actor, ABC):
                 },
             )
             self._inference_count_metric.inc(
+                1.0,
                 {
                     "actor_id": str(self.id) if self.id else "unknown",
                     "model_name": Path(self._config.model_path).stem,

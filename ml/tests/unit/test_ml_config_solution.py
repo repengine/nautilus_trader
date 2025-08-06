@@ -50,7 +50,7 @@ class TestMLConfigurationSolution:
         )
 
         config = MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path="test_model.pkl",
             bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
             component_id=ComponentId("MLActor-TEST"),
@@ -83,7 +83,7 @@ class TestMLConfigurationSolution:
         """
         # Arrange
         config = MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path="test_model.pkl",
             bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
             component_id=ComponentId("MLActor-002"),
@@ -99,7 +99,7 @@ class TestMLConfigurationSolution:
         assert isinstance(actor, SimpleMLActor)
 
         # The actor should have access to all ML config fields
-        assert actor._config.model_path == "/tmp/test_model.pkl"
+        assert actor._config.model_path == "test_model.pkl"
         assert actor._config.warm_up_period == 5
         assert actor._config.component_id == ComponentId("MLActor-002")
 
@@ -110,7 +110,7 @@ class TestMLConfigurationSolution:
         # Arrange
         bar_type = BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL")
         config = MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path="test_model.pkl",
             bar_type=bar_type,
             instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
             warm_up_period=5,
@@ -161,7 +161,7 @@ class TestMLConfigurationSolution:
         """
         # Arrange
         config = MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path="test_model.pkl",
             bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
             component_id=ComponentId("MLActor-001"),
