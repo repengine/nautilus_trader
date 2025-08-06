@@ -55,7 +55,7 @@ try:
 except ImportError as e:
     HAS_POLARS = False
     POLARS_IMPORT_ERROR = e
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 
 # XGBoost
@@ -67,7 +67,7 @@ try:
 except ImportError as e:
     HAS_XGBOOST = False
     XGBOOST_IMPORT_ERROR = e
-    xgb = None
+    xgb = None  # type: ignore[assignment]
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
@@ -88,10 +88,30 @@ except ImportError as e:
         """
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+            """
+            Initialize mock Counter.
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            """
 
         def inc(self, *args: Any, **kwargs: Any) -> None:
-            pass
+            """
+            Increment counter (no-op).
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            """
 
     class Histogram:  # type: ignore[no-redef]
         """
@@ -99,10 +119,30 @@ except ImportError as e:
         """
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+            """
+            Initialize mock Histogram.
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            """
 
         def observe(self, *args: Any, **kwargs: Any) -> None:
-            pass
+            """
+            Observe value (no-op).
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            """
 
 
 def check_ml_dependencies(required: list[str]) -> None:
@@ -158,19 +198,19 @@ __all__ = [
     # Availability flags
     "HAS_ONNX",
     "HAS_POLARS",
-    "HAS_XGBOOST",
     "HAS_PROMETHEUS",
+    "HAS_XGBOOST",
     # Import errors
     "ONNX_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
-    "XGBOOST_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
-    # Imported modules (may be None)
-    "ort",
-    "pl",
-    "xgb",
+    "XGBOOST_IMPORT_ERROR",
     "Counter",
     "Histogram",
     # Utility function
     "check_ml_dependencies",
+    # Imported modules (may be None)
+    "ort",
+    "pl",
+    "xgb",
 ]

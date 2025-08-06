@@ -110,9 +110,9 @@ class XGBoostTrainer(BaseMLTrainer):
         self._is_multi_asset = config.multi_asset
 
         # Lazy imports for optional dependencies
-        self._xgb = None
-        self._shap = None
-        self._optuna = None
+        self._xgb: Any = None
+        self._shap: Any = None
+        self._optuna: Any = None
 
     def prepare_data(
         self,
@@ -472,9 +472,9 @@ class XGBoostTrainer(BaseMLTrainer):
 
         # Create and train model
         if self._xgb_config.objective == "binary:logistic":
-            model = self._xgb.XGBClassifier(**xgb_params)  # type: ignore
+            model = self._xgb.XGBClassifier(**xgb_params)
         else:
-            model = self._xgb.XGBRegressor(**xgb_params)  # type: ignore
+            model = self._xgb.XGBRegressor(**xgb_params)
 
         # Train with early stopping
         start_time = time.time()
@@ -602,7 +602,7 @@ class XGBoostTrainer(BaseMLTrainer):
         X_shap = X_sample[:n_samples]
 
         # Create explainer and calculate SHAP values
-        explainer = self._shap.TreeExplainer(model)  # type: ignore
+        explainer = self._shap.TreeExplainer(model)
         shap_values = explainer.shap_values(X_shap)
 
         # For binary classification, use positive class

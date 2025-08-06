@@ -649,6 +649,7 @@ class FeatureEngineer:
             features_scaled_array = features_array
 
         # Convert back to appropriate DataFrame type
+        features_scaled: Any  # Will be either pl.DataFrame or pd.DataFrame
         if POLARS_AVAILABLE:
             features_scaled = pl.DataFrame(features_scaled_array, schema=features_df.columns)
             # Add timestamp back if it exists

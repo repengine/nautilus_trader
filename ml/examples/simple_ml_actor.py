@@ -56,11 +56,11 @@ class SimpleMLActor(BaseMLInferenceActor):
         """
         super().__init__(config)
 
-        # Technical indicators
-        self._sma_fast = None
-        self._sma_slow = None
-        self._rsi = None
-        self._ema = None
+        # Technical indicators (will be initialized in on_start)
+        self._sma_fast: SimpleMovingAverage | None = None
+        self._sma_slow: SimpleMovingAverage | None = None
+        self._rsi: RelativeStrengthIndex | None = None
+        self._ema: ExponentialMovingAverage | None = None
 
         # Feature buffer
         self._feature_buffer = np.zeros(8, dtype=np.float32)
@@ -106,10 +106,18 @@ class SimpleMLActor(BaseMLInferenceActor):
 
         """
         # Update indicators
-        self._sma_fast.handle_bar(bar)
-        self._sma_slow.handle_bar(bar)
-        self._rsi.handle_bar(bar)
-        self._ema.handle_bar(bar)
+        if (
+            self._sma_fast is None
+            or self._sma_slow is None
+            or self._rsi is None
+            or self._ema is None
+        ):
+            return None
+
+        self._sma_fast.update(bar.close)
+        self._sma_slow.update(bar.close)
+        self._rsi.update(bar.close)
+        self._ema.update(bar.close)
 
         # Check if all indicators are initialized
         if not all(
@@ -126,13 +134,18 @@ class SimpleMLActor(BaseMLInferenceActor):
         close_price = float(bar.close)
 
         # Price-based features
-        self._feature_buffer[0] = close_price / float(self._sma_fast.value)
-        self._feature_buffer[1] = close_price / float(self._sma_slow.value)
-        self._feature_buffer[2] = float(self._sma_fast.value) / float(self._sma_slow.value)
+        sma_fast_val = float(self._sma_fast.value) if self._sma_fast.value else close_price
+        sma_slow_val = float(self._sma_slow.value) if self._sma_slow.value else close_price
+        ema_val = float(self._ema.value) if self._ema.value else close_price
+        rsi_val = float(self._rsi.value) if self._rsi.value else 50.0
+
+        self._feature_buffer[0] = close_price / sma_fast_val
+        self._feature_buffer[1] = close_price / sma_slow_val
+        self._feature_buffer[2] = sma_fast_val / sma_slow_val
 
         # Technical indicators
-        self._feature_buffer[3] = float(self._rsi.value) / 100.0
-        self._feature_buffer[4] = close_price / float(self._ema.value)
+        self._feature_buffer[3] = rsi_val / 100.0
+        self._feature_buffer[4] = close_price / ema_val
 
         # Price change features
         self._feature_buffer[5] = float(bar.high - bar.low) / close_price

@@ -395,7 +395,7 @@ class TestXGBoostTrainer:
 
         mock_xgb = MagicMock()
         mock_xgb.XGBClassifier.return_value = mock_model
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         X_train = rng.standard_normal((100, 5))
         y_train = rng.integers(0, 2, 100)
@@ -432,7 +432,7 @@ class TestXGBoostTrainer:
 
         mock_xgb = MagicMock()
         mock_xgb.XGBRegressor.return_value = mock_model
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         X_train = rng.standard_normal((100, 5))
         y_train = rng.standard_normal(100)
@@ -466,7 +466,7 @@ class TestXGBoostTrainer:
 
         mock_xgb = MagicMock()
         mock_xgb.XGBClassifier.return_value = mock_model
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         X_train = rng.standard_normal((100, 5))
         y_train = rng.integers(0, 2, 100)
@@ -516,7 +516,7 @@ class TestXGBoostTrainer:
 
         mock_shap = MagicMock()
         mock_shap.TreeExplainer.return_value = mock_explainer
-        trainer._shap = mock_shap  # type: ignore[assignment]
+        trainer._shap = mock_shap
 
         mock_model = MagicMock()
         X_sample = rng.standard_normal((2, 3))

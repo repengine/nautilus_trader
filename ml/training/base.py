@@ -42,7 +42,7 @@ try:
     HAS_POLARS = True
 except ImportError:
     HAS_POLARS = False
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 
 class BaseMLTrainer(ABC):
