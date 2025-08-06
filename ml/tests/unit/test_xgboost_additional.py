@@ -526,7 +526,7 @@ class TestXGBoostTrainerAdditional:
 
         mock_shap = MagicMock()
         mock_shap.TreeExplainer.return_value = mock_explainer
-        trainer._shap = mock_shap  # type: ignore[assignment]
+        trainer._shap = mock_shap
 
         mock_model = MagicMock()
         X_sample = rng.standard_normal((2, 3))
@@ -561,7 +561,7 @@ class TestXGBoostTrainerAdditional:
 
         mock_xgb = MagicMock()
         mock_xgb.XGBClassifier.return_value = mock_model
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         # Mock SHAP
         mock_explainer = MagicMock()
@@ -570,7 +570,7 @@ class TestXGBoostTrainerAdditional:
 
         mock_shap = MagicMock()
         mock_shap.TreeExplainer.return_value = mock_explainer
-        trainer._shap = mock_shap  # type: ignore[assignment]
+        trainer._shap = mock_shap
 
         X_train = rng.standard_normal((100, 5))
         y_train = rng.integers(0, 2, 100)
@@ -597,7 +597,7 @@ class TestXGBoostTrainerAdditional:
 
         mock_shap = MagicMock()
         mock_shap.TreeExplainer.return_value = mock_explainer
-        trainer._shap = mock_shap  # type: ignore[assignment]
+        trainer._shap = mock_shap
 
         mock_model = MagicMock()
         X_sample = rng.standard_normal((2000, 2))  # Large sample

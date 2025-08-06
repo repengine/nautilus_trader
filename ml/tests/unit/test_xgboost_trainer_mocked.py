@@ -172,7 +172,7 @@ class TestXGBoostTrainer:
 
         # Directly set the mocked xgb module instead of patching the import
         trainer = XGBoostTrainer(basic_config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         results = trainer.train(sample_bar_data)
 
@@ -261,7 +261,7 @@ class TestXGBoostTrainer:
 
         # Directly set the mocked xgb module instead of patching the import
         trainer = XGBoostTrainer(basic_config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
         trainer._feature_names = [f"feature_{i}" for i in range(n_features)]
 
         # Train model
@@ -314,7 +314,7 @@ class TestXGBoostTrainer:
 
         # Directly set the mocked xgb module instead of patching the import
         trainer = XGBoostTrainer(basic_config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
         _ = trainer.train(sample_bar_data)
 
         # Save model - mock pickle to avoid MagicMock serialization issues
@@ -326,7 +326,7 @@ class TestXGBoostTrainer:
 
         # Test loading - mock pickle.load too
         new_trainer = XGBoostTrainer(basic_config)
-        new_trainer._xgb = mock_xgb  # type: ignore[assignment]
+        new_trainer._xgb = mock_xgb
         with patch("pickle.load") as mock_load:
             mock_load.return_value = {
                 "model": mock_model,

@@ -23,10 +23,8 @@ from __future__ import annotations
 
 import pytest
 
-from ml.config.adapters import ActorConfigWrapper
 from ml.config.adapters import ConfigurationHelper
-from ml.config.adapters import MLActorConfigBridge
-from ml.config.adapters import create_actor_config_wrapper
+from ml.config.adapters import create_actor_config
 from ml.config.base import MLActorConfig
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.model.data import BarType
@@ -34,14 +32,14 @@ from nautilus_trader.model.identifiers import ComponentId
 from nautilus_trader.model.identifiers import InstrumentId
 
 
-class TestActorConfigWrapper:
+class TestCreateActorConfig:
     """
-    Tests for ActorConfigWrapper class.
+    Tests for create_actor_config function.
     """
 
-    def test_wrapper_creation_with_ml_config(self):
+    def test_create_actor_config_from_ml_config(self):
         """
-        Test creating a wrapper from an ML configuration.
+        Test creating an ActorConfig from an ML configuration.
         """
         # Arrange
         ml_config = MLActorConfig(
@@ -54,135 +52,53 @@ class TestActorConfigWrapper:
         )
 
         # Act
-        wrapper = ActorConfigWrapper(ml_config)
-        actor_config = wrapper.actor_config
+        actor_config = create_actor_config(ml_config)
 
         # Assert
         assert isinstance(actor_config, ActorConfig)
         assert actor_config.component_id == ComponentId("MLActor-001")
         assert actor_config.log_events is False
         assert actor_config.log_commands is True
-        assert hasattr(actor_config, "_ml_config")
-        assert actor_config._ml_config == ml_config
 
-    def test_wrapper_preserves_ml_config(self):
+    def test_create_actor_config_with_defaults(self):
         """
-        Test that wrapper preserves ML configuration.
+        Test creating an ActorConfig with default values.
         """
         # Arrange
         ml_config = MLActorConfig(
             model_path="/path/to/model.pkl",
             bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
-            prediction_threshold=0.75,
-            max_inference_latency_ms=3.0,
-        )
-        wrapper = ActorConfigWrapper(ml_config)
-
-        # Act & Assert
-        assert wrapper.ml_config == ml_config
-        assert wrapper.ml_config.model_path == "/path/to/model.pkl"
-        assert wrapper.ml_config.prediction_threshold == 0.75
-        assert wrapper.ml_config.max_inference_latency_ms == 3.0
-
-    def test_create_actor_config_wrapper_factory(self):
-        """
-        Test the factory function for creating wrapped configs.
-        """
-        # Arrange
-        ml_config = MLActorConfig(
-            model_path="/path/to/model.pkl",
-            bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
-            instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
-            component_id=ComponentId("TestActor"),
         )
 
         # Act
-        actor_config = create_actor_config_wrapper(ml_config)
+        actor_config = create_actor_config(ml_config)
 
         # Assert
         assert isinstance(actor_config, ActorConfig)
-        assert actor_config.component_id == ComponentId("TestActor")
-        assert hasattr(actor_config, "_ml_config")
-        assert actor_config._ml_config == ml_config
+        assert actor_config.component_id is None
+        assert actor_config.log_events is True
+        assert actor_config.log_commands is True
 
-
-class TestMLActorConfigBridge:
-    """
-    Tests for MLActorConfigBridge class.
-    """
-
-    def test_adapt_ml_config(self):
+    def test_create_actor_config_from_object_without_attributes(self):
         """
-        Test adapting an ML configuration.
+        Test creating an ActorConfig from object without expected attributes.
         """
+
         # Arrange
-        ml_config = MLActorConfig(
-            model_path="/path/to/model.pkl",
-            bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
-            instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
-        )
+        class MinimalConfig:
+            pass
+
+        config = MinimalConfig()
 
         # Act
-        adapted = MLActorConfigBridge.adapt(ml_config)
+        actor_config = create_actor_config(config)
 
         # Assert
-        assert isinstance(adapted, ActorConfig)
-        assert hasattr(adapted, "_ml_config")
-        assert adapted._ml_config == ml_config
-
-    def test_adapt_actor_config_returns_unchanged(self):
-        """
-        Test that adapting an ActorConfig returns it unchanged.
-        """
-        # Arrange
-        config = ActorConfig(component_id=ComponentId("TestActor"))
-
-        # Act
-        adapted = MLActorConfigBridge.adapt(config)
-
-        # Assert
-        assert adapted is config
-
-    def test_adapt_invalid_type_raises_error(self):
-        """
-        Test that adapting invalid type raises TypeError.
-        """
-        # Arrange
-        invalid_config = {"model_path": "/path/to/model.pkl"}
-
-        # Act & Assert
-        with pytest.raises(TypeError, match="Cannot adapt configuration"):
-            MLActorConfigBridge.adapt(invalid_config)
-
-    def test_extract_ml_config_from_wrapped(self):
-        """
-        Test extracting ML config from a wrapped config.
-        """
-        # Arrange
-        ml_config = MLActorConfig(
-            model_path="/path/to/model.pkl",
-            bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
-            instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
-        )
-        actor_config = create_actor_config_wrapper(ml_config)
-
-        # Act
-        extracted = MLActorConfigBridge.extract_ml_config(actor_config)
-
-        # Assert
-        assert extracted == ml_config
-
-    def test_extract_ml_config_from_non_adapter_raises_error(self):
-        """
-        Test extracting ML config from non-adapter raises error.
-        """
-        # Arrange
-        config = ActorConfig()
-
-        # Act & Assert
-        with pytest.raises(ValueError, match="does not contain an ML configuration"):
-            MLActorConfigBridge.extract_ml_config(config)
+        assert isinstance(actor_config, ActorConfig)
+        assert actor_config.component_id is None
+        assert actor_config.log_events is True
+        assert actor_config.log_commands is True
 
 
 class TestConfigurationHelper:
@@ -208,24 +124,16 @@ class TestConfigurationHelper:
         # Assert
         assert result == bar_type
 
-    def test_get_bar_type_from_wrapped_config(self):
+    def test_get_bar_type_missing_raises_error(self):
         """
-        Test extracting BarType from wrapped config.
+        Test that accessing missing bar_type raises AttributeError.
         """
         # Arrange
-        bar_type = BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL")
-        ml_config = MLActorConfig(
-            model_path="/path/to/model.pkl",
-            bar_type=bar_type,
-            instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
-        )
-        actor_config = create_actor_config_wrapper(ml_config)
+        config = ActorConfig()  # Doesn't have bar_type
 
-        # Act
-        result = ConfigurationHelper.get_bar_type(actor_config)
-
-        # Assert
-        assert result == bar_type
+        # Act & Assert
+        with pytest.raises(AttributeError, match="No bar_type found"):
+            ConfigurationHelper.get_bar_type(config)
 
     def test_get_instrument_id_from_config(self):
         """
@@ -245,6 +153,17 @@ class TestConfigurationHelper:
         # Assert
         assert result == instrument_id
 
+    def test_get_instrument_id_missing_raises_error(self):
+        """
+        Test that accessing missing instrument_id raises AttributeError.
+        """
+        # Arrange
+        config = ActorConfig()  # Doesn't have instrument_id
+
+        # Act & Assert
+        with pytest.raises(AttributeError, match="No instrument_id found"):
+            ConfigurationHelper.get_instrument_id(config)
+
     def test_get_model_path_from_config(self):
         """
         Test extracting model path from configuration.
@@ -263,13 +182,13 @@ class TestConfigurationHelper:
         # Assert
         assert result == model_path
 
-    def test_get_missing_attribute_raises_error(self):
+    def test_get_model_path_missing_raises_error(self):
         """
-        Test that accessing missing attribute raises AttributeError.
+        Test that accessing missing model_path raises AttributeError.
         """
         # Arrange
-        config = ActorConfig()  # Doesn't have bar_type
+        config = ActorConfig()  # Doesn't have model_path
 
         # Act & Assert
-        with pytest.raises(AttributeError, match="No bar_type found"):
-            ConfigurationHelper.get_bar_type(config)
+        with pytest.raises(AttributeError, match="No model_path found"):
+            ConfigurationHelper.get_model_path(config)

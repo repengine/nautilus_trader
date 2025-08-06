@@ -413,7 +413,7 @@ class TestXGBoostTrainer:
         mock_xgb.XGBClassifier.return_value = mock_model
 
         trainer = XGBoostTrainer(basic_config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         # Mock the feature engineer methods
         mock_features_df = MagicMock()
@@ -555,7 +555,7 @@ class TestXGBoostTrainer:
         mock_xgb.XGBClassifier.return_value = mock_model
 
         trainer = XGBoostTrainer(basic_config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         # Train model
         _ = trainer.train(sample_bar_data)
@@ -595,7 +595,7 @@ class TestXGBoostTrainer:
             monotonic_constraints={"return_1": 1, "return_5": -1},
         )
         trainer = XGBoostTrainer(config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         # This should not raise an error
         results = trainer.train(sample_bar_data)
@@ -624,7 +624,7 @@ class TestXGBoostTrainer:
         mock_xgb.XGBClassifier.return_value = mock_model
 
         trainer = XGBoostTrainer(basic_config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         # Train model
         _ = trainer.train(sample_bar_data)
@@ -691,7 +691,7 @@ class TestXGBoostTrainer:
             n_estimators=10,
         )
         trainer = XGBoostTrainer(config)
-        trainer._xgb = mock_xgb  # type: ignore[assignment]
+        trainer._xgb = mock_xgb
 
         # Add continuous target
         rng = np.random.default_rng(42)
@@ -777,6 +777,7 @@ class TestXGBoostTrainer:
                     start=pl.datetime(2023, 1, 1),
                     end=pl.datetime(2023, 3, 1),
                     interval="1d",
+                    eager=True,
                 )[:60],
                 "open": [100.0] * 60,
                 "high": [102.0] * 58 + [None, None],  # NaN in last 2 values
