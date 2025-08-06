@@ -1308,10 +1308,12 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         # Time-based features from bar timestamp
         # Convert nanoseconds to seconds, then extract time components
         timestamp_seconds = bar.ts_event // 1_000_000_000
-        hour_of_day = (timestamp_seconds // 3600) % 24 / 24.0  # Normalized to [0, 1]
-        day_of_week = (
-            (timestamp_seconds // 86400) % 7 / 7.0
-        )  # Normalized to [0, 1], 0=Thursday epoch
+        # Calculate seconds since midnight for hour of day
+        seconds_in_day = timestamp_seconds % 86400  # 86400 seconds in a day
+        hour_of_day = seconds_in_day / 86400.0  # Normalized to [0, 1]
+        # Calculate day of week (0=Thursday for Unix epoch)
+        days_since_epoch = timestamp_seconds // 86400
+        day_of_week = (days_since_epoch % 7) / 7.0  # Normalized to [0, 1]
         self._feature_buffer[8] = hour_of_day
         self._feature_buffer[9] = day_of_week
 
