@@ -152,7 +152,10 @@ class SimpleMLActor(BaseMLInferenceActor):
         self._feature_buffer[6] = float(bar.close - bar.open) / close_price
 
         # Volume feature
-        self._feature_buffer[7] = min(float(bar.volume) / 1000000.0, 5.0)  # Normalized
+        self._feature_buffer[7] = min(
+            float(bar.volume) / self._feature_config.average_volume,
+            5.0,
+        )  # Normalized
 
         return self._feature_buffer.copy()
 

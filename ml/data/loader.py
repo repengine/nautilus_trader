@@ -618,7 +618,7 @@ class MLDataLoader:
             timestamps[i] = trade.ts_event
             prices[i] = float(trade.price)
             sizes[i] = int(trade.size)
-            aggressor_sides.append(str(trade.aggressor_side))
+            aggressor_sides.append(trade.aggressor_side.name)
 
         # Create DataFrame
         df = pl.DataFrame(

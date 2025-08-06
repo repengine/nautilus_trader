@@ -113,7 +113,11 @@ class TestMLDataLoader:
             trade.ts_event = base_time + i * 1000000000  # 1 second intervals
             trade.price = Price.from_str(f"1.1000{i}")
             trade.size = Quantity.from_int(50 + i)
-            trade.aggressor_side = AggressorSide.BUYER if i % 2 == 0 else AggressorSide.SELLER
+            side = AggressorSide.BUYER if i % 2 == 0 else AggressorSide.SELLER
+            # Create a mock with name attribute
+            mock_side = Mock()
+            mock_side.name = side.name
+            trade.aggressor_side = mock_side
             trades.append(trade)
 
         return trades
