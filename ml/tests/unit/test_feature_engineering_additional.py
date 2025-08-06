@@ -22,9 +22,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
+
+
+# Helper function to handle both pandas and polars DataFrames
+def get_row(df, index):
+    """
+    Get row from DataFrame, handling both pandas and polars.
+    """
+    if HAS_POLARS and isinstance(df, pl.DataFrame):
+        return df.row(index, named=True)
+    else:
+        return df.iloc[index]
 
 
 class TestOnlineFeatureCalculation:
@@ -224,7 +237,7 @@ class TestEdgeCasesAdditional:
 
         # In an uptrend, fast EMA should be above slow EMA
         # ema_cross = (ema_fast - ema_slow) / ema_slow
-        last_row = features_df.iloc[-1]
+        last_row = get_row(features_df, -1)
         assert last_row["ema_cross"] > 0  # Fast above slow in uptrend
 
     def test_features_with_zero_close_price(self) -> None:
@@ -272,7 +285,7 @@ class TestEdgeCasesAdditional:
         features_df, _ = fe.calculate_features_batch(df)
 
         # All returns should be 0
-        last_row = features_df.iloc[-1]
+        last_row = get_row(features_df, -1)
         assert last_row["return_1"] == 0.0
         assert last_row["return_5"] == 0.0
         assert last_row["momentum_5"] == 0.0

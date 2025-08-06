@@ -45,8 +45,19 @@ from nautilus_trader.model.objects import Money
 
 # from nautilus_trader.msgbus.bus import MessageBus as MsgBus  # Not needed
 from nautilus_trader.portfolio.portfolio import Portfolio
-from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.stubs.component import TestComponentStubs
+
+
+class DummyTestModel:
+    """
+    Dummy model for testing.
+    """
+
+    def predict(self, X):
+        import numpy as np
+
+        return np.array([0.8])
 
 
 class TestMLActorIntegration:
@@ -70,8 +81,8 @@ class TestMLActorIntegration:
             clock=self.clock,
         )
 
-        # Create cache database
-        self.cache = MockCacheDatabase()
+        # Create cache
+        self.cache = TestComponentStubs.cache()
 
         # Create portfolio
         self.portfolio = Portfolio(
@@ -96,7 +107,7 @@ class TestMLActorIntegration:
         bar_type = BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL")
 
         config = MLActorConfig(
-            model_path="/tmp/dummy_model.pkl",
+            model_path=Path.home() / ".nautilus" / "dummy_model.pkl",
             bar_type=bar_type,
             instrument_id=instrument_id,
             prediction_threshold=0.6,
@@ -121,7 +132,7 @@ class TestMLActorIntegration:
         bar_type = BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL")
 
         config = MLActorConfig(
-            model_path="/tmp/dummy_model.pkl",
+            model_path=Path.home() / ".nautilus" / "dummy_model.pkl",
             bar_type=bar_type,
             instrument_id=instrument_id,
         )
@@ -129,8 +140,7 @@ class TestMLActorIntegration:
         actor = SimpleMLActor(config)
 
         # Act - Register with message bus
-        actor.register(
-            trader_id=self.trader_id,
+        actor.register_base(
             portfolio=self.portfolio,
             msgbus=self.msgbus,
             cache=self.cache,
@@ -150,9 +160,17 @@ class TestMLActorIntegration:
         instrument_id = InstrumentId.from_str("EURUSD.IDEALPRO")
         bar_type = BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL")
 
+        # Create dummy model file
+        import pickle
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
+            pickle.dump(DummyTestModel(), f)
+            model_path = f.name
+
         # Create ML actor
         config = MLActorConfig(
-            model_path="/tmp/dummy_model.pkl",
+            model_path=model_path,
             bar_type=bar_type,
             instrument_id=instrument_id,
             warm_up_period=5,
@@ -160,8 +178,7 @@ class TestMLActorIntegration:
         )
 
         actor = SimpleMLActor(config)
-        actor.register(
-            trader_id=self.trader_id,
+        actor.register_base(
             portfolio=self.portfolio,
             msgbus=self.msgbus,
             cache=self.cache,
@@ -198,8 +215,13 @@ class TestMLActorIntegration:
         assert actor._is_warmed_up is True
         assert actor._prediction_count > 0  # Should have made predictions after warm-up
 
+        # Cleanup
+        import os
+
+        os.unlink(model_path)
+
     @pytest.mark.skipif(
-        not Path("/tmp/test_model.pkl").exists(),
+        not (Path.home() / ".nautilus" / "test_model.pkl").exists(),
         reason="Requires a test model file",
     )
     def test_ml_actor_in_backtest_engine(self):
@@ -229,7 +251,7 @@ class TestMLActorIntegration:
         # Create ML actor
         bar_type = BarType.from_str("EURUSD.SIM-1-MINUTE-MID-EXTERNAL")
         ml_config = MLActorConfig(
-            model_path="/tmp/test_model.pkl",
+            model_path=Path.home() / ".nautilus" / "test_model.pkl",
             bar_type=bar_type,
             instrument_id=instrument.id,
             warm_up_period=20,

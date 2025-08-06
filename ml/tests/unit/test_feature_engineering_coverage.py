@@ -30,6 +30,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -42,6 +44,17 @@ from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+
+# Helper function to handle both pandas and polars DataFrames
+def get_row(df, index):
+    """
+    Get row from DataFrame, handling both pandas and polars.
+    """
+    if HAS_POLARS and isinstance(df, pl.DataFrame):
+        return df.row(index, named=True)
+    else:
+        return df.iloc[index]
 
 
 class TestImportHandling:
@@ -307,19 +320,19 @@ class TestFeatureCalculationEdgeCases:
         features_df, _ = fe.calculate_features_batch(df)
 
         # First row should have all returns as 0
-        first_row = features_df.iloc[0]
+        first_row = get_row(features_df, 0)
         assert first_row["return_1"] == 0.0
         assert first_row["return_5"] == 0.0
         assert first_row["return_10"] == 0.0
         assert first_row["return_20"] == 0.0
 
         # Second row should have return_1 but not others
-        second_row = features_df.iloc[1]
+        second_row = get_row(features_df, 1)
         assert second_row["return_1"] == 0.01  # (101-100)/100
         assert second_row["return_5"] == 0.0
 
         # Third row should have return_1 but not return_5 yet
-        third_row = features_df.iloc[2]
+        third_row = get_row(features_df, 2)
         assert third_row["return_1"] == pytest.approx(
             (102 - 101) / 101,
             rel=1e-6,
@@ -348,8 +361,8 @@ class TestFeatureCalculationEdgeCases:
 
         # Early rows should have 0 volatility
         for i in range(5):
-            assert features_df.iloc[i]["volatility_5"] == 0.0
-            assert features_df.iloc[i]["volatility_20"] == 0.0
+            assert get_row(features_df, i)["volatility_5"] == 0.0
+            assert get_row(features_df, i)["volatility_20"] == 0.0
 
     def test_price_position_edge_cases(self) -> None:
         """
@@ -372,7 +385,7 @@ class TestFeatureCalculationEdgeCases:
         features_df, _ = fe.calculate_features_batch(df)
 
         # Price position should be 0.5 when max == min
-        last_row = features_df.iloc[-1]
+        last_row = get_row(features_df, -1)
         assert last_row["price_position_20"] == 0.5
 
     def test_online_calculation_with_empty_history(self) -> None:

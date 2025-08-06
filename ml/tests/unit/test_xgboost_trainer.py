@@ -33,6 +33,15 @@ from ml.tests.unit.test_fixtures import mock_sklearn
 from ml.training.xgboost import HAS_POLARS
 
 
+# Check for sklearn availability
+try:
+    import sklearn.preprocessing as _sklearn_preprocessing  # noqa: F401
+
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+
+
 if TYPE_CHECKING:
     pass
 
@@ -533,7 +542,7 @@ class TestXGBoostTrainer:
         assert metadata["n_assets"] == 3
         assert "asset_metadata" in metadata
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_feature_importance_calculation(
         self,
         basic_config: XGBoostTrainingConfig,
@@ -572,7 +581,7 @@ class TestXGBoostTrainer:
         importance_values = list(xgb_importance.values())
         assert importance_values == sorted(importance_values, reverse=True)
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_monotonic_constraints(self, sample_bar_data: MagicMock) -> None:
         """
         Test monotonic constraints functionality.
@@ -601,7 +610,7 @@ class TestXGBoostTrainer:
         results = trainer.train(sample_bar_data)
         assert results["model"] is not None
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_model_saving_and_loading(
         self,
         basic_config: XGBoostTrainingConfig,
@@ -643,7 +652,7 @@ class TestXGBoostTrainer:
         assert new_trainer._model is not None
         assert new_trainer._feature_names == trainer._feature_names
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_target_creation_without_target_column(
         self,
         basic_config: XGBoostTrainingConfig,
@@ -665,7 +674,7 @@ class TestXGBoostTrainer:
         assert len(np.unique(y)) <= 2
         assert np.all((y == 0) | (y == 1))
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_regression_objective(self, sample_bar_data: MagicMock) -> None:
         """
         Test regression objective.
@@ -724,7 +733,7 @@ class TestXGBoostTrainer:
         assert params["gpu_id"] == 1
         assert params["predictor"] == "gpu_predictor"
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_cross_sectional_features(self, multi_asset_config: XGBoostTrainingConfig) -> None:
         """
         Test cross-sectional feature addition.
@@ -759,7 +768,7 @@ class TestXGBoostTrainer:
         assert "return_5_sector_mean" in df_with_features.columns
         assert "return_5_sector_rel" in df_with_features.columns
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_nan_handling(self, basic_config: XGBoostTrainingConfig) -> None:
         """
         Test handling of NaN values in data.
@@ -793,7 +802,7 @@ class TestXGBoostTrainer:
         assert not np.any(np.isnan(X))
         assert not np.any(np.isnan(y))
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="Polars required")
+    @pytest.mark.skipif(not HAS_POLARS or not HAS_SKLEARN, reason="Polars and sklearn required")
     def test_insufficient_data_handling(self, basic_config: XGBoostTrainingConfig) -> None:
         """
         Test handling of insufficient data.

@@ -114,10 +114,10 @@ class SimpleMLActor(BaseMLInferenceActor):
         ):
             return None
 
-        self._sma_fast.update(bar.close)
-        self._sma_slow.update(bar.close)
-        self._rsi.update(bar.close)
-        self._ema.update(bar.close)
+        self._sma_fast.update_raw(float(bar.close))
+        self._sma_slow.update_raw(float(bar.close))
+        self._rsi.update_raw(float(bar.close))
+        self._ema.update_raw(float(bar.close))
 
         # Check if all indicators are initialized
         if not all(

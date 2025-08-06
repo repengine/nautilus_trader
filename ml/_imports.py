@@ -55,7 +55,7 @@ try:
 except ImportError as e:
     HAS_POLARS = False
     POLARS_IMPORT_ERROR = e
-    pl = None  # type: ignore[assignment]
+    pl = None  # type: ignore[assignment,unused-ignore]
 
 
 # XGBoost
@@ -67,7 +67,7 @@ try:
 except ImportError as e:
     HAS_XGBOOST = False
     XGBOOST_IMPORT_ERROR = e
-    xgb = None  # type: ignore[assignment]
+    xgb = None  # type: ignore[assignment,unused-ignore]
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
