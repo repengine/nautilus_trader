@@ -87,7 +87,7 @@ class TestMLActorConfiguration:
         """
         # Arrange
         config = MLActorConfig(
-            model_path="/tmp/dummy_model.pkl",
+            model_path="dummy_model.pkl",
             bar_type=BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.IDEALPRO"),
             prediction_threshold=0.65,
