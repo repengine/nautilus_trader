@@ -598,11 +598,12 @@ class FeatureEngineer:
         if not feature_rows:
             return self._create_empty_features_dataframe(feature_names)
 
-        if POLARS_AVAILABLE:
+        if POLARS_AVAILABLE and hasattr(df, "__module__") and "polars" in df.__module__:
+            # Input is a Polars DataFrame
             features_df = pl.DataFrame(feature_rows)
-            # Add timestamp if available
-            if "timestamp" in df.columns:
-                features_df = features_df.with_columns(df["timestamp"])
+            # Add timestamp if available and not already present
+            if "timestamp" in df.columns and "timestamp" not in features_df.columns:
+                features_df = features_df.with_columns(df["timestamp"].alias("timestamp"))
             # Ensure column order matches config
             features_df = features_df.select(feature_names)
         else:
