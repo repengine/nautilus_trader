@@ -52,6 +52,8 @@ class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
         Whether to normalize features to [0, 1] range.
     fill_missing_with : float, default 0.0
         Value to use for missing data imputation.
+    average_volume : PositiveFloat, default 1000000.0
+        Average volume used for volume feature normalization.
 
     """
 
@@ -60,6 +62,7 @@ class MLFeatureConfig(NautilusConfig, kw_only=True, frozen=True):
     feature_names: list[str] | None = None
     normalize_features: bool = True
     fill_missing_with: float = 0.0
+    average_volume: PositiveFloat = 1000000.0
 
 
 class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
