@@ -137,9 +137,10 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     # Volume features
     volume_ma_periods: list[int] = msgspec.field(default_factory=lambda: [5, 10, 20])
 
-    # Optional advanced features
+    # Optional advanced features (default False for backward compatibility)
     include_microstructure: bool = False
     include_trade_flow: bool = False
+    validate_quality: bool = False
 
     def __post_init__(self) -> None:
         """
@@ -515,7 +516,9 @@ class FeatureEngineer:
         # Pre-allocate feature buffer for hot path performance
         feature_names = self.config.get_feature_names()
         self.n_features = len(feature_names)
-        self.feature_buffer = np.zeros(self.n_features, dtype=np.float32)
+        # Add some extra space for potential additional features in online calculation
+        buffer_size = self.n_features + 20  # Extra buffer for safety
+        self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
 
     def _extract_price_arrays(self, df: Any) -> tuple[np.ndarray, ...]:
         """
@@ -971,6 +974,22 @@ class FeatureEngineer:
             feature_idx,
         )
 
+        # Add microstructure features if enabled (hot path - use simplified calculations)
+        if self.config.include_microstructure:
+            feature_idx = self._calculate_microstructure_features_online(
+                current_bar,
+                indicator_manager,
+                feature_idx,
+            )
+
+        # Add trade flow features if enabled (hot path - use simplified calculations)
+        if self.config.include_trade_flow:
+            feature_idx = self._calculate_trade_flow_features_online(
+                current_bar,
+                indicator_manager,
+                feature_idx,
+            )
+
         # Scale if scaler provided
         if scaler is not None:
             # Reshape for sklearn
@@ -1194,6 +1213,242 @@ class FeatureEngineer:
 
         """
         return self.config.get_feature_names()
+
+    def _calculate_microstructure_features_online(
+        self,
+        current_bar: dict[str, float],
+        indicator_manager: IndicatorManager,
+        feature_idx: int,
+    ) -> int:
+        """
+        Calculate microstructure features for online inference (hot path).
+
+        In the hot path, we use simplified calculations or pre-computed values
+        to maintain low latency. Complex microstructure calculations should
+        be performed by a separate Actor.
+
+        Parameters
+        ----------
+        current_bar : dict[str, float]
+            Current OHLCV data.
+        indicator_manager : IndicatorManager
+            Indicator manager with state.
+        feature_idx : int
+            Current feature buffer index.
+
+        Returns
+        -------
+        int
+            Updated feature buffer index.
+
+        """
+        # For hot path, use simplified calculations or default values
+        # In production, these would be provided by a MicrostructureActor
+
+        # Spread features - estimate from high/low spread
+        hl_spread = current_bar["high"] - current_bar["low"]
+        close = current_bar["close"]
+
+        # Estimated spread mean (as fraction of price)
+        self.feature_buffer[feature_idx] = safe_divide(hl_spread, close, 0.0)
+        feature_idx += 1
+
+        # Spread std - would need historical data, use 0 for hot path
+        self.feature_buffer[feature_idx] = 0.0
+        feature_idx += 1
+
+        # Relative spread (same as spread mean in this approximation)
+        self.feature_buffer[feature_idx] = safe_divide(hl_spread, close, 0.0)
+        feature_idx += 1
+
+        # Size imbalance features - default to neutral
+        self.feature_buffer[feature_idx] = 0.0  # size_imbalance_mean
+        feature_idx += 1
+        self.feature_buffer[feature_idx] = 0.0  # size_imbalance_std
+        feature_idx += 1
+
+        # Mid-price return volatility - estimate from recent price changes
+        closes = indicator_manager.price_history["closes"]
+        if len(closes) > 1:
+            recent_returns = []
+            for i in range(max(0, len(closes) - 5), len(closes)):
+                if i > 0 and closes[i - 1] > 0:
+                    ret = (closes[i] - closes[i - 1]) / closes[i - 1]
+                    recent_returns.append(ret)
+
+            if recent_returns:
+                self.feature_buffer[feature_idx] = float(np.std(recent_returns))
+            else:
+                self.feature_buffer[feature_idx] = 0.0
+        else:
+            self.feature_buffer[feature_idx] = 0.0
+        feature_idx += 1
+
+        # Mid-price return autocorrelation - default to 0 for hot path
+        self.feature_buffer[feature_idx] = 0.0
+        feature_idx += 1
+
+        return feature_idx
+
+    def _calculate_trade_flow_features_online(
+        self,
+        current_bar: dict[str, float],
+        indicator_manager: IndicatorManager,
+        feature_idx: int,
+    ) -> int:
+        """
+        Calculate trade flow features for online inference (hot path).
+
+        Parameters
+        ----------
+        current_bar : dict[str, float]
+            Current OHLCV data.
+        indicator_manager : IndicatorManager
+            Indicator manager with state.
+        feature_idx : int
+            Current feature buffer index.
+
+        Returns
+        -------
+        int
+            Updated feature buffer index.
+
+        """
+        # For hot path, use simplified calculations or default values
+        # In production, these would be provided by a TradeFlowActor
+
+        close = current_bar["close"]
+        volume = current_bar["volume"]
+
+        # Trade flow imbalance - default to neutral (no directional bias)
+        self.feature_buffer[feature_idx] = 0.0
+        feature_idx += 1
+
+        # VWAP - use current close as approximation
+        # In practice, this would be maintained by a separate VWAP calculator
+        self.feature_buffer[feature_idx] = close
+        feature_idx += 1
+
+        # Trade intensity - estimate from volume
+        # Higher volume typically indicates more trades
+        # Normalize to reasonable range
+        volumes = indicator_manager.price_history["volumes"]
+        if len(volumes) > 1:
+            avg_volume = sum(volumes[-min(20, len(volumes)) :]) / min(20, len(volumes))
+            intensity = safe_divide(volume, avg_volume, 1.0)
+            # Cap intensity to reasonable range
+            self.feature_buffer[feature_idx] = min(intensity, 5.0)
+        else:
+            self.feature_buffer[feature_idx] = 1.0
+        feature_idx += 1
+
+        # Average price impact - estimate from price movement vs volume
+        if volume > 0:
+            hl_spread = current_bar["high"] - current_bar["low"]
+            # Normalize by volume - higher volume should have lower per-unit impact
+            impact = safe_divide(hl_spread / close, volume / 1000, 0.0)
+            self.feature_buffer[feature_idx] = min(impact, 0.01)  # Cap at 1%
+        else:
+            self.feature_buffer[feature_idx] = 0.0
+        feature_idx += 1
+
+        return feature_idx
+
+    def validate_feature_quality(self, features_df: Any) -> dict[str, dict[str, float]]:
+        """
+        Validate feature quality metrics (cold path only).
+
+        Parameters
+        ----------
+        features_df : pl.DataFrame or pd.DataFrame
+            Features DataFrame to validate.
+
+        Returns
+        -------
+        dict[str, dict[str, float]]
+            Quality metrics per feature.
+
+        """
+        if not self.config.validate_quality or not POLARS_AVAILABLE:
+            return {}
+
+        features_df = self._convert_to_polars(features_df)
+        if features_df is None or len(features_df) == 0:
+            return {}
+
+        quality_metrics = {}
+        total_rows = len(features_df)
+
+        for col in features_df.columns:
+            if col in ["timestamp", "entity_id", "symbol"]:
+                continue
+
+            try:
+                metrics = self._calculate_column_metrics(features_df[col], total_rows)
+                quality_metrics[col] = metrics
+            except Exception:
+                # Skip columns that fail validation
+                continue
+
+        return quality_metrics
+
+    def _convert_to_polars(self, features_df: Any) -> Any:
+        """
+        Convert DataFrame to Polars format.
+        """
+        if not hasattr(features_df, "columns") or "polars" not in str(type(features_df)):
+            try:
+                import pandas as pd
+
+                if isinstance(features_df, pd.DataFrame):
+                    return pl.from_pandas(features_df)
+            except ImportError:
+                return None
+        return features_df
+
+    def _calculate_column_metrics(self, col_data: Any, total_rows: int) -> dict[str, float]:
+        """
+        Calculate quality metrics for a single column.
+        """
+        # Basic metrics
+        null_count = col_data.null_count()
+        zero_count = (col_data == 0.0).sum()
+        unique_count = col_data.n_unique()
+
+        metrics = {
+            "null_rate": float(null_count / total_rows),
+            "zero_rate": float(zero_count / total_rows),
+            "unique_ratio": float(unique_count / total_rows),
+            "inf_rate": 0.0,
+            "outlier_rate": 0.0,
+        }
+
+        # Additional metrics for numeric columns
+        if col_data.dtype in [pl.Float32, pl.Float64]:
+            inf_count = col_data.is_infinite().sum()
+            metrics["inf_rate"] = float(inf_count / total_rows)
+            metrics["outlier_rate"] = self._calculate_outlier_rate(col_data, total_rows)
+
+        return metrics
+
+    def _calculate_outlier_rate(self, col_data: Any, total_rows: int) -> float:
+        """
+        Calculate outlier rate using IQR method.
+        """
+        try:
+            q1 = col_data.quantile(0.25)
+            q3 = col_data.quantile(0.75)
+
+            if q1 is not None and q3 is not None and not (np.isnan(q1) or np.isnan(q3)):
+                iqr = q3 - q1
+                if iqr > 0:
+                    lower_bound = q1 - 1.5 * iqr
+                    upper_bound = q3 + 1.5 * iqr
+                    outlier_count = ((col_data < lower_bound) | (col_data > upper_bound)).sum()
+                    return float(outlier_count / total_rows)
+        except Exception:
+            pass
+        return 0.0
 
     def reset(self) -> None:
         """
