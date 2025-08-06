@@ -1303,18 +1303,23 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         self._feature_buffer[6] = float(bar.close - bar.open) / close_price  # Return
 
         # Volume features (normalized)
-        avg_volume = 1000000.0  # This should come from config or be computed
-        self._feature_buffer[7] = float(bar.volume) / avg_volume
+        self._feature_buffer[7] = float(bar.volume) / self._feature_config.average_volume
 
-        # Time-based features (hour of day, day of week, etc.)
-        # These would typically come from bar timestamp
-        self._feature_buffer[8] = 0.5  # Placeholder for time features
+        # Time-based features from bar timestamp
+        # Convert nanoseconds to seconds, then extract time components
+        timestamp_seconds = bar.ts_event // 1_000_000_000
+        hour_of_day = (timestamp_seconds // 3600) % 24 / 24.0  # Normalized to [0, 1]
+        day_of_week = (
+            (timestamp_seconds // 86400) % 7 / 7.0
+        )  # Normalized to [0, 1], 0=Thursday epoch
+        self._feature_buffer[8] = hour_of_day
+        self._feature_buffer[9] = day_of_week
 
         # Additional derived features
-        self._feature_buffer[9] = min(float(self._rsi.value) / 50.0 - 1.0, 1.0)  # RSI deviation
+        self._feature_buffer[10] = min(float(self._rsi.value) / 50.0 - 1.0, 1.0)  # RSI deviation
 
         # Return only the used portion of the buffer
-        return self._feature_buffer[:10].copy()
+        return self._feature_buffer[:11].copy()
 
     def _load_model(self) -> None:
         """
