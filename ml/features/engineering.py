@@ -23,7 +23,7 @@ Feature parity is critical for ML model performance in production.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import msgspec
 import numpy as np
@@ -35,6 +35,10 @@ from ml.config.base import MLFeatureConfig
 from ml.constants import IndicatorNames
 from ml.constants import SystemConstants
 from ml.constants import TechnicalIndicatorPeriods
+
+
+if TYPE_CHECKING:
+    from ml.monitoring.collectors.features import FeatureEngineeringCollector
 
 
 # Optional sklearn import - StandardScaler is only needed for scaling
@@ -500,7 +504,11 @@ class FeatureEngineer:
 
     """
 
-    def __init__(self, config: FeatureConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: FeatureConfig | None = None,
+        metrics_collector: FeatureEngineeringCollector | None = None,
+    ) -> None:
         """
         Initialize feature engineer.
 
@@ -508,16 +516,24 @@ class FeatureEngineer:
         ----------
         config : FeatureConfig, optional
             Configuration for feature engineering. If None, uses default configuration.
+        metrics_collector : FeatureEngineeringCollector, optional
+            Optional metrics collector for monitoring feature engineering performance.
 
         """
         self.config = config or FeatureConfig()
         self.scaler: Any = None
+        self._metrics = metrics_collector
 
         # Pre-allocate feature buffer for hot path performance
         feature_names = self.config.get_feature_names()
         self.n_features = len(feature_names)
         # Add some extra space for potential additional features in online calculation
         buffer_size = self.n_features + 20  # Extra buffer for safety
+
+        # Cache statistics for metrics
+        self._feature_cache: dict[str, Any] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
         self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
 
     def _extract_price_arrays(self, df: Any) -> tuple[np.ndarray, ...]:
@@ -698,6 +714,37 @@ class FeatureEngineer:
             Tuple of (features DataFrame, fitted scaler or None).
 
         """
+        # Determine instrument from DataFrame or use generic
+        instrument = str(getattr(df, "instrument_id", "unknown"))
+
+        # Use metrics collector timer if available
+        if self._metrics is not None:
+            timer = self._metrics.time_feature_computation(
+                instrument=instrument,
+                feature_type="technical",
+                computation_mode="batch",
+            )
+        else:
+            timer = None
+
+        with timer if timer is not None else _dummy_context_manager():
+            return self._calculate_features_batch_impl(
+                df,
+                fit_scaler,
+                scaler_fit_ratio,
+                timer,
+            )
+
+    def _calculate_features_batch_impl(
+        self,
+        df: Any,
+        fit_scaler: bool,
+        scaler_fit_ratio: float,
+        timer: Any = None,
+    ) -> tuple[Any, Any]:
+        """
+        Implement batch feature calculation internally.
+        """
         # Create indicator manager
         indicator_mgr = IndicatorManager(self.config)
 
@@ -758,6 +805,23 @@ class FeatureEngineer:
 
         # Create DataFrame
         features_df = self._create_features_dataframe(feature_rows, df)
+
+        # Set timer results if available
+        if timer is not None:
+            feature_count = (
+                features_df.width
+                if hasattr(features_df, "width")
+                else len(features_df.columns) if hasattr(features_df, "columns") else 0
+            )
+            timer.set_computation_result(
+                features_computed=feature_count,
+                cache_hit=False,  # Batch computation is never cached
+                feature_qualities=(
+                    self._calculate_feature_qualities(features_df)
+                    if hasattr(features_df, "select")
+                    else {}
+                ),
+            )
 
         # Scale if requested
         if fit_scaler:
@@ -943,6 +1007,46 @@ class FeatureEngineer:
         np.ndarray
             Feature array ready for model prediction.
 
+        """
+        # Determine instrument from current_bar or use generic
+        instrument = str(current_bar.get("instrument_id", "unknown"))
+
+        # Use metrics collector timer if available
+        if self._metrics is not None:
+            timer = self._metrics.time_feature_computation(
+                instrument=instrument,
+                feature_type="technical",
+                computation_mode="online",
+            )
+        else:
+            timer = None
+
+        with timer if timer is not None else _dummy_context_manager():
+            result = self._calculate_features_online_impl(
+                current_bar,
+                indicator_manager,
+                scaler,
+                timer,
+            )
+
+            # Set timer results if available
+            if timer is not None:
+                timer.set_computation_result(
+                    features_computed=len(result),
+                    cache_hit=False,  # Online computation is never cached in the traditional sense
+                )
+
+            return result
+
+    def _calculate_features_online_impl(
+        self,
+        current_bar: dict[str, float],
+        indicator_manager: IndicatorManager,
+        scaler: Any = None,
+        timer: Any = None,
+    ) -> np.ndarray:
+        """
+        Implement online feature calculation internally.
         """
         # Reset buffer
         self.feature_buffer.fill(0.0)
@@ -1872,3 +1976,66 @@ class FeatureEngineer:
         """
         if hasattr(self, "feature_buffer"):
             self.feature_buffer.fill(0.0)
+
+    def _calculate_feature_qualities(self, features_df: Any) -> dict[str, dict[str, float]]:
+        """
+        Calculate feature quality metrics for monitoring.
+
+        Parameters
+        ----------
+        features_df : pl.DataFrame or pd.DataFrame
+            Features to analyze.
+
+        Returns
+        -------
+        dict[str, dict[str, float]]
+            Quality metrics per feature.
+
+        """
+        if not HAS_POLARS or not hasattr(features_df, "select"):
+            return {}
+
+        qualities = {}
+
+        try:
+            for col in features_df.columns:
+                if col in ["timestamp", "entity_id", "symbol"]:
+                    continue
+
+                col_data = features_df.select(col).to_numpy().flatten()
+                total_rows = len(col_data)
+
+                if total_rows == 0:
+                    qualities[col] = {"null_ratio": 1.0, "infinite_ratio": 1.0}
+                    continue
+
+                # Calculate null ratio
+                null_count = np.sum(np.isnan(col_data))
+                null_ratio = null_count / total_rows
+
+                # Calculate infinite ratio
+                inf_count = np.sum(np.isinf(col_data))
+                inf_ratio = inf_count / total_rows
+
+                qualities[col] = {
+                    "null_ratio": float(null_ratio),
+                    "infinite_ratio": float(inf_ratio),
+                }
+
+        except Exception:  # noqa: S110
+            # Graceful degradation
+            pass
+
+        return qualities
+
+
+class _dummy_context_manager:
+    """
+    Dummy context manager for when metrics is None.
+    """
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass

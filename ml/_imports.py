@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     import polars as pl
     import xgboost as xgb
     from prometheus_client import Counter
+    from prometheus_client import Gauge
     from prometheus_client import Histogram
 
 
@@ -73,6 +74,7 @@ except ImportError as e:
 # Prometheus Client (already handled in metrics.py, included for completeness)
 try:
     from prometheus_client import Counter
+    from prometheus_client import Gauge
     from prometheus_client import Histogram
 
     HAS_PROMETHEUS = True
@@ -113,6 +115,75 @@ except ImportError as e:
 
             """
 
+        def labels(self, *args: Any, **kwargs: Any) -> Any:
+            """
+            Get labeled counter (returns self for chaining).
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            Returns
+            -------
+            Any
+                Self for method chaining.
+
+            """
+            return self
+
+    class Gauge:  # type: ignore[no-redef]
+        """
+        Dummy Gauge when prometheus-client is not available.
+        """
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            """
+            Initialize mock Gauge.
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            """
+
+        def set(self, *args: Any, **kwargs: Any) -> None:
+            """
+            Set gauge value (no-op).
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            """
+
+        def labels(self, *args: Any, **kwargs: Any) -> Any:
+            """
+            Get labeled gauge (returns self for chaining).
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            Returns
+            -------
+            Any
+                Self for method chaining.
+
+            """
+            return self
+
     class Histogram:  # type: ignore[no-redef]
         """
         Dummy Histogram when prometheus-client is not available.
@@ -143,6 +214,25 @@ except ImportError as e:
                 Keyword arguments (ignored).
 
             """
+
+        def labels(self, *args: Any, **kwargs: Any) -> Any:
+            """
+            Get labeled histogram (returns self for chaining).
+
+            Parameters
+            ----------
+            *args : Any
+                Positional arguments (ignored).
+            **kwargs : Any
+                Keyword arguments (ignored).
+
+            Returns
+            -------
+            Any
+                Self for method chaining.
+
+            """
+            return self
 
 
 def check_ml_dependencies(required: list[str]) -> None:
@@ -206,6 +296,7 @@ __all__ = [
     "PROMETHEUS_IMPORT_ERROR",
     "XGBOOST_IMPORT_ERROR",
     "Counter",
+    "Gauge",
     "Histogram",
     # Utility function
     "check_ml_dependencies",

@@ -686,7 +686,7 @@ class TestLoadMLDataFunction:
                 data_type="bars",
             )
 
-            mock_loader_class.assert_called_once_with(self.mock_catalog)
+            mock_loader_class.assert_called_once_with(self.mock_catalog, metrics_collector=None)
             mock_loader.load_multiple.assert_called_once_with(
                 instrument_ids=instruments,
                 data_type="bars",
