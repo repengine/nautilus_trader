@@ -15,9 +15,9 @@
 """
 MLflow tracking integration for XGBoost model experiments.
 
-This module provides comprehensive MLflow integration for experiment tracking,
-model registry management, and artifact storage, specifically designed for
-financial machine learning workflows with XGBoost models.
+This module provides comprehensive MLflow integration for experiment tracking, model
+registry management, and artifact storage, specifically designed for financial machine
+learning workflows with XGBoost models.
 
 """
 
@@ -31,14 +31,15 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ml._imports import HAS_MLFLOW, HAS_XGBOOST
+from ml._imports import HAS_MLFLOW
+from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies
 from ml._imports import mlflow
 from ml.config.xgboost_unified import MLflowConfig
 
+
 if TYPE_CHECKING:
     import mlflow
-    from mlflow import MlflowClient
 
 
 class MLflowXGBoostTracker:
@@ -81,7 +82,9 @@ class MLflowXGBoostTracker:
         self._experiment_id: str | None = None
 
     def _ensure_mlflow(self) -> None:
-        """Ensure MLflow is available and properly configured."""
+        """
+        Ensure MLflow is available and properly configured.
+        """
         if not HAS_MLFLOW:
             check_ml_dependencies(["mlflow"])
 
@@ -95,7 +98,9 @@ class MLflowXGBoostTracker:
             try:
                 experiment = self._mlflow.set_experiment(self.config.experiment_name)
                 self._experiment_id = experiment.experiment_id
-                print(f"Using MLflow experiment: {self.config.experiment_name} (ID: {self._experiment_id})")
+                print(
+                    f"Using MLflow experiment: {self.config.experiment_name} (ID: {self._experiment_id})"
+                )
             except Exception as e:
                 print(f"Warning: Could not set MLflow experiment: {e}")
                 self._experiment_id = None
@@ -240,7 +245,9 @@ class MLflowXGBoostTracker:
                 self._mlflow.end_run()
 
     def _log_parameters(self, params: dict[str, Any]) -> None:
-        """Log model parameters to MLflow."""
+        """
+        Log model parameters to MLflow.
+        """
         # Filter out non-serializable parameters
         loggable_params = {}
         for key, value in params.items():
@@ -258,7 +265,9 @@ class MLflowXGBoostTracker:
             self._mlflow.log_params(batch)
 
     def _log_metrics(self, metrics: dict[str, float]) -> None:
-        """Log training metrics to MLflow."""
+        """
+        Log training metrics to MLflow.
+        """
         # Convert all metrics to float and handle NaN/inf
         loggable_metrics = {}
         for key, value in metrics.items():
@@ -272,7 +281,9 @@ class MLflowXGBoostTracker:
             self._mlflow.log_metrics(loggable_metrics)
 
     def _log_feature_importance(self, feature_importance: dict[str, float]) -> None:
-        """Log feature importance scores as metrics."""
+        """
+        Log feature importance scores as metrics.
+        """
         # Log top 20 features to avoid cluttering the UI
         top_features = dict(list(feature_importance.items())[:20])
 
@@ -292,7 +303,9 @@ class MLflowXGBoostTracker:
         feature_names: list[str] | None = None,
         model_signature: Any = None,
     ) -> None:
-        """Log XGBoost model to MLflow."""
+        """
+        Log XGBoost model to MLflow.
+        """
         if not HAS_XGBOOST:
             print("Warning: XGBoost not available, skipping model logging")
             return
@@ -308,7 +321,9 @@ class MLflowXGBoostTracker:
             self._mlflow.xgboost.log_model(
                 xgb_model=model,
                 artifact_path="model",
-                registered_model_name=self.config.model_name if self.config.register_model else None,
+                registered_model_name=(
+                    self.config.model_name if self.config.register_model else None
+                ),
                 signature=model_signature,
                 input_example=input_example,
                 await_registration_for=300,  # Wait up to 5 minutes for registration
@@ -320,7 +335,9 @@ class MLflowXGBoostTracker:
             print(f"Warning: Failed to log model: {e}")
 
     def _log_artifacts(self, artifacts: dict[str, Any]) -> None:
-        """Log additional artifacts to MLflow."""
+        """
+        Log additional artifacts to MLflow.
+        """
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
@@ -344,7 +361,9 @@ class MLflowXGBoostTracker:
         feature_names: list[str] | None = None,
         feature_importance: dict[str, float] | None = None,
     ) -> None:
-        """Log additional metadata about the training run."""
+        """
+        Log additional metadata about the training run.
+        """
         metadata = {
             "n_features": len(feature_names) if feature_names else 0,
             "timestamp": int(time.time()),
@@ -355,11 +374,13 @@ class MLflowXGBoostTracker:
             metadata.update(
                 {
                     "n_important_features": len(feature_importance),
-                    "top_feature": max(feature_importance.items(), key=lambda x: x[1])[0]
-                    if feature_importance
-                    else None,
+                    "top_feature": (
+                        max(feature_importance.items(), key=lambda x: x[1])[0]
+                        if feature_importance
+                        else None
+                    ),
                     "importance_sum": sum(feature_importance.values()),
-                }
+                },
             )
 
         # Log as tags
@@ -517,9 +538,11 @@ class MLflowXGBoostTracker:
         try:
             # Get model details
             model = self._client.get_registered_model(model_name)
-            
+
             # Get all versions
-            versions = self._client.get_latest_versions(model_name, stages=["None", "Staging", "Production", "Archived"])
+            versions = self._client.get_latest_versions(
+                model_name, stages=["None", "Staging", "Production", "Archived"]
+            )
 
             model_info = {
                 "name": model.name,
@@ -561,7 +584,7 @@ class MLflowXGBoostTracker:
         self._ensure_mlflow()
 
         experiment_name = experiment_name or self.config.experiment_name
-        
+
         try:
             experiment = self._mlflow.get_experiment_by_name(experiment_name)
             if experiment is None:

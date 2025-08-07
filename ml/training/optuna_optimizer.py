@@ -15,22 +15,26 @@
 """
 Optuna-based hyperparameter optimizer for XGBoost models.
 
-This module provides sophisticated hyperparameter optimization capabilities using Optuna,
-with support for various sampling strategies, pruning algorithms, and custom objective functions
-tailored for financial machine learning applications.
+This module provides sophisticated hyperparameter optimization capabilities using
+Optuna, with support for various sampling strategies, pruning algorithms, and custom
+objective functions tailored for financial machine learning applications.
 
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ml._imports import HAS_OPTUNA, HAS_XGBOOST
+from ml._imports import HAS_OPTUNA
+from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies
-from ml._imports import optuna, xgb
+from ml._imports import optuna
+from ml._imports import xgb
 from ml.config.xgboost_unified import OptunaConfig
+
 
 if TYPE_CHECKING:
     import optuna
@@ -74,7 +78,9 @@ class XGBoostOptunaOptimizer:
         self._study: Any = None
 
     def _ensure_optuna(self) -> None:
-        """Ensure Optuna is available and initialize if needed."""
+        """
+        Ensure Optuna is available and initialize if needed.
+        """
         if not HAS_OPTUNA:
             check_ml_dependencies(["optuna"])
 
@@ -179,7 +185,9 @@ class XGBoostOptunaOptimizer:
             # Default to median pruner
             return self._optuna.pruners.MedianPruner()
 
-    def sample_xgboost_params(self, trial: optuna.Trial, base_params: dict[str, Any]) -> dict[str, Any]:
+    def sample_xgboost_params(
+        self, trial: optuna.Trial, base_params: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Sample XGBoost hyperparameters for a trial.
 
@@ -285,7 +293,7 @@ class XGBoostOptunaOptimizer:
                 pruning_callback = None
                 if self.config.pruner != "none":
                     pruning_callback = self._optuna.integration.XGBoostPruningCallback(
-                        trial, 
+                        trial,
                         observation_key="validation_0-" + params.get("eval_metric", "rmse"),
                     )
 
@@ -362,7 +370,7 @@ class XGBoostOptunaOptimizer:
 
         # Add progress callback if enabled
         optimization_callbacks = callbacks or []
-        
+
         try:
             # Run optimization
             study.optimize(
@@ -389,9 +397,15 @@ class XGBoostOptunaOptimizer:
             }
 
             # Add study statistics
-            completed_trials = [t for t in study.trials if t.state == self._optuna.trial.TrialState.COMPLETE]
-            failed_trials = [t for t in study.trials if t.state == self._optuna.trial.TrialState.FAIL]
-            pruned_trials = [t for t in study.trials if t.state == self._optuna.trial.TrialState.PRUNED]
+            completed_trials = [
+                t for t in study.trials if t.state == self._optuna.trial.TrialState.COMPLETE
+            ]
+            failed_trials = [
+                t for t in study.trials if t.state == self._optuna.trial.TrialState.FAIL
+            ]
+            pruned_trials = [
+                t for t in study.trials if t.state == self._optuna.trial.TrialState.PRUNED
+            ]
 
             results["statistics"] = {
                 "n_completed": len(completed_trials),
@@ -455,7 +469,9 @@ class XGBoostOptunaOptimizer:
         # Parameter importance (if available)
         try:
             importance = self._optuna.importance.get_param_importances(study)
-            summary["param_importance"] = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True))
+            summary["param_importance"] = dict(
+                sorted(importance.items(), key=lambda x: x[1], reverse=True)
+            )
         except Exception:
             summary["param_importance"] = {}
 

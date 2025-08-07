@@ -534,7 +534,7 @@ class FeatureEngineer:
         self._feature_cache: dict[str, Any] = {}
         self._cache_hits = 0
         self._cache_misses = 0
-        self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
+        self.feature_buffer = np.zeros(buffer_size, dtype=np.float64)
 
     def _extract_price_arrays(self, df: Any) -> tuple[np.ndarray, ...]:
         """
@@ -961,8 +961,9 @@ class FeatureEngineer:
         lows = indicator_manager.price_history.get("lows", [])
 
         if len(highs) >= 20 and len(lows) >= 20:
-            min_20 = min(lows[-20:-1]) if len(lows) > 20 else min(lows[-20:])
-            max_20 = max(highs[-20:-1]) if len(highs) > 20 else max(highs[-20:])
+            # Look at the last 20 bars (including current)
+            min_20 = min(lows[-20:])
+            max_20 = max(highs[-20:])
             if max_20 > min_20:
                 price_pos = np.clip((close - min_20) / (max_20 - min_20 + 1e-10), 0.0, 1.0)
             else:
@@ -1236,9 +1237,12 @@ class FeatureEngineer:
         )
 
         # Price position
-        if idx >= 20 and high_array is not None and low_array is not None:
-            min_20 = float(np.min(low_array[max(0, idx - 19) : idx]))
-            max_20 = float(np.max(high_array[max(0, idx - 19) : idx]))
+        if idx >= 19 and high_array is not None and low_array is not None:
+            # Use same logic as online: look at previous 20 bars (including current)
+            start_idx = max(0, idx - 19)
+            end_idx = idx + 1  # Include current bar
+            min_20 = float(np.min(low_array[start_idx:end_idx]))
+            max_20 = float(np.max(high_array[start_idx:end_idx]))
             if max_20 > min_20:
                 features["price_position_20"] = np.clip(
                     (close - min_20) / (max_20 - min_20 + 1e-10),

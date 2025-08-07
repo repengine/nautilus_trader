@@ -16,8 +16,8 @@
 Unified XGBoost trainer with advanced ML features.
 
 This module provides the UnifiedXGBoostTrainer which extends the base XGBoostTrainer
-with advanced features including GPU acceleration, hyperparameter optimization,
-MLflow tracking, feature decay monitoring, and comprehensive model export capabilities.
+with advanced features including GPU acceleration, hyperparameter optimization, MLflow
+tracking, feature decay monitoring, and comprehensive model export capabilities.
 
 """
 
@@ -26,17 +26,18 @@ from __future__ import annotations
 import json
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
-from ml._imports import HAS_MLFLOW, HAS_OPTUNA, HAS_ONNX, HAS_POLARS, HAS_XGBOOST
+from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies
-from ml._imports import mlflow, optuna, ort, pl, xgb
+from ml._imports import xgb
 from ml.config.xgboost_unified import UnifiedXGBoostConfig
-from ml.monitoring.collectors.model import ModelLifecycleCollector
 from ml.monitoring._config import MonitoringConfig
+from ml.monitoring.collectors.model import ModelLifecycleCollector
 from ml.training.mlflow_tracker import MLflowXGBoostTracker
 from ml.training.optuna_optimizer import XGBoostOptunaOptimizer
 from ml.training.xgboost import XGBoostTrainer
@@ -100,7 +101,11 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         self._validation_metadata: dict[str, Any] = {}
 
         # Environment validation
-        if config.gpu_config.enabled or config.optuna_config.enabled or config.mlflow_config.enabled:
+        if (
+            config.gpu_config.enabled
+            or config.optuna_config.enabled
+            or config.mlflow_config.enabled
+        ):
             warnings = config.validate_environment()
             for warning in warnings:
                 print(f"⚠️ {warning}")
@@ -152,7 +157,7 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         print("📊 Preparing training data...")
         X, y, metadata = self.prepare_data(data, target_col)
         self._feature_names = metadata["feature_names"]
-        
+
         # Validate GPU setup if enabled
         if self._unified_config.gpu_config.enabled:
             self._validate_gpu_setup()
@@ -245,21 +250,26 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         return results
 
     def _validate_gpu_setup(self) -> None:
-        """Validate GPU setup and configuration."""
+        """
+        Validate GPU setup and configuration.
+        """
         if not self._unified_config.gpu_config.validate_gpu:
             return
 
         try:
             # Test GPU availability
             import subprocess
+
             result = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True)
             if result.returncode != 0:
                 raise RuntimeError("nvidia-smi not available")
-            
-            gpu_count = len([line for line in result.stdout.split('\n') if 'GPU' in line])
+
+            gpu_count = len([line for line in result.stdout.split("\n") if "GPU" in line])
             if self._unified_config.gpu_config.device_id >= gpu_count:
-                raise ValueError(f"GPU {self._unified_config.gpu_config.device_id} not available. Found {gpu_count} GPUs.")
-            
+                raise ValueError(
+                    f"GPU {self._unified_config.gpu_config.device_id} not available. Found {gpu_count} GPUs."
+                )
+
             print(f"✅ GPU {self._unified_config.gpu_config.device_id} validated")
 
         except Exception as e:
@@ -267,8 +277,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
             print("Falling back to CPU training...")
             # Override GPU settings - create new config with GPU disabled
             from ml.config.xgboost_unified import GPUConfig
+
             disabled_gpu_config = GPUConfig(enabled=False)
-            
+
             # Create a new config with disabled GPU (working with frozen structs)
             # Use type: ignore since mypy has trouble with the **kwargs pattern for msgspec structs
             self._unified_config = self._unified_config.__class__(
@@ -290,7 +301,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
             )
 
     def _init_mlflow_tracking(self) -> None:
-        """Initialize MLflow tracking."""
+        """
+        Initialize MLflow tracking.
+        """
         self._mlflow_tracker = MLflowXGBoostTracker(self._unified_config.mlflow_config)
 
     def _perform_cross_validation(self, X: np.ndarray, y: np.ndarray) -> dict[str, Any]:
@@ -311,8 +324,10 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
 
         """
         try:
-            from sklearn.model_selection import TimeSeriesSplit, KFold
-            from sklearn.metrics import accuracy_score, mean_squared_error
+            from sklearn.metrics import accuracy_score
+            from sklearn.metrics import mean_squared_error
+            from sklearn.model_selection import KFold
+            from sklearn.model_selection import TimeSeriesSplit
         except ImportError:
             print("⚠️ sklearn required for cross-validation. Skipping.")
             return {}
@@ -321,7 +336,11 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         if self._unified_config.cv_strategy == "time_series":
             cv = TimeSeriesSplit(n_splits=self._unified_config.cv_folds)
         elif self._unified_config.cv_strategy == "standard":
-            cv = KFold(n_splits=self._unified_config.cv_folds, shuffle=True, random_state=self._unified_config.random_seed)
+            cv = KFold(
+                n_splits=self._unified_config.cv_folds,
+                shuffle=True,
+                random_state=self._unified_config.random_seed,
+            )
         else:
             print(f"⚠️ Unsupported CV strategy: {self._unified_config.cv_strategy}")
             return {}
@@ -366,13 +385,15 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
             sharpe = self._calculate_sharpe_ratio(y_fold_val, predictions)
             scores["sharpe"].append(sharpe)
 
-            fold_results.append({
-                "fold": fold + 1,
-                "train_size": len(X_fold_train),
-                "val_size": len(X_fold_val),
-                "best_iteration": model.best_iteration,
-                "predictions": predictions[:10].tolist(),  # Sample predictions
-            })
+            fold_results.append(
+                {
+                    "fold": fold + 1,
+                    "train_size": len(X_fold_train),
+                    "val_size": len(X_fold_val),
+                    "best_iteration": model.best_iteration,
+                    "predictions": predictions[:10].tolist(),  # Sample predictions
+                }
+            )
 
         # Aggregate results
         cv_summary = {}
@@ -395,7 +416,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         X_val: np.ndarray,
         y_val: np.ndarray,
     ) -> dict[str, Any]:
-        """Optimize hyperparameters using Optuna."""
+        """
+        Optimize hyperparameters using Optuna.
+        """
         if self._optuna_optimizer is None:
             self._optuna_optimizer = XGBoostOptunaOptimizer(self._unified_config.optuna_config)
 
@@ -425,7 +448,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         return results
 
     def _get_optimization_metric_function(self) -> Callable[[np.ndarray, np.ndarray], float]:
-        """Get the metric function for optimization."""
+        """
+        Get the metric function for optimization.
+        """
         metric = self._unified_config.optuna_config.metric
 
         if metric == "sharpe_ratio":
@@ -435,7 +460,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         elif metric == "auc":
             return self._calculate_auc
         elif metric == "rmse":
-            return lambda y_true, y_pred: -np.sqrt(np.mean((y_true - y_pred) ** 2))  # Negative for maximization
+            return lambda y_true, y_pred: -np.sqrt(
+                np.mean((y_true - y_pred) ** 2)
+            )  # Negative for maximization
         else:
             # Default to Sharpe ratio
             return self._calculate_sharpe_ratio
@@ -448,7 +475,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         y_val: np.ndarray,
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        """Train XGBoost model with unified parameters and monitoring."""
+        """
+        Train XGBoost model with unified parameters and monitoring.
+        """
         if not HAS_XGBOOST:
             check_ml_dependencies(["xgboost"])
 
@@ -466,9 +495,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
 
         # Train with monitoring
         start_time = time.time()
-        
+
         callbacks: list[Any] = []
-        
+
         model.fit(
             X_train,
             y_train,
@@ -489,8 +518,8 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         # Calculate comprehensive metrics
         metrics = {
             "training_time": training_time,
-            "best_iteration": model.best_iteration if hasattr(model, 'best_iteration') else 0,
-            "best_score": model.best_score if hasattr(model, 'best_score') else 0.0,
+            "best_iteration": model.best_iteration if hasattr(model, "best_iteration") else 0,
+            "best_score": model.best_score if hasattr(model, "best_score") else 0.0,
             "n_features": X_train.shape[1],
             "n_train_samples": X_train.shape[0],
             "n_val_samples": X_val.shape[0],
@@ -519,7 +548,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         }
 
     def _create_monotonic_constraints_string(self) -> str:
-        """Create monotonic constraints string for XGBoost."""
+        """
+        Create monotonic constraints string for XGBoost.
+        """
         if not self._unified_config.monotonic_constraints:
             return "()"
 
@@ -531,7 +562,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         return f"({','.join(constraints)})"
 
     def _calculate_enhanced_importance(self, model: Any) -> dict[str, float]:
-        """Calculate enhanced feature importance with multiple methods."""
+        """
+        Calculate enhanced feature importance with multiple methods.
+        """
         importance_dict = {}
 
         # Get native XGBoost importance
@@ -543,14 +576,17 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         return dict(sorted(importance_dict.items(), key=lambda x: x[1], reverse=True))
 
     def _track_feature_decay(self, current_importance: dict[str, float]) -> None:
-        """Track feature importance decay over time."""
+        """
+        Track feature importance decay over time.
+        """
         if not self._importance_history:
             self._importance_history.append(current_importance)
             return
 
         # Calculate historical average (sliding window)
         window_size = min(
-            len(self._importance_history), self._unified_config.feature_history_window
+            len(self._importance_history),
+            self._unified_config.feature_history_window,
         )
         recent_history = self._importance_history[-window_size:]
 
@@ -572,7 +608,7 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
                     self._feature_decay_alerts.append(feature)
                     print(
                         f"⚠️ Feature decay alert: '{feature}' "
-                        f"importance declined by {decay_ratio:.1%}"
+                        f"importance declined by {decay_ratio:.1%}",
                     )
 
         # Update history
@@ -584,7 +620,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
             self._importance_history = self._importance_history[-max_history:]
 
     def _calculate_accuracy(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Calculate prediction accuracy."""
+        """
+        Calculate prediction accuracy.
+        """
         if self._unified_config.objective == "binary:logistic":
             y_pred_binary = (y_pred > 0.5).astype(int)
             return float(np.mean(y_true == y_pred_binary))
@@ -595,9 +633,12 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
             return float(1 - (ss_res / ss_tot)) if ss_tot > 0 else 0.0
 
     def _calculate_auc(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        """Calculate AUC score."""
+        """
+        Calculate AUC score.
+        """
         try:
             from sklearn.metrics import roc_auc_score
+
             return float(roc_auc_score(y_true, y_pred))
         except ImportError:
             print("⚠️ sklearn required for AUC calculation")
@@ -611,7 +652,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         y_pred: np.ndarray,
         risk_free_rate: float = 0.0,
     ) -> float:
-        """Calculate Sharpe ratio for predictions."""
+        """
+        Calculate Sharpe ratio for predictions.
+        """
         if self._unified_config.objective == "binary:logistic":
             # Binary predictions as signals
             signals = (y_pred > 0.5).astype(float) * 2 - 1  # -1 or 1
@@ -629,7 +672,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         return 0.0
 
     def _export_to_onnx(self, model: Any) -> str | None:
-        """Export model to ONNX format."""
+        """
+        Export model to ONNX format.
+        """
         try:
             check_ml_dependencies(["onnx"])
             import onnxmltools
@@ -644,7 +689,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
 
             # Convert to ONNX
             onnx_model = onnxmltools.convert_xgboost(
-                model, initial_types=initial_types, target_opset=12
+                model,
+                initial_types=initial_types,
+                target_opset=12,
             )
 
             # Ensure output directory exists
@@ -685,7 +732,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         cv_results: dict[str, Any] | None = None,
         optimization_results: dict[str, Any] | None = None,
     ) -> str | None:
-        """Log comprehensive training run to MLflow."""
+        """
+        Log comprehensive training run to MLflow.
+        """
         if self._mlflow_tracker is None:
             return None
 
@@ -735,7 +784,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         training_results: dict[str, Any],
         optimization_results: dict[str, Any] | None = None,
     ) -> None:
-        """Record training metrics to monitoring collector."""
+        """
+        Record training metrics to monitoring collector.
+        """
         if self._metrics_collector is None:
             return
 
@@ -757,7 +808,9 @@ class UnifiedXGBoostTrainer(XGBoostTrainer):
         # or extension of the ModelLifecycleCollector if needed in production
 
     def _print_training_summary(self, results: dict[str, Any]) -> None:
-        """Print comprehensive training summary."""
+        """
+        Print comprehensive training summary.
+        """
         print("\n" + "=" * 60)
         print("📊 UNIFIED XGBOOST TRAINING SUMMARY")
         print("=" * 60)
