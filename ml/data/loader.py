@@ -43,6 +43,8 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 if TYPE_CHECKING:
     import polars as pl
 
+    from ml.monitoring.collectors.data import DataQualityCollector
+
 # Type alias that includes all timestamp types we accept in the ML loader
 # We convert these to formats that ParquetDataCatalog accepts (int | str | float | None)
 TimestampLike: TypeAlias = int | str | float | datetime | pd.Timestamp | None
@@ -119,6 +121,7 @@ class MLDataLoader:
         catalog: ParquetDataCatalog,
         cache_size: int = 1000,
         enable_cache: bool = True,
+        metrics_collector: DataQualityCollector | None = None,
     ) -> None:
         """
         Initialize the ML data loader.
@@ -131,6 +134,8 @@ class MLDataLoader:
             Maximum number of cached entries to maintain.
         enable_cache : bool, default True
             Whether to enable data caching.
+        metrics_collector : DataQualityCollector, optional
+            Optional metrics collector for monitoring data quality and loading performance.
 
         Raises
         ------
@@ -145,11 +150,16 @@ class MLDataLoader:
         self._catalog = catalog
         self._enable_cache = enable_cache
         self._cache_size = cache_size
+        self._metrics = metrics_collector
 
         # Initialize cache storage
         if self._enable_cache:
             self._cache: dict[str, pl.DataFrame] = {}
             self._cache_access_order: list[str] = []
+
+        # Track cache statistics for metrics
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     def load_bars(
         self,
@@ -192,33 +202,88 @@ class MLDataLoader:
         # Generate cache key
         cache_key = self._generate_cache_key("bars", str(instrument_id), start, end)
 
-        # Check cache first
-        if self._enable_cache and cache_key in self._cache:
-            self._update_cache_access(cache_key)
-            return self._cache[cache_key]
-
-        # Query data from catalog (convert timestamps to accepted format)
-        try:
-            bars = self._catalog.query(
-                data_cls=Bar,
-                identifiers=[str(instrument_id)],
-                start=self._prepare_timestamp(start),
-                end=self._prepare_timestamp(end),
-            )
-        except Exception:
-            # Return empty DataFrame if query fails
-            return self._create_empty_bars_df()
-
-        if not bars:
-            df = self._create_empty_bars_df()
+        # Use metrics collector timer if available
+        if self._metrics is not None:
+            timer = self._metrics.time_data_load(str(instrument_id), "bars")
         else:
-            df = self._bars_to_polars(bars)
+            timer = None
 
-        # Cache the result
-        if self._enable_cache:
-            self._add_to_cache(cache_key, df)
+        with timer if timer is not None else _dummy_context_manager():
+            # Check cache first
+            if self._enable_cache and cache_key in self._cache:
+                self._update_cache_access(cache_key)
+                df = self._cache[cache_key]
 
-        return df
+                # Update cache statistics
+                self._cache_hits += 1
+
+                # Set timer results
+                if timer is not None:
+                    timer.set_load_result(
+                        rows=len(df),
+                        cache_hit=True,
+                        missing_ratios=self._calculate_missing_ratios(df),
+                    )
+
+                return df
+
+            # Cache miss
+            self._cache_misses += 1
+
+            # Query data from catalog (convert timestamps to accepted format)
+            try:
+                bars = self._catalog.query(
+                    data_cls=Bar,
+                    identifiers=[str(instrument_id)],
+                    start=self._prepare_timestamp(start),
+                    end=self._prepare_timestamp(end),
+                )
+            except Exception as e:
+                # Record error if metrics available
+                if self._metrics is not None:
+                    self._metrics.record_data_load(
+                        instrument=str(instrument_id),
+                        data_type="bars",
+                        rows_loaded=0,
+                        duration_seconds=0.0,
+                        success=False,
+                        error_type=type(e).__name__,
+                    )
+                # Return empty DataFrame if query fails
+                return self._create_empty_bars_df()
+
+            if not bars:
+                df = self._create_empty_bars_df()
+            else:
+                df = self._bars_to_polars(bars)
+
+            # Calculate data quality metrics
+            missing_ratios = self._calculate_missing_ratios(df)
+
+            # Cache the result
+            if self._enable_cache:
+                self._add_to_cache(cache_key, df)
+
+            # Set timer results
+            if timer is not None:
+                timer.set_load_result(
+                    rows=len(df),
+                    cache_hit=False,
+                    missing_ratios=missing_ratios,
+                )
+
+            # Update cache statistics
+            if self._metrics is not None:
+                total_requests = self._cache_hits + self._cache_misses
+                hit_ratio = self._cache_hits / total_requests if total_requests > 0 else 0.0
+                self._metrics.record_cache_stats(
+                    instrument=str(instrument_id),
+                    data_type="bars",
+                    hit_ratio=hit_ratio,
+                    cache_size=len(self._cache) if self._enable_cache else 0,
+                )
+
+            return df
 
     def load_quotes(
         self,
@@ -718,6 +783,47 @@ class MLDataLoader:
             self._cache_access_order.remove(cache_key)
             self._cache_access_order.append(cache_key)
 
+    def _calculate_missing_ratios(self, df: pl.DataFrame) -> dict[str, float]:
+        """
+        Calculate missing value ratios for data quality metrics.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            DataFrame to analyze.
+
+        Returns
+        -------
+        dict[str, float]
+            Dictionary mapping column names to missing value ratios.
+
+        """
+        if df.is_empty():
+            return {}
+
+        missing_ratios = {}
+        total_rows = len(df)
+
+        for col in df.columns:
+            if col == "timestamp":  # Skip timestamp column
+                continue
+            null_count = df[col].null_count()
+            missing_ratios[col] = null_count / total_rows if total_rows > 0 else 0.0
+
+        return missing_ratios
+
+
+class _dummy_context_manager:
+    """
+    Dummy context manager for when metrics is None.
+    """
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
 
 def load_ml_data(
     instrument_ids: list[str],
@@ -725,6 +831,7 @@ def load_ml_data(
     data_type: str = "bars",
     start: TimestampLike = None,
     end: TimestampLike = None,
+    metrics_collector: DataQualityCollector | None = None,
 ) -> dict[str, pl.DataFrame]:
     """
     Load ML data from multiple instruments.
@@ -743,6 +850,8 @@ def load_ml_data(
         Start timestamp for filtering data (inclusive).
     end : TimestampLike, optional
         End timestamp for filtering data (inclusive).
+    metrics_collector : DataQualityCollector, optional
+        Optional metrics collector for monitoring data quality.
 
     Returns
     -------
@@ -774,7 +883,7 @@ def load_ml_data(
     ... )
 
     """
-    loader = MLDataLoader(catalog)
+    loader = MLDataLoader(catalog, metrics_collector=metrics_collector)
     return loader.load_multiple(
         instrument_ids=instrument_ids,
         data_type=data_type,

@@ -361,7 +361,10 @@ class TestMetricsServer:
                         # Test health endpoint
                         health_url = server.get_health_url()
                         try:
-                            with urllib.request.urlopen(health_url, timeout=1) as response:  # noqa: S310
+                            with urllib.request.urlopen(  # noqa: S310
+                                health_url,
+                                timeout=1,
+                            ) as response:
                                 assert response.status == 200
                                 content = response.read()
                                 assert b"healthy" in content
@@ -372,7 +375,10 @@ class TestMetricsServer:
                         # Test metrics endpoint
                         metrics_url = server.get_metrics_url()
                         try:
-                            with urllib.request.urlopen(metrics_url, timeout=1) as response:  # noqa: S310
+                            with urllib.request.urlopen(  # noqa: S310
+                                metrics_url,
+                                timeout=1,
+                            ) as response:
                                 assert response.status == 200
                         except Exception:  # noqa: S110
                             # Network issues in test environment are acceptable

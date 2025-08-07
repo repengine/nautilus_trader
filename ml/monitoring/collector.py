@@ -22,7 +22,6 @@ degradation when Prometheus is not available.
 
 from __future__ import annotations
 
-import threading
 import time
 import types
 from typing import TYPE_CHECKING, Self
@@ -31,13 +30,14 @@ from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml._imports import Histogram
 from ml.monitoring._config import MonitoringConfig
+from ml.monitoring.collectors.base import BaseMetricsCollector
 
 
 if TYPE_CHECKING:
     from prometheus_client import Gauge
 
 
-class MLMetricsCollector:
+class MLMetricsCollector(BaseMetricsCollector):
     """
     Thread-safe collector for ML system metrics.
 
@@ -61,9 +61,7 @@ class MLMetricsCollector:
             Configuration for metrics collection.
 
         """
-        self._config = config
-        self._enabled = config.enabled and HAS_PROMETHEUS
-        self._lock = threading.RLock()
+        super().__init__(config)
 
         # Core metrics
         self._ml_predictions_total: Counter | None = None
@@ -71,10 +69,6 @@ class MLMetricsCollector:
         self._ml_model_confidence: Gauge | None = None
         self._ml_feature_computation_latency_seconds: Histogram | None = None
         self._ml_model_errors_total: Counter | None = None
-
-        # Initialize metrics if enabled
-        if self._enabled:
-            self._initialize_metrics()
 
     def _initialize_metrics(self) -> None:
         """
@@ -121,6 +115,16 @@ class MLMetricsCollector:
             "Total number of ML model errors",
             ["model", "instrument", "error_type"],
         )
+
+        # Register metrics with base class for tracking
+        self._register_metric("ml_predictions_total", self._ml_predictions_total)
+        self._register_metric("ml_prediction_latency_seconds", self._ml_prediction_latency_seconds)
+        self._register_metric("ml_model_confidence", self._ml_model_confidence)
+        self._register_metric(
+            "ml_feature_computation_latency_seconds",
+            self._ml_feature_computation_latency_seconds,
+        )
+        self._register_metric("ml_model_errors_total", self._ml_model_errors_total)
 
     def record_prediction(
         self,
