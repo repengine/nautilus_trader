@@ -566,7 +566,7 @@ class OptimizedMLSignalActor(MLSignalActor):
         dummy_features = np.random.randn(n_features).astype(np.float32)
 
         self.log.info(
-            f"Warming up model with {self._optimized_config.warm_up_iterations} iterations"
+            f"Warming up model with {self._optimized_config.warm_up_iterations} iterations",
         )
 
         # Perform warm-up predictions
@@ -632,7 +632,7 @@ class OptimizedMLSignalActor(MLSignalActor):
                 "volume": float(bar.volume),
                 "high": float(bar.high),
                 "low": float(bar.low),
-            }
+            },
         )
 
         # Compute features directly into pre-allocated buffer
