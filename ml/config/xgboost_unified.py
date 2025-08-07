@@ -15,9 +15,9 @@
 """
 Enhanced configuration for unified XGBoost model training.
 
-This module provides msgspec-based configuration classes for the unified XGBoost trainer,
-extending the base XGBoost configuration with advanced features including GPU acceleration,
-Optuna optimization, MLflow tracking, and feature decay monitoring.
+This module provides msgspec-based configuration classes for the unified XGBoost
+trainer, extending the base XGBoost configuration with advanced features including GPU
+acceleration, Optuna optimization, MLflow tracking, and feature decay monitoring.
 
 """
 
@@ -57,7 +57,9 @@ class GPUConfig(msgspec.Struct, kw_only=True, frozen=True):
     validate_gpu: bool = True
 
     def __post_init__(self) -> None:
-        """Validate GPU configuration."""
+        """
+        Validate GPU configuration.
+        """
         if self.predictor not in ["gpu_predictor", "cpu_predictor"]:
             msg = f"predictor must be 'gpu_predictor' or 'cpu_predictor', got {self.predictor}"
             raise ValueError(msg)
@@ -109,7 +111,9 @@ class OptunaConfig(msgspec.Struct, kw_only=True, frozen=True):
     storage_url: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate Optuna configuration."""
+        """
+        Validate Optuna configuration.
+        """
         if self.n_trials <= 0:
             msg = f"n_trials must be positive, got {self.n_trials}"
             raise ValueError(msg)
@@ -174,7 +178,9 @@ class MLflowConfig(msgspec.Struct, kw_only=True, frozen=True):
     auto_log: bool = False
 
     def __post_init__(self) -> None:
-        """Validate MLflow configuration."""
+        """
+        Validate MLflow configuration.
+        """
         if not self.experiment_name.strip():
             msg = "experiment_name cannot be empty"
             raise ValueError(msg)
@@ -184,8 +190,10 @@ class MLflowConfig(msgspec.Struct, kw_only=True, frozen=True):
             raise ValueError(msg)
 
         # Basic URL validation
-        if not (self.tracking_uri.startswith(("http://", "https://", "file://")) or 
-                self.tracking_uri.startswith("sqlite://")):
+        if not (
+            self.tracking_uri.startswith(("http://", "https://", "file://"))
+            or self.tracking_uri.startswith("sqlite://")
+        ):
             msg = f"tracking_uri must start with http://, https://, file://, or sqlite://, got {self.tracking_uri}"
             raise ValueError(msg)
 
@@ -250,13 +258,17 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
     enable_monitoring: bool = True
 
     def __post_init__(self) -> None:
-        """Validate configuration after initialization."""
+        """
+        Validate configuration after initialization.
+        """
         # Run parent validation first
         super().__post_init__()
-        
+
         # Validate feature decay settings
         if not (0.0 < self.feature_decay_threshold < 1.0):
-            msg = f"feature_decay_threshold must be in (0.0, 1.0), got {self.feature_decay_threshold}"
+            msg = (
+                f"feature_decay_threshold must be in (0.0, 1.0), got {self.feature_decay_threshold}"
+            )
             raise ValueError(msg)
 
         if self.feature_history_window <= 0:
@@ -285,25 +297,32 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
     def validate_config(self) -> list[str]:
         """
         Validate configuration and return list of warnings.
-        
+
         Returns
         -------
         list[str]
             List of validation warnings.
+
         """
         warnings = []
-        
+
         # Validate feature decay settings
         if not (0.0 < self.feature_decay_threshold < 1.0):
-            warnings.append(f"feature_decay_threshold must be in (0.0, 1.0), got {self.feature_decay_threshold}")
+            warnings.append(
+                f"feature_decay_threshold must be in (0.0, 1.0), got {self.feature_decay_threshold}"
+            )
 
         if self.feature_history_window <= 0:
-            warnings.append(f"feature_history_window must be positive, got {self.feature_history_window}")
+            warnings.append(
+                f"feature_history_window must be positive, got {self.feature_history_window}"
+            )
 
         # Validate cross-validation settings
         valid_cv_strategies = ["time_series", "blocked", "purged", "standard"]
         if self.cv_strategy not in valid_cv_strategies:
-            warnings.append(f"cv_strategy must be one of {valid_cv_strategies}, got {self.cv_strategy}")
+            warnings.append(
+                f"cv_strategy must be one of {valid_cv_strategies}, got {self.cv_strategy}"
+            )
 
         if self.cv_folds < 2:
             warnings.append(f"cv_folds must be at least 2, got {self.cv_folds}")
@@ -318,7 +337,7 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
         # Warn about GPU + Optuna interaction
         if self.gpu_config.enabled and self.optuna_config.enabled:
             warnings.append("GPU + Optuna optimization may have limited parallelization")
-            
+
         return warnings
 
     def get_unified_xgb_params(self) -> dict[str, Any]:
@@ -335,12 +354,14 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
 
         # Apply GPU settings if enabled
         if self.gpu_config.enabled:
-            params.update({
-                "tree_method": "gpu_hist",
-                "predictor": self.gpu_config.predictor,
-                "gpu_id": self.gpu_config.device_id,
-                "max_bin": self.gpu_config.max_bin,
-            })
+            params.update(
+                {
+                    "tree_method": "gpu_hist",
+                    "predictor": self.gpu_config.predictor,
+                    "gpu_id": self.gpu_config.device_id,
+                    "max_bin": self.gpu_config.max_bin,
+                }
+            )
 
         return params
 
@@ -359,9 +380,10 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
         # Check GPU availability
         if self.gpu_config.enabled and self.gpu_config.validate_gpu:
             try:
-                import xgboost as xgb
                 # Try to create a simple GPU-based DMatrix to test GPU availability
                 import numpy as np
+                import xgboost as xgb
+
                 test_data = np.random.randn(10, 5)
                 test_dtrain = xgb.DMatrix(test_data, enable_categorical=False)
                 # If this doesn't raise, GPU should be available
@@ -376,7 +398,7 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
             except ImportError:
                 warnings.append(
                     "Optuna optimization requested but optuna not installed. "
-                    "Install with: pip install 'nautilus-trader[ml]'"
+                    "Install with: pip install 'nautilus-trader[ml]'",
                 )
 
         # Check MLflow availability
@@ -386,7 +408,7 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
             except ImportError:
                 warnings.append(
                     "MLflow tracking requested but mlflow not installed. "
-                    "Install with: pip install 'nautilus-trader[ml]'"
+                    "Install with: pip install 'nautilus-trader[ml]'",
                 )
 
         # Check ONNX availability
@@ -397,7 +419,7 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
             except ImportError:
                 warnings.append(
                     "ONNX export requested but onnx tools not installed. "
-                    "Install with: pip install onnxmltools skl2onnx"
+                    "Install with: pip install onnxmltools skl2onnx",
                 )
 
         return warnings
@@ -407,6 +429,6 @@ class UnifiedXGBoostConfig(XGBoostTrainingConfig, kw_only=True, frozen=True):
 __all__ = [
     "GPUConfig",
     "MLflowConfig",
-    "OptunaConfig", 
+    "OptunaConfig",
     "UnifiedXGBoostConfig",
 ]

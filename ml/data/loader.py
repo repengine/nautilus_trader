@@ -25,7 +25,7 @@ processing.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -208,7 +208,7 @@ class MLDataLoader:
         else:
             timer = None
 
-        with timer if timer is not None else _dummy_context_manager():
+        with timer if timer is not None else _DummyContextManager():
             # Check cache first
             if self._enable_cache and cache_key in self._cache:
                 self._update_cache_access(cache_key)
@@ -813,15 +813,15 @@ class MLDataLoader:
         return missing_ratios
 
 
-class _dummy_context_manager:
+class _DummyContextManager:
     """
     Dummy context manager for when metrics is None.
     """
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: object) -> None:
         pass
 
 

@@ -683,8 +683,10 @@ class XGBoostTrainer(BaseMLTrainer):
             import onnxmltools
             from skl2onnx.common.data_types import FloatTensorType
         except ImportError:
-            print("⚠️ ONNX export requires onnxmltools and skl2onnx. "
-                  "Install with: pip install onnxmltools skl2onnx")
+            print(
+                "⚠️ ONNX export requires onnxmltools and skl2onnx. "
+                "Install with: pip install onnxmltools skl2onnx",
+            )
             return False
 
         try:
@@ -693,14 +695,14 @@ class XGBoostTrainer(BaseMLTrainer):
 
             # Define input type
             initial_types = [
-                ("float_input", FloatTensorType([None, len(self._feature_names)]))
+                ("float_input", FloatTensorType([None, len(self._feature_names)])),
             ]
 
             # Convert to ONNX
             onnx_model = onnxmltools.convert_xgboost(
                 self._model,
                 initial_types=initial_types,
-                target_opset=12
+                target_opset=12,
             )
 
             # Save ONNX model
@@ -723,6 +725,7 @@ class XGBoostTrainer(BaseMLTrainer):
 
             with open(metadata_path, "w") as f:
                 import json
+
                 json.dump(metadata, f, indent=2)
 
             print(f"✅ Model exported to ONNX: {output_path}")
@@ -753,21 +756,22 @@ class XGBoostTrainer(BaseMLTrainer):
 
             # Test GPU availability
             import subprocess
+
             result = subprocess.run(
-                ["nvidia-smi", "-L"], 
-                capture_output=True, 
-                text=True, 
-                timeout=5
+                ["nvidia-smi", "-L"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
-            
+
             if result.returncode != 0:
                 print("⚠️ nvidia-smi not available - GPU training not supported")
                 return False
 
             # Count available GPUs
-            gpu_lines = [line for line in result.stdout.split('\n') if 'GPU' in line]
+            gpu_lines = [line for line in result.stdout.split("\n") if "GPU" in line]
             gpu_count = len(gpu_lines)
-            
+
             if gpu_count == 0:
                 print("⚠️ No GPUs detected")
                 return False
