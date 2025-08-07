@@ -404,7 +404,7 @@ class TestOptimizedActorPerformance:
 
                 # Assert performance target
                 benchmark.assert_performance_target(
-                    benchmark.config.TARGET_FEATURE_COMPUTATION_P99_NS
+                    benchmark.config.TARGET_FEATURE_COMPUTATION_P99_NS,
                 )
 
     def test_inference_performance(self, optimized_config, mock_onnx_model):
@@ -448,7 +448,7 @@ class TestOptimizedActorPerformance:
 
                 # Assert performance target
                 benchmark.assert_performance_target(
-                    benchmark.config.TARGET_INFERENCE_LATENCY_P99_NS
+                    benchmark.config.TARGET_INFERENCE_LATENCY_P99_NS,
                 )
 
     def test_end_to_end_performance(self, optimized_config, mock_onnx_model, test_bars):
@@ -475,7 +475,7 @@ class TestOptimizedActorPerformance:
                 actor._indicator_manager.price_history = {"closes": [1.1] * 50}
                 actor._feature_engineer = MagicMock()
                 actor._feature_engineer.calculate_features_online.return_value = np.random.randn(
-                    100
+                    100,
                 ).astype(np.float32)
 
                 benchmark = PerformanceBenchmark()
@@ -525,7 +525,7 @@ class TestOptimizedActorPerformance:
                 actor._indicator_manager.price_history = {"closes": [1.1] * 50}
                 actor._feature_engineer = MagicMock()
                 actor._feature_engineer.calculate_features_online.return_value = np.random.randn(
-                    100
+                    100,
                 ).astype(np.float32)
 
                 # Start memory tracing
@@ -568,7 +568,7 @@ class TestOptimizedActorPerformance:
                 final_growth_mb = total_growth / (1024 * 1024)
 
                 print(
-                    f"\nFinal memory growth: {final_growth_mb:.2f}MB after {benchmark.config.MEMORY_TEST_ITERATIONS} iterations"
+                    f"\nFinal memory growth: {final_growth_mb:.2f}MB after {benchmark.config.MEMORY_TEST_ITERATIONS} iterations",
                 )
 
                 # Assert final memory growth is reasonable
@@ -596,7 +596,7 @@ class TestOptimizedActorPerformance:
                 actor._indicator_manager.price_history = {"closes": [1.1] * 50}
                 actor._feature_engineer = MagicMock()
                 actor._feature_engineer.calculate_features_online.return_value = np.random.randn(
-                    100
+                    100,
                 ).astype(np.float32)
 
                 # Warm up to eliminate initialization allocations
@@ -641,7 +641,7 @@ class TestOptimizedActorPerformance:
                 hot_path_growth_kb = total_hot_path_growth / 1024
 
                 print(
-                    f"\nHot path memory growth: {hot_path_growth_kb:.1f}KB over {hot_path_iterations} iterations"
+                    f"\nHot path memory growth: {hot_path_growth_kb:.1f}KB over {hot_path_iterations} iterations",
                 )
 
                 # Assert minimal memory growth in hot path (<10KB total)
