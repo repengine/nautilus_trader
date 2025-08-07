@@ -19,18 +19,36 @@ ML actors for real-time inference in Nautilus Trader.
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
 from ml.actors.base import PickleMLInferenceActor
+from ml.actors.feature_cache import LockFreeRingBuffer
+from ml.actors.feature_cache import PreAllocatedFeatureCache
+from ml.actors.feature_cache import ReservoirSampler
 from ml.actors.signal import AdaptiveSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
+from ml.actors.signal_config import OptimizedMLSignalActorConfig
+from ml.actors.signal_config import SignalStrategy as OptimizedSignalStrategy
+from ml.actors.signal_config import ThresholdStrategy
+from ml.actors.signal_optimized import OptimizedMLSignal
+from ml.actors.signal_optimized import OptimizedMLSignalActor
+from ml.actors.signal_optimized import PerformanceMonitor
 
 
 __all__ = [
     "AdaptiveSignal",
     "BaseMLInferenceActor",
+    "LockFreeRingBuffer",
     "MLSignal",
     "MLSignalActor",
     "MLSignalActorConfig",
+    "OptimizedMLSignal",
+    "OptimizedMLSignalActor",
+    "OptimizedMLSignalActorConfig",
+    "OptimizedSignalStrategy",
+    "PerformanceMonitor",
     "PickleMLInferenceActor",
+    "PreAllocatedFeatureCache",
+    "ReservoirSampler",
     "SignalStrategy",
+    "ThresholdStrategy",
 ]
