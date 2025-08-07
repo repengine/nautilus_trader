@@ -1,0 +1,131 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+
+groups:
+  - name: ml_critical_alerts
+    interval: 10s
+    rules:
+      # Model Performance Alerts
+      - alert: ModelAccuracyCriticallyLow
+        expr: ml_model_accuracy_rolling < 0.6
+        for: 5m
+        labels:
+          severity: critical
+          team: ml-ops
+          category: model-performance
+        annotations:
+          summary: "Critical: Model accuracy degraded to {{ $value | humanizePercentage }}"
+          description: "Model {{ $labels.model }} accuracy has fallen below critical threshold (60%) for instrument {{ $labels.instrument }}. Current accuracy: {{ $value | humanizePercentage }}. Immediate action required."
+          runbook_url: "https://wiki.nautilus.io/runbooks/ml-accuracy-degraded"
+
+      - alert: InferenceLatencyExceeded
+        expr: ml_inference_latency_p99 > 5000
+        for: 2m
+        labels:
+          severity: critical
+          team: ml-ops
+          category: performance
+        annotations:
+          summary: "Critical: P99 inference latency exceeds 5 seconds"
+          description: "Model {{ $labels.model }} P99 latency is {{ $value }}ms (threshold: 5000ms). This may impact trading decisions."
+          runbook_url: "https://wiki.nautilus.io/runbooks/ml-latency-high"
+
+      # System Resource Alerts
+      - alert: SystemMemoryExhausted
+        expr: ml_memory_usage_percent > 95
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+          category: resources
+        annotations:
+          summary: "Critical: System memory usage at {{ $value | humanizePercentage }}"
+          description: "Memory usage has exceeded 95% for more than 1 minute. OOM killer may terminate processes."
+          runbook_url: "https://wiki.nautilus.io/runbooks/memory-exhausted"
+
+      - alert: GPUMemoryExhausted
+        expr: ml_gpu_memory_usage_bytes / ml_gpu_memory_total_bytes > 0.95
+        for: 1m
+        labels:
+          severity: critical
+          team: ml-ops
+          category: gpu
+        annotations:
+          summary: "Critical: GPU memory usage at {{ $value | humanizePercentage }}"
+          description: "GPU {{ $labels.gpu_id }} memory is nearly exhausted. Model inference may fail."
+          runbook_url: "https://wiki.nautilus.io/runbooks/gpu-memory-exhausted"
+
+      # Data Pipeline Alerts
+      - alert: DataPipelineFailure
+        expr: rate(ml_data_load_errors_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          team: data-engineering
+          category: data-pipeline
+        annotations:
+          summary: "Critical: Data pipeline experiencing high failure rate"
+          description: "Data loading error rate is {{ $value | humanize }} errors/sec for source {{ $labels.source }}."
+          runbook_url: "https://wiki.nautilus.io/runbooks/data-pipeline-failure"
+
+      - alert: DataStalenessExceeded
+        expr: ml_data_staleness_seconds > 600
+        for: 5m
+        labels:
+          severity: critical
+          team: data-engineering
+          category: data-quality
+        annotations:
+          summary: "Critical: Data is {{ $value | humanizeDuration }} old"
+          description: "Data for {{ $labels.instrument }} hasn't been updated for {{ $value | humanizeDuration }}. Trading decisions may be based on stale data."
+          runbook_url: "https://wiki.nautilus.io/runbooks/data-staleness"
+
+      # Model Lifecycle Alerts
+      - alert: ModelLoadFailure
+        expr: rate(ml_model_load_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: ml-ops
+          category: model-lifecycle
+        annotations:
+          summary: "Critical: Model loading failures detected"
+          description: "Model {{ $labels.model }} version {{ $labels.version }} failed to load {{ $value | humanize }} times in the last 5 minutes."
+          runbook_url: "https://wiki.nautilus.io/runbooks/model-load-failure"
+
+      # Service Health Alerts
+      - alert: MLServiceDown
+        expr: up{service="ml-core"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: ml-ops
+          category: availability
+        annotations:
+          summary: "Critical: ML service is down"
+          description: "The ML service has been unreachable for more than 1 minute. All ML-based trading is affected."
+          runbook_url: "https://wiki.nautilus.io/runbooks/ml-service-down"
+
+      - alert: InferenceTimeoutRateHigh
+        expr: ml_inference_timeout_ratio > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: ml-ops
+          category: performance
+        annotations:
+          summary: "Critical: {{ $value | humanizePercentage }} of inferences timing out"
+          description: "More than 5% of model inferences are timing out for model {{ $labels.model }}. This indicates severe performance degradation."
+          runbook_url: "https://wiki.nautilus.io/runbooks/inference-timeouts"

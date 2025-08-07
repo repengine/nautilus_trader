@@ -1,0 +1,168 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+
+global:
+  # ResolveTimeout is the time after which an alert is declared resolved
+  # if it has not been updated.
+  resolve_timeout: 5m
+
+  # SMTP configuration (update with your settings)
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@nautilus.io'
+  smtp_auth_username: 'your-email@gmail.com'
+  smtp_auth_password: 'your-app-password'
+
+  # Slack configuration
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# Templates for alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# The root route on which each incoming alert enters.
+route:
+  # Group alerts by these labels
+  group_by: ['alertname', 'cluster', 'service', 'severity']
+
+  # Wait before sending initial notification
+  group_wait: 10s
+
+  # Wait before sending notification about new alerts in the group
+  group_interval: 10s
+
+  # Wait before resending notifications
+  repeat_interval: 1h
+
+  # Default receiver
+  receiver: 'ml-team'
+
+  # Child routes for more specific routing
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 5m
+      continue: true
+
+    # ML-specific alerts
+    - match:
+        team: ml-ops
+      receiver: 'ml-team'
+      group_by: ['alertname', 'model', 'severity']
+      continue: true
+
+    # Data engineering alerts
+    - match:
+        team: data-engineering
+      receiver: 'data-team'
+      group_by: ['alertname', 'source', 'severity']
+      continue: true
+
+    # Infrastructure alerts
+    - match:
+        team: infrastructure
+      receiver: 'infra-team'
+      group_by: ['alertname', 'instance', 'severity']
+      continue: true
+
+    # Info alerts - batched notifications
+    - match:
+        severity: info
+      receiver: 'info-digest'
+      group_wait: 30m
+      group_interval: 30m
+      repeat_interval: 12h
+
+# Notification receivers
+receivers:
+  # Default receiver
+  - name: 'ml-team'
+    slack_configs:
+      - channel: '#ml-alerts'
+        title: 'ML Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+    email_configs:
+      - to: 'ml-team@nautilus.io'
+        send_resolved: true
+        headers:
+          Subject: '[ML Alert] {{ .GroupLabels.alertname }} - {{ .Status }}'
+
+  # Critical alerts receiver
+  - name: 'critical-alerts'
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: true
+        color: 'danger'
+    pagerduty_configs:
+      - service_key: 'YOUR-PAGERDUTY-SERVICE-KEY'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+    email_configs:
+      - to: 'oncall@nautilus.io'
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }}'
+          Priority: 'Urgent'
+
+  # Data team receiver
+  - name: 'data-team'
+    slack_configs:
+      - channel: '#data-alerts'
+        title: 'Data Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+    email_configs:
+      - to: 'data-team@nautilus.io'
+        send_resolved: true
+
+  # Infrastructure team receiver
+  - name: 'infra-team'
+    slack_configs:
+      - channel: '#infra-alerts'
+        title: 'Infra Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        send_resolved: true
+    email_configs:
+      - to: 'infra-team@nautilus.io'
+        send_resolved: true
+
+  # Info digest receiver
+  - name: 'info-digest'
+    email_configs:
+      - to: 'ml-digest@nautilus.io'
+        send_resolved: false
+        headers:
+          Subject: '[Info Digest] ML System Status'
+
+# Inhibition rules to suppress certain alerts
+inhibit_rules:
+  # Suppress warning alerts when critical alert is firing for same model
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['model', 'alertname']
+
+  # Suppress info alerts when warning/critical alerts are firing
+  - source_match_re:
+      severity: 'critical|warning'
+    target_match:
+      severity: 'info'
+    equal: ['alertname', 'instance']
