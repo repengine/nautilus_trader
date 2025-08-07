@@ -1,0 +1,185 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+
+groups:
+  - name: ml_info_alerts
+    interval: 60s
+    rules:
+      # Model Lifecycle Info
+      - alert: ModelRetrainingRecommended
+        expr: ml_model_retraining_required == 1
+        for: 30m
+        labels:
+          severity: info
+          team: ml-ops
+          category: model-lifecycle
+        annotations:
+          summary: "Info: Model retraining recommended"
+          description: "Model {{ $labels.model }} has been flagged for retraining based on performance metrics."
+          runbook_url: "https://wiki.nautilus.io/runbooks/retraining-recommended"
+
+      - alert: ModelVersionOutdated
+        expr: (time() - ml_model_last_trained_timestamp) > 604800  # 7 days
+        for: 1h
+        labels:
+          severity: info
+          team: ml-ops
+          category: model-lifecycle
+        annotations:
+          summary: "Info: Model hasn't been retrained in {{ $value | humanizeDuration }}"
+          description: "Model {{ $labels.model }} was last trained {{ $value | humanizeDuration }} ago."
+          runbook_url: "https://wiki.nautilus.io/runbooks/model-outdated"
+
+      # Feature Engineering Info
+      - alert: FeatureImportanceChanged
+        expr: abs(delta(ml_feature_importance_score[1h])) > 0.1
+        for: 30m
+        labels:
+          severity: info
+          team: ml-ops
+          category: features
+        annotations:
+          summary: "Info: Feature importance shifted"
+          description: "Feature {{ $labels.feature }} importance changed by {{ $value | humanize }} in the last hour."
+          runbook_url: "https://wiki.nautilus.io/runbooks/feature-importance"
+
+      - alert: NewFeaturesAvailable
+        expr: increase(ml_features_computed_total[24h]) > 0
+        for: 1h
+        labels:
+          severity: info
+          team: ml-ops
+          category: features
+        annotations:
+          summary: "Info: New features computed"
+          description: "{{ $value | humanize }} new features have been computed in the last 24 hours."
+
+      # Performance Optimization Opportunities
+      - alert: CacheOptimizationOpportunity
+        expr: ml_cache_hit_ratio < 0.9 and ml_cache_hit_ratio >= 0.7
+        for: 1h
+        labels:
+          severity: info
+          team: ml-ops
+          category: optimization
+        annotations:
+          summary: "Info: Cache could be optimized"
+          description: "Cache {{ $labels.cache_type }} hit ratio is {{ $value | humanizePercentage }}. Consider cache tuning."
+          runbook_url: "https://wiki.nautilus.io/runbooks/cache-optimization"
+
+      - alert: BatchSizeOptimizationOpportunity
+        expr: stddev_over_time(ml_inference_batch_size[1h]) > 10
+        for: 1h
+        labels:
+          severity: info
+          team: ml-ops
+          category: optimization
+        annotations:
+          summary: "Info: Batch size variance detected"
+          description: "High variance in batch sizes may indicate optimization opportunity."
+          runbook_url: "https://wiki.nautilus.io/runbooks/batch-optimization"
+
+      # Data Quality Info
+      - alert: DataVolumeChanged
+        expr: abs(delta(rate(ml_data_rows_loaded_total[1h])[24h])) > 0.3
+        for: 1h
+        labels:
+          severity: info
+          team: data-engineering
+          category: data-volume
+        annotations:
+          summary: "Info: Data volume changed by {{ $value | humanizePercentage }}"
+          description: "Significant change in data volume for {{ $labels.source }}. May be seasonal or indicate data issue."
+
+      - alert: DataSourceLatencyIncreased
+        expr: ml_data_load_duration_seconds > 10 and ml_data_load_duration_seconds <= 30
+        for: 30m
+        labels:
+          severity: info
+          team: data-engineering
+          category: performance
+        annotations:
+          summary: "Info: Data load taking {{ $value | humanizeDuration }}"
+          description: "Data loading from {{ $labels.source }} is slower than usual but within acceptable range."
+
+      # Resource Planning Info
+      - alert: ResourceTrendingUp
+        expr: predict_linear(ml_memory_usage_percent[1h], 86400) > 90  # Predict 24h ahead
+        for: 1h
+        labels:
+          severity: info
+          team: infrastructure
+          category: capacity-planning
+        annotations:
+          summary: "Info: Memory usage trending upward"
+          description: "Based on current trend, memory usage may exceed 90% within 24 hours."
+          runbook_url: "https://wiki.nautilus.io/runbooks/capacity-planning"
+
+      - alert: GPUUtilizationLow
+        expr: ml_gpu_utilization_percent < 50 and ml_gpu_utilization_percent > 0
+        for: 2h
+        labels:
+          severity: info
+          team: ml-ops
+          category: resource-efficiency
+        annotations:
+          summary: "Info: GPU underutilized at {{ $value | humanizePercentage }}"
+          description: "GPU {{ $labels.gpu_id }} is underutilized. Consider batch size or workload optimization."
+
+      # Model Performance Trends
+      - alert: ModelPerformanceTrending
+        expr: delta(ml_model_accuracy_rolling[1h]) < -0.02
+        for: 2h
+        labels:
+          severity: info
+          team: ml-ops
+          category: trends
+        annotations:
+          summary: "Info: Model accuracy trending down"
+          description: "Model {{ $labels.model }} accuracy decreased by {{ $value | humanizePercentage }} in the last hour."
+
+      - alert: InferenceVolumeHigh
+        expr: rate(ml_predictions_total[5m]) > 1000
+        for: 30m
+        labels:
+          severity: info
+          team: ml-ops
+          category: volume
+        annotations:
+          summary: "Info: High inference volume"
+          description: "Processing {{ $value | humanize }} predictions per second for model {{ $labels.model }}."
+
+      # Maintenance Reminders
+      - alert: PrometheusStorageGrowing
+        expr: prometheus_tsdb_storage_blocks_bytes / 1024 / 1024 / 1024 > 5  # 5GB
+        for: 6h
+        labels:
+          severity: info
+          team: infrastructure
+          category: maintenance
+        annotations:
+          summary: "Info: Prometheus storage at {{ $value | humanize1024 }}B"
+          description: "Consider data retention policy review or storage expansion."
+
+      - alert: AlertRuleSilenced
+        expr: ALERTS{alertstate="suppressed"} == 1
+        for: 1h
+        labels:
+          severity: info
+          team: ml-ops
+          category: alerting
+        annotations:
+          summary: "Info: Alert rule {{ $labels.alertname }} is silenced"
+          description: "Remember to review and re-enable silenced alerts after maintenance."

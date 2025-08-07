@@ -1,0 +1,180 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+
+groups:
+  - name: ml_warning_alerts
+    interval: 30s
+    rules:
+      # Data Quality Warnings
+      - alert: DataDriftDetected
+        expr: ml_feature_drift_score > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          team: ml-ops
+          category: data-drift
+        annotations:
+          summary: "Warning: Feature drift detected for {{ $labels.feature }}"
+          description: "Feature {{ $labels.feature }} has drift score of {{ $value | humanize }}. Model retraining may be required."
+          runbook_url: "https://wiki.nautilus.io/runbooks/feature-drift"
+
+      - alert: MissingValuesHigh
+        expr: ml_data_missing_values_ratio > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          team: data-engineering
+          category: data-quality
+        annotations:
+          summary: "Warning: {{ $value | humanizePercentage }} missing values"
+          description: "Data source {{ $labels.source }} has {{ $value | humanizePercentage }} missing values for {{ $labels.instrument }}."
+          runbook_url: "https://wiki.nautilus.io/runbooks/missing-values"
+
+      - alert: OutliersDetected
+        expr: rate(ml_data_outliers_detected_total[5m]) > 10
+        for: 10m
+        labels:
+          severity: warning
+          team: data-engineering
+          category: data-quality
+        annotations:
+          summary: "Warning: High outlier rate detected"
+          description: "Detecting {{ $value | humanize }} outliers per second in {{ $labels.feature }} for {{ $labels.instrument }}."
+          runbook_url: "https://wiki.nautilus.io/runbooks/outliers-detected"
+
+      # Performance Warnings
+      - alert: CacheEfficiencyLow
+        expr: ml_cache_hit_ratio < 0.7
+        for: 15m
+        labels:
+          severity: warning
+          team: ml-ops
+          category: performance
+        annotations:
+          summary: "Warning: Cache hit ratio at {{ $value | humanizePercentage }}"
+          description: "Cache {{ $labels.cache_type }} efficiency is below 70%. This may impact performance."
+          runbook_url: "https://wiki.nautilus.io/runbooks/cache-efficiency"
+
+      - alert: FeatureComputationSlow
+        expr: ml_feature_computation_latency_p95 > 200
+        for: 10m
+        labels:
+          severity: warning
+          team: ml-ops
+          category: performance
+        annotations:
+          summary: "Warning: Feature computation P95 latency {{ $value }}ms"
+          description: "Feature engineering for {{ $labels.feature_set }} is slower than expected (P95: {{ $value }}ms)."
+          runbook_url: "https://wiki.nautilus.io/runbooks/feature-computation-slow"
+
+      # Model Performance Warnings
+      - alert: ModelAccuracyDegrading
+        expr: ml_model_accuracy_rolling < 0.75 and ml_model_accuracy_rolling >= 0.6
+        for: 10m
+        labels:
+          severity: warning
+          team: ml-ops
+          category: model-performance
+        annotations:
+          summary: "Warning: Model accuracy at {{ $value | humanizePercentage }}"
+          description: "Model {{ $labels.model }} accuracy is degrading (current: {{ $value | humanizePercentage }}). Consider retraining."
+          runbook_url: "https://wiki.nautilus.io/runbooks/accuracy-degrading"
+
+      - alert: PredictionDistributionShift
+        expr: ml_prediction_distribution_shift > 0.2
+        for: 15m
+        labels:
+          severity: warning
+          team: ml-ops
+          category: model-drift
+        annotations:
+          summary: "Warning: Prediction distribution shifted"
+          description: "Model {{ $labels.model }} predictions have shifted (KS statistic: {{ $value | humanize }})."
+          runbook_url: "https://wiki.nautilus.io/runbooks/prediction-shift"
+
+      # Resource Warnings
+      - alert: HighMemoryUsage
+        expr: ml_memory_usage_percent > 80 and ml_memory_usage_percent <= 95
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+          category: resources
+        annotations:
+          summary: "Warning: Memory usage at {{ $value | humanizePercentage }}"
+          description: "System memory usage is elevated. Consider scaling or optimizing memory usage."
+          runbook_url: "https://wiki.nautilus.io/runbooks/high-memory"
+
+      - alert: HighCPUUsage
+        expr: ml_cpu_usage_percent > 70
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+          category: resources
+        annotations:
+          summary: "Warning: CPU usage at {{ $value | humanizePercentage }}"
+          description: "Sustained high CPU usage detected. Performance may be impacted."
+          runbook_url: "https://wiki.nautilus.io/runbooks/high-cpu"
+
+      - alert: DiskSpaceLow
+        expr: ml_disk_usage_bytes / ml_disk_total_bytes > 0.8
+        for: 15m
+        labels:
+          severity: warning
+          team: infrastructure
+          category: resources
+        annotations:
+          summary: "Warning: Disk usage at {{ $value | humanizePercentage }}"
+          description: "Disk space on {{ $labels.mount_point }} is running low."
+          runbook_url: "https://wiki.nautilus.io/runbooks/disk-space-low"
+
+      # Validation Warnings
+      - alert: ValidationFailuresIncreasing
+        expr: rate(ml_data_validation_failures_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: data-engineering
+          category: data-quality
+        annotations:
+          summary: "Warning: Data validation failures increasing"
+          description: "Validation failures for {{ $labels.validation_type }} at {{ $value | humanize }} per second."
+          runbook_url: "https://wiki.nautilus.io/runbooks/validation-failures"
+
+      # Training & Deployment Warnings
+      - alert: ModelTrainingDurationHigh
+        expr: ml_model_training_duration_seconds > 3600
+        for: 1m
+        labels:
+          severity: warning
+          team: ml-ops
+          category: training
+        annotations:
+          summary: "Warning: Model training taking {{ $value | humanizeDuration }}"
+          description: "Model {{ $labels.model }} training is taking longer than expected."
+          runbook_url: "https://wiki.nautilus.io/runbooks/training-duration"
+
+      - alert: ModelSizeIncreasing
+        expr: ml_model_size_bytes > 1073741824  # 1GB
+        for: 5m
+        labels:
+          severity: warning
+          team: ml-ops
+          category: model-lifecycle
+        annotations:
+          summary: "Warning: Model size is {{ $value | humanize1024 }}B"
+          description: "Model {{ $labels.model }} size exceeds recommended limit. This may impact loading and inference times."
+          runbook_url: "https://wiki.nautilus.io/runbooks/model-size"
