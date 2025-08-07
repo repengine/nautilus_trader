@@ -661,6 +661,136 @@ class XGBoostTrainer(BaseMLTrainer):
 
         print(f"XGBoost model saved to {save_path}")
 
+    def export_to_onnx(self, output_path: str | Path) -> bool:
+        """
+        Export trained model to ONNX format for high-performance inference.
+
+        Parameters
+        ----------
+        output_path : str | Path
+            Path where to save the ONNX model.
+
+        Returns
+        -------
+        bool
+            True if export successful, False otherwise.
+
+        """
+        if not self._is_fitted:
+            raise ValueError("Model must be fitted before export")
+
+        try:
+            import onnxmltools
+            from skl2onnx.common.data_types import FloatTensorType
+        except ImportError:
+            print("⚠️ ONNX export requires onnxmltools and skl2onnx. "
+                  "Install with: pip install onnxmltools skl2onnx")
+            return False
+
+        try:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Define input type
+            initial_types = [
+                ("float_input", FloatTensorType([None, len(self._feature_names)]))
+            ]
+
+            # Convert to ONNX
+            onnx_model = onnxmltools.convert_xgboost(
+                self._model,
+                initial_types=initial_types,
+                target_opset=12
+            )
+
+            # Save ONNX model
+            with open(output_path, "wb") as f:
+                f.write(onnx_model.SerializeToString())
+
+            # Save feature metadata
+            metadata_path = output_path.with_suffix(".json")
+            metadata = {
+                "feature_names": self._feature_names,
+                "model_type": "xgboost",
+                "objective": self._xgb_config.objective,
+                "n_features": len(self._feature_names),
+                "export_timestamp": int(time.time()),
+                "scaler_info": {
+                    "has_scaler": self._scaler is not None,
+                    "scaler_type": type(self._scaler).__name__ if self._scaler else None,
+                },
+            }
+
+            with open(metadata_path, "w") as f:
+                import json
+                json.dump(metadata, f, indent=2)
+
+            print(f"✅ Model exported to ONNX: {output_path}")
+            print(f"✅ Metadata saved: {metadata_path}")
+            return True
+
+        except Exception as e:
+            print(f"⚠️ ONNX export failed: {e}")
+            return False
+
+    def validate_gpu_availability(self) -> bool:
+        """
+        Validate GPU availability for XGBoost training.
+
+        Returns
+        -------
+        bool
+            True if GPU is available and compatible, False otherwise.
+
+        """
+        if self._xgb_config.tree_method != "gpu_hist":
+            return True  # CPU training always available
+
+        try:
+            # Check if XGBoost was compiled with GPU support
+            if not HAS_XGBOOST:
+                return False
+
+            # Test GPU availability
+            import subprocess
+            result = subprocess.run(
+                ["nvidia-smi", "-L"], 
+                capture_output=True, 
+                text=True, 
+                timeout=5
+            )
+            
+            if result.returncode != 0:
+                print("⚠️ nvidia-smi not available - GPU training not supported")
+                return False
+
+            # Count available GPUs
+            gpu_lines = [line for line in result.stdout.split('\n') if 'GPU' in line]
+            gpu_count = len(gpu_lines)
+            
+            if gpu_count == 0:
+                print("⚠️ No GPUs detected")
+                return False
+
+            # Check if requested GPU ID is valid
+            gpu_id = self._xgb_config.gpu_id
+            if gpu_id >= gpu_count:
+                print(f"⚠️ Requested GPU {gpu_id} not available. Found {gpu_count} GPUs")
+                return False
+
+            print(f"✅ GPU {gpu_id} available for XGBoost training")
+            return True
+
+        except subprocess.TimeoutExpired:
+            print("⚠️ GPU check timed out")
+            return False
+        except FileNotFoundError:
+            print("⚠️ nvidia-smi not found - GPU training not available")
+            return False
+        except Exception as e:
+            print(f"⚠️ GPU validation failed: {e}")
+            return False
+
     def get_feature_importance_summary(self) -> dict[str, Any]:
         """
         Get a comprehensive feature importance summary.
