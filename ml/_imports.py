@@ -27,7 +27,9 @@ from typing import TYPE_CHECKING, Any
 
 # Type checking imports (always available, no runtime cost)
 if TYPE_CHECKING:
+    import mlflow
     import onnxruntime as ort
+    import optuna
     import polars as pl
     import xgboost as xgb
     from prometheus_client import Counter
@@ -69,6 +71,31 @@ except ImportError as e:
     HAS_XGBOOST = False
     XGBOOST_IMPORT_ERROR = e
     xgb = None  # type: ignore[assignment,unused-ignore]
+
+
+# Optuna
+try:
+    import optuna
+
+    HAS_OPTUNA = True
+    OPTUNA_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_OPTUNA = False
+    OPTUNA_IMPORT_ERROR = e
+    optuna = None  # type: ignore[assignment,unused-ignore]
+
+
+# MLflow
+try:
+    import mlflow
+    import mlflow.xgboost
+
+    HAS_MLFLOW = True
+    MLFLOW_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_MLFLOW = False
+    MLFLOW_IMPORT_ERROR = e
+    mlflow = None  # type: ignore[assignment,unused-ignore]
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
@@ -242,7 +269,7 @@ def check_ml_dependencies(required: list[str]) -> None:
     Parameters
     ----------
     required : list[str]
-        List of required dependencies: ['onnx', 'polars', 'xgboost', 'prometheus']
+        List of required dependencies: ['onnx', 'polars', 'xgboost', 'optuna', 'mlflow', 'prometheus']
 
     Raises
     ------
@@ -273,6 +300,20 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"Original error: {XGBOOST_IMPORT_ERROR}",
         )
 
+    if "optuna" in required and not HAS_OPTUNA:
+        errors.append(
+            f"Optuna required but not installed. "
+            f"Install with: pip install 'nautilus-trader[ml]'\n"
+            f"Original error: {OPTUNA_IMPORT_ERROR}",
+        )
+
+    if "mlflow" in required and not HAS_MLFLOW:
+        errors.append(
+            f"MLflow required but not installed. "
+            f"Install with: pip install 'nautilus-trader[ml]'\n"
+            f"Original error: {MLFLOW_IMPORT_ERROR}",
+        )
+
     if "prometheus" in required and not HAS_PROMETHEUS:
         errors.append(
             f"Prometheus Client required but not installed. "
@@ -286,12 +327,16 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 __all__ = [
     # Availability flags
+    "HAS_MLFLOW",
     "HAS_ONNX",
+    "HAS_OPTUNA",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
     "HAS_XGBOOST",
     # Import errors
+    "MLFLOW_IMPORT_ERROR",
     "ONNX_IMPORT_ERROR",
+    "OPTUNA_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
     "XGBOOST_IMPORT_ERROR",
@@ -301,6 +346,8 @@ __all__ = [
     # Utility function
     "check_ml_dependencies",
     # Imported modules (may be None)
+    "mlflow",
+    "optuna",
     "ort",
     "pl",
     "xgb",
