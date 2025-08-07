@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 # Type checking imports (always available, no runtime cost)
 if TYPE_CHECKING:
+    import lightgbm as lgb
     import mlflow
     import onnxruntime as ort
     import optuna
@@ -73,6 +74,18 @@ except ImportError as e:
     xgb = None  # type: ignore[assignment,unused-ignore]
 
 
+# LightGBM
+try:
+    import lightgbm as lgb
+
+    HAS_LIGHTGBM = True
+    LIGHTGBM_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_LIGHTGBM = False
+    LIGHTGBM_IMPORT_ERROR = e
+    lgb = None  # type: ignore[assignment,unused-ignore]
+
+
 # Optuna
 try:
     import optuna
@@ -88,6 +101,7 @@ except ImportError as e:
 # MLflow
 try:
     import mlflow
+    import mlflow.lightgbm
     import mlflow.xgboost
 
     HAS_MLFLOW = True
@@ -300,6 +314,13 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"Original error: {XGBOOST_IMPORT_ERROR}",
         )
 
+    if "lightgbm" in required and not HAS_LIGHTGBM:
+        errors.append(
+            f"LightGBM required but not installed. "
+            f"Install with: pip install 'nautilus-trader[ml]'\n"
+            f"Original error: {LIGHTGBM_IMPORT_ERROR}",
+        )
+
     if "optuna" in required and not HAS_OPTUNA:
         errors.append(
             f"Optuna required but not installed. "
@@ -327,6 +348,7 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 __all__ = [
     # Availability flags
+    "HAS_LIGHTGBM",
     "HAS_MLFLOW",
     "HAS_ONNX",
     "HAS_OPTUNA",
@@ -334,6 +356,7 @@ __all__ = [
     "HAS_PROMETHEUS",
     "HAS_XGBOOST",
     # Import errors
+    "LIGHTGBM_IMPORT_ERROR",
     "MLFLOW_IMPORT_ERROR",
     "ONNX_IMPORT_ERROR",
     "OPTUNA_IMPORT_ERROR",
@@ -346,6 +369,7 @@ __all__ = [
     # Utility function
     "check_ml_dependencies",
     # Imported modules (may be None)
+    "lgb",
     "mlflow",
     "optuna",
     "ort",

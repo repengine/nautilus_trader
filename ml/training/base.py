@@ -123,7 +123,7 @@ class BaseMLTrainer(ABC):
                 "Polars is required for training. Install with: pip install polars",
             )
 
-        print(f"Starting training with {len(data)} samples")
+        self._log_info(f"Starting training with {len(data)} samples")
 
         # Prepare training data
         if validation_data is None:
@@ -144,7 +144,7 @@ class BaseMLTrainer(ABC):
         # Store feature names
         self._feature_names = metadata.get("feature_names", [])
 
-        print(f"Training features: {X_train.shape}, Validation features: {X_val.shape}")
+        self._log_info(f"Training features: {X_train.shape}, Validation features: {X_val.shape}")
 
         # Train the model
         training_results = self._train_model(
@@ -188,8 +188,8 @@ class BaseMLTrainer(ABC):
             **all_metrics,
         }
 
-        print(f"Training completed in {training_time:.2f}s")
-        print(f"Validation metrics: {val_metrics}")
+        self._log_info(f"Training completed in {training_time:.2f}s")
+        self._log_info(f"Validation metrics: {val_metrics}")
 
         # Save model if configured
         if self._config.save_model_path is not None:
@@ -201,6 +201,43 @@ class BaseMLTrainer(ABC):
             "feature_names": self._feature_names,
             "config": self._config,
         }
+
+    def _log_info(self, message: str) -> None:
+        """
+        Log info message.
+
+        Parameters
+        ----------
+        message : str
+            Message to log.
+
+        """
+        # Print to stdout for now, can be extended with proper logging
+        print(f"[INFO] {message}")
+
+    def _log_warning(self, message: str) -> None:
+        """
+        Log warning message.
+
+        Parameters
+        ----------
+        message : str
+            Warning message to log.
+
+        """
+        print(f"[WARNING] {message}")
+
+    def _log_error(self, message: str) -> None:
+        """
+        Log error message.
+
+        Parameters
+        ----------
+        message : str
+            Error message to log.
+
+        """
+        print(f"[ERROR] {message}")
 
     @abstractmethod
     def prepare_data(
@@ -397,7 +434,7 @@ class BaseMLTrainer(ABC):
         with open(save_path, "wb") as f:
             pickle.dump(model_data, f)
 
-        print(f"Model saved to {save_path}")
+        self._log_info(f"Model saved to {save_path}")
 
     def load_model(self, path: str | Path) -> None:
         """
@@ -421,7 +458,7 @@ class BaseMLTrainer(ABC):
         self._training_metrics = model_data.get("training_metrics", {})
         self._is_fitted = True
 
-        print(f"Model loaded from {load_path}")
+        self._log_info(f"Model loaded from {load_path}")
 
     def _split_data(
         self,
