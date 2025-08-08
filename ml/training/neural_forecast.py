@@ -22,6 +22,8 @@ from sklearn.metrics import mean_squared_error
 
 warnings.filterwarnings("ignore")
 
+from ml.training.base import BaseMLTrainer
+
 from ..config.settings import Settings
 from ..data.unified_loader import UnifiedNautilusDataLoader
 from ..features.feature_engineering import FeatureConfig
@@ -31,7 +33,6 @@ from ..features.feature_engineering import FeatureEngineerV2
 from ..resource_management.trainer_mixin import ResourceManagedTrainerMixin
 from ..utils.dataframe_converter import DataFrameConverter
 from ..utils.mlflow_utils import MLflowManager
-from .base_trainer import BaseTrainer
 
 
 # Try to import Neural Forecast libraries
@@ -54,7 +55,7 @@ except ImportError:
     print("Warning: NeuralForecast not available. Install with: pip install neuralforecast")
 
 
-class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
+class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseMLTrainer):
     """
     Neural Forecast trainer supporting multiple transformer models.
 
@@ -80,6 +81,7 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
     """
 
     def __init__(self, config: dict[str, Any], settings: Settings | None = None):
+        self.settings = settings
         self.mlflow_manager = MLflowManager(settings)
         """
         Initialize Neural Forecast trainer.
@@ -98,7 +100,7 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
             settings: Nautilus ML settings object
 
         """
-        super().__init__(config, settings)
+        super().__init__(config)
 
         if not NEURALFORECAST_AVAILABLE:
             raise ImportError(

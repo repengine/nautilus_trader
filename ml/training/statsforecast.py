@@ -31,6 +31,8 @@ from statsmodels.graphics.tsaplots import plot_acf
 from statsmodels.graphics.tsaplots import plot_pacf
 from statsmodels.stats.diagnostic import acorr_ljungbox
 
+from ml.training.base import BaseMLTrainer
+
 from ..config.settings import Settings
 from ..data.unified_loader import UnifiedNautilusDataLoader
 from ..features.feature_engineering import FeatureConfig
@@ -39,7 +41,6 @@ from ..features.feature_engineering import FeatureEngineerV2
 # Moved to conditional import to avoid circular dependency
 from ..utils.dataframe_converter import DataFrameConverter
 from ..utils.mlflow_utils import MLflowManager
-from .base_trainer import BaseTrainer
 
 
 # Import StatsForecast libraries
@@ -70,7 +71,7 @@ except ImportError:
     )
 
 
-class StatsForecastTrainer(BaseTrainer):
+class StatsForecastTrainer(BaseMLTrainer):
     """
     StatsForecast trainer for fast statistical time series models.
 
@@ -117,7 +118,8 @@ class StatsForecastTrainer(BaseTrainer):
             settings: Nautilus ML settings object
 
         """
-        super().__init__(config, settings)
+        self.settings = settings
+        super().__init__(config)
 
         if not STATSFORECAST_AVAILABLE:
             raise ImportError(
@@ -864,7 +866,7 @@ class StatsForecastTrainer(BaseTrainer):
         """
         Evaluate StatsForecast model performance.
 
-        Note: This is primarily for compatibility with BaseTrainer.
+        Note: This is primarily for compatibility with BaseMLTrainer.
         StatsForecast models are evaluated differently during training.
 
         """
