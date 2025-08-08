@@ -381,7 +381,6 @@ class BaseMLTrainer(ABC):
         """
         ...
 
-    @abstractmethod
     def _get_model_params(self) -> dict[str, Any]:
         """
         Get model-specific default parameters.
@@ -392,7 +391,9 @@ class BaseMLTrainer(ABC):
             Default model parameters.
 
         """
-        ...
+        if getattr(self._config, "model_params", None) is not None:
+            return self._config.model_params  # type: ignore[return-value]
+        raise NotImplementedError("Subclasses must implement _get_model_params")
 
     def _should_use_mlflow(self) -> bool:
         """
