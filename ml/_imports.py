@@ -29,9 +29,12 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import lightgbm as lgb
     import mlflow
+    import onnxmltools
     import onnxruntime as ort
     import optuna
+    import pandas as pd
     import polars as pl
+    import skl2onnx
     import sklearn
     import xgboost as xgb
     from prometheus_client import Counter
@@ -123,6 +126,32 @@ except ImportError as e:
     HAS_SKLEARN = False
     SKLEARN_IMPORT_ERROR = e
     sklearn = None  # type: ignore[assignment,unused-ignore]
+
+
+# ONNX export tools
+try:
+    import onnxmltools
+    import skl2onnx
+
+    HAS_ONNX_EXPORT = True
+    ONNX_EXPORT_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_ONNX_EXPORT = False
+    ONNX_EXPORT_IMPORT_ERROR = e
+    onnxmltools = None  # type: ignore[assignment,unused-ignore]
+    skl2onnx = None  # type: ignore[assignment,unused-ignore]
+
+
+# Pandas (used in some ML modules)
+try:
+    import pandas as pd
+
+    HAS_PANDAS = True
+    PANDAS_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_PANDAS = False
+    PANDAS_IMPORT_ERROR = e
+    pd = None  # type: ignore[assignment,unused-ignore]
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
@@ -296,7 +325,8 @@ def check_ml_dependencies(required: list[str]) -> None:
     Parameters
     ----------
     required : list[str]
-        List of required dependencies: ['onnx', 'polars', 'xgboost', 'sklearn', 'optuna', 'mlflow', 'prometheus']
+        List of required dependencies: ['onnx', 'polars', 'xgboost', 'lightgbm', 'sklearn',
+        'optuna', 'mlflow', 'prometheus', 'onnx_export', 'pandas']
 
     Raises
     ------
@@ -362,6 +392,20 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"Original error: {PROMETHEUS_IMPORT_ERROR}",
         )
 
+    if "onnx_export" in required and not HAS_ONNX_EXPORT:
+        errors.append(
+            f"ONNX export tools (onnxmltools, skl2onnx) required but not installed. "
+            f"Install with: pip install 'nautilus-trader[ml]'\n"
+            f"Original error: {ONNX_EXPORT_IMPORT_ERROR}",
+        )
+
+    if "pandas" in required and not HAS_PANDAS:
+        errors.append(
+            f"Pandas required but not installed. "
+            f"Install with: pip install pandas\n"
+            f"Original error: {PANDAS_IMPORT_ERROR}",
+        )
+
     if errors:
         raise ImportError("\n\n".join(errors))
 
@@ -371,7 +415,9 @@ __all__ = [
     "HAS_LIGHTGBM",
     "HAS_MLFLOW",
     "HAS_ONNX",
+    "HAS_ONNX_EXPORT",
     "HAS_OPTUNA",
+    "HAS_PANDAS",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
     "HAS_SKLEARN",
@@ -380,7 +426,9 @@ __all__ = [
     "LIGHTGBM_IMPORT_ERROR",
     "MLFLOW_IMPORT_ERROR",
     "ONNX_IMPORT_ERROR",
+    "ONNX_EXPORT_IMPORT_ERROR",
     "OPTUNA_IMPORT_ERROR",
+    "PANDAS_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
     "SKLEARN_IMPORT_ERROR",
@@ -393,9 +441,12 @@ __all__ = [
     # Imported modules (may be None)
     "lgb",
     "mlflow",
+    "onnxmltools",
     "optuna",
     "ort",
+    "pd",
     "pl",
+    "skl2onnx",
     "sklearn",
     "xgb",
 ]
