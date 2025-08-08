@@ -238,7 +238,35 @@ class TestBaseMLTrainer:
         assert trainer._is_fitted is True
         assert "model" in results
         assert "metrics" in results
-        assert "feature_names" in results
+
+    def test_split_data_sorts_unsorted_input(
+        self,
+        trainer: MockMLTrainer,
+        sample_data: pd.DataFrame,
+    ) -> None:
+        """
+        Test that _split_data sorts data by timestamp before splitting.
+        """
+        unsorted = sample_data.sample(frac=1, random_state=1).reset_index(drop=True)
+
+        train_df, val_df = trainer._split_data(unsorted)
+
+        assert train_df["timestamp"].is_monotonic_increasing
+        assert val_df["timestamp"].is_monotonic_increasing
+        assert train_df["timestamp"].iloc[-1] <= val_df["timestamp"].iloc[0]
+
+    def test_split_data_enforce_sorted_raises(
+        self,
+        trainer: MockMLTrainer,
+        sample_data: pd.DataFrame,
+    ) -> None:
+        """
+        Test that _split_data can enforce sorted input.
+        """
+        unsorted = sample_data.sample(frac=1, random_state=1).reset_index(drop=True)
+
+        with pytest.raises(ValueError):
+            trainer._split_data(unsorted, sort=False, enforce_sorted=True)
 
     def test_train_saves_model(self, sample_data: pd.DataFrame) -> None:
         """

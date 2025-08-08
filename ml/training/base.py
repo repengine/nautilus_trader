@@ -40,6 +40,7 @@ from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import mlflow
 from ml._imports import optuna
+from ml._imports import pl
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLTrainingConfig
 
@@ -123,6 +124,8 @@ class BaseMLTrainer(ABC):
         ----------
         data : Any
             The training data containing features and target (pl.DataFrame when polars available).
+            The data is sorted by ``timestamp`` before being split into training and
+            validation sets.
         validation_data : Any, optional
             Optional validation dataset. If None, data is split automatically.
         **kwargs : Any
@@ -763,9 +766,9 @@ class BaseMLTrainer(ABC):
 
         # Log metrics
         for key, value in metrics.items():
-            if isinstance(value, (int, float)):
+            if isinstance(value, int | float):
                 mlflow.log_metric(key, value)
-            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], (int, float)):
+            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], int | float):
                 for i, v in enumerate(value):
                     mlflow.log_metric(f"{key}_{i}", v)
 
@@ -782,7 +785,7 @@ class BaseMLTrainer(ABC):
         """
         config_dict = {}
         for key, value in vars(self._config).items():
-            if isinstance(value, (str, int, float, bool)):
+            if isinstance(value, str | int | float | bool):
                 config_dict[key] = value
         return config_dict
 
@@ -1014,6 +1017,9 @@ class BaseMLTrainer(ABC):
     def _split_data(
         self,
         data: Any,  # pl.DataFrame when polars is available
+        *,
+        sort: bool = True,
+        enforce_sorted: bool = False,
     ) -> tuple[Any, Any]:
         """
         Split data into training and validation sets.
@@ -1022,6 +1028,11 @@ class BaseMLTrainer(ABC):
         ----------
         data : Any
             The data to split (pl.DataFrame when polars available).
+        sort : bool, default True
+            If ``True``, the data is sorted by ``timestamp`` before splitting.
+        enforce_sorted : bool, default False
+            When ``sort`` is ``False``, raises ``ValueError`` if the data is not
+            sorted by ``timestamp``.
 
         Returns
         -------
@@ -1029,6 +1040,21 @@ class BaseMLTrainer(ABC):
             Training and validation datasets.
 
         """
+        timestamp_col_present = "timestamp" in getattr(data, "columns", [])
+        if sort and timestamp_col_present:
+            if HAS_POLARS and pl is not None and hasattr(data, "sort"):
+                data = data.sort("timestamp")
+            elif hasattr(data, "sort_values"):
+                data = data.sort_values("timestamp")
+        elif enforce_sorted and timestamp_col_present:
+            is_sorted = True
+            if HAS_POLARS and pl is not None and hasattr(data["timestamp"], "is_sorted"):
+                is_sorted = data["timestamp"].is_sorted()
+            elif hasattr(data["timestamp"], "is_monotonic_increasing"):
+                is_sorted = data["timestamp"].is_monotonic_increasing
+            if not is_sorted:
+                raise ValueError("Data must be sorted by timestamp")
+
         n_samples = len(data)
         split_idx = int(n_samples * self._config.train_test_split)
 
