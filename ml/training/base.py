@@ -1097,18 +1097,48 @@ class BaseMLTrainer(ABC):
         """
         Calculate regression metrics.
         """
-        mse = np.mean((y_true - y_pred) ** 2)
-        rmse = np.sqrt(mse)
-        mae = np.mean(np.abs(y_true - y_pred))
+        try:
+            from sklearn.metrics import mean_absolute_error
+            from sklearn.metrics import mean_absolute_percentage_error
+            from sklearn.metrics import mean_squared_error
+            from sklearn.metrics import r2_score
 
-        # R-squared
-        ss_res = np.sum((y_true - y_pred) ** 2)
-        ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-        r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+            mse = mean_squared_error(y_true, y_pred)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(y_true, y_pred)
+
+            # MAPE with protection against division by zero
+            mask = y_true != 0
+            mape = (
+                mean_absolute_percentage_error(y_true[mask], y_pred[mask])
+                if np.any(mask)
+                else np.nan
+            )
+
+            r2 = r2_score(y_true, y_pred)
+
+        except ImportError:
+            mse = np.mean((y_true - y_pred) ** 2)
+            rmse = np.sqrt(mse)
+            mae = np.mean(np.abs(y_true - y_pred))
+
+            # MAPE with protection against division by zero
+            mask = y_true != 0
+            mape = (
+                np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask]))
+                if np.any(mask)
+                else np.nan
+            )
+
+            # R-squared
+            ss_res = np.sum((y_true - y_pred) ** 2)
+            ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
 
         return {
-            "mse": mse,
-            "rmse": rmse,
-            "mae": mae,
-            "r2_score": r2,
+            "mse": float(mse),
+            "rmse": float(rmse),
+            "mae": float(mae),
+            "mape": float(mape) if not np.isnan(mape) else np.nan,
+            "r2_score": float(r2),
         }
