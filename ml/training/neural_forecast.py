@@ -107,7 +107,7 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
 
         self.model = None
         self.scaler = None
-        self.feature_names = None
+        self.feature_names: list[str] | None = None
         self.feature_engineer = FeatureEngineerV2(config.get("feature_config", FeatureConfig()))
 
         # Neural Forecast specific
@@ -138,6 +138,7 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
         self,
         data: pl.DataFrame,
         target_col: str = "close",
+        fit_scaler: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
         """
         Prepare data for Neural Forecast models.
@@ -145,6 +146,7 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
         Args:
             data: Polars DataFrame with OHLCV data and timestamp
             target_col: Name of target column (default 'close')
+            fit_scaler: Whether to fit and store a new scaler (training only)
 
         Returns:
             X: Features DataFrame in NeuralForecast format
@@ -159,9 +161,14 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
             raise ValueError(f"Missing required columns: {missing_cols}")
 
         # Calculate technical features using feature engineer
-        features_df, scaler = self.feature_engineer.calculate_features_batch(data, fit_scaler=True)
-        self.scaler = scaler
-        self.feature_names = self.feature_engineer.get_feature_names()
+        features_df, scaler = self.feature_engineer.calculate_features_batch(
+            data,
+            fit_scaler=fit_scaler,
+        )
+        if fit_scaler:
+            self.scaler = scaler
+        feature_names: list[str] = self.feature_engineer.get_feature_names()
+        self.feature_names = feature_names
 
         # Convert to pandas for NeuralForecast
         # NeuralForecast expects specific format: unique_id, ds, y, [exogenous features]
@@ -178,14 +185,14 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
         )
 
         # Add exogenous features
-        for i, feature in enumerate(self.feature_names):
+        for i, feature in enumerate(feature_names):
             nf_df[feature] = features_pd.iloc[:, i]
 
         # Sort by timestamp
         nf_df = nf_df.sort_values("ds").reset_index(drop=True)
 
         # For NeuralForecast, X and y are the same DataFrame
-        return nf_df, nf_df, self.feature_names
+        return nf_df, nf_df, feature_names
 
     def _create_model(self, params: dict[str, Any]) -> Any:
         """
@@ -432,12 +439,12 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
         """
         # Prepare data
         print(f"Preparing data for {self.model_type}...")
-        train_df, _, feature_names = self.prepare_data(train_data)
-        val_df, _, _ = self.prepare_data(val_data)
+        train_df, _, feature_names = self.prepare_data(train_data, fit_scaler=True)
+        val_df, _, _ = self.prepare_data(val_data, fit_scaler=False)
 
-        # Apply scaler to validation data
-        for feature in feature_names:
-            val_df[feature] = self.scaler.transform(val_df[[feature]])
+        # Apply stored training scaler to validation data
+        if self.scaler is not None:
+            val_df[feature_names] = self.scaler.transform(val_df[feature_names])
 
         # Create model
         print(f"Creating {self.model_type} model...")
@@ -712,7 +719,7 @@ def train_tft_model(
         else:
             parquet_file = data_path / f"{instrument}_hourly.parquet"
             if not parquet_file.exists():
-                raise FileNotFoundError(f"Data file not found: {parquet_file}") from f
+                raise FileNotFoundError(f"Data file not found: {parquet_file}")
             # Try loading bars directly if catalog doesn't exist
             data = loader.load_bars(instrument, bar_aggregation="1-HOUR")
     except (
@@ -767,7 +774,7 @@ def train_tft_model(
 def train_multi_model_ensemble(
     instrument: str,
     data_path: Path,
-    models: list[str] = None,
+    models: list[str] | None = None,
     forecast_horizon: int = 24,
     optimize: bool = False,
     n_trials: int = 20,
@@ -802,7 +809,7 @@ def train_multi_model_ensemble(
         else:
             parquet_file = data_path / f"{instrument}_hourly.parquet"
             if not parquet_file.exists():
-                raise FileNotFoundError(f"Data file not found: {parquet_file}") from e
+                raise FileNotFoundError(f"Data file not found: {parquet_file}")
             # Try loading bars directly if catalog doesn't exist
             data = loader.load_bars(instrument, bar_aggregation="1-HOUR")
     except (
