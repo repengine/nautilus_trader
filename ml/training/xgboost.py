@@ -264,7 +264,7 @@ class XGBoostTrainer(BaseMLTrainer):
             threshold = kwargs.get("threshold", 0.5)
             predictions = (predictions > threshold).astype(int)
 
-        return predictions
+        return np.array(predictions)
 
     def _create_model(self, params: dict[str, Any]) -> Any:
         """
@@ -453,9 +453,9 @@ class XGBoostTrainer(BaseMLTrainer):
 
             if interaction:
                 shap_interaction = explainer.shap_interaction_values(X)
-                return shap_interaction
+                return np.array(shap_interaction)
 
-            return shap_values
+            return np.array(shap_values)
 
         except ImportError:
             self._log_warning("SHAP not installed. Install with: pip install shap")

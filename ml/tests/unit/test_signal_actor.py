@@ -42,6 +42,7 @@ from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
 from ml.actors.signal import StrategyConfig
+from ml.actors.base import CircuitBreakerState
 from ml.config.base import CircuitBreakerConfig
 from ml.features.engineering import FeatureConfig
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
@@ -72,10 +73,10 @@ class MockTestModel:
     Mock model for testing.
     """
 
-    def predict(self, X):
+    def predict(self, X: np.ndarray) -> np.ndarray:
         return np.array([0.8])
 
-    def predict_proba(self, X):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
         return np.array([[0.2, 0.8]])
 
 
@@ -84,7 +85,7 @@ class TestMLSignalActor:
     Test cases for MLSignalActor.
     """
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         """
         Set up test fixtures.
         """
@@ -200,7 +201,7 @@ class TestMLSignalActor:
         self.data_engine.start()
         self.exec_engine.start()
 
-    def teardown_method(self):
+    def teardown_method(self) -> None:
         """
         Clean up test fixtures.
         """
@@ -336,7 +337,7 @@ class TestMLSignalActor:
         confidences = [0.6] * len(predictions)
         prediction_idx = 0
 
-        def mock_predict(features):
+        def mock_predict(features: np.ndarray) -> tuple[float, float]:
             nonlocal prediction_idx
             if prediction_idx < len(predictions):
                 result = predictions[prediction_idx], confidences[prediction_idx]
@@ -626,18 +627,24 @@ class TestMLSignalActor:
         """
         actor = self.create_test_actor()
 
-        # Force failures by making model raise exceptions
-        actor._model = Mock()
-        actor._model.predict.side_effect = Exception("Model error")
+        # Force failures by creating a model that always raises exceptions
+        class FailingModel:
+            def predict(self, X: np.ndarray) -> np.ndarray:
+                raise Exception("Model error")
+            def predict_proba(self, X: np.ndarray) -> np.ndarray:
+                raise Exception("Model error")
+        
+        actor._model = FailingModel()
 
         # Process bars to trigger circuit breaker
-        for i in range(10):  # More than failure threshold
+        # First warm up the actor (warm_up_period=20) + enough failures to open circuit breaker
+        for i in range(35):  # Warm up + enough failures to trigger circuit breaker (need ~30 bars)
             bar = self.create_test_bar()
             actor.on_bar(bar)
 
         # Circuit breaker should be open
         assert actor._circuit_breaker is not None
-        assert actor._circuit_breaker.state != "CLOSED"
+        assert actor._circuit_breaker.state != CircuitBreakerState.CLOSED
 
     def test_get_signal_statistics(self) -> None:
         """
@@ -1208,7 +1215,7 @@ class TestMLSignalActor:
         assert actor._indicator_manager is not None
         original_update = actor._indicator_manager.update_from_bar
 
-        def slow_update(bar):
+        def slow_update(bar: Bar) -> None:
             time.sleep(0.01)  # Make it slow
             original_update(bar)
 

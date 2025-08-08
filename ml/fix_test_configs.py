@@ -14,7 +14,7 @@ def fix_config_fields(content: str) -> str:
     # Pattern to find UnifiedXGBoostConfig or UnifiedLightGBMConfig instantiations
     config_pattern = r"(Unified(?:XGBoost|LightGBM)Config\([^)]*)"
 
-    def replace_config(match):
+    def replace_config(match: re.Match[str]) -> str:
         config_str = match.group(1)
 
         # Check if we need to add imports
@@ -42,9 +42,9 @@ def fix_config_fields(content: str) -> str:
             "onnx_output_path",
         ]:
             pattern = f"{field}=([^,)]+)"
-            match = re.search(pattern, remaining_str)
-            if match:
-                advanced_fields.append(f"{field}={match.group(1)}")
+            match_result = re.search(pattern, remaining_str)
+            if match_result:
+                advanced_fields.append(f"{field}={match_result.group(1)}")
                 remaining_str = re.sub(pattern + r",?\s*", "", remaining_str)
 
         if advanced_fields:
@@ -90,7 +90,7 @@ def fix_config_fields(content: str) -> str:
     return content
 
 
-def main():
+def main() -> None:
     # Find all test files that need fixing
     test_files = [
         Path("ml/tests/unit/test_xgboost_unified.py"),

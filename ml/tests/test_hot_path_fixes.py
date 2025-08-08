@@ -38,7 +38,7 @@ class TestHotPathFixes:
     Test that hot path fixes maintain data integrity and zero allocation.
     """
 
-    def test_feature_engineer_returns_view_not_copy(self):
+    def test_feature_engineer_returns_view_not_copy(self) -> None:
         """
         Verify FeatureEngineer returns a view in hot path, not a copy.
         """
@@ -79,7 +79,7 @@ class TestHotPathFixes:
         assert len(features) > 0, "Features should be computed"
         assert not np.any(np.isnan(features)), "Features should not contain NaN"
 
-    def test_enhanced_actor_compute_features_returns_view(self):
+    def test_enhanced_actor_compute_features_returns_view(self) -> None:
         """
         Verify EnhancedMLInferenceActor._compute_features returns a view.
         """
@@ -138,7 +138,7 @@ class TestHotPathFixes:
             assert len(features) > 0, "Features should be computed"
             assert not np.any(np.isnan(features)), "Features should not contain NaN"
 
-    def test_feature_buffer_reuse_maintains_integrity(self):
+    def test_feature_buffer_reuse_maintains_integrity(self) -> None:
         """
         Test that reusing feature buffer doesn't corrupt data.
         """

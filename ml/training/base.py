@@ -495,7 +495,7 @@ class BaseMLTrainer(ABC):
         best_params = study.best_params
         self._log_info(f"Best parameters found: {best_params}")
 
-        return best_params
+        return dict(best_params)
 
     @abstractmethod
     def _suggest_hyperparameters(self, trial: optuna.Trial) -> dict[str, Any]:
@@ -571,10 +571,10 @@ class BaseMLTrainer(ABC):
         """
         if self._is_classification_problem(y_true):
             # Use accuracy for classification
-            return np.mean(y_true == y_pred)
+            return float(np.mean(y_true == y_pred))
         else:
             # Use negative MSE for regression (Optuna maximizes by default)
-            return -np.mean((y_true - y_pred) ** 2)
+            return float(-np.mean((y_true - y_pred) ** 2))
 
     def _cross_validate(
         self,

@@ -378,8 +378,8 @@ class TestXGBoostOptunaOptimizer:
 
         base_params = {"objective": "binary:logistic"}
 
-        def metric_function(y_true, y_pred):
-            return np.mean((y_true - y_pred) ** 2)
+        def metric_function(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+            return float(np.mean((y_true - y_pred) ** 2))
 
         # Create objective
         objective = optimizer.create_objective_function(
@@ -437,8 +437,8 @@ class TestXGBoostOptunaOptimizer:
 
         base_params = {"objective": "reg:squarederror"}
 
-        def metric_function(y_true, y_pred):
-            return -np.sqrt(np.mean((y_true - y_pred) ** 2))
+        def metric_function(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+            return float(-np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
         objective = optimizer.create_objective_function(
             X_train,
@@ -484,8 +484,8 @@ class TestXGBoostOptunaOptimizer:
 
         base_params = {"objective": "binary:logistic"}
 
-        def metric_function(y_true, y_pred):
-            return np.mean((y_true - y_pred) ** 2)
+        def metric_function(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+            return float(np.mean((y_true - y_pred) ** 2))
 
         objective = optimizer.create_objective_function(
             X_train,

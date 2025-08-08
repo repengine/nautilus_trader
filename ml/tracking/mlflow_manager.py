@@ -189,8 +189,10 @@ class MLflowManager:
 
         Examples
         --------
-        >>> manager = MLflowManager(config)
-        >>> with manager.run_context(run_name="training") as run_id:
+        >>> from ml.config.shared import MLflowConfig
+        >>> config = MLflowConfig(experiment_name="test_experiment")
+        >>> manager = MLflowManager(config)  # doctest: +SKIP
+        >>> with manager.run_context(run_name="training") as run_id:  # doctest: +SKIP
         ...     mlflow.log_param("lr", 0.01)
         ...     mlflow.log_metric("accuracy", 0.95)
 

@@ -175,7 +175,7 @@ class TestBaseMetricsCollector:
         collector = ConcreteCollector(config)
 
         # This should not raise an exception
-        def failing_operation():
+        def failing_operation() -> None:
             raise ValueError("Test error")
 
         collector._safe_record("test_operation", failing_operation)
@@ -237,7 +237,7 @@ class TestBaseMetricsCollector:
             def _initialize_metrics(self) -> None:
                 pass
 
-            def _validate_config(self):
+            def _validate_config(self) -> bool:
                 # Simulate missing attributes
                 return hasattr(self._config, "nonexistent_attr")
 

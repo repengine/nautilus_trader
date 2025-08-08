@@ -198,7 +198,9 @@ class FeatureParityValidator:
                 indicator_mgr,
                 scaler=None,
             )
-            online_features_list.append(online_features)
+            # CRITICAL FIX: Copy the features since calculate_features_online returns a view
+            # of the reused feature_buffer that gets overwritten on each call
+            online_features_list.append(online_features.copy())
 
         return online_features_list
 

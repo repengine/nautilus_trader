@@ -301,7 +301,7 @@ class LightGBMTrainer(BaseMLTrainer):
                 # For multiclass, get the class with highest probability
                 predictions = np.argmax(predictions, axis=1)
 
-        return predictions
+        return np.array(predictions)
 
     def _create_model(self, params: dict[str, Any]) -> Any:
         """

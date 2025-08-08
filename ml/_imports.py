@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     import onnxruntime as ort
     import optuna
     import polars as pl
+    import sklearn
     import xgboost as xgb
     from prometheus_client import Counter
     from prometheus_client import Gauge
@@ -110,6 +111,18 @@ except ImportError as e:
     HAS_MLFLOW = False
     MLFLOW_IMPORT_ERROR = e
     mlflow = None  # type: ignore[assignment,unused-ignore]
+
+
+# Scikit-learn
+try:
+    import sklearn
+
+    HAS_SKLEARN = True
+    SKLEARN_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_SKLEARN = False
+    SKLEARN_IMPORT_ERROR = e
+    sklearn = None  # type: ignore[assignment,unused-ignore]
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
@@ -283,7 +296,7 @@ def check_ml_dependencies(required: list[str]) -> None:
     Parameters
     ----------
     required : list[str]
-        List of required dependencies: ['onnx', 'polars', 'xgboost', 'optuna', 'mlflow', 'prometheus']
+        List of required dependencies: ['onnx', 'polars', 'xgboost', 'sklearn', 'optuna', 'mlflow', 'prometheus']
 
     Raises
     ------
@@ -335,6 +348,13 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"Original error: {MLFLOW_IMPORT_ERROR}",
         )
 
+    if "sklearn" in required and not HAS_SKLEARN:
+        errors.append(
+            f"Scikit-learn required but not installed. "
+            f"Install with: pip install 'nautilus-trader[ml]'\n"
+            f"Original error: {SKLEARN_IMPORT_ERROR}",
+        )
+
     if "prometheus" in required and not HAS_PROMETHEUS:
         errors.append(
             f"Prometheus Client required but not installed. "
@@ -354,6 +374,7 @@ __all__ = [
     "HAS_OPTUNA",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
+    "HAS_SKLEARN",
     "HAS_XGBOOST",
     # Import errors
     "LIGHTGBM_IMPORT_ERROR",
@@ -362,6 +383,7 @@ __all__ = [
     "OPTUNA_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
+    "SKLEARN_IMPORT_ERROR",
     "XGBOOST_IMPORT_ERROR",
     "Counter",
     "Gauge",
@@ -374,5 +396,6 @@ __all__ = [
     "optuna",
     "ort",
     "pl",
+    "sklearn",
     "xgb",
 ]

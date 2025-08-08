@@ -25,7 +25,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 
 
-def benchmark_feature_calculation(n_iterations=1000):
+def benchmark_feature_calculation(n_iterations: int = 1000) -> dict[str, float]:
     """
     Benchmark feature calculation in hot path.
     """
@@ -110,7 +110,7 @@ def benchmark_feature_calculation(n_iterations=1000):
     }
 
 
-def main():
+def main() -> None:
     print("Benchmarking hot path performance after zero-allocation fixes...")
     print("=" * 60)
 

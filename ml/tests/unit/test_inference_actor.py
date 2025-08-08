@@ -347,7 +347,7 @@ class TestCircuitBreaker:
             can_execute = breaker.can_execute()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.HALF_OPEN
+        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
         assert can_execute is True
 
     def test_circuit_closes_after_successful_recovery(self) -> None:
@@ -365,7 +365,7 @@ class TestCircuitBreaker:
         # Transition to half-open
         with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
-        assert breaker.state == CircuitBreakerState.HALF_OPEN
+        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
 
         # Act - Record enough successes to close
         breaker.record_success()
@@ -392,7 +392,7 @@ class TestCircuitBreaker:
         breaker.record_failure()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.OPEN
+        assert breaker.state == CircuitBreakerState.OPEN  # type: ignore[comparison-overlap]
 
     def test_success_reduces_failure_count_when_closed(self) -> None:
         """
@@ -514,17 +514,17 @@ class TestModelLoaders:
         # Assert
         assert loader._onnx_available is True
 
-    @pytest.mark.skipif(_onnx_available(), reason="Test requires ONNX to be unavailable")
     def test_onnx_model_loader_without_onnx(self) -> None:
         """
         Test ONNX model loader when ONNX is not available.
         """
-        # Arrange
-        with patch.dict("sys.modules", {"onnxruntime": None}):
-            with patch(
-                "builtins.__import__",
-                side_effect=ImportError("No module named 'onnxruntime'"),
-            ):
+        # This test uses mocking to simulate ONNX unavailability
+        # Patch the HAS_ONNX flag directly since it's imported at module level
+        with patch("ml.actors.base.HAS_ONNX", False):
+            # Also patch the check_ml_dependencies to ensure it raises
+            with patch("ml.actors.base.check_ml_dependencies") as mock_check:
+                mock_check.side_effect = ImportError("ONNX Runtime required but not installed")
+                
                 # Act
                 loader = ONNXModelLoader()
 
@@ -532,8 +532,11 @@ class TestModelLoaders:
                 assert loader._onnx_available is False
 
                 # Test that load_model raises ImportError
-                with pytest.raises(ImportError, match="onnxruntime not available"):
+                with pytest.raises(ImportError, match="ONNX Runtime required but not installed"):
                     loader.load_model("dummy.onnx")
+                
+                # Verify the check was called
+                mock_check.assert_called_once_with(["onnx"])
 
     @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_loader_file_not_found(self) -> None:
@@ -2378,7 +2381,7 @@ class TestCircuitBreakerEdgeCases:
             can_execute = breaker.can_execute()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.HALF_OPEN
+        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
         assert can_execute is True
 
     def test_circuit_breaker_multiple_success_threshold(self) -> None:
@@ -2402,7 +2405,7 @@ class TestCircuitBreakerEdgeCases:
 
         # Final success should close circuit
         breaker.record_success()
-        assert breaker.state == CircuitBreakerState.CLOSED
+        assert breaker.state == CircuitBreakerState.CLOSED  # type: ignore[comparison-overlap]
 
     def test_circuit_breaker_success_count_tracking(self) -> None:
         """
@@ -2496,7 +2499,7 @@ class TestHealthMonitorEdgeCases:
 
         # Trigger status update - should become unhealthy due to model not loaded
         monitor._update_health_status()
-        assert monitor.status == HealthStatus.UNHEALTHY
+        assert monitor.status == HealthStatus.UNHEALTHY  # type: ignore[comparison-overlap]
 
         # Load model and verify status updates to healthy
         monitor.set_model_loaded(True)
@@ -2981,7 +2984,7 @@ class TestMissingCoverageAreas:
 
         # Add one more to cross threshold
         monitor.update_latency_violation()
-        assert monitor.status == HealthStatus.DEGRADED
+        assert monitor.status == HealthStatus.DEGRADED  # type: ignore[comparison-overlap]
 
     def test_circuit_breaker_last_failure_time_tracking(self) -> None:
         """
@@ -3012,28 +3015,32 @@ class TestMissingCoverageAreas:
         # Move to half-open after timeout
         with patch("time.time", return_value=time.time() + 61):
             can_execute = breaker.can_execute()
-            assert breaker.state == CircuitBreakerState.HALF_OPEN
+            assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
             assert can_execute is True
 
         # Success in half-open should close circuit
         breaker.record_success()
         assert breaker.state == CircuitBreakerState.CLOSED
 
-    @pytest.mark.skipif(_onnx_available(), reason="Test requires ONNX to be unavailable")
     def test_onnx_model_loader_import_error_paths(self) -> None:
         """
         Test ONNX model loader import error handling.
         """
-        # Arrange & Act
-        with patch.dict("sys.modules", {"onnxruntime": None}):
-            with patch("builtins.__import__", side_effect=ImportError("No ONNX")):
+        # This test uses mocking to simulate ONNX unavailability
+        # Patch the HAS_ONNX flag directly since it's imported at module level
+        with patch("ml.actors.base.HAS_ONNX", False):
+            # Also patch the check_ml_dependencies to ensure it raises
+            with patch("ml.actors.base.check_ml_dependencies") as mock_check:
+                mock_check.side_effect = ImportError("ONNX Runtime required but not installed")
+                
+                # Act
                 loader = ONNXModelLoader()
 
                 # Assert
                 assert loader._onnx_available is False
 
                 # Test that methods raise ImportError
-                with pytest.raises(ImportError, match="onnxruntime not available"):
+                with pytest.raises(ImportError, match="ONNX Runtime required but not installed"):
                     loader.load_model("dummy.onnx")
 
     def test_pickle_model_loader_metadata_generation(self) -> None:

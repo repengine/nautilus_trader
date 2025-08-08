@@ -282,7 +282,7 @@ class SimpleTestModel:
     Simple model for testing that can be pickled.
     """
 
-    def predict(self, X):
+    def predict(self, X: np.ndarray) -> np.ndarray:
         return np.array([0.8])
 
 

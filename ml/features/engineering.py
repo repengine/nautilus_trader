@@ -761,7 +761,9 @@ class FeatureEngineer:
         # Convert back to appropriate DataFrame type
         features_scaled: Any  # Will be either pl.DataFrame or pd.DataFrame
         if POLARS_AVAILABLE:
-            features_scaled = pl.DataFrame(features_scaled_array, schema=features_df.columns)
+            # Convert column names to list to avoid pandas Index issues
+            column_names = list(features_df.columns) if hasattr(features_df.columns, '__iter__') and not isinstance(features_df.columns, str) else features_df.columns
+            features_scaled = pl.DataFrame(features_scaled_array, schema=column_names)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:
                 features_scaled = features_scaled.with_columns(df["timestamp"])
