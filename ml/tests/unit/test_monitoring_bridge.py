@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 
 from ml._imports import HAS_PROMETHEUS
-from ml.config.lightgbm_unified import MLflowConfig
+from ml.config.shared import MLflowConfig
 from ml.monitoring._config import MonitoringConfig
 from ml.tracking.monitoring_bridge import MLflowMonitoringBridge
 
@@ -95,7 +95,7 @@ class TestMLflowMonitoringBridge:
     Test suite for MLflowMonitoringBridge.
     """
 
-    def test_init_with_configs(self, monitoring_config, mlflow_config):
+    def test_init_with_configs(self, monitoring_config, mlflow_config) -> None:
         """
         Test MLflowMonitoringBridge initialization.
         """
@@ -111,7 +111,7 @@ class TestMLflowMonitoringBridge:
         assert bridge._sync_thread is None
         assert not bridge._mlflow_available
 
-    def test_initialize_metrics_creates_prometheus_metrics(self, monitoring_bridge):
+    def test_initialize_metrics_creates_prometheus_metrics(self, monitoring_bridge) -> None:
         """
         Test that metrics are properly initialized.
         """
@@ -122,7 +122,7 @@ class TestMLflowMonitoringBridge:
         assert "mlflow_models_total" in monitoring_bridge._metrics
         assert "mlflow_sync_duration_seconds" in monitoring_bridge._metrics
 
-    def test_start_monitoring_when_enabled(self, monitoring_bridge):
+    def test_start_monitoring_when_enabled(self, monitoring_bridge) -> None:
         """
         Test starting monitoring when bridge is enabled.
         """
@@ -135,7 +135,7 @@ class TestMLflowMonitoringBridge:
         # Clean up
         monitoring_bridge.stop_monitoring()
 
-    def test_start_monitoring_when_disabled(self, monitoring_config, mlflow_config):
+    def test_start_monitoring_when_disabled(self, monitoring_config, mlflow_config) -> None:
         """
         Test starting monitoring when bridge is disabled.
         """
@@ -146,7 +146,7 @@ class TestMLflowMonitoringBridge:
 
         assert bridge._sync_thread is None
 
-    def test_start_monitoring_already_running(self, monitoring_bridge):
+    def test_start_monitoring_already_running(self, monitoring_bridge) -> None:
         """
         Test starting monitoring when already running.
         """
@@ -161,7 +161,7 @@ class TestMLflowMonitoringBridge:
         # Clean up
         monitoring_bridge.stop_monitoring()
 
-    def test_stop_monitoring(self, monitoring_bridge):
+    def test_stop_monitoring(self, monitoring_bridge) -> None:
         """
         Test stopping monitoring gracefully.
         """
@@ -175,7 +175,7 @@ class TestMLflowMonitoringBridge:
         assert not monitoring_bridge._sync_thread.is_alive()
         assert monitoring_bridge._stop_sync.is_set()
 
-    def test_stop_monitoring_not_running(self, monitoring_bridge):
+    def test_stop_monitoring_not_running(self, monitoring_bridge) -> None:
         """
         Test stopping monitoring when not running.
         """
@@ -184,7 +184,11 @@ class TestMLflowMonitoringBridge:
 
         assert monitoring_bridge._sync_thread is None
 
-    def test_ensure_mlflow_manager_creates_manager(self, monitoring_bridge, mock_mlflow_manager):
+    def test_ensure_mlflow_manager_creates_manager(
+        self,
+        monitoring_bridge,
+        mock_mlflow_manager,
+    ) -> None:
         """
         Test MLflow manager creation and connectivity check.
         """
@@ -197,7 +201,7 @@ class TestMLflowMonitoringBridge:
         assert monitoring_bridge._mlflow_available
         assert monitoring_bridge._mlflow_manager is not None
 
-    def test_ensure_mlflow_manager_handles_failure(self, monitoring_bridge):
+    def test_ensure_mlflow_manager_handles_failure(self, monitoring_bridge) -> None:
         """
         Test MLflow manager creation failure handling.
         """
@@ -210,7 +214,7 @@ class TestMLflowMonitoringBridge:
         assert not available
         assert not monitoring_bridge._mlflow_available
 
-    def test_sync_mlflow_metrics_unavailable(self, monitoring_bridge):
+    def test_sync_mlflow_metrics_unavailable(self, monitoring_bridge) -> None:
         """
         Test sync when MLflow is unavailable.
         """
@@ -220,7 +224,7 @@ class TestMLflowMonitoringBridge:
 
         assert result["status"] == "mlflow_unavailable"
 
-    def test_sync_mlflow_metrics_success(self, monitoring_bridge, mock_mlflow_manager):
+    def test_sync_mlflow_metrics_success(self, monitoring_bridge, mock_mlflow_manager) -> None:
         """
         Test successful MLflow metrics sync.
         """
@@ -259,7 +263,7 @@ class TestMLflowMonitoringBridge:
         assert "models_synced" in result
         assert result["errors"] == 0
 
-    def test_sync_experiments(self, monitoring_bridge, mock_mlflow_manager):
+    def test_sync_experiments(self, monitoring_bridge, mock_mlflow_manager) -> None:
         """
         Test experiment sync functionality.
         """
@@ -277,7 +281,7 @@ class TestMLflowMonitoringBridge:
         assert stats["experiments_synced"] == 3
         assert stats["errors"] == 0
 
-    def test_sync_experiment_runs(self, monitoring_bridge, mock_mlflow_manager):
+    def test_sync_experiment_runs(self, monitoring_bridge, mock_mlflow_manager) -> None:
         """
         Test experiment runs sync functionality.
         """
@@ -317,7 +321,7 @@ class TestMLflowMonitoringBridge:
         assert stats["runs_synced"] == 5
         assert stats["errors"] == 0
 
-    def test_sync_run_metrics(self, monitoring_bridge):
+    def test_sync_run_metrics(self, monitoring_bridge) -> None:
         """
         Test individual run metrics sync.
         """
@@ -338,7 +342,7 @@ class TestMLflowMonitoringBridge:
         # Should not raise exception (metrics recorded safely)
         assert True
 
-    def test_sync_model_registry(self, monitoring_bridge, mock_mlflow_manager):
+    def test_sync_model_registry(self, monitoring_bridge, mock_mlflow_manager) -> None:
         """
         Test model registry sync functionality.
         """
@@ -371,7 +375,7 @@ class TestMLflowMonitoringBridge:
         assert stats["models_synced"] == 3
         assert stats["errors"] == 0
 
-    def test_record_model_transition(self, monitoring_bridge):
+    def test_record_model_transition(self, monitoring_bridge) -> None:
         """
         Test model transition recording.
         """
@@ -384,7 +388,7 @@ class TestMLflowMonitoringBridge:
         # Should not raise exception (metric recorded safely)
         assert True
 
-    def test_export_mlflow_metadata_unavailable(self, monitoring_bridge):
+    def test_export_mlflow_metadata_unavailable(self, monitoring_bridge) -> None:
         """
         Test metadata export when MLflow is unavailable.
         """
@@ -394,7 +398,7 @@ class TestMLflowMonitoringBridge:
 
         assert metadata["status"] == "mlflow_unavailable"
 
-    def test_export_mlflow_metadata_success(self, monitoring_bridge, mock_mlflow_manager):
+    def test_export_mlflow_metadata_success(self, monitoring_bridge, mock_mlflow_manager) -> None:
         """
         Test successful metadata export.
         """
@@ -430,7 +434,11 @@ class TestMLflowMonitoringBridge:
         assert metadata["experiment"]["experiment_name"] == "test_experiment"
         assert metadata["model_registry"]["total_models"] == 2
 
-    def test_export_mlflow_metadata_with_errors(self, monitoring_bridge, mock_mlflow_manager):
+    def test_export_mlflow_metadata_with_errors(
+        self,
+        monitoring_bridge,
+        mock_mlflow_manager,
+    ) -> None:
         """
         Test metadata export with partial errors.
         """
@@ -450,7 +458,7 @@ class TestMLflowMonitoringBridge:
         assert "experiment_error" in metadata
         assert metadata["model_registry"]["total_models"] == 0
 
-    def test_get_sync_status(self, monitoring_bridge):
+    def test_get_sync_status(self, monitoring_bridge) -> None:
         """
         Test sync status reporting.
         """
@@ -466,7 +474,7 @@ class TestMLflowMonitoringBridge:
         assert status["sync_interval"] == 1
         assert status["prometheus_metrics_count"] > 0
 
-    def test_force_sync(self, monitoring_bridge, mock_mlflow_manager):
+    def test_force_sync(self, monitoring_bridge, mock_mlflow_manager) -> None:
         """
         Test forced synchronization.
         """
@@ -489,7 +497,7 @@ class TestMLflowMonitoringBridge:
         assert "experiments_synced" in result
         assert result["errors"] == 0
 
-    def test_force_sync_disabled(self, monitoring_config, mlflow_config):
+    def test_force_sync_disabled(self, monitoring_config, mlflow_config) -> None:
         """
         Test force sync when bridge is disabled.
         """
@@ -500,7 +508,7 @@ class TestMLflowMonitoringBridge:
 
         assert result["status"] == "disabled"
 
-    def test_sync_loop_handles_exceptions(self, monitoring_bridge):
+    def test_sync_loop_handles_exceptions(self, monitoring_bridge) -> None:
         """
         Test that sync loop handles exceptions gracefully.
         """
@@ -525,7 +533,7 @@ class TestMLflowMonitoringBridge:
         # Should have handled exception and continued
         assert call_count >= 1
 
-    def test_inheritance_from_base_collector(self, monitoring_bridge):
+    def test_inheritance_from_base_collector(self, monitoring_bridge) -> None:
         """
         Test that bridge properly inherits from BaseMetricsCollector.
         """
@@ -541,7 +549,7 @@ class TestMLflowMonitoringBridge:
         assert "prometheus_available" in health
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus not available")
-    def test_real_prometheus_integration(self, monitoring_config, mlflow_config):
+    def test_real_prometheus_integration(self, monitoring_config, mlflow_config) -> None:
         """
         Test integration with real Prometheus metrics (if available).
         """
@@ -555,7 +563,7 @@ class TestMLflowMonitoringBridge:
         connectivity_metric = bridge._metrics.get("mlflow_connectivity")
         assert connectivity_metric is not None
 
-    def test_thread_safety(self, monitoring_bridge):
+    def test_thread_safety(self, monitoring_bridge) -> None:
         """
         Test thread safety of metric recording.
         """
@@ -591,3 +599,106 @@ class TestMLflowMonitoringBridge:
 
         assert len(successes) == 30  # 3 threads * 10 iterations
         assert len(errors) == 0
+
+    def test_update_run_counter_delta_tracking(self, monitoring_config, mlflow_config) -> None:
+        """
+        Test that _update_run_counter properly tracks deltas for Prometheus counters.
+        """
+        # Create bridge without mock dependencies
+        bridge = MLflowMonitoringBridge(
+            monitoring_config=monitoring_config,
+            mlflow_config=mlflow_config,
+            sync_interval_seconds=1,
+        )
+
+        experiment_name = "test_experiment"
+
+        # First update - should increment by 5
+        bridge._update_run_counter(experiment_name, "completed", 5)
+        assert bridge._run_counter_states[(experiment_name, "completed")] == 5
+
+        # Second update with same count - should not increment
+        bridge._update_run_counter(experiment_name, "completed", 5)
+        assert bridge._run_counter_states[(experiment_name, "completed")] == 5
+
+        # Third update with higher count - should increment by delta only
+        bridge._update_run_counter(experiment_name, "completed", 8)
+        assert bridge._run_counter_states[(experiment_name, "completed")] == 8
+
+        # Test with different status
+        bridge._update_run_counter(experiment_name, "failed", 2)
+        assert bridge._run_counter_states[(experiment_name, "failed")] == 2
+
+        # Test decreasing count (shouldn't update counter but should update state)
+        bridge._update_run_counter(experiment_name, "completed", 7)
+        assert bridge._run_counter_states[(experiment_name, "completed")] == 7
+
+    def test_reset_counter_states(self, monitoring_config, mlflow_config) -> None:
+        """
+        Test resetting counter states for recovery scenarios.
+        """
+        # Create bridge without mock dependencies
+        bridge = MLflowMonitoringBridge(
+            monitoring_config=monitoring_config,
+            mlflow_config=mlflow_config,
+            sync_interval_seconds=1,
+        )
+
+        # Add some counter states
+        bridge._run_counter_states[("exp1", "completed")] = 10
+        bridge._run_counter_states[("exp1", "failed")] = 2
+        bridge._run_counter_states[("exp2", "completed")] = 5
+
+        assert len(bridge._run_counter_states) == 3
+
+        # Reset counter states
+        bridge.reset_counter_states()
+
+        assert len(bridge._run_counter_states) == 0
+
+    def test_counter_state_persistence_across_syncs(
+        self,
+        monitoring_bridge,
+        mock_mlflow_manager,
+    ) -> None:
+        """
+        Test that counter states persist correctly across multiple syncs.
+        """
+        monitoring_bridge._mlflow_manager = mock_mlflow_manager
+        monitoring_bridge._mlflow_available = True
+
+        # Setup mock client
+        mock_client = MagicMock()
+        mock_mlflow_manager._client = mock_client
+        mock_client.search_experiments.return_value = []
+        mock_client.search_registered_models.return_value = []
+
+        # First sync with initial counts
+        mock_mlflow_manager.get_experiment_summary.return_value = {
+            "completed_runs": 5,
+            "active_runs": 2,
+            "failed_runs": 1,
+        }
+        mock_client.get_experiment_by_name.return_value = MagicMock(experiment_id="exp_123")
+        mock_client.search_runs.return_value = []
+
+        monitoring_bridge.sync_mlflow_metrics()
+
+        # Verify counter states were recorded
+        assert monitoring_bridge._run_counter_states[("test_experiment", "completed")] == 5
+        assert monitoring_bridge._run_counter_states[("test_experiment", "active")] == 2
+        assert monitoring_bridge._run_counter_states[("test_experiment", "failed")] == 1
+
+        # Second sync with incremented counts
+        mock_mlflow_manager.get_experiment_summary.return_value = {
+            "completed_runs": 7,  # +2
+            "active_runs": 3,  # +1
+            "failed_runs": 1,  # No change
+        }
+
+        monitoring_bridge.sync_mlflow_metrics()
+
+        # Verify counter states were updated
+        assert monitoring_bridge._run_counter_states[("test_experiment", "completed")] == 7
+        assert monitoring_bridge._run_counter_states[("test_experiment", "active")] == 3
+        assert monitoring_bridge._run_counter_states[("test_experiment", "failed")] == 1

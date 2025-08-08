@@ -650,27 +650,27 @@ def main() -> None:
         with GrafanaClient(grafana_url, api_token=api_token) as client:
             # Health check
             if not client.health_check():
-                print("Grafana server is not healthy")
+                logger.info("Grafana server is not healthy")
                 return
 
-            print("Connected to Grafana successfully")
+            logger.info("Dashboard created successfully")
 
             # Search for ML dashboards
             ml_dashboards = client.search_dashboards(tag="ml-monitoring")
-            print(f"Found {len(ml_dashboards)} ML dashboards")
+            logger.info(f"Found {len(ml_dashboards)} ML dashboards")
 
             for dashboard in ml_dashboards:
-                print(f"  - {dashboard.get('title')} (UID: {dashboard.get('uid')})")
+                logger.info(f"  - {dashboard.get('title')} (UID: {dashboard.get('uid')})")
 
             # Get server info
             server_info = client.get_server_info()
             if server_info and isinstance(server_info, dict):
-                print(f"Grafana version: {server_info.get('version', 'unknown')}")
+                logger.info(f"Grafana version: {server_info.get('version', 'unknown')}")
 
     except GrafanaAPIError as e:
-        print(f"Grafana API error: {e}")
+        logger.warning(f"Could not get panels: {e}")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Grafana API error: {e}")
 
 
 if __name__ == "__main__":

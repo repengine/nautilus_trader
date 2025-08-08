@@ -15,13 +15,13 @@
 
 import pytest
 
-from ml.config.lightgbm_unified import DARTConfig
-from ml.config.lightgbm_unified import EFBConfig
-from ml.config.lightgbm_unified import GOSSConfig
-from ml.config.lightgbm_unified import GPUConfig
-from ml.config.lightgbm_unified import MLflowConfig
-from ml.config.lightgbm_unified import OptunaConfig
-from ml.config.lightgbm_unified import UnifiedLightGBMConfig
+from ml.config.lightgbm import DARTConfig
+from ml.config.lightgbm import EFBConfig
+from ml.config.lightgbm import GOSSConfig
+from ml.config.lightgbm import UnifiedLightGBMConfig
+from ml.config.shared import LightGBMGPUConfig as GPUConfig
+from ml.config.shared import MLflowConfig
+from ml.config.shared import OptunaConfig
 
 
 class TestGOSSConfig:
@@ -29,7 +29,7 @@ class TestGOSSConfig:
     Test GOSS configuration.
     """
 
-    def test_goss_config_init_default(self):
+    def test_goss_config_init_default(self) -> None:
         """
         Test GOSS configuration with default values.
         """
@@ -38,7 +38,7 @@ class TestGOSSConfig:
         assert config.top_rate == 0.2
         assert config.other_rate == 0.1
 
-    def test_goss_config_init_custom(self):
+    def test_goss_config_init_custom(self) -> None:
         """
         Test GOSS configuration with custom values.
         """
@@ -47,7 +47,7 @@ class TestGOSSConfig:
         assert config.top_rate == 0.3
         assert config.other_rate == 0.15
 
-    def test_goss_config_validation_top_rate_bounds(self):
+    def test_goss_config_validation_top_rate_bounds(self) -> None:
         """
         Test GOSS configuration validation for top_rate bounds.
         """
@@ -57,7 +57,7 @@ class TestGOSSConfig:
         with pytest.raises(ValueError, match="top_rate must be in"):
             GOSSConfig(top_rate=1.0)
 
-    def test_goss_config_validation_other_rate_bounds(self):
+    def test_goss_config_validation_other_rate_bounds(self) -> None:
         """
         Test GOSS configuration validation for other_rate bounds.
         """
@@ -67,7 +67,7 @@ class TestGOSSConfig:
         with pytest.raises(ValueError, match="other_rate must be in"):
             GOSSConfig(other_rate=1.0)
 
-    def test_goss_config_validation_rate_sum(self):
+    def test_goss_config_validation_rate_sum(self) -> None:
         """
         Test GOSS configuration validation for rate sum.
         """
@@ -80,7 +80,7 @@ class TestDARTConfig:
     Test DART configuration.
     """
 
-    def test_dart_config_init_default(self):
+    def test_dart_config_init_default(self) -> None:
         """
         Test DART configuration with default values.
         """
@@ -92,7 +92,7 @@ class TestDARTConfig:
         assert config.uniform_drop is False
         assert config.xgboost_dart_mode is False
 
-    def test_dart_config_init_custom(self):
+    def test_dart_config_init_custom(self) -> None:
         """
         Test DART configuration with custom values.
         """
@@ -111,7 +111,7 @@ class TestDARTConfig:
         assert config.uniform_drop is True
         assert config.xgboost_dart_mode is True
 
-    def test_dart_config_validation_drop_rate_bounds(self):
+    def test_dart_config_validation_drop_rate_bounds(self) -> None:
         """
         Test DART configuration validation for drop_rate bounds.
         """
@@ -121,14 +121,14 @@ class TestDARTConfig:
         with pytest.raises(ValueError, match="drop_rate must be in"):
             DARTConfig(drop_rate=1.1)
 
-    def test_dart_config_validation_max_drop_positive(self):
+    def test_dart_config_validation_max_drop_positive(self) -> None:
         """
         Test DART configuration validation for max_drop positive.
         """
         with pytest.raises(ValueError, match="max_drop must be positive"):
             DARTConfig(max_drop=0)
 
-    def test_dart_config_validation_skip_drop_bounds(self):
+    def test_dart_config_validation_skip_drop_bounds(self) -> None:
         """
         Test DART configuration validation for skip_drop bounds.
         """
@@ -144,7 +144,7 @@ class TestEFBConfig:
     Test EFB configuration.
     """
 
-    def test_efb_config_init_default(self):
+    def test_efb_config_init_default(self) -> None:
         """
         Test EFB configuration with default values.
         """
@@ -153,7 +153,7 @@ class TestEFBConfig:
         assert config.max_conflict_rate == 0.0
         assert config.bundle_size == 0
 
-    def test_efb_config_init_custom(self):
+    def test_efb_config_init_custom(self) -> None:
         """
         Test EFB configuration with custom values.
         """
@@ -162,7 +162,7 @@ class TestEFBConfig:
         assert config.max_conflict_rate == 0.1
         assert config.bundle_size == 10
 
-    def test_efb_config_validation_max_conflict_rate_bounds(self):
+    def test_efb_config_validation_max_conflict_rate_bounds(self) -> None:
         """
         Test EFB configuration validation for max_conflict_rate bounds.
         """
@@ -172,7 +172,7 @@ class TestEFBConfig:
         with pytest.raises(ValueError, match="max_conflict_rate must be in"):
             EFBConfig(max_conflict_rate=1.0)
 
-    def test_efb_config_validation_bundle_size_non_negative(self):
+    def test_efb_config_validation_bundle_size_non_negative(self) -> None:
         """
         Test EFB configuration validation for bundle_size non-negative.
         """
@@ -185,7 +185,7 @@ class TestGPUConfig:
     Test GPU configuration.
     """
 
-    def test_gpu_config_init_default(self):
+    def test_gpu_config_init_default(self) -> None:
         """
         Test GPU configuration with default values.
         """
@@ -195,7 +195,7 @@ class TestGPUConfig:
         assert config.platform_id == -1
         assert config.gpu_use_dp is False
 
-    def test_gpu_config_init_custom(self):
+    def test_gpu_config_init_custom(self) -> None:
         """
         Test GPU configuration with custom values.
         """
@@ -205,7 +205,7 @@ class TestGPUConfig:
         assert config.platform_id == 0
         assert config.gpu_use_dp is True
 
-    def test_gpu_config_validation_device_id_non_negative(self):
+    def test_gpu_config_validation_device_id_non_negative(self) -> None:
         """
         Test GPU configuration validation for device_id non-negative.
         """
@@ -218,7 +218,7 @@ class TestOptunaConfig:
     Test Optuna configuration.
     """
 
-    def test_optuna_config_init_default(self):
+    def test_optuna_config_init_default(self) -> None:
         """
         Test Optuna configuration with default values.
         """
@@ -233,7 +233,7 @@ class TestOptunaConfig:
         assert config.study_name is None
         assert config.storage_url is None
 
-    def test_optuna_config_init_custom(self):
+    def test_optuna_config_init_custom(self) -> None:
         """
         Test Optuna configuration with custom values.
         """
@@ -258,42 +258,42 @@ class TestOptunaConfig:
         assert config.study_name == "test_study"
         assert config.storage_url == "sqlite:///test.db"
 
-    def test_optuna_config_validation_n_trials_positive(self):
+    def test_optuna_config_validation_n_trials_positive(self) -> None:
         """
         Test Optuna configuration validation for n_trials positive.
         """
         with pytest.raises(ValueError, match="n_trials must be positive"):
             OptunaConfig(n_trials=0)
 
-    def test_optuna_config_validation_direction_valid(self):
+    def test_optuna_config_validation_direction_valid(self) -> None:
         """
         Test Optuna configuration validation for valid direction.
         """
         with pytest.raises(ValueError, match="direction must be one of"):
             OptunaConfig(direction="invalid")
 
-    def test_optuna_config_validation_metric_valid(self):
+    def test_optuna_config_validation_metric_valid(self) -> None:
         """
         Test Optuna configuration validation for valid metric.
         """
         with pytest.raises(ValueError, match="metric must be one of"):
             OptunaConfig(metric="invalid")
 
-    def test_optuna_config_validation_pruner_valid(self):
+    def test_optuna_config_validation_pruner_valid(self) -> None:
         """
         Test Optuna configuration validation for valid pruner.
         """
         with pytest.raises(ValueError, match="pruner must be one of"):
             OptunaConfig(pruner="invalid")
 
-    def test_optuna_config_validation_sampler_valid(self):
+    def test_optuna_config_validation_sampler_valid(self) -> None:
         """
         Test Optuna configuration validation for valid sampler.
         """
         with pytest.raises(ValueError, match="sampler must be one of"):
             OptunaConfig(sampler="invalid")
 
-    def test_optuna_config_validation_timeout_positive_or_none(self):
+    def test_optuna_config_validation_timeout_positive_or_none(self) -> None:
         """
         Test Optuna configuration validation for timeout positive or None.
         """
@@ -306,21 +306,21 @@ class TestMLflowConfig:
     Test MLflow configuration.
     """
 
-    def test_mlflow_config_init_default(self):
+    def test_mlflow_config_init_default(self) -> None:
         """
         Test MLflow configuration with default values.
         """
         config = MLflowConfig()
         assert config.enabled is False
         assert config.tracking_uri == "http://localhost:5000"
-        assert config.experiment_name == "lightgbm_unified"
+        assert config.experiment_name == "ml_experiment"  # Common default
         assert config.register_model is True
-        assert config.model_name == "lightgbm_unified"
+        assert config.model_name == "ml_model"  # Common default
         assert config.log_artifacts is True
         assert config.log_model is True
         assert config.auto_log is False
 
-    def test_mlflow_config_init_custom(self):
+    def test_mlflow_config_init_custom(self) -> None:
         """
         Test MLflow configuration with custom values.
         """
@@ -343,14 +343,14 @@ class TestMLflowConfig:
         assert config.log_model is False
         assert config.auto_log is True
 
-    def test_mlflow_config_validation_experiment_name_not_empty(self):
+    def test_mlflow_config_validation_experiment_name_not_empty(self) -> None:
         """
         Test MLflow configuration validation for non-empty experiment name.
         """
         with pytest.raises(ValueError, match="experiment_name cannot be empty"):
             MLflowConfig(experiment_name="")
 
-    def test_mlflow_config_validation_model_name_when_register(self):
+    def test_mlflow_config_validation_model_name_when_register(self) -> None:
         """
         Test MLflow configuration validation for model name when registering.
         """
@@ -360,14 +360,14 @@ class TestMLflowConfig:
         ):
             MLflowConfig(register_model=True, model_name="")
 
-    def test_mlflow_config_validation_tracking_uri_format(self):
+    def test_mlflow_config_validation_tracking_uri_format(self) -> None:
         """
         Test MLflow configuration validation for tracking URI format.
         """
         with pytest.raises(ValueError, match="tracking_uri must start with"):
             MLflowConfig(tracking_uri="invalid://uri")
 
-    def test_mlflow_config_validation_valid_tracking_uris(self):
+    def test_mlflow_config_validation_valid_tracking_uris(self) -> None:
         """
         Test MLflow configuration validation for valid tracking URIs.
         """
@@ -387,7 +387,7 @@ class TestUnifiedLightGBMConfig:
     Test unified LightGBM configuration.
     """
 
-    def test_unified_config_init_default(self):
+    def test_unified_config_init_default(self) -> None:
         """
         Test unified configuration with default values.
         """
@@ -409,7 +409,7 @@ class TestUnifiedLightGBMConfig:
         assert config.onnx_output_path == "./models/lightgbm_unified.onnx"
         assert config.enable_monitoring is True
 
-    def test_unified_config_init_custom(self):
+    def test_unified_config_init_custom(self) -> None:
         """
         Test unified configuration with custom values.
         """
@@ -441,7 +441,7 @@ class TestUnifiedLightGBMConfig:
         assert config.onnx_output_path == "./custom/path.onnx"
         assert config.enable_monitoring is False
 
-    def test_unified_config_validation_feature_decay_threshold_bounds(self):
+    def test_unified_config_validation_feature_decay_threshold_bounds(self) -> None:
         """
         Test unified configuration validation for feature decay threshold bounds.
         """
@@ -451,35 +451,35 @@ class TestUnifiedLightGBMConfig:
         with pytest.raises(ValueError, match="feature_decay_threshold must be in"):
             UnifiedLightGBMConfig(data_source="test.csv", feature_decay_threshold=1.0)
 
-    def test_unified_config_validation_feature_history_window_positive(self):
+    def test_unified_config_validation_feature_history_window_positive(self) -> None:
         """
         Test unified configuration validation for feature history window positive.
         """
         with pytest.raises(ValueError, match="feature_history_window must be positive"):
             UnifiedLightGBMConfig(data_source="test.csv", feature_history_window=0)
 
-    def test_unified_config_validation_cv_strategy_valid(self):
+    def test_unified_config_validation_cv_strategy_valid(self) -> None:
         """
         Test unified configuration validation for valid CV strategy.
         """
         with pytest.raises(ValueError, match="cv_strategy must be one of"):
             UnifiedLightGBMConfig(data_source="test.csv", cv_strategy="invalid")
 
-    def test_unified_config_validation_cv_folds_minimum(self):
+    def test_unified_config_validation_cv_folds_minimum(self) -> None:
         """
         Test unified configuration validation for minimum CV folds.
         """
         with pytest.raises(ValueError, match="cv_folds must be at least 2"):
             UnifiedLightGBMConfig(data_source="test.csv", cv_folds=1)
 
-    def test_unified_config_validation_purge_gap_non_negative(self):
+    def test_unified_config_validation_purge_gap_non_negative(self) -> None:
         """
         Test unified configuration validation for purge gap non-negative.
         """
         with pytest.raises(ValueError, match="purge_gap must be non-negative"):
             UnifiedLightGBMConfig(data_source="test.csv", purge_gap=-1)
 
-    def test_unified_config_validation_onnx_path_when_export(self):
+    def test_unified_config_validation_onnx_path_when_export(self) -> None:
         """
         Test unified configuration validation for ONNX path when exporting.
         """
@@ -489,7 +489,7 @@ class TestUnifiedLightGBMConfig:
         ):
             UnifiedLightGBMConfig(data_source="test.csv", export_onnx=True, onnx_output_path="")
 
-    def test_unified_config_validation_goss_dart_mutually_exclusive(self):
+    def test_unified_config_validation_goss_dart_mutually_exclusive(self) -> None:
         """
         Test unified configuration validation for GOSS and DART mutual exclusivity.
         """
@@ -500,7 +500,7 @@ class TestUnifiedLightGBMConfig:
                 dart_config=DARTConfig(enabled=True),
             )
 
-    def test_unified_config_validate_config_warnings(self):
+    def test_unified_config_validate_config_warnings(self) -> None:
         """
         Test unified configuration warnings validation.
         """
@@ -522,7 +522,7 @@ class TestUnifiedLightGBMConfig:
         warnings = config.validate_config()
         assert isinstance(warnings, list)
 
-    def test_unified_config_get_unified_lgb_params_default(self):
+    def test_unified_config_get_unified_lgb_params_default(self) -> None:
         """
         Test getting unified LightGBM parameters with default settings.
         """
@@ -540,7 +540,7 @@ class TestUnifiedLightGBMConfig:
         # GOSS and DART should not be set
         assert params.get("boosting_type") == "gbdt"
 
-    def test_unified_config_get_unified_lgb_params_goss(self):
+    def test_unified_config_get_unified_lgb_params_goss(self) -> None:
         """
         Test getting unified LightGBM parameters with GOSS enabled.
         """
@@ -554,7 +554,7 @@ class TestUnifiedLightGBMConfig:
         assert params["top_rate"] == 0.3
         assert params["other_rate"] == 0.2
 
-    def test_unified_config_get_unified_lgb_params_dart(self):
+    def test_unified_config_get_unified_lgb_params_dart(self) -> None:
         """
         Test getting unified LightGBM parameters with DART enabled.
         """
@@ -578,7 +578,7 @@ class TestUnifiedLightGBMConfig:
         assert params["uniform_drop"] is True
         assert params["xgboost_dart_mode"] is True
 
-    def test_unified_config_get_unified_lgb_params_gpu(self):
+    def test_unified_config_get_unified_lgb_params_gpu(self) -> None:
         """
         Test getting unified LightGBM parameters with GPU enabled.
         """
@@ -593,7 +593,7 @@ class TestUnifiedLightGBMConfig:
         assert params["gpu_platform_id"] == 0
         assert params["gpu_use_dp"] is True
 
-    def test_unified_config_get_unified_lgb_params_efb_disabled(self):
+    def test_unified_config_get_unified_lgb_params_efb_disabled(self) -> None:
         """
         Test getting unified LightGBM parameters with EFB disabled.
         """
@@ -602,7 +602,7 @@ class TestUnifiedLightGBMConfig:
 
         assert params["enable_bundle"] is False
 
-    def test_unified_config_get_unified_lgb_params_efb_with_bundle_size(self):
+    def test_unified_config_get_unified_lgb_params_efb_with_bundle_size(self) -> None:
         """
         Test getting unified LightGBM parameters with EFB bundle size.
         """
@@ -616,7 +616,7 @@ class TestUnifiedLightGBMConfig:
         assert params["max_conflict_rate"] == 0.1
         assert params["max_bundle"] == 50
 
-    def test_unified_config_validate_environment_no_warnings(self):
+    def test_unified_config_validate_environment_no_warnings(self) -> None:
         """
         Test environment validation with no warnings.
         """

@@ -101,6 +101,10 @@ def create_mock_trades(count: int = 30) -> list[TradeTick]:
     return trades
 
 
+# Configure module logger
+logger = logging.getLogger(__name__)
+
+
 class TestMLDataLoaderRealUsage:
     """
     Test MLDataLoader in realistic usage scenarios.
@@ -167,9 +171,9 @@ class TestMLDataLoaderRealUsage:
         assert cached_load_time < 0.01  # Cache hit should be < 10ms
         assert cached_load_time < initial_load_time * 0.1  # Cache should be 10x faster
 
-        print(f"Initial load: {initial_load_time*1000:.2f}ms")
-        print(f"Cached load: {cached_load_time*1000:.2f}ms")
-        print(f"Speedup: {initial_load_time/cached_load_time:.1f}x")
+        logger.info(f"Initial load: {initial_load_time*1000:.2f}ms")
+        logger.info(f"Cached load: {cached_load_time*1000:.2f}ms")
+        logger.info(f"Speedup: {initial_load_time/cached_load_time:.1f}x")
 
     def test_memory_efficiency(self) -> None:
         """
@@ -356,7 +360,7 @@ def test_load_ml_data_convenience_function() -> None:
 
 if __name__ == "__main__":
     # Run performance benchmark when executed directly
-    print("Running MLDataLoader Performance Benchmark...")
+    logger.info("Running MLDataLoader Performance Benchmark...")
     test = TestMLDataLoaderRealUsage()
     test.test_performance_benchmarks()
-    print("\nAll benchmarks passed! ✅")
+    logger.info("\nAll benchmarks passed! ")

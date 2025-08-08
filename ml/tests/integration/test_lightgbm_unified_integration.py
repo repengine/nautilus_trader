@@ -28,10 +28,10 @@ import numpy as np
 import pytest
 
 from ml._imports import HAS_LIGHTGBM
-from ml.config.lightgbm_unified import DARTConfig
-from ml.config.lightgbm_unified import GOSSConfig
-from ml.config.lightgbm_unified import UnifiedLightGBMConfig
-from ml.training.lightgbm_unified import UnifiedLightGBMTrainer
+from ml.config.lightgbm import DARTConfig
+from ml.config.lightgbm import GOSSConfig
+from ml.config.lightgbm import UnifiedLightGBMConfig
+from ml.training.lightgbm import UnifiedLightGBMTrainer
 
 
 @pytest.mark.skipif(not HAS_LIGHTGBM, reason="LightGBM required for integration tests")
@@ -77,7 +77,7 @@ class TestUnifiedLightGBMTrainerIntegration:
         # Feature names for better interpretability
         self.feature_names = [f"feature_{i}" for i in range(self.n_features)]
 
-    def test_basic_training_workflow(self):
+    def test_basic_training_workflow(self) -> None:
         """
         Test basic training workflow without advanced features.
         """
@@ -116,7 +116,7 @@ class TestUnifiedLightGBMTrainerIntegration:
         assert predictions.shape == (len(self.y_val),)
         assert np.isfinite(predictions).all()
 
-    def test_goss_configuration_training(self):
+    def test_goss_configuration_training(self) -> None:
         """
         Test training with GOSS (Gradient-based One-Side Sampling) enabled.
         """
@@ -148,7 +148,7 @@ class TestUnifiedLightGBMTrainerIntegration:
         predictions = trainer.predict(model, self.X_val)
         assert predictions.shape == (len(self.y_val),)
 
-    def test_dart_configuration_training(self):
+    def test_dart_configuration_training(self) -> None:
         """
         Test training with DART (Dropouts meet Multiple Additive Regression Trees)
         enabled.
@@ -187,7 +187,7 @@ class TestUnifiedLightGBMTrainerIntegration:
         predictions = trainer.predict(model, self.X_val)
         assert predictions.shape == (len(self.y_val),)
 
-    def test_feature_importance_tracking(self):
+    def test_feature_importance_tracking(self) -> None:
         """
         Test feature importance tracking and decay detection.
         """
@@ -230,7 +230,7 @@ class TestUnifiedLightGBMTrainerIntegration:
         assert len(trainer.importance_history) <= 2
         # Feature decay alerts might or might not be triggered depending on the data
 
-    def test_model_save_load_workflow(self):
+    def test_model_save_load_workflow(self) -> None:
         """
         Test model saving and loading with metadata.
         """
@@ -274,7 +274,7 @@ class TestUnifiedLightGBMTrainerIntegration:
             # Predictions should be very similar (allowing for small numerical differences)
             np.testing.assert_allclose(original_predictions, loaded_predictions, rtol=1e-10)
 
-    def test_categorical_features_support(self):
+    def test_categorical_features_support(self) -> None:
         """
         Test native categorical feature support.
         """
@@ -312,7 +312,7 @@ class TestUnifiedLightGBMTrainerIntegration:
         predictions = trainer.predict(model, X_val_cat)
         assert predictions.shape == (len(self.y_val),)
 
-    def test_comprehensive_workflow(self):
+    def test_comprehensive_workflow(self) -> None:
         """
         Test comprehensive workflow with multiple advanced features.
         """

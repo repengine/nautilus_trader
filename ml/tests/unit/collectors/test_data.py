@@ -54,14 +54,14 @@ class TestDataQualityCollector:
         config = MonitoringConfig(enabled=False)
         return DataQualityCollector(config)
 
-    def test_initialization(self, collector):
+    def test_initialization(self, collector) -> None:
         """
         Test collector initialization.
         """
         assert collector.enabled == HAS_PROMETHEUS
         assert collector.config.metrics_prefix.endswith("_ml")
 
-    def test_disabled_initialization(self, disabled_collector):
+    def test_disabled_initialization(self, disabled_collector) -> None:
         """
         Test disabled collector initialization.
         """
@@ -69,7 +69,7 @@ class TestDataQualityCollector:
         assert disabled_collector.get_metric_count() == 0
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_data_load_success(self, collector):
+    def test_record_data_load_success(self, collector) -> None:
         """
         Test recording successful data load.
         """
@@ -86,7 +86,7 @@ class TestDataQualityCollector:
         assert collector.enabled
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_data_load_error(self, collector):
+    def test_record_data_load_error(self, collector) -> None:
         """
         Test recording data load error.
         """
@@ -103,7 +103,7 @@ class TestDataQualityCollector:
         assert collector.enabled
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_cache_stats(self, collector):
+    def test_record_cache_stats(self, collector) -> None:
         """
         Test recording cache statistics.
         """
@@ -128,7 +128,7 @@ class TestDataQualityCollector:
         )
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_data_quality(self, collector):
+    def test_record_data_quality(self, collector) -> None:
         """
         Test recording data quality metrics.
         """
@@ -166,7 +166,7 @@ class TestDataQualityCollector:
         )
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_data_validation(self, collector):
+    def test_record_data_validation(self, collector) -> None:
         """
         Test recording data validation results.
         """
@@ -189,7 +189,7 @@ class TestDataQualityCollector:
         )
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_update_data_staleness(self, collector):
+    def test_update_data_staleness(self, collector) -> None:
         """
         Test updating data staleness metrics.
         """
@@ -211,7 +211,7 @@ class TestDataQualityCollector:
         )
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_data_load_timer_context_manager(self, collector):
+    def test_data_load_timer_context_manager(self, collector) -> None:
         """
         Test DataLoadTimer context manager.
         """
@@ -230,7 +230,7 @@ class TestDataQualityCollector:
         # Timer should have recorded metrics automatically
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_data_load_timer_with_exception(self, collector):
+    def test_data_load_timer_with_exception(self, collector) -> None:
         """
         Test DataLoadTimer handles exceptions correctly.
         """
@@ -241,7 +241,7 @@ class TestDataQualityCollector:
 
         # Should have recorded the error
 
-    def test_get_data_quality_summary(self, collector):
+    def test_get_data_quality_summary(self, collector) -> None:
         """
         Test getting data quality summary.
         """
@@ -252,7 +252,7 @@ class TestDataQualityCollector:
         assert summary["instrument"] == "EURUSD"
         assert summary["data_type"] == "bars"
 
-    def test_disabled_collector_operations(self, disabled_collector):
+    def test_disabled_collector_operations(self, disabled_collector) -> None:
         """
         Test that disabled collector operations are no-ops.
         """
@@ -293,7 +293,7 @@ class TestDataQualityCollector:
             timer.set_load_result(rows=100)
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_health_check(self, collector):
+    def test_health_check(self, collector) -> None:
         """
         Test health check functionality.
         """
@@ -304,7 +304,7 @@ class TestDataQualityCollector:
         assert health["metrics_count"] > 0  # Should have initialized metrics
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_thread_safety(self, collector):
+    def test_thread_safety(self, collector) -> None:
         """
         Test basic thread safety of operations.
         """

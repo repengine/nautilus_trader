@@ -23,6 +23,7 @@ coverage of all methods and functionality.
 import json
 import os
 import tempfile
+from typing import Any
 from unittest.mock import mock_open
 from unittest.mock import patch
 
@@ -35,7 +36,7 @@ class TestGrafanaPanelFactory:
     Test cases for GrafanaPanelFactory.
     """
 
-    def test_create_stat_panel_basic(self):
+    def test_create_stat_panel_basic(self) -> None:
         """
         Test basic stat panel creation.
         """
@@ -53,7 +54,7 @@ class TestGrafanaPanelFactory:
         assert panel["targets"][0]["expr"] == "test_metric"
         assert panel["fieldConfig"]["defaults"]["unit"] == "short"
 
-    def test_create_stat_panel_with_custom_unit(self):
+    def test_create_stat_panel_with_custom_unit(self) -> None:
         """
         Test stat panel creation with custom unit.
         """
@@ -67,7 +68,7 @@ class TestGrafanaPanelFactory:
 
         assert panel["fieldConfig"]["defaults"]["unit"] == "percentunit"
 
-    def test_create_stat_panel_with_custom_thresholds(self):
+    def test_create_stat_panel_with_custom_thresholds(self) -> None:
         """
         Test stat panel creation with custom thresholds.
         """
@@ -82,12 +83,12 @@ class TestGrafanaPanelFactory:
             expr="test_metric",
             panel_id=3,
             grid_pos={"h": 4, "w": 6, "x": 0, "y": 1},
-            thresholds=custom_thresholds,
+            thresholds=custom_thresholds,  # type: ignore[arg-type]
         )
 
         assert panel["fieldConfig"]["defaults"]["thresholds"]["steps"] == custom_thresholds
 
-    def test_create_stat_panel_with_alert_config(self):
+    def test_create_stat_panel_with_alert_config(self) -> None:
         """
         Test stat panel creation with alert configuration.
         """
@@ -107,7 +108,7 @@ class TestGrafanaPanelFactory:
 
         assert panel["alert"] == alert_config
 
-    def test_create_stat_panel_datasource_config(self):
+    def test_create_stat_panel_datasource_config(self) -> None:
         """
         Test stat panel has correct datasource configuration.
         """
@@ -121,7 +122,7 @@ class TestGrafanaPanelFactory:
         assert panel["datasource"] == {"type": "prometheus", "uid": "${datasource}"}
         assert panel["targets"][0]["datasource"] == {"type": "prometheus", "uid": "${datasource}"}
 
-    def test_create_timeseries_panel_basic(self):
+    def test_create_timeseries_panel_basic(self) -> None:
         """
         Test basic time series panel creation.
         """
@@ -148,7 +149,7 @@ class TestGrafanaPanelFactory:
         assert panel["targets"] == targets
         assert panel["fieldConfig"]["defaults"]["unit"] == "short"
 
-    def test_create_timeseries_panel_with_custom_unit(self):
+    def test_create_timeseries_panel_with_custom_unit(self) -> None:
         """
         Test time series panel creation with custom unit.
         """
@@ -164,7 +165,7 @@ class TestGrafanaPanelFactory:
 
         assert panel["fieldConfig"]["defaults"]["unit"] == "ms"
 
-    def test_create_timeseries_panel_with_custom_legend(self):
+    def test_create_timeseries_panel_with_custom_legend(self) -> None:
         """
         Test time series panel creation with custom legend configuration.
         """
@@ -186,7 +187,7 @@ class TestGrafanaPanelFactory:
 
         assert panel["options"]["legend"] == legend_config
 
-    def test_create_timeseries_panel_default_legend(self):
+    def test_create_timeseries_panel_default_legend(self) -> None:
         """
         Test time series panel creation uses default legend configuration.
         """
@@ -207,7 +208,7 @@ class TestGrafanaPanelFactory:
         }
         assert panel["options"]["legend"] == expected_legend
 
-    def test_create_table_panel_basic(self):
+    def test_create_table_panel_basic(self) -> None:
         """
         Test basic table panel creation.
         """
@@ -226,7 +227,7 @@ class TestGrafanaPanelFactory:
         assert panel["targets"][0]["format"] == "table"
         assert panel["targets"][0]["instant"] is True
 
-    def test_create_table_panel_with_transformations(self):
+    def test_create_table_panel_with_transformations(self) -> None:
         """
         Test table panel creation with transformations.
         """
@@ -247,7 +248,7 @@ class TestGrafanaPanelFactory:
 
         assert panel["transformations"] == transformations
 
-    def test_create_table_panel_without_transformations(self):
+    def test_create_table_panel_without_transformations(self) -> None:
         """
         Test table panel creation without transformations.
         """
@@ -260,7 +261,7 @@ class TestGrafanaPanelFactory:
 
         assert "transformations" not in panel
 
-    def test_create_heatmap_panel_basic(self):
+    def test_create_heatmap_panel_basic(self) -> None:
         """
         Test basic heatmap panel creation.
         """
@@ -278,7 +279,7 @@ class TestGrafanaPanelFactory:
         assert panel["targets"][0]["expr"] == "test_metric"
         assert panel["targets"][0]["format"] == "time_series"
 
-    def test_create_heatmap_panel_with_custom_color_scheme(self):
+    def test_create_heatmap_panel_with_custom_color_scheme(self) -> None:
         """
         Test heatmap panel creation with custom color scheme.
         """
@@ -292,7 +293,7 @@ class TestGrafanaPanelFactory:
 
         assert panel["options"]["color"]["scheme"] == "viridis"
 
-    def test_create_heatmap_panel_default_color_scheme(self):
+    def test_create_heatmap_panel_default_color_scheme(self) -> None:
         """
         Test heatmap panel creation uses default color scheme.
         """
@@ -305,7 +306,7 @@ class TestGrafanaPanelFactory:
 
         assert panel["options"]["color"]["scheme"] == "RdYlGn"
 
-    def test_create_row_panel_basic(self):
+    def test_create_row_panel_basic(self) -> None:
         """
         Test basic row panel creation.
         """
@@ -322,7 +323,7 @@ class TestGrafanaPanelFactory:
         assert panel["collapsed"] is False
         assert panel["panels"] == []
 
-    def test_create_row_panel_collapsed(self):
+    def test_create_row_panel_collapsed(self) -> None:
         """
         Test collapsed row panel creation.
         """
@@ -341,7 +342,7 @@ class TestGrafanaDashboardFactory:
     Test cases for GrafanaDashboardFactory.
     """
 
-    def test_init(self):
+    def test_init(self) -> None:
         """
         Test dashboard factory initialization.
         """
@@ -349,7 +350,7 @@ class TestGrafanaDashboardFactory:
 
         assert isinstance(factory.panel_factory, GrafanaPanelFactory)
 
-    def test_create_base_dashboard_basic(self):
+    def test_create_base_dashboard_basic(self) -> None:
         """
         Test basic dashboard creation.
         """
@@ -370,7 +371,7 @@ class TestGrafanaDashboardFactory:
         assert dashboard["editable"] is True
         assert dashboard["panels"] == []
 
-    def test_create_base_dashboard_with_custom_settings(self):
+    def test_create_base_dashboard_with_custom_settings(self) -> None:
         """
         Test dashboard creation with custom settings.
         """
@@ -389,7 +390,7 @@ class TestGrafanaDashboardFactory:
         assert dashboard["time"]["from"] == "now-1h"
         assert dashboard["time"]["to"] == "now+1m"
 
-    def test_create_base_dashboard_annotations(self):
+    def test_create_base_dashboard_annotations(self) -> None:
         """
         Test dashboard has proper annotations configuration.
         """
@@ -406,7 +407,7 @@ class TestGrafanaDashboardFactory:
         assert annotations[0]["name"] == "Annotations & Alerts"
         assert annotations[0]["datasource"]["type"] == "grafana"
 
-    def test_create_base_dashboard_links(self):
+    def test_create_base_dashboard_links(self) -> None:
         """
         Test dashboard has proper navigation links.
         """
@@ -424,7 +425,7 @@ class TestGrafanaDashboardFactory:
         assert links[0]["tags"] == ["ml-monitoring"]
         assert links[0]["type"] == "dashboards"
 
-    def test_create_default_variables(self):
+    def test_create_default_variables(self) -> None:
         """
         Test creation of default template variables.
         """
@@ -454,7 +455,7 @@ class TestGrafanaDashboardFactory:
         assert interval_var["type"] == "custom"
         assert len(interval_var["options"]) == 5
 
-    def test_create_alert_config_basic(self):
+    def test_create_alert_config_basic(self) -> None:
         """
         Test basic alert configuration creation.
         """
@@ -472,7 +473,7 @@ class TestGrafanaDashboardFactory:
         assert alert_config["conditions"][0]["evaluator"]["params"][0] == 0.8
         assert alert_config["conditions"][0]["evaluator"]["type"] == "gt"
 
-    def test_create_alert_config_with_custom_parameters(self):
+    def test_create_alert_config_with_custom_parameters(self) -> None:
         """
         Test alert configuration creation with custom parameters.
         """
@@ -494,7 +495,7 @@ class TestGrafanaDashboardFactory:
         assert alert_config["conditions"][0]["evaluator"]["params"][0] == 0.95
         assert alert_config["conditions"][0]["evaluator"]["type"] == "lt"
 
-    def test_create_alert_config_structure(self):
+    def test_create_alert_config_structure(self) -> None:
         """
         Test alert configuration has proper structure.
         """
@@ -518,7 +519,7 @@ class TestGrafanaDashboardFactory:
 
     @patch("builtins.open", new_callable=mock_open)
     @patch("json.dump")
-    def test_save_dashboard(self, mock_json_dump, mock_file):
+    def test_save_dashboard(self, mock_json_dump: Any, mock_file: Any) -> None:
         """
         Test saving dashboard to file.
         """
@@ -537,7 +538,7 @@ class TestGrafanaDashboardFactory:
             ensure_ascii=False,
         )
 
-    def test_dashboard_integration_example(self):
+    def test_dashboard_integration_example(self) -> None:
         """
         Test complete dashboard creation with panels.
         """
@@ -593,7 +594,7 @@ class TestGrafanaDashboardFactory:
         assert "alert" in dashboard["panels"][1]
         assert dashboard["panels"][1]["alert"]["name"] == "High CPU"
 
-    def test_templating_variables_in_dashboard(self):
+    def test_templating_variables_in_dashboard(self) -> None:
         """
         Test that dashboard includes templating variables.
         """
@@ -619,7 +620,7 @@ class TestDashboardFactoryIntegration:
     Integration tests for the dashboard factory.
     """
 
-    def test_real_file_operations(self):
+    def test_real_file_operations(self) -> None:
         """
         Test actual file saving and loading.
         """
@@ -654,7 +655,7 @@ class TestDashboardFactoryIntegration:
             if os.path.exists(filepath):
                 os.unlink(filepath)
 
-    def test_dashboard_json_serialization(self):
+    def test_dashboard_json_serialization(self) -> None:
         """
         Test that created dashboards are properly JSON serializable.
         """
@@ -707,7 +708,7 @@ class TestDashboardFactoryIntegration:
         assert len(parsed_dashboard["panels"]) == 5
 
 
-def test_main_function():
+def test_main_function() -> None:
     """
     Test the main function runs without error in dry-run mode.
     """

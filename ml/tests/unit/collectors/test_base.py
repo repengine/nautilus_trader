@@ -16,6 +16,8 @@
 Tests for the BaseMetricsCollector abstract class.
 """
 
+from typing import Any
+
 import pytest
 
 from ml._imports import HAS_PROMETHEUS
@@ -29,13 +31,13 @@ class TestBaseMetricsCollector:
     """
 
     @pytest.fixture(autouse=True)
-    def setup_test(self, prometheus_registry_cleanup, metric_name_manager):
+    def setup_test(self, prometheus_registry_cleanup: Any, metric_name_manager: Any) -> None:
         """
         Set up test with proper cleanup and unique names.
         """
         self.metric_name_manager = metric_name_manager
 
-    def test_initialization_with_disabled_config(self):
+    def test_initialization_with_disabled_config(self) -> None:
         """
         Test collector initialization when monitoring is disabled.
         """
@@ -43,7 +45,7 @@ class TestBaseMetricsCollector:
 
         # Create a concrete implementation for testing
         class ConcreteCollector(BaseMetricsCollector):
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 pass
 
         collector = ConcreteCollector(config)
@@ -54,18 +56,18 @@ class TestBaseMetricsCollector:
         assert collector.metrics == {}
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_initialization_with_enabled_config(self):
+    def test_initialization_with_enabled_config(self) -> None:
         """
         Test collector initialization when monitoring is enabled.
         """
         config = MonitoringConfig(enabled=True)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def __init__(self, config, name_manager):
+            def __init__(self, config: MonitoringConfig, name_manager: Any) -> None:
                 self.name_manager = name_manager
                 super().__init__(config)
 
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 from ml._imports import Counter
 
                 counter_name = self.name_manager.get_unique_name("counter")
@@ -79,14 +81,14 @@ class TestBaseMetricsCollector:
         assert collector.get_metric_count() == 1
         assert "test_counter" in collector.metrics
 
-    def test_health_check_basic_functionality(self):
+    def test_health_check_basic_functionality(self) -> None:
         """
         Test health check returns expected information.
         """
         config = MonitoringConfig(enabled=True)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 pass
 
         collector = ConcreteCollector(config)
@@ -102,18 +104,18 @@ class TestBaseMetricsCollector:
         assert health["prometheus_available"] == HAS_PROMETHEUS
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_metric_registration_and_retrieval(self):
+    def test_metric_registration_and_retrieval(self) -> None:
         """
         Test metric registration and value retrieval.
         """
         config = MonitoringConfig(enabled=True)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def __init__(self, config, name_manager):
+            def __init__(self, config: MonitoringConfig, name_manager: Any) -> None:
                 self.name_manager = name_manager
                 super().__init__(config)
 
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 from ml._imports import Gauge
 
                 gauge_name = self.name_manager.get_unique_name("gauge")
@@ -131,18 +133,18 @@ class TestBaseMetricsCollector:
         assert collector.get_metric_value("non_existent") is None
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_labeled_metric_retrieval(self):
+    def test_labeled_metric_retrieval(self) -> None:
         """
         Test retrieval of labeled metrics.
         """
         config = MonitoringConfig(enabled=True)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def __init__(self, config, name_manager):
+            def __init__(self, config: MonitoringConfig, name_manager: Any) -> None:
                 self.name_manager = name_manager
                 super().__init__(config)
 
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 from ml._imports import Gauge
 
                 gauge_name = self.name_manager.get_unique_name("labeled_gauge")
@@ -160,14 +162,14 @@ class TestBaseMetricsCollector:
         value = collector.get_metric_value("test_labeled_gauge", {"label1": "nonexistent"})
         assert value == 0.0  # Default value for unset gauge
 
-    def test_safe_record_error_handling(self):
+    def test_safe_record_error_handling(self) -> None:
         """
         Test that _safe_record handles errors gracefully.
         """
         config = MonitoringConfig(enabled=True)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 pass
 
         collector = ConcreteCollector(config)
@@ -180,18 +182,18 @@ class TestBaseMetricsCollector:
         # Should complete without raising
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_reset_metrics_functionality(self):
+    def test_reset_metrics_functionality(self) -> None:
         """
         Test metrics reset functionality.
         """
         config = MonitoringConfig(enabled=True)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def __init__(self, config, name_manager):
+            def __init__(self, config: MonitoringConfig, name_manager: Any) -> None:
                 self.name_manager = name_manager
                 super().__init__(config)
 
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 from ml._imports import Counter
                 from ml._imports import Gauge
 
@@ -217,14 +219,14 @@ class TestBaseMetricsCollector:
         # Gauge should be reset to 0
         assert collector.get_metric_value("test_gauge") == 0.0
 
-    def test_config_validation(self):
+    def test_config_validation(self) -> None:
         """
         Test configuration validation.
         """
         config = MonitoringConfig(enabled=True, metrics_prefix="test")
 
         class ConcreteCollector(BaseMetricsCollector):
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 pass
 
         collector = ConcreteCollector(config)
@@ -232,7 +234,7 @@ class TestBaseMetricsCollector:
 
         # Test with invalid config (missing attributes)
         class InvalidCollector(BaseMetricsCollector):
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 pass
 
             def _validate_config(self):
@@ -242,14 +244,14 @@ class TestBaseMetricsCollector:
         invalid_collector = InvalidCollector(config)
         assert not invalid_collector._validate_config()
 
-    def test_string_representation(self):
+    def test_string_representation(self) -> None:
         """
         Test string representation of collector.
         """
         config = MonitoringConfig(enabled=True)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 pass
 
         collector = ConcreteCollector(config)
@@ -259,14 +261,14 @@ class TestBaseMetricsCollector:
         assert "enabled=True" in repr_str
         assert "metrics_count=0" in repr_str
 
-    def test_disabled_collector_behavior(self):
+    def test_disabled_collector_behavior(self) -> None:
         """
         Test that disabled collectors handle operations gracefully.
         """
         config = MonitoringConfig(enabled=False)
 
         class ConcreteCollector(BaseMetricsCollector):
-            def _initialize_metrics(self):
+            def _initialize_metrics(self) -> None:
                 # Should not be called when disabled
                 raise RuntimeError("Should not initialize when disabled")
 

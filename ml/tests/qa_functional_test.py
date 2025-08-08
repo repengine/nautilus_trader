@@ -17,10 +17,10 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from ml._imports import HAS_XGBOOST
-from ml.config.xgboost_unified import GPUConfig
-from ml.config.xgboost_unified import MLflowConfig
-from ml.config.xgboost_unified import OptunaConfig
-from ml.config.xgboost_unified import UnifiedXGBoostConfig
+from ml.config.shared import MLflowConfig
+from ml.config.shared import OptunaConfig
+from ml.config.shared import XGBoostGPUConfig as GPUConfig
+from ml.config.xgboost import UnifiedXGBoostConfig
 
 
 def generate_sample_data(n_samples=1000, n_features=10):
@@ -42,18 +42,18 @@ def generate_sample_data(n_samples=1000, n_features=10):
     return X, y, y_binary
 
 
-def test_basic_training():
+def test_basic_training() -> bool:
     """
     Test basic training without any optional features.
     """
-    print("\n=== TEST 1: Basic Training ===")
+    logger.info("Test completed ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
-        from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+        from ml.training.xgboost import UnifiedXGBoostTrainer
 
         # Create config with all optional features disabled
         config = UnifiedXGBoostConfig(
@@ -90,29 +90,29 @@ def test_basic_training():
         predictions = model.predict(X_val[:10])
         assert len(predictions) == 10, "Should predict 10 samples"
 
-        print("✅ Basic training successful")
-        print(f"   Training time: {metrics['training_time']:.3f}s")
-        print(f"   Model score: {metrics.get('best_score', 'N/A')}")
+        logger.info(" Basic training successful")
+        logger.info(f"   Training time: {metrics.get('training_time', 0):.3f}s")
+        logger.info(f"   Model score: {metrics.get('best_score', 'N/A')}")
         return True
 
     except Exception as e:
-        print(f"❌ Basic training failed: {e}")
+        logger.info(f"Test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_gpu_fallback():
+def test_gpu_fallback() -> bool:
     """
     Test GPU configuration and fallback to CPU.
     """
-    print("\n=== TEST 2: GPU Fallback ===")
+    logger.info("\n=== TEST 2: GPU Fallback ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
-        from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+        from ml.training.xgboost import UnifiedXGBoostTrainer
 
         # Create config with GPU enabled
         config = UnifiedXGBoostConfig(
@@ -135,9 +135,9 @@ def test_gpu_fallback():
         actual_params = trainer._base_params
         if "tree_method" in actual_params:
             if actual_params["tree_method"] == "hist":
-                print("✅ GPU fallback to CPU successful (tree_method=hist)")
+                logger.info(" GPU fallback to CPU successful (tree_method=hist)")
             else:
-                print(f"⚠️  GPU might be enabled: tree_method={actual_params['tree_method']}")
+                logger.info(f"  GPU might be enabled: tree_method={actual_params['tree_method']}")
 
         # Quick training test
         X, y, _ = generate_sample_data(n_samples=100)
@@ -145,27 +145,27 @@ def test_gpu_fallback():
         model, _ = trainer.train(X[:split_idx], y[:split_idx], X[split_idx:], y[split_idx:])
 
         assert model is not None, "Model should train even with GPU fallback"
-        print("✅ GPU fallback test successful")
+        logger.info(" GPU fallback test successful")
         return True
 
     except Exception as e:
-        print(f"❌ GPU fallback test failed: {e}")
+        logger.info(f" GPU fallback test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_mlflow_optional():
+def test_mlflow_optional() -> bool:
     """
     Test that MLflow features are optional.
     """
-    print("\n=== TEST 3: MLflow Optional Features ===")
+    logger.info("\n=== TEST 3: MLflow Optional Features ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
-        from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+        from ml.training.xgboost import UnifiedXGBoostTrainer
 
         # Create config with MLflow enabled but not installed
         config = UnifiedXGBoostConfig(
@@ -197,28 +197,28 @@ def test_mlflow_optional():
         )
 
         assert model is not None, "Training should work without MLflow"
-        print("✅ MLflow optional features test successful")
-        print("   Training completed without MLflow dependency")
+        logger.info(" MLflow optional features test successful")
+        logger.info("   Training works without MLflow dependency")
         return True
 
     except Exception as e:
-        print(f"❌ MLflow optional test failed: {e}")
+        logger.info(f" MLflow optional test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_optuna_optional():
+def test_optuna_optional() -> bool:
     """
     Test that Optuna features are optional.
     """
-    print("\n=== TEST 4: Optuna Optional Features ===")
+    logger.info("\n=== TEST 4: Optuna Optional Features ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
-        from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+        from ml.training.xgboost import UnifiedXGBoostTrainer
 
         # Create config with Optuna enabled but not installed
         config = UnifiedXGBoostConfig(
@@ -250,28 +250,28 @@ def test_optuna_optional():
         )
 
         assert model is not None, "Training should work without Optuna"
-        print("✅ Optuna optional features test successful")
-        print("   Training completed without Optuna dependency")
+        logger.info(" Optuna optional features test successful")
+        logger.info("   Training works without Optuna dependency")
         return True
 
     except Exception as e:
-        print(f"❌ Optuna optional test failed: {e}")
+        logger.info(f" Optuna optional test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_feature_importance():
+def test_feature_importance() -> bool:
     """
     Test feature importance tracking.
     """
-    print("\n=== TEST 5: Feature Importance ===")
+    logger.info("\n=== TEST 5: Feature Importance ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
-        from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+        from ml.training.xgboost import UnifiedXGBoostTrainer
 
         # Create config
         config = UnifiedXGBoostConfig(
@@ -313,30 +313,30 @@ def test_feature_importance():
         summary = trainer.get_feature_decay_summary()
         assert summary is not None, "Should return feature decay summary"
 
-        print("✅ Feature importance test successful")
-        print(f"   Top feature importance: {model.feature_importances_.max():.3f}")
+        logger.info(" Feature importance test successful")
+        logger.info(f"   Top feature importance: {model.feature_importances_.max():.3f}")
         return True
 
     except Exception as e:
-        print(f"❌ Feature importance test failed: {e}")
+        logger.info(f" Feature importance test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_model_persistence():
+def test_model_persistence() -> bool:
     """
     Test model saving and loading.
     """
-    print("\n=== TEST 6: Model Persistence ===")
+    logger.info("\n=== TEST 6: Model Persistence ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
         import tempfile
 
-        from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+        from ml.training.xgboost import UnifiedXGBoostTrainer
 
         # Create config
         config = UnifiedXGBoostConfig(
@@ -384,27 +384,27 @@ def test_model_persistence():
         # Cleanup
         Path(model_path).unlink()
 
-        print("✅ Model persistence test successful")
+        logger.info(" Model persistence test successful")
         return True
 
     except Exception as e:
-        print(f"❌ Model persistence test failed: {e}")
+        logger.info(f" Model persistence test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_inference_performance():
+def test_inference_performance() -> bool:
     """
     Test inference performance requirements.
     """
-    print("\n=== TEST 7: Inference Performance ===")
+    logger.info("\n=== TEST 7: Inference Performance ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
-        from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+        from ml.training.xgboost import UnifiedXGBoostTrainer
 
         # Create config for fast inference
         config = UnifiedXGBoostConfig(
@@ -448,20 +448,20 @@ def test_inference_performance():
         p50 = np.percentile(latencies, 50)
         p99 = np.percentile(latencies, 99)
 
-        print("✅ Inference performance test completed")
-        print(f"   P50 latency: {p50:.3f}ms")
-        print(f"   P99 latency: {p99:.3f}ms")
-        print("   Requirement: <5ms")
+        logger.info(" Inference performance test completed")
+        logger.info(f"   P50 latency: {p50:.3f}ms")
+        logger.info(f"   P99 latency: {p99:.3f}ms")
+        logger.info("   Requirement: <5ms")
 
         if p99 < 5.0:
-            print("   ✅ MEETS PERFORMANCE REQUIREMENT")
+            logger.info("    MEETS PERFORMANCE REQUIREMENT")
             return True
         else:
-            print("   ⚠️  May not meet strict performance requirement")
+            logger.info("     May not meet strict performance requirement")
             return True  # Still pass test, just warn
 
     except Exception as e:
-        print(f"❌ Inference performance test failed: {e}")
+        logger.info(f" Inference performance test failed: {e}")
         traceback.print_exc()
         return False
 
@@ -470,9 +470,9 @@ def main():
     """
     Run all functional tests.
     """
-    print("=" * 60)
-    print("UnifiedXGBoostTrainer QA Functional Testing")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("UnifiedXGBoostTrainer QA Functional Testing")
+    logger.info("=" * 60)
 
     tests = [
         test_basic_training,
@@ -490,26 +490,26 @@ def main():
             result = test_func()
             results.append(result)
         except Exception as e:
-            print(f"❌ Test {test_func.__name__} crashed: {e}")
+            logger.info(f" Test {test_func.__name__} crashed: {e}")
             results.append(False)
 
     # Summary
-    print("\n" + "=" * 60)
-    print("FUNCTIONAL TEST SUMMARY")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("FUNCTIONAL TEST SUMMARY")
+    logger.info("=" * 60)
 
     passed = sum(results)
     total = len(results)
 
-    print(f"Tests Passed: {passed}/{total}")
-    print(f"Success Rate: {passed/total*100:.1f}%")
+    logger.info(f"Tests Passed: {passed}/{total}")
+    logger.info(f"Pass Rate: {passed/total*100:.1f}%")
 
     if passed == total:
-        print("\n✅ ALL FUNCTIONAL TESTS PASSED")
+        logger.info("\n ALL FUNCTIONAL TESTS PASSED")
     elif passed >= total * 0.7:
-        print("\n⚠️  MOST FUNCTIONAL TESTS PASSED")
+        logger.info("\n  MOST FUNCTIONAL TESTS PASSED")
     else:
-        print("\n❌ FUNCTIONAL TESTS FAILED")
+        logger.info("\n FUNCTIONAL TESTS FAILED")
 
     return passed == total
 

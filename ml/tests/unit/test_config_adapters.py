@@ -37,7 +37,7 @@ class TestCreateActorConfig:
     Tests for create_actor_config function.
     """
 
-    def test_create_actor_config_from_ml_config(self):
+    def test_create_actor_config_from_ml_config(self) -> None:
         """
         Test creating an ActorConfig from an ML configuration.
         """
@@ -60,7 +60,7 @@ class TestCreateActorConfig:
         assert actor_config.log_events is False
         assert actor_config.log_commands is True
 
-    def test_create_actor_config_with_defaults(self):
+    def test_create_actor_config_with_defaults(self) -> None:
         """
         Test creating an ActorConfig with default values.
         """
@@ -80,7 +80,7 @@ class TestCreateActorConfig:
         assert actor_config.log_events is True
         assert actor_config.log_commands is True
 
-    def test_create_actor_config_from_object_without_attributes(self):
+    def test_create_actor_config_from_object_without_attributes(self) -> None:
         """
         Test creating an ActorConfig from object without expected attributes.
         """
@@ -106,7 +106,7 @@ class TestConfigurationHelper:
     Tests for ConfigurationHelper utility class.
     """
 
-    def test_get_bar_type_from_ml_config(self):
+    def test_get_bar_type_from_ml_config(self) -> None:
         """
         Test extracting BarType from ML config.
         """
@@ -124,7 +124,7 @@ class TestConfigurationHelper:
         # Assert
         assert result == bar_type
 
-    def test_get_bar_type_missing_raises_error(self):
+    def test_get_bar_type_missing_raises_error(self) -> None:
         """
         Test that accessing missing bar_type raises AttributeError.
         """
@@ -135,7 +135,7 @@ class TestConfigurationHelper:
         with pytest.raises(AttributeError, match="No bar_type found"):
             ConfigurationHelper.get_bar_type(config)
 
-    def test_get_instrument_id_from_config(self):
+    def test_get_instrument_id_from_config(self) -> None:
         """
         Test extracting InstrumentId from configuration.
         """
@@ -153,7 +153,7 @@ class TestConfigurationHelper:
         # Assert
         assert result == instrument_id
 
-    def test_get_instrument_id_missing_raises_error(self):
+    def test_get_instrument_id_missing_raises_error(self) -> None:
         """
         Test that accessing missing instrument_id raises AttributeError.
         """
@@ -164,7 +164,7 @@ class TestConfigurationHelper:
         with pytest.raises(AttributeError, match="No instrument_id found"):
             ConfigurationHelper.get_instrument_id(config)
 
-    def test_get_model_path_from_config(self):
+    def test_get_model_path_from_config(self) -> None:
         """
         Test extracting model path from configuration.
         """
@@ -182,7 +182,7 @@ class TestConfigurationHelper:
         # Assert
         assert result == model_path
 
-    def test_get_model_path_missing_raises_error(self):
+    def test_get_model_path_missing_raises_error(self) -> None:
         """
         Test that accessing missing model_path raises AttributeError.
         """

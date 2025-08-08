@@ -4,7 +4,6 @@
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
 #  You may not use this file except in compliance with the License.
-#  You may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 #
 #  Unless required by applicable law or agreed to in writing, software
@@ -14,20 +13,17 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 """
-XGBoost trainer for ML model training.
+XGBoost trainer for financial time series prediction.
 
-This module provides XGBoost-specific implementation of the BaseMLTrainer, supporting
-both single-asset and multi-asset training with advanced features like SHAP analysis,
-feature importance tracking, and hyperparameter optimization.
+This module provides XGBoost-specific training functionality, leveraging the
+BaseMLTrainer for common ML operations.
 
 """
 
 from __future__ import annotations
 
-import pickle
-import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -37,45 +33,28 @@ from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml._imports import xgb
 from ml.config.xgboost import XGBoostTrainingConfig
-from ml.features.engineering import FeatureConfig
-from ml.features.engineering import FeatureEngineer
 from ml.training.base import BaseMLTrainer
 
 
-try:
-    from sklearn.preprocessing import StandardScaler
-
-    HAS_SKLEARN = True
-except ImportError:
-    HAS_SKLEARN = False
-    StandardScaler = None
-
-
-# Explicitly export for mypy
-__all__ = [
-    "HAS_POLARS",
-    "HAS_SKLEARN",
-    "StandardScaler",
-    "XGBoostTrainer",
-]
+if TYPE_CHECKING:
+    import optuna
+    import polars as pl
+    import xgboost as xgb
 
 
 class XGBoostTrainer(BaseMLTrainer):
     """
     XGBoost trainer for financial time series prediction.
 
-    This trainer extends BaseMLTrainer with XGBoost-specific functionality,
-    supporting both single-asset and multi-asset training scenarios with
-    advanced ML features.
-
     Features:
-    - Single and multi-asset training
     - GPU acceleration support
+    - Monotonic constraints for interpretability
     - Feature importance analysis
     - SHAP value computation (optional)
     - Cross-sectional features for portfolio models
-    - Monotonic constraints for interpretability
-    - Hyperparameter optimization (optional)
+    - Built-in support for Optuna hyperparameter optimization
+    - MLflow experiment tracking
+    - ONNX model export
 
     Parameters
     ----------
@@ -95,24 +74,16 @@ class XGBoostTrainer(BaseMLTrainer):
 
         """
         super().__init__(config)
-        self._xgb_config = config
-        # Convert MLFeatureConfig to FeatureConfig
-        if self._feature_config is not None:
-            feature_config = FeatureConfig(
-                lookback_window=self._feature_config.lookback_window,
-                normalize_features=self._feature_config.normalize_features,
-                fill_missing_with=self._feature_config.fill_missing_with,
-            )
-        else:
-            feature_config = None
-        self._feature_engineer = FeatureEngineer(feature_config)
-        self._scaler: Any = None
-        self._is_multi_asset = config.multi_asset
+        self._xgb_config: XGBoostTrainingConfig = config
 
-        # Lazy imports for optional dependencies
-        self._xgb: Any = None
-        self._shap: Any = None
-        self._optuna: Any = None
+        # XGBoost-specific attributes
+        self._booster: xgb.Booster | None = None
+        self._dtrain: xgb.DMatrix | None = None
+        self._dval: xgb.DMatrix | None = None
+
+        # Check dependencies
+        if not HAS_XGBOOST:
+            check_ml_dependencies(["xgboost"])
 
     def prepare_data(
         self,
@@ -122,303 +93,53 @@ class XGBoostTrainer(BaseMLTrainer):
         """
         Prepare features and target for XGBoost training.
 
-        This method handles both single-asset and multi-asset scenarios,
-        using the FeatureEngineer for consistent feature computation.
-
         Parameters
         ----------
         data : Any
-            Training data. For single-asset: pl.DataFrame.
-            For multi-asset: dict[str, pl.DataFrame].
+            The input data containing features and target (pl.DataFrame when polars available).
         target_col : str, default "target"
-            Name of the target column.
+            The name of the target column.
 
         Returns
         -------
         tuple[np.ndarray, np.ndarray, dict[str, Any]]
-            Tuple containing:
-            - X: Feature matrix
+            A tuple containing:
+            - X: Feature array
             - y: Target array
             - metadata: Dictionary with feature names and other metadata
 
         """
         if not HAS_POLARS:
-            raise ImportError(
-                "Polars is required for training. Install with: pip install polars",
-            )
+            check_ml_dependencies(["polars"])
 
-        if self._is_multi_asset:
-            return self._prepare_multi_asset_data(data, target_col)
-        else:
-            return self._prepare_single_asset_data(data, target_col)
+        # Ensure data is a Polars DataFrame
+        if not isinstance(data, pl.DataFrame):
+            data = pl.DataFrame(data)
 
-    def _prepare_single_asset_data(
-        self,
-        data: Any,  # pl.DataFrame
-        target_col: str,
-    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-        """
-        Prepare single asset data with technical features.
-
-        Parameters
-        ----------
-        data : pl.DataFrame
-            Input DataFrame with OHLCV data.
-        target_col : str
-            Target column name.
-
-        Returns
-        -------
-        tuple[np.ndarray, np.ndarray, dict[str, Any]]
-            Features, targets, and metadata.
-
-        """
-        print(f"Preparing single asset data with {len(data)} samples")
-
-        # Calculate features using FeatureEngineer
-        features_df, scaler = self._feature_engineer.calculate_features_batch(
-            data,
-            fit_scaler=self._feature_config.normalize_features,
-        )
-
-        self._scaler = scaler
-
-        # Create target if not present
+        # Extract target
         if target_col not in data.columns:
-            print(f"Target column '{target_col}' not found, creating default target")
-            # Default: predict next bar direction (returns > 0)
-            target_series = (data["close"].shift(-1) > data["close"]).cast(pl.Int32)
-            # Remove last row (NaN from shift) and convert to numpy
-            target_slice = target_series[:-1]
-            if hasattr(target_slice, "to_numpy"):
-                target = target_slice.to_numpy()
-            else:
-                # Already a numpy array (can happen in tests)
-                target = target_slice
-            features_df = features_df[:-1]
-        else:
-            target = data[target_col].to_numpy()
+            raise ValueError(f"Target column '{target_col}' not found in data")
 
-        # Convert features to numpy
-        feature_names = self._feature_engineer.get_feature_names()
-        X = features_df.select(feature_names).to_numpy()
+        y = data[target_col].to_numpy()
 
-        # Handle any remaining NaN values
-        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-        target = np.nan_to_num(target, nan=0.0, posinf=0.0, neginf=0.0)
+        # Get feature columns
+        feature_cols = [col for col in data.columns if col != target_col]
 
-        # Ensure X and y have the same number of samples
-        min_len = min(len(X), len(target))
-        X = X[:min_len]
-        target = target[:min_len]
+        # Handle missing values if configured
+        if self._xgb_config.handle_missing:
+            data = data.fill_nan(self._xgb_config.missing_value)
 
-        # Ensure target is binary for classification
-        if self._xgb_config.objective == "binary:logistic":
-            target = (target > 0).astype(int)
+        # Extract features
+        X = data.select(feature_cols).to_numpy()
 
+        # Prepare metadata
         metadata = {
-            "feature_names": feature_names,
-            "n_features": X.shape[1],
-            "n_samples": X.shape[0],
-            "target_type": (
-                "classification"
-                if self._xgb_config.objective == "binary:logistic"
-                else "regression"
-            ),
-            "scaler": self._scaler,
+            "feature_names": feature_cols,
+            "n_samples": len(data),
+            "n_features": len(feature_cols),
         }
 
-        print(f"Features shape: {X.shape}, Target shape: {target.shape}")
-
-        # Only print distribution for classification, stats for regression
-        if self._xgb_config.objective == "binary:logistic":
-            print(f"Target distribution: {np.bincount(target.astype(int))}")
-        else:
-            print(f"Target stats: mean={target.mean():.4f}, std={target.std():.4f}")
-
-        return X, target, metadata
-
-    def _prepare_multi_asset_data(
-        self,
-        data_dict: dict[str, Any],  # dict[str, pl.DataFrame]
-        target_col: str,
-    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-        """
-        Prepare multi-asset data with cross-sectional features.
-
-        Parameters
-        ----------
-        data_dict : dict[str, pl.DataFrame]
-            Dictionary mapping asset symbols to their DataFrames.
-        target_col : str
-            Target column name.
-
-        Returns
-        -------
-        tuple[np.ndarray, np.ndarray, dict[str, Any]]
-            Combined features, targets, and metadata.
-
-        """
-        print(f"Preparing multi-asset data for {len(data_dict)} assets")
-
-        all_features = []
-        all_targets = []
-        asset_metadata = []
-
-        # Process each asset
-        for ticker, df in data_dict.items():
-            if len(df) < self._feature_config.lookback_window:
-                print(
-                    f"Skipping {ticker}: insufficient data "
-                    f"({len(df)} < {self._feature_config.lookback_window})",
-                )
-                continue
-
-            print(f"Processing {ticker}: {len(df)} samples")
-
-            # Calculate features for this asset
-            features_df, _ = self._feature_engineer.calculate_features_batch(df)
-
-            # Create target
-            if target_col not in df.columns:
-                # Default: predict 5-bar forward returns
-                returns = df["close"].shift(-5) / df["close"] - 1
-                target = (returns > 0.001).cast(pl.Int32).to_numpy()
-            else:
-                target = df[target_col].to_numpy()
-
-            # Align lengths
-            min_len = min(len(features_df), len(target))
-            features_df = features_df[:min_len]
-            target = target[:min_len]
-
-            # Add asset metadata columns
-            sector = "unknown"
-            if self._xgb_config.sector_map is not None:
-                sector = self._xgb_config.sector_map.get(ticker, "unknown")
-
-            features_df = features_df.with_columns(
-                [
-                    pl.lit(ticker).alias("ticker"),
-                    pl.lit(sector).alias("sector"),
-                ],
-            )
-
-            all_features.append(features_df)
-            all_targets.append(target)
-            asset_metadata.append(
-                {
-                    "ticker": ticker,
-                    "sector": sector,
-                    "n_samples": len(features_df),
-                },
-            )
-
-        if not all_features:
-            raise ValueError("No assets had sufficient data for training")
-
-        # Combine all assets
-        combined_df = pl.concat(all_features)
-        combined_targets = np.concatenate(all_targets)
-
-        # Add cross-sectional features if configured
-        if self._xgb_config.cross_sectional_features:
-            combined_df = self._add_cross_sectional_features(combined_df)
-
-        # Extract feature columns (exclude metadata)
-        feature_names = [
-            col for col in combined_df.columns if col not in ["ticker", "sector", "timestamp"]
-        ]
-
-        X = combined_df.select(feature_names).to_numpy()
-
-        # Scale features if configured
-        if self._feature_config.normalize_features:
-            if not HAS_SKLEARN:
-                raise ImportError("sklearn is required for feature scaling")
-            self._scaler = StandardScaler()
-            X = self._scaler.fit_transform(X)
-
-        # Handle NaN values
-        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-        combined_targets = np.nan_to_num(combined_targets, nan=0.0, posinf=0.0, neginf=0.0)
-
-        # Ensure target is binary for classification
-        if self._xgb_config.objective == "binary:logistic":
-            combined_targets = (combined_targets > 0).astype(int)
-
-        metadata = {
-            "feature_names": feature_names,
-            "n_features": X.shape[1],
-            "n_samples": X.shape[0],
-            "n_assets": len(data_dict),
-            "asset_metadata": asset_metadata,
-            "target_type": (
-                "classification"
-                if self._xgb_config.objective == "binary:logistic"
-                else "regression"
-            ),
-            "scaler": self._scaler,
-        }
-
-        print(f"Combined features shape: {X.shape}, Target shape: {combined_targets.shape}")
-
-        return X, combined_targets, metadata
-
-    def _add_cross_sectional_features(self, df: Any) -> Any:  # pl.DataFrame -> pl.DataFrame
-        """
-        Add cross-sectional ranking and sector-relative features.
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            DataFrame with features for all assets.
-
-        Returns
-        -------
-        pl.DataFrame
-            DataFrame with additional cross-sectional features.
-
-        """
-        # Features to rank cross-sectionally
-        rank_features = ["return_5", "return_20", "rsi", "volume_ratio_5"]
-
-        # Add timestamp for grouping if not present
-        if "timestamp" not in df.columns:
-            df = df.with_row_count("timestamp")
-
-        # Calculate cross-sectional ranks
-        for feature in rank_features:
-            if feature in df.columns:
-                df = df.with_columns(
-                    [
-                        pl.col(feature).rank().over("timestamp").alias(f"{feature}_rank"),
-                    ],
-                )
-
-        # Calculate sector-relative features
-        if "sector" in df.columns:
-            for feature in ["return_5", "return_20"]:
-                if feature in df.columns:
-                    # Sector mean
-                    df = df.with_columns(
-                        [
-                            pl.col(feature)
-                            .mean()
-                            .over(["timestamp", "sector"])
-                            .alias(f"{feature}_sector_mean"),
-                        ],
-                    )
-                    # Relative to sector
-                    df = df.with_columns(
-                        [
-                            (pl.col(feature) - pl.col(f"{feature}_sector_mean")).alias(
-                                f"{feature}_sector_rel",
-                            ),
-                        ],
-                    )
-
-        return df
+        return X, y, metadata
 
     def _train_model(
         self,
@@ -429,7 +150,7 @@ class XGBoostTrainer(BaseMLTrainer):
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
-        Train XGBoost model with specified parameters.
+        Train XGBoost model.
 
         Parameters
         ----------
@@ -447,189 +168,301 @@ class XGBoostTrainer(BaseMLTrainer):
         Returns
         -------
         dict[str, Any]
-            Dictionary containing trained model and metrics.
+            Dictionary containing the trained model and training metrics.
 
         """
-        # Check XGBoost availability
-        if not HAS_XGBOOST:
-            check_ml_dependencies(["xgboost"])  # This will raise with proper error message
-
-        if self._xgb is None:
-            self._xgb = xgb
-
-        print("Training XGBoost model...")
-
-        # Get XGBoost parameters
-        xgb_params = self._xgb_config.get_xgb_params()
-
-        # Apply monotonic constraints if specified
-        if self._xgb_config.monotonic_constraints:
-            constraints = self._create_monotonic_constraints(
-                self._feature_names,
-                self._xgb_config.monotonic_constraints,
-            )
-            xgb_params["monotone_constraints"] = constraints
-
-        # Create and train model
-        if self._xgb_config.objective == "binary:logistic":
-            model = self._xgb.XGBClassifier(**xgb_params)
-        else:
-            model = self._xgb.XGBRegressor(**xgb_params)
-
-        # Train with early stopping
-        start_time = time.time()
-        model.fit(
+        # Create DMatrix objects
+        self._dtrain = xgb.DMatrix(
             X_train,
-            y_train,
-            eval_set=[(X_val, y_val)],
-            early_stopping_rounds=self._xgb_config.early_stopping_rounds,
-            verbose=False,
+            label=y_train,
+            feature_names=self._feature_names if self._feature_names else None,
         )
-        training_time = time.time() - start_time
+        self._dval = xgb.DMatrix(
+            X_val,
+            label=y_val,
+            feature_names=self._feature_names if self._feature_names else None,
+        )
 
-        print(f"XGBoost training completed in {training_time:.2f}s")
-        print(f"Best iteration: {model.best_iteration}")
-        print(f"Best score: {model.best_score:.4f}")
+        # Prepare parameters
+        params = self._get_model_params()
+        params.update(kwargs)
 
-        # Calculate feature importance
-        feature_importance = self._calculate_feature_importance(model)
+        # Set GPU if configured
+        if self._xgb_config.gpu_config and self._xgb_config.gpu_config.enabled:
+            params["tree_method"] = "hist"
+            params["device"] = f"cuda:{self._xgb_config.gpu_config.device_id}"
 
-        # Calculate SHAP values if enabled
-        shap_results = {}
-        if self._xgb_config.enable_shap:
-            print("Computing SHAP values...")
-            shap_results = self._calculate_shap_values(model, X_val)
+        # Set monotonic constraints if provided
+        if self._xgb_config.monotonic_constraints:
+            params["monotone_constraints"] = self._xgb_config.monotonic_constraints
 
-        return {
-            "model": model,
-            "metrics": {
-                "best_iteration": model.best_iteration,
-                "best_score": model.best_score,
-                "training_time": training_time,
-            },
-            "feature_importance": feature_importance,
-            "shap_results": shap_results,
+        # Prepare evaluation list
+        evals = [(self._dtrain, "train"), (self._dval, "eval")]
+        evals_result = {}
+
+        # Train model
+        self._booster = xgb.train(
+            params,
+            self._dtrain,
+            num_boost_round=self._xgb_config.n_estimators,
+            evals=evals,
+            early_stopping_rounds=self._xgb_config.early_stopping_rounds,
+            evals_result=evals_result,
+            verbose_eval=False,
+        )
+
+        # Get best iteration
+        best_iteration = (
+            self._booster.best_iteration if hasattr(self._booster, "best_iteration") else None
+        )
+
+        # Calculate training metrics
+        train_score = evals_result.get("train", {})
+        val_score = evals_result.get("eval", {})
+
+        metrics = {
+            "best_iteration": best_iteration,
+            "train_score": train_score,
+            "val_score": val_score,
         }
 
-    def _create_monotonic_constraints(
-        self,
-        feature_names: list[str],
-        constraints_dict: dict[str, int],
-    ) -> str:
+        return {
+            "model": self._booster,
+            "metrics": metrics,
+        }
+
+    def predict(self, model: Any, X: np.ndarray, **kwargs: Any) -> np.ndarray:
         """
-        Create monotonic constraints string for XGBoost.
+        Make predictions using XGBoost model.
 
         Parameters
         ----------
-        feature_names : list[str]
-            List of feature names in order.
-        constraints_dict : dict[str, int]
-            Dictionary mapping feature names to constraint values.
+        model : Any
+            The trained XGBoost model.
+        X : np.ndarray
+            Features to predict on.
+        **kwargs : Any
+            Additional prediction parameters.
 
         Returns
         -------
-        str
-            Monotonic constraints string.
+        np.ndarray
+            Model predictions.
 
         """
-        constraints = []
-        for feature in feature_names:
-            if feature in constraints_dict:
-                constraints.append(str(constraints_dict[feature]))
-            else:
-                constraints.append("0")
-        return f"({','.join(constraints)})"
+        # Create DMatrix for prediction
+        dmatrix = xgb.DMatrix(
+            X,
+            feature_names=self._feature_names if self._feature_names else None,
+        )
 
-    def _calculate_feature_importance(self, model: Any) -> dict[str, float]:
+        # Make predictions
+        predictions = model.predict(dmatrix)
+
+        # For classification, apply threshold if needed
+        if self._xgb_config.objective in ["binary:logistic", "binary:logitraw"]:
+            threshold = kwargs.get("threshold", 0.5)
+            predictions = (predictions > threshold).astype(int)
+
+        return predictions
+
+    def _create_model(self, params: dict[str, Any]) -> Any:
         """
-        Calculate feature importance scores.
+        Create XGBoost model instance with given parameters.
 
         Parameters
         ----------
-        model : XGBoost model
-            Trained XGBoost model.
+        params : dict[str, Any]
+            Model parameters.
 
         Returns
         -------
-        dict[str, float]
-            Dictionary of feature names to importance scores.
+        Any
+            XGBoost Booster instance.
 
         """
-        importance_dict = {}
+        # For XGBoost, we return params that will be used with xgb.train
+        # The actual model is created during training
+        return params
 
-        # Get importance from model
-        for feature, importance in zip(self._feature_names, model.feature_importances_):
-            importance_dict[feature] = float(importance)
-
-        # Sort by importance (descending)
-        return dict(sorted(importance_dict.items(), key=lambda x: x[1], reverse=True))
-
-    def _calculate_shap_values(
-        self,
-        model: Any,
-        X_sample: np.ndarray,
-        max_samples: int = 1000,
-    ) -> dict[str, Any]:
+    def _get_model_params(self) -> dict[str, Any]:
         """
-        Calculate SHAP values for model explainability.
-
-        Parameters
-        ----------
-        model : XGBoost model
-            Trained XGBoost model.
-        X_sample : np.ndarray
-            Sample data for SHAP calculation.
-        max_samples : int, default 1000
-            Maximum number of samples to use for SHAP computation.
+        Get XGBoost-specific default parameters.
 
         Returns
         -------
         dict[str, Any]
-            Dictionary containing SHAP values and importance scores.
+            Default XGBoost parameters.
 
         """
-        if self._shap is None:
-            try:
-                import shap
-
-                self._shap = shap
-            except ImportError:
-                print("SHAP not available. Skipping SHAP analysis.")
-                return {}
-
-        # Limit samples for efficiency
-        n_samples = min(len(X_sample), max_samples)
-        X_shap = X_sample[:n_samples]
-
-        # Create explainer and calculate SHAP values
-        explainer = self._shap.TreeExplainer(model)
-        shap_values = explainer.shap_values(X_shap)
-
-        # For binary classification, use positive class
-        if isinstance(shap_values, list):
-            shap_values = shap_values[1]
-
-        # Calculate mean absolute SHAP values
-        mean_abs_shap = np.abs(shap_values).mean(axis=0)
-
-        # Create importance dictionary
-        shap_importance = {}
-        for feature, importance in zip(self._feature_names, mean_abs_shap):
-            shap_importance[feature] = float(importance)
-
-        return {
-            "shap_values": shap_values,
-            "shap_importance": dict(
-                sorted(shap_importance.items(), key=lambda x: x[1], reverse=True),
-            ),
-            "expected_value": (
-                explainer.expected_value if hasattr(explainer, "expected_value") else 0.0
-            ),
+        params = {
+            "objective": self._xgb_config.objective,
+            "eval_metric": self._xgb_config.eval_metric,
+            "max_depth": self._xgb_config.max_depth,
+            "learning_rate": self._xgb_config.learning_rate,
+            "subsample": self._xgb_config.subsample,
+            "colsample_bytree": self._xgb_config.colsample_bytree,
+            "gamma": self._xgb_config.gamma,
+            "reg_alpha": self._xgb_config.reg_alpha,
+            "reg_lambda": self._xgb_config.reg_lambda,
+            "min_child_weight": self._xgb_config.min_child_weight,
+            "seed": 42,
         }
+
+        # Add scale_pos_weight for imbalanced data
+        if self._xgb_config.scale_pos_weight is not None:
+            params["scale_pos_weight"] = self._xgb_config.scale_pos_weight
+
+        # Remove None values
+        params = {k: v for k, v in params.items() if v is not None}
+
+        return params
+
+    def _suggest_hyperparameters(self, trial: optuna.Trial) -> dict[str, Any]:
+        """
+        Suggest hyperparameters for Optuna trial.
+
+        Parameters
+        ----------
+        trial : optuna.Trial
+            Optuna trial object.
+
+        Returns
+        -------
+        dict[str, Any]
+            Suggested hyperparameters.
+
+        """
+        return {
+            "max_depth": trial.suggest_int("max_depth", 3, 10),
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+            "gamma": trial.suggest_float("gamma", 0, 5),
+            "reg_alpha": trial.suggest_float("reg_alpha", 0, 10),
+            "reg_lambda": trial.suggest_float("reg_lambda", 0, 10),
+            "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        }
+
+    def _convert_to_onnx(self, model: Any, path: Path) -> None:
+        """
+        Convert XGBoost model to ONNX format.
+
+        Parameters
+        ----------
+        model : Any
+            Trained XGBoost model.
+        path : Path
+            Path to save ONNX model.
+
+        """
+        try:
+            from onnxmltools import convert_xgboost
+            from onnxmltools.convert.common.data_types import FloatTensorType
+
+            # Define input type
+            initial_type = [
+                ("float_input", FloatTensorType([None, len(self._feature_names)])),
+            ]
+
+            # Convert model
+            onnx_model = convert_xgboost(
+                model,
+                initial_types=initial_type,
+                target_opset=12,
+            )
+
+            # Save ONNX model
+            with open(path, "wb") as f:
+                f.write(onnx_model.SerializeToString())
+
+        except ImportError:
+            self._log_warning(
+                "onnxmltools not installed. Install with: pip install onnxmltools",
+            )
+            # Fallback to xgboost native save
+            model.save_model(str(path.with_suffix(".json")))
+            self._log_info(f"Model saved in XGBoost JSON format: {path.with_suffix('.json')}")
+
+    def get_feature_importance(self) -> dict[str, float] | None:
+        """
+        Get feature importance from the trained XGBoost model.
+
+        Returns
+        -------
+        dict[str, float] | None
+            Feature importance scores or None if not available.
+
+        """
+        if not self._is_fitted or self._booster is None:
+            return None
+
+        # Get feature importance
+        importance_dict = self._booster.get_score(importance_type="gain")
+
+        if not importance_dict:
+            return None
+
+        # Map to feature names
+        if self._feature_names:
+            result = {}
+            for i, fname in enumerate(self._feature_names):
+                # XGBoost uses f0, f1, ... if feature names aren't set
+                xgb_fname = fname if fname in importance_dict else f"f{i}"
+                if xgb_fname in importance_dict:
+                    result[fname] = importance_dict[xgb_fname]
+                else:
+                    result[fname] = 0.0
+            return result
+
+        return importance_dict
+
+    def get_shap_values(
+        self,
+        X: np.ndarray,
+        interaction: bool = False,
+    ) -> np.ndarray | None:
+        """
+        Calculate SHAP values for model interpretability.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Features to explain.
+        interaction : bool, default False
+            Whether to calculate interaction values.
+
+        Returns
+        -------
+        np.ndarray | None
+            SHAP values or None if not available.
+
+        """
+        if not self._is_fitted or self._booster is None:
+            return None
+
+        try:
+            import shap
+
+            # Create explainer
+            explainer = shap.TreeExplainer(self._booster)
+
+            # Calculate SHAP values
+            shap_values = explainer.shap_values(X)
+
+            if interaction:
+                shap_interaction = explainer.shap_interaction_values(X)
+                return shap_interaction
+
+            return shap_values
+
+        except ImportError:
+            self._log_warning("SHAP not installed. Install with: pip install shap")
+            return None
 
     def save_model(self, path: str | Path) -> None:
         """
-        Save the trained XGBoost model with enhanced metadata.
+        Save the trained XGBoost model.
 
         Parameters
         ----------
@@ -637,201 +470,68 @@ class XGBoostTrainer(BaseMLTrainer):
             Path where to save the model.
 
         """
-        if not self._is_fitted:
+        if not self._is_fitted or self._booster is None:
             raise ValueError("Model must be fitted before saving")
 
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Enhanced model data for XGBoost
-        model_data = {
-            "model": self._model,
+        # Save as XGBoost native format
+        self._booster.save_model(str(save_path))
+        self._log_info(f"XGBoost model saved to {save_path}")
+
+        # Also save metadata
+        metadata_path = save_path.with_suffix(".meta")
+        metadata = {
             "feature_names": self._feature_names,
             "training_metrics": self._training_metrics,
-            "scaler": self._scaler,
             "config": {
-                "xgb_params": self._xgb_config.get_xgb_params(),
-                "multi_asset": self._xgb_config.multi_asset,
-                "feature_config": self._feature_config,
+                "objective": self._xgb_config.objective,
+                "n_estimators": self._xgb_config.n_estimators,
+                "max_depth": self._xgb_config.max_depth,
             },
         }
 
-        with open(save_path, "wb") as f:
-            pickle.dump(model_data, f)
+        import json
 
-        print(f"XGBoost model saved to {save_path}")
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
 
-    def export_to_onnx(self, output_path: str | Path) -> bool:
+    def load_model(self, path: str | Path) -> None:
         """
-        Export trained model to ONNX format for high-performance inference.
+        Load a trained XGBoost model.
 
         Parameters
         ----------
-        output_path : str | Path
-            Path where to save the ONNX model.
-
-        Returns
-        -------
-        bool
-            True if export successful, False otherwise.
+        path : str | Path
+            Path to the saved model.
 
         """
-        if not self._is_fitted:
-            raise ValueError("Model must be fitted before export")
+        if not HAS_XGBOOST:
+            check_ml_dependencies(["xgboost"])
 
-        try:
-            import onnxmltools
-            from skl2onnx.common.data_types import FloatTensorType
-        except ImportError:
-            print(
-                "⚠️ ONNX export requires onnxmltools and skl2onnx. "
-                "Install with: pip install onnxmltools skl2onnx",
-            )
-            return False
+        load_path = Path(path)
+        if not load_path.exists():
+            raise FileNotFoundError(f"Model file not found: {load_path}")
 
-        try:
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Load XGBoost model
+        self._booster = xgb.Booster()
+        self._booster.load_model(str(load_path))
+        self._model = self._booster
+        self._is_fitted = True
 
-            # Define input type
-            initial_types = [
-                ("float_input", FloatTensorType([None, len(self._feature_names)])),
-            ]
+        # Load metadata if available
+        metadata_path = load_path.with_suffix(".meta")
+        if metadata_path.exists():
+            import json
 
-            # Convert to ONNX
-            onnx_model = onnxmltools.convert_xgboost(
-                self._model,
-                initial_types=initial_types,
-                target_opset=12,
-            )
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+                self._feature_names = metadata.get("feature_names", [])
+                self._training_metrics = metadata.get("training_metrics", {})
 
-            # Save ONNX model
-            with open(output_path, "wb") as f:
-                f.write(onnx_model.SerializeToString())
+        self._log_info(f"XGBoost model loaded from {load_path}")
 
-            # Save feature metadata
-            metadata_path = output_path.with_suffix(".json")
-            metadata = {
-                "feature_names": self._feature_names,
-                "model_type": "xgboost",
-                "objective": self._xgb_config.objective,
-                "n_features": len(self._feature_names),
-                "export_timestamp": int(time.time()),
-                "scaler_info": {
-                    "has_scaler": self._scaler is not None,
-                    "scaler_type": type(self._scaler).__name__ if self._scaler else None,
-                },
-            }
 
-            with open(metadata_path, "w") as f:
-                import json
-
-                json.dump(metadata, f, indent=2)
-
-            print(f"✅ Model exported to ONNX: {output_path}")
-            print(f"✅ Metadata saved: {metadata_path}")
-            return True
-
-        except Exception as e:
-            print(f"⚠️ ONNX export failed: {e}")
-            return False
-
-    def validate_gpu_availability(self) -> bool:
-        """
-        Validate GPU availability for XGBoost training.
-
-        Returns
-        -------
-        bool
-            True if GPU is available and compatible, False otherwise.
-
-        """
-        if self._xgb_config.tree_method != "gpu_hist":
-            return True  # CPU training always available
-
-        try:
-            # Check if XGBoost was compiled with GPU support
-            if not HAS_XGBOOST:
-                return False
-
-            # Test GPU availability
-            import subprocess
-
-            result = subprocess.run(
-                ["nvidia-smi", "-L"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode != 0:
-                print("⚠️ nvidia-smi not available - GPU training not supported")
-                return False
-
-            # Count available GPUs
-            gpu_lines = [line for line in result.stdout.split("\n") if "GPU" in line]
-            gpu_count = len(gpu_lines)
-
-            if gpu_count == 0:
-                print("⚠️ No GPUs detected")
-                return False
-
-            # Check if requested GPU ID is valid
-            gpu_id = self._xgb_config.gpu_id
-            if gpu_id >= gpu_count:
-                print(f"⚠️ Requested GPU {gpu_id} not available. Found {gpu_count} GPUs")
-                return False
-
-            print(f"✅ GPU {gpu_id} available for XGBoost training")
-            return True
-
-        except subprocess.TimeoutExpired:
-            print("⚠️ GPU check timed out")
-            return False
-        except FileNotFoundError:
-            print("⚠️ nvidia-smi not found - GPU training not available")
-            return False
-        except Exception as e:
-            print(f"⚠️ GPU validation failed: {e}")
-            return False
-
-    def get_feature_importance_summary(self) -> dict[str, Any]:
-        """
-        Get a comprehensive feature importance summary.
-
-        Returns
-        -------
-        dict[str, Any]
-            Dictionary containing various importance metrics.
-
-        """
-        if not self._is_fitted:
-            raise ValueError("Model must be fitted to get feature importance")
-
-        summary: dict[str, Any] = {}
-
-        # Native XGBoost importance
-        if hasattr(self._model, "feature_importances_"):
-            importance_dict = {}
-            for feature, importance in zip(
-                self._feature_names,
-                self._model.feature_importances_,
-            ):
-                importance_dict[feature] = float(importance)
-            summary["xgb_importance"] = dict(
-                sorted(importance_dict.items(), key=lambda x: x[1], reverse=True),
-            )
-
-        # SHAP importance if available
-        if (
-            "shap_results" in self._training_metrics
-            and "shap_importance" in self._training_metrics["shap_results"]
-        ):
-            summary["shap_importance"] = self._training_metrics["shap_results"]["shap_importance"]
-
-        # Top features
-        if "xgb_importance" in summary:
-            top_10_items = list(summary["xgb_importance"].items())[:10]
-            summary["top_10_features"] = top_10_items
-
-        return summary
+# Backward compatibility aliases
+UnifiedXGBoostTrainer = XGBoostTrainer

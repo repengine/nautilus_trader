@@ -14,11 +14,18 @@
 # -------------------------------------------------------------------------------------------------
 
 import inspect
+from typing import Any
 
+from nautilus_trader.core.data import Data
+from nautilus_trader.core.message import Event
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import PositionId
+from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.trading.strategy import Strategy
 
 
@@ -53,31 +60,31 @@ class MockStrategy(Strategy):
         self.register_indicator_for_bars(self.bar_type, self.ema1)
         self.register_indicator_for_bars(self.bar_type, self.ema2)
 
-    def on_instrument(self, instrument) -> None:
+    def on_instrument(self, instrument: Instrument) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
         self.store.append(instrument)
 
-    def on_ticker(self, ticker):
+    def on_ticker(self, ticker: Any) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
         self.store.append(ticker)
 
-    def on_quote_tick(self, tick):
+    def on_quote_tick(self, tick: QuoteTick) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
         self.store.append(tick)
 
-    def on_trade_tick(self, tick) -> None:
+    def on_trade_tick(self, tick: TradeTick) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
         self.store.append(tick)
 
-    def on_bar(self, bar) -> None:
+    def on_bar(self, bar: Bar) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
@@ -105,25 +112,25 @@ class MockStrategy(Strategy):
             self.submit_order(sell_order)
             self.position_id = sell_order.client_order_id
 
-    def on_data(self, data) -> None:
+    def on_data(self, data: Data) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
         self.store.append(data)
 
-    def on_signal(self, signal) -> None:
+    def on_signal(self, signal: Data) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
         self.store.append(signal)
 
-    def on_strategy_data(self, data) -> None:
+    def on_strategy_data(self, data: Data) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
         self.store.append(data)
 
-    def on_event(self, event) -> None:
+    def on_event(self, event: Event) -> None:
         current_frame = inspect.currentframe()
         assert current_frame  # Type checking
         self.calls.append(current_frame.f_code.co_name)
@@ -173,10 +180,10 @@ class KaboomStrategy(Strategy):
         self._explode_on_start = True
         self._explode_on_stop = True
 
-    def set_explode_on_start(self, setting) -> None:
+    def set_explode_on_start(self, setting: bool) -> None:
         self._explode_on_start = setting
 
-    def set_explode_on_stop(self, setting) -> None:
+    def set_explode_on_stop(self, setting: bool) -> None:
         self._explode_on_stop = setting
 
     def on_start(self) -> None:
@@ -202,23 +209,23 @@ class KaboomStrategy(Strategy):
     def on_dispose(self) -> None:
         raise RuntimeError(f"{self} BOOM!")
 
-    def on_instrument(self, instrument) -> None:
+    def on_instrument(self, instrument: Instrument) -> None:
         raise RuntimeError(f"{self} BOOM!")
 
-    def on_quote_tick(self, tick) -> None:
+    def on_quote_tick(self, tick: QuoteTick) -> None:
         raise RuntimeError(f"{self} BOOM!")
 
-    def on_trade_tick(self, tick) -> None:
+    def on_trade_tick(self, tick: TradeTick) -> None:
         raise RuntimeError(f"{self} BOOM!")
 
-    def on_bar(self, bar) -> None:
+    def on_bar(self, bar: Bar) -> None:
         raise RuntimeError(f"{self} BOOM!")
 
-    def on_data(self, data) -> None:
+    def on_data(self, data: Data) -> None:
         raise RuntimeError(f"{self} BOOM!")
 
-    def on_signal(self, data) -> None:
+    def on_signal(self, data: Data) -> None:
         raise RuntimeError(f"{self} BOOM!")
 
-    def on_event(self, event) -> None:
+    def on_event(self, event: Event) -> None:
         raise RuntimeError(f"{self} BOOM!")

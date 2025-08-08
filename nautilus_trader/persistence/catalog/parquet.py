@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import itertools
 import os
 import platform
@@ -128,8 +129,8 @@ class ParquetDataCatalog(BaseDataCatalog):
         self,
         path: PathLike[str] | str,
         fs_protocol: str | None = _DEFAULT_FS_PROTOCOL,
-        fs_storage_options: dict | None = None,
-        dataset_kwargs: dict | None = None,
+        fs_storage_options: dict[str, Any] | None = None,
+        dataset_kwargs: dict[str, Any] | None = None,
         max_rows_per_group: int = 5_000,
         show_query_paths: bool = False,
     ) -> None:
@@ -380,7 +381,7 @@ class ParquetDataCatalog(BaseDataCatalog):
         identifier: str | None = None,
         start: int | None = None,
         end: int | None = None,
-    ):
+    ) -> None:
         """
         Extend the timestamp range of an existing parquet file by renaming it.
 
@@ -623,8 +624,8 @@ class ParquetDataCatalog(BaseDataCatalog):
     ) -> None:
         parquet_files = self.fs.glob(os.path.join(directory, "*.parquet"))
         files_to_consolidate = []
-        used_start: pd.Timestamp | None = time_object_to_dt(start)
-        used_end: pd.Timestamp | None = time_object_to_dt(end)
+        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
+        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
         intervals = []
 
         if len(parquet_files) <= 1:
@@ -928,8 +929,8 @@ class ParquetDataCatalog(BaseDataCatalog):
 
         """
         # Filter intervals by time range if specified
-        used_start: pd.Timestamp | None = time_object_to_dt(start)
-        used_end: pd.Timestamp | None = time_object_to_dt(end)
+        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
+        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
 
         filtered_intervals = []
         for interval_start, interval_end in intervals:
@@ -1316,8 +1317,8 @@ class ParquetDataCatalog(BaseDataCatalog):
 
         """
         # Convert start/end to nanoseconds
-        used_start: pd.Timestamp | None = time_object_to_dt(start)
-        used_end: pd.Timestamp | None = time_object_to_dt(end)
+        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
+        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
 
         delete_start_ns = used_start.value if used_start else None
         delete_end_ns = used_end.value if used_end else None
@@ -1779,8 +1780,8 @@ class ParquetDataCatalog(BaseDataCatalog):
         dataset = pds.dataset(file_list, filesystem=self.fs)
 
         # Filter dataset
-        used_start: pd.Timestamp | None = time_object_to_dt(start)
-        used_end: pd.Timestamp | None = time_object_to_dt(end)
+        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
+        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
         filters: list[pds.Expression] = [filter_expr] if filter_expr is not None else []
 
         if used_start is not None:
@@ -1808,7 +1809,7 @@ class ParquetDataCatalog(BaseDataCatalog):
         identifiers: list[str] | None = None,
         start: TimestampLike | None = None,
         end: TimestampLike | None = None,
-    ):
+    ) -> list[Any]:
         file_prefix = class_to_filename(data_cls)
         base_path = self.path.rstrip("/")
         glob_path = f"{base_path}/data/{file_prefix}/**/*.parquet"
@@ -1843,8 +1844,8 @@ class ParquetDataCatalog(BaseDataCatalog):
             else:
                 file_paths = exact_match_file_paths
 
-        used_start: pd.Timestamp | None = time_object_to_dt(start)
-        used_end: pd.Timestamp | None = time_object_to_dt(end)
+        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
+        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
         file_paths = [
             file_path
             for file_path in file_paths

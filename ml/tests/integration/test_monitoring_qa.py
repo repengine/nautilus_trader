@@ -62,12 +62,16 @@ if HAS_PROMETHEUS:
                 pass  # Registry cleanup is best-effort
 
 
+# Configure module logger
+logger = logging.getLogger(__name__)
+
+
 class TestImportScenarios:
     """
     Test import scenarios with and without Prometheus.
     """
 
-    def test_import_without_prometheus(self):
+    def test_import_without_prometheus(self) -> None:
         """
         Test that imports work without Prometheus installed.
         """
@@ -77,7 +81,7 @@ class TestImportScenarios:
             from ml.monitoring import MLMetricsCollector  # noqa: F401
             from ml.monitoring import MonitoringConfig  # noqa: F401
 
-    def test_graceful_degradation(self):
+    def test_graceful_degradation(self) -> None:
         """
         Test graceful degradation when Prometheus is not available.
         """
@@ -110,7 +114,7 @@ class TestIntegrationScenarios:
         return port
 
     @pytest.mark.asyncio
-    async def test_full_workflow(self):
+    async def test_full_workflow(self) -> None:
         """
         Test complete workflow with metrics collection and server.
         """
@@ -156,7 +160,7 @@ class TestIntegrationScenarios:
                         assert b"healthy" in content or b"OK" in content
                 except Exception as e:
                     # Network issues in test environment are acceptable
-                    print(f"Health check failed (acceptable in test): {e}")
+                    logger.info(f"Health check failed (acceptable in test): {e}")
 
                 # Check metrics endpoint
                 metrics_url = server.get_metrics_url()
@@ -169,13 +173,13 @@ class TestIntegrationScenarios:
                             assert b"qa_test" in content or len(content) > 0
                 except Exception as e:
                     # Network issues in test environment are acceptable
-                    print(f"Metrics check failed (acceptable in test): {e}")
+                    logger.info(f"Metrics check failed (acceptable in test): {e}")
 
         finally:
             server.stop()
             assert not server.is_running()
 
-    def test_server_restart_cycles(self):
+    def test_server_restart_cycles(self) -> None:
         """
         Test multiple start/stop cycles.
         """
@@ -197,7 +201,7 @@ class TestPerformance:
     Performance tests for monitoring infrastructure.
     """
 
-    def test_disabled_overhead(self):
+    def test_disabled_overhead(self) -> None:
         """
         Test overhead when monitoring is disabled.
         """
@@ -217,9 +221,9 @@ class TestPerformance:
 
         # Should be extremely fast when disabled (< 1 microsecond per op)
         assert avg_time_us < 1.0, f"Disabled operations too slow: {avg_time_us:.2f}μs"
-        print(f"Disabled overhead: {avg_time_us:.3f}μs per operation")
+        logger.info(f"Disabled overhead: {avg_time_us:.3f}μs per operation")
 
-    def test_enabled_overhead(self):
+    def test_enabled_overhead(self) -> None:
         """
         Test overhead when monitoring is enabled.
         """
@@ -243,9 +247,9 @@ class TestPerformance:
 
         # Should be fast even when enabled (< 50 microseconds per op)
         assert avg_time_us < 50.0, f"Enabled operations too slow: {avg_time_us:.2f}μs"
-        print(f"Enabled overhead: {avg_time_us:.3f}μs per operation")
+        logger.info(f"Enabled overhead: {avg_time_us:.3f}μs per operation")
 
-    def test_memory_stability(self):
+    def test_memory_stability(self) -> None:
         """
         Test memory stability over many iterations.
         """
@@ -279,7 +283,7 @@ class TestPerformance:
 
         # Memory growth should be minimal (< 10 MB for 10k operations)
         assert total_growth_mb < 10.0, f"Memory growth too high: {total_growth_mb:.2f} MB"
-        print(f"Memory growth over 10k operations: {total_growth_mb:.3f} MB")
+        logger.info(f"Memory growth over 10k operations: {total_growth_mb:.3f} MB")
 
 
 class TestThreadSafety:
@@ -287,7 +291,7 @@ class TestThreadSafety:
     Test thread safety of monitoring components.
     """
 
-    def test_concurrent_metric_updates(self):
+    def test_concurrent_metric_updates(self) -> None:
         """
         Test concurrent metric updates from multiple threads.
         """
@@ -325,7 +329,7 @@ class TestThreadSafety:
                 future.result()  # Will raise if there was an exception
 
         # If we get here without exceptions, thread safety is working
-        print("Thread safety test passed: 1000 concurrent operations completed")
+        logger.info("Monitoring test completed")
 
 
 class TestErrorScenarios:
@@ -343,7 +347,7 @@ class TestErrorScenarios:
             port = s.getsockname()[1]
         return port
 
-    def test_port_already_in_use(self):
+    def test_port_already_in_use(self) -> None:
         """
         Test handling when port is already in use.
         """
@@ -368,7 +372,7 @@ class TestErrorScenarios:
         finally:
             sock.close()
 
-    def test_invalid_configuration(self):
+    def test_invalid_configuration(self) -> None:
         """
         Test handling of invalid configuration values.
         """
@@ -386,7 +390,7 @@ class TestErrorScenarios:
 
         # The actual validation happens at the usage level (e.g., binding to port)
 
-    def test_server_not_running_operations(self):
+    def test_server_not_running_operations(self) -> None:
         """
         Test operations when server is not running.
         """
@@ -399,7 +403,7 @@ class TestErrorScenarios:
         assert not server.is_running()
         assert not server.wait_for_ready(timeout=0.1)
 
-    def test_collector_with_none_values(self):
+    def test_collector_with_none_values(self) -> None:
         """
         Test collector handles None values gracefully.
         """
@@ -430,7 +434,7 @@ class TestContextManagers:
             port = s.getsockname()[1]
         return port
 
-    def test_server_context_manager(self):
+    def test_server_context_manager(self) -> None:
         """
         Test MetricsServer context manager.
         """
@@ -445,7 +449,7 @@ class TestContextManagers:
         # Should be stopped after context
         assert not server.is_running()
 
-    def test_timer_context_managers(self):
+    def test_timer_context_managers(self) -> None:
         """
         Test timer context managers.
         """

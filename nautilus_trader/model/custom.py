@@ -14,7 +14,11 @@
 # -------------------------------------------------------------------------------------------------
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
+
+
+if TYPE_CHECKING:
+    pass
 
 import msgspec
 import pyarrow as pa
@@ -25,15 +29,18 @@ from nautilus_trader.serialization.arrow.serializer import register_arrow
 from nautilus_trader.serialization.base import register_serializable_type
 
 
-def customdataclass(*args, **kwargs):  # noqa: C901 (too complex)
-    def wrapper(cls):  # noqa: C901 (too complex)
+T = TypeVar("T")
+
+
+def customdataclass(*args: Any, **kwargs: Any) -> Any:  # noqa: C901 (too complex)
+    def wrapper(cls: type[Any]) -> type[Any]:  # noqa: C901 (too complex)
         create_init = False
         create_repr = False
 
         if cls.__init__ is object.__init__:
             create_init = True
 
-        if cls.__repr__ is object.__repr__:
+        if cls.__repr__ is object.__repr__:  # type: ignore[comparison-overlap]
             create_repr = True
 
         cls = dataclass(cls, **kwargs)
@@ -42,7 +49,13 @@ def customdataclass(*args, **kwargs):  # noqa: C901 (too complex)
             # cls.fields_init allows to use positional arguments for parameters other than ts_event and ts_init
             cls.fields_init = cls.__init__
 
-            def __init__(self, ts_event: int = 0, ts_init: int = 0, *args2, **kwargs2):
+            def __init__(
+                self: Any,
+                ts_event: int = 0,
+                ts_init: int = 0,
+                *args2: Any,
+                **kwargs2: Any,
+            ) -> None:
                 self.fields_init(*args2, **kwargs2)
 
                 self._ts_event = ts_event
@@ -53,7 +66,7 @@ def customdataclass(*args, **kwargs):  # noqa: C901 (too complex)
         if create_repr:
             cls.fields_repr = cls.__repr__
 
-            def __repr__(self):
+            def __repr__(self: Any) -> str:
                 repr = self.fields_repr()
                 has_fields = not repr.endswith("()")
 
@@ -62,29 +75,29 @@ def customdataclass(*args, **kwargs):  # noqa: C901 (too complex)
                     + f"ts_init={unix_nanos_to_iso8601(self._ts_init)})"
                 )
 
-                return repr[:-1] + time_repr
+                return repr[:-1] + time_repr  # type: ignore[no-any-return]
 
-            cls.__repr__ = __repr__
+            cls.__repr__ = __repr__  # type: ignore[assignment]
 
         if "ts_event" not in cls.__dict__:
 
-            @property
-            def ts_event(self) -> int:
-                return self._ts_event
+            @property  # type: ignore[misc]
+            def ts_event(self: Any) -> int:
+                return self._ts_event  # type: ignore[no-any-return]
 
             cls.ts_event = ts_event
 
         if "ts_init" not in cls.__dict__:
 
-            @property
-            def ts_init(self) -> int:
-                return self._ts_init
+            @property  # type: ignore[misc]
+            def ts_init(self: Any) -> int:
+                return self._ts_init  # type: ignore[no-any-return]
 
             cls.ts_init = ts_init
 
         if "to_dict" not in cls.__dict__:
 
-            def to_dict(self) -> dict[str, Any]:
+            def to_dict(self: Any) -> dict[str, Any]:
                 result = {attr: getattr(self, attr) for attr in self.__annotations__}
 
                 if hasattr(self, "instrument_id"):
@@ -100,8 +113,8 @@ def customdataclass(*args, **kwargs):  # noqa: C901 (too complex)
 
         if "from_dict" not in cls.__dict__:
 
-            @classmethod
-            def from_dict(cls, data: dict[str, Any]) -> cls:
+            @classmethod  # type: ignore[misc]
+            def from_dict(cls: type[Any], data: dict[str, Any]) -> Any:
                 data.pop("type", None)
 
                 if "instrument_id" in data:
@@ -113,30 +126,30 @@ def customdataclass(*args, **kwargs):  # noqa: C901 (too complex)
 
         if "to_bytes" not in cls.__dict__:
 
-            def to_bytes(self) -> bytes:
+            def to_bytes(self: Any) -> bytes:
                 return msgspec.msgpack.encode(self.to_dict())
 
             cls.to_bytes = to_bytes
 
         if "from_bytes" not in cls.__dict__:
 
-            @classmethod
-            def from_bytes(cls, data: bytes) -> cls:
+            @classmethod  # type: ignore[misc]
+            def from_bytes(cls: type[Any], data: bytes) -> Any:
                 return cls.from_dict(msgspec.msgpack.decode(data))
 
             cls.from_bytes = from_bytes
 
         if "to_arrow" not in cls.__dict__:
 
-            def to_arrow(self) -> pa.RecordBatch:
+            def to_arrow(self: Any) -> pa.RecordBatch:
                 return pa.RecordBatch.from_pylist([self.to_dict()], schema=cls._schema)
 
             cls.to_arrow = to_arrow
 
         if "from_arrow" not in cls.__dict__:
 
-            @classmethod
-            def from_arrow(cls, table: pa.Table) -> cls:
+            @classmethod  # type: ignore[misc]
+            def from_arrow(cls: type[Any], table: pa.Table) -> list[Any]:
                 return [cls.from_dict(d) for d in table.to_pylist()]
 
             cls.from_arrow = from_arrow

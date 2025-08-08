@@ -13,17 +13,18 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 """
-MLflow tracking integration for XGBoost model experiments.
+MLflow tracking integration for ML model experiments.
 
 This module provides comprehensive MLflow integration for experiment tracking, model
 registry management, and artifact storage, specifically designed for financial machine
-learning workflows with XGBoost models.
+learning workflows. Supports XGBoost, LightGBM, and scikit-learn models.
 
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 import time
 from pathlib import Path
@@ -36,22 +37,33 @@ from ml._imports import HAS_MLFLOW
 from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies
 from ml._imports import mlflow
-from ml.config.lightgbm_unified import MLflowConfig
+from ml.config.shared import MLflowConfig
 
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     import mlflow
 
+    MLFramework = Literal["xgboost", "lightgbm", "sklearn", "auto"]
 
-class MLflowXGBoostTracker:
+
+# Configure module logger
+logger = logging.getLogger(__name__)
+
+
+class MLflowTracker:
     """
-    MLflow tracking and model registry integration for XGBoost models.
+    Unified MLflow tracking and model registry integration for ML models.
 
     This class provides comprehensive MLflow integration for financial ML workflows,
-    including experiment tracking, model versioning, artifact management, and
-    automatic model registration with proper metadata.
+    supporting multiple ML frameworks (XGBoost, LightGBM, scikit-learn) through
+    a single unified interface. Includes experiment tracking, model versioning,
+    artifact management, and automatic model registration with proper metadata.
 
     Features:
+    - Multi-framework support (XGBoost, LightGBM, scikit-learn)
+    - Automatic framework detection from model type
     - Experiment and run management
     - Model registry integration with versioning
     - Artifact storage (feature importance, SHAP values, etc.)
@@ -63,10 +75,13 @@ class MLflowXGBoostTracker:
     ----------
     config : MLflowConfig
         Configuration for MLflow tracking and registry.
+    framework : str, default "auto"
+        ML framework to use ("xgboost", "lightgbm", "sklearn", "auto").
+        If "auto", will detect from model type.
 
     """
 
-    def __init__(self, config: MLflowConfig) -> None:
+    def __init__(self, config: MLflowConfig, framework: MLFramework = "auto") -> None:
         """
         Initialize MLflow tracker.
 
@@ -74,13 +89,135 @@ class MLflowXGBoostTracker:
         ----------
         config : MLflowConfig
             MLflow configuration settings.
+        framework : str, default "auto"
+            ML framework to use. Options: "xgboost", "lightgbm", "sklearn", "auto".
+            If "auto", will detect from model type when logging.
 
         """
         self.config = config
+        self.framework: MLFramework = framework
         self._mlflow: Any = None
         self._client: Any = None
         self._current_run_id: str | None = None
         self._experiment_id: str | None = None
+        self._mlflow_module: Any = None  # Will be set to mlflow.xgboost, mlflow.lightgbm, etc.
+
+    def _detect_framework(self, model: Any) -> str:
+        """
+        Detect ML framework from model type.
+
+        Parameters
+        ----------
+        model : Any
+            The model object to detect framework from.
+
+        Returns
+        -------
+        str
+            Detected framework name.
+
+        Raises
+        ------
+        ValueError
+            If framework cannot be detected.
+
+        """
+        model_type = type(model).__name__
+        module_name = type(model).__module__ if hasattr(type(model), "__module__") else ""
+
+        # Check for XGBoost
+        if "xgboost" in module_name.lower() or "XGB" in model_type:
+            return "xgboost"
+
+        # Check for LightGBM
+        if (
+            "lightgbm" in module_name.lower()
+            or "LGB" in model_type
+            or model_type
+            in [
+                "Booster",
+                "LGBMClassifier",
+                "LGBMRegressor",
+                "LGBMRanker",
+            ]
+        ):
+            return "lightgbm"
+
+        # Check for scikit-learn
+        if "sklearn" in module_name.lower() or "scikit" in module_name.lower():
+            return "sklearn"
+
+        # Default to sklearn for unknown types
+        logger.warning(f"Could not detect framework for {model_type}, defaulting to sklearn")
+        return "sklearn"
+
+    def _get_mlflow_module(self, framework: str | None = None) -> Any:
+        """
+        Get the appropriate MLflow module for the framework.
+
+        Parameters
+        ----------
+        framework : str | None, optional
+            Framework name. Uses self.framework if None.
+
+        Returns
+        -------
+        Any
+            MLflow module for the framework (e.g., mlflow.xgboost).
+
+        """
+        framework = framework or self.framework
+
+        if framework == "xgboost":
+            if not HAS_XGBOOST:
+                check_ml_dependencies(["xgboost"])
+            return self._mlflow.xgboost
+        elif framework == "lightgbm":
+            if not HAS_LIGHTGBM:
+                check_ml_dependencies(["lightgbm"])
+            return self._mlflow.lightgbm
+        elif framework == "sklearn":
+            return self._mlflow.sklearn
+        else:
+            # Default to sklearn
+            return self._mlflow.sklearn
+
+    def _enable_autolog(self) -> None:
+        """
+        Enable auto-logging for the configured framework.
+        """
+        if not self.config.auto_log or self.framework == "auto":
+            return
+
+        try:
+            if self.framework == "xgboost":
+                self._mlflow.xgboost.autolog(
+                    importance_types=["weight", "gain", "cover"],
+                    log_input_examples=False,  # Can be large for financial data
+                    log_model_signatures=True,
+                    log_models=True,
+                    disable=False,
+                    exclusive=False,
+                    disable_for_unsupported_versions=False,
+                    silent=False,
+                )
+                logger.info("XGBoost auto-logging enabled")
+            elif self.framework == "lightgbm":
+                self._mlflow.lightgbm.autolog(
+                    log_models=self.config.log_model,
+                    log_input_examples=False,
+                    log_model_signatures=True,
+                )
+                logger.info("LightGBM auto-logging enabled")
+            elif self.framework == "sklearn":
+                self._mlflow.sklearn.autolog(
+                    log_models=self.config.log_model,
+                    log_input_examples=False,
+                    log_model_signatures=True,
+                )
+                logger.info("Scikit-learn auto-logging enabled")
+        except Exception as e:
+            logger.warning(f"Could not enable auto-logging: {e}")
 
     def _ensure_mlflow(self) -> None:
         """
@@ -99,32 +236,24 @@ class MLflowXGBoostTracker:
             try:
                 experiment = self._mlflow.set_experiment(self.config.experiment_name)
                 self._experiment_id = experiment.experiment_id
-                print(
-                    f"Using MLflow experiment: {self.config.experiment_name} (ID: {self._experiment_id})",
+                logger.info(
+                    f"Using MLflow experiment: {self.config.experiment_name} "
+                    f"(ID: {self._experiment_id})",
                 )
             except Exception as e:
-                print(f"Warning: Could not set MLflow experiment: {e}")
+                logger.warning(f"Could not set MLflow experiment: {e}")
                 self._experiment_id = None
 
             # Initialize client for registry operations
             self._client = self._mlflow.tracking.MlflowClient()
 
-            # Enable auto-logging if configured
-            if self.config.auto_log:
-                try:
-                    self._mlflow.xgboost.autolog(
-                        importance_types=["weight", "gain", "cover"],
-                        log_input_examples=False,  # Can be large for financial data
-                        log_model_signatures=True,
-                        log_models=True,
-                        disable=False,
-                        exclusive=False,
-                        disable_for_unsupported_versions=False,
-                        silent=False,
-                    )
-                    print("XGBoost auto-logging enabled")
-                except Exception as e:
-                    print(f"Warning: Could not enable auto-logging: {e}")
+            # Get the appropriate MLflow module and enable auto-logging if not auto-detect mode
+            if self.framework != "auto":
+                self._mlflow_module = self._get_mlflow_module(self.framework)
+
+                # Enable auto-logging if configured
+                if self.config.auto_log:
+                    self._enable_autolog()
 
     def start_run(self, run_name: str | None = None, tags: dict[str, str] | None = None) -> str:
         """
@@ -148,11 +277,12 @@ class MLflowXGBoostTracker:
         # Generate run name if not provided
         if run_name is None:
             timestamp = int(time.time())
-            run_name = f"xgboost_run_{timestamp}"
+            framework_name = self.framework if self.framework != "auto" else "ml"
+            run_name = f"{framework_name}_run_{timestamp}"
 
         # Default tags
         default_tags = {
-            "model_type": "xgboost",
+            "model_type": self.framework if self.framework != "auto" else "unknown",
             "framework": "nautilus_trader",
             "timestamp": str(int(time.time())),
         }
@@ -164,7 +294,7 @@ class MLflowXGBoostTracker:
         run = self._mlflow.start_run(run_name=run_name, tags=all_tags)
         self._current_run_id = run.info.run_id
 
-        print(f"Started MLflow run: {run_name} (ID: {self._current_run_id})")
+        logger.info(f"Started MLflow run: {run_name} (ID: {self._current_run_id})")
         return self._current_run_id
 
     def log_training_run(
@@ -180,12 +310,12 @@ class MLflowXGBoostTracker:
         tags: dict[str, str] | None = None,
     ) -> str:
         """
-        Log a complete XGBoost training run to MLflow.
+        Log a complete ML training run to MLflow.
 
         Parameters
         ----------
         model : Any
-            Trained XGBoost model.
+            Trained ML model (XGBoost, LightGBM, or scikit-learn).
         params : dict[str, Any]
             Model parameters used for training.
         metrics : dict[str, float]
@@ -210,6 +340,13 @@ class MLflowXGBoostTracker:
 
         """
         self._ensure_mlflow()
+
+        # Auto-detect framework if needed and model is provided
+        if self.framework == "auto" and model is not None:
+            detected = self._detect_framework(model)
+            # Type cast needed for mypy - _detect_framework returns valid framework strings
+            self.framework = detected  # type: ignore[assignment]
+            logger.info(f"Auto-detected framework: {self.framework}")
 
         # Start run if not already active
         if not self._mlflow.active_run():
@@ -236,7 +373,7 @@ class MLflowXGBoostTracker:
             # Log additional metadata
             self._log_metadata(feature_names, feature_importance)
 
-            print(f"✅ Training run logged to MLflow: {self._current_run_id}")
+            logger.info(f"Training run logged to MLflow: {self._current_run_id}")
 
             return self._current_run_id or ""
 
@@ -252,7 +389,7 @@ class MLflowXGBoostTracker:
         # Filter out non-serializable parameters
         loggable_params = {}
         for key, value in params.items():
-            if isinstance(value, (int, float, str, bool)):
+            if isinstance(value, int | float | str | bool):
                 loggable_params[key] = value
             elif value is None:
                 loggable_params[key] = "None"
@@ -272,10 +409,10 @@ class MLflowXGBoostTracker:
         # Convert all metrics to float and handle NaN/inf
         loggable_metrics = {}
         for key, value in metrics.items():
-            if isinstance(value, (int, float)) and np.isfinite(value):
+            if isinstance(value, int | float) and np.isfinite(value):
                 loggable_metrics[key] = float(value)
             elif not np.isfinite(value):
-                print(f"Warning: Skipping non-finite metric {key}: {value}")
+                logger.warning(f"Skipping non-finite metric {key}: {value}")
 
         # Log metrics
         if loggable_metrics:
@@ -305,35 +442,62 @@ class MLflowXGBoostTracker:
         model_signature: Any = None,
     ) -> None:
         """
-        Log XGBoost model to MLflow.
+        Log ML model to MLflow with appropriate framework flavor.
         """
-        if not HAS_XGBOOST:
-            print("Warning: XGBoost not available, skipping model logging")
-            return
+        # Ensure framework is set
+        if self.framework == "auto":
+            detected = self._detect_framework(model)
+            # Type cast needed for mypy - _detect_framework returns valid framework strings
+            self.framework = detected  # type: ignore[assignment]
+            self._mlflow_module = self._get_mlflow_module(self.framework)
 
         try:
             # Prepare input example if feature names are provided
             input_example = None
             if feature_names:
                 # Create a small example with random data
-                input_example = np.random.randn(1, len(feature_names))
+                rng = np.random.default_rng()
+                input_example = rng.standard_normal((1, len(feature_names)))
 
-            # Log model with XGBoost flavor
-            self._mlflow.xgboost.log_model(
-                xgb_model=model,
-                artifact_path="model",
-                registered_model_name=(
+            # Common parameters for all frameworks
+            common_params = {
+                "artifact_path": "model",
+                "registered_model_name": (
                     self.config.model_name if self.config.register_model else None
                 ),
-                signature=model_signature,
-                input_example=input_example,
-                await_registration_for=300,  # Wait up to 5 minutes for registration
-            )
+                "signature": model_signature,
+                "input_example": input_example,
+            }
 
-            print("Model logged successfully")
+            # Log model with appropriate flavor
+            if self.framework == "xgboost":
+                if not HAS_XGBOOST:
+                    logger.warning("XGBoost not available, skipping model logging")
+                    return
+                self._mlflow.xgboost.log_model(
+                    xgb_model=model,
+                    await_registration_for=300,  # Wait up to 5 minutes for registration
+                    **common_params,
+                )
+            elif self.framework == "lightgbm":
+                if not HAS_LIGHTGBM:
+                    logger.warning("LightGBM not available, skipping model logging")
+                    return
+                self._mlflow.lightgbm.log_model(
+                    lgb_model=model,
+                    **common_params,
+                )
+            else:
+                # Default to sklearn
+                self._mlflow.sklearn.log_model(
+                    sk_model=model,
+                    **common_params,
+                )
+
+            logger.info(f"Model logged successfully using {self.framework} flavor")
 
         except Exception as e:
-            print(f"Warning: Failed to log model: {e}")
+            logger.warning(f"Failed to log model: {e}")
 
     def _log_artifacts(self, artifacts: dict[str, Any]) -> None:
         """
@@ -352,10 +516,10 @@ class MLflowXGBoostTracker:
                             json.dump({"content": str(content)}, f, indent=2)
 
                     self._mlflow.log_artifact(str(artifact_path))
-                    print(f"Logged artifact: {name}")
+                    logger.debug(f"Logged artifact: {name}")
 
                 except Exception as e:
-                    print(f"Warning: Failed to log artifact {name}: {e}")
+                    logger.warning(f"Failed to log artifact {name}: {e}")
 
     def _log_metadata(
         self,
@@ -438,7 +602,7 @@ class MLflowXGBoostTracker:
             )
 
             version = model_version.version
-            print(f"Created model version: {model_name} v{version}")
+            logger.info(f"Created model version: {model_name} v{version}")
 
             # Add tags if provided
             if tags:
@@ -453,12 +617,12 @@ class MLflowXGBoostTracker:
                     stage=stage,
                     archive_existing_versions=False,
                 )
-                print(f"Transitioned model to {stage} stage")
+                logger.info(f"Transitioned model to {stage} stage")
 
             return str(version)
 
         except Exception as e:
-            print(f"Error registering model: {e}")
+            logger.error(f"Error registering model: {e}")
             raise
 
     def load_model(self, model_name: str, stage: str = "Production") -> Any:
@@ -475,19 +639,40 @@ class MLflowXGBoostTracker:
         Returns
         -------
         Any
-            Loaded XGBoost model.
+            Loaded ML model.
 
         """
         self._ensure_mlflow()
 
         try:
             model_uri = f"models:/{model_name}/{stage}"
-            model = self._mlflow.xgboost.load_model(model_uri)
-            print(f"Loaded model: {model_name} ({stage})")
-            return model
+
+            # Try to load with the configured framework
+            if self.framework != "auto":
+                mlflow_module = self._get_mlflow_module(self.framework)
+                model = mlflow_module.load_model(model_uri)
+                logger.info(f"Loaded {self.framework} model: {model_name} ({stage})")
+                return model
+
+            # Auto-detect framework from registered model
+            # Try each framework in order
+            for framework in ["xgboost", "lightgbm", "sklearn"]:
+                try:
+                    mlflow_module = self._get_mlflow_module(framework)
+                    model = mlflow_module.load_model(model_uri)
+                    logger.info(f"Loaded {framework} model: {model_name} ({stage})")
+                    # Type cast needed for mypy - framework comes from our iteration
+                    self.framework = framework  # type: ignore[assignment]
+                    return model
+                except Exception:
+                    # Try next framework
+                    continue
+
+            # If all fail, raise the last exception
+            raise ValueError(f"Could not load model {model_name} with any supported framework")
 
         except Exception as e:
-            print(f"Error loading model: {e}")
+            logger.error(f"Error loading model: {e}")
             raise
 
     def load_model_by_version(self, model_name: str, version: str) -> Any:
@@ -504,19 +689,42 @@ class MLflowXGBoostTracker:
         Returns
         -------
         Any
-            Loaded XGBoost model.
+            Loaded ML model.
 
         """
         self._ensure_mlflow()
 
         try:
             model_uri = f"models:/{model_name}/{version}"
-            model = self._mlflow.xgboost.load_model(model_uri)
-            print(f"Loaded model: {model_name} v{version}")
-            return model
+
+            # Try to load with the configured framework
+            if self.framework != "auto":
+                mlflow_module = self._get_mlflow_module(self.framework)
+                model = mlflow_module.load_model(model_uri)
+                logger.info(f"Loaded {self.framework} model: {model_name} v{version}")
+                return model
+
+            # Auto-detect framework from registered model
+            # Try each framework in order
+            for framework in ["xgboost", "lightgbm", "sklearn"]:
+                try:
+                    mlflow_module = self._get_mlflow_module(framework)
+                    model = mlflow_module.load_model(model_uri)
+                    logger.info(f"Loaded {framework} model: {model_name} v{version}")
+                    # Type cast needed for mypy - framework comes from our iteration
+                    self.framework = framework  # type: ignore[assignment]
+                    return model
+                except Exception:
+                    # Try next framework
+                    continue
+
+            # If all fail, raise the last exception
+            raise ValueError(
+                f"Could not load model {model_name} v{version} with any supported framework",
+            )
 
         except Exception as e:
-            print(f"Error loading model version: {e}")
+            logger.error(f"Error loading model version: {e}")
             raise
 
     def get_model_info(self, model_name: str) -> dict[str, Any]:
@@ -568,7 +776,7 @@ class MLflowXGBoostTracker:
             return model_info
 
         except Exception as e:
-            print(f"Error getting model info: {e}")
+            logger.error(f"Error getting model info: {e}")
             raise
 
     def cleanup_old_runs(self, max_runs: int = 100, experiment_name: str | None = None) -> None:
@@ -590,7 +798,7 @@ class MLflowXGBoostTracker:
         try:
             experiment = self._mlflow.get_experiment_by_name(experiment_name)
             if experiment is None:
-                print(f"Experiment {experiment_name} not found")
+                logger.warning(f"Experiment {experiment_name} not found")
                 return
 
             # Get all runs, sorted by creation time
@@ -600,7 +808,7 @@ class MLflowXGBoostTracker:
             )
 
             if len(runs) <= max_runs:
-                print(f"Only {len(runs)} runs found, no cleanup needed")
+                logger.info(f"Only {len(runs)} runs found, no cleanup needed")
                 return
 
             # Delete oldest runs
@@ -608,38 +816,25 @@ class MLflowXGBoostTracker:
             for run in runs_to_delete:
                 self._client.delete_run(run.info.run_id)
 
-            print(f"Cleaned up {len(runs_to_delete)} old runs")
+            logger.info(f"Cleaned up {len(runs_to_delete)} old runs")
 
         except Exception as e:
-            print(f"Error during cleanup: {e}")
+            logger.error(f"Error during cleanup: {e}")
 
 
-class MLflowLightGBMTracker:
+# Backward compatibility aliases
+class MLflowXGBoostTracker(MLflowTracker):
     """
-    MLflow tracking and model registry integration for LightGBM models.
+    Backward compatibility alias for MLflowTracker with XGBoost default.
 
-    This class provides comprehensive MLflow integration for financial ML workflows,
-    including experiment tracking, model versioning, artifact management, and
-    automatic model registration with proper metadata for LightGBM models.
-
-    Features:
-    - Experiment and run management
-    - Model registry integration with versioning
-    - Artifact storage (feature importance, SHAP values, etc.)
-    - Automatic model tagging and metadata
-    - Model deployment stage management
-    - Performance metrics tracking over time
-
-    Parameters
-    ----------
-    config : MLflowConfig
-        Configuration for MLflow tracking and registry.
+    .. deprecated:: 2.1.0
+        Use :class:`MLflowTracker` with framework="xgboost" instead.
 
     """
 
     def __init__(self, config: MLflowConfig) -> None:
         """
-        Initialize MLflow tracker for LightGBM models.
+        Initialize XGBoost-specific MLflow tracker.
 
         Parameters
         ----------
@@ -647,381 +842,42 @@ class MLflowLightGBMTracker:
             MLflow configuration settings.
 
         """
-        self.config = config
-        self._mlflow: Any = None
-        self._client: Any = None
-        self._current_run_id: str | None = None
-        self._experiment_id: str | None = None
+        super().__init__(config, framework="xgboost")
+        logger.warning(
+            "MLflowXGBoostTracker is deprecated. "
+            "Use MLflowTracker(config, framework='xgboost') instead.",
+        )
 
-    def _ensure_mlflow(self) -> None:
+
+class MLflowLightGBMTracker(MLflowTracker):
+    """
+    Backward compatibility alias for MLflowTracker with LightGBM default.
+
+    .. deprecated:: 2.1.0
+        Use :class:`MLflowTracker` with framework="lightgbm" instead.
+
+    """
+
+    def __init__(self, config: MLflowConfig) -> None:
         """
-        Ensure MLflow is available and properly configured.
-        """
-        if not HAS_MLFLOW:
-            check_ml_dependencies(["mlflow"])
-        if not HAS_LIGHTGBM:
-            check_ml_dependencies(["lightgbm"])
-
-        if self._mlflow is None:
-            self._mlflow = mlflow
-
-            # Configure MLflow
-            self._mlflow.set_tracking_uri(self.config.tracking_uri)
-
-            # Set or create experiment
-            try:
-                experiment = self._mlflow.set_experiment(self.config.experiment_name)
-                self._experiment_id = experiment.experiment_id
-            except Exception as e:
-                print(f"Warning: Could not set experiment {self.config.experiment_name}: {e}")
-                self._experiment_id = None
-
-            # Initialize client
-            from mlflow.tracking import MlflowClient
-
-            self._client = MlflowClient(tracking_uri=self.config.tracking_uri)
-
-    def start_run(self, run_name: str | None = None, tags: dict[str, str] | None = None) -> str:
-        """
-        Start new MLflow run.
+        Initialize LightGBM-specific MLflow tracker.
 
         Parameters
         ----------
-        run_name : str | None, optional
-            Name for the run.
-        tags : dict[str, str] | None, optional
-            Tags to set for the run.
-
-        Returns
-        -------
-        str
-            The run ID.
+        config : MLflowConfig
+            MLflow configuration settings.
 
         """
-        self._ensure_mlflow()
-
-        # Enable autologging if configured
-        if self.config.auto_log:
-            self._mlflow.lightgbm.autolog(
-                log_models=self.config.log_model,
-                log_input_examples=False,
-                log_model_signatures=True,
-            )
-
-        run = self._mlflow.start_run(run_name=run_name, tags=tags)
-        self._current_run_id = run.info.run_id
-
-        print(f"Started MLflow run: {self._current_run_id}")
-        return self._current_run_id
-
-    def end_run(self) -> None:
-        """
-        End current MLflow run.
-        """
-        if self._mlflow and self._current_run_id:
-            self._mlflow.end_run()
-            print(f"Ended MLflow run: {self._current_run_id}")
-            self._current_run_id = None
-
-    def log_config(self, config: Any) -> None:
-        """
-        Log training configuration.
-
-        Parameters
-        ----------
-        config : Any
-            Training configuration to log.
-
-        """
-        if not self._current_run_id:
-            return
-
-        try:
-            # Convert config to dictionary for logging
-            if hasattr(config, "__dict__"):
-                config_dict = config.__dict__
-            else:
-                config_dict = {"config": str(config)}
-
-            # Flatten nested configurations
-            flat_config = {}
-            for key, value in config_dict.items():
-                if hasattr(value, "__dict__"):
-                    # Nested config object
-                    for nested_key, nested_value in value.__dict__.items():
-                        flat_config[f"{key}_{nested_key}"] = nested_value
-                else:
-                    flat_config[key] = value
-
-            # Log parameters
-            for key, value in flat_config.items():
-                if value is not None:
-                    try:
-                        self._mlflow.log_param(key, value)
-                    except Exception as e:
-                        print(f"Warning: Could not log parameter {key}: {e}")
-
-        except Exception as e:
-            print(f"Warning: Could not log config: {e}")
-
-    def log_model(
-        self,
-        model: Any,
-        training_time: float,
-        feature_names: list[str] | None = None,
-        artifacts: dict[str, Any] | None = None,
-    ) -> None:
-        """
-        Log LightGBM model and associated artifacts.
-
-        Parameters
-        ----------
-        model : Any
-            Trained LightGBM model.
-        training_time : float
-            Time spent training in seconds.
-        feature_names : list[str] | None, optional
-            Names of features.
-        artifacts : dict[str, Any] | None, optional
-            Additional artifacts to log.
-
-        """
-        if not self._current_run_id:
-            return
-
-        try:
-            # Log model if enabled
-            if self.config.log_model and not self.config.auto_log:
-                self._mlflow.lightgbm.log_model(
-                    lgb_model=model,
-                    artifact_path="model",
-                    registered_model_name=(
-                        self.config.model_name if self.config.register_model else None
-                    ),
-                )
-
-            # Log training metrics
-            self._mlflow.log_metric("training_time", training_time)
-            self._mlflow.log_metric("num_features", model.num_feature())
-            self._mlflow.log_metric("best_iteration", model.best_iteration)
-
-            # Log feature importance
-            if hasattr(model, "feature_importance"):
-                importance = model.feature_importance(importance_type="gain")
-
-                # Log top feature importances as metrics
-                if feature_names and len(feature_names) == len(importance):
-                    feature_importance = dict(zip(feature_names, importance.astype(float)))
-
-                    # Log top 10 features
-                    sorted_features = sorted(
-                        feature_importance.items(),
-                        key=lambda x: x[1],
-                        reverse=True,
-                    )
-                    for i, (feature, imp) in enumerate(sorted_features[:10]):
-                        self._mlflow.log_metric(f"feature_importance_rank_{i+1}", imp)
-                        self._mlflow.set_tag(f"top_feature_{i+1}", feature)
-
-            # Log artifacts if enabled and provided
-            if self.config.log_artifacts and artifacts:
-                self._log_artifacts(artifacts)
-
-            # Log metadata
-            self._log_metadata(feature_names, artifacts)
-
-        except Exception as e:
-            print(f"Warning: Error logging model: {e}")
-
-    def _log_artifacts(self, artifacts: dict[str, Any]) -> None:
-        """
-        Log additional artifacts to MLflow.
-        """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            for name, content in artifacts.items():
-                try:
-                    artifact_path = Path(temp_dir) / f"{name}.json"
-
-                    with open(artifact_path, "w", encoding="utf-8") as f:
-                        if isinstance(content, (dict, list)):
-                            json.dump(content, f, indent=2, default=str)
-                        else:
-                            json.dump({"content": str(content)}, f, indent=2)
-
-                    self._mlflow.log_artifact(str(artifact_path))
-                    print(f"Logged artifact: {name}")
-
-                except Exception as e:
-                    print(f"Warning: Failed to log artifact {name}: {e}")
-
-    def _log_metadata(
-        self,
-        feature_names: list[str] | None = None,
-        artifacts: dict[str, Any] | None = None,
-    ) -> None:
-        """
-        Log additional metadata about the training run.
-        """
-        metadata = {
-            "n_features": len(feature_names) if feature_names else 0,
-            "timestamp": int(time.time()),
-            "nautilus_version": "2.0.0",
-            "model_type": "lightgbm",
-        }
-
-        if artifacts and "feature_importance" in artifacts:
-            feature_importance = artifacts["feature_importance"]
-            if isinstance(feature_importance, dict):
-                metadata.update(
-                    {
-                        "n_important_features": len(feature_importance),
-                        "top_feature": (
-                            max(feature_importance.items(), key=lambda x: x[1])[0]
-                            if feature_importance
-                            else None
-                        ),
-                        "importance_sum": sum(feature_importance.values()),
-                    },
-                )
-
-        # Log as tags
-        for key, value in metadata.items():
-            if value is not None:
-                self._mlflow.set_tag(key, str(value))
-
-    def load_model(self, model_name: str, stage: str = "Production") -> Any:
-        """
-        Load model from MLflow registry.
-
-        Parameters
-        ----------
-        model_name : str
-            Name of the registered model.
-        stage : str, default "Production"
-            Stage of the model to load.
-
-        Returns
-        -------
-        Any
-            Loaded LightGBM model.
-
-        """
-        self._ensure_mlflow()
-
-        try:
-            model_uri = f"models:/{model_name}/{stage}"
-            model = self._mlflow.lightgbm.load_model(model_uri)
-            print(f"Loaded LightGBM model: {model_name} ({stage})")
-            return model
-
-        except Exception as e:
-            print(f"Error loading LightGBM model: {e}")
-            raise
-
-    def load_model_by_version(self, model_name: str, version: str) -> Any:
-        """
-        Load specific model version from MLflow registry.
-
-        Parameters
-        ----------
-        model_name : str
-            Name of the registered model.
-        version : str
-            Version number to load.
-
-        Returns
-        -------
-        Any
-            Loaded LightGBM model.
-
-        """
-        self._ensure_mlflow()
-
-        try:
-            model_uri = f"models:/{model_name}/{version}"
-            model = self._mlflow.lightgbm.load_model(model_uri)
-            print(f"Loaded LightGBM model: {model_name} v{version}")
-            return model
-
-        except Exception as e:
-            print(f"Error loading LightGBM model version: {e}")
-            raise
-
-    def register_model(
-        self,
-        run_id: str,
-        model_name: str | None = None,
-        stage: str = "Staging",
-        description: str | None = None,
-        tags: dict[str, str] | None = None,
-    ) -> str:
-        """
-        Register LightGBM model in MLflow model registry.
-
-        Parameters
-        ----------
-        run_id : str
-            Run ID containing the model to register.
-        model_name : str | None, optional
-            Name for the registered model. Uses config if None.
-        stage : str, default "Staging"
-            Initial stage for the model version.
-        description : str | None, optional
-            Description for the model version.
-        tags : dict[str, str] | None, optional
-            Tags for the model version.
-
-        Returns
-        -------
-        str
-            The model version number.
-
-        """
-        self._ensure_mlflow()
-
-        model_name = model_name or self.config.model_name
-        if not model_name:
-            raise ValueError("Model name must be provided for registration")
-
-        try:
-            # Model URI
-            model_uri = f"runs:/{run_id}/model"
-
-            # Create model version
-            model_version = self._client.create_model_version(
-                name=model_name,
-                source=model_uri,
-                run_id=run_id,
-                description=description,
-            )
-
-            version = model_version.version
-            print(f"Created LightGBM model version: {model_name} v{version}")
-
-            # Add tags if provided
-            if tags:
-                for key, value in tags.items():
-                    self._client.set_model_version_tag(model_name, version, key, value)
-
-            # Transition to specified stage
-            if stage != "None":
-                self._client.transition_model_version_stage(
-                    name=model_name,
-                    version=version,
-                    stage=stage,
-                    archive_existing_versions=False,
-                )
-                print(f"Transitioned LightGBM model to {stage} stage")
-
-            return str(version)
-
-        except Exception as e:
-            print(f"Error registering LightGBM model: {e}")
-            raise
+        super().__init__(config, framework="lightgbm")
+        logger.warning(
+            "MLflowLightGBMTracker is deprecated. "
+            "Use MLflowTracker(config, framework='lightgbm') instead.",
+        )
 
 
 # Explicit exports
 __all__ = [
-    "MLflowLightGBMTracker",
-    "MLflowXGBoostTracker",
+    "MLflowLightGBMTracker",  # Backward compatibility
+    "MLflowTracker",  # Primary unified tracker
+    "MLflowXGBoostTracker",  # Backward compatibility
 ]

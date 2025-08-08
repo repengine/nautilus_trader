@@ -22,16 +22,17 @@ ML components like MLDataLoader and FeatureEngineer.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ml.monitoring._config import MonitoringConfig
-from ml.monitoring.collectors_extended import DataQualityCollector
-from ml.monitoring.collectors_extended import FeatureEngineeringCollector
-from ml.monitoring.collectors_extended import MLMetricsRegistry
-from ml.monitoring.collectors_extended import ModelLifecycleCollector
+from ml.monitoring.collectors.data import DataQualityCollector
+from ml.monitoring.collectors.features import FeatureEngineeringCollector
+from ml.monitoring.collectors.model import ModelLifecycleCollector
+from ml.monitoring.collectors.registry import MLMetricsRegistry
 
 
 if TYPE_CHECKING:
@@ -44,6 +45,9 @@ if TYPE_CHECKING:
 # =============================================================================
 # MLDataLoader with Metrics Integration
 # =============================================================================
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class MonitoredMLDataLoader:
@@ -114,7 +118,7 @@ class MonitoredMLDataLoader:
         df = self._loader.load_bars(instrument, start, end)
 
         # Record metrics if collector is available
-        if self._metrics and self._metrics.is_enabled():
+        if self._metrics and self._metrics.enabled:
             # Record load latency
             latency = time.perf_counter() - start_time
             if hasattr(self._metrics, "_data_load_latency"):
@@ -133,16 +137,15 @@ class MonitoredMLDataLoader:
                 instrument=instrument,
                 data_type="bars",
                 missing_ratios=missing_ratios,
-                outlier_count=outlier_count,
-                detection_method="zscore",
+                outlier_counts={"total": outlier_count},
             )
 
             # Record data staleness
             staleness = self._calculate_staleness(df)
-            self._metrics.record_data_staleness(
+            self._metrics.update_data_staleness(
                 instrument=instrument,
                 data_type="bars",
-                staleness_seconds=staleness,
+                last_updated_timestamp=time.time() - staleness,
             )
 
         return df
@@ -223,7 +226,7 @@ class MonitoredFeatureEngineer:
         """
         self._engineer = base_engineer
         self._metrics = metrics_collector
-        self._feature_cache = {}
+        self._feature_cache: dict[str, pl.DataFrame] = {}
         self._cache_stats = {"hits": 0, "misses": 0}
 
     def compute_features(
@@ -256,11 +259,10 @@ class MonitoredFeatureEngineer:
             features = self._feature_cache[cache_key]
 
             # Record cache hit
-            if self._metrics and self._metrics.is_enabled():
+            if self._metrics and self._metrics.enabled:
                 self._metrics.record_cache_hit(
                     instrument=instrument,
                     cache_level="memory",
-                    hit_ratio=self._get_cache_hit_ratio(),
                 )
 
             return features
@@ -269,13 +271,13 @@ class MonitoredFeatureEngineer:
 
         # Compute features
         try:
-            features = self._engineer.compute_features(bars)
+            features, scaler = self._engineer.calculate_features_batch(bars)
 
             # Cache results
             self._feature_cache[cache_key] = features
 
             # Record metrics if collector is available
-            if self._metrics and self._metrics.is_enabled():
+            if self._metrics and self._metrics.enabled:
                 latency = time.perf_counter() - start_time
 
                 # Record computation latency
@@ -289,7 +291,6 @@ class MonitoredFeatureEngineer:
                 self._metrics.record_cache_hit(
                     instrument=instrument,
                     cache_level="memory",
-                    hit_ratio=self._get_cache_hit_ratio(),
                 )
 
                 # Calculate and record feature drift (simplified)
@@ -306,14 +307,14 @@ class MonitoredFeatureEngineer:
                 if hasattr(self._engineer, "feature_importances_"):
                     self._metrics.record_feature_importance(
                         model="current",
-                        importances=self._engineer.feature_importances_,
+                        feature_importances=self._engineer.feature_importances_,
                     )
 
-            return features
+            return pl.DataFrame(features) if not isinstance(features, pl.DataFrame) else features
 
         except Exception as e:
             # Record error
-            if self._metrics and self._metrics.is_enabled():
+            if self._metrics and self._metrics.enabled:
                 if hasattr(self._metrics, "_feature_computation_errors"):
                     self._metrics._feature_computation_errors.labels(
                         instrument=instrument,
@@ -376,7 +377,7 @@ class MonitoredModelTrainer:
 
         """
         self._metrics = metrics_collector
-        self._phase_times = {}
+        self._phase_times: dict[str, float] = {}
 
     def train_model(
         self,
@@ -423,23 +424,14 @@ class MonitoredModelTrainer:
         self._phase_times["validation"] = time.perf_counter() - phase_start
 
         # Record metrics if collector is available
-        if self._metrics and self._metrics.is_enabled():
+        if self._metrics and self._metrics.enabled:
             total_duration = time.perf_counter() - overall_start
 
             # Record training completed
-            self._metrics.record_training_completed(
+            self._metrics.record_model_training(
                 model=model_name,
-                instrument=instrument,
-                duration_seconds=total_duration,
-                phase_durations=self._phase_times,
-            )
-
-            # Record model size
-            model_size = self._get_model_size(model)
-            self._metrics.record_model_size(
-                model=model_name,
-                size_bytes=model_size,
-                format="pickle",
+                training_samples=len(X),
+                training_duration=total_duration,
             )
 
             # Record deployment
@@ -486,7 +478,7 @@ class MonitoredModelTrainer:
 # =============================================================================
 
 
-def example_complete_integration():
+def example_complete_integration() -> None:
     """
     Complete example showing all components working together.
     """
@@ -506,7 +498,7 @@ def example_complete_integration():
 
     try:
         # Example 1: Data Loading with Metrics
-        print("Loading data with quality metrics...")
+        logger.info("Loading data with quality metrics...")
         from ml.data.loader import MLDataLoader
         from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -524,13 +516,15 @@ def example_complete_integration():
             start="2024-01-01",
             end="2024-01-31",
         )
-        print(f"Loaded {len(bars_df)} bars")
+        logger.info(f"Loaded {len(bars_df)} bars")
 
         # Example 2: Feature Engineering with Metrics
-        print("\nComputing features with drift detection...")
+        logger.info("\nComputing features with drift detection...")
+        from ml.features.engineering import FeatureConfig
         from ml.features.engineering import FeatureEngineer
 
-        base_engineer = FeatureEngineer(config)
+        feature_config = FeatureConfig()
+        base_engineer = FeatureEngineer(feature_config)
         monitored_engineer = MonitoredFeatureEngineer(
             base_engineer,
             metrics_collector=metrics.feature_engineering,
@@ -541,10 +535,10 @@ def example_complete_integration():
             bars_df,
             instrument="EURUSD",
         )
-        print(f"Computed {len(features_df.columns)} features")
+        logger.info(f"Computed {len(features_df.columns)} features")
 
         # Example 3: Model Training with Lifecycle Metrics
-        print("\nTraining model with lifecycle tracking...")
+        logger.info("Training model with lifecycle tracking...")
         trainer = MonitoredModelTrainer(
             metrics_collector=metrics.model_lifecycle,
         )
@@ -560,10 +554,10 @@ def example_complete_integration():
             model_name="xgboost_demo",
             instrument="EURUSD",
         )
-        print("Model training completed")
+        logger.info("Model trained successfully")
 
         # Example 4: Real-time Inference with Metrics
-        print("\nPerforming inference with latency tracking...")
+        logger.info("\nPerforming inference with latency tracking...")
 
         # Use existing MLMetricsCollector for predictions
         for i in range(10):
@@ -577,20 +571,20 @@ def example_complete_integration():
                     confidence=np.random.uniform(0.6, 0.95),
                 )
 
-        print("Inference completed")
+        logger.info("Performed 100 inferences with metrics")
 
         # Print metrics URL
-        print(f"\nMetrics available at: {metrics.server.get_metrics_url()}")
-        print(f"Health check at: {metrics.server.get_health_url()}")
+        logger.info(f"\nMetrics available at: {metrics.server.get_metrics_url()}")
+        logger.info(f"Health check at: {metrics.server.get_health_url()}")
 
         # Simulate running for a bit
-        print("\nServer running... Press Ctrl+C to stop")
+        logger.info("\nServer running... Press Ctrl+C to stop")
         time.sleep(5)
 
     finally:
         # Cleanup
         metrics.stop()
-        print("\nMetrics server stopped")
+        logger.info("\nMetrics server stopped")
 
 
 # =============================================================================

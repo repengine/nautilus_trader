@@ -40,7 +40,7 @@ class TestPositionSizer:
 
 
 class TestFixedRiskSizer:
-    def setup(self):
+    def setup_method(self):
         # Fixture Setup
         self.sizer = FixedRiskSizer(USDJPY)
 

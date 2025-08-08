@@ -18,16 +18,16 @@ import pytest
 
 from ml._imports import HAS_LIGHTGBM
 from ml._imports import HAS_OPTUNA
-from ml.config.lightgbm_unified import OptunaConfig
-from ml.training.lightgbm_optuna import LightGBMOptunaOptimizer
+from ml.config.shared import OptunaConfig
+from ml.training.lightgbm import OptunaPlugin
 
 
 class TestLightGBMOptunaOptimizer:
     """
-    Test LightGBM Optuna optimizer.
+    Test LightGBM Optuna plugin.
     """
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         """
         Set up test fixtures.
         """
@@ -41,17 +41,17 @@ class TestLightGBMOptunaOptimizer:
         )
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_optimizer_init(self):
+    def test_optimizer_init(self) -> None:
         """
         Test optimizer initialization.
         """
-        optimizer = LightGBMOptunaOptimizer(self.config)
-        assert optimizer._config == self.config
-        assert optimizer._study is None
-        assert optimizer._best_params == {}
+        plugin = OptunaPlugin(self.config)
+        assert plugin.config == self.config
+        assert plugin._study is None
+        assert plugin._best_params == {}
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_optimizer_init_without_dependencies(self):
+    def test_optimizer_init_without_dependencies(self) -> None:
         """
         Test optimizer initialization fails without dependencies.
         """
@@ -59,11 +59,11 @@ class TestLightGBMOptunaOptimizer:
         # but we skip if dependencies are not available
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_suggest_lgb_parameters(self):
+    def test_suggest_lgb_parameters(self) -> None:
         """
         Test LightGBM parameter suggestion.
         """
-        optimizer = LightGBMOptunaOptimizer(self.config)
+        plugin = OptunaPlugin(self.config)
 
         # Mock trial for parameter suggestion
         from ml._imports import optuna
@@ -71,7 +71,7 @@ class TestLightGBMOptunaOptimizer:
         study = optuna.create_study(direction="maximize")
         trial = study.ask()
 
-        params = optimizer._suggest_lgb_parameters(trial)
+        params = plugin._suggest_parameters(trial)
 
         # Check required parameters are present
         assert "num_iterations" in params
@@ -100,7 +100,7 @@ class TestLightGBMOptunaOptimizer:
             assert params["num_leaves"] == 2 ** params["max_depth"] - 1
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_suggest_lgb_parameters_goss(self):
+    def test_suggest_lgb_parameters_goss(self) -> None:
         """
         Test LightGBM parameter suggestion with GOSS.
         """
@@ -133,7 +133,7 @@ class TestLightGBMOptunaOptimizer:
         # In practice, we'd use a fixed seed or more sophisticated testing
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_suggest_lgb_parameters_dart(self):
+    def test_suggest_lgb_parameters_dart(self) -> None:
         """
         Test LightGBM parameter suggestion with DART.
         """
@@ -166,7 +166,7 @@ class TestLightGBMOptunaOptimizer:
             study.tell(trial, 0.5)  # Dummy objective value
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_create_study_default(self):
+    def test_create_study_default(self) -> None:
         """
         Test study creation with default settings.
         """
@@ -177,7 +177,7 @@ class TestLightGBMOptunaOptimizer:
         assert study.study_name is not None  # Auto-generated
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_create_study_with_storage(self):
+    def test_create_study_with_storage(self) -> None:
         """
         Test study creation with storage configuration.
         """
@@ -197,7 +197,7 @@ class TestLightGBMOptunaOptimizer:
         assert study.study_name == "test_study"
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_optimize_simple(self):
+    def test_optimize_simple(self) -> None:
         """
         Test optimization with simple synthetic data.
         """
@@ -226,7 +226,7 @@ class TestLightGBMOptunaOptimizer:
         assert optimizer.best_params == best_params
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_optimize_without_validation(self):
+    def test_optimize_without_validation(self) -> None:
         """
         Test optimization without validation data.
         """
@@ -250,7 +250,7 @@ class TestLightGBMOptunaOptimizer:
         assert len(best_params) > 0
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_param_importance_empty_study(self):
+    def test_param_importance_empty_study(self) -> None:
         """
         Test parameter importance with empty study.
         """
@@ -259,7 +259,7 @@ class TestLightGBMOptunaOptimizer:
         assert importance == {}
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_param_importance_with_study(self):
+    def test_param_importance_with_study(self) -> None:
         """
         Test parameter importance with completed study.
         """
@@ -284,7 +284,7 @@ class TestLightGBMOptunaOptimizer:
         # May be empty if study is too small or parameters don't vary enough
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_visualization_methods_empty_study(self):
+    def test_visualization_methods_empty_study(self) -> None:
         """
         Test visualization methods with empty study.
         """
@@ -295,7 +295,7 @@ class TestLightGBMOptunaOptimizer:
         assert optimizer.plot_param_importances() is None
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_objective_function_error_handling(self):
+    def test_objective_function_error_handling(self) -> None:
         """
         Test objective function error handling.
         """
@@ -316,7 +316,7 @@ class TestLightGBMOptunaOptimizer:
         assert isinstance(result, (int, float))
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_optimizer_properties(self):
+    def test_optimizer_properties(self) -> None:
         """
         Test optimizer properties.
         """
@@ -334,7 +334,7 @@ class TestLightGBMOptunaOptimizer:
         assert optimizer._best_params["test"] == 1.0
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_config_validation_in_optimizer(self):
+    def test_config_validation_in_optimizer(self) -> None:
         """
         Test that optimizer respects config validation.
         """
@@ -351,7 +351,7 @@ class TestLightGBMOptunaOptimizer:
             assert optimizer._config.pruner == pruner
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_objective_sharpe_ratio_calculation(self):
+    def test_objective_sharpe_ratio_calculation(self) -> None:
         """
         Test Sharpe ratio calculation in objective function.
         """
@@ -375,7 +375,7 @@ class TestLightGBMOptunaOptimizer:
         assert np.isfinite(result)
 
     @pytest.mark.skipif(not (HAS_OPTUNA and HAS_LIGHTGBM), reason="Optuna and LightGBM required")
-    def test_objective_different_metrics(self):
+    def test_objective_different_metrics(self) -> None:
         """
         Test objective function with different metrics.
         """

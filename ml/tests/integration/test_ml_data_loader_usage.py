@@ -54,7 +54,7 @@ def example_ml_training_workflow():
 
     """
     if not HAS_POLARS:
-        print("Polars is required for ML data loading. Install with: pip install polars")
+        logger.info("Polars is required for ML data loading. Install with: pip install polars")
         return
 
     # Setup temporary catalog for demo
@@ -62,50 +62,52 @@ def example_ml_training_workflow():
         catalog = ParquetDataCatalog(temp_dir)
 
         # Generate and write sample data
-        print("Generating sample data...")
+        logger.info("Generating sample data...")
         instruments = ["EURUSD.SIM", "GBPUSD.SIM", "USDJPY.SIM"]
 
         for instrument_str in instruments:
             instrument_id = InstrumentId.from_str(instrument_str)
             bars = generate_sample_bars(instrument_id, days=30)
             catalog.write_data(bars)
-            print(f"  - Generated {len(bars)} bars for {instrument_str}")
+            logger.info(f"  - Generated {len(bars)} bars for {instrument_str}")
 
         # Initialize MLDataLoader
-        print("\nInitializing MLDataLoader...")
+        logger.info("\nInitializing MLDataLoader...")
         loader = MLDataLoader(catalog, cache_size=100, enable_cache=True)
 
         # Example 1: Load single instrument with date range
-        print("\n1. Loading single instrument with date range:")
+        logger.info("\n1. Loading single instrument with date range:")
         start = datetime(2023, 1, 1)
         end = datetime(2023, 1, 7)
         eurusd_df = loader.load_bars("EURUSD.SIM", start=start, end=end)
-        print(f"   - Loaded {eurusd_df.shape[0]} bars for EURUSD")
-        print(f"   - Columns: {eurusd_df.columns}")
-        print(f"   - Date range: {eurusd_df['timestamp'].min()} to {eurusd_df['timestamp'].max()}")
+        logger.info(f"Loaded {eurusd_df.shape[0]} bars for EURUSD")
+        logger.info(f"   - Columns: {eurusd_df.columns}")
+        logger.info(
+            f"   - Date range: {eurusd_df['timestamp'].min()} to {eurusd_df['timestamp'].max()}",
+        )
 
         # Example 2: Feature engineering with Polars
-        print("\n2. Feature engineering example:")
+        logger.info("\n2. Feature engineering example:")
         features_df = engineer_features(eurusd_df)
-        print(f"   - Generated {len(features_df.columns)} features")
-        print(
+        logger.info(f"   - Generated {len(features_df.columns)} features")
+        logger.info(
             f"   - New features: {[col for col in features_df.columns if col not in eurusd_df.columns]}",
         )
 
         # Example 3: Load multiple instruments for portfolio analysis
-        print("\n3. Loading multiple instruments:")
+        logger.info("\n3. Loading multiple instruments:")
         portfolio_data = loader.load_multiple(
             instruments,
             data_type="bars",
             start=datetime(2023, 1, 1),
             end=datetime(2023, 1, 10),
         )
-        print(f"   - Loaded data for {len(portfolio_data)} instruments")
+        logger.info(f"Loaded data for {len(portfolio_data)} instruments")
         for inst, df in portfolio_data.items():
-            print(f"   - {inst}: {df.shape[0]} bars")
+            logger.info(f"   - {inst}: {df.shape[0]} bars")
 
         # Example 4: Cache performance demonstration
-        print("\n4. Cache performance test:")
+        logger.info("\n4. Cache performance test:")
         import time
 
         # First load (uncached)
@@ -118,22 +120,22 @@ def example_ml_training_workflow():
         df2 = loader.load_bars("EURUSD.SIM")
         cached_load = time.time() - start_time
 
-        print(f"   - First load: {first_load:.4f}s")
-        print(f"   - Cached load: {cached_load:.4f}s")
-        print(f"   - Speedup: {first_load/cached_load:.1f}x")
+        logger.info(f"   - First load: {first_load:.4f}s")
+        logger.info(f"   - Cached load: {cached_load:.4f}s")
+        logger.info(f"   - Speedup: {first_load/cached_load:.1f}x")
 
         # Example 5: Memory management
-        print("\n5. Cache management:")
+        logger.info("\n5. Cache management:")
         stats = loader.get_cache_stats()
-        print(f"   - Cache size: {stats['size']} / {stats['max_size']}")
-        print(f"   - Cache enabled: {stats['enabled']}")
+        logger.info(f"   - Cache size: {stats['size']} / {stats['max_size']}")
+        logger.info(f"   - Cache enabled: {stats['enabled']}")
 
         # Clear cache when done
         loader.clear_cache()
-        print("   - Cache cleared")
+        logger.info("   - Cache cleared")
 
         # Example 6: Using convenience function
-        print("\n6. Using convenience function:")
+        logger.info("\n6. Using convenience function:")
         all_data = load_ml_data(
             instrument_ids=instruments,
             catalog=catalog,
@@ -141,13 +143,13 @@ def example_ml_training_workflow():
             start="2023-01-01",
             end="2023-01-05",
         )
-        print(f"   - Loaded {len(all_data)} instruments via convenience function")
+        logger.info(f"Loaded {len(all_data)} instruments via convenience function")
 
         # Example 7: Prepare data for ML model
-        print("\n7. Preparing data for ML training:")
+        logger.info("7. Preparing data for ML model:")
         ml_ready_df = prepare_ml_dataset(portfolio_data)
-        print(f"   - Final dataset shape: {ml_ready_df.shape}")
-        print(f"   - Features ready for training: {ml_ready_df.columns[:5]}...")
+        logger.info(f"   - Final dataset shape: {ml_ready_df.shape}")
+        logger.info(f"   - Columns: {ml_ready_df.columns[:5]}...")
 
         return ml_ready_df
 
@@ -258,22 +260,22 @@ def prepare_ml_dataset(portfolio_data: dict[str, pl.DataFrame]) -> pl.DataFrame:
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("MLDataLoader Usage Example")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("MLDataLoader Usage Example")
+    logger.info("=" * 60)
 
     # Run the example workflow
     result_df = example_ml_training_workflow()
 
     if result_df is not None:
-        print("\n" + "=" * 60)
-        print("Example completed successfully!")
-        print("=" * 60)
-        print("\nThe MLDataLoader is ready for production use in ML workflows.")
-        print("It provides:")
-        print("  ✓ Efficient data loading from ParquetDataCatalog")
-        print("  ✓ Built-in caching for performance")
-        print("  ✓ Polars DataFrames for fast feature engineering")
-        print("  ✓ Support for multiple instruments and data types")
-        print("  ✓ Memory-efficient vectorized operations")
-        print("  ✓ Date range filtering capabilities")
+        logger.info("\n" + "=" * 60)
+        logger.info("Example completed successfully!")
+        logger.info("=" * 60)
+        logger.info("\nThe MLDataLoader is ready for production use in ML workflows.")
+        logger.info("It provides:")
+        logger.info("   Efficient data loading from ParquetDataCatalog")
+        logger.info("   Built-in caching for performance")
+        logger.info("   Polars DataFrames for fast feature engineering")
+        logger.info("   Support for multiple instruments and data types")
+        logger.info("   Memory-efficient vectorized operations")
+        logger.info("   Date range filtering capabilities")

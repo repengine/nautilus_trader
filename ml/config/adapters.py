@@ -122,7 +122,7 @@ class ConfigurationHelper:
 
         """
         if hasattr(config, "model_path"):
-            return config.model_path
+            return str(config.model_path)
 
         raise AttributeError(
             f"No model_path found in configuration of type {type(config).__name__}",

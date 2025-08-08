@@ -17,6 +17,7 @@ Tests for the PerformanceDegradationMonitor.
 """
 
 import threading
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -32,14 +33,14 @@ class TestPerformanceDegradationMonitor:
     """
 
     @pytest.fixture(autouse=True)
-    def setup_test(self, prometheus_registry_cleanup, metric_name_manager):
+    def setup_test(self, prometheus_registry_cleanup: Any, metric_name_manager: Any) -> None:
         """
         Set up test with proper cleanup and unique names.
         """
         self.metric_name_manager = metric_name_manager
 
     @pytest.fixture
-    def collector(self):
+    def collector(self) -> PerformanceDegradationMonitor:
         """
         Create a PerformanceDegradationMonitor for testing.
         """
@@ -48,21 +49,24 @@ class TestPerformanceDegradationMonitor:
         return PerformanceDegradationMonitor(config)
 
     @pytest.fixture
-    def disabled_collector(self):
+    def disabled_collector(self) -> PerformanceDegradationMonitor:
         """
         Create a disabled PerformanceDegradationMonitor for testing.
         """
         config = MonitoringConfig(enabled=False)
         return PerformanceDegradationMonitor(config)
 
-    def test_initialization(self, collector):
+    def test_initialization(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test collector initialization.
         """
         assert collector.enabled == HAS_PROMETHEUS
         assert collector.get_metric_count() > 0 or not HAS_PROMETHEUS
 
-    def test_disabled_initialization(self, disabled_collector):
+    def test_disabled_initialization(
+        self,
+        disabled_collector: PerformanceDegradationMonitor,
+    ) -> None:
         """
         Test disabled collector initialization.
         """
@@ -70,7 +74,7 @@ class TestPerformanceDegradationMonitor:
         assert disabled_collector.get_metric_count() == 0
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_model_performance(self, collector):
+    def test_record_model_performance(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test recording model performance metrics.
         """
@@ -90,7 +94,7 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_prediction_evaluation(self, collector):
+    def test_record_prediction_evaluation(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test recording prediction evaluation metrics.
         """
@@ -110,7 +114,7 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_distribution_shift(self, collector):
+    def test_record_distribution_shift(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test recording distribution shift detection.
         """
@@ -129,7 +133,7 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_update_degradation_score(self, collector):
+    def test_update_degradation_score(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test updating degradation score.
         """
@@ -147,7 +151,10 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_inference_latency_percentiles(self, collector):
+    def test_record_inference_latency_percentiles(
+        self,
+        collector: PerformanceDegradationMonitor,
+    ) -> None:
         """
         Test recording inference latency percentiles.
         """
@@ -166,7 +173,7 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_trigger_retraining_alert(self, collector):
+    def test_trigger_retraining_alert(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test triggering retraining alert.
         """
@@ -186,7 +193,7 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_retraining_completion(self, collector):
+    def test_record_retraining_completion(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test recording retraining completion.
         """
@@ -206,7 +213,7 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_get_performance_summary(self, collector):
+    def test_get_performance_summary(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test getting performance summary.
         """
@@ -237,7 +244,10 @@ class TestPerformanceDegradationMonitor:
         assert "degradation_score" in summary
         assert "retraining_alerts" in summary
 
-    def test_get_performance_summary_disabled(self, disabled_collector):
+    def test_get_performance_summary_disabled(
+        self,
+        disabled_collector: PerformanceDegradationMonitor,
+    ) -> None:
         """
         Test getting performance summary when disabled.
         """
@@ -247,7 +257,10 @@ class TestPerformanceDegradationMonitor:
         assert summary == {}
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_performance_degradation_workflow(self, collector):
+    def test_performance_degradation_workflow(
+        self,
+        collector: PerformanceDegradationMonitor,
+    ) -> None:
         """
         Test complete performance degradation workflow.
         """
@@ -310,7 +323,7 @@ class TestPerformanceDegradationMonitor:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_thread_safety(self, collector):
+    def test_thread_safety(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test thread safety of collector operations.
         """
@@ -348,7 +361,10 @@ class TestPerformanceDegradationMonitor:
         assert len(results) == 3
         assert len(errors) == 0
 
-    def test_disabled_collector_operations(self, disabled_collector):
+    def test_disabled_collector_operations(
+        self,
+        disabled_collector: PerformanceDegradationMonitor,
+    ) -> None:
         """
         Test that disabled collector handles operations gracefully.
         """
@@ -386,7 +402,7 @@ class TestPerformanceDegradationMonitor:
         # Should not raise any exceptions
         assert True
 
-    def test_health_check(self, collector):
+    def test_health_check(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test health check functionality.
         """
@@ -402,7 +418,7 @@ class TestPerformanceDegradationMonitor:
         assert health["collector_type"] == "PerformanceDegradationMonitor"
 
     @patch("ml._imports.HAS_PROMETHEUS", False)
-    def test_graceful_degradation_without_prometheus(self):
+    def test_graceful_degradation_without_prometheus(self) -> None:
         """
         Test graceful degradation when Prometheus is not available.
         """
@@ -431,7 +447,7 @@ class TestPerformanceDegradationMonitor:
         # Should not raise any exceptions
         assert True
 
-    def test_string_representation(self, collector):
+    def test_string_representation(self, collector: PerformanceDegradationMonitor) -> None:
         """
         Test string representation of collector.
         """
@@ -442,7 +458,10 @@ class TestPerformanceDegradationMonitor:
         assert f"metrics_count={collector.get_metric_count()}" in repr_str
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_latency_percentiles_comprehensive(self, collector):
+    def test_latency_percentiles_comprehensive(
+        self,
+        collector: PerformanceDegradationMonitor,
+    ) -> None:
         """
         Test comprehensive latency percentile recording.
         """

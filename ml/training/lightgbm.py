@@ -13,36 +13,49 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 """
-LightGBM trainer for Nautilus Trader ML models.
+LightGBM trainer for financial time series prediction.
 
-This module provides a trainer class for LightGBM models that integrates with the
-Nautilus Trader ML infrastructure and follows consistent patterns for training,
-evaluation, and model serialization.
+This module provides LightGBM-specific training functionality, leveraging the
+BaseMLTrainer for common ML operations.
 
 """
 
 from __future__ import annotations
 
-import pickle
+import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ml._imports import HAS_LIGHTGBM
+from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import lgb
+from ml._imports import pl
 from ml.config.lightgbm import LightGBMTrainingConfig
 from ml.training.base import BaseMLTrainer
 
 
+if TYPE_CHECKING:
+    import lightgbm as lgb
+    import optuna
+    import polars as pl
+
+
 class LightGBMTrainer(BaseMLTrainer):
     """
-    LightGBM trainer for gradient boosting models.
+    LightGBM trainer for financial time series prediction.
 
-    This trainer provides a consistent interface for training LightGBM models
-    with Nautilus Trader data, including proper validation, cross-validation,
-    and model serialization.
+    Features:
+    - GPU acceleration support
+    - Categorical feature support
+    - GOSS (Gradient-based One-Side Sampling) for faster training
+    - DART (Dropouts meet Multiple Additive Regression Trees)
+    - EFB (Exclusive Feature Bundling) for memory efficiency
+    - Built-in support for Optuna hyperparameter optimization
+    - MLflow experiment tracking
+    - ONNX model export
 
     Parameters
     ----------
@@ -58,176 +71,19 @@ class LightGBMTrainer(BaseMLTrainer):
         Parameters
         ----------
         config : LightGBMTrainingConfig
-            Configuration for LightGBM training parameters.
-
-        Raises
-        ------
-        ImportError
-            If LightGBM is not installed.
+            Configuration for LightGBM training.
 
         """
         super().__init__(config)
-        self._config = config
+        self._lgb_config: LightGBMTrainingConfig = config
 
-        # Validate LightGBM availability
+        # LightGBM-specific attributes
+        self._booster: lgb.Booster | None = None
+        self._categorical_features: list[int] = []
+
+        # Check dependencies
         if not HAS_LIGHTGBM:
             check_ml_dependencies(["lightgbm"])
-
-    def _train_model(
-        self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        """
-        Train LightGBM model (internal implementation).
-
-        Parameters
-        ----------
-        X_train : np.ndarray
-            Training feature matrix.
-        y_train : np.ndarray
-            Training target values.
-        X_val : np.ndarray
-            Validation feature matrix for early stopping.
-        y_val : np.ndarray
-            Validation target values for early stopping.
-        **kwargs : Any
-            Additional keyword arguments.
-
-        Returns
-        -------
-        dict[str, Any]
-            Training results containing model and metrics.
-
-        """
-        self._log_info("Starting LightGBM training")
-
-        # Get LightGBM parameters - cast to LightGBMTrainingConfig
-        from ml.config.lightgbm import LightGBMTrainingConfig
-
-        lgb_config = self._config
-        assert isinstance(lgb_config, LightGBMTrainingConfig)
-        lgb_params = lgb_config.get_lgb_params()
-
-        # Create training dataset
-        train_data = lgb.Dataset(X_train, label=y_train)
-
-        # Setup validation - always provided in this method signature
-        valid_sets = []
-        valid_names = []
-        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
-        valid_sets.append(val_data)
-        valid_names.append("validation")
-
-        # Setup callbacks
-        callbacks = []
-        if lgb_config.early_stopping_rounds > 0 and valid_sets:
-            callbacks.append(
-                lgb.early_stopping(
-                    stopping_rounds=lgb_config.early_stopping_rounds,
-                    verbose=lgb_config.verbosity >= 0,
-                ),
-            )
-
-        # Train model
-        model = lgb.train(
-            lgb_params,
-            train_data,
-            valid_sets=valid_sets,
-            valid_names=valid_names,
-            callbacks=callbacks,
-        )
-
-        # Calculate feature importance
-        feature_importance = model.feature_importance(importance_type="gain")
-
-        results = {
-            "model": model,
-            "feature_importance": feature_importance,
-            "best_iteration": model.best_iteration,
-            "num_features": model.num_feature(),
-            "params": lgb_params,
-        }
-
-        self._log_info(f"Training completed. Best iteration: {model.best_iteration}")
-        return results
-
-    def predict(self, model: Any, X: np.ndarray, **kwargs: Any) -> np.ndarray:
-        """
-        Make predictions with trained LightGBM model.
-
-        Parameters
-        ----------
-        model : Any
-            Trained LightGBM model.
-        X : np.ndarray
-            Feature matrix for prediction.
-        **kwargs : Any
-            Additional keyword arguments.
-
-        Returns
-        -------
-        np.ndarray
-            Model predictions.
-
-        """
-        return np.asarray(model.predict(X, num_iteration=model.best_iteration))
-
-    def save_trained_model(self, model: Any, path: str | Path) -> None:
-        """
-        Save trained LightGBM model.
-
-        Parameters
-        ----------
-        model : Any
-            Trained LightGBM model to save.
-        path : str | Path
-            Output path for the model.
-
-        """
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        if hasattr(model, "save_model"):
-            # Native LightGBM model
-            model.save_model(str(path))
-        else:
-            # Fallback to pickle
-            with open(path, "wb") as f:
-                pickle.dump(model, f)
-
-        self._log_info(f"Model saved to {path}")
-
-    def load_trained_model(self, path: str | Path) -> Any:
-        """
-        Load trained LightGBM model.
-
-        Parameters
-        ----------
-        path : str | Path
-            Path to the saved model.
-
-        Returns
-        -------
-        Any
-            Loaded LightGBM model.
-
-        """
-        path = Path(path)
-
-        try:
-            # Try loading as native LightGBM model
-            model = lgb.Booster(model_file=str(path))
-        except Exception:
-            # Fallback to pickle
-            with open(path, "rb") as f:
-                model = pickle.load(f)
-
-        self._log_info(f"Model loaded from {path}")
-        return model
 
     def prepare_data(
         self,
@@ -235,7 +91,7 @@ class LightGBMTrainer(BaseMLTrainer):
         target_col: str = "target",
     ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
         """
-        Prepare features and target for training.
+        Prepare features and target for LightGBM training.
 
         Parameters
         ----------
@@ -253,40 +109,462 @@ class LightGBMTrainer(BaseMLTrainer):
             - metadata: Dictionary with feature names and other metadata
 
         """
-        if hasattr(data, "drop"):  # pandas/polars DataFrame
-            # Extract features and target
-            feature_cols = [col for col in data.columns if col != target_col]
-            X = (
-                data.select(feature_cols).to_numpy()
-                if hasattr(data, "select")
-                else data[feature_cols].values
-            )
-            y = (
-                data.select([target_col]).to_numpy().ravel()
-                if hasattr(data, "select")
-                else data[target_col].values
-            )
+        if not HAS_POLARS:
+            check_ml_dependencies(["polars"])
 
-            metadata = {
-                "feature_names": feature_cols,
-                "n_features": len(feature_cols),
-                "n_samples": len(data),
-            }
-        else:
-            # Assume numpy arrays or similar
-            X = data[:, :-1]  # All columns except last
-            y = data[:, -1]  # Last column as target
+        # Ensure data is a Polars DataFrame
+        if not isinstance(data, pl.DataFrame):
+            data = pl.DataFrame(data)
 
-            metadata = {
-                "feature_names": [f"feature_{i}" for i in range(X.shape[1])],
-                "n_features": X.shape[1],
-                "n_samples": X.shape[0],
-            }
+        # Extract target
+        if target_col not in data.columns:
+            raise ValueError(f"Target column '{target_col}' not found in data")
+
+        y = data[target_col].to_numpy()
+
+        # Get feature columns
+        feature_cols = [col for col in data.columns if col != target_col]
+
+        # Identify categorical features
+        self._categorical_features = []
+        for i, col in enumerate(feature_cols):
+            if data[col].dtype in [pl.Categorical, pl.Utf8]:
+                self._categorical_features.append(i)
+                # Convert categorical to numeric codes
+                data = data.with_columns(
+                    pl.col(col).cast(pl.Categorical).to_physical().alias(col),
+                )
+
+        # Extract features
+        X = data.select(feature_cols).to_numpy()
+
+        # Prepare metadata
+        metadata = {
+            "feature_names": feature_cols,
+            "categorical_features": self._categorical_features,
+            "n_samples": len(data),
+            "n_features": len(feature_cols),
+        }
 
         return X, y, metadata
 
+    def _train_model(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray,
+        y_val: np.ndarray,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """
+        Train LightGBM model.
 
-# Explicit exports
-__all__ = [
-    "LightGBMTrainer",
-]
+        Parameters
+        ----------
+        X_train : np.ndarray
+            Training features.
+        y_train : np.ndarray
+            Training targets.
+        X_val : np.ndarray
+            Validation features.
+        y_val : np.ndarray
+            Validation targets.
+        **kwargs : Any
+            Additional training parameters.
+
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary containing the trained model and training metrics.
+
+        """
+        # Create LightGBM datasets
+        train_data = lgb.Dataset(
+            X_train,
+            label=y_train,
+            feature_name=self._feature_names if self._feature_names else "auto",
+            categorical_feature=(
+                self._categorical_features if self._categorical_features else "auto"
+            ),
+        )
+
+        val_data = lgb.Dataset(
+            X_val,
+            label=y_val,
+            reference=train_data,
+            feature_name=self._feature_names if self._feature_names else "auto",
+            categorical_feature=(
+                self._categorical_features if self._categorical_features else "auto"
+            ),
+        )
+
+        # Prepare parameters
+        params = self._get_model_params()
+        params.update(kwargs)
+
+        # Set GPU if configured
+        if self._lgb_config.gpu_config and self._lgb_config.gpu_config.enabled:
+            params["device"] = "gpu"
+            params["gpu_platform_id"] = self._lgb_config.gpu_config.platform_id
+            params["gpu_device_id"] = self._lgb_config.gpu_config.device_id
+
+        # Configure GOSS if enabled
+        if self._lgb_config.goss_config and self._lgb_config.goss_config.enabled:
+            params["boosting_type"] = "goss"
+            params["top_rate"] = self._lgb_config.goss_config.top_rate
+            params["other_rate"] = self._lgb_config.goss_config.other_rate
+
+        # Configure DART if enabled
+        if self._lgb_config.dart_config and self._lgb_config.dart_config.enabled:
+            params["boosting_type"] = "dart"
+            params["drop_rate"] = self._lgb_config.dart_config.drop_rate
+            params["max_drop"] = self._lgb_config.dart_config.max_drop
+            params["skip_drop"] = self._lgb_config.dart_config.skip_drop
+            params["uniform_drop"] = self._lgb_config.dart_config.uniform_drop
+
+        # Configure EFB if enabled
+        if self._lgb_config.efb_config and self._lgb_config.efb_config.enabled:
+            params["enable_bundle"] = True
+            params["max_conflict_rate"] = self._lgb_config.efb_config.max_conflict_rate
+            if self._lgb_config.efb_config.bundle_size > 0:
+                params["max_bundle"] = self._lgb_config.efb_config.bundle_size
+
+        # Callbacks for early stopping
+        callbacks = [
+            lgb.early_stopping(self._lgb_config.early_stopping_rounds),
+            lgb.log_evaluation(period=0),  # Disable verbose output
+        ]
+
+        # Train model
+        self._booster = lgb.train(
+            params,
+            train_data,
+            num_boost_round=self._lgb_config.n_estimators,
+            valid_sets=[val_data],
+            valid_names=["eval"],
+            callbacks=callbacks,
+        )
+
+        # Get best iteration
+        best_iteration = (
+            self._booster.best_iteration if hasattr(self._booster, "best_iteration") else None
+        )
+
+        # Calculate training metrics
+        metrics = {
+            "best_iteration": best_iteration,
+            "feature_importance": (
+                dict(
+                    zip(
+                        self._feature_names,
+                        self._booster.feature_importance(importance_type="gain"),
+                    ),
+                )
+                if self._feature_names
+                else {}
+            ),
+        }
+
+        return {
+            "model": self._booster,
+            "metrics": metrics,
+        }
+
+    def predict(self, model: Any, X: np.ndarray, **kwargs: Any) -> np.ndarray:
+        """
+        Make predictions using LightGBM model.
+
+        Parameters
+        ----------
+        model : Any
+            The trained LightGBM model.
+        X : np.ndarray
+            Features to predict on.
+        **kwargs : Any
+            Additional prediction parameters.
+
+        Returns
+        -------
+        np.ndarray
+            Model predictions.
+
+        """
+        # Make predictions
+        predictions = model.predict(X, num_iteration=model.best_iteration)
+
+        # For classification, apply threshold if needed
+        if self._lgb_config.objective in ["binary", "multiclass"]:
+            if self._lgb_config.objective == "binary":
+                threshold = kwargs.get("threshold", 0.5)
+                predictions = (predictions > threshold).astype(int)
+            else:
+                # For multiclass, get the class with highest probability
+                predictions = np.argmax(predictions, axis=1)
+
+        return predictions
+
+    def _create_model(self, params: dict[str, Any]) -> Any:
+        """
+        Create LightGBM model instance with given parameters.
+
+        Parameters
+        ----------
+        params : dict[str, Any]
+            Model parameters.
+
+        Returns
+        -------
+        Any
+            LightGBM parameters dict (model created during training).
+
+        """
+        # For LightGBM, we return params that will be used with lgb.train
+        # The actual model is created during training
+        return params
+
+    def _get_model_params(self) -> dict[str, Any]:
+        """
+        Get LightGBM-specific default parameters.
+
+        Returns
+        -------
+        dict[str, Any]
+            Default LightGBM parameters.
+
+        """
+        params = {
+            "objective": self._lgb_config.objective,
+            "metric": self._lgb_config.metric,
+            "boosting_type": self._lgb_config.boosting_type,
+            "num_leaves": self._lgb_config.num_leaves,
+            "max_depth": self._lgb_config.max_depth,
+            "learning_rate": self._lgb_config.learning_rate,
+            "feature_fraction": self._lgb_config.feature_fraction,
+            "bagging_fraction": self._lgb_config.bagging_fraction,
+            "bagging_freq": self._lgb_config.bagging_freq,
+            "lambda_l1": self._lgb_config.reg_alpha,
+            "lambda_l2": self._lgb_config.reg_lambda,
+            "min_child_samples": self._lgb_config.min_child_samples,
+            "verbosity": -1,
+            "seed": 42,
+        }
+
+        # Add scale_pos_weight for imbalanced data
+        if self._lgb_config.scale_pos_weight is not None:
+            params["scale_pos_weight"] = self._lgb_config.scale_pos_weight
+
+        # Remove None values
+        params = {k: v for k, v in params.items() if v is not None}
+
+        return params
+
+    def _suggest_hyperparameters(self, trial: optuna.Trial) -> dict[str, Any]:
+        """
+        Suggest hyperparameters for Optuna trial.
+
+        Parameters
+        ----------
+        trial : optuna.Trial
+            Optuna trial object.
+
+        Returns
+        -------
+        dict[str, Any]
+            Suggested hyperparameters.
+
+        """
+        return {
+            "num_leaves": trial.suggest_int("num_leaves", 20, 300),
+            "max_depth": trial.suggest_int("max_depth", 3, 12),
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "feature_fraction": trial.suggest_float("feature_fraction", 0.5, 1.0),
+            "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 1.0),
+            "bagging_freq": trial.suggest_int("bagging_freq", 1, 7),
+            "lambda_l1": trial.suggest_float("lambda_l1", 0, 10),
+            "lambda_l2": trial.suggest_float("lambda_l2", 0, 10),
+            "min_child_samples": trial.suggest_int("min_child_samples", 5, 100),
+        }
+
+    def _convert_to_onnx(self, model: Any, path: Path) -> None:
+        """
+        Convert LightGBM model to ONNX format.
+
+        Parameters
+        ----------
+        model : Any
+            Trained LightGBM model.
+        path : Path
+            Path to save ONNX model.
+
+        """
+        try:
+            from onnxmltools import convert_lightgbm
+            from onnxmltools.convert.common.data_types import FloatTensorType
+
+            # Define input type
+            initial_type = [
+                ("float_input", FloatTensorType([None, len(self._feature_names)])),
+            ]
+
+            # Convert model
+            onnx_model = convert_lightgbm(
+                model,
+                initial_types=initial_type,
+                target_opset=12,
+            )
+
+            # Save ONNX model
+            with open(path, "wb") as f:
+                f.write(onnx_model.SerializeToString())
+
+        except ImportError:
+            self._log_warning(
+                "onnxmltools not installed. Install with: pip install onnxmltools",
+            )
+            # Fallback to LightGBM native save
+            model.save_model(str(path.with_suffix(".txt")), num_iteration=model.best_iteration)
+            self._log_info(f"Model saved in LightGBM text format: {path.with_suffix('.txt')}")
+
+    def get_feature_importance(self) -> dict[str, float] | None:
+        """
+        Get feature importance from the trained LightGBM model.
+
+        Returns
+        -------
+        dict[str, float] | None
+            Feature importance scores or None if not available.
+
+        """
+        if not self._is_fitted or self._booster is None:
+            return None
+
+        # Get feature importance
+        importance = self._booster.feature_importance(importance_type="gain")
+
+        if self._feature_names and len(self._feature_names) == len(importance):
+            return dict(zip(self._feature_names, importance))
+
+        return None
+
+    def plot_importance(
+        self,
+        importance_type: str = "gain",
+        max_features: int = 20,
+        figsize: tuple[int, int] = (10, 6),
+    ) -> None:
+        """
+        Plot feature importance.
+
+        Parameters
+        ----------
+        importance_type : str, default "gain"
+            Type of importance: "gain" or "split".
+        max_features : int, default 20
+            Maximum number of features to plot.
+        figsize : tuple[int, int], default (10, 6)
+            Figure size.
+
+        """
+        if not self._is_fitted or self._booster is None:
+            raise ValueError("Model must be fitted before plotting importance")
+
+        try:
+            import matplotlib.pyplot as plt
+
+            # Get importance
+            importance = self._booster.feature_importance(importance_type=importance_type)
+            feature_names = (
+                self._feature_names
+                if self._feature_names
+                else [f"f{i}" for i in range(len(importance))]
+            )
+
+            # Sort by importance
+            indices = np.argsort(importance)[-max_features:]
+            sorted_importance = importance[indices]
+            sorted_names = [feature_names[i] for i in indices]
+
+            # Plot
+            plt.figure(figsize=figsize)
+            plt.barh(range(len(indices)), sorted_importance)
+            plt.yticks(range(len(indices)), sorted_names)
+            plt.xlabel(f"Feature Importance ({importance_type})")
+            plt.title("LightGBM Feature Importance")
+            plt.tight_layout()
+            plt.show()
+
+        except ImportError:
+            self._log_warning("matplotlib not installed. Install with: pip install matplotlib")
+
+    def save_model(self, path: str | Path) -> None:
+        """
+        Save the trained LightGBM model.
+
+        Parameters
+        ----------
+        path : str | Path
+            Path where to save the model.
+
+        """
+        if not self._is_fitted or self._booster is None:
+            raise ValueError("Model must be fitted before saving")
+
+        save_path = Path(path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Save as LightGBM native format
+        self._booster.save_model(str(save_path), num_iteration=self._booster.best_iteration)
+        self._log_info(f"LightGBM model saved to {save_path}")
+
+        # Also save metadata
+        metadata_path = save_path.with_suffix(".meta")
+        metadata = {
+            "feature_names": self._feature_names,
+            "categorical_features": self._categorical_features,
+            "training_metrics": self._training_metrics,
+            "config": {
+                "objective": self._lgb_config.objective,
+                "n_estimators": self._lgb_config.n_estimators,
+                "num_leaves": self._lgb_config.num_leaves,
+            },
+        }
+
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+
+    def load_model(self, path: str | Path) -> None:
+        """
+        Load a trained LightGBM model.
+
+        Parameters
+        ----------
+        path : str | Path
+            Path to the saved model.
+
+        """
+        if not HAS_LIGHTGBM:
+            check_ml_dependencies(["lightgbm"])
+
+        load_path = Path(path)
+        if not load_path.exists():
+            raise FileNotFoundError(f"Model file not found: {load_path}")
+
+        # Load LightGBM model
+        self._booster = lgb.Booster(model_file=str(load_path))
+        self._model = self._booster
+        self._is_fitted = True
+
+        # Load metadata if available
+        metadata_path = load_path.with_suffix(".meta")
+        if metadata_path.exists():
+            with open(metadata_path) as f:
+                metadata = json.load(f)
+                self._feature_names = metadata.get("feature_names", [])
+                self._categorical_features = metadata.get("categorical_features", [])
+                self._training_metrics = metadata.get("training_metrics", {})
+
+        self._log_info(f"LightGBM model loaded from {load_path}")
+
+
+# Backward compatibility aliases
+UnifiedLightGBMTrainer = LightGBMTrainer

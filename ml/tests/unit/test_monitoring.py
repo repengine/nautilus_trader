@@ -37,7 +37,7 @@ class TestMonitoringConfig:
     Test cases for MonitoringConfig.
     """
 
-    def test_default_config(self):
+    def test_default_config(self) -> None:
         """
         Test default configuration values.
         """
@@ -55,7 +55,7 @@ class TestMonitoringConfig:
         assert config.server_timeout == 10.0
         assert config.max_concurrent_requests == 100
 
-    def test_custom_config(self):
+    def test_custom_config(self) -> None:
         """
         Test custom configuration values.
         """
@@ -72,7 +72,7 @@ class TestMonitoringConfig:
         assert config.metrics_prefix == "custom"
         assert config.histogram_buckets == custom_buckets
 
-    def test_get_default_buckets(self):
+    def test_get_default_buckets(self) -> None:
         """
         Test default histogram buckets.
         """
@@ -83,7 +83,7 @@ class TestMonitoringConfig:
         assert buckets[0] == 0.0001  # 0.1ms
         assert buckets[-1] == 1.0  # 1s
 
-    def test_get_histogram_buckets_default(self):
+    def test_get_histogram_buckets_default(self) -> None:
         """
         Test getting histogram buckets when none specified.
         """
@@ -92,7 +92,7 @@ class TestMonitoringConfig:
 
         assert buckets == config.get_default_buckets()
 
-    def test_get_histogram_buckets_custom(self):
+    def test_get_histogram_buckets_custom(self) -> None:
         """
         Test getting custom histogram buckets.
         """
@@ -108,7 +108,7 @@ class TestMLMetricsCollector:
     Test cases for MLMetricsCollector.
     """
 
-    def test_init_disabled_config(self):
+    def test_init_disabled_config(self) -> None:
         """
         Test collector with disabled config.
         """
@@ -118,7 +118,7 @@ class TestMLMetricsCollector:
         assert collector.enabled is False
         assert collector.config == config
 
-    def test_record_prediction_disabled(self):
+    def test_record_prediction_disabled(self) -> None:
         """
         Test recording prediction when disabled.
         """
@@ -134,7 +134,7 @@ class TestMLMetricsCollector:
             confidence=0.85,
         )
 
-    def test_record_feature_computation_disabled(self):
+    def test_record_feature_computation_disabled(self) -> None:
         """
         Test recording feature computation when disabled.
         """
@@ -148,7 +148,7 @@ class TestMLMetricsCollector:
             latency_seconds=0.0005,
         )
 
-    def test_record_error_disabled(self):
+    def test_record_error_disabled(self) -> None:
         """
         Test recording error when disabled.
         """
@@ -162,7 +162,7 @@ class TestMLMetricsCollector:
             error_type="inference",
         )
 
-    def test_time_prediction_disabled(self):
+    def test_time_prediction_disabled(self) -> None:
         """
         Test prediction timer when disabled.
         """
@@ -175,7 +175,7 @@ class TestMLMetricsCollector:
 
         # Should complete without errors
 
-    def test_time_feature_computation_disabled(self):
+    def test_time_feature_computation_disabled(self) -> None:
         """
         Test feature computation timer when disabled.
         """
@@ -191,7 +191,7 @@ class TestMLMetricsCollector:
     @patch("prometheus_client.Gauge")
     @patch("prometheus_client.Counter")
     @patch("prometheus_client.Histogram")
-    def test_init_enabled_with_prometheus(self, mock_histogram, mock_counter, mock_gauge):
+    def test_init_enabled_with_prometheus(self, mock_histogram, mock_counter, mock_gauge) -> None:
         """
         Test collector initialization when Prometheus is available.
         """
@@ -199,7 +199,7 @@ class TestMLMetricsCollector:
         collector = MLMetricsCollector(config)
         assert collector.enabled is True
 
-    def test_prediction_timer_context_manager(self):
+    def test_prediction_timer_context_manager(self) -> None:
         """
         Test PredictionTimer context manager.
         """
@@ -214,7 +214,7 @@ class TestMLMetricsCollector:
             t.set_prediction("buy", 0.9)
             # Should not raise any errors
 
-    def test_feature_timer_context_manager(self):
+    def test_feature_timer_context_manager(self) -> None:
         """
         Test FeatureTimer context manager.
         """
@@ -244,7 +244,7 @@ class TestMetricsServer:
             port = s.getsockname()[1]
         return port
 
-    def test_init_disabled_config(self):
+    def test_init_disabled_config(self) -> None:
         """
         Test server with disabled config.
         """
@@ -255,7 +255,7 @@ class TestMetricsServer:
         assert server.get_port() == port
         assert server.is_running() is False
 
-    def test_start_disabled_server(self):
+    def test_start_disabled_server(self) -> None:
         """
         Test starting disabled server.
         """
@@ -266,7 +266,7 @@ class TestMetricsServer:
         server.start()
         assert server.is_running() is False
 
-    def test_stop_not_running_server(self):
+    def test_stop_not_running_server(self) -> None:
         """
         Test stopping server that is not running.
         """
@@ -278,7 +278,7 @@ class TestMetricsServer:
         server.stop()
         assert server.is_running() is False
 
-    def test_start_already_running_server(self):
+    def test_start_already_running_server(self) -> None:
         """
         Test starting server that is already running.
         """
@@ -292,7 +292,7 @@ class TestMetricsServer:
         with pytest.raises(RuntimeError, match="already running"):
             server.start()
 
-    def test_start_without_prometheus(self):
+    def test_start_without_prometheus(self) -> None:
         """
         Test starting server without Prometheus available.
         """
@@ -304,7 +304,7 @@ class TestMetricsServer:
             server.start()
             assert server.is_running() is False
 
-    def test_get_urls(self):
+    def test_get_urls(self) -> None:
         """
         Test URL getters.
         """
@@ -315,7 +315,7 @@ class TestMetricsServer:
         assert server.get_metrics_url() == f"http://localhost:{port}/metrics"
         assert server.get_health_url() == f"http://localhost:{port}/health"
 
-    def test_wait_for_ready_not_running(self):
+    def test_wait_for_ready_not_running(self) -> None:
         """
         Test wait_for_ready when server is not running.
         """
@@ -326,7 +326,7 @@ class TestMetricsServer:
         result = server.wait_for_ready(timeout=0.1)
         assert result is False
 
-    def test_context_manager_disabled(self):
+    def test_context_manager_disabled(self) -> None:
         """
         Test context manager with disabled server.
         """
@@ -337,7 +337,7 @@ class TestMetricsServer:
             assert server.is_running() is False
 
     @patch("ml._imports.HAS_PROMETHEUS", True)
-    def test_start_server_integration(self):
+    def test_start_server_integration(self) -> None:
         """
         Integration test for starting server with Prometheus.
         """
@@ -388,7 +388,7 @@ class TestMetricsServer:
                 server.stop()
                 assert server.is_running() is False
 
-    def test_port_already_in_use(self):
+    def test_port_already_in_use(self) -> None:
         """
         Test starting server when port is already in use.
         """

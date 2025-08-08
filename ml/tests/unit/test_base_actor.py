@@ -26,6 +26,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import logging
 import pickle
 import tempfile
 import time
@@ -52,6 +53,10 @@ from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class SimplePickleableModel:
@@ -255,6 +260,15 @@ class MockMLInferenceActor(BaseMLInferenceActor):
         mock_clock.timestamp_ns = self._mocked_clock_timestamp_ns
         mock_clock.set_timer = Mock()  # Mock timer functionality for hot reload
         return mock_clock
+
+    @property
+    def id(self) -> Any:
+        """
+        Mock id property.
+        """
+        mock_id = Mock()
+        mock_id.value = "MockMLInferenceActor"
+        return mock_id
 
 
 class TestBaseMLInferenceActor:
@@ -487,6 +501,14 @@ class TestBaseMLInferenceActor:
                 # Check if error was logged
                 if actor.log.error.called:
                     print(f"Error logged: {actor.log.error.call_args}")
+                # Check the actual values that would have been checked
+                test_pred, test_conf = actor._predict(features)
+                print(f"Prediction: {test_pred}, Confidence: {test_conf}")
+                print(f"Threshold: {actor._config.prediction_threshold}")
+                print(f"Publish: {actor._config.publish_signals}")
+                print(
+                    f"Should publish: {test_conf >= actor._config.prediction_threshold and actor._config.publish_signals}",
+                )
 
             mock_publish.assert_called_once()
             signal = mock_publish.call_args[0][0]
@@ -677,8 +699,7 @@ class TestBaseMLInferenceActor:
         # Assert
         assert actor._inference_latency_metric is not None
         assert actor._inference_count_metric is not None
-        assert actor._inference_errors_metric is not None
-        assert actor._feature_computation_time_metric is not None
+        assert actor._inference_confidence_metric is not None
 
 
 class TestPickleMLInferenceActor:

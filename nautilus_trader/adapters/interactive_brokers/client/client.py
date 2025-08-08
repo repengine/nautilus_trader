@@ -111,20 +111,20 @@ class InteractiveBrokersClient(
         self._eclient.logRequest = self.logRequest
 
         # Tasks
-        self._connection_watchdog_task: asyncio.Task | None = None
-        self._tws_incoming_msg_reader_task: asyncio.Task | None = None
-        self._internal_msg_queue_processor_task: asyncio.Task | None = None
-        self._internal_msg_queue: asyncio.Queue = asyncio.Queue()
-        self._msg_handler_processor_task: asyncio.Task | None = None
-        self._msg_handler_task_queue: asyncio.Queue = asyncio.Queue()
+        self._connection_watchdog_task: asyncio.Task[Any] | None = None
+        self._tws_incoming_msg_reader_task: asyncio.Task[Any] | None = None
+        self._internal_msg_queue_processor_task: asyncio.Task[Any] | None = None
+        self._internal_msg_queue: asyncio.Queue[Any] = asyncio.Queue()
+        self._msg_handler_processor_task: asyncio.Task[Any] | None = None
+        self._msg_handler_task_queue: asyncio.Queue[Any] = asyncio.Queue()
 
         # Event flags
         self._is_client_ready: asyncio.Event = asyncio.Event()
         self._is_ib_connected: asyncio.Event = asyncio.Event()
 
         # Hot caches
-        self.registered_nautilus_clients: set = set()
-        self._event_subscriptions: dict[str, Callable] = {}
+        self.registered_nautilus_clients: set[Any] = set()
+        self._event_subscriptions: dict[str, Callable[..., Any]] = {}
 
         # Subscriptions
         self._requests = Requests()
@@ -141,10 +141,10 @@ class InteractiveBrokersClient(
 
         # MarketDataMixin
         self._bar_type_to_last_bar: dict[str, BarData | None] = {}
-        self._bar_timeout_tasks: dict[str, asyncio.Task] = (
+        self._bar_timeout_tasks: dict[str, asyncio.Task[Any]] = (
             {}
         )  # Track timeout tasks for each bar type
-        self._subscription_tick_data: dict[int, dict] = {}  # Store tick data by req_id
+        self._subscription_tick_data: dict[int, dict[int, Any]] = {}  # Store tick data by req_id
 
         # OrderMixin
         self._exec_id_details: dict[
@@ -175,7 +175,7 @@ class InteractiveBrokersClient(
         else:
             self._create_task(self._start_async())
 
-    async def _start_async(self):
+    async def _start_async(self) -> None:
         self._log.info(f"Starting InteractiveBrokersClient ({self._client_id})...")
         while not self._is_ib_connected.is_set():
             try:
@@ -294,7 +294,7 @@ class InteractiveBrokersClient(
         Restart the client.
         """
 
-        async def _reset_async():
+        async def _reset_async() -> None:
             self._log.info(f"Resetting InteractiveBrokersClient ({self._client_id})...")
             await self._stop_async()
             await self._start_async()
@@ -306,7 +306,7 @@ class InteractiveBrokersClient(
         Resume the client and resubscribe to all subscriptions.
         """
 
-        async def _resume_async():
+        async def _resume_async() -> None:
             await self._is_client_ready.wait()
             self._log.info(f"Resuming InteractiveBrokersClient ({self._client_id})...")
             await self._resubscribe_all()
@@ -392,11 +392,11 @@ class InteractiveBrokersClient(
 
     def _create_task(
         self,
-        coro: Coroutine,
+        coro: Coroutine[Any, Any, Any],
         log_msg: str | None = None,
-        actions: Callable | None = None,
+        actions: Callable[..., Any] | None = None,
         success: str | None = None,
-    ) -> asyncio.Task:
+    ) -> asyncio.Task[Any]:
         """
         Create an asyncio task with error handling and optional callback actions.
 
@@ -433,9 +433,9 @@ class InteractiveBrokersClient(
 
     def _on_task_completed(
         self,
-        actions: Callable | None,
+        actions: Callable[..., Any] | None,
         success: str | None,
-        task: asyncio.Task,
+        task: asyncio.Task[Any],
     ) -> None:
         """
         Handle the completion of a task.
@@ -466,7 +466,7 @@ class InteractiveBrokersClient(
             if success:
                 self._log.info(success, LogColor.GREEN)
 
-    def subscribe_event(self, name: str, handler: Callable) -> None:
+    def subscribe_event(self, name: str, handler: Callable[..., Any]) -> None:
         """
         Subscribe a handler function to a named event.
 
@@ -665,7 +665,7 @@ class InteractiveBrokersClient(
 
         return True
 
-    async def _run_msg_handler_processor(self):
+    async def _run_msg_handler_processor(self) -> None:
         """
         Asynchronously processes handler tasks from the message handler task queue.
 
@@ -729,7 +729,7 @@ class InteractiveBrokersClient(
 
     # -- EClient overrides ------------------------------------------------------------------------
 
-    def sendMsg(self, msg):
+    def sendMsg(self, msg: bytes) -> None:
         """
         Override the logging for ibapi EClient.sendMsg.
         """
@@ -737,7 +737,7 @@ class InteractiveBrokersClient(
         self._log.debug(f"TWS API request sent: function={current_fn_name(1)} msg={full_msg}")
         self._eclient.conn.sendMsg(full_msg)
 
-    def logRequest(self, fnName, fnParams):
+    def logRequest(self, fnName: str, fnParams: dict[str, Any]) -> None:
         """
         Override the logging for ibapi EClient.logRequest.
         """

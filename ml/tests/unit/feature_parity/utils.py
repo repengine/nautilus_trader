@@ -30,7 +30,7 @@ import numpy as np
 
 from ml._imports import HAS_POLARS
 from ml._imports import pl
-from ml.constants import MLConstants
+from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.tests.unit.test_fixtures import MockPolarsModule

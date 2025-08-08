@@ -38,7 +38,7 @@ class TestMLConfigurationSolution:
     Comprehensive tests for ML configuration solution.
     """
 
-    def test_ml_actor_with_full_configuration(self):
+    def test_ml_actor_with_full_configuration(self) -> None:
         """
         Test ML actor with complete configuration including all features.
         """
@@ -77,7 +77,7 @@ class TestMLConfigurationSolution:
         assert actor._config.log_events is False
         assert actor._config.log_commands is True
 
-    def test_ml_actor_config_compatibility(self):
+    def test_ml_actor_config_compatibility(self) -> None:
         """
         Test ML actor configuration is compatible with Nautilus base Actor.
         """
@@ -103,7 +103,7 @@ class TestMLConfigurationSolution:
         assert actor._config.warm_up_period == 5
         assert actor._config.component_id == ComponentId("MLActor-002")
 
-    def test_ml_actor_processes_bars_with_features(self):
+    def test_ml_actor_processes_bars_with_features(self) -> None:
         """
         Test that ML actor properly processes bars and computes features.
         """
@@ -150,12 +150,12 @@ class TestMLConfigurationSolution:
         assert actor._prediction_count > 0  # Made predictions after warm-up
 
         # Verify feature computation worked
-        assert actor._sma_fast.initialized
-        assert actor._sma_slow.initialized
-        assert actor._rsi.initialized
-        assert actor._ema.initialized
+        assert actor._sma_fast is not None and actor._sma_fast.initialized
+        assert actor._sma_slow is not None and actor._sma_slow.initialized
+        assert actor._rsi is not None and actor._rsi.initialized
+        assert actor._ema is not None and actor._ema.initialized
 
-    def test_ml_actor_configuration_serialization(self):
+    def test_ml_actor_configuration_serialization(self) -> None:
         """
         Test that ML configuration can be serialized and deserialized.
         """
@@ -184,7 +184,7 @@ class TestMLConfigurationSolution:
         assert "model_path" in json_dict
         assert json_dict["prediction_threshold"] == 0.75
 
-    def test_ml_actor_with_invalid_model_path_uses_dummy(self):
+    def test_ml_actor_with_invalid_model_path_uses_dummy(self) -> None:
         """
         Test that ML actor handles missing model file gracefully.
         """

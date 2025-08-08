@@ -98,7 +98,7 @@ class TestMLActorIntegration:
             clock=self.clock,
         )
 
-    def test_simple_ml_actor_creation_with_config(self):
+    def test_simple_ml_actor_creation_with_config(self) -> None:
         """
         Test creating a SimpleMLActor with ML configuration.
         """
@@ -107,7 +107,7 @@ class TestMLActorIntegration:
         bar_type = BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL")
 
         config = MLActorConfig(
-            model_path=Path.home() / ".nautilus" / "dummy_model.pkl",
+            model_path=str(Path.home() / ".nautilus" / "dummy_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
             prediction_threshold=0.6,
@@ -123,7 +123,7 @@ class TestMLActorIntegration:
         assert actor._config.prediction_threshold == 0.6
         assert actor._config.warm_up_period == 20
 
-    def test_ml_actor_initialization_with_msgbus(self):
+    def test_ml_actor_initialization_with_msgbus(self) -> None:
         """
         Test ML actor initialization with message bus.
         """
@@ -132,7 +132,7 @@ class TestMLActorIntegration:
         bar_type = BarType.from_str("EURUSD.IDEALPRO-1-MINUTE-MID-EXTERNAL")
 
         config = MLActorConfig(
-            model_path=Path.home() / ".nautilus" / "dummy_model.pkl",
+            model_path=str(Path.home() / ".nautilus" / "dummy_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument_id,
         )
@@ -152,7 +152,7 @@ class TestMLActorIntegration:
         assert actor.is_initialized
         assert actor.trader_id == self.trader_id
 
-    def test_ml_actor_processes_bars(self):
+    def test_ml_actor_processes_bars(self) -> None:
         """
         Test that ML actor properly processes bar data.
         """
@@ -224,7 +224,7 @@ class TestMLActorIntegration:
         not (Path.home() / ".nautilus" / "test_model.pkl").exists(),
         reason="Requires a test model file",
     )
-    def test_ml_actor_in_backtest_engine(self):
+    def test_ml_actor_in_backtest_engine(self) -> None:
         """
         Test ML actor running in a full backtest engine.
         """
@@ -245,13 +245,13 @@ class TestMLActorIntegration:
         )
 
         # Load data
-        instrument = TestInstrumentProvider.eurusd()
+        instrument = TestInstrumentProvider.default_fx_ccy("EUR/USD")
         engine.add_instrument(instrument)
 
         # Create ML actor
         bar_type = BarType.from_str("EURUSD.SIM-1-MINUTE-MID-EXTERNAL")
         ml_config = MLActorConfig(
-            model_path=Path.home() / ".nautilus" / "test_model.pkl",
+            model_path=str(Path.home() / ".nautilus" / "test_model.pkl"),
             bar_type=bar_type,
             instrument_id=instrument.id,
             warm_up_period=20,

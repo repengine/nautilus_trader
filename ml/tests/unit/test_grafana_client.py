@@ -21,6 +21,7 @@ handling, and edge cases.
 """
 
 import json
+from unittest.mock import MagicMock
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -36,7 +37,7 @@ class TestGrafanaClient:
     Test cases for GrafanaClient.
     """
 
-    def test_init_with_api_token(self):
+    def test_init_with_api_token(self) -> None:
         """
         Test initialization with API token authentication.
         """
@@ -47,7 +48,7 @@ class TestGrafanaClient:
         assert client.timeout == 30
         assert "Authorization" in client.session.headers
 
-    def test_init_with_basic_auth(self):
+    def test_init_with_basic_auth(self) -> None:
         """
         Test initialization with username/password authentication.
         """
@@ -62,21 +63,21 @@ class TestGrafanaClient:
         assert hasattr(client, "auth")
         assert client.auth == ("admin", "admin")
 
-    def test_init_invalid_url(self):
+    def test_init_invalid_url(self) -> None:
         """
         Test initialization with invalid URL raises ValueError.
         """
         with pytest.raises(ValueError, match="Invalid base URL"):
             GrafanaClient("invalid-url", api_token="test-token")
 
-    def test_init_no_auth(self):
+    def test_init_no_auth(self) -> None:
         """
         Test initialization without authentication raises ValueError.
         """
         with pytest.raises(ValueError, match="Must provide either API token or username/password"):
             GrafanaClient("http://localhost:3000")
 
-    def test_init_strips_trailing_slash(self):
+    def test_init_strips_trailing_slash(self) -> None:
         """
         Test initialization strips trailing slash from base URL.
         """
@@ -84,7 +85,7 @@ class TestGrafanaClient:
         assert client.base_url == "http://localhost:3000"
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_success_200(self, mock_request):
+    def test_make_request_success_200(self, mock_request: MagicMock) -> None:
         """
         Test successful request with 200 status code.
         """
@@ -101,7 +102,7 @@ class TestGrafanaClient:
         mock_request.assert_called_once()
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_success_200_no_content(self, mock_request):
+    def test_make_request_success_200_no_content(self, mock_request: MagicMock) -> None:
         """
         Test successful request with 200 status code but no content.
         """
@@ -116,7 +117,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_success_201(self, mock_request):
+    def test_make_request_success_201(self, mock_request: MagicMock) -> None:
         """
         Test successful request with 201 status code.
         """
@@ -132,7 +133,7 @@ class TestGrafanaClient:
         assert result == {"id": 123}
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_success_201_no_content(self, mock_request):
+    def test_make_request_success_201_no_content(self, mock_request: MagicMock) -> None:
         """
         Test successful request with 201 status code but no content.
         """
@@ -147,7 +148,7 @@ class TestGrafanaClient:
         assert result == {}
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_success_204(self, mock_request):
+    def test_make_request_success_204(self, mock_request: MagicMock) -> None:
         """
         Test successful request with 204 status code.
         """
@@ -161,7 +162,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_not_found_404(self, mock_request):
+    def test_make_request_not_found_404(self, mock_request: MagicMock) -> None:
         """
         Test request with 404 status code returns None.
         """
@@ -175,7 +176,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_error_with_json_response(self, mock_request):
+    def test_make_request_error_with_json_response(self, mock_request: MagicMock) -> None:
         """
         Test error request with JSON error response.
         """
@@ -193,7 +194,7 @@ class TestGrafanaClient:
         assert "Bad request" in str(exc_info.value)
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_error_without_json_response(self, mock_request):
+    def test_make_request_error_without_json_response(self, mock_request: MagicMock) -> None:
         """
         Test error request with non-JSON error response.
         """
@@ -212,7 +213,7 @@ class TestGrafanaClient:
         assert "Internal Server Error" in str(exc_info.value)
 
     @patch("ml.monitoring.grafana_client.requests.Session.request")
-    def test_make_request_connection_error(self, mock_request):
+    def test_make_request_connection_error(self, mock_request: MagicMock) -> None:
         """
         Test request with connection error.
         """
@@ -224,7 +225,7 @@ class TestGrafanaClient:
             client._make_request("GET", "/api/test")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_health_check_success(self, mock_make_request):
+    def test_health_check_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful health check.
         """
@@ -237,7 +238,7 @@ class TestGrafanaClient:
         mock_make_request.assert_called_once_with("GET", "/api/health")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_health_check_failure(self, mock_make_request):
+    def test_health_check_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed health check.
         """
@@ -249,7 +250,7 @@ class TestGrafanaClient:
         assert result is False
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_server_info_success(self, mock_make_request):
+    def test_get_server_info_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful server info retrieval.
         """
@@ -262,7 +263,7 @@ class TestGrafanaClient:
         mock_make_request.assert_called_once_with("GET", "/api/admin/stats")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_server_info_failure(self, mock_make_request):
+    def test_get_server_info_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed server info retrieval.
         """
@@ -276,7 +277,12 @@ class TestGrafanaClient:
     @patch.object(GrafanaClient, "_make_request")
     @patch("time.strftime")
     @patch("time.gmtime")
-    def test_get_server_time_success(self, mock_gmtime, mock_strftime, mock_make_request):
+    def test_get_server_time_success(
+        self,
+        mock_gmtime: MagicMock,
+        mock_strftime: MagicMock,
+        mock_make_request: MagicMock,
+    ) -> None:
         """
         Test successful server time retrieval.
         """
@@ -290,7 +296,7 @@ class TestGrafanaClient:
         mock_make_request.assert_called_once_with("GET", "/api/health")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_server_time_failure(self, mock_make_request):
+    def test_get_server_time_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed server time retrieval.
         """
@@ -302,7 +308,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_search_dashboards_success(self, mock_make_request):
+    def test_search_dashboards_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful dashboard search.
         """
@@ -323,7 +329,7 @@ class TestGrafanaClient:
         )
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_search_dashboards_empty_params(self, mock_make_request):
+    def test_search_dashboards_empty_params(self, mock_make_request: MagicMock) -> None:
         """
         Test dashboard search with no parameters.
         """
@@ -336,7 +342,7 @@ class TestGrafanaClient:
         mock_make_request.assert_called_once_with("GET", "/api/search", params={})
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_search_dashboards_failure(self, mock_make_request):
+    def test_search_dashboards_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed dashboard search.
         """
@@ -348,7 +354,7 @@ class TestGrafanaClient:
         assert result == []
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_search_dashboards_non_list_response(self, mock_make_request):
+    def test_search_dashboards_non_list_response(self, mock_make_request: MagicMock) -> None:
         """
         Test dashboard search with non-list response.
         """
@@ -360,7 +366,7 @@ class TestGrafanaClient:
         assert result == []
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_dashboard_success(self, mock_make_request):
+    def test_get_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful dashboard retrieval.
         """
@@ -372,11 +378,12 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000", api_token="test-token")
         result = client.get_dashboard("test-uid")
 
+        assert isinstance(result, dict)
         assert result["dashboard"]["uid"] == "test-uid"
         mock_make_request.assert_called_once_with("GET", "/api/dashboards/uid/test-uid")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_dashboard_not_found(self, mock_make_request):
+    def test_get_dashboard_not_found(self, mock_make_request: MagicMock) -> None:
         """
         Test dashboard retrieval when dashboard not found.
         """
@@ -388,7 +395,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_dashboard_other_error(self, mock_make_request):
+    def test_get_dashboard_other_error(self, mock_make_request: MagicMock) -> None:
         """
         Test dashboard retrieval with other error.
         """
@@ -400,7 +407,7 @@ class TestGrafanaClient:
             client.get_dashboard("test-uid")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_create_dashboard_success(self, mock_make_request):
+    def test_create_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful dashboard creation.
         """
@@ -414,11 +421,12 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000", api_token="test-token")
         result = client.create_dashboard(dashboard_data)
 
+        assert isinstance(result, dict)
         assert result["uid"] == "new-uid"
         mock_make_request.assert_called_once_with("POST", "/api/dashboards/db", data=dashboard_data)
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_create_dashboard_failure(self, mock_make_request):
+    def test_create_dashboard_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed dashboard creation.
         """
@@ -430,7 +438,7 @@ class TestGrafanaClient:
             client.create_dashboard({})
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_update_dashboard_success(self, mock_make_request):
+    def test_update_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful dashboard update.
         """
@@ -443,11 +451,12 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000", api_token="test-token")
         result = client.update_dashboard(dashboard_data)
 
+        assert isinstance(result, dict)
         assert result["version"] == 2
         mock_make_request.assert_called_once_with("POST", "/api/dashboards/db", data=dashboard_data)
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_update_dashboard_failure(self, mock_make_request):
+    def test_update_dashboard_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed dashboard update.
         """
@@ -459,7 +468,7 @@ class TestGrafanaClient:
             client.update_dashboard({})
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_delete_dashboard_success(self, mock_make_request):
+    def test_delete_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful dashboard deletion.
         """
@@ -472,7 +481,7 @@ class TestGrafanaClient:
         mock_make_request.assert_called_once_with("DELETE", "/api/dashboards/uid/test-uid")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_delete_dashboard_not_found(self, mock_make_request):
+    def test_delete_dashboard_not_found(self, mock_make_request: MagicMock) -> None:
         """
         Test dashboard deletion when dashboard not found.
         """
@@ -484,7 +493,7 @@ class TestGrafanaClient:
         assert result is True  # Already doesn't exist
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_delete_dashboard_other_error(self, mock_make_request):
+    def test_delete_dashboard_other_error(self, mock_make_request: MagicMock) -> None:
         """
         Test dashboard deletion with other error.
         """
@@ -496,7 +505,7 @@ class TestGrafanaClient:
         assert result is False
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_import_dashboard_success(self, mock_make_request):
+    def test_import_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful dashboard import.
         """
@@ -510,11 +519,12 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000", api_token="test-token")
         result = client.import_dashboard(import_data)
 
+        assert isinstance(result, dict)
         assert result["uid"] == "imported-uid"
         mock_make_request.assert_called_once_with("POST", "/api/dashboards/db", data=import_data)
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_import_dashboard_failure(self, mock_make_request):
+    def test_import_dashboard_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed dashboard import.
         """
@@ -526,7 +536,7 @@ class TestGrafanaClient:
             client.import_dashboard({})
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_folders_success(self, mock_make_request):
+    def test_get_folders_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful folders retrieval.
         """
@@ -543,7 +553,7 @@ class TestGrafanaClient:
         mock_make_request.assert_called_once_with("GET", "/api/folders")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_folders_failure(self, mock_make_request):
+    def test_get_folders_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed folders retrieval.
         """
@@ -555,7 +565,7 @@ class TestGrafanaClient:
         assert result == []
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_folders_non_list_response(self, mock_make_request):
+    def test_get_folders_non_list_response(self, mock_make_request: MagicMock) -> None:
         """
         Test folders retrieval with non-list response.
         """
@@ -567,7 +577,7 @@ class TestGrafanaClient:
         assert result == []
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_create_folder_success(self, mock_make_request):
+    def test_create_folder_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful folder creation.
         """
@@ -577,11 +587,12 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000", api_token="test-token")
         result = client.create_folder(folder_data)
 
+        assert isinstance(result, dict)
         assert result["uid"] == "new-folder"
         mock_make_request.assert_called_once_with("POST", "/api/folders", data=folder_data)
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_create_folder_failure(self, mock_make_request):
+    def test_create_folder_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed folder creation.
         """
@@ -593,7 +604,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_folder_success(self, mock_make_request):
+    def test_get_folder_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful folder retrieval.
         """
@@ -602,11 +613,12 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000", api_token="test-token")
         result = client.get_folder("test-folder")
 
+        assert isinstance(result, dict)
         assert result["uid"] == "test-folder"
         mock_make_request.assert_called_once_with("GET", "/api/folders/test-folder")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_folder_not_found(self, mock_make_request):
+    def test_get_folder_not_found(self, mock_make_request: MagicMock) -> None:
         """
         Test folder retrieval when folder not found.
         """
@@ -618,7 +630,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_folder_other_error(self, mock_make_request):
+    def test_get_folder_other_error(self, mock_make_request: MagicMock) -> None:
         """
         Test folder retrieval with other error.
         """
@@ -630,7 +642,7 @@ class TestGrafanaClient:
             client.get_folder("test-folder")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_datasources_success(self, mock_make_request):
+    def test_get_datasources_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful data sources retrieval.
         """
@@ -647,7 +659,7 @@ class TestGrafanaClient:
         mock_make_request.assert_called_once_with("GET", "/api/datasources")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_datasources_failure(self, mock_make_request):
+    def test_get_datasources_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed data sources retrieval.
         """
@@ -659,7 +671,7 @@ class TestGrafanaClient:
         assert result == []
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_test_datasource_success(self, mock_make_request):
+    def test_test_datasource_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful data source test.
         """
@@ -668,11 +680,12 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000", api_token="test-token")
         result = client.test_datasource(1)
 
+        assert isinstance(result, dict)
         assert result["status"] == "success"
         mock_make_request.assert_called_once_with("POST", "/api/datasources/1/health")
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_test_datasource_failure(self, mock_make_request):
+    def test_test_datasource_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed data source test.
         """
@@ -684,7 +697,7 @@ class TestGrafanaClient:
         assert result is None
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_annotations_success(self, mock_make_request):
+    def test_get_annotations_success(self, mock_make_request: MagicMock) -> None:
         """
         Test successful annotations retrieval.
         """
@@ -719,7 +732,7 @@ class TestGrafanaClient:
         )
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_annotations_minimal_params(self, mock_make_request):
+    def test_get_annotations_minimal_params(self, mock_make_request: MagicMock) -> None:
         """
         Test annotations retrieval with minimal parameters.
         """
@@ -736,7 +749,7 @@ class TestGrafanaClient:
         )
 
     @patch.object(GrafanaClient, "_make_request")
-    def test_get_annotations_failure(self, mock_make_request):
+    def test_get_annotations_failure(self, mock_make_request: MagicMock) -> None:
         """
         Test failed annotations retrieval.
         """
@@ -747,7 +760,7 @@ class TestGrafanaClient:
 
         assert result == []
 
-    def test_context_manager(self):
+    def test_context_manager(self) -> None:
         """
         Test client as context manager.
         """
@@ -756,7 +769,7 @@ class TestGrafanaClient:
                 assert isinstance(client, GrafanaClient)
             mock_close.assert_called_once()
 
-    def test_close_session(self):
+    def test_close_session(self) -> None:
         """
         Test session closing.
         """
@@ -772,7 +785,7 @@ class TestGrafanaAPIError:
     Test cases for GrafanaAPIError.
     """
 
-    def test_init_basic(self):
+    def test_init_basic(self) -> None:
         """
         Test basic error initialization.
         """
@@ -782,7 +795,7 @@ class TestGrafanaAPIError:
         assert error.status_code is None
         assert error.response_data == {}
 
-    def test_init_with_status_code(self):
+    def test_init_with_status_code(self) -> None:
         """
         Test error initialization with status code.
         """
@@ -792,7 +805,7 @@ class TestGrafanaAPIError:
         assert error.status_code == 400
         assert error.response_data == {}
 
-    def test_init_with_response_data(self):
+    def test_init_with_response_data(self) -> None:
         """
         Test error initialization with response data.
         """
@@ -803,7 +816,7 @@ class TestGrafanaAPIError:
         assert error.status_code is None
         assert error.response_data == response_data
 
-    def test_init_with_all_params(self):
+    def test_init_with_all_params(self) -> None:
         """
         Test error initialization with all parameters.
         """
@@ -815,7 +828,7 @@ class TestGrafanaAPIError:
         assert error.response_data == response_data
 
 
-def test_main_function():
+def test_main_function() -> None:
     """
     Test the main function runs without error in dry-run mode.
     """

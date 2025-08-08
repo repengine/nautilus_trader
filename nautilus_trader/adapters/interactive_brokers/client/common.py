@@ -55,10 +55,10 @@ class Request(msgspec.Struct, frozen=True):
     """
 
     req_id: Annotated[int, msgspec.Meta(gt=0)]
-    name: str | tuple
-    handle: Callable
-    cancel: Callable
-    future: asyncio.Future
+    name: str | tuple[Any, ...]
+    handle: Callable[..., Any]
+    cancel: Callable[..., Any]
+    future: asyncio.Future[Any]
     result: list[Any]
 
     def __hash__(self) -> int:
@@ -71,9 +71,9 @@ class Subscription(msgspec.Struct, frozen=True):
     """
 
     req_id: Annotated[int, msgspec.Meta(gt=0)]
-    name: str | tuple
-    handle: functools.partial | Callable
-    cancel: Callable
+    name: str | tuple[Any, ...]
+    handle: functools.partial[Any] | Callable[..., Any]
+    cancel: Callable[..., Any]
     last: Any
 
     def __hash__(self) -> int:
@@ -87,9 +87,9 @@ class Base(ABC):
     """
 
     def __init__(self) -> None:
-        self._req_id_to_name: dict[int, str | tuple] = {}
-        self._req_id_to_handle: dict[int, Callable] = {}
-        self._req_id_to_cancel: dict[int, Callable] = {}
+        self._req_id_to_name: dict[int, str | tuple[Any, ...]] = {}
+        self._req_id_to_handle: dict[int, Callable[..., Any]] = {}
+        self._req_id_to_cancel: dict[int, Callable[..., Any]] = {}
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}:\n{[self.get(req_id=k) for k in self._req_id_to_name]!r}"
@@ -141,9 +141,9 @@ class Base(ABC):
     def add_req_id(
         self,
         req_id: int,
-        name: str | tuple,
-        handle: Callable,
-        cancel: Callable,
+        name: str | tuple[Any, ...],
+        handle: Callable[..., Any],
+        cancel: Callable[..., Any],
     ) -> None:
         """
         Add a new request ID along with associated name, handle, and cancel callback to
@@ -217,7 +217,7 @@ class Base(ABC):
         list[Request | Subscription]
 
         """
-        result: list = []
+        result: list[Request | Subscription] = []
 
         for req_id in self._req_id_to_name:
             result.append(self.get(req_id=req_id))
@@ -228,7 +228,7 @@ class Base(ABC):
     def get(
         self,
         req_id: int | None = None,
-        name: str | tuple | None = None,
+        name: str | tuple[Any, ...] | None = None,
     ) -> Request | Subscription | None:
         """
         Abstract method to retrieve a Request or Subscription object based on the
@@ -261,9 +261,9 @@ class Subscriptions(Base):
     def add(
         self,
         req_id: int,
-        name: str | tuple,
-        handle: Callable,
-        cancel: Callable = lambda: None,
+        name: str | tuple[Any, ...],
+        handle: Callable[..., Any],
+        cancel: Callable[..., Any] = lambda: None,
     ) -> Subscription | None:
         """
         Add a new subscription with the given request ID, name, handle, and optional
@@ -292,7 +292,7 @@ class Subscriptions(Base):
 
         return self.get(req_id=req_id)
 
-    def remove(self, req_id: int | None = None, name: str | tuple | None = None) -> None:
+    def remove(self, req_id: int | None = None, name: str | tuple[Any, ...] | None = None) -> None:
         """
         Remove a subscription identified by either its request ID or name. If the
         subscription is identified by name, the corresponding request ID is first
@@ -317,7 +317,7 @@ class Subscriptions(Base):
     def get(
         self,
         req_id: int | None = None,
-        name: str | tuple | None = None,
+        name: str | tuple[Any, ...] | None = None,
     ) -> Subscription | None:
         """
         Retrieve a Subscription based on the request ID or name.
@@ -374,16 +374,16 @@ class Requests(Base):
 
     def __init__(self) -> None:
         super().__init__()
-        self._req_id_to_future: dict[int, asyncio.Future] = {}
+        self._req_id_to_future: dict[int, asyncio.Future[Any]] = {}
         self._req_id_to_result: dict[int, Any] = {}
 
-    def get_futures(self) -> list[asyncio.Future]:
+    def get_futures(self) -> list[asyncio.Future[Any]]:
         """
         Retrieve all asyncio Futures associated with the stored requests.
 
         Returns
         -------
-        list[asyncio.Future]
+        list[asyncio.Future[Any]]
 
         """
         return list(self._req_id_to_future.values())
@@ -391,9 +391,9 @@ class Requests(Base):
     def add(
         self,
         req_id: int,
-        name: str | tuple,
-        handle: Callable,
-        cancel: Callable = lambda: None,
+        name: str | tuple[Any, ...],
+        handle: Callable[..., Any],
+        cancel: Callable[..., Any] = lambda: None,
     ) -> Request | None:
         """
         Add a new data request with the specified request ID, name, handle, and an
@@ -423,7 +423,7 @@ class Requests(Base):
 
         return self.get(req_id=req_id)
 
-    def remove(self, req_id: int | None = None, name: str | tuple | None = None) -> None:
+    def remove(self, req_id: int | None = None, name: str | tuple[Any, ...] | None = None) -> None:
         """
         Remove a data request identified by either its request ID or name. This method
         removes the data request details from the internal storage. If the data request
@@ -450,7 +450,7 @@ class Requests(Base):
     def get(
         self,
         req_id: int | None = None,
-        name: str | tuple | None = None,
+        name: str | tuple[Any, ...] | None = None,
     ) -> Request | None:
         """
         Retrieve a Request based on the request ID or name.
@@ -503,24 +503,24 @@ class BaseMixin:
         Any  # InteractiveBrokersInstrumentProvider | None - Will be set by data/execution client
     )
     _subscriptions: Subscriptions
-    _event_subscriptions: dict[str, Callable]
+    _event_subscriptions: dict[str, Callable[..., Any]]
     _eclient: EClient
     _is_ib_connected: asyncio.Event
-    _start: Callable
-    _startup: Callable
-    _reset: Callable
-    _stop: Callable
-    _resume: Callable
-    _degrade: Callable
-    _end_request: Callable
-    _await_request: Callable
-    _next_req_id: Callable
-    _resubscribe_all: Callable
-    _create_task: Callable
-    logAnswer: Callable
+    _start: Callable[..., Any]
+    _startup: Callable[..., Any]
+    _reset: Callable[..., Any]
+    _stop: Callable[..., Any]
+    _resume: Callable[..., Any]
+    _degrade: Callable[..., Any]
+    _end_request: Callable[..., Any]
+    _await_request: Callable[..., Any]
+    _next_req_id: Callable[..., Any]
+    _resubscribe_all: Callable[..., Any]
+    _create_task: Callable[..., Any]
+    logAnswer: Callable[..., Any]
 
     # Account
-    accounts: Callable
+    accounts: Callable[..., Any]
 
     # Connection
     _reconnect_attempts: int

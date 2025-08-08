@@ -22,6 +22,7 @@ actor setup.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -38,12 +39,16 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
 
+# Configure module logger
+logger = logging.getLogger(__name__)
+
+
 class TestTechnicalDebtRemoval:
     """
     Verify that all technical debt has been eliminated.
     """
 
-    def test_volume_normalization_uses_config(self):
+    def test_volume_normalization_uses_config(self) -> None:
         """
         VERIFIES: Volume normalization uses config value, not hardcoded 1000000.0.
         """
@@ -97,9 +102,9 @@ class TestTechnicalDebtRemoval:
                     f"expected {expected_normalized}, got {actual_normalized}"
                 )
 
-                print(f"✓ Volume normalization correct for average_volume={avg_volume}")
+                logger.info(f" Volume normalization correct for average_volume={avg_volume}")
 
-    def test_time_features_implemented(self):
+    def test_time_features_implemented(self) -> None:
         """
         VERIFIES: Time features (hour_of_day, day_of_week) are fully implemented.
         """
@@ -171,9 +176,9 @@ class TestTechnicalDebtRemoval:
                 actual_day = features[9]
                 assert 0.0 <= actual_day <= 1.0, f"Day of week out of range: {actual_day}"
 
-                print(f"✓ Time features correct for {desc}")
+                logger.info(f" Time features correct for {desc}")
 
-    def test_no_hardcoded_values_in_source(self):
+    def test_no_hardcoded_values_in_source(self) -> None:
         """
         VERIFIES: Source code contains no hardcoded values.
         """
@@ -208,9 +213,9 @@ class TestTechnicalDebtRemoval:
                 issues_found,
             )
 
-            print("✓ No hardcoded values or technical debt markers in source")
+            logger.info(" No hardcoded values or technical debt markers in source")
 
-    def test_feature_calculation_correctness(self):
+    def test_feature_calculation_correctness(self) -> None:
         """
         VERIFIES: All features are calculated correctly with proper values.
         """
@@ -266,14 +271,14 @@ class TestTechnicalDebtRemoval:
             for value, name in checks:
                 assert not np.isnan(value), f"{name} is NaN"
                 assert not np.isinf(value), f"{name} is Inf"
-                print(f"✓ {name}: {value:.4f}")
+                logger.info(f" {name}: {value:.4f}")
 
             # Specific value checks
             assert features[7] == 250000.0 / 500000.0, "Volume normalization incorrect"
             assert 0.0 <= features[8] <= 1.0, "Hour of day out of range"
             assert 0.0 <= features[9] <= 1.0, "Day of week out of range"
 
-    def test_config_average_volume_validation(self):
+    def test_config_average_volume_validation(self) -> None:
         """
         VERIFIES: Configuration properly validates average_volume.
         """
@@ -282,7 +287,7 @@ class TestTechnicalDebtRemoval:
         for value in valid_values:
             config = MLFeatureConfig(average_volume=value)
             assert config.average_volume == value
-            print(f"✓ Valid average_volume={value}")
+            logger.info(f" Valid average_volume={value}")
 
         # Test invalid values (should raise validation error)
         invalid_values = [-1.0, -1000000.0]
@@ -291,9 +296,9 @@ class TestTechnicalDebtRemoval:
                 MLFeatureConfig(average_volume=value)
                 assert False, f"Should have rejected negative value: {value}"
             except Exception:
-                print(f"✓ Rejected invalid average_volume={value}")
+                logger.info(f" Rejected invalid average_volume={value}")
 
-    def test_default_average_volume(self):
+    def test_default_average_volume(self) -> None:
         """
         VERIFIES: Default average_volume is reasonable (1000000.0).
         """
@@ -301,7 +306,7 @@ class TestTechnicalDebtRemoval:
         assert (
             config.average_volume == 1000000.0
         ), f"Default average_volume should be 1000000.0, got {config.average_volume}"
-        print(f"✓ Default average_volume is {config.average_volume}")
+        logger.info(f" Default average_volume is {config.average_volume}")
 
 
 class TestCodeQuality:
@@ -309,7 +314,7 @@ class TestCodeQuality:
     Verify code quality and completeness.
     """
 
-    def test_no_stub_methods(self):
+    def test_no_stub_methods(self) -> None:
         """
         VERIFIES: No stub methods remain in the codebase.
         """
@@ -329,9 +334,9 @@ class TestCodeQuality:
                 assert "pass  # TODO" not in content, f"TODO stub found in {path.name}"
                 assert "# STUB" not in content, f"STUB marker found in {path.name}"
 
-                print(f"✓ No stubs in {path.name}")
+                logger.info(f" No stubs in {path.name}")
 
-    def test_implementation_completeness(self):
+    def test_implementation_completeness(self) -> None:
         """
         VERIFIES: All required methods are implemented.
         """
@@ -357,9 +362,9 @@ class TestCodeQuality:
             assert hasattr(actor, method_name), f"Missing method: {method_name}"
             method = getattr(actor, method_name)
             assert callable(method), f"{method_name} is not callable"
-            print(f"✓ Method implemented: {method_name}")
+            logger.info(f" Method implemented: {method_name}")
 
-    def test_production_features_available(self):
+    def test_production_features_available(self) -> None:
         """
         VERIFIES: Production features are properly configured.
         """
@@ -380,16 +385,16 @@ class TestCodeQuality:
         assert actor._health_monitor is not None
         assert actor._config.enable_hot_reload is True
 
-        print("✓ Production features properly configured")
+        logger.info(" Production features properly configured")
 
 
 def run_qa_tests():
     """
     Run all QA tests and generate report.
     """
-    print("\n" + "=" * 60)
-    print("TECHNICAL DEBT ELIMINATION QA REPORT")
-    print("=" * 60 + "\n")
+    logger.info("\n" + "=" * 60)
+    logger.info("TECHNICAL DEBT ELIMINATION QA REPORT")
+    logger.info("=" * 60 + "\n")
 
     test_classes = [TestTechnicalDebtRemoval(), TestCodeQuality()]
     all_passed = True
@@ -397,8 +402,8 @@ def run_qa_tests():
 
     for test_class in test_classes:
         class_name = test_class.__class__.__name__
-        print(f"\n{class_name}:")
-        print("-" * 40)
+        logger.info(f"\n{class_name}:")
+        logger.info("-" * 40)
 
         # Get all test methods
         test_methods = [m for m in dir(test_class) if m.startswith("test_")]
@@ -411,30 +416,30 @@ def run_qa_tests():
             except Exception as e:
                 results.append((class_name, method_name, f"FAILED: {e!s}"))
                 all_passed = False
-                print(f"✗ {method_name}: {e!s}")
+                logger.info(f" {method_name}: {e!s}")
 
     # Generate summary
-    print("\n" + "=" * 60)
-    print("SUMMARY")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("SUMMARY")
+    logger.info("=" * 60)
 
     passed_count = sum(1 for _, _, status in results if status == "PASSED")
     failed_count = len(results) - passed_count
 
-    print(f"\nTotal Tests: {len(results)}")
-    print(f"Passed: {passed_count}")
-    print(f"Failed: {failed_count}")
+    logger.info(f"\nTotal Tests: {len(results)}")
+    logger.info(f"Passed: {passed_count}")
+    logger.info(f"Failed: {failed_count}")
 
     if all_passed:
-        print("\n✓ ALL TECHNICAL DEBT ELIMINATED")
-        print("✓ ML MODULES ARE PRODUCTION READY")
-        print("✓ ZERO TECHNICAL DEBT CONFIRMED")
+        logger.info("\n ALL TECHNICAL DEBT ELIMINATED")
+        logger.info(" ML MODULES ARE PRODUCTION READY")
+        logger.info(" ZERO TECHNICAL DEBT CONFIRMED")
     else:
-        print("\n✗ Some tests failed - review required")
-        print("\nFailed tests:")
+        logger.info("\n Some tests failed - review required")
+        logger.info("\nFailed tests:")
         for class_name, method_name, status in results:
             if status != "PASSED":
-                print(f"  - {class_name}.{method_name}: {status}")
+                logger.info(f"  - {class_name}.{method_name}: {status}")
 
     return all_passed
 

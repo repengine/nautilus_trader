@@ -27,7 +27,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from ml.config.xgboost_unified import OptunaConfig
+from ml.config.shared import OptunaConfig
 from ml.training.optuna_optimizer import XGBoostOptunaOptimizer
 
 
@@ -37,7 +37,7 @@ class TestXGBoostOptunaOptimizer:
     """
 
     @pytest.fixture
-    def basic_config(self):
+    def basic_config(self) -> OptunaConfig:
         """
         Create basic Optuna configuration.
         """
@@ -51,7 +51,7 @@ class TestXGBoostOptunaOptimizer:
         )
 
     @pytest.fixture
-    def sample_data(self):
+    def sample_data(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Create sample training data.
         """
@@ -62,7 +62,7 @@ class TestXGBoostOptunaOptimizer:
         y_val = np.random.randint(0, 2, 50)
         return X_train, y_train, X_val, y_val
 
-    def test_optimizer_initialization(self, basic_config):
+    def test_optimizer_initialization(self, basic_config: OptunaConfig) -> None:
         """
         Test optimizer initialization.
         """
@@ -74,7 +74,7 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_ensure_optuna(self, mock_optuna, basic_config):
+    def test_ensure_optuna(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
         """
         Test Optuna availability check.
         """
@@ -85,7 +85,7 @@ class TestXGBoostOptunaOptimizer:
         assert optimizer._optuna is not None
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", False)
-    def test_ensure_optuna_not_available(self, basic_config):
+    def test_ensure_optuna_not_available(self, basic_config: OptunaConfig) -> None:
         """
         Test Optuna availability check when not available.
         """
@@ -96,7 +96,7 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_create_study(self, mock_optuna, basic_config):
+    def test_create_study(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
         """
         Test study creation.
         """
@@ -118,7 +118,11 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_create_study_with_storage(self, mock_optuna, basic_config):
+    def test_create_study_with_storage(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+    ) -> None:
         """
         Test study creation with persistent storage.
         """
@@ -161,7 +165,13 @@ class TestXGBoostOptunaOptimizer:
     )
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_create_sampler(self, mock_optuna, basic_config, sampler_type, expected_class):
+    def test_create_sampler(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+        sampler_type: str,
+        expected_class: str,
+    ) -> None:
         """
         Test sampler creation for different types.
         """
@@ -190,7 +200,13 @@ class TestXGBoostOptunaOptimizer:
     )
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_create_pruner(self, mock_optuna, basic_config, pruner_type, expected_class):
+    def test_create_pruner(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+        pruner_type: str,
+        expected_class: str,
+    ) -> None:
         """
         Test pruner creation for different types.
         """
@@ -213,7 +229,11 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_sample_xgboost_params(self, mock_optuna, basic_config):
+    def test_sample_xgboost_params(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+    ) -> None:
         """
         Test XGBoost parameter sampling.
         """
@@ -254,7 +274,11 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_sample_xgboost_params_gpu(self, mock_optuna, basic_config):
+    def test_sample_xgboost_params_gpu(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+    ) -> None:
         """
         Test XGBoost parameter sampling for GPU training.
         """
@@ -286,7 +310,11 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_sample_xgboost_params_regression(self, mock_optuna, basic_config):
+    def test_sample_xgboost_params_regression(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+    ) -> None:
         """
         Test XGBoost parameter sampling for regression.
         """
@@ -321,7 +349,13 @@ class TestXGBoostOptunaOptimizer:
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.xgb")
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_create_objective_function(self, mock_optuna, mock_xgb, basic_config, sample_data):
+    def test_create_objective_function(
+        self,
+        mock_optuna: MagicMock,
+        mock_xgb: MagicMock,
+        basic_config: OptunaConfig,
+        sample_data: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    ) -> None:
         """
         Test objective function creation.
         """
@@ -372,8 +406,12 @@ class TestXGBoostOptunaOptimizer:
     @patch("ml.training.optuna_optimizer.xgb")
     @patch("ml.training.optuna_optimizer.optuna")
     def test_create_objective_function_regression(
-        self, mock_optuna, mock_xgb, basic_config, sample_data
-    ):
+        self,
+        mock_optuna: MagicMock,
+        mock_xgb: MagicMock,
+        basic_config: OptunaConfig,
+        sample_data: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    ) -> None:
         """
         Test objective function creation for regression.
         """
@@ -412,8 +450,12 @@ class TestXGBoostOptunaOptimizer:
     @patch("ml.training.optuna_optimizer.xgb")
     @patch("ml.training.optuna_optimizer.optuna")
     def test_objective_function_exception_handling(
-        self, mock_optuna, mock_xgb, basic_config, sample_data
-    ):
+        self,
+        mock_optuna: MagicMock,
+        mock_xgb: MagicMock,
+        basic_config: OptunaConfig,
+        sample_data: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    ) -> None:
         """
         Test objective function exception handling.
         """
@@ -447,7 +489,7 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_optimize(self, mock_optuna, basic_config):
+    def test_optimize(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
         """
         Test optimization execution.
         """
@@ -506,7 +548,11 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_optimize_with_keyboard_interrupt(self, mock_optuna, basic_config):
+    def test_optimize_with_keyboard_interrupt(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+    ) -> None:
         """
         Test optimization handling keyboard interrupt.
         """
@@ -532,7 +578,7 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_get_study_summary(self, mock_optuna, basic_config):
+    def test_get_study_summary(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
         """
         Test study summary generation.
         """
@@ -586,7 +632,7 @@ class TestXGBoostOptunaOptimizer:
         assert summary["param_importance"]["n_estimators"] == 0.6
         assert summary["param_importance"]["max_depth"] == 0.4
 
-    def test_get_study_summary_no_study(self, basic_config):
+    def test_get_study_summary_no_study(self, basic_config: OptunaConfig) -> None:
         """
         Test study summary with no study available.
         """
@@ -597,7 +643,11 @@ class TestXGBoostOptunaOptimizer:
 
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
-    def test_get_study_summary_with_values(self, mock_optuna, basic_config):
+    def test_get_study_summary_with_values(
+        self,
+        mock_optuna: MagicMock,
+        basic_config: OptunaConfig,
+    ) -> None:
         """
         Test study summary with trial values for statistics.
         """
