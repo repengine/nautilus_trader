@@ -12,9 +12,18 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import polars as pl
 import requests.exceptions
-import torch
+
+from ml._imports import HAS_POLARS
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
+
+
+try:  # Optional heavy dependency
+    import torch
+except ImportError as e:  # pragma: no cover - environment specific
+    torch = None
+    TORCH_IMPORT_ERROR = e
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import mean_absolute_percentage_error
 from sklearn.metrics import mean_squared_error
@@ -104,6 +113,15 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
             raise ImportError(
                 "NeuralForecast is required. Install with: pip install neuralforecast",
             )
+
+        if torch is None:
+            raise ImportError(
+                "PyTorch is required. Install with: pip install torch\n"
+                f"Original error: {TORCH_IMPORT_ERROR}",
+            )
+
+        if not HAS_POLARS:
+            check_ml_dependencies(["polars"])
 
         self.model = None
         self.scaler = None

@@ -12,24 +12,46 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import polars as pl
-import polars.exceptions
 import requests.exceptions
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import mean_absolute_percentage_error
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
 
+from ml._imports import HAS_POLARS
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
+
+
+if HAS_POLARS:
+    from polars.exceptions import PolarsError
+else:  # pragma: no cover - fallback when polars missing
+
+    class PolarsError(Exception):
+        """
+        Fallback PolarsError when polars is unavailable.
+        """
+
 
 warnings.filterwarnings("ignore")
 
-# Enhanced imports for diagnostics
+# Enhanced imports for diagnostics (optional)
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # pragma: no cover - optional dependency
+    plt = None
 
-import matplotlib.pyplot as plt
-from scipy import stats
-from statsmodels.graphics.tsaplots import plot_acf
-from statsmodels.graphics.tsaplots import plot_pacf
-from statsmodels.stats.diagnostic import acorr_ljungbox
+try:
+    from scipy import stats
+except ImportError:  # pragma: no cover - optional dependency
+    stats = None
+
+try:
+    from statsmodels.graphics.tsaplots import plot_acf
+    from statsmodels.graphics.tsaplots import plot_pacf
+    from statsmodels.stats.diagnostic import acorr_ljungbox
+except ImportError:  # pragma: no cover - optional dependency
+    plot_acf = plot_pacf = acorr_ljungbox = None
 
 from ..config.settings import Settings
 from ..data.unified_loader import UnifiedNautilusDataLoader
@@ -123,6 +145,9 @@ class StatsForecastTrainer(BaseTrainer):
             raise ImportError(
                 "StatsForecast is required. Install with: pip install statsforecast hierarchicalforecast",
             )
+
+        if not HAS_POLARS:
+            check_ml_dependencies(["polars"])
 
         self.models = None
         self.forecaster = None
@@ -897,6 +922,12 @@ class StatsForecastTrainer(BaseTrainer):
             Dictionary containing diagnostic metrics and plot paths
 
         """
+        if any(lib is None for lib in (plt, stats, plot_acf, plot_pacf, acorr_ljungbox)):
+            raise ImportError(
+                "Diagnostics require matplotlib, scipy, and statsmodels. "
+                "Install with: pip install matplotlib scipy statsmodels",
+            )
+
         diagnostics = {}
         plot_paths = []
 
@@ -1183,7 +1214,7 @@ def main():
             TypeError,
             ZeroDivisionError,
             FloatingPointError,
-            polars.exceptions.PolarsError,
+            PolarsError,
             RuntimeError,
         ) as e:
             print(f"Warning: Could not load from catalog, falling back to parquet: {e}")
