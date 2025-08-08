@@ -312,8 +312,10 @@ class MLflowManager:
         # Filter serializable parameters
         loggable_params = {}
         for key, value in params.items():
-            if isinstance(value, int | float | str | bool):
+            if isinstance(value, int | float | bool):
                 loggable_params[key] = value
+            elif isinstance(value, str):
+                loggable_params[key] = value[:250]  # Truncate long strings
             elif value is None:
                 loggable_params[key] = "None"
             else:
@@ -332,10 +334,13 @@ class MLflowManager:
         """
         loggable_metrics = {}
         for key, value in metrics.items():
-            if isinstance(value, int | float) and np.isfinite(value):
-                loggable_metrics[key] = float(value)
-            elif not np.isfinite(value):
-                logger.warning(f"Skipping non-finite metric '{key}': {value}")
+            if isinstance(value, int | float):
+                if np.isfinite(value):
+                    loggable_metrics[key] = float(value)
+                else:
+                    logger.warning(f"Skipping non-finite metric '{key}': {value}")
+            else:
+                logger.warning(f"Skipping non-numeric metric '{key}': {value}")
 
         if loggable_metrics:
             self._mlflow.log_metrics(loggable_metrics)

@@ -58,11 +58,15 @@ def metric_name_manager() -> MetricNameManager:
 
 
 @pytest.fixture
-def monitoring_config() -> MonitoringConfig:
+def monitoring_config(metric_name_manager: MetricNameManager) -> MonitoringConfig:
     """
-    Provide a basic monitoring configuration.
+    Provide a basic monitoring configuration with unique metrics prefix.
     """
-    return MonitoringConfig(enabled=True, metrics_port=8081)
+    return MonitoringConfig(
+        enabled=True, 
+        metrics_port=8081, 
+        metrics_prefix=metric_name_manager._prefix.rstrip("_")
+    )
 
 
 @pytest.fixture
@@ -100,19 +104,19 @@ def mock_prometheus_when_unavailable() -> Any:
         yield None
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def prometheus_registry_cleanup() -> Any:
     """
     Clean up Prometheus registry after each test to prevent conflicts.
     """
-    collectors_before = set()
+    names_before = set()
 
     if HAS_PROMETHEUS:
         try:
             from prometheus_client import REGISTRY
-
-            collectors_before = set(REGISTRY._collector_to_names.keys())
-        except ImportError:
+            # Store metric names instead of collectors
+            names_before = set(REGISTRY._names_to_collectors.keys())
+        except (ImportError, AttributeError):
             pass
 
     yield
@@ -120,17 +124,20 @@ def prometheus_registry_cleanup() -> Any:
     if HAS_PROMETHEUS:
         try:
             from prometheus_client import REGISTRY
+            # Get new metric names
+            names_after = set(REGISTRY._names_to_collectors.keys())
+            new_names = names_after - names_before
 
-            collectors_after = set(REGISTRY._collector_to_names.keys())
-            new_collectors = collectors_after - collectors_before
-
-            for collector in new_collectors:
+            # Remove new metrics
+            for name in new_names:
                 try:
-                    REGISTRY.unregister(collector)
-                except (KeyError, ValueError):
+                    collector = REGISTRY._names_to_collectors.get(name)
+                    if collector:
+                        REGISTRY.unregister(collector)
+                except (KeyError, ValueError, AttributeError):
                     # Collector may have already been unregistered
                     pass
-        except ImportError:
+        except (ImportError, AttributeError):
             pass
 
 

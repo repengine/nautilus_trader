@@ -347,7 +347,7 @@ class TestCircuitBreaker:
             can_execute = breaker.can_execute()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
         assert can_execute is True
 
     def test_circuit_closes_after_successful_recovery(self) -> None:
@@ -365,7 +365,7 @@ class TestCircuitBreaker:
         # Transition to half-open
         with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
 
         # Act - Record enough successes to close
         breaker.record_success()
@@ -392,7 +392,7 @@ class TestCircuitBreaker:
         breaker.record_failure()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.OPEN
 
     def test_success_reduces_failure_count_when_closed(self) -> None:
         """
@@ -2381,7 +2381,7 @@ class TestCircuitBreakerEdgeCases:
             can_execute = breaker.can_execute()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
         assert can_execute is True
 
     def test_circuit_breaker_multiple_success_threshold(self) -> None:
@@ -2405,7 +2405,7 @@ class TestCircuitBreakerEdgeCases:
 
         # Final success should close circuit
         breaker.record_success()
-        assert breaker.state == CircuitBreakerState.CLOSED  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.CLOSED
 
     def test_circuit_breaker_success_count_tracking(self) -> None:
         """
@@ -2499,7 +2499,7 @@ class TestHealthMonitorEdgeCases:
 
         # Trigger status update - should become unhealthy due to model not loaded
         monitor._update_health_status()
-        assert monitor.status == HealthStatus.UNHEALTHY  # type: ignore[comparison-overlap]
+        assert monitor.status == HealthStatus.UNHEALTHY
 
         # Load model and verify status updates to healthy
         monitor.set_model_loaded(True)
@@ -2984,7 +2984,7 @@ class TestMissingCoverageAreas:
 
         # Add one more to cross threshold
         monitor.update_latency_violation()
-        assert monitor.status == HealthStatus.DEGRADED  # type: ignore[comparison-overlap]
+        assert monitor.status == HealthStatus.DEGRADED
 
     def test_circuit_breaker_last_failure_time_tracking(self) -> None:
         """
@@ -3015,7 +3015,7 @@ class TestMissingCoverageAreas:
         # Move to half-open after timeout
         with patch("time.time", return_value=time.time() + 61):
             can_execute = breaker.can_execute()
-            assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+            assert breaker.state == CircuitBreakerState.HALF_OPEN
             assert can_execute is True
 
         # Success in half-open should close circuit
