@@ -100,9 +100,9 @@ class BaseMLTrainer(ABC):
         # Optional components
         self._mlflow_run_id: str | None = None
         self._optuna_study: optuna.Study | None = None
-        self._cv_results: list[dict[str, float]] = []
+        self._cv_results: dict[str, Any] = {}
 
-    def train(
+    def train(  # noqa: C901
         self,
         data: Any,  # pl.DataFrame when polars is available
         validation_data: Any | None = None,  # pl.DataFrame when polars is available
@@ -577,7 +577,7 @@ class BaseMLTrainer(ABC):
         X: np.ndarray,
         y: np.ndarray,
         **kwargs: Any,
-    ) -> list[dict[str, float]]:
+    ) -> dict[str, Any]:
         """
         Perform cross-validation.
 
@@ -592,8 +592,8 @@ class BaseMLTrainer(ABC):
 
         Returns
         -------
-        list[dict[str, float]]
-            Cross-validation results for each fold.
+        dict[str, Any]
+            Dictionary containing fold metrics and averaged CV metrics.
 
         """
         n_folds = getattr(self._config, "cv_folds", 5)
@@ -612,7 +612,7 @@ class BaseMLTrainer(ABC):
         y: np.ndarray,
         n_folds: int,
         **kwargs: Any,
-    ) -> list[dict[str, float]]:
+    ) -> dict[str, Any]:
         """
         Time series cross-validation.
 
@@ -629,13 +629,13 @@ class BaseMLTrainer(ABC):
 
         Returns
         -------
-        list[dict[str, float]]
-            CV results.
+        dict[str, Any]
+            Dictionary containing fold metrics and averaged CV metrics.
 
         """
         n_samples = len(X)
         fold_size = n_samples // (n_folds + 1)
-        results = []
+        results: list[dict[str, float]] = []
 
         for i in range(n_folds):
             train_end = (i + 1) * fold_size
@@ -655,18 +655,17 @@ class BaseMLTrainer(ABC):
                 model = self._train_with_params(X_train_cv, y_train_cv, X_val_cv, y_val_cv, kwargs)
 
             # Evaluate
-            predictions = self.predict(model, X_val_cv)
             fold_metrics = self.evaluate(model, X_val_cv, y_val_cv)
             results.append(fold_metrics)
 
         # Calculate average metrics
-        avg_metrics = {}
+        avg_metrics: dict[str, float] = {}
         for key in results[0].keys():
             avg_metrics[f"cv_{key}_mean"] = np.mean([r[key] for r in results])
             avg_metrics[f"cv_{key}_std"] = np.std([r[key] for r in results])
 
         self._log_info(f"CV results: {avg_metrics}")
-        return results
+        return {"fold_metrics": results, **avg_metrics}
 
     def _standard_cv(
         self,
@@ -674,9 +673,9 @@ class BaseMLTrainer(ABC):
         y: np.ndarray,
         n_folds: int,
         **kwargs: Any,
-    ) -> list[dict[str, float]]:
+    ) -> dict[str, Any]:
         """
-        Standard k-fold cross-validation.
+        Perform standard k-fold cross-validation.
 
         Parameters
         ----------
@@ -691,15 +690,15 @@ class BaseMLTrainer(ABC):
 
         Returns
         -------
-        list[dict[str, float]]
-            CV results.
+        dict[str, Any]
+            Dictionary containing fold metrics and averaged CV metrics.
 
         """
         try:
             from sklearn.model_selection import KFold
 
             kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
-            results = []
+            results: list[dict[str, float]] = []
 
             for train_idx, val_idx in kf.split(X):
                 X_train_cv = X[train_idx]
@@ -729,7 +728,14 @@ class BaseMLTrainer(ABC):
                 fold_metrics = self.evaluate(model, X_val_cv, y_val_cv)
                 results.append(fold_metrics)
 
-            return results
+            # Calculate average metrics
+            avg_metrics: dict[str, float] = {}
+            for key in results[0].keys():
+                avg_metrics[f"cv_{key}_mean"] = np.mean([r[key] for r in results])
+                avg_metrics[f"cv_{key}_std"] = np.std([r[key] for r in results])
+
+            self._log_info(f"CV results: {avg_metrics}")
+            return {"fold_metrics": results, **avg_metrics}
 
         except ImportError:
             self._log_warning("scikit-learn not available, falling back to simple CV")
@@ -763,9 +769,9 @@ class BaseMLTrainer(ABC):
 
         # Log metrics
         for key, value in metrics.items():
-            if isinstance(value, (int, float)):
+            if isinstance(value, int | float):
                 mlflow.log_metric(key, value)
-            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], (int, float)):
+            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], int | float):
                 for i, v in enumerate(value):
                     mlflow.log_metric(f"{key}_{i}", v)
 
@@ -782,7 +788,7 @@ class BaseMLTrainer(ABC):
         """
         config_dict = {}
         for key, value in vars(self._config).items():
-            if isinstance(value, (str, int, float, bool)):
+            if isinstance(value, str | int | float | bool):
                 config_dict[key] = value
         return config_dict
 
