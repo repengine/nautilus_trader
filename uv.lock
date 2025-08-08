@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -1382,6 +1382,7 @@ name = "nautilus-trader"
 version = "1.220.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "click" },
     { name = "fsspec" },
     { name = "msgspec" },
@@ -1461,6 +1462,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.11.18" },
     { name = "bech32", marker = "extra == 'dydx'", specifier = ">=1.2.0,<2.0.0" },
     { name = "betfair-parser", marker = "extra == 'betfair'", specifier = "==0.14.4" },
     { name = "bip-utils", marker = "extra == 'dydx'", specifier = ">=2.9.3,<3.0.0" },

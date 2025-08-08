@@ -137,7 +137,7 @@ class MLflowManager:
 
     def _setup_experiment(self) -> None:
         """
-        Setup or create MLflow experiment.
+        Set up or create MLflow experiment.
         """
         try:
             experiment = self._mlflow.get_experiment_by_name(self.config.experiment_name)

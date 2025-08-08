@@ -606,7 +606,7 @@ class GrafanaDashboardFactory:
 
 def main() -> None:
     """
-    Example usage of the dashboard factory.
+    Demonstrate usage of the dashboard factory.
     """
     factory = GrafanaDashboardFactory()
 

@@ -67,7 +67,7 @@ def benchmark_feature_calculation(n_iterations=1000):
             "volume": 1000000.0 + i * 100,
         }
 
-        features = engineer.calculate_features_online(
+        _ = engineer.calculate_features_online(
             current_bar=current_bar,
             indicator_manager=indicator_mgr,
             scaler=None,
@@ -111,37 +111,37 @@ def benchmark_feature_calculation(n_iterations=1000):
 
 
 def main():
-    logger.info("Benchmarking hot path performance after zero-allocation fixes...")
-    logger.info("=" * 60)
+    print("Benchmarking hot path performance after zero-allocation fixes...")
+    print("=" * 60)
 
     # Run benchmark
     results = benchmark_feature_calculation(n_iterations=10000)
 
-    logger.info(f"Iterations:           {results['n_iterations']:,}")
-    logger.info(f"Total time:           {results['total_time_s']:.3f} seconds")
-    logger.info(f"Avg latency:          {results['avg_latency_us']:.1f} μs")
-    logger.info(f"Memory allocated:     {results['total_allocated_bytes']:,} bytes total")
-    logger.info(f"Allocation per call:  {results['bytes_per_call']:.1f} bytes")
-    logger.info()
+    print(f"Iterations:           {results['n_iterations']:,}")
+    print(f"Total time:           {results['total_time_s']:.3f} seconds")
+    print(f"Avg latency:          {results['avg_latency_us']:.1f} μs")
+    print(f"Memory allocated:     {results['total_allocated_bytes']:,} bytes total")
+    print(f"Allocation per call:  {results['bytes_per_call']:.1f} bytes")
+    print()
 
     # Check performance requirements
     if results["avg_latency_us"] < 500:
-        logger.info(" PASS: Feature computation < 500μs requirement")
+        print(" PASS: Feature computation < 500μs requirement")
     else:
-        logger.info(
+        print(
             f" FAIL: Feature computation {results['avg_latency_us']:.1f}μs > 500μs requirement",
         )
 
     if results["bytes_per_call"] < 100:  # Allow small allocations for history management
-        logger.info(" PASS: Near-zero allocation achieved")
+        print(" PASS: Near-zero allocation achieved")
     else:
-        logger.info(f"  WARNING: {results['bytes_per_call']:.1f} bytes allocated per call")
+        print(f"  WARNING: {results['bytes_per_call']:.1f} bytes allocated per call")
 
-    logger.info()
-    logger.info("Performance summary:")
-    logger.info(f"  • Latency: {results['avg_latency_us']:.1f}μs per feature calculation")
-    logger.info(f"  • Memory:  {results['bytes_per_call']:.1f} bytes per call")
-    logger.info(f"  • Throughput: {1_000_000 / results['avg_latency_us']:.0f} calculations/second")
+    print()
+    print("Performance summary:")
+    print(f"  • Latency: {results['avg_latency_us']:.1f}μs per feature calculation")
+    print(f"  • Memory:  {results['bytes_per_call']:.1f} bytes per call")
+    print(f"  • Throughput: {1_000_000 / results['avg_latency_us']:.0f} calculations/second")
 
 
 if __name__ == "__main__":

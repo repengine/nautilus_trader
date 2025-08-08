@@ -73,7 +73,8 @@ def test_pyo3_cython_conversion():
     crypto_option_pyo3_dict = crypto_option_pyo3.to_dict()
     crypto_option_cython = CryptoOption.from_pyo3(crypto_option_pyo3)
     crypto_option_cython_dict = CryptoOption.to_dict(crypto_option_cython)
-    del crypto_option_cython_dict["tick_scheme_name"]  # TODO: Under development
+    # Remove tick_scheme_name if it exists (under development)
+    crypto_option_cython_dict.pop("tick_scheme_name", None)
     crypto_option_pyo3_back = nautilus_pyo3.CryptoOption.from_dict(crypto_option_cython_dict)
     assert crypto_option_pyo3 == crypto_option_pyo3_back
     assert crypto_option_pyo3_dict == crypto_option_cython_dict

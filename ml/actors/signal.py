@@ -62,7 +62,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import PositiveInt
-from nautilus_trader.core.data import Data
+from nautilus_trader.core import Data
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 

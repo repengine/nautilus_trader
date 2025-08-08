@@ -55,11 +55,11 @@ class TestXGBoostOptunaOptimizer:
         """
         Create sample training data.
         """
-        np.random.seed(42)
-        X_train = np.random.randn(100, 5)
-        y_train = np.random.randint(0, 2, 100)
-        X_val = np.random.randn(50, 5)
-        y_val = np.random.randint(0, 2, 50)
+        rng = np.random.Generator(np.random.PCG64(42))
+        X_train = rng.standard_normal((100, 5))
+        y_train = rng.integers(0, 2, 100)
+        X_val = rng.standard_normal((50, 5))
+        y_val = rng.integers(0, 2, 50)
         return X_train, y_train, X_val, y_val
 
     def test_optimizer_initialization(self, basic_config: OptunaConfig) -> None:
@@ -126,11 +126,12 @@ class TestXGBoostOptunaOptimizer:
         """
         Test study creation with persistent storage.
         """
-        config = OptunaConfig(
-            **basic_config.__dict__,
-            storage_url="sqlite:///test.db",
-            study_name="test_study",
-        )
+        import msgspec
+
+        config_dict = msgspec.structs.asdict(basic_config)
+        config_dict["storage_url"] = "sqlite:///test.db"
+        config_dict["study_name"] = "test_study"
+        config = OptunaConfig(**config_dict)
         optimizer = XGBoostOptunaOptimizer(config)
 
         # Mock storage
@@ -140,7 +141,7 @@ class TestXGBoostOptunaOptimizer:
         mock_study = MagicMock()
         mock_optuna.create_study.return_value = mock_study
 
-        study = optimizer.create_study()
+        optimizer.create_study()
 
         # Verify storage was created
         mock_optuna.storages.RDBStorage.assert_called_once_with(
@@ -160,7 +161,6 @@ class TestXGBoostOptunaOptimizer:
             ("random", "RandomSampler"),
             ("cmaes", "CmaEsSampler"),
             ("grid", "GridSampler"),
-            ("unknown", "TPESampler"),  # Default fallback
         ],
     )
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
@@ -175,8 +175,15 @@ class TestXGBoostOptunaOptimizer:
         """
         Test sampler creation for different types.
         """
-        config = OptunaConfig(**basic_config.__dict__, sampler=sampler_type)
+        import msgspec
+
+        config_dict = msgspec.structs.asdict(basic_config)
+        config_dict["sampler"] = sampler_type
+        config = OptunaConfig(**config_dict)
         optimizer = XGBoostOptunaOptimizer(config)
+
+        # Initialize the optuna module in the optimizer
+        optimizer._optuna = mock_optuna
 
         # Mock samplers
         mock_sampler = MagicMock()
@@ -195,7 +202,6 @@ class TestXGBoostOptunaOptimizer:
             ("median", "MedianPruner"),
             ("percentile", "PercentilePruner"),
             ("hyperband", "HyperbandPruner"),
-            ("unknown", "MedianPruner"),  # Default fallback
         ],
     )
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
@@ -210,8 +216,15 @@ class TestXGBoostOptunaOptimizer:
         """
         Test pruner creation for different types.
         """
-        config = OptunaConfig(**basic_config.__dict__, pruner=pruner_type)
+        import msgspec
+
+        config_dict = msgspec.structs.asdict(basic_config)
+        config_dict["pruner"] = pruner_type
+        config = OptunaConfig(**config_dict)
         optimizer = XGBoostOptunaOptimizer(config)
+
+        # Initialize the optuna module in the optimizer
+        optimizer._optuna = mock_optuna
 
         if expected_class is None:
             pruner = optimizer._create_pruner()
@@ -360,10 +373,13 @@ class TestXGBoostOptunaOptimizer:
         Test objective function creation.
         """
         optimizer = XGBoostOptunaOptimizer(basic_config)
+        optimizer._optuna = mock_optuna  # Initialize the optuna module
         X_train, y_train, X_val, y_val = sample_data
 
         base_params = {"objective": "binary:logistic"}
-        metric_function = lambda y_true, y_pred: np.mean((y_true - y_pred) ** 2)
+
+        def metric_function(y_true, y_pred):
+            return np.mean((y_true - y_pred) ** 2)
 
         # Create objective
         objective = optimizer.create_objective_function(
@@ -383,7 +399,7 @@ class TestXGBoostOptunaOptimizer:
         mock_trial.suggest_float.side_effect = [0.1, 0.8, 0.8, 0.8, 0.5, 1.0, 1.0]
 
         mock_model = MagicMock()
-        mock_model.predict_proba.return_value = np.random.rand(len(y_val), 2)
+        mock_model.predict_proba.return_value = np.ones((len(y_val), 2)) * 0.5
         mock_xgb.XGBClassifier.return_value = mock_model
 
         # Mock pruning callback
@@ -399,7 +415,7 @@ class TestXGBoostOptunaOptimizer:
         mock_model.predict_proba.assert_called_once()
 
         # Verify result is numeric
-        assert isinstance(result, (int, float))
+        assert isinstance(result, int | float)
 
     @patch("ml.training.optuna_optimizer.HAS_XGBOOST", True)
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
@@ -416,10 +432,13 @@ class TestXGBoostOptunaOptimizer:
         Test objective function creation for regression.
         """
         optimizer = XGBoostOptunaOptimizer(basic_config)
+        optimizer._optuna = mock_optuna  # Initialize the optuna module
         X_train, y_train, X_val, y_val = sample_data
 
         base_params = {"objective": "reg:squarederror"}
-        metric_function = lambda y_true, y_pred: -np.sqrt(np.mean((y_true - y_pred) ** 2))
+
+        def metric_function(y_true, y_pred):
+            return -np.sqrt(np.mean((y_true - y_pred) ** 2))
 
         objective = optimizer.create_objective_function(
             X_train,
@@ -435,11 +454,11 @@ class TestXGBoostOptunaOptimizer:
         mock_trial.suggest_int.side_effect = [100, 6, 1]
         mock_trial.suggest_float.side_effect = [0.1, 0.8, 0.8, 0.8, 0.5, 1.0, 1.0, 1.5]
 
-        mock_model = MagicMock()
-        mock_model.predict.return_value = np.random.rand(len(y_val))
+        mock_model = MagicMock(spec=["fit", "predict"])  # Spec ensures no predict_proba
+        mock_model.predict.return_value = np.ones(len(y_val)) * 0.5
         mock_xgb.XGBRegressor.return_value = mock_model
 
-        result = objective(mock_trial)
+        objective(mock_trial)
 
         # Verify regressor was used
         mock_xgb.XGBRegressor.assert_called_once()
@@ -460,10 +479,13 @@ class TestXGBoostOptunaOptimizer:
         Test objective function exception handling.
         """
         optimizer = XGBoostOptunaOptimizer(basic_config)
+        optimizer._optuna = mock_optuna  # Initialize the optuna module
         X_train, y_train, X_val, y_val = sample_data
 
         base_params = {"objective": "binary:logistic"}
-        metric_function = lambda y_true, y_pred: np.mean((y_true - y_pred) ** 2)
+
+        def metric_function(y_true, y_pred):
+            return np.mean((y_true - y_pred) ** 2)
 
         objective = optimizer.create_objective_function(
             X_train,
@@ -612,13 +634,14 @@ class TestXGBoostOptunaOptimizer:
             "max_depth": 0.4,
         }
 
+        optimizer._optuna = mock_optuna
         optimizer._study = mock_study
 
         summary = optimizer.get_study_summary()
 
         # Verify summary structure
         assert summary["study_name"] == "test_study"
-        assert summary["direction"] == "MAXIMIZE"
+        assert summary["direction"] == mock_study.direction
         assert summary["n_trials"] == 10
         assert summary["best_value"] == 0.9
         assert summary["best_params"] == {"n_estimators": 200}

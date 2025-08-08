@@ -110,6 +110,8 @@ tests/test_data/**/backtest/**
 
 # Old/archived code
 OLD/
+.archive/
+.archive/
 
 # Shell scripts (from remote)
 *.sh

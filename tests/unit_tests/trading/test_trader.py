@@ -59,7 +59,7 @@ USDJPY_SIM = TestInstrumentProvider.default_fx_ccy("USD/JPY")
 
 
 class TestTrader:
-    def setup(self) -> None:
+    def setup_method(self) -> None:
         # Fixture Setup
         self.clock = TestClock()
         self.trader_id = TestIdStubs.trader_id()

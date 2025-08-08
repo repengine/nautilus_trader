@@ -252,13 +252,13 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
             self._sync_thread.join(timeout=10)
 
             if self._sync_thread.is_alive():
-                logger.warning(f"Failed to sync run metrics: {e}")
+                logger.warning("Failed to stop sync thread within timeout")
             else:
                 logger.info("MLflow monitoring bridge stopped")
 
     def _sync_loop(self) -> None:
         """
-        Main sync loop running in background thread.
+        Run main sync loop in background thread.
         """
         while not self._stop_sync.wait(self.sync_interval):
             try:
@@ -675,8 +675,8 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
                         try:
                             versions = client.get_latest_versions(model.name)
                             model_info["stages"] = {v.current_stage: v.version for v in versions}
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Failed to get model stages: {e}")
 
                         # Ensure models list exists and is properly typed
                         if "models" not in model_summary:

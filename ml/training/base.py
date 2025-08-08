@@ -241,7 +241,11 @@ class BaseMLTrainer(ABC):
             self.save_model(self._config.save_model_path)
 
         # Export to ONNX if configured
-        if hasattr(self._config, "export_onnx") and self._config.export_onnx:
+        if (
+            hasattr(self._config, "export_onnx")
+            and self._config.export_onnx
+            and self._config.save_model_path
+        ):
             onnx_path = Path(self._config.save_model_path).with_suffix(".onnx")
             self.export_to_onnx(onnx_path)
 
@@ -484,7 +488,7 @@ class BaseMLTrainer(ABC):
         )
 
         # Optimize
-        n_trials = getattr(self._config.optuna_config, "n_trials", 100)
+        n_trials = getattr(getattr(self._config, "optuna_config", None), "n_trials", 100)
         study.optimize(objective, n_trials=n_trials)
 
         self._optuna_study = study
@@ -655,7 +659,6 @@ class BaseMLTrainer(ABC):
                 model = self._train_with_params(X_train_cv, y_train_cv, X_val_cv, y_val_cv, kwargs)
 
             # Evaluate
-            predictions = self.predict(model, X_val_cv)
             fold_metrics = self.evaluate(model, X_val_cv, y_val_cv)
             results.append(fold_metrics)
 
@@ -676,7 +679,7 @@ class BaseMLTrainer(ABC):
         **kwargs: Any,
     ) -> list[dict[str, float]]:
         """
-        Standard k-fold cross-validation.
+        Perform standard k-fold cross-validation.
 
         Parameters
         ----------
@@ -742,13 +745,16 @@ class BaseMLTrainer(ABC):
         if not HAS_MLFLOW:
             return
 
-        mlflow_config = self._config.mlflow_config
-        if mlflow_config.tracking_uri:
-            mlflow.set_tracking_uri(mlflow_config.tracking_uri)
-        if mlflow_config.experiment_name:
-            mlflow.set_experiment(mlflow_config.experiment_name)
+        mlflow_config = getattr(self._config, "mlflow_config", None)
+        if mlflow_config is not None:
+            if mlflow_config.tracking_uri:
+                mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+            if mlflow_config.experiment_name:
+                mlflow.set_experiment(mlflow_config.experiment_name)
 
-        run = mlflow.start_run(run_name=mlflow_config.run_name)
+        run = mlflow.start_run(
+            run_name=getattr(mlflow_config, "run_name", None) if mlflow_config else None,
+        )
         self._mlflow_run_id = run.info.run_id
 
         # Log parameters
@@ -763,9 +769,9 @@ class BaseMLTrainer(ABC):
 
         # Log metrics
         for key, value in metrics.items():
-            if isinstance(value, (int, float)):
+            if isinstance(value, int | float):
                 mlflow.log_metric(key, value)
-            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], (int, float)):
+            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], int | float):
                 for i, v in enumerate(value):
                     mlflow.log_metric(f"{key}_{i}", v)
 
@@ -782,7 +788,7 @@ class BaseMLTrainer(ABC):
         """
         config_dict = {}
         for key, value in vars(self._config).items():
-            if isinstance(value, (str, int, float, bool)):
+            if isinstance(value, str | int | float | bool):
                 config_dict[key] = value
         return config_dict
 

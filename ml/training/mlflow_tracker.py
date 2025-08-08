@@ -664,8 +664,9 @@ class MLflowTracker:
                     # Type cast needed for mypy - framework comes from our iteration
                     self.framework = framework  # type: ignore[assignment]
                     return model
-                except Exception:
+                except Exception as e:
                     # Try next framework
+                    logger.debug(f"Framework {framework} failed: {e}")
                     continue
 
             # If all fail, raise the last exception
@@ -714,8 +715,9 @@ class MLflowTracker:
                     # Type cast needed for mypy - framework comes from our iteration
                     self.framework = framework  # type: ignore[assignment]
                     return model
-                except Exception:
+                except Exception as e:
                     # Try next framework
+                    logger.debug(f"Framework {framework} failed: {e}")
                     continue
 
             # If all fail, raise the last exception

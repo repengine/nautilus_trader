@@ -84,7 +84,7 @@ def check_coverage(module_path, test_path):
 
 def main():
     """
-    Main entry point.
+    Execute the main test coverage checking process.
     """
     changed_files = sys.argv[1:]
 

@@ -46,7 +46,7 @@ from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
 from nautilus_trader.common.actor import Actor
 from nautilus_trader.common.config import ActorConfig
-from nautilus_trader.core.data import Data
+from nautilus_trader.core import Data
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.identifiers import InstrumentId

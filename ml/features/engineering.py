@@ -23,7 +23,7 @@ Feature parity is critical for ML model performance in production.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 import msgspec
 import numpy as np
@@ -2121,7 +2121,7 @@ class _dummy_context_manager:
     Dummy context manager for when metrics is None.
     """
 
-    def __enter__(self) -> _dummy_context_manager:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:

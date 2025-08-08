@@ -258,7 +258,7 @@ else:
 
     def check_parity(self, changed_files):
         """
-        Main parity checking logic.
+        Check parity between training and inference feature definitions.
         """
         # Check if feature files changed
         feature_files = [
@@ -299,7 +299,7 @@ else:
 
 def main():
     """
-    Main entry point.
+    Execute the main feature parity checking process.
     """
     changed_files = sys.argv[1:]
 

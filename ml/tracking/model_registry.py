@@ -93,7 +93,7 @@ class ModelRegistry(MLflowManager):
         max_duration_hours: int = 168,  # 1 week
     ) -> str:
         """
-        Setup A/B test between two model versions.
+        Set up A/B test between two model versions.
 
         Parameters
         ----------
@@ -403,7 +403,7 @@ class ModelRegistry(MLflowManager):
         auto_rollback: bool = True,
     ) -> str:
         """
-        Setup canary deployment for gradual model rollout.
+        Set up canary deployment for gradual model rollout.
 
         Parameters
         ----------

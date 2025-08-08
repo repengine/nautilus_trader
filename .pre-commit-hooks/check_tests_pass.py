@@ -82,7 +82,7 @@ def run_tests(test_files):
 
     print(f"Running tests for {len(test_files)} file(s)...")
 
-    cmd = ["pytest"] + test_files + ["-xvs", "--tb=short"]
+    cmd = ["pytest", *test_files, "-xvs", "--tb=short"]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -104,7 +104,7 @@ def run_tests(test_files):
 
 def main():
     """
-    Main entry point.
+    Execute the main test running process.
     """
     # Get changed files from command line arguments
     changed_files = sys.argv[1:]
@@ -131,7 +131,7 @@ def main():
         ml_test_paths = [
             "tests/unit_tests/ml",
             "tests/integration_tests/ml",
-            "nautilus_trader/ml/tests",
+            "ml/tests",
         ]
 
         for test_dir in ml_test_paths:

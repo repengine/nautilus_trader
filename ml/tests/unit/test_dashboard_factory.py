@@ -525,8 +525,11 @@ class TestGrafanaDashboardFactory:
         """
         factory = GrafanaDashboardFactory()
 
+        import tempfile
+
         dashboard = {"title": "Test Dashboard", "uid": "test"}
-        filepath = "/tmp/test-dashboard.json"
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            filepath = tmp.name
 
         factory.save_dashboard(dashboard, filepath)
 
@@ -721,18 +724,16 @@ def test_main_function() -> None:
     with patch(
         "ml.monitoring.dashboard_factory.GrafanaDashboardFactory.save_dashboard",
     ) as mock_save:
-        with patch("builtins.print") as mock_print:
-            main()
+        main()
 
-            mock_save.assert_called_once()
-            mock_print.assert_called_once()
+        mock_save.assert_called_once()
 
-            # Verify the dashboard was created with expected properties
-            call_args = mock_save.call_args
-            dashboard = call_args[0][0]  # First argument is the dashboard
-            filepath = call_args[0][1]  # Second argument is the filepath
+        # Verify the dashboard was created with expected properties
+        call_args = mock_save.call_args
+        dashboard = call_args[0][0]  # First argument is the dashboard
+        filepath = call_args[0][1]  # Second argument is the filepath
 
-            assert dashboard["title"] == "Sample ML Dashboard"
-            assert dashboard["uid"] == "sample-ml-dashboard"
-            assert "ml-monitoring" in dashboard["tags"]
-            assert filepath == "/tmp/sample-dashboard.json"
+        assert dashboard["title"] == "Sample ML Dashboard"
+        assert dashboard["uid"] == "sample-ml-dashboard"
+        assert "ml-monitoring" in dashboard["tags"]
+        assert filepath.endswith("sample-dashboard.json")

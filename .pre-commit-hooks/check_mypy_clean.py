@@ -40,7 +40,8 @@ def check_mypy(changed_files):
         "pyproject.toml",
         "--allow-incomplete-defs",
         "--no-error-summary",  # Cleaner output
-    ] + python_files
+        *python_files,
+    ]
 
     # Run mypy
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -80,7 +81,7 @@ def check_mypy(changed_files):
 
 def main():
     """
-    Main entry point.
+    Execute the main mypy checking process.
     """
     changed_files = sys.argv[1:]
 

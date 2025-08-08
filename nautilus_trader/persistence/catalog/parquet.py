@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import itertools
 import os
 import platform
@@ -616,8 +615,8 @@ class ParquetDataCatalog(BaseDataCatalog):
     ) -> None:
         parquet_files = self.fs.glob(os.path.join(directory, "*.parquet"))
         files_to_consolidate = []
-        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
-        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
+        used_start: pd.Timestamp | None = time_object_to_dt(start)
+        used_end: pd.Timestamp | None = time_object_to_dt(end)
         intervals = []
 
         if len(parquet_files) <= 1:
@@ -921,8 +920,8 @@ class ParquetDataCatalog(BaseDataCatalog):
 
         """
         # Filter intervals by time range if specified
-        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
-        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
+        used_start: pd.Timestamp | None = time_object_to_dt(start)
+        used_end: pd.Timestamp | None = time_object_to_dt(end)
 
         filtered_intervals = []
         for interval_start, interval_end in intervals:
@@ -1309,8 +1308,8 @@ class ParquetDataCatalog(BaseDataCatalog):
 
         """
         # Convert start/end to nanoseconds
-        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
-        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
+        used_start: pd.Timestamp | None = time_object_to_dt(start)
+        used_end: pd.Timestamp | None = time_object_to_dt(end)
 
         delete_start_ns = used_start.value if used_start else None
         delete_end_ns = used_end.value if used_end else None
@@ -1772,8 +1771,8 @@ class ParquetDataCatalog(BaseDataCatalog):
         dataset = pds.dataset(file_list, filesystem=self.fs)
 
         # Filter dataset
-        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
-        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
+        used_start: pd.Timestamp | None = time_object_to_dt(start)
+        used_end: pd.Timestamp | None = time_object_to_dt(end)
         filters: list[pds.Expression] = [filter_expr] if filter_expr is not None else []
 
         if used_start is not None:
@@ -1836,8 +1835,8 @@ class ParquetDataCatalog(BaseDataCatalog):
             else:
                 file_paths = exact_match_file_paths
 
-        used_start: dt.datetime | None = time_object_to_dt(start)  # type: ignore[arg-type]
-        used_end: dt.datetime | None = time_object_to_dt(end)  # type: ignore[arg-type]
+        used_start: pd.Timestamp | None = time_object_to_dt(start)
+        used_end: pd.Timestamp | None = time_object_to_dt(end)
         file_paths = [
             file_path
             for file_path in file_paths

@@ -358,7 +358,7 @@ def check_file(filepath: str) -> tuple[bool, list[str], list[str]]:
 
 def main():  # noqa: C901
     """
-    Main entry point for the pre-commit hook.
+    Execute the main Nautilus pattern checking process.
 
     Returns
     -------

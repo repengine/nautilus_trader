@@ -136,7 +136,7 @@ def check_coverage(changed_files):
 
 def main():
     """
-    Main entry point.
+    Execute the main general test coverage checking process.
     """
     changed_files = sys.argv[1:]
 

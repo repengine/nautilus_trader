@@ -420,7 +420,7 @@ class MonitoredModelTrainer:
 
         # Phase 3: Validation
         phase_start = time.perf_counter()
-        score = self._validate_model(model, X_processed, y)
+        self._validate_model(model, X_processed, y)
         self._phase_times["validation"] = time.perf_counter() - phase_start
 
         # Record metrics if collector is available
@@ -548,7 +548,7 @@ def example_complete_integration() -> None:
         y = np.random.randint(0, 2, size=len(features_df))
 
         # Train model (will record metrics)
-        model = trainer.train_model(
+        trainer.train_model(
             X,
             y,
             model_name="xgboost_demo",

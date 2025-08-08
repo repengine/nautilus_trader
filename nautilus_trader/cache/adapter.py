@@ -205,7 +205,7 @@ class CachePostgresAdapter(CacheDatabaseFacade):
         self._backing.add_bar(bar_pyo3)
 
     def update_order(self, order: Order) -> None:
-        order_event_pyo3 = transform_order_event_to_pyo3(order.last_event)  # type: ignore[no-untyped-call]
+        order_event_pyo3 = transform_order_event_to_pyo3(order.last_event)
         self._backing.update_order(order_event_pyo3)
 
     def update_account(self, account: Account) -> None:

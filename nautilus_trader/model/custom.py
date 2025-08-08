@@ -40,7 +40,7 @@ def customdataclass(*args: Any, **kwargs: Any) -> Any:  # noqa: C901 (too comple
         if cls.__init__ is object.__init__:
             create_init = True
 
-        if cls.__repr__ is object.__repr__:  # type: ignore[comparison-overlap]
+        if cls.__repr__ is object.__repr__:
             create_repr = True
 
         cls = dataclass(cls, **kwargs)
@@ -75,7 +75,7 @@ def customdataclass(*args: Any, **kwargs: Any) -> Any:  # noqa: C901 (too comple
                     + f"ts_init={unix_nanos_to_iso8601(self._ts_init)})"
                 )
 
-                return repr[:-1] + time_repr  # type: ignore[no-any-return]
+                return repr[:-1] + time_repr
 
             cls.__repr__ = __repr__  # type: ignore[assignment]
 
@@ -83,7 +83,7 @@ def customdataclass(*args: Any, **kwargs: Any) -> Any:  # noqa: C901 (too comple
 
             @property  # type: ignore[misc]
             def ts_event(self: Any) -> int:
-                return self._ts_event  # type: ignore[no-any-return]
+                return self._ts_event
 
             cls.ts_event = ts_event
 
@@ -91,7 +91,7 @@ def customdataclass(*args: Any, **kwargs: Any) -> Any:  # noqa: C901 (too comple
 
             @property  # type: ignore[misc]
             def ts_init(self: Any) -> int:
-                return self._ts_init  # type: ignore[no-any-return]
+                return self._ts_init
 
             cls.ts_init = ts_init
 

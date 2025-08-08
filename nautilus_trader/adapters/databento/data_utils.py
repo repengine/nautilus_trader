@@ -110,7 +110,7 @@ def databento_cost(
     """
     definition_start_date, definition_end_date = databento_definition_dates(start_time)
 
-    return client.metadata.get_cost(  # type: ignore[union-attr,no-any-return]
+    return client.metadata.get_cost(  # type: ignore[union-attr]
         dataset=dataset,
         symbols=symbols,
         schema=schema,

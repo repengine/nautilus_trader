@@ -26,14 +26,14 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from ml.actors.base import MLSignal
 from ml.common.metrics import HAS_PROMETHEUS
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import MLStrategyConfig
-from nautilus_trader.core.data import Data
+from nautilus_trader.core import Data
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.enums import OrderSide
@@ -80,9 +80,10 @@ def _initialize_metrics() -> None:
                 ["strategy_id", "signal_source"],
             )
         else:
-            ml_signals_received = REGISTRY._names_to_collectors[
-                "nautilus_ml_signals_received_total"
-            ]
+            ml_signals_received = cast(
+                Counter,
+                REGISTRY._names_to_collectors["nautilus_ml_signals_received_total"],
+            )
 
         if "nautilus_ml_trades_executed_total" not in existing_names:
             ml_trades_executed = Counter(
@@ -91,7 +92,10 @@ def _initialize_metrics() -> None:
                 ["strategy_id", "order_side"],
             )
         else:
-            ml_trades_executed = REGISTRY._names_to_collectors["nautilus_ml_trades_executed_total"]
+            ml_trades_executed = cast(
+                Counter,
+                REGISTRY._names_to_collectors["nautilus_ml_trades_executed_total"],
+            )
 
         if "nautilus_ml_signal_to_trade_latency_seconds" not in existing_names:
             ml_signal_to_trade_latency = Histogram(
@@ -100,9 +104,10 @@ def _initialize_metrics() -> None:
                 ["strategy_id"],
             )
         else:
-            ml_signal_to_trade_latency = REGISTRY._names_to_collectors[
-                "nautilus_ml_signal_to_trade_latency_seconds"
-            ]
+            ml_signal_to_trade_latency = cast(
+                Histogram,
+                REGISTRY._names_to_collectors["nautilus_ml_signal_to_trade_latency_seconds"],
+            )
 
         if "nautilus_ml_position_count" not in existing_names:
             ml_position_count = Counter(
@@ -111,7 +116,10 @@ def _initialize_metrics() -> None:
                 ["strategy_id", "instrument"],
             )
         else:
-            ml_position_count = REGISTRY._names_to_collectors["nautilus_ml_position_count"]
+            ml_position_count = cast(
+                Counter,
+                REGISTRY._names_to_collectors["nautilus_ml_position_count"],
+            )
     else:
         # Use dummy metrics when Prometheus is not available
         ml_signals_received = Counter(

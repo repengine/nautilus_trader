@@ -24,7 +24,7 @@ AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")
 
 
 class TestKeltnerPosition:
-    def setup(self):
+    def setup_method(self):
         # Fixture Setup
         self.kp = KeltnerPosition(10, 2.5)
 

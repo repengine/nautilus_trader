@@ -198,7 +198,7 @@ class XGBoostTrainer(BaseMLTrainer):
 
         # Prepare evaluation list
         evals = [(self._dtrain, "train"), (self._dval, "eval")]
-        evals_result = {}
+        evals_result: dict[str, dict[str, list[float]]] = {}
 
         # Train model
         self._booster = xgb.train(
@@ -410,12 +410,13 @@ class XGBoostTrainer(BaseMLTrainer):
                 # XGBoost uses f0, f1, ... if feature names aren't set
                 xgb_fname = fname if fname in importance_dict else f"f{i}"
                 if xgb_fname in importance_dict:
-                    result[fname] = importance_dict[xgb_fname]
+                    val = importance_dict[xgb_fname]
+                    result[fname] = float(val[0] if isinstance(val, list) else val)
                 else:
                     result[fname] = 0.0
             return result
 
-        return importance_dict
+        return {k: float(v[0] if isinstance(v, list) else v) for k, v in importance_dict.items()}
 
     def get_shap_values(
         self,

@@ -326,7 +326,7 @@ class DashboardValidator:
 
     def _validate_promql_syntax(self, expr: str, context: str) -> None:
         """
-        Basic PromQL syntax validation.
+        Validate basic PromQL syntax.
         """
         # Check for balanced parentheses
         if expr.count("(") != expr.count(")"):
@@ -573,7 +573,7 @@ def validate_directory(
 
 def main() -> int:
     """
-    Main entry point.
+    Execute the main dashboard validation process.
     """
     parser = argparse.ArgumentParser(
         description="Validate Grafana dashboard JSON files",

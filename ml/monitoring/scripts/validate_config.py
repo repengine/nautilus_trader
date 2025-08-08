@@ -473,7 +473,6 @@ class ConfigValidator:
         Validate time range format.
         """
         # Basic validation for Grafana time format
-        valid_patterns = ["now", "now-", "YYYY-MM-DD"]
 
         def check_time(time_str: str) -> bool:
             if time_str == "now":
@@ -521,7 +520,7 @@ def print_validation_results(
 
 def main() -> int:
     """
-    Main entry point.
+    Execute the main validation process.
     """
     parser = argparse.ArgumentParser(
         description="Validate ML monitoring configuration",

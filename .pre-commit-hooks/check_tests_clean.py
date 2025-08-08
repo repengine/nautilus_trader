@@ -46,7 +46,15 @@ def get_test_files_for_changed_files(changed_files):
 
         if "nautilus_trader" in path.parts:
             # For nautilus_trader files
-            rel_path = path.relative_to("nautilus_trader")
+            try:
+                rel_path = path.relative_to("nautilus_trader")
+            except ValueError:
+                # Handle files in python/nautilus_trader/
+                if path.parts[0] == "python" and "nautilus_trader" in path.parts:
+                    nautilus_trader_idx = path.parts.index("nautilus_trader")
+                    rel_path = Path(*path.parts[nautilus_trader_idx + 1 :])
+                else:
+                    continue
             possible_test_locations.extend(
                 [
                     Path("tests") / "unit_tests" / rel_path.parent / f"test_{path.name}",

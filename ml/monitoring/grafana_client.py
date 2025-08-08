@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, cast
+from typing import Any, Self, cast
 from urllib.parse import urljoin
 from urllib.parse import urlparse
 
@@ -625,13 +625,18 @@ class GrafanaClient:
         if self.session:
             self.session.close()
 
-    def __enter__(self) -> GrafanaClient:
+    def __enter__(self) -> Self:
         """
         Context manager entry.
         """
         return self
 
-    def __exit__(self, exc_type: type | None, exc_val: Exception | None, exc_tb: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """
         Context manager exit.
         """
@@ -640,7 +645,7 @@ class GrafanaClient:
 
 def main() -> None:
     """
-    Example usage of the Grafana client.
+    Demonstrate usage of the Grafana client.
     """
     # Example usage - would normally get these from environment
     grafana_url = "http://localhost:3000"
