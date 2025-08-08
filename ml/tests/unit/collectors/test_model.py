@@ -58,14 +58,14 @@ class TestModelLifecycleCollector:
         config = MonitoringConfig(enabled=False)
         return ModelLifecycleCollector(config)
 
-    def test_initialization(self, collector):
+    def test_initialization(self, collector) -> None:
         """
         Test collector initialization.
         """
         assert collector.enabled == HAS_PROMETHEUS
         assert collector.get_metric_count() > 0 or not HAS_PROMETHEUS
 
-    def test_disabled_initialization(self, disabled_collector):
+    def test_disabled_initialization(self, disabled_collector) -> None:
         """
         Test disabled collector initialization.
         """
@@ -73,7 +73,7 @@ class TestModelLifecycleCollector:
         assert disabled_collector.get_metric_count() == 0
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_model_deployment(self, collector):
+    def test_record_model_deployment(self, collector) -> None:
         """
         Test recording model deployment.
         """
@@ -95,7 +95,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_model_training(self, collector):
+    def test_record_model_training(self, collector) -> None:
         """
         Test recording model training metrics.
         """
@@ -115,7 +115,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_model_loading(self, collector):
+    def test_record_model_loading(self, collector) -> None:
         """
         Test recording model loading metrics.
         """
@@ -134,7 +134,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_update_model_scores(self, collector):
+    def test_update_model_scores(self, collector) -> None:
         """
         Test updating model scores.
         """
@@ -168,7 +168,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_time_training_context_manager(self, collector):
+    def test_time_training_context_manager(self, collector) -> None:
         """
         Test model training timer context manager.
         """
@@ -182,7 +182,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_time_training_context_manager_with_exception(self, collector):
+    def test_time_training_context_manager_with_exception(self, collector) -> None:
         """
         Test model training timer with exception.
         """
@@ -199,7 +199,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_time_loading_context_manager(self, collector):
+    def test_time_loading_context_manager(self, collector) -> None:
         """
         Test model loading timer context manager.
         """
@@ -213,7 +213,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_time_loading_context_manager_with_exception(self, collector):
+    def test_time_loading_context_manager_with_exception(self, collector) -> None:
         """
         Test model loading timer with exception.
         """
@@ -230,7 +230,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_get_model_stats(self, collector):
+    def test_get_model_stats(self, collector) -> None:
         """
         Test getting model statistics.
         """
@@ -251,7 +251,7 @@ class TestModelLifecycleCollector:
         # The exact keys depend on what metrics have been recorded and have values
         assert stats["model"] == model_name
 
-    def test_get_model_stats_disabled(self, disabled_collector):
+    def test_get_model_stats_disabled(self, disabled_collector) -> None:
         """
         Test getting model stats when disabled.
         """
@@ -262,7 +262,7 @@ class TestModelLifecycleCollector:
         assert "model" in stats
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_additional_model_operations(self, collector):
+    def test_additional_model_operations(self, collector) -> None:
         """
         Test additional model operations.
         """
@@ -290,7 +290,7 @@ class TestModelLifecycleCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_thread_safety(self, collector):
+    def test_thread_safety(self, collector) -> None:
         """
         Test thread safety of collector operations.
         """
@@ -320,7 +320,7 @@ class TestModelLifecycleCollector:
         assert len(results) == 3
         assert len(errors) == 0
 
-    def test_disabled_collector_operations(self, disabled_collector):
+    def test_disabled_collector_operations(self, disabled_collector) -> None:
         """
         Test that disabled collector handles operations gracefully.
         """
@@ -350,7 +350,7 @@ class TestModelLifecycleCollector:
         # Should not raise any exceptions
         assert True
 
-    def test_health_check(self, collector):
+    def test_health_check(self, collector) -> None:
         """
         Test health check functionality.
         """
@@ -366,7 +366,7 @@ class TestModelLifecycleCollector:
         assert health["collector_type"] == "ModelLifecycleCollector"
 
     @patch("ml.monitoring.collectors.base.HAS_PROMETHEUS", False)
-    def test_graceful_degradation_without_prometheus(self):
+    def test_graceful_degradation_without_prometheus(self) -> None:
         """
         Test graceful degradation when Prometheus is not available.
         """
@@ -393,7 +393,7 @@ class TestModelLifecycleCollector:
         # Should not raise any exceptions
         assert True
 
-    def test_string_representation(self, collector):
+    def test_string_representation(self, collector) -> None:
         """
         Test string representation of collector.
         """

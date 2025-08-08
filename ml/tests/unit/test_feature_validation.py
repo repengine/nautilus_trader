@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ml.constants import MLConstants
+from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
 from ml.features.validation import FeatureParityError
 from ml.features.validation import FeatureParityValidator

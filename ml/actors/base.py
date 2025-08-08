@@ -669,6 +669,13 @@ class BaseMLInferenceActor(Actor, ABC):
         # Track bars for warm-up period
         self._bars_processed += 1
 
+        # Check if warmed up first (before feature computation)
+        if not self._is_warmed_up:
+            if self._bars_processed >= self._config.warm_up_period:
+                self._is_warmed_up = True
+                if hasattr(self, "log"):
+                    self.log.info("Enhanced ML Actor warm-up complete, starting predictions")
+
         # Update indicators and compute features with timing
         start_feature_time = time.perf_counter()
         features = self._compute_features(bar)
@@ -693,14 +700,9 @@ class BaseMLInferenceActor(Actor, ABC):
         # Add to rolling window
         self._feature_window.append(features)
 
-        # Check if warmed up
+        # Skip prediction if still warming up
         if not self._is_warmed_up:
-            if self._bars_processed >= self._config.warm_up_period:
-                self._is_warmed_up = True
-                if hasattr(self, "log"):
-                    self.log.info("Enhanced ML Actor warm-up complete, starting predictions")
-            else:
-                return  # Still warming up
+            return  # Still warming up
 
         # Generate prediction with circuit breaker protection
         self._generate_prediction_protected(bar, features)
@@ -770,27 +772,18 @@ class BaseMLInferenceActor(Actor, ABC):
                     self._health_monitor.update_latency_violation()
 
             # Track metrics
-            self._inference_latency_metric.observe(
-                inference_time / 1000,
-                {
-                    "actor_id": str(self.id) if self.id else "unknown",
-                    "model_name": Path(self._config.model_path).stem,
-                },
-            )
-            self._inference_count_metric.inc(
-                1.0,
-                {
-                    "actor_id": str(self.id) if self.id else "unknown",
-                    "model_name": Path(self._config.model_path).stem,
-                },
-            )
-            self._inference_confidence_metric.observe(
-                confidence,
-                {
-                    "actor_id": str(self.id) if self.id else "unknown",
-                    "model_name": Path(self._config.model_path).stem,
-                },
-            )
+            self._inference_latency_metric.labels(
+                actor_id=str(self.id) if self.id else "unknown",
+                model_name=Path(self._config.model_path).stem,
+            ).observe(inference_time / 1000)
+            self._inference_count_metric.labels(
+                actor_id=str(self.id) if self.id else "unknown",
+                model_name=Path(self._config.model_path).stem,
+            ).inc()
+            self._inference_confidence_metric.labels(
+                actor_id=str(self.id) if self.id else "unknown",
+                model_name=Path(self._config.model_path).stem,
+            ).observe(confidence)
 
             # Log prediction if configured
             if self._config.log_predictions:
@@ -941,11 +934,13 @@ class BaseMLInferenceActor(Actor, ABC):
             return
 
         # Use Nautilus timer for scheduling
-        self.clock.set_timer(
+        interval_ns = self._config.model_check_interval * 1_000_000_000  # Convert to ns
+        self.clock.set_timer_ns(
             name="model_version_check",
-            interval_ns=self._config.model_check_interval * 1_000_000_000,  # Convert to ns
-            start_time_ns=None,  # Start immediately
-            handler=self._check_model_updates,
+            interval_ns=interval_ns,
+            start_time_ns=self.clock.timestamp_ns() + interval_ns,
+            stop_time_ns=0,  # No stop time (runs indefinitely)
+            callback=self._check_model_updates,
         )
 
         self.log.info(
@@ -1320,8 +1315,12 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         # Additional derived features
         self._feature_buffer[10] = min(float(self._rsi.value) / 50.0 - 1.0, 1.0)  # RSI deviation
 
-        # Return only the used portion of the buffer
-        return self._feature_buffer[:11].copy()
+        # Return view of the used portion of the buffer (zero-allocation in hot path)
+        # SAFETY: This is safe because:
+        # 1. The feature buffer is pre-allocated and reused
+        # 2. The caller immediately uses this for prediction, not storing it
+        # 3. The buffer content is overwritten on the next bar
+        return self._feature_buffer[:11]
 
     def _load_model(self) -> None:
         """

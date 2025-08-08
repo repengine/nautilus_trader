@@ -21,6 +21,7 @@ including Prometheus registry management and test isolation.
 """
 
 import uuid
+from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -35,7 +36,7 @@ class MetricNameManager:
     Manages unique metric names for test isolation.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the metric name manager.
         """
@@ -49,7 +50,7 @@ class MetricNameManager:
 
 
 @pytest.fixture
-def metric_name_manager():
+def metric_name_manager() -> MetricNameManager:
     """
     Provide a metric name manager for unique metric names.
     """
@@ -57,7 +58,7 @@ def metric_name_manager():
 
 
 @pytest.fixture
-def monitoring_config():
+def monitoring_config() -> MonitoringConfig:
     """
     Provide a basic monitoring configuration.
     """
@@ -65,7 +66,7 @@ def monitoring_config():
 
 
 @pytest.fixture
-def disabled_monitoring_config():
+def disabled_monitoring_config() -> MonitoringConfig:
     """
     Provide a disabled monitoring configuration.
     """
@@ -73,7 +74,7 @@ def disabled_monitoring_config():
 
 
 @pytest.fixture(autouse=True)
-def mock_prometheus_when_unavailable():
+def mock_prometheus_when_unavailable() -> Any:
     """
     Mock Prometheus imports when not available to prevent import errors.
     """
@@ -100,7 +101,7 @@ def mock_prometheus_when_unavailable():
 
 
 @pytest.fixture
-def prometheus_registry_cleanup():
+def prometheus_registry_cleanup() -> Any:
     """
     Clean up Prometheus registry after each test to prevent conflicts.
     """
@@ -134,7 +135,7 @@ def prometheus_registry_cleanup():
 
 
 @pytest.fixture
-def mock_data_catalog():
+def mock_data_catalog() -> MagicMock:
     """
     Provide a mock data catalog for testing.
     """

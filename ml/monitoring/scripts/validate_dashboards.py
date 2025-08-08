@@ -644,9 +644,9 @@ def main() -> int:
             if is_valid and (not args.strict or len(warnings) == 0):
                 valid_files += 1
                 if not args.quiet:
-                    logger.info(f"✓ {filename}: Valid")
+                    logger.info(f" {filename}: Valid")
             else:
-                logger.error(f"✗ {filename}: Invalid")
+                logger.error(f" {filename}: Invalid")
 
             total_errors += len(errors)
             total_warnings += len(warnings)

@@ -68,7 +68,7 @@ class TestMLMetricsRegistry:
         """
         return MLMetricsRegistry(disabled_config, enable_background_monitoring=False)
 
-    def test_initialization(self, registry, config):
+    def test_initialization(self, registry, config) -> None:
         """
         Test registry initialization.
         """
@@ -83,14 +83,14 @@ class TestMLMetricsRegistry:
         for expected in expected_collectors:
             assert expected in collectors
 
-    def test_disabled_initialization(self, disabled_registry):
+    def test_disabled_initialization(self, disabled_registry) -> None:
         """
         Test disabled registry initialization.
         """
         assert not disabled_registry.enabled
         assert not disabled_registry.started
 
-    def test_get_collector(self, registry):
+    def test_get_collector(self, registry) -> None:
         """
         Test getting specific collectors.
         """
@@ -105,7 +105,7 @@ class TestMLMetricsRegistry:
         with pytest.raises(ValueError, match="Unknown collector type"):
             registry.get_collector("invalid")
 
-    def test_list_collectors(self, registry):
+    def test_list_collectors(self, registry) -> None:
         """
         Test listing all collector types.
         """
@@ -117,7 +117,7 @@ class TestMLMetricsRegistry:
         assert "data" in collectors
         assert "features" in collectors
 
-    def test_get_all_collectors(self, registry):
+    def test_get_all_collectors(self, registry) -> None:
         """
         Test getting all collectors as dictionary.
         """
@@ -130,7 +130,7 @@ class TestMLMetricsRegistry:
         all_collectors["test"] = "value"
         assert "test" not in registry.get_all_collectors()
 
-    def test_health_check(self, registry):
+    def test_health_check(self, registry) -> None:
         """
         Test comprehensive health check.
         """
@@ -149,7 +149,7 @@ class TestMLMetricsRegistry:
         assert health["server_port"] == 8081
         assert health["started"] is False  # Not started yet
 
-    def test_start_stop_lifecycle(self, registry):
+    def test_start_stop_lifecycle(self, registry) -> None:
         """
         Test start/stop lifecycle.
         """
@@ -171,7 +171,7 @@ class TestMLMetricsRegistry:
         registry.stop()
         assert not registry.started
 
-    def test_context_manager(self, registry):
+    def test_context_manager(self, registry) -> None:
         """
         Test registry as context manager.
         """
@@ -183,14 +183,14 @@ class TestMLMetricsRegistry:
 
         assert not registry.started
 
-    def test_reset_all_metrics(self, registry):
+    def test_reset_all_metrics(self, registry) -> None:
         """
         Test resetting all metrics across collectors.
         """
         # This should complete without errors
         registry.reset_all_metrics()
 
-    def test_get_metrics_summary(self, registry):
+    def test_get_metrics_summary(self, registry) -> None:
         """
         Test getting metrics summary.
         """
@@ -203,14 +203,14 @@ class TestMLMetricsRegistry:
         assert summary["total_collectors"] == 6
         assert summary["registry_status"] == "stopped"
 
-    def test_configure_collector_not_implemented(self, registry):
+    def test_configure_collector_not_implemented(self, registry) -> None:
         """
         Test that collector configuration raises NotImplementedError.
         """
         with pytest.raises(NotImplementedError):
             registry.configure_collector("data", param1="value1")
 
-    def test_prometheus_registry_access(self, registry):
+    def test_prometheus_registry_access(self, registry) -> None:
         """
         Test accessing Prometheus registry.
         """
@@ -221,7 +221,7 @@ class TestMLMetricsRegistry:
         else:
             assert prom_registry is None
 
-    def test_export_metrics(self, registry):
+    def test_export_metrics(self, registry) -> None:
         """
         Test exporting metrics in Prometheus format.
         """
@@ -233,7 +233,7 @@ class TestMLMetricsRegistry:
         else:
             assert metrics_text == ""
 
-    def test_disabled_registry_operations(self, disabled_registry):
+    def test_disabled_registry_operations(self, disabled_registry) -> None:
         """
         Test that disabled registry operations work correctly.
         """
@@ -253,7 +253,7 @@ class TestMLMetricsRegistry:
         with disabled_registry:
             pass
 
-    def test_string_representation(self, registry):
+    def test_string_representation(self, registry) -> None:
         """
         Test string representation.
         """
@@ -264,7 +264,7 @@ class TestMLMetricsRegistry:
         assert "server_port=8081" in repr_str
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_enabled_registry_with_prometheus(self, registry):
+    def test_enabled_registry_with_prometheus(self, registry) -> None:
         """
         Test enabled registry when Prometheus is available.
         """
@@ -276,7 +276,7 @@ class TestMLMetricsRegistry:
         summary = registry.get_metrics_summary()
         assert summary["enabled_collectors"] > 0
 
-    def test_background_monitoring_flag(self, config):
+    def test_background_monitoring_flag(self, config) -> None:
         """
         Test background monitoring flag.
         """
@@ -294,7 +294,7 @@ class TestMLMetricsRegistry:
         registry_no_bg = MLMetricsRegistry(config2, enable_background_monitoring=False)
         assert not registry_no_bg._enable_background_monitoring
 
-    def test_collector_health_in_registry(self, registry):
+    def test_collector_health_in_registry(self, registry) -> None:
         """
         Test that individual collector health is included in registry health.
         """

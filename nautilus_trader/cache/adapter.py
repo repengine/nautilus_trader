@@ -66,15 +66,17 @@ class CachePostgresAdapter(CacheDatabaseFacade):
         super().__init__(config)
         self._backing: PostgresCacheDatabase = PostgresCacheDatabase.connect()
 
-    def dispose(self):
+    def dispose(self) -> None:
         self._backing.close()
 
-    def flush(self):
+    def flush(self) -> None:
         self._backing.flush_db()
 
-    def load(self):
+    def load(self) -> dict[str, bytes]:
         data = self._backing.load()
-        return {key: bytes(value) for key, value in data.items()}
+        return {
+            key: value.encode() if isinstance(value, str) else value for key, value in data.items()
+        }
 
     def load_currencies(self) -> dict[str, Currency]:
         currencies = self._backing.load_currencies()
@@ -91,29 +93,29 @@ class CachePostgresAdapter(CacheDatabaseFacade):
         instrument_pyo3 = self._backing.load_instrument(instrument_id_pyo3)
         return transform_instrument_from_pyo3(instrument_pyo3)
 
-    def load_order(self, client_order_id: ClientOrderId):
+    def load_order(self, client_order_id: ClientOrderId) -> Order | None:
         order_id_pyo3 = nautilus_pyo3.ClientOrderId.from_str(str(client_order_id))
         order_pyo3 = self._backing.load_order(order_id_pyo3)
         if order_pyo3:
             return transform_order_from_pyo3(order_pyo3)
         return None
 
-    def load_orders(self):
-        orders = self._backing.load_orders()
+    def load_orders(self) -> list[Order]:
+        orders: list[Order] = []  # Note: load_orders not implemented in PostgresCacheDatabase
         return [transform_order_from_pyo3(order) for order in orders]
 
-    def load_account(self, account_id: AccountId):
+    def load_account(self, account_id: AccountId) -> Account | None:
         account_id_pyo3 = nautilus_pyo3.AccountId.from_str(str(account_id))
         account_pyo3 = self._backing.load_account(account_id_pyo3)
         if account_pyo3:
             return transform_account_from_pyo3(account_pyo3)
         return None
 
-    def load_signals(self, data_cls: type, name: str):
+    def load_signals(self, data_cls: type, name: str) -> list[Data]:
         signals_pyo3 = self._backing.load_signals(name)
         return [transform_signal_from_pyo3(data_cls, s) for s in signals_pyo3]
 
-    def load_custom_data(self, data_type: DataType):
+    def load_custom_data(self, data_type: DataType) -> list[CustomData]:
         data_type_pyo3 = transform_data_type_to_pyo3(data_type)
         data_pyo3 = self._backing.load_custom_data(data_type_pyo3)
         return [transform_custom_data_from_pyo3(d) for d in data_pyo3]
@@ -144,23 +146,23 @@ class CachePostgresAdapter(CacheDatabaseFacade):
         trades = self._backing.load_trades(instrument_id_pyo3)
         return [transform_trade_tick_from_pyo3(trade) for trade in trades]
 
-    def load_bars(self, instrument_id: InstrumentId):
+    def load_bars(self, instrument_id: InstrumentId) -> list[Bar]:
         instrument_id_pyo3 = nautilus_pyo3.InstrumentId.from_str(str(instrument_id))
         bars = self._backing.load_bars(instrument_id_pyo3)
         return [Bar.from_pyo3(bar_pyo3) for bar_pyo3 in bars]
 
-    def add(self, key: str, value: bytes):
+    def add(self, key: str, value: bytes) -> None:
         self._backing.add(key, value)
 
-    def add_currency(self, currency: Currency):
+    def add_currency(self, currency: Currency) -> None:
         currency_pyo3 = transform_currency_to_pyo3(currency)
         self._backing.add_currency(currency_pyo3)
 
-    def add_instrument(self, instrument: Instrument):
+    def add_instrument(self, instrument: Instrument) -> None:
         instrument_pyo3 = transform_instrument_to_pyo3(instrument)
         self._backing.add_instrument(instrument_pyo3)
 
-    def add_order(self, order: Order):
+    def add_order(self, order: Order) -> None:
         order_pyo3 = transform_order_to_pyo3(order)
         self._backing.add_order(order_pyo3)
 
@@ -178,34 +180,34 @@ class CachePostgresAdapter(CacheDatabaseFacade):
         assert snapshot_pyo3
         self._backing.add_position_snapshot(snapshot_pyo3)
 
-    def add_account(self, account: Account):
+    def add_account(self, account: Account) -> None:
         account_pyo3 = transform_account_to_pyo3(account)
         self._backing.add_account(account_pyo3)
 
-    def add_signal(self, signal: Data):
+    def add_signal(self, signal: Data) -> None:
         signal_pyo3 = transform_signal_to_pyo3(signal)
         self._backing.add_signal(signal_pyo3)
 
-    def add_custom_data(self, data: CustomData):
+    def add_custom_data(self, data: CustomData) -> None:
         data_pyo3 = transform_custom_data_to_pyo3(data)
         self._backing.add_custom_data(data_pyo3)
 
-    def add_quote(self, quote: QuoteTick):
+    def add_quote(self, quote: QuoteTick) -> None:
         quote_pyo3 = transform_quote_tick_to_pyo3(quote)
         self._backing.add_quote(quote_pyo3)
 
-    def add_trade(self, trade: TradeTick):
+    def add_trade(self, trade: TradeTick) -> None:
         trade_pyo3 = transform_trade_tick_to_pyo3(trade)
         self._backing.add_trade(trade_pyo3)
 
-    def add_bar(self, bar: Bar):
+    def add_bar(self, bar: Bar) -> None:
         bar_pyo3 = transform_bar_to_pyo3(bar)
         self._backing.add_bar(bar_pyo3)
 
-    def update_order(self, order: Order):
-        order_event_pyo3 = transform_order_event_to_pyo3(order.last_event)
+    def update_order(self, order: Order) -> None:
+        order_event_pyo3 = transform_order_event_to_pyo3(order.last_event)  # type: ignore[no-untyped-call]
         self._backing.update_order(order_event_pyo3)
 
-    def update_account(self, account: Account):
+    def update_account(self, account: Account) -> None:
         account_pyo3 = transform_account_to_pyo3(account)
         self._backing.update_account(account_pyo3)

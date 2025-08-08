@@ -23,7 +23,12 @@ components following Nautilus Trader's ML monitoring patterns.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class GrafanaPanelFactory:
@@ -647,7 +652,7 @@ def main() -> None:
 
     # Save the dashboard
     factory.save_dashboard(dashboard, "/tmp/sample-dashboard.json")
-    print("Sample dashboard saved to /tmp/sample-dashboard.json")
+    logger.info("Dashboard saved to /tmp/sample-dashboard.json")
 
 
 if __name__ == "__main__":

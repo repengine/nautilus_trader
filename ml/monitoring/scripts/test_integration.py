@@ -42,7 +42,18 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
+
+
+class TestResult(TypedDict):
+    """
+    Type definition for test results.
+    """
+
+    success: bool
+    errors: list[str]
+    warnings: list[str]
+    info: list[str]
 
 
 # Set up path for imports
@@ -58,8 +69,8 @@ try:
     from scripts.validate_dashboards import validate_directory
     from scripts.validate_dashboards import validate_file
 except ImportError as e:
-    print(f"Import error: {e}")
-    print("Make sure you're running from the ml/monitoring directory")
+    logger.error(f"Test failed: {e}")
+    logger.info("Make sure you're running from the ml/monitoring directory")
     sys.exit(1)
 
 
@@ -81,16 +92,16 @@ class IntegrationTester:
         """
         Initialize integration tester.
         """
-        self.test_results: dict[str, dict[str, Any]] = {}
+        self.test_results: dict[str, TestResult] = {}
         self.temp_files: list[Path] = []
 
-    def run_all_tests(self) -> dict[str, dict[str, Any]]:
+    def run_all_tests(self) -> dict[str, TestResult]:
         """
         Run all integration tests.
 
         Returns
         -------
-        dict[str, dict[str, Any]]
+        dict[str, TestResult]
             Test results
 
         """
@@ -110,12 +121,12 @@ class IntegrationTester:
 
         return self.test_results
 
-    def test_dashboard_factory(self) -> dict[str, Any]:
+    def test_dashboard_factory(self) -> TestResult:
         """
         Test dashboard factory functionality.
         """
         logger.info("Testing dashboard factory...")
-        result = {"success": True, "errors": [], "warnings": [], "info": []}
+        result: TestResult = {"success": True, "errors": [], "warnings": [], "info": []}
 
         try:
             # Test panel factory
@@ -198,12 +209,12 @@ class IntegrationTester:
 
         return result
 
-    def test_dashboard_validation(self) -> dict[str, Any]:
+    def test_dashboard_validation(self) -> TestResult:
         """
         Test dashboard validation functionality.
         """
         logger.info("Testing dashboard validation...")
-        result = {"success": True, "errors": [], "warnings": [], "info": []}
+        result: TestResult = {"success": True, "errors": [], "warnings": [], "info": []}
 
         try:
             # Create a test dashboard
@@ -249,12 +260,12 @@ class IntegrationTester:
 
         return result
 
-    def test_config_validation(self) -> dict[str, Any]:
+    def test_config_validation(self) -> TestResult:
         """
         Test configuration validation.
         """
         logger.info("Testing configuration validation...")
-        result = {"success": True, "errors": [], "warnings": [], "info": []}
+        result: TestResult = {"success": True, "errors": [], "warnings": [], "info": []}
 
         try:
             # Create a minimal test config
@@ -292,12 +303,12 @@ class IntegrationTester:
 
         return result
 
-    def test_dashboard_files(self) -> dict[str, Any]:
+    def test_dashboard_files(self) -> TestResult:
         """
         Test existing dashboard JSON files.
         """
         logger.info("Testing dashboard JSON files...")
-        result = {"success": True, "errors": [], "warnings": [], "info": []}
+        result: TestResult = {"success": True, "errors": [], "warnings": [], "info": []}
 
         try:
             # Find dashboard directory
@@ -334,12 +345,12 @@ class IntegrationTester:
 
         return result
 
-    def test_live_grafana(self, grafana_url: str, api_token: str) -> dict[str, Any]:
+    def test_live_grafana(self, grafana_url: str, api_token: str) -> TestResult:
         """
         Test connection to live Grafana instance.
         """
         logger.info("Testing live Grafana connection...")
-        result = {"success": True, "errors": [], "warnings": [], "info": []}
+        result: TestResult = {"success": True, "errors": [], "warnings": [], "info": []}
 
         try:
             # Create Grafana client
@@ -394,12 +405,12 @@ class IntegrationTester:
 
         return result
 
-    def test_dashboard_performance(self, dashboard_file: Path) -> dict[str, Any]:
+    def test_dashboard_performance(self, dashboard_file: Path) -> TestResult:
         """
         Test dashboard rendering performance.
         """
         logger.info(f"Testing dashboard performance: {dashboard_file}")
-        result = {"success": True, "errors": [], "warnings": [], "info": []}
+        result: TestResult = {"success": True, "errors": [], "warnings": [], "info": []}
 
         try:
             # Load and parse dashboard
@@ -467,13 +478,13 @@ class IntegrationTester:
             except OSError:
                 pass
 
-    def print_results(self, results: dict[str, dict[str, Any]]) -> None:
+    def print_results(self, results: dict[str, TestResult]) -> None:
         """
         Print test results in a formatted way.
         """
-        print("\n" + "=" * 60)
-        print("INTEGRATION TEST RESULTS")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("INTEGRATION TEST RESULTS")
+        logger.info("=" * 60)
 
         overall_success = True
         total_errors = 0
@@ -489,30 +500,30 @@ class IntegrationTester:
             total_errors += len(errors)
             total_warnings += len(warnings)
 
-            status = "✓ PASS" if success else "✗ FAIL"
-            print(f"\n{test_name.upper()}: {status}")
+            status = "PASS" if success else "FAIL"
+            logger.info(f"\n{test_name.upper()}: {status}")
 
             if errors:
-                print("  🔴 ERRORS:")
+                logger.info("  ERRORS:")
                 for error in errors:
-                    print(f"    • {error}")
+                    logger.info(f"    • {error}")
 
             if warnings:
-                print("  🟡 WARNINGS:")
+                logger.info("  WARNINGS:")
                 for warning in warnings:
-                    print(f"    • {warning}")
+                    logger.info(f"    • {warning}")
 
             if info:
-                print("  🔵 INFO:")
+                logger.info("  INFO:")
                 for info_item in info:
-                    print(f"    • {info_item}")
+                    logger.info(f"    • {info_item}")
 
         # Overall summary
-        print("\n" + "=" * 60)
-        overall_status = "✓ ALL TESTS PASSED" if overall_success else "✗ SOME TESTS FAILED"
-        print(f"OVERALL: {overall_status}")
-        print(f"Total Errors: {total_errors}, Total Warnings: {total_warnings}")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        overall_status = " ALL TESTS PASSED" if overall_success else " SOME TESTS FAILED"
+        logger.info(f"OVERALL: {overall_status}")
+        logger.info(f"Total Errors: {total_errors}, Total Warnings: {total_warnings}")
+        logger.info("=" * 60)
 
 
 def main() -> int:

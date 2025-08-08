@@ -395,8 +395,8 @@ class TestBaseMLStrategy:
         position_size = strategy._calculate_position_size()
 
         # Assert
-        assert position_size == Quantity.from_int(1)
-        strategy._mocked_log.warning.assert_called_once()
+        assert position_size is None
+        strategy._mocked_log.error.assert_called_once()
 
     def test_calculate_position_size_no_instrument(
         self,
@@ -416,8 +416,8 @@ class TestBaseMLStrategy:
         position_size = strategy._calculate_position_size()
 
         # Assert
-        assert position_size == Quantity.from_int(1)
-        strategy._mocked_log.warning.assert_called_once()
+        assert position_size is None
+        strategy._mocked_log.error.assert_called_once()
 
     def test_calculate_position_size_with_quote_tick_fallback(
         self,
@@ -456,6 +456,33 @@ class TestBaseMLStrategy:
         # Mid price = (99.5 + 100.5) / 2 = 100
         # 10000 * 0.1 / 100 = 10 shares
         assert position_size == Quantity.from_int(10)
+
+    def test_calculate_position_size_no_price_data(
+        self,
+        strategy: MockMLStrategy,
+        instrument_id: InstrumentId,
+        sample_instrument: Equity,
+    ) -> None:
+        """
+        Test position size calculation with no price data available.
+        """
+        # Arrange
+        strategy.on_start()
+
+        account = Mock()
+        account.balance_total.return_value = Money(10000.00, USD)
+        strategy._mocked_cache.account_for_venue.return_value = account
+        strategy._mocked_cache.instrument.return_value = sample_instrument
+        strategy._mocked_cache.trade_tick.return_value = None
+        strategy._mocked_cache.quote_tick.return_value = None
+
+        # Act
+        position_size = strategy._calculate_position_size()
+
+        # Assert
+        assert position_size is None
+        strategy._mocked_log.error.assert_called_once()
+        assert "No price data available" in strategy._mocked_log.error.call_args[0][0]
 
     def test_place_market_order(
         self,
@@ -812,6 +839,82 @@ class TestSimpleMLStrategy:
         strategy._place_market_order.assert_not_called()  # type: ignore[attr-defined]
         strategy.log.debug.assert_called_once()
         assert "Position aligns with signal" in strategy.log.debug.call_args[0][0]
+
+    def test_process_ml_signal_no_entry_when_position_sizing_fails(
+        self,
+        strategy: SimpleMLStrategy,
+        instrument_id: InstrumentId,
+    ) -> None:
+        """
+        Test processing ML signal skips trade when position sizing returns None.
+        """
+        # Arrange
+        setattr(strategy, "_get_current_position", Mock(return_value=None))
+        setattr(strategy, "_calculate_position_size", Mock(return_value=None))
+        setattr(strategy, "_place_market_order", Mock())
+
+        signal = MLSignal(
+            instrument_id=instrument_id,
+            prediction=0.8,  # > 0.5, so BUY
+            confidence=0.9,
+            ts_event=1234567890000000000,
+            ts_init=1234567890000000000,
+        )
+
+        # Act
+        strategy._process_ml_signal(signal)
+
+        # Assert
+        strategy._place_market_order.assert_not_called()  # type: ignore[attr-defined]
+        strategy.log.warning.assert_called_once()
+        assert (
+            "Skipping trade signal due to position sizing failure"
+            in strategy.log.warning.call_args[0][0]
+        )
+
+    def test_process_ml_signal_closes_but_no_new_entry_when_sizing_fails(
+        self,
+        strategy: SimpleMLStrategy,
+        instrument_id: InstrumentId,
+    ) -> None:
+        """
+        Test processing ML signal closes existing position but doesn't open new one when
+        sizing fails.
+        """
+        # Arrange
+        # Mock existing long position
+        current_position = Mock()
+        current_position.side.name = "LONG"
+        current_position.quantity = Quantity.from_int(50)
+
+        setattr(strategy, "_get_current_position", Mock(return_value=current_position))
+        setattr(strategy, "_calculate_position_size", Mock(return_value=None))
+        setattr(strategy, "_place_market_order", Mock(return_value=ClientOrderId("O-129")))
+
+        signal = MLSignal(
+            instrument_id=instrument_id,
+            prediction=0.2,  # < 0.5, so SELL (opposite of LONG)
+            confidence=0.9,
+            ts_event=1234567890000000000,
+            ts_init=1234567890000000000,
+        )
+
+        # Act
+        strategy._process_ml_signal(signal)
+
+        # Assert
+        # Should only close position, not open new one
+        assert strategy._place_market_order.call_count == 1  # type: ignore[attr-defined]
+        call_args = strategy._place_market_order.call_args  # type: ignore[attr-defined]
+        assert call_args[0][0] == OrderSide.SELL
+        assert call_args[0][1] == Quantity.from_int(50)
+        assert call_args[1]["reduce_only"] is True
+
+        strategy.log.warning.assert_called_once()
+        assert (
+            "cannot open new one due to position sizing failure"
+            in strategy.log.warning.call_args[0][0]
+        )
 
     def test_on_order_filled_updates_state(
         self,

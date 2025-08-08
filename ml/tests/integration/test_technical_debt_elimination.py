@@ -126,7 +126,7 @@ class TestTechnicalDebtElimination:
             ts_init=timestamp_ns,
         )
 
-    def test_no_hardcoded_volume_normalization(self):
+    def test_no_hardcoded_volume_normalization(self) -> None:
         """
         Test that volume normalization uses config value, not hardcoded value.
 
@@ -156,7 +156,7 @@ class TestTechnicalDebtElimination:
                             f"for volume {volume}"
                         )
 
-    def test_different_average_volume_configs(self):
+    def test_different_average_volume_configs(self) -> None:
         """
         Test that different average_volume configurations work correctly.
 
@@ -202,7 +202,7 @@ class TestTechnicalDebtElimination:
                             abs(actual - expected) < 1e-6
                         ), f"Config average_volume={avg_vol} not used correctly"
 
-    def test_time_features_hour_of_day(self):
+    def test_time_features_hour_of_day(self) -> None:
         """
         Test that hour_of_day feature is correctly calculated.
 
@@ -238,7 +238,7 @@ class TestTechnicalDebtElimination:
                             f"expected {expected_normalized}, got {actual_hour_feature}"
                         )
 
-    def test_time_features_day_of_week(self):
+    def test_time_features_day_of_week(self) -> None:
         """
         Test that day_of_week feature is correctly calculated.
 
@@ -274,7 +274,7 @@ class TestTechnicalDebtElimination:
                             actual_day_feature >= 0.0 and actual_day_feature <= 1.0
                         ), f"Day feature out of range for {test_date}: {actual_day_feature}"
 
-    def test_all_features_computed(self):
+    def test_all_features_computed(self) -> None:
         """
         Test that all features are properly computed with no placeholders.
 
@@ -309,7 +309,7 @@ class TestTechnicalDebtElimination:
                     if i in [8, 9]:  # Time features should be normalized to [0, 1]
                         assert 0.0 <= feature <= 1.0, f"Time feature {i} out of range: {feature}"
 
-    def test_feature_consistency_across_runs(self):
+    def test_feature_consistency_across_runs(self) -> None:
         """
         Test that features are computed consistently across multiple runs.
 
@@ -362,7 +362,7 @@ class TestTechnicalDebtElimination:
                             err_msg="Features not consistent across runs",
                         )
 
-    def test_no_placeholder_implementations(self):
+    def test_no_placeholder_implementations(self) -> None:
         """
         Test that no placeholder or stub implementations remain.
 
@@ -394,7 +394,7 @@ class TestTechnicalDebtElimination:
                     assert features.dtype == np.float32 or features.dtype == np.float64
                     assert features.shape == (11,), f"Wrong feature shape: {features.shape}"
 
-    def test_config_validation(self):
+    def test_config_validation(self) -> None:
         """
         Test that configuration validation works properly.
 
@@ -415,7 +415,7 @@ class TestTechnicalDebtElimination:
         large_config = MLFeatureConfig(average_volume=1e12)
         assert large_config.average_volume == 1e12
 
-    def test_edge_cases(self):
+    def test_edge_cases(self) -> None:
         """
         Test edge cases to ensure robust implementation.
 
@@ -456,7 +456,7 @@ class TestProductionReadiness:
     Test that the ML modules are production-ready with zero technical debt.
     """
 
-    def test_source_code_quality(self):
+    def test_source_code_quality(self) -> None:
         """
         Verify source code has no technical debt markers.
 
@@ -486,7 +486,7 @@ class TestProductionReadiness:
                         if not ("default" in line.lower() or "#" in line.strip()[:1]):
                             assert False, f"Potential hardcoded value at {path}:{i}"
 
-    def test_comprehensive_implementation(self):
+    def test_comprehensive_implementation(self) -> None:
         """
         Verify all required features are implemented.
 
@@ -525,7 +525,7 @@ class TestProductionReadiness:
                 assert actor._feature_buffer is not None
                 assert len(actor._feature_buffer) >= 11  # At least 11 features
 
-    def test_configuration_backward_compatibility(self):
+    def test_configuration_backward_compatibility(self) -> None:
         """
         Test that configuration maintains backward compatibility.
 

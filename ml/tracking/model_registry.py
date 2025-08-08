@@ -23,6 +23,7 @@ tracking.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -33,7 +34,10 @@ from ml.tracking.mlflow_manager import ModelStage
 
 
 if TYPE_CHECKING:
-    from ml.config.lightgbm_unified import MLflowConfig
+    from ml.config.shared import MLflowConfig
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class ModelRegistry(MLflowManager):
@@ -211,12 +215,12 @@ class ModelRegistry(MLflowManager):
                 "treatment",
             )
         except Exception as e:
-            print(f"Warning: Could not tag models with A/B test info: {e}")
+            logger.warning(f"Could not tag models with A/B test info: {e}")
 
-        print(f"A/B test setup: {test_name} (ID: {test_id})")
-        print(f"Control: {model_a_name} v{model_a_version}")
-        print(f"Treatment: {model_b_name} v{model_b_version}")
-        print(f"Traffic split: {traffic_split * 100:.1f}% to treatment")
+        logger.info(f"A/B test setup: {test_name} (ID: {test_id})")
+        logger.info(f"Control: {model_a_name} v{model_a_version}")
+        logger.info(f"Treatment: {model_b_name} v{model_b_version}")
+        logger.info(f"Traffic split: {traffic_split * 100:.1f}% to treatment")
 
         return test_id
 
@@ -380,9 +384,9 @@ class ModelRegistry(MLflowManager):
                 winner = test_config["model_a"]
                 status["winner"] = "model_a"
 
-            print(f"A/B test {test_config['test_name']} concluded:")
-            print(f"Winner: {winner['name']} v{winner['version']}")
-            print(f"Improvement: {status['relative_improvement']:.2f}%")
+            logger.info(f"A/B test {test_config['test_name']} concluded:")
+            logger.info(f"Winner: {winner['name']} v{winner['version']}")
+            logger.info(f"Improvement: {status['relative_improvement']:.2f}%")
 
         return status
 
@@ -443,7 +447,7 @@ class ModelRegistry(MLflowManager):
                 prod_run = self._client.get_run(prod_versions[0].run_id)
                 baseline_performance = prod_run.data.metrics.get(success_metric)
         except Exception as e:
-            print(f"Warning: Could not get baseline performance: {e}")
+            logger.warning(f"Could not get baseline performance: {e}")
 
         deployment_config = {
             "deployment_id": deployment_id,
@@ -493,11 +497,11 @@ class ModelRegistry(MLflowManager):
                 "canary",
             )
         except Exception as e:
-            print(f"Warning: Could not tag model with canary info: {e}")
+            logger.warning(f"Could not tag model with canary info: {e}")
 
-        print(f"Canary deployment started: {deployment_name}")
-        print(f"Model: {model_name} v{model_version}")
-        print(f"Traffic: {traffic_percentage}%")
+        logger.info(f"Canary deployment started: {deployment_name}")
+        logger.info(f"Model: {model_name} v{model_version}")
+        logger.info(f"Traffic: {traffic_percentage}%")
 
         return deployment_id
 
@@ -630,8 +634,8 @@ class ModelRegistry(MLflowManager):
         if should_rollback:
             deployment["status"] = "rolled_back"
             status["status"] = "rolled_back"
-            print(f"Canary deployment {deployment['deployment_name']} rolled back")
-            print(f"Reason: {status['decision_reason']}")
+            logger.info(f"Canary deployment {deployment['deployment_name']} rolled back")
+            logger.info(f"Reason: {status['decision_reason']}")
 
             # Remove canary tags
             try:
@@ -642,12 +646,12 @@ class ModelRegistry(MLflowManager):
                     "deployment_status",
                 )
             except Exception as e:
-                print(f"Warning: Could not remove canary tags: {e}")
+                logger.warning(f"Could not remove canary tags: {e}")
 
         elif should_promote:
             deployment["status"] = "promoted"
             status["status"] = "promoted"
-            print(f"Canary deployment {deployment['deployment_name']} promoted to production")
+            logger.info(f"Canary deployment {deployment['deployment_name']} promoted to production")
 
             # Promote to production
             try:
@@ -667,7 +671,7 @@ class ModelRegistry(MLflowManager):
                     "production",
                 )
             except Exception as e:
-                print(f"Warning: Error during promotion: {e}")
+                logger.warning(f"Error during promotion: {e}")
 
         return status
 
@@ -782,14 +786,14 @@ class ModelRegistry(MLflowManager):
                     reason,
                 )
 
-            print(f"Rollback completed: {model_name} v{current_version} -> v{target_version}")
+            logger.info(f"Rollback: {model_name} v{current_version} -> v{target_version}")
             if reason:
-                print(f"Reason: {reason}")
+                logger.info(f"Reason: {reason}")
 
             return rollback_info
 
         except Exception as e:
-            print(f"Error during rollback: {e}")
+            logger.info(f"Error during rollback: {e}")
             raise
 
     def get_deployment_history(self, model_name: str) -> list[dict[str, Any]]:
@@ -835,14 +839,14 @@ class ModelRegistry(MLflowManager):
                     version_info["run_metrics"] = dict(run.data.metrics)
                     version_info["run_params"] = dict(run.data.params)
                 except Exception as e:
-                    print(f"Warning: Could not get run info for version {version.version}: {e}")
+                    logger.warning(f"Could not get run info for version {version.version}: {e}")
 
                 history.append(version_info)
 
             return history
 
         except Exception as e:
-            print(f"Error getting deployment history: {e}")
+            logger.info(f"Error getting deployment history: {e}")
             raise
 
     def validate_model_quality(
@@ -943,13 +947,13 @@ class ModelRegistry(MLflowManager):
                 str(int(float(validation_results["validation_timestamp"]))),
             )
 
-            print(f"Quality validation for {model_name} v{version}:")
-            print(f"Gates passed: {validation_results['gates_passed']}")
-            print(f"Gates failed: {validation_results['gates_failed']}")
-            print(f"Overall: {'PASS' if validation_results['overall_pass'] else 'FAIL'}")
+            logger.info(f"Quality validation for {model_name} v{version}:")
+            logger.info(f"Gates passed: {validation_results['gates_passed']}")
+            logger.info(f"Gates failed: {validation_results['gates_failed']}")
+            logger.info(f"Overall: {'PASS' if validation_results['overall_pass'] else 'FAIL'}")
 
             return validation_results
 
         except Exception as e:
-            print(f"Error during quality validation: {e}")
+            logger.info(f"Error during quality validation: {e}")
             raise

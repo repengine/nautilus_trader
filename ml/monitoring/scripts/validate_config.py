@@ -406,14 +406,14 @@ class ConfigValidator:
                 response = requests.get(f"{url}/api/health", timeout=timeout, verify=False)
 
                 if response.status_code == 200:
-                    self.info.append(f"✓ {service_name} connectivity OK ({url})")
+                    self.info.append(f" {service_name} connectivity OK ({url})")
                 else:
                     self.warnings.append(
-                        f"⚠ {service_name} responded with status {response.status_code}",
+                        f" {service_name} responded with status {response.status_code}",
                     )
 
             except requests.RequestException as e:
-                self.warnings.append(f"✗ {service_name} connectivity failed: {e}")
+                self.warnings.append(f" {service_name} connectivity failed: {e}")
 
             except ValueError as e:
                 self.errors.append(f"Invalid timeout for {service_name}: {e}")
@@ -496,27 +496,27 @@ def print_validation_results(
     Print validation results in a formatted way.
     """
     # Print summary
-    status = "✓ VALID" if is_valid else "✗ INVALID"
-    print(f"\nConfiguration Status: {status}")
-    print(f"Errors: {len(errors)}, Warnings: {len(warnings)}, Info: {len(info)}")
+    status = " VALID" if is_valid else " INVALID"
+    logger.info(f"\nConfiguration Status: {status}")
+    logger.info(f"Errors: {len(errors)}, Warnings: {len(warnings)}, Info: {len(info)}")
 
     # Print errors
     if errors:
-        print("\n🔴 ERRORS:")
+        logger.info("\n ERRORS:")
         for error in errors:
-            print(f"  • {error}")
+            logger.info(f"  • {error}")
 
     # Print warnings
     if warnings and (detailed or not errors):
-        print("\n🟡 WARNINGS:")
+        logger.info("\n WARNINGS:")
         for warning in warnings:
-            print(f"  • {warning}")
+            logger.info(f"  • {warning}")
 
     # Print info in detailed mode
     if info and detailed:
-        print("\n🔵 INFORMATION:")
+        logger.info("\n INFORMATION:")
         for info_item in info:
-            print(f"  • {info_item}")
+            logger.info(f"  • {info_item}")
 
 
 def main() -> int:
@@ -582,7 +582,7 @@ def main() -> int:
                 "warnings": warnings,
                 "info": info,
             }
-            print(json.dumps(result, indent=2))
+            logger.info(json.dumps(result, indent=2))
         else:
             print_validation_results(is_valid, errors, warnings, info, args.detailed)
 

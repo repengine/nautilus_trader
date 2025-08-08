@@ -25,6 +25,7 @@ These benchmarks validate that the optimization targets are met:
 """
 
 import gc
+import logging
 import time
 import tracemalloc
 from unittest.mock import MagicMock
@@ -33,18 +34,22 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from ml.actors.feature_cache import LockFreeRingBuffer
-from ml.actors.feature_cache import PreAllocatedFeatureCache
-from ml.actors.feature_cache import ReservoirSampler
-from ml.actors.signal_config import OptimizedMLSignalActorConfig
-from ml.actors.signal_config import SignalStrategy
-from ml.actors.signal_optimized import OptimizedMLSignalActor
+from ml.actors.signal import MLSignalActor as OptimizedMLSignalActor
+from ml.actors.signal import MLSignalActorConfig as OptimizedMLSignalActorConfig
+from ml.actors.signal import SignalStrategy
 from ml.config.base import MLFeatureConfig
+from ml.core.cache import LockFreeRingBuffer
+from ml.core.cache import PreAllocatedFeatureCache
+from ml.core.cache import ReservoirSampler
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
+
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class BenchmarkConfig:
@@ -108,7 +113,7 @@ class PerformanceBenchmark:
             "p99_9_ns": float(np.percentile(timings_array, 99.9)),
         }
 
-    def assert_performance_target(self, target_ns: int, tolerance: float = None) -> None:
+    def assert_performance_target(self, target_ns: int, tolerance: float | None = None) -> None:
         """
         Assert that P99 latency meets target.
         """
@@ -132,7 +137,7 @@ class TestRingBufferPerformance:
     Benchmark ring buffer operations.
     """
 
-    def test_ring_buffer_append_performance(self):
+    def test_ring_buffer_append_performance(self) -> None:
         """
         Benchmark ring buffer append operations.
         """
@@ -154,9 +159,9 @@ class TestRingBufferPerformance:
 
         # Ring buffer append should be extremely fast (<1μs)
         assert stats["p99_ns"] < 1_000, f"Ring buffer append too slow: {stats['p99_ns']}ns"
-        print(f"Ring buffer append P99: {stats['p99_ns']:.0f}ns")
+        logger.info(f"Ring buffer append P99: {stats['p99_ns']:.0f}ns")
 
-    def test_ring_buffer_get_last_performance(self):
+    def test_ring_buffer_get_last_performance(self) -> None:
         """
         Benchmark ring buffer get_last operations.
         """
@@ -178,7 +183,7 @@ class TestRingBufferPerformance:
 
         # get_last should be fast (<10μs)
         assert stats["p99_ns"] < 10_000, f"Ring buffer get_last too slow: {stats['p99_ns']}ns"
-        print(f"Ring buffer get_last P99: {stats['p99_ns']:.0f}ns")
+        logger.info(f"Ring buffer get_last P99: {stats['p99_ns']:.0f}ns")
 
 
 @pytest.mark.benchmark
@@ -187,7 +192,7 @@ class TestReservoirSamplerPerformance:
     Benchmark reservoir sampler operations.
     """
 
-    def test_reservoir_sampler_add_performance(self):
+    def test_reservoir_sampler_add_performance(self) -> None:
         """
         Benchmark reservoir sampler add operations.
         """
@@ -205,9 +210,9 @@ class TestReservoirSamplerPerformance:
 
         # Reservoir sampling should be fast (<5μs)
         assert stats["p99_ns"] < 5_000, f"Reservoir sampling too slow: {stats['p99_ns']}ns"
-        print(f"Reservoir sampling P99: {stats['p99_ns']:.0f}ns")
+        logger.info(f"Reservoir sampling P99: {stats['p99_ns']:.0f}ns")
 
-    def test_reservoir_sampler_percentile_performance(self):
+    def test_reservoir_sampler_percentile_performance(self) -> None:
         """
         Benchmark reservoir sampler percentile calculation.
         """
@@ -229,7 +234,7 @@ class TestReservoirSamplerPerformance:
 
         # Percentile calculation should be reasonable (<100μs)
         assert stats["p99_ns"] < 100_000, f"Percentile calculation too slow: {stats['p99_ns']}ns"
-        print(f"Percentile calculation P99: {stats['p99_ns']:.0f}ns")
+        logger.info(f"Percentile calculation P99: {stats['p99_ns']:.0f}ns")
 
 
 @pytest.mark.benchmark
@@ -238,7 +243,7 @@ class TestFeatureCachePerformance:
     Benchmark feature cache operations.
     """
 
-    def test_feature_cache_buffer_access_performance(self):
+    def test_feature_cache_buffer_access_performance(self) -> None:
         """
         Benchmark feature cache buffer access.
         """
@@ -257,9 +262,9 @@ class TestFeatureCachePerformance:
 
         # Buffer access should be extremely fast (<1000ns)
         assert stats["p99_ns"] < 1000, f"Buffer access too slow: {stats['p99_ns']}ns"
-        print(f"Feature cache buffer access P99: {stats['p99_ns']:.0f}ns")
+        logger.info(f"Feature cache buffer access P99: {stats['p99_ns']:.0f}ns")
 
-    def test_feature_cache_onnx_preparation_performance(self):
+    def test_feature_cache_onnx_preparation_performance(self) -> None:
         """
         Benchmark ONNX input preparation.
         """
@@ -281,7 +286,7 @@ class TestFeatureCachePerformance:
 
         # ONNX preparation should be very fast (<1μs)
         assert stats["p99_ns"] < 1_000, f"ONNX preparation too slow: {stats['p99_ns']}ns"
-        print(f"ONNX preparation P99: {stats['p99_ns']:.0f}ns")
+        logger.info(f"ONNX preparation P99: {stats['p99_ns']:.0f}ns")
 
 
 @pytest.mark.benchmark
@@ -354,7 +359,12 @@ class TestOptimizedActorPerformance:
 
         return bars
 
-    def test_feature_computation_performance(self, optimized_config, mock_onnx_model, test_bars):
+    def test_feature_computation_performance(
+        self,
+        optimized_config,
+        mock_onnx_model,
+        test_bars,
+    ) -> None:
         """
         Benchmark feature computation performance.
         """
@@ -366,7 +376,8 @@ class TestOptimizedActorPerformance:
 
                 # Mock required components
                 actor._model = mock_onnx_model
-                actor._model_swapper.set_current_model(mock_onnx_model)
+                if actor._model_swapper is not None:
+                    actor._model_swapper.set_current_model(mock_onnx_model)
                 actor._indicator_manager = MagicMock()
                 actor._indicator_manager.all_initialized.return_value = True
                 actor._feature_engineer = MagicMock()
@@ -397,17 +408,17 @@ class TestOptimizedActorPerformance:
                         benchmark.record_timing(end_time - start_time)
 
                 stats = benchmark.get_statistics()
-                print("\nFeature Computation Performance:")
-                print(f"  Mean: {stats['mean_ns']/1000:.1f}μs")
-                print(f"  P95:  {stats['p95_ns']/1000:.1f}μs")
-                print(f"  P99:  {stats['p99_ns']/1000:.1f}μs")
+                logger.info("\nFeature Computation Performance:")
+                logger.info(f"  Mean: {stats['mean_ns']/1000:.1f}μs")
+                logger.info(f"  P95:  {stats['p95_ns']/1000:.1f}μs")
+                logger.info(f"  P99:  {stats['p99_ns']/1000:.1f}μs")
 
                 # Assert performance target
                 benchmark.assert_performance_target(
                     benchmark.config.TARGET_FEATURE_COMPUTATION_P99_NS,
                 )
 
-    def test_inference_performance(self, optimized_config, mock_onnx_model):
+    def test_inference_performance(self, optimized_config, mock_onnx_model) -> None:
         """
         Benchmark model inference performance.
         """
@@ -416,13 +427,14 @@ class TestOptimizedActorPerformance:
 
             with patch.object(OptimizedMLSignalActor, "_load_model"):
                 actor = OptimizedMLSignalActor(optimized_config)
-                actor._model_swapper.set_current_model(
-                    mock_onnx_model,
-                    {
-                        "input_names": ["features"],
-                        "output_names": ["prediction"],
-                    },
-                )
+                if actor._model_swapper is not None:
+                    actor._model_swapper.set_current_model(
+                        mock_onnx_model,
+                        {
+                            "input_names": ["features"],
+                            "output_names": ["prediction"],
+                        },
+                    )
 
                 benchmark = PerformanceBenchmark()
 
@@ -441,17 +453,17 @@ class TestOptimizedActorPerformance:
                     benchmark.record_timing(end_time - start_time)
 
                 stats = benchmark.get_statistics()
-                print("\nInference Performance:")
-                print(f"  Mean: {stats['mean_ns']/1_000_000:.3f}ms")
-                print(f"  P95:  {stats['p95_ns']/1_000_000:.3f}ms")
-                print(f"  P99:  {stats['p99_ns']/1_000_000:.3f}ms")
+                logger.info("\nInference Performance:")
+                logger.info(f"  Mean: {stats['mean_ns']/1_000_000:.3f}ms")
+                logger.info(f"  P95:  {stats['p95_ns']/1_000_000:.3f}ms")
+                logger.info(f"  P99:  {stats['p99_ns']/1_000_000:.3f}ms")
 
                 # Assert performance target
                 benchmark.assert_performance_target(
                     benchmark.config.TARGET_INFERENCE_LATENCY_P99_NS,
                 )
 
-    def test_end_to_end_performance(self, optimized_config, mock_onnx_model, test_bars):
+    def test_end_to_end_performance(self, optimized_config, mock_onnx_model, test_bars) -> None:
         """
         Benchmark end-to-end signal generation performance.
         """
@@ -463,13 +475,14 @@ class TestOptimizedActorPerformance:
 
                 # Mock required components for full pipeline
                 actor._model = mock_onnx_model
-                actor._model_swapper.set_current_model(
-                    mock_onnx_model,
-                    {
-                        "input_names": ["features"],
-                        "output_names": ["prediction"],
-                    },
-                )
+                if actor._model_swapper is not None:
+                    actor._model_swapper.set_current_model(
+                        mock_onnx_model,
+                        {
+                            "input_names": ["features"],
+                            "output_names": ["prediction"],
+                        },
+                    )
                 actor._indicator_manager = MagicMock()
                 actor._indicator_manager.all_initialized.return_value = True
                 actor._indicator_manager.price_history = {"closes": [1.1] * 50}
@@ -499,15 +512,15 @@ class TestOptimizedActorPerformance:
                     benchmark.record_timing(end_time - start_time)
 
                 stats = benchmark.get_statistics()
-                print("\nEnd-to-End Performance:")
-                print(f"  Mean: {stats['mean_ns']/1_000_000:.3f}ms")
-                print(f"  P95:  {stats['p95_ns']/1_000_000:.3f}ms")
-                print(f"  P99:  {stats['p99_ns']/1_000_000:.3f}ms")
+                logger.info("\nEnd-to-End Performance:")
+                logger.info(f"  Mean: {stats['mean_ns']/1_000_000:.3f}ms")
+                logger.info(f"  P95:  {stats['p95_ns']/1_000_000:.3f}ms")
+                logger.info(f"  P99:  {stats['p99_ns']/1_000_000:.3f}ms")
 
                 # Assert performance target
                 benchmark.assert_performance_target(benchmark.config.TARGET_END_TO_END_P99_NS)
 
-    def test_memory_stability(self, optimized_config, mock_onnx_model, test_bars):
+    def test_memory_stability(self, optimized_config, mock_onnx_model, test_bars) -> None:
         """
         Test memory stability over extended operation.
         """
@@ -519,7 +532,8 @@ class TestOptimizedActorPerformance:
 
                 # Setup mocks
                 actor._model = mock_onnx_model
-                actor._model_swapper.set_current_model(mock_onnx_model)
+                if actor._model_swapper is not None:
+                    actor._model_swapper.set_current_model(mock_onnx_model)
                 actor._indicator_manager = MagicMock()
                 actor._indicator_manager.all_initialized.return_value = True
                 actor._indicator_manager.price_history = {"closes": [1.1] * 50}
@@ -527,6 +541,9 @@ class TestOptimizedActorPerformance:
                 actor._feature_engineer.calculate_features_online.return_value = np.random.randn(
                     100,
                 ).astype(np.float32)
+
+                # Setup benchmark for configuration
+                benchmark = PerformanceBenchmark()
 
                 # Start memory tracing
                 tracemalloc.start()
@@ -553,7 +570,7 @@ class TestOptimizedActorPerformance:
                         total_growth = sum(stat.size_diff for stat in top_stats)
                         memory_growth_mb = total_growth / (1024 * 1024)
 
-                        print(f"Memory growth after {i} iterations: {memory_growth_mb:.2f}MB")
+                        logger.info(f"Memory growth after {i} iterations: {memory_growth_mb:.2f}MB")
 
                         # Assert memory growth is bounded (should be < 100MB for long runs)
                         assert (
@@ -567,7 +584,7 @@ class TestOptimizedActorPerformance:
                 total_growth = sum(stat.size_diff for stat in top_stats)
                 final_growth_mb = total_growth / (1024 * 1024)
 
-                print(
+                logger.info(
                     f"\nFinal memory growth: {final_growth_mb:.2f}MB after {benchmark.config.MEMORY_TEST_ITERATIONS} iterations",
                 )
 
@@ -578,7 +595,7 @@ class TestOptimizedActorPerformance:
 
                 tracemalloc.stop()
 
-    def test_hot_path_zero_allocation(self, optimized_config, mock_onnx_model, test_bars):
+    def test_hot_path_zero_allocation(self, optimized_config, mock_onnx_model, test_bars) -> None:
         """
         Test that hot path operations don't allocate memory.
         """
@@ -590,7 +607,8 @@ class TestOptimizedActorPerformance:
 
                 # Setup mocks
                 actor._model = mock_onnx_model
-                actor._model_swapper.set_current_model(mock_onnx_model)
+                if actor._model_swapper is not None:
+                    actor._model_swapper.set_current_model(mock_onnx_model)
                 actor._indicator_manager = MagicMock()
                 actor._indicator_manager.all_initialized.return_value = True
                 actor._indicator_manager.price_history = {"closes": [1.1] * 50}
@@ -633,14 +651,14 @@ class TestOptimizedActorPerformance:
                 ]
 
                 if significant_allocations:
-                    print("\nSignificant allocations detected in hot path:")
+                    logger.info("\nSignificant allocations detected in hot path:")
                     for stat in significant_allocations[:5]:
-                        print(f"  {stat.size_diff/1024:.1f}KB: {stat.traceback}")
+                        logger.info(f"  {stat.size_diff/1024:.1f}KB: {stat.traceback}")
 
                 total_hot_path_growth = sum(stat.size_diff for stat in significant_allocations)
                 hot_path_growth_kb = total_hot_path_growth / 1024
 
-                print(
+                logger.info(
                     f"\nHot path memory growth: {hot_path_growth_kb:.1f}KB over {hot_path_iterations} iterations",
                 )
 
@@ -657,25 +675,25 @@ if __name__ == "__main__":
     """
     Run benchmarks directly for development.
     """
-    print("Running ML Signal Actor Performance Benchmarks...")
-    print("=" * 60)
+    logger.info("Running ML Signal Actor Performance Benchmarks...")
+    logger.info("=" * 60)
 
     # Basic component benchmarks
-    print("\n1. Ring Buffer Performance")
+    logger.info("\n1. Ring Buffer Performance")
     test_ring = TestRingBufferPerformance()
     test_ring.test_ring_buffer_append_performance()
     test_ring.test_ring_buffer_get_last_performance()
 
-    print("\n2. Reservoir Sampler Performance")
+    logger.info("\n2. Reservoir Sampler Performance")
     test_reservoir = TestReservoirSamplerPerformance()
     test_reservoir.test_reservoir_sampler_add_performance()
     test_reservoir.test_reservoir_sampler_percentile_performance()
 
-    print("\n3. Feature Cache Performance")
+    logger.info("\n3. Feature Cache Performance")
     test_cache = TestFeatureCachePerformance()
     test_cache.test_feature_cache_buffer_access_performance()
     test_cache.test_feature_cache_onnx_preparation_performance()
 
-    print("\n" + "=" * 60)
-    print("All benchmarks completed successfully!")
-    print("Performance targets met for hot path optimization.")
+    logger.info("\n" + "=" * 60)
+    logger.info("Benchmark completed successfully!")
+    logger.info("Performance targets met for hot path optimization.")

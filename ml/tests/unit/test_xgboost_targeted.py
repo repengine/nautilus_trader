@@ -16,6 +16,7 @@
 Targeted tests for uncovered lines in XGBoostTrainer.
 """
 
+import logging
 from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -29,6 +30,9 @@ from ml.training.xgboost import XGBoostTrainer
 
 # Random generator for numpy 2.0 compatibility
 rng = np.random.default_rng(42)
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class TestXGBoostTargeted:
@@ -281,7 +285,7 @@ class TestXGBoostTargeted:
             # Check for SHAP print
             assert any("Computing SHAP" in str(call) for call in mock_print.call_args_list)
 
-    def test_calculate_shap_no_shap_print(self) -> None:
+    def test_calculate_shap_no_shap(self) -> None:
         """
         Test print when SHAP not available.
         """

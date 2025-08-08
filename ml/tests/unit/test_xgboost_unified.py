@@ -31,11 +31,11 @@ import polars as pl
 import pytest
 
 from ml.config.base import MLFeatureConfig
-from ml.config.xgboost_unified import GPUConfig
-from ml.config.xgboost_unified import MLflowConfig
-from ml.config.xgboost_unified import OptunaConfig
-from ml.config.xgboost_unified import UnifiedXGBoostConfig
-from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+from ml.config.shared import MLflowConfig
+from ml.config.shared import OptunaConfig
+from ml.config.shared import XGBoostGPUConfig as GPUConfig
+from ml.config.xgboost import UnifiedXGBoostConfig
+from ml.training.xgboost import UnifiedXGBoostTrainer
 
 
 class TestGPUConfig:
@@ -43,7 +43,7 @@ class TestGPUConfig:
     Test GPU configuration validation and settings.
     """
 
-    def test_default_gpu_config(self):
+    def test_default_gpu_config(self) -> None:
         """
         Test default GPU configuration.
         """
@@ -55,7 +55,7 @@ class TestGPUConfig:
         assert config.predictor == "gpu_predictor"
         assert config.validate_gpu is True
 
-    def test_gpu_config_validation(self):
+    def test_gpu_config_validation(self) -> None:
         """
         Test GPU configuration validation.
         """
@@ -87,7 +87,7 @@ class TestOptunaConfig:
     Test Optuna configuration validation and settings.
     """
 
-    def test_default_optuna_config(self):
+    def test_default_optuna_config(self) -> None:
         """
         Test default Optuna configuration.
         """
@@ -100,7 +100,7 @@ class TestOptunaConfig:
         assert config.pruner == "median"
         assert config.sampler == "tpe"
 
-    def test_optuna_config_validation(self):
+    def test_optuna_config_validation(self) -> None:
         """
         Test Optuna configuration validation.
         """
@@ -141,7 +141,7 @@ class TestMLflowConfig:
     Test MLflow configuration validation and settings.
     """
 
-    def test_default_mlflow_config(self):
+    def test_default_mlflow_config(self) -> None:
         """
         Test default MLflow configuration.
         """
@@ -149,11 +149,11 @@ class TestMLflowConfig:
 
         assert config.enabled is False
         assert config.tracking_uri == "http://localhost:5000"
-        assert config.experiment_name == "xgboost_unified"
+        assert config.experiment_name == "ml_experiment"  # Common default
         assert config.register_model is True
-        assert config.model_name == "xgboost_unified"
+        assert config.model_name == "ml_model"  # Common default
 
-    def test_mlflow_config_validation(self):
+    def test_mlflow_config_validation(self) -> None:
         """
         Test MLflow configuration validation.
         """
@@ -184,7 +184,7 @@ class TestUnifiedXGBoostConfig:
     Test unified XGBoost configuration.
     """
 
-    def test_default_unified_config(self):
+    def test_default_unified_config(self) -> None:
         """
         Test default unified configuration.
         """
@@ -203,7 +203,7 @@ class TestUnifiedXGBoostConfig:
         assert config.cv_strategy == "time_series"
         assert config.export_onnx is False
 
-    def test_unified_config_validation(self):
+    def test_unified_config_validation(self) -> None:
         """
         Test unified configuration validation.
         """
@@ -246,7 +246,7 @@ class TestUnifiedXGBoostConfig:
                 onnx_output_path="",
             )
 
-    def test_get_unified_xgb_params(self):
+    def test_get_unified_xgb_params(self) -> None:
         """
         Test unified XGBoost parameters generation.
         """
@@ -274,7 +274,7 @@ class TestUnifiedXGBoostConfig:
         assert params["predictor"] == "gpu_predictor"
 
     @patch("subprocess.run")
-    def test_validate_environment(self, mock_subprocess):
+    def test_validate_environment(self, mock_subprocess) -> None:
         """
         Test environment validation.
         """
@@ -354,7 +354,7 @@ class TestUnifiedXGBoostTrainer:
                 "low": np.random.randn(1000).cumsum() + 98,
                 "close": np.random.randn(1000).cumsum() + 101,
                 "volume": np.random.randint(1000, 10000, 1000),
-            }
+            },
         )
         return data
 
@@ -363,17 +363,21 @@ class TestUnifiedXGBoostTrainer:
         """
         Create basic unified configuration.
         """
+        from ml.config.shared import AdvancedTrainingConfig
+
         return UnifiedXGBoostConfig(
             data_source="test_data.parquet",
             n_estimators=10,  # Small for testing
-            enable_monitoring=False,  # Disable for unit tests
+            advanced_config=AdvancedTrainingConfig(
+                enable_monitoring=False,  # Disable for unit tests
+            ),
             feature_config=MLFeatureConfig(
                 lookback_window=50,
                 normalize_features=False,
             ),
         )
 
-    def test_trainer_initialization(self, basic_config):
+    def test_trainer_initialization(self, basic_config) -> None:
         """
         Test trainer initialization.
         """
@@ -384,7 +388,7 @@ class TestUnifiedXGBoostTrainer:
         assert trainer._feature_decay_alerts == []
         assert trainer._metrics_collector is None  # Disabled in config
 
-    def test_feature_decay_tracking(self, basic_config):
+    def test_feature_decay_tracking(self, basic_config) -> None:
         """
         Test feature importance decay tracking.
         """
@@ -418,7 +422,7 @@ class TestUnifiedXGBoostTrainer:
         assert "feature_1" in trainer._feature_decay_alerts
         assert "feature_2" not in trainer._feature_decay_alerts
 
-    def test_gpu_validation_no_gpu(self, basic_config):
+    def test_gpu_validation_no_gpu(self, basic_config) -> None:
         """
         Test GPU validation when no GPU available.
         """
@@ -437,7 +441,7 @@ class TestUnifiedXGBoostTrainer:
             trainer._validate_gpu_setup()  # Should handle gracefully
 
     @patch("ml.training.xgboost_unified.HAS_XGBOOST", True)
-    def test_calculate_metrics(self, basic_config):
+    def test_calculate_metrics(self, basic_config) -> None:
         """
         Test metric calculation functions.
         """
@@ -470,7 +474,7 @@ class TestUnifiedXGBoostTrainer:
         r2_score = trainer._calculate_accuracy(y_true_reg, y_pred_reg)
         assert isinstance(r2_score, float)
 
-    def test_monotonic_constraints_creation(self, basic_config):
+    def test_monotonic_constraints_creation(self, basic_config) -> None:
         """
         Test monotonic constraints string generation.
         """
@@ -490,7 +494,7 @@ class TestUnifiedXGBoostTrainer:
         expected = "(1,-1,0,0)"  # feature_4 gets default 0
         assert constraints_string == expected
 
-    def test_get_feature_decay_summary(self, basic_config):
+    def test_get_feature_decay_summary(self, basic_config) -> None:
         """
         Test feature decay summary generation.
         """
@@ -520,7 +524,7 @@ class TestUnifiedXGBoostTrainer:
         assert summary["decay_threshold"] == 0.2
         assert summary["history_length"] == 1
 
-    def test_get_model_metadata_unfitted(self, basic_config):
+    def test_get_model_metadata_unfitted(self, basic_config) -> None:
         """
         Test model metadata for unfitted model.
         """
@@ -529,7 +533,7 @@ class TestUnifiedXGBoostTrainer:
         metadata = trainer.get_model_metadata()
         assert metadata["fitted"] is False
 
-    def test_get_model_metadata_fitted(self, basic_config):
+    def test_get_model_metadata_fitted(self, basic_config) -> None:
         """
         Test model metadata for fitted model.
         """
@@ -561,7 +565,7 @@ class TestUnifiedXGBoostTrainer:
             ("reg:squarederror", "regression"),
         ],
     )
-    def test_objective_handling(self, basic_config, objective, expected_type):
+    def test_objective_handling(self, basic_config, objective, expected_type) -> None:
         """
         Test correct handling of different objectives.
         """
@@ -573,7 +577,7 @@ class TestUnifiedXGBoostTrainer:
         trainer = UnifiedXGBoostTrainer(config)
         assert trainer._unified_config.objective == objective
 
-    def test_optimization_metric_function_selection(self, basic_config):
+    def test_optimization_metric_function_selection(self, basic_config) -> None:
         """
         Test optimization metric function selection.
         """
@@ -596,7 +600,7 @@ class TestUnifiedXGBoostTrainer:
         with pytest.raises(ValueError, match="metric must be one of"):
             OptunaConfig(enabled=True, metric="unknown_metric")
 
-    def test_onnx_export_path_creation(self, basic_config):
+    def test_onnx_export_path_creation(self, basic_config) -> None:
         """
         Test ONNX export functionality.
         """
@@ -641,7 +645,7 @@ class TestUnifiedConfigIntegration:
     Integration tests for unified configuration with all components.
     """
 
-    def test_full_configuration_integration(self):
+    def test_full_configuration_integration(self) -> None:
         """
         Test full configuration with all features enabled.
         """
@@ -695,7 +699,7 @@ class TestUnifiedConfigIntegration:
         assert params["n_estimators"] == 100
         assert params["objective"] == "binary:logistic"
 
-    def test_configuration_warnings(self):
+    def test_configuration_warnings(self) -> None:
         """
         Test configuration generates appropriate warnings.
         """
@@ -707,7 +711,7 @@ class TestUnifiedConfigIntegration:
 
         # Mock environment to simulate missing dependencies
         with patch(
-            "ml.config.xgboost_unified.UnifiedXGBoostConfig.validate_environment"
+            "ml.config.xgboost_unified.UnifiedXGBoostConfig.validate_environment",
         ) as mock_validate:
             mock_validate.return_value = [
                 "GPU acceleration requested but not available",

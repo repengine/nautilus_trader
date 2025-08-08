@@ -60,7 +60,6 @@ This indicates that the underlying `FeatureEngineer` implementation has not achi
 - **Current Coverage**: 57% of ml/features module
 - **Target Coverage**: 95%+ for ML modules
 - **Missing Coverage**: 43% gap, particularly in:
-  - `ml/features/engineering_enhanced.py`: 0% coverage
   - `ml/features/validation.py`: 20% coverage
   - Core feature computation methods in `ml/features/engineering.py`
 

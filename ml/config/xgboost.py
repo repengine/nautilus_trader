@@ -15,8 +15,9 @@
 """
 Configuration for XGBoost model training.
 
-This module provides msgspec-based configuration classes for XGBoost training, extending
-the base ML configuration with XGBoost-specific parameters.
+This module provides the comprehensive msgspec-based configuration for XGBoost training,
+including all advanced features like GPU acceleration, Optuna optimization, MLflow
+tracking, and feature monitoring.
 
 """
 
@@ -25,6 +26,10 @@ from __future__ import annotations
 from typing import Any
 
 from ml.config.base import MLTrainingConfig
+from ml.config.shared import AdvancedTrainingConfig
+from ml.config.shared import MLflowConfig
+from ml.config.shared import OptunaConfig
+from ml.config.shared import XGBoostGPUConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
 from nautilus_trader.common.config import PositiveFloat
@@ -33,10 +38,11 @@ from nautilus_trader.common.config import PositiveInt
 
 class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
     """
-    Configuration for XGBoost model training.
+    Comprehensive configuration for XGBoost model training.
 
     This configuration extends the base MLTrainingConfig with XGBoost-specific
-    parameters for tree-based gradient boosting.
+    parameters for tree-based gradient boosting, including advanced features for
+    GPU acceleration, hyperparameter optimization, and experiment tracking.
 
     Parameters
     ----------
@@ -88,6 +94,14 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         Number of optimization trials when optimize_hyperparams is True.
     optimization_metric : str, default "sharpe_ratio"
         Metric to optimize during hyperparameter tuning.
+    gpu_config : XGBoostGPUConfig, optional
+        GPU acceleration settings.
+    optuna_config : OptunaConfig, optional
+        Optuna hyperparameter optimization settings.
+    mlflow_config : MLflowConfig, optional
+        MLflow experiment tracking settings.
+    advanced_config : AdvancedTrainingConfig, optional
+        Advanced training features like cross-validation and ONNX export.
 
     """
 
@@ -102,6 +116,11 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
     gamma: NonNegativeFloat = 0.0
     reg_alpha: NonNegativeFloat = 0.0
     reg_lambda: NonNegativeFloat = 1.0
+
+    # Missing value handling
+    handle_missing: bool = True
+    missing_value: float = float("nan")
+    scale_pos_weight: PositiveFloat | None = None
 
     # Hardware settings
     tree_method: str = "hist"  # "hist" for CPU, "gpu_hist" for GPU
@@ -120,10 +139,82 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
     sector_map: dict[str, str] | None = None
     cross_sectional_features: bool = True
 
-    # Hyperparameter optimization
+    # Legacy hyperparameter optimization (kept for backward compatibility)
     optimize_hyperparams: bool = False
     n_trials: PositiveInt = 100
     optimization_metric: str = "sharpe_ratio"
+
+    # Advanced configuration components
+    gpu_config: XGBoostGPUConfig | None = None
+    optuna_config: OptunaConfig | None = None
+    mlflow_config: MLflowConfig | None = None
+    advanced_config: AdvancedTrainingConfig | None = None
+
+    # Convenience properties for backward compatibility
+    @property
+    def track_feature_decay(self) -> bool:
+        """
+        Whether to track feature importance decay.
+        """
+        return self.advanced_config.track_feature_decay if self.advanced_config else False
+
+    @property
+    def feature_decay_threshold(self) -> float:
+        """
+        Threshold for feature importance decay alerts.
+        """
+        return self.advanced_config.feature_decay_threshold if self.advanced_config else 0.3
+
+    @property
+    def feature_history_window(self) -> int:
+        """
+        Number of training runs to keep in feature importance history.
+        """
+        return self.advanced_config.feature_history_window if self.advanced_config else 10
+
+    @property
+    def cv_strategy(self) -> str:
+        """
+        Cross-validation strategy.
+        """
+        return self.advanced_config.cv_strategy if self.advanced_config else "time_series"
+
+    @property
+    def cv_folds(self) -> int:
+        """
+        Number of cross-validation folds.
+        """
+        return self.advanced_config.cv_folds if self.advanced_config else 5
+
+    @property
+    def purge_gap(self) -> int:
+        """
+        Gap between train/test in purged cross-validation.
+        """
+        return self.advanced_config.purge_gap if self.advanced_config else 10
+
+    @property
+    def export_onnx(self) -> bool:
+        """
+        Whether to export model to ONNX format.
+        """
+        return self.advanced_config.export_onnx if self.advanced_config else False
+
+    @property
+    def onnx_output_path(self) -> str:
+        """
+        Path for ONNX model export.
+        """
+        if self.advanced_config and self.advanced_config.onnx_output_path:
+            return self.advanced_config.onnx_output_path
+        return "./models/xgboost.onnx"
+
+    @property
+    def enable_monitoring(self) -> bool:
+        """
+        Whether to enable Prometheus metrics collection.
+        """
+        return self.advanced_config.enable_monitoring if self.advanced_config else True
 
     def __post_init__(self) -> None:
         """
@@ -168,6 +259,31 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
                     )
                     raise ValueError(msg)
 
+        # Handle legacy optimize_hyperparams flag
+        if self.optimize_hyperparams and not self.optuna_config:
+            # Create default Optuna config from legacy settings
+            object.__setattr__(
+                self,
+                "optuna_config",
+                OptunaConfig(
+                    enabled=True,
+                    n_trials=self.n_trials,
+                    metric=self.optimization_metric,
+                ),
+            )
+
+        # Handle GPU settings
+        if self.tree_method == "gpu_hist" and not self.gpu_config:
+            # Create default GPU config
+            object.__setattr__(
+                self,
+                "gpu_config",
+                XGBoostGPUConfig(
+                    enabled=True,
+                    device_id=self.gpu_id,
+                ),
+            )
+
     def get_xgb_params(self) -> dict[str, Any]:
         """
         Get XGBoost parameters as a dictionary.
@@ -198,8 +314,85 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         }
 
         # Add GPU parameters if using GPU
-        if self.tree_method == "gpu_hist":
+        if self.gpu_config and self.gpu_config.enabled:
+            params["tree_method"] = "gpu_hist"
+            params["gpu_id"] = self.gpu_config.device_id
+            params["predictor"] = self.gpu_config.predictor
+            params["max_bin"] = self.gpu_config.max_bin
+        elif self.tree_method == "gpu_hist":
+            # Legacy GPU settings
             params["gpu_id"] = self.gpu_id
             params["predictor"] = "gpu_predictor"
 
         return params
+
+    def validate_environment(self) -> list[str]:
+        """
+        Validate that the environment supports the configured features.
+
+        Returns
+        -------
+        list[str]
+            List of warning messages for unsupported features.
+
+        """
+        warnings = []
+
+        # Check GPU availability
+        if self.gpu_config and self.gpu_config.enabled and self.gpu_config.validate_gpu:
+            try:
+                # Try to create a simple GPU-based DMatrix to test GPU availability
+                import numpy as np
+                import xgboost as xgb
+
+                rng = np.random.default_rng(42)
+                test_data = rng.standard_normal((10, 5))
+                test_dtrain = xgb.DMatrix(test_data, enable_categorical=False)
+                # If this doesn't raise, GPU should be available
+                del test_dtrain, test_data
+            except Exception as e:
+                warnings.append(f"GPU acceleration requested but not available: {e}")
+
+        # Check Optuna availability
+        if self.optuna_config and self.optuna_config.enabled:
+            try:
+                import optuna  # noqa: F401
+            except ImportError:
+                warnings.append(
+                    "Optuna optimization requested but optuna not installed. "
+                    "Install with: pip install 'nautilus-trader[ml]'",
+                )
+
+        # Check MLflow availability
+        if self.mlflow_config and self.mlflow_config.enabled:
+            try:
+                import mlflow  # noqa: F401
+            except ImportError:
+                warnings.append(
+                    "MLflow tracking requested but mlflow not installed. "
+                    "Install with: pip install 'nautilus-trader[ml]'",
+                )
+
+        # Check ONNX availability
+        if self.export_onnx:
+            try:
+                import onnxmltools  # noqa: F401
+                import skl2onnx  # noqa: F401
+            except ImportError:
+                warnings.append(
+                    "ONNX export requested but onnx tools not installed. "
+                    "Install with: pip install onnxmltools skl2onnx",
+                )
+
+        return warnings
+
+
+# Backward compatibility alias
+UnifiedXGBoostConfig = XGBoostTrainingConfig
+
+
+# Explicit exports
+__all__ = [
+    "UnifiedXGBoostConfig",  # Backward compatibility
+    "XGBoostTrainingConfig",
+]

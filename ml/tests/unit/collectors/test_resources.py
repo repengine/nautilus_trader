@@ -18,6 +18,7 @@ Tests for the ResourceUtilizationCollector.
 
 import threading
 import time
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -33,14 +34,14 @@ class TestResourceUtilizationCollector:
     """
 
     @pytest.fixture(autouse=True)
-    def setup_test(self, prometheus_registry_cleanup, metric_name_manager):
+    def setup_test(self, prometheus_registry_cleanup: Any, metric_name_manager: Any) -> None:
         """
         Set up test with proper cleanup and unique names.
         """
         self.metric_name_manager = metric_name_manager
 
     @pytest.fixture
-    def collector(self):
+    def collector(self) -> ResourceUtilizationCollector:
         """
         Create a ResourceUtilizationCollector for testing.
         """
@@ -49,21 +50,24 @@ class TestResourceUtilizationCollector:
         return ResourceUtilizationCollector(config)
 
     @pytest.fixture
-    def disabled_collector(self):
+    def disabled_collector(self) -> ResourceUtilizationCollector:
         """
         Create a disabled ResourceUtilizationCollector for testing.
         """
         config = MonitoringConfig(enabled=False)
         return ResourceUtilizationCollector(config)
 
-    def test_initialization(self, collector):
+    def test_initialization(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test collector initialization.
         """
         assert collector.enabled == HAS_PROMETHEUS
         assert collector.get_metric_count() > 0 or not HAS_PROMETHEUS
 
-    def test_disabled_initialization(self, disabled_collector):
+    def test_disabled_initialization(
+        self,
+        disabled_collector: ResourceUtilizationCollector,
+    ) -> None:
         """
         Test disabled collector initialization.
         """
@@ -71,7 +75,7 @@ class TestResourceUtilizationCollector:
         assert disabled_collector.get_metric_count() == 0
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_model_memory_usage(self, collector):
+    def test_record_model_memory_usage(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording model memory usage.
         """
@@ -88,7 +92,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_feature_store_size(self, collector):
+    def test_record_feature_store_size(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording feature store size.
         """
@@ -104,7 +108,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_cpu_usage(self, collector):
+    def test_record_cpu_usage(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording CPU usage metrics.
         """
@@ -120,7 +124,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_ml_cpu_time(self, collector):
+    def test_record_ml_cpu_time(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording ML CPU time.
         """
@@ -136,7 +140,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_gpu_metrics(self, collector):
+    def test_record_gpu_metrics(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording GPU metrics.
         """
@@ -156,7 +160,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_disk_usage(self, collector):
+    def test_record_disk_usage(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording disk usage metrics.
         """
@@ -174,7 +178,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_data_io(self, collector):
+    def test_record_data_io(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording data I/O metrics.
         """
@@ -192,7 +196,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_inference_batch_size(self, collector):
+    def test_record_inference_batch_size(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording inference batch size.
         """
@@ -208,7 +212,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_training_data_processed(self, collector):
+    def test_record_training_data_processed(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test recording training data processed.
         """
@@ -224,7 +228,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_start_stop_monitoring(self, collector):
+    def test_start_stop_monitoring(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test starting and stopping resource monitoring.
         """
@@ -241,7 +245,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_get_resource_summary(self, collector):
+    def test_get_resource_summary(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test getting resource summary.
         """
@@ -262,7 +266,10 @@ class TestResourceUtilizationCollector:
         # Check for actual keys returned by get_resource_summary
         assert summary is not None
 
-    def test_get_resource_summary_disabled(self, disabled_collector):
+    def test_get_resource_summary_disabled(
+        self,
+        disabled_collector: ResourceUtilizationCollector,
+    ) -> None:
         """
         Test getting resource summary when disabled.
         """
@@ -272,7 +279,7 @@ class TestResourceUtilizationCollector:
         assert summary == {}
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_comprehensive_resource_tracking(self, collector):
+    def test_comprehensive_resource_tracking(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test comprehensive resource tracking scenario.
         """
@@ -321,7 +328,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_thread_safety(self, collector):
+    def test_thread_safety(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test thread safety of collector operations.
         """
@@ -355,7 +362,10 @@ class TestResourceUtilizationCollector:
         assert len(results) == 3
         assert len(errors) == 0
 
-    def test_disabled_collector_operations(self, disabled_collector):
+    def test_disabled_collector_operations(
+        self,
+        disabled_collector: ResourceUtilizationCollector,
+    ) -> None:
         """
         Test that disabled collector handles operations gracefully.
         """
@@ -385,7 +395,7 @@ class TestResourceUtilizationCollector:
         # Should not raise any exceptions
         assert True
 
-    def test_health_check(self, collector):
+    def test_health_check(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test health check functionality.
         """
@@ -401,7 +411,7 @@ class TestResourceUtilizationCollector:
         assert health["collector_type"] == "ResourceUtilizationCollector"
 
     @patch("ml._imports.HAS_PROMETHEUS", False)
-    def test_graceful_degradation_without_prometheus(self):
+    def test_graceful_degradation_without_prometheus(self) -> None:
         """
         Test graceful degradation when Prometheus is not available.
         """
@@ -424,7 +434,7 @@ class TestResourceUtilizationCollector:
         # Should not raise any exceptions
         assert True
 
-    def test_string_representation(self, collector):
+    def test_string_representation(self, collector: ResourceUtilizationCollector) -> None:
         """
         Test string representation of collector.
         """
@@ -435,7 +445,7 @@ class TestResourceUtilizationCollector:
         assert f"metrics_count={collector.get_metric_count()}" in repr_str
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_multi_gpu_metrics(self, collector):
+    def test_multi_gpu_metrics(self, collector) -> None:
         """
         Test recording metrics for multiple GPUs.
         """
@@ -457,7 +467,7 @@ class TestResourceUtilizationCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_storage_system_monitoring(self, collector):
+    def test_storage_system_monitoring(self, collector) -> None:
         """
         Test monitoring different storage systems.
         """

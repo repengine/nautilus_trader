@@ -28,6 +28,7 @@ Tests cover all production features:
 
 from __future__ import annotations
 
+import logging
 import os
 import pickle
 import tempfile
@@ -73,6 +74,10 @@ def _onnx_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class SimpleTestModel:
@@ -1510,7 +1515,7 @@ class TestPerformanceRequirements:
 
         # Assert
         avg_time_ms = ((end_time - start_time) / iterations) * 1000
-        print(f"Average feature computation time: {avg_time_ms:.3f}ms")
+        logger.info(f"Average feature computation time: {avg_time_ms:.3f}ms")
 
         # Performance requirement: <500μs (0.5ms)
         assert avg_time_ms < 0.5, f"Feature computation too slow: {avg_time_ms:.3f}ms > 0.5ms"
@@ -1541,7 +1546,7 @@ class TestPerformanceRequirements:
 
         # Assert
         avg_time_ms = ((end_time - start_time) / iterations) * 1000
-        print(f"Average inference time: {avg_time_ms:.3f}ms")
+        logger.info(f"Average inference time: {avg_time_ms:.3f}ms")
 
         # Performance requirement: <2ms
         assert avg_time_ms < 2.0, f"Inference too slow: {avg_time_ms:.3f}ms > 2.0ms"
@@ -1573,7 +1578,7 @@ class TestPerformanceRequirements:
 
         # Assert
         avg_time_ms = ((end_time - start_time) / iterations) * 1000
-        print(f"Average end-to-end time: {avg_time_ms:.3f}ms")
+        logger.info(f"Average end-to-end time: {avg_time_ms:.3f}ms")
 
         # Performance requirement: <5ms
         assert avg_time_ms < 5.0, f"End-to-end too slow: {avg_time_ms:.3f}ms > 5.0ms"

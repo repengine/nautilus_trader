@@ -4,6 +4,7 @@ QA Integration Testing Script for UnifiedXGBoostTrainer with MLDataLoader Tests 
 end-to-end integration.
 """
 
+import logging
 import sys
 import time
 import traceback
@@ -13,6 +14,9 @@ import numpy as np
 import pandas as pd
 
 
+# Setup logger
+logger = logging.getLogger(__name__)
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -20,25 +24,25 @@ from ml._imports import HAS_POLARS
 from ml._imports import HAS_XGBOOST
 
 
-def test_ml_data_loader_integration():
+def test_ml_data_loader_integration() -> bool:
     """
     Test UnifiedXGBoostTrainer integration with MLDataLoader.
     """
-    print("\n=== INTEGRATION TEST: MLDataLoader + UnifiedXGBoostTrainer ===")
+    logger.info("\n=== INTEGRATION TEST: MLDataLoader + UnifiedXGBoostTrainer ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     if not HAS_POLARS:
-        print("❌ Polars not available, skipping test")
+        logger.info(" Polars not available, skipping test")
         return False
 
     try:
-        from ml.config.xgboost_unified import GPUConfig
-        from ml.config.xgboost_unified import MLflowConfig
-        from ml.config.xgboost_unified import OptunaConfig
-        from ml.config.xgboost_unified import UnifiedXGBoostConfig
+        from ml.config.shared import MLflowConfig
+        from ml.config.shared import OptunaConfig
+        from ml.config.shared import XGBoostGPUConfig as GPUConfig
+        from ml.config.xgboost import UnifiedXGBoostConfig
 
         # Create sample data
         np.random.seed(42)
@@ -53,7 +57,7 @@ def test_ml_data_loader_integration():
                 "low": np.cumsum(np.random.randn(n_samples) * 0.01 + 0.98),
                 "close": np.cumsum(np.random.randn(n_samples) * 0.01 + 1),
                 "volume": np.abs(np.random.randn(n_samples) * 1000 + 10000),
-            }
+            },
         )
 
         # Ensure price relationships
@@ -66,18 +70,18 @@ def test_ml_data_loader_integration():
 
         # Note: MLDataLoader requires a ParquetDataCatalog
         # This is an architectural mismatch - it's not designed for direct DataFrame use
-        print("⚠️  MLDataLoader requires ParquetDataCatalog, not DataFrames")
-        print("   This is an architectural mismatch that needs addressing")
-        print("   Skipping actual MLDataLoader test")
+        logger.warning("  MLDataLoader requires ParquetDataCatalog, not DataFrames")
+        logger.info("   This is an architectural mismatch that needs addressing")
+        logger.info("   Skipping actual MLDataLoader test")
 
         # Manually split data for now
         split_idx = int(0.8 * len(df))
         train_data = df[:split_idx]
         val_data = df[split_idx:]
 
-        print("✅ MLDataLoader prepared data:")
-        print(f"   Train shape: {train_data.shape}")
-        print(f"   Val shape: {val_data.shape}")
+        logger.info(" MLDataLoader prepared data:")
+        logger.info(f"   Train shape: {train_data.shape}")
+        logger.info(f"   Val shape: {val_data.shape}")
 
         # Create UnifiedXGBoostTrainer config
         trainer_config = UnifiedXGBoostConfig(
@@ -95,36 +99,36 @@ def test_ml_data_loader_integration():
         # The trainer expects DataFrames with specific columns, not the MLDataLoader output
         # This is a design issue that needs to be addressed
 
-        print("⚠️  Direct integration not possible due to data format mismatch")
-        print("   MLDataLoader outputs: numpy arrays with lookback windows")
-        print("   UnifiedXGBoostTrainer expects: DataFrame with OHLCV columns")
-        print("   Recommendation: Add adapter layer or modify trainer")
+        logger.warning("  Direct integration not possible due to data format mismatch")
+        logger.info("   MLDataLoader outputs: numpy arrays with lookback windows")
+        logger.info("   UnifiedXGBoostTrainer expects: DataFrame with OHLCV columns")
+        logger.info("   Recommendation: Add adapter layer or modify trainer")
 
         return True  # Test passes but highlights integration issue
 
     except Exception as e:
-        print(f"❌ MLDataLoader integration failed: {e}")
+        logger.info(f" MLDataLoader integration failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_direct_xgboost_training():
+def test_direct_xgboost_training() -> bool:
     """
     Test direct XGBoost training with proper DataFrame format.
     """
-    print("\n=== DIRECT TEST: XGBoost Training with DataFrame ===")
+    logger.info("Testing with DataFrame ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
         import xgboost as xgb
 
-        from ml.config.xgboost_unified import GPUConfig
-        from ml.config.xgboost_unified import MLflowConfig
-        from ml.config.xgboost_unified import OptunaConfig
-        from ml.config.xgboost_unified import UnifiedXGBoostConfig
+        from ml.config.shared import MLflowConfig
+        from ml.config.shared import OptunaConfig
+        from ml.config.shared import XGBoostGPUConfig as GPUConfig
+        from ml.config.xgboost import UnifiedXGBoostConfig
 
         # Create OHLCV DataFrame
         np.random.seed(42)
@@ -138,7 +142,7 @@ def test_direct_xgboost_training():
                 "low": 99 + np.cumsum(np.random.randn(n_samples) * 0.5),
                 "close": 100 + np.cumsum(np.random.randn(n_samples) * 0.5),
                 "volume": np.abs(np.random.randn(n_samples) * 1000 + 10000),
-            }
+            },
         )
 
         # Fix price relationships
@@ -175,10 +179,10 @@ def test_direct_xgboost_training():
         X_val = val_df[feature_cols]
         y_val = val_df["target"]
 
-        print("✅ Data prepared:")
-        print(f"   Features: {feature_cols}")
-        print(f"   Train samples: {len(X_train)}")
-        print(f"   Val samples: {len(X_val)}")
+        logger.info(" Data prepared:")
+        logger.info(f"   Features: {feature_cols}")
+        logger.info(f"   Train samples: {len(X_train)}")
+        logger.info(f"   Val samples: {len(X_val)}")
 
         # Train with raw XGBoost (avoiding the UnifiedXGBoostTrainer issues)
         config = UnifiedXGBoostConfig(
@@ -215,10 +219,10 @@ def test_direct_xgboost_training():
         train_score = model.eval(dtrain)
         val_score = model.eval(dval)
 
-        print("✅ Training completed:")
-        print(f"   Training time: {training_time:.3f}s")
-        print(f"   Train score: {train_score}")
-        print(f"   Val score: {val_score}")
+        logger.info(" Training completed:")
+        logger.info(f"   Training time: {train_time:.3f}s")
+        logger.info(f"   Train score: {train_score}")
+        logger.info(f"   Val score: {val_score}")
 
         # Test inference performance
         test_sample = xgb.DMatrix(X_val.iloc[:1])
@@ -237,31 +241,31 @@ def test_direct_xgboost_training():
         p50 = np.percentile(latencies, 50)
         p99 = np.percentile(latencies, 99)
 
-        print("✅ Inference performance:")
-        print(f"   P50 latency: {p50:.3f}ms")
-        print(f"   P99 latency: {p99:.3f}ms")
+        logger.info(" Inference performance:")
+        logger.info(f"   P50 latency: {p50:.3f}ms")
+        logger.info(f"   P99 latency: {p99:.3f}ms")
 
         if p99 < 5.0:
-            print("   ✅ MEETS <5ms REQUIREMENT")
+            logger.info("    MEETS <5ms REQUIREMENT")
         else:
-            print("   ⚠️  Close to 5ms requirement")
+            logger.info("     Close to 5ms requirement")
 
         return True
 
     except Exception as e:
-        print(f"❌ Direct XGBoost training failed: {e}")
+        logger.info(f"Test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_memory_stability():
+def test_memory_stability() -> bool:
     """
     Test memory stability over multiple training iterations.
     """
-    print("\n=== MEMORY STABILITY TEST ===")
+    logger.info("\n=== MEMORY STABILITY TEST ===")
 
     if not HAS_XGBOOST:
-        print("❌ XGBoost not available, skipping test")
+        logger.info(" XGBoost not available, skipping test")
         return False
 
     try:
@@ -274,7 +278,7 @@ def test_memory_stability():
 
         # Initial memory
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
-        print(f"Initial memory: {initial_memory:.1f} MB")
+        logger.info(f"Initial memory: {initial_memory:.1f} MB")
 
         memory_readings = [initial_memory]
 
@@ -304,8 +308,8 @@ def test_memory_stability():
             current_memory = process.memory_info().rss / 1024 / 1024
             memory_readings.append(current_memory)
 
-            print(
-                f"  Iteration {i+1}: {current_memory:.1f} MB (Δ {current_memory - initial_memory:.1f} MB)"
+            logger.info(
+                f"  Iteration {i+1}: {current_memory:.1f} MB (Δ {current_memory - initial_memory:.1f} MB)",
             )
 
             # Cleanup
@@ -315,28 +319,28 @@ def test_memory_stability():
         memory_growth = memory_readings[-1] - memory_readings[0]
         avg_growth_per_iteration = memory_growth / 5
 
-        print("\n✅ Memory stability results:")
-        print(f"   Total growth: {memory_growth:.1f} MB")
-        print(f"   Avg per iteration: {avg_growth_per_iteration:.1f} MB")
+        logger.info("\n Memory stability results:")
+        logger.info(f"   Total growth: {memory_growth:.1f} MB")
+        logger.info(f"   Avg per iteration: {avg_growth_per_iteration:.1f} MB")
 
         if avg_growth_per_iteration < 10:  # Less than 10MB per iteration
-            print("   ✅ MEMORY STABLE")
+            logger.info("    MEMORY STABLE")
             return True
         else:
-            print("   ⚠️  Potential memory leak detected")
+            logger.info("     Potential memory leak detected")
             return False
 
     except Exception as e:
-        print(f"❌ Memory stability test failed: {e}")
+        logger.info(f" Memory stability test failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_feature_engineering_integration():
+def test_feature_engineering_integration() -> bool:
     """
     Test integration with FeatureEngineer.
     """
-    print("\n=== FEATURE ENGINEERING INTEGRATION TEST ===")
+    logger.info("\n=== FEATURE ENGINEERING INTEGRATION TEST ===")
 
     try:
         from ml.features.engineering import FeatureEngineer
@@ -353,7 +357,7 @@ def test_feature_engineering_integration():
                 "low": 99 + np.cumsum(np.random.randn(n_samples) * 0.5),
                 "close": 100 + np.cumsum(np.random.randn(n_samples) * 0.5),
                 "volume": np.abs(np.random.randn(n_samples) * 1000 + 10000),
-            }
+            },
         )
 
         # Fix price relationships
@@ -366,11 +370,11 @@ def test_feature_engineering_integration():
         # Calculate features
         features_df, scaler = engineer.calculate_features_batch(df)
 
-        print("✅ Feature engineering completed:")
-        print(f"   Input shape: {df.shape}")
-        print(f"   Output shape: {features_df.shape}")
-        print(f"   Features generated: {features_df.shape[1]}")
-        print(f"   Sample features: {list(features_df.columns[:5])}")
+        logger.info(" Feature engineering completed:")
+        logger.info(f"   Input shape: {df.shape}")
+        logger.info(f"   Output shape: {features_df.shape}")
+        logger.info(f"   Features generated: {features_df.shape[1]}")
+        logger.info(f"   Sample features: {list(features_df.columns[:5])}")
 
         # Verify features are numeric and finite
         assert (
@@ -379,21 +383,21 @@ def test_feature_engineering_integration():
         assert features_df.isna().sum().sum() == 0, "No NaN values should be present"
         assert np.isfinite(features_df.values).all(), "All values should be finite"
 
-        print("   ✅ All features valid and finite")
+        logger.info("    All features valid and finite")
 
         return True
 
     except Exception as e:
-        print(f"❌ Feature engineering integration failed: {e}")
+        logger.info(f" Feature engineering integration failed: {e}")
         traceback.print_exc()
         return False
 
 
-def test_monitoring_integration():
+def test_monitoring_integration() -> bool:
     """
     Test monitoring collector integration.
     """
-    print("\n=== MONITORING INTEGRATION TEST ===")
+    logger.info("\n=== MONITORING INTEGRATION TEST ===")
 
     try:
         import tempfile
@@ -425,18 +429,18 @@ def test_monitoring_integration():
         # Get metrics
         summary = collector.get_metrics_summary()
 
-        print("✅ Monitoring integration completed:")
-        print(f"   Metrics collected: {len(summary)}")
+        logger.info(" Monitoring integration completed:")
+        logger.info(f"   Metrics collected: {len(summary)}")
 
         if "training_runs" in summary:
-            print(f"   Training runs: {summary['training_runs']}")
+            logger.info(f"   Training runs: {summary['training_runs']}")
         if "total_inferences" in summary:
-            print(f"   Total inferences: {summary['total_inferences']}")
+            logger.info(f"   Total inferences: {summary['total_inferences']}")
 
         return True
 
     except Exception as e:
-        print(f"❌ Monitoring integration failed: {e}")
+        logger.info(f" Monitoring integration failed: {e}")
         traceback.print_exc()
         return False
 
@@ -445,9 +449,9 @@ def main():
     """
     Run all integration tests.
     """
-    print("=" * 60)
-    print("UnifiedXGBoostTrainer QA Integration Testing")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("UnifiedXGBoostTrainer QA Integration Testing")
+    logger.info("=" * 60)
 
     tests = [
         test_ml_data_loader_integration,
@@ -463,26 +467,26 @@ def main():
             result = test_func()
             results.append(result)
         except Exception as e:
-            print(f"❌ Test {test_func.__name__} crashed: {e}")
+            logger.info(f" Test {test_func.__name__} crashed: {e}")
             results.append(False)
 
     # Summary
-    print("\n" + "=" * 60)
-    print("INTEGRATION TEST SUMMARY")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("INTEGRATION TEST SUMMARY")
+    logger.info("=" * 60)
 
     passed = sum(results)
     total = len(results)
 
-    print(f"Tests Passed: {passed}/{total}")
-    print(f"Success Rate: {passed/total*100:.1f}%")
+    logger.info(f"Tests Passed: {passed}/{total}")
+    logger.info(f"Pass Rate: {passed/total*100:.1f}%")
 
     if passed == total:
-        print("\n✅ ALL INTEGRATION TESTS PASSED")
+        logger.info("\n ALL INTEGRATION TESTS PASSED")
     elif passed >= total * 0.7:
-        print("\n⚠️  MOST INTEGRATION TESTS PASSED")
+        logger.info("\n  MOST INTEGRATION TESTS PASSED")
     else:
-        print("\n❌ INTEGRATION TESTS FAILED")
+        logger.info("\n INTEGRATION TESTS FAILED")
 
     return passed >= total * 0.7  # Pass if 70% or more tests pass
 

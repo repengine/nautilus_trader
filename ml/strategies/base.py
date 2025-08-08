@@ -57,7 +57,7 @@ ml_signal_to_trade_latency = None
 ml_position_count = None
 
 
-def _initialize_metrics():
+def _initialize_metrics() -> None:
     """
     Initialize Prometheus metrics once.
     """
@@ -279,25 +279,31 @@ class BaseMLStrategy(Strategy, ABC):
         # Let concrete strategy decide on the signal
         self._process_ml_signal(signal)
 
-    def _calculate_position_size(self) -> Quantity:
+    def _calculate_position_size(self) -> Quantity | None:
         """
         Calculate position size based on configuration and account balance.
 
         Returns
         -------
-        Quantity
-            The calculated position size.
+        Quantity | None
+            The calculated position size, or None if insufficient data available.
 
         """
         instrument = self.cache.instrument(self._config.instrument_id)
         if instrument is None:
-            self.log.warning("Instrument not found, using minimum position size")
-            return Quantity.from_int(1)
+            self.log.error(
+                f"Cannot calculate position size: Instrument {self._config.instrument_id} not found. "
+                "Ensure instrument is subscribed and available in cache.",
+            )
+            return None
 
         account = self.cache.account_for_venue(instrument.venue)
         if account is None:
-            self.log.warning("No account found, using minimum position size")
-            return Quantity.from_int(1)
+            self.log.error(
+                f"Cannot calculate position size: No account found for venue {instrument.venue}. "
+                "Position sizing requires account information.",
+            )
+            return None
 
         # Calculate position size as percentage of account balance
         account_balance = float(account.balance_total().as_double())
@@ -317,8 +323,11 @@ class BaseMLStrategy(Strategy, ABC):
                 ask_price = float(quote_tick.ask_price.as_double())
                 current_price = (bid_price + ask_price) / 2.0
             else:
-                self.log.warning("No price data available, using minimum position size")
-                return Quantity.from_int(1)
+                self.log.error(
+                    f"Cannot calculate position size: No price data available for {self._config.instrument_id}. "
+                    "Ensure market data is being received before trading.",
+                )
+                return None
 
         # Calculate quantity
         raw_quantity = position_value / current_price
@@ -494,6 +503,11 @@ class SimpleMLStrategy(BaseMLStrategy):
         if current_position is None:
             # No position, enter new one
             quantity = self._calculate_position_size()
+            if quantity is None:
+                self.log.warning(
+                    f"Skipping trade signal due to position sizing failure for {signal.instrument_id}",
+                )
+                return
             self._place_market_order(target_side, quantity)
             self._active_positions += 1
 
@@ -511,6 +525,11 @@ class SimpleMLStrategy(BaseMLStrategy):
 
             # Then open new position
             quantity = self._calculate_position_size()
+            if quantity is None:
+                self.log.warning(
+                    f"Closed position but cannot open new one due to position sizing failure for {signal.instrument_id}",
+                )
+                return
             self._place_market_order(target_side, quantity)
 
         else:

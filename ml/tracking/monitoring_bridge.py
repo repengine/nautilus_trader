@@ -23,6 +23,7 @@ systems.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -37,7 +38,10 @@ from ml.tracking.mlflow_manager import MLflowManager
 
 
 if TYPE_CHECKING:
-    from ml.config.lightgbm_unified import MLflowConfig
+    from ml.config.shared import MLflowConfig
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class MLflowMonitoringBridge(BaseMetricsCollector):
@@ -99,6 +103,10 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
         self._mlflow_available = False
         self._last_mlflow_check = 0.0
         self._mlflow_check_interval = 60.0  # Check every minute
+
+        # Delta tracking for Prometheus counters
+        # Structure: {(experiment_name, status): last_count}
+        self._run_counter_states: dict[tuple[str, str], int] = {}
 
     def _initialize_metrics(self) -> None:
         """
@@ -217,14 +225,14 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
         Start background monitoring and sync operations.
         """
         if not self._enabled:
-            print("MLflow monitoring bridge is disabled")
+            logger.info("MLflow monitoring bridge is disabled")
             return
 
         if self._sync_thread and self._sync_thread.is_alive():
-            print("MLflow monitoring is already running")
+            logger.info("MLflow monitoring is already running")
             return
 
-        print(f"Starting MLflow monitoring bridge (sync interval: {self.sync_interval}s)")
+        logger.info(f"MLflow monitoring bridge (sync interval: {self.sync_interval}s)")
 
         self._stop_sync.clear()
         self._sync_thread = threading.Thread(
@@ -239,14 +247,14 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
         Stop background monitoring operations.
         """
         if self._sync_thread and self._sync_thread.is_alive():
-            print("Stopping MLflow monitoring bridge...")
+            logger.info("Stopping MLflow monitoring bridge...")
             self._stop_sync.set()
             self._sync_thread.join(timeout=10)
 
             if self._sync_thread.is_alive():
-                print("Warning: MLflow sync thread did not stop gracefully")
+                logger.warning(f"Failed to sync run metrics: {e}")
             else:
-                print("MLflow monitoring bridge stopped")
+                logger.info("MLflow monitoring bridge stopped")
 
     def _sync_loop(self) -> None:
         """
@@ -264,7 +272,7 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
                     .labels(error_type=error_type_name)
                     .inc(),
                 )
-                print(f"Error in MLflow sync: {sync_error}")
+                logger.info(f"Error in MLflow sync: {sync_error}")
 
     def _ensure_mlflow_manager(self) -> bool:
         """
@@ -305,7 +313,7 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
                     "connectivity_error",
                     lambda: self._metrics["mlflow_connectivity"].set(0.0),
                 )
-                print(f"MLflow connectivity check failed: {e}")
+                logger.info(f"MLflow connectivity check failed: {e}")
 
         return self._mlflow_available
 
@@ -390,7 +398,7 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
 
         except Exception as e:
             stats["errors"] += 1
-            print(f"Error syncing experiments: {e}")
+            logger.info(f"Error syncing experiments: {e}")
 
     def _sync_experiment_runs(self, experiment_name: str, stats: dict[str, Any]) -> None:
         """
@@ -435,14 +443,60 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
 
         except Exception as e:
             stats["errors"] += 1
-            print(f"Error syncing experiment runs: {e}")
+            logger.info(f"Error syncing experiment runs: {e}")
 
     def _update_run_counter(self, experiment_name: str, status: str, count: int) -> None:
         """
-        Update run counter metric (placeholder for delta tracking).
+        Update run counter metric with proper delta tracking.
+
+        Prometheus counters can only increment, never decrease. This method tracks
+        the last known count for each experiment/status combination and only
+        increments by the delta since the last sync.
+
+        Parameters
+        ----------
+        experiment_name : str
+            Name of the MLflow experiment.
+        status : str
+            Run status (completed, active, failed).
+        count : int
+            Current total count from MLflow.
+
         """
-        # This is a simplified implementation - in production you'd want to
-        # track deltas since last sync to properly increment counters
+        # Use lock for thread safety when accessing shared state
+        with self._lock:
+            # Create a unique key for this counter
+            counter_key = (experiment_name, status)
+
+            # Get the last known count for this counter
+            last_count = self._run_counter_states.get(counter_key, 0)
+
+            # Calculate the delta since last sync
+            delta = count - last_count
+
+            # Only increment if there's a positive delta
+            if delta > 0:
+                # Increment the counter by the delta
+                self._metrics["mlflow_runs_total"].labels(
+                    experiment_name=experiment_name,
+                    status=status,
+                ).inc(delta)
+
+                # Update the state for next sync
+                self._run_counter_states[counter_key] = count
+
+            elif delta < 0:
+                # Log a warning if count decreased (shouldn't happen in normal operation)
+                logger.info(
+                    f"Warning: Run count decreased for {experiment_name}/{status}: "
+                    f"previous={last_count}, current={count}. "
+                    f"This may indicate data inconsistency in MLflow.",
+                )
+                # Don't update the counter (Prometheus counters can't decrease)
+                # But update our state to match reality to avoid accumulating errors
+                self._run_counter_states[counter_key] = count
+
+            # If delta == 0, no action needed (count hasn't changed)
 
     def _sync_run_metrics(self, experiment_name: str, run: Any) -> None:
         """
@@ -483,7 +537,7 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
                 )
 
         except Exception as e:
-            print(f"Error syncing run metrics for {run.info.run_id}: {e}")
+            logger.info(f"Error syncing run metrics for {run.info.run_id}: {e}")
 
     def _sync_model_registry(self, stats: dict[str, Any]) -> None:
         """
@@ -519,7 +573,7 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
                             stage_counts[key] = count
 
                 except Exception as e:
-                    print(f"Error getting versions for model {model_name}: {e}")
+                    logger.info(f"Error getting versions for model {model_name}: {e}")
                     continue
 
             # Update version count metrics
@@ -536,7 +590,7 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
 
         except Exception as e:
             stats["errors"] += 1
-            print(f"Error syncing model registry: {e}")
+            logger.info(f"Error syncing model registry: {e}")
 
     def record_model_transition(
         self,
@@ -653,6 +707,9 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
         """
         current_time = time.time()
 
+        with self._lock:
+            counter_states_count = len(self._run_counter_states)
+
         return {
             "bridge_enabled": self._enabled,
             "mlflow_available": self._mlflow_available,
@@ -662,7 +719,27 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
             "sync_interval": self.sync_interval,
             "next_sync_in": self.sync_interval - (current_time % self.sync_interval),
             "prometheus_metrics_count": len(self._metrics),
+            "tracked_counter_states": counter_states_count,
         }
+
+    def reset_counter_states(self) -> None:
+        """
+        Reset all counter state tracking.
+
+        This method clears the internal state tracking for Prometheus counters.
+        Use with caution as it may cause temporary inconsistencies in metrics
+        until the next sync establishes new baselines.
+
+        This is primarily useful for:
+        - Recovery from corrupted state
+        - Testing scenarios
+        - Re-initialization after major changes
+
+        """
+        with self._lock:
+            old_count = len(self._run_counter_states)
+            self._run_counter_states.clear()
+            logger.info(f"Reset {old_count} counter states for MLflow run tracking")
 
     def force_sync(self) -> dict[str, Any]:
         """
@@ -677,5 +754,5 @@ class MLflowMonitoringBridge(BaseMetricsCollector):
         if not self._enabled:
             return {"status": "disabled"}
 
-        print("Forcing MLflow metrics sync...")
+        logger.info("Forcing MLflow metrics sync...")
         return self.sync_mlflow_metrics()

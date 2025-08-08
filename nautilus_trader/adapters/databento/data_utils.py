@@ -15,6 +15,8 @@
 
 from datetime import datetime
 from datetime import timedelta
+from pathlib import Path
+from typing import Any
 
 from nautilus_trader import PACKAGE_ROOT
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
@@ -29,14 +31,14 @@ client = None
 
 
 # if DATABENTO_API_KEY is None, an environment variable with the same name can be used
-def init_databento_client(DATABENTO_API_KEY=None):
+def init_databento_client(DATABENTO_API_KEY: str | None = None) -> None:
     import databento as db
 
     global client
     client = db.Historical(key=DATABENTO_API_KEY)
 
 
-def data_path(*folders, base_path=None):
+def data_path(*folders: str, base_path: Path | None = None) -> Path:
     """
     Get the path to a data folder, creating it if it doesn't exist.
 
@@ -57,7 +59,7 @@ def data_path(*folders, base_path=None):
     return result
 
 
-def create_data_folder(*folders, base_path=None):
+def create_data_folder(*folders: str, base_path: Path | None = None) -> Path:
     used_path = data_path(*folders, base_path=base_path)
 
     if not used_path.exists():
@@ -66,14 +68,21 @@ def create_data_folder(*folders, base_path=None):
     return used_path
 
 
-def databento_definition_dates(start_time):
+def databento_definition_dates(start_time: str) -> tuple[str, str]:
     definition_date = start_time.split("T")[0]
     used_end_date = next_day(definition_date)
 
     return definition_date, used_end_date
 
 
-def databento_cost(symbols, start_time, end_time, schema, dataset="GLBX.MDP3", **kwargs) -> float:
+def databento_cost(
+    symbols: list[str],
+    start_time: str,
+    end_time: str,
+    schema: str,
+    dataset: str = "GLBX.MDP3",
+    **kwargs: Any,
+) -> float:
     """
     Calculate the cost of retrieving data from the Databento API for the given
     parameters.
@@ -101,7 +110,7 @@ def databento_cost(symbols, start_time, end_time, schema, dataset="GLBX.MDP3", *
     """
     definition_start_date, definition_end_date = databento_definition_dates(start_time)
 
-    return client.metadata.get_cost(  # type: ignore[union-attr]
+    return client.metadata.get_cost(  # type: ignore[union-attr,no-any-return]
         dataset=dataset,
         symbols=symbols,
         schema=schema,
@@ -112,19 +121,19 @@ def databento_cost(symbols, start_time, end_time, schema, dataset="GLBX.MDP3", *
 
 
 def databento_data(
-    symbols,
-    start_time,
-    end_time,
-    schema,
-    file_prefix,
-    *folders,
-    dataset="GLBX.MDP3",
-    to_catalog=True,
-    base_path=None,
-    use_exchange_as_venue=True,
-    load_databento_files_if_exist=False,
-    **kwargs,
-):
+    symbols: list[str],
+    start_time: str,
+    end_time: str,
+    schema: str,
+    file_prefix: str,
+    *folders: str,
+    dataset: str = "GLBX.MDP3",
+    to_catalog: bool = True,
+    base_path: Path | None = None,
+    use_exchange_as_venue: bool = True,
+    load_databento_files_if_exist: bool = False,
+    **kwargs: Any,
+) -> Any:
     """
     Download and save Databento data and definition files, and optionally save the data
     to a catalog.
@@ -174,7 +183,7 @@ def databento_data(
     definition_file = used_path / definition_file_name
 
     if not definition_file.exists():
-        definition = client.timeseries.get_range(
+        definition = client.timeseries.get_range(  # type: ignore[union-attr]
             schema="definition",
             dataset=dataset,
             symbols=symbols,
@@ -192,7 +201,7 @@ def databento_data(
 
     if schema != "definition":
         if not data_file.exists():
-            data = client.timeseries.get_range(
+            data = client.timeseries.get_range(  # type: ignore[union-attr]
                 schema=schema,
                 dataset=dataset,
                 symbols=symbols,
@@ -205,7 +214,7 @@ def databento_data(
             data = load_databento_data(data_file) if load_databento_files_if_exist else None
     else:
         data = None
-        data_file = None
+        data_file = None  # type: ignore[assignment]
 
     result = {
         "symbols": symbols,
@@ -237,12 +246,12 @@ def databento_data(
 
 
 def save_data_to_catalog(
-    *folders,
-    definition_file=None,
-    data_file=None,
-    base_path=None,
-    use_exchange_as_venue=True,
-):
+    *folders: str,
+    definition_file: str | Path | None = None,
+    data_file: str | Path | None = None,
+    base_path: Path | None = None,
+    use_exchange_as_venue: bool = True,
+) -> dict[str, Any]:
     """
     Save Databento data to a catalog.
 
@@ -304,7 +313,7 @@ def save_data_to_catalog(
     }
 
 
-def load_catalog(*folders, base_path=None):
+def load_catalog(*folders: str, base_path: Path | None = None) -> ParquetDataCatalog:
     """
     Load a ParquetDataCatalog from the specified folders and base path.
 
@@ -321,7 +330,7 @@ def load_catalog(*folders, base_path=None):
     return ParquetDataCatalog(catalog_path)
 
 
-def query_catalog(catalog, data_type="bars", **kwargs):
+def query_catalog(catalog: ParquetDataCatalog, data_type: str = "bars", **kwargs: Any) -> Any:
     if data_type == "bars":
         return catalog.bars(**kwargs)
     elif data_type == "ticks":
@@ -332,17 +341,17 @@ def query_catalog(catalog, data_type="bars", **kwargs):
         return catalog.custom_data(**kwargs)
 
 
-def load_databento_data(file):
+def load_databento_data(file: str | Path) -> Any:
     import databento as db
 
     return db.DBNStore.from_file(file)
 
 
-def save_databento_data(data, file):
+def save_databento_data(data: Any, file: str | Path) -> Any:
     return data.to_file(file)
 
 
-def next_day(date_str):
+def next_day(date_str: str) -> str:
     date_format = "%Y-%m-%d"
     date = datetime.strptime(date_str, date_format)
     result = date + timedelta(days=1)

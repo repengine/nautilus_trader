@@ -20,24 +20,29 @@ This script validates all critical requirements for production deployment.
 """
 
 import gc
+import logging
 import time
 import tracemalloc
 from typing import Any
 
 import numpy as np
 
-from ml.actors.feature_cache import LockFreeRingBuffer
-from ml.actors.feature_cache import PreAllocatedFeatureCache
-from ml.actors.feature_cache import ReservoirSampler
-from ml.actors.signal_optimized import ModelSwapper
-from ml.actors.signal_optimized import PerformanceMonitor
+from ml.actors.signal import ModelSwapper
+from ml.actors.signal import PerformanceMonitor
+from ml.core.cache import LockFreeRingBuffer
+from ml.core.cache import PreAllocatedFeatureCache
+from ml.core.cache import ReservoirSampler
+
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 def test_lock_free_operations() -> dict[str, Any]:
     """
     Test lock-free ring buffer operations.
     """
-    print("\n=== Testing Lock-Free Ring Buffer ===")
+    logger.info("\n=== Testing Lock-Free Ring Buffer ===")
 
     results = {"passed": True, "details": {}}
 
@@ -51,7 +56,7 @@ def test_lock_free_operations() -> dict[str, Any]:
     elapsed = (time.perf_counter_ns() - start) / 1_000_000
 
     results["details"]["append_1000_ms"] = elapsed
-    print(f"Append 1000 items: {elapsed:.3f}ms")
+    logger.info(f"Append 1000 items: {elapsed:.3f}ms")
 
     # Test statistical operations
     assert buffer.count == 100  # Should wrap around
@@ -60,12 +65,12 @@ def test_lock_free_operations() -> dict[str, Any]:
 
     results["details"]["mean"] = mean
     results["details"]["std"] = std
-    print(f"Mean: {mean:.2f}, Std: {std:.2f}")
+    logger.info(f"Mean: {mean:.2f}, Std: {std:.2f}")
 
     # Test get_last
     last_values = buffer.get_last(10)
     assert len(last_values) == 10
-    print("Last 10 values retrieved successfully")
+    logger.info("Validation completed successfully")
 
     return results
 
@@ -74,7 +79,7 @@ def test_reservoir_sampling() -> dict[str, Any]:
     """
     Test reservoir sampling for percentile calculations.
     """
-    print("\n=== Testing Reservoir Sampling ===")
+    logger.info("\n=== Testing Reservoir Sampling ===")
 
     results = {"passed": True, "details": {}}
 
@@ -87,7 +92,7 @@ def test_reservoir_sampling() -> dict[str, Any]:
     elapsed = (time.perf_counter_ns() - start) / 1_000_000
 
     results["details"]["add_10000_samples_ms"] = elapsed
-    print(f"Add 10000 samples: {elapsed:.3f}ms")
+    logger.info(f"Add 10000 samples: {elapsed:.3f}ms")
 
     # Test percentile calculation
     start = time.perf_counter_ns()
@@ -96,8 +101,8 @@ def test_reservoir_sampling() -> dict[str, Any]:
 
     results["details"]["percentile_calc_ms"] = elapsed
     results["details"]["percentiles"] = percentiles
-    print(f"Percentile calculation: {elapsed:.3f}ms")
-    print(f"Percentiles: {percentiles}")
+    logger.info(f"Percentile calculation: {elapsed:.3f}ms")
+    logger.info(f"Percentiles: {percentiles}")
 
     return results
 
@@ -106,7 +111,7 @@ def test_feature_cache_zero_allocation() -> dict[str, Any]:
     """
     Test zero-allocation feature caching.
     """
-    print("\n=== Testing Zero-Allocation Feature Cache ===")
+    logger.info("\n=== Testing Zero-Allocation Feature Cache ===")
 
     results = {"passed": True, "details": {}}
 
@@ -137,9 +142,9 @@ def test_feature_cache_zero_allocation() -> dict[str, Any]:
 
     # Should be minimal allocations
     if total_allocated < 100 * 1024:  # Less than 100KB
-        print(f"✓ Zero-allocation confirmed: {total_allocated / 1024:.2f}KB allocated")
+        logger.info(f" Zero-allocation confirmed: {total_allocated / 1024:.2f}KB allocated")
     else:
-        print(f"✗ Excessive allocation: {total_allocated / 1024:.2f}KB allocated")
+        logger.info(f" Excessive allocation: {total_allocated / 1024:.2f}KB allocated")
         results["passed"] = False
 
     tracemalloc.stop()
@@ -151,7 +156,7 @@ def test_performance_monitoring() -> dict[str, Any]:
     """
     Test performance monitoring capabilities.
     """
-    print("\n=== Testing Performance Monitoring ===")
+    logger.info("\n=== Testing Performance Monitoring ===")
 
     results = {"passed": True, "details": {}}
 
@@ -175,21 +180,21 @@ def test_performance_monitoring() -> dict[str, Any]:
     results["details"]["stats"] = stats
     results["details"]["percentiles"] = percentiles
 
-    print(f"Predictions: {stats['prediction_count']}")
-    print(f"Signals: {stats['signal_count']}")
-    print(f"Signal rate: {stats['signal_rate']:.2%}")
+    logger.info(f"Predictions: {stats['prediction_count']}")
+    logger.info(f"Signals: {stats['signal_count']}")
+    logger.info(f"Signal rate: {stats['signal_rate']:.2%}")
 
     for metric, values in percentiles.items():
-        print(f"\n{metric} latency percentiles (ms):")
+        logger.info(f"\n{metric} latency percentiles (ms):")
         for p, v in values.items():
-            print(f"  P{p}: {v:.3f}ms")
+            logger.info(f"  P{p}: {v:.3f}ms")
 
             # Check performance targets
             if metric == "inference" and p == 99.0 and v > 2.0:
-                print("  ✗ P99 inference exceeds 2ms target!")
+                logger.info("   P99 inference exceeds 2ms target!")
                 results["passed"] = False
             elif metric == "total" and p == 99.0 and v > 5.0:
-                print("  ✗ P99 total exceeds 5ms target!")
+                logger.info("   P99 total exceeds 5ms target!")
                 results["passed"] = False
 
     return results
@@ -199,7 +204,7 @@ def test_model_swapping() -> dict[str, Any]:
     """
     Test atomic model swapping.
     """
-    print("\n=== Testing Model Hot-Swapping ===")
+    logger.info("\n=== Testing Model Hot-Swapping ===")
 
     results = {"passed": True, "details": {}}
 
@@ -212,7 +217,7 @@ def test_model_swapping() -> dict[str, Any]:
 
     assert swapper.current_model == initial_model
     assert swapper.current_metadata == initial_metadata
-    print("✓ Initial model set")
+    logger.info(" Initial model set")
 
     # Prepare new model for swap
     new_model = {"name": "model_v2", "version": "2.0"}
@@ -220,7 +225,7 @@ def test_model_swapping() -> dict[str, Any]:
     swapper.prepare_swap(new_model, new_metadata)
 
     assert swapper.swap_pending
-    print("✓ New model prepared for swap")
+    logger.info(" New model prepared for swap")
 
     # Execute swap
     swapped = swapper.execute_swap()
@@ -228,14 +233,14 @@ def test_model_swapping() -> dict[str, Any]:
     assert swapper.current_model == new_model
     assert swapper.current_metadata == new_metadata
     assert not swapper.swap_pending
-    print("✓ Model swap executed successfully")
+    logger.info("Model swap completed successfully")
 
     # Test error handling
     error = ValueError("Model load failed")
     swapper.prepare_swap_with_error(error)
     assert swapper.load_error == error
     assert not swapper.swap_pending
-    print("✓ Error handling works correctly")
+    logger.info(" Error handling works correctly")
 
     results["details"]["swap_test"] = "passed"
 
@@ -246,7 +251,7 @@ def test_memory_stability() -> dict[str, Any]:
     """
     Test memory stability over extended operations.
     """
-    print("\n=== Testing Memory Stability ===")
+    logger.info("\n=== Testing Memory Stability ===")
 
     results = {"passed": True, "details": {}}
 
@@ -263,7 +268,7 @@ def test_memory_stability() -> dict[str, Any]:
     process = psutil.Process()
     baseline_memory = process.memory_info().rss / 1024 / 1024  # MB
 
-    print(f"Baseline memory: {baseline_memory:.2f}MB")
+    logger.info(f"Baseline memory: {baseline_memory:.2f}MB")
 
     # Perform many operations
     for i in range(10000):
@@ -299,14 +304,14 @@ def test_memory_stability() -> dict[str, Any]:
     results["details"]["final_memory_mb"] = final_memory
     results["details"]["increase_mb"] = memory_increase
 
-    print(f"Final memory: {final_memory:.2f}MB")
-    print(f"Memory increase: {memory_increase:.2f}MB")
+    logger.info(f"Final memory: {final_memory:.2f}MB")
+    logger.info(f"Memory increase: {memory_increase:.2f}MB")
 
     # Should have minimal memory increase
     if memory_increase < 10:  # Less than 10MB increase
-        print("✓ Memory stable over 10,000 operations")
+        logger.info(" Memory stable over 10,000 operations")
     else:
-        print(f"✗ Excessive memory growth: {memory_increase:.2f}MB")
+        logger.info(f" Excessive memory growth: {memory_increase:.2f}MB")
         results["passed"] = False
 
     return results
@@ -316,9 +321,9 @@ def run_comprehensive_qa() -> None:
     """
     Run comprehensive QA validation.
     """
-    print("=" * 60)
-    print("COMPREHENSIVE QA VALIDATION - OptimizedMLSignalActor")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("COMPREHENSIVE QA VALIDATION - OptimizedMLSignalActor")
+    logger.info("=" * 60)
 
     all_results = {}
     all_passed = True
@@ -340,27 +345,27 @@ def run_comprehensive_qa() -> None:
             if not result["passed"]:
                 all_passed = False
         except Exception as e:
-            print(f"\n✗ {test_name} FAILED with exception: {e}")
+            logger.info(f"\n {test_name} FAILED with exception: {e}")
             all_results[test_name] = {"passed": False, "error": str(e)}
             all_passed = False
 
     # Summary
-    print("\n" + "=" * 60)
-    print("QA VALIDATION SUMMARY")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("QA VALIDATION SUMMARY")
+    logger.info("=" * 60)
 
     for test_name, result in all_results.items():
-        status = "✓ PASSED" if result["passed"] else "✗ FAILED"
-        print(f"{test_name}: {status}")
+        status = " PASSED" if result["passed"] else " FAILED"
+        logger.info(f"{test_name}: {status}")
 
-    print("\n" + "=" * 60)
+    logger.info("\n" + "=" * 60)
     if all_passed:
-        print("OVERALL RESULT: ✓ ALL TESTS PASSED")
-        print("DEPLOYMENT RECOMMENDATION: READY FOR PRODUCTION")
+        logger.info("OVERALL RESULT:  ALL TESTS PASSED")
+        logger.info("DEPLOYMENT RECOMMENDATION: READY FOR PRODUCTION")
     else:
-        print("OVERALL RESULT: ✗ SOME TESTS FAILED")
-        print("DEPLOYMENT RECOMMENDATION: ADDRESS FAILURES BEFORE DEPLOYMENT")
-    print("=" * 60)
+        logger.info("OVERALL RESULT:  SOME TESTS FAILED")
+        logger.info("DEPLOYMENT RECOMMENDATION: ADDRESS FAILURES BEFORE DEPLOYMENT")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

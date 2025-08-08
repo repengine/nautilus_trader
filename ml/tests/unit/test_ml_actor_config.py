@@ -38,7 +38,7 @@ class TestMLActorConfiguration:
     Tests for ML actor configuration handling.
     """
 
-    def test_ml_actor_config_creation(self):
+    def test_ml_actor_config_creation(self) -> None:
         """
         Test creating an ML actor configuration.
         """
@@ -58,7 +58,7 @@ class TestMLActorConfiguration:
         assert config.warm_up_period == 30
         assert config.component_id == ComponentId("MLActor-001")
 
-    def test_create_actor_config_from_ml_config(self):
+    def test_create_actor_config_from_ml_config(self) -> None:
         """
         Test creating a standard ActorConfig from ML config.
         """
@@ -81,7 +81,7 @@ class TestMLActorConfiguration:
         assert actor_config.log_events is False
         assert actor_config.log_commands is True
 
-    def test_simple_ml_actor_initialization(self):
+    def test_simple_ml_actor_initialization(self) -> None:
         """
         Test that SimpleMLActor can be initialized with ML config.
         """
@@ -105,7 +105,7 @@ class TestMLActorConfiguration:
         assert actor._config.warm_up_period == 25
         assert actor._config.log_predictions is True
 
-    def test_configuration_helper_get_bar_type(self):
+    def test_configuration_helper_get_bar_type(self) -> None:
         """
         Test ConfigurationHelper.get_bar_type method.
         """
@@ -123,7 +123,7 @@ class TestMLActorConfiguration:
         # Assert
         assert result == bar_type
 
-    def test_configuration_helper_get_instrument_id(self):
+    def test_configuration_helper_get_instrument_id(self) -> None:
         """
         Test ConfigurationHelper.get_instrument_id method.
         """
@@ -141,7 +141,7 @@ class TestMLActorConfiguration:
         # Assert
         assert result == instrument_id
 
-    def test_configuration_helper_get_model_path(self):
+    def test_configuration_helper_get_model_path(self) -> None:
         """
         Test ConfigurationHelper.get_model_path method.
         """
@@ -159,7 +159,7 @@ class TestMLActorConfiguration:
         # Assert
         assert result == model_path
 
-    def test_configuration_helper_missing_attribute_raises(self):
+    def test_configuration_helper_missing_attribute_raises(self) -> None:
         """
         Test that ConfigurationHelper raises for missing attributes.
         """

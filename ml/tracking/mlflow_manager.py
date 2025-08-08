@@ -24,6 +24,7 @@ workflows.
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 import time
 from collections.abc import Generator
@@ -37,11 +38,14 @@ import numpy as np
 from ml._imports import HAS_MLFLOW
 from ml._imports import check_ml_dependencies
 from ml._imports import mlflow
-from ml.config.lightgbm_unified import MLflowConfig
+from ml.config.shared import MLflowConfig
 
 
 if TYPE_CHECKING:
     import mlflow
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class ModelStage(Enum):
@@ -147,13 +151,13 @@ class MLflowManager:
                         "purpose": "financial_ml",
                     },
                 )
-                print(f"Created new MLflow experiment: {self.config.experiment_name}")
+                logger.info(f"Created new MLflow experiment: {self.config.experiment_name}")
             else:
                 self._experiment_id = experiment.experiment_id
-                print(f"Using existing MLflow experiment: {self.config.experiment_name}")
+                logger.info(f"Using existing MLflow experiment: {self.config.experiment_name}")
 
         except Exception as e:
-            print(f"Warning: Could not setup experiment {self.config.experiment_name}: {e}")
+            logger.warning(f"Could not setup experiment {self.config.experiment_name}: {e}")
             self._experiment_id = None
 
     @contextmanager
@@ -216,10 +220,10 @@ class MLflowManager:
         run_id = run.info.run_id
 
         if nested:
-            print(f"Started nested MLflow run: {run_name} (ID: {run_id})")
+            logger.info(f"Started nested MLflow run: {run_name} (ID: {run_id})")
         else:
             self._current_run_id = run_id
-            print(f"Started MLflow run: {run_name} (ID: {run_id})")
+            logger.info(f"Started MLflow run: {run_name} (ID: {run_id})")
 
         try:
             yield run_id
@@ -329,7 +333,7 @@ class MLflowManager:
             if isinstance(value, int | float) and np.isfinite(value):
                 loggable_metrics[key] = float(value)
             elif not np.isfinite(value):
-                print(f"Warning: Skipping non-finite metric {key}: {value}")
+                logger.warning(f"Skipping non-finite metric '{key}': {value}")
 
         if loggable_metrics:
             self._mlflow.log_metrics(loggable_metrics)
@@ -411,10 +415,10 @@ class MLflowManager:
                     signature=model_signature,
                 )
 
-            print("Model logged successfully")
+            logger.info("Model logged successfully")
 
         except Exception as e:
-            print(f"Warning: Failed to log model: {e}")
+            logger.warning(f"Failed to log model: {e}")
 
     def _log_artifacts_batch(self, artifacts: dict[str, Any]) -> None:
         """
@@ -436,7 +440,7 @@ class MLflowManager:
                     self._mlflow.log_artifact(str(artifact_file))
 
                 except Exception as e:
-                    print(f"Warning: Failed to log artifact {name}: {e}")
+                    logger.warning(f"Failed to log artifact {name}: {e}")
 
     def _log_session_metadata(
         self,
@@ -476,7 +480,7 @@ class MLflowManager:
                         self._mlflow.log_metric(f"meta_{key}", float(value))
                     self._mlflow.set_tag(key, str(value))
                 except Exception as e:
-                    print(f"Warning: Failed to log metadata {key}: {e}")
+                    logger.warning(f"Failed to log metadata {key}: {e}")
 
     def register_model(
         self,
@@ -526,7 +530,7 @@ class MLflowManager:
             )
 
             version = model_version.version
-            print(f"Created model version: {model_name} v{version}")
+            logger.info(f"Created model version: {model_name} v{version}")
 
             # Add tags
             if tags:
@@ -540,7 +544,7 @@ class MLflowManager:
             return str(version)
 
         except Exception as e:
-            print(f"Error registering model: {e}")
+            logger.info(f"Error registering model: {e}")
             raise
 
     def transition_model_stage(
@@ -574,10 +578,10 @@ class MLflowManager:
                 stage=stage.value,
                 archive_existing_versions=archive_existing,
             )
-            print(f"Transitioned {model_name} v{version} to {stage.value}")
+            logger.info(f"Transitioned {model_name} v{version} to {stage.value}")
 
         except Exception as e:
-            print(f"Error transitioning model stage: {e}")
+            logger.info(f"Error transitioning model stage: {e}")
             raise
 
     def load_model(
@@ -615,11 +619,11 @@ class MLflowManager:
                 except Exception:
                     model = self._mlflow.sklearn.load_model(model_uri)
 
-            print(f"Loaded model: {model_name} ({stage.value})")
+            logger.info(f"Loaded model: {model_name} ({stage.value})")
             return model
 
         except Exception as e:
-            print(f"Error loading model: {e}")
+            logger.info(f"Error loading model: {e}")
             raise
 
     def load_model_by_version(self, model_name: str, version: str) -> Any:
@@ -653,11 +657,11 @@ class MLflowManager:
                 except Exception:
                     model = self._mlflow.sklearn.load_model(model_uri)
 
-            print(f"Loaded model: {model_name} v{version}")
+            logger.info(f"Loaded model: {model_name} v{version}")
             return model
 
         except Exception as e:
-            print(f"Error loading model version: {e}")
+            logger.info(f"Error loading model version: {e}")
             raise
 
     def compare_models(
@@ -697,7 +701,7 @@ class MLflowManager:
                 )
 
                 if not versions:
-                    print(f"No {stage.value} version found for {model_name}")
+                    logger.info(f"No {stage.value} version found for {model_name}")
                     continue
 
                 version = versions[0]
@@ -719,7 +723,7 @@ class MLflowManager:
                 }
 
             except Exception as e:
-                print(f"Error getting info for {model_name}: {e}")
+                logger.info(f"Error getting info for {model_name}: {e}")
                 results[model_name] = {"error": str(e)}
 
         return results
@@ -786,19 +790,19 @@ class MLflowManager:
                             self._client.delete_run(run.info.run_id)
                             stats["runs_deleted"] += 1
                         except Exception as e:
-                            print(f"Warning: Could not delete run {run.info.run_id}: {e}")
+                            logger.warning(f"Could not delete run {run.info.run_id}: {e}")
                 else:
                     stats["runs_deleted"] += len(runs_to_delete)
-                    print(
+                    logger.info(
                         f"Would delete {len(runs_to_delete)} runs from "
                         f"experiment {experiment.name}",
                     )
 
             if not dry_run and stats["runs_deleted"] > 0:
-                print(f"Cleaned up {stats['runs_deleted']} old runs")
+                logger.info(f"Cleaned up {stats['runs_deleted']} old runs")
 
         except Exception as e:
-            print(f"Error during cleanup: {e}")
+            logger.info(f"Error during cleanup: {e}")
 
         return stats
 
@@ -869,7 +873,7 @@ class MLflowManager:
             return summary
 
         except Exception as e:
-            print(f"Error getting experiment summary: {e}")
+            logger.info(f"Error getting experiment summary: {e}")
             raise
 
     def health_check(self) -> dict[str, Any]:

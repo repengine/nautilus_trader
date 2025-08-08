@@ -18,6 +18,7 @@ Tests for the FeatureEngineeringCollector.
 
 import threading
 import time
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -33,14 +34,14 @@ class TestFeatureEngineeringCollector:
     """
 
     @pytest.fixture(autouse=True)
-    def setup_test(self, prometheus_registry_cleanup, metric_name_manager):
+    def setup_test(self, prometheus_registry_cleanup: Any, metric_name_manager: Any) -> None:
         """
         Set up test with proper cleanup and unique names.
         """
         self.metric_name_manager = metric_name_manager
 
     @pytest.fixture
-    def collector(self):
+    def collector(self) -> FeatureEngineeringCollector:
         """
         Create a FeatureEngineeringCollector for testing.
         """
@@ -49,21 +50,21 @@ class TestFeatureEngineeringCollector:
         return FeatureEngineeringCollector(config)
 
     @pytest.fixture
-    def disabled_collector(self):
+    def disabled_collector(self) -> FeatureEngineeringCollector:
         """
         Create a disabled FeatureEngineeringCollector for testing.
         """
         config = MonitoringConfig(enabled=False)
         return FeatureEngineeringCollector(config)
 
-    def test_initialization(self, collector):
+    def test_initialization(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test collector initialization.
         """
         assert collector.enabled == HAS_PROMETHEUS
         assert collector.get_metric_count() > 0 or not HAS_PROMETHEUS
 
-    def test_disabled_initialization(self, disabled_collector):
+    def test_disabled_initialization(self, disabled_collector: FeatureEngineeringCollector) -> None:
         """
         Test disabled collector initialization.
         """
@@ -71,7 +72,7 @@ class TestFeatureEngineeringCollector:
         assert disabled_collector.get_metric_count() == 0
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_feature_computation(self, collector):
+    def test_record_feature_computation(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test recording feature computation metrics.
         """
@@ -91,7 +92,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_cache_hit(self, collector):
+    def test_record_cache_hit(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test recording cache hit.
         """
@@ -104,7 +105,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_cache_miss(self, collector):
+    def test_record_cache_miss(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test recording cache miss.
         """
@@ -117,7 +118,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_update_cache_stats(self, collector):
+    def test_update_cache_stats(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test updating cache statistics.
         """
@@ -137,7 +138,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_feature_drift(self, collector):
+    def test_record_feature_drift(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test recording feature drift detection.
         """
@@ -155,7 +156,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_feature_importance(self, collector):
+    def test_record_feature_importance(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test recording feature importance scores.
         """
@@ -175,7 +176,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_record_feature_quality(self, collector):
+    def test_record_feature_quality(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test recording feature quality metrics.
         """
@@ -200,7 +201,10 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_time_feature_computation_context_manager(self, collector):
+    def test_time_feature_computation_context_manager(
+        self,
+        collector: FeatureEngineeringCollector,
+    ) -> None:
         """
         Test feature computation timer context manager.
         """
@@ -214,7 +218,10 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_time_feature_computation_with_exception(self, collector):
+    def test_time_feature_computation_with_exception(
+        self,
+        collector: FeatureEngineeringCollector,
+    ) -> None:
         """
         Test feature computation timer with exception.
         """
@@ -231,7 +238,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_get_feature_stats(self, collector):
+    def test_get_feature_stats(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test getting feature statistics.
         """
@@ -256,7 +263,10 @@ class TestFeatureEngineeringCollector:
         assert "cache_hit_ratio" in stats
         assert "last_computed" in stats
 
-    def test_get_feature_stats_disabled(self, disabled_collector):
+    def test_get_feature_stats_disabled(
+        self,
+        disabled_collector: FeatureEngineeringCollector,
+    ) -> None:
         """
         Test getting feature stats when disabled.
         """
@@ -268,7 +278,7 @@ class TestFeatureEngineeringCollector:
         assert stats["instrument"] == "EURUSD"
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_set_computation_result(self, collector):
+    def test_set_computation_result(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test setting computation result metrics.
         """
@@ -288,7 +298,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_thread_safety(self, collector):
+    def test_thread_safety(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test thread safety of collector operations.
         """
@@ -322,7 +332,10 @@ class TestFeatureEngineeringCollector:
         assert len(results) == 3
         assert len(errors) == 0
 
-    def test_disabled_collector_operations(self, disabled_collector):
+    def test_disabled_collector_operations(
+        self,
+        disabled_collector: FeatureEngineeringCollector,
+    ) -> None:
         """
         Test that disabled collector handles operations gracefully.
         """
@@ -351,7 +364,7 @@ class TestFeatureEngineeringCollector:
         # Should not raise any exceptions
         assert True
 
-    def test_health_check(self, collector):
+    def test_health_check(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test health check functionality.
         """
@@ -367,7 +380,7 @@ class TestFeatureEngineeringCollector:
         assert health["collector_type"] == "FeatureEngineeringCollector"
 
     @patch("ml._imports.HAS_PROMETHEUS", False)
-    def test_graceful_degradation_without_prometheus(self):
+    def test_graceful_degradation_without_prometheus(self) -> None:
         """
         Test graceful degradation when Prometheus is not available.
         """
@@ -389,7 +402,7 @@ class TestFeatureEngineeringCollector:
         # Should not raise any exceptions
         assert True
 
-    def test_string_representation(self, collector):
+    def test_string_representation(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test string representation of collector.
         """
@@ -400,7 +413,7 @@ class TestFeatureEngineeringCollector:
         assert f"metrics_count={collector.get_metric_count()}" in repr_str
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_feature_importance_ranking(self, collector):
+    def test_feature_importance_ranking(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test feature importance ranking functionality.
         """
@@ -425,7 +438,7 @@ class TestFeatureEngineeringCollector:
         assert True
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
-    def test_feature_drift_monitoring(self, collector):
+    def test_feature_drift_monitoring(self, collector: FeatureEngineeringCollector) -> None:
         """
         Test comprehensive feature drift monitoring.
         """

@@ -121,7 +121,7 @@ class LockFreeRingBuffer:
         Returns
         -------
         np.ndarray
-            Array containing the last n values.
+            Array view containing the last n values (no copy when contiguous).
 
         """
         if n <= 0:
@@ -134,17 +134,18 @@ class LockFreeRingBuffer:
             return np.array([], dtype=self._dtype)
 
         if self._count < self._size:
-            # Buffer not yet full, simple slice
+            # Buffer not yet full, return view
             start = max(0, self._count - n)
-            return self._buffer[start : self._count].copy()
+            return self._buffer[start : self._count]  # Return view, not copy
 
         # Buffer is full, handle wrap-around
         start_idx = (self._index - n) % self._size
         if start_idx + n <= self._size:
-            # No wrap-around, return slice
-            return self._buffer[start_idx : start_idx + n].copy()
+            # No wrap-around, return view
+            return self._buffer[start_idx : start_idx + n]  # Return view, not copy
 
-        # Handle wrap-around
+        # Handle wrap-around - must concatenate (allocation unavoidable here)
+        # This only happens when crossing buffer boundary
         first_part = self._buffer[start_idx:]
         second_part = self._buffer[: (start_idx + n) % self._size]
         return np.concatenate([first_part, second_part])
@@ -163,7 +164,7 @@ class LockFreeRingBuffer:
         Returns
         -------
         np.ndarray
-            Array containing the requested window.
+            Array view containing the requested window (no copy when contiguous).
 
         """
         if self._count == 0 or length <= 0:
@@ -180,15 +181,16 @@ class LockFreeRingBuffer:
         length = min(length, self._count - start)
 
         if self._count < self._size:
-            # Buffer not yet full
-            return self._buffer[start : start + length].copy()
+            # Buffer not yet full, return view
+            return self._buffer[start : start + length]  # Return view, not copy
 
         # Buffer is full, calculate actual indices
         actual_start = (self._index - self._count + start) % self._size
         if actual_start + length <= self._size:
-            return self._buffer[actual_start : actual_start + length].copy()
+            return self._buffer[actual_start : actual_start + length]  # Return view, not copy
 
-        # Handle wrap-around
+        # Handle wrap-around - must concatenate (allocation unavoidable here)
+        # This only happens when crossing buffer boundary
         first_part = self._buffer[actual_start:]
         remaining = length - (self._size - actual_start)
         second_part = self._buffer[:remaining]
@@ -317,7 +319,7 @@ class ReservoirSampler:
             self._count += 1
         else:
             # Reservoir full, randomly replace
-            j = random.randint(0, self._total_seen - 1)
+            j = random.randint(0, self._total_seen - 1)  # noqa: S311 (not cryptographic)
             if j < self._reservoir_size:
                 self._reservoir[j] = value
 
@@ -383,10 +385,10 @@ class ReservoirSampler:
         Returns
         -------
         np.ndarray
-            Array containing current reservoir sample.
+            Array view containing current reservoir sample.
 
         """
-        return self._reservoir[: self._count].copy()
+        return self._reservoir[: self._count]  # Return view, not copy
 
     def reset(self) -> None:
         """
@@ -575,7 +577,7 @@ class PreAllocatedFeatureCache:
         Returns
         -------
         np.ndarray
-            Feature history array with shape [n_vectors, n_features].
+            Feature history array view with shape [n_vectors, n_features].
 
         """
         if self._history_count == 0:
@@ -591,17 +593,18 @@ class PreAllocatedFeatureCache:
 
         # Get indices in chronological order
         if self._history_count < self._history_size:
-            # History buffer not yet full
+            # History buffer not yet full, return view
             start_idx = max(0, self._history_count - n_latest)
-            return self._feature_history[start_idx : self._history_count].copy()
+            return self._feature_history[start_idx : self._history_count]  # Return view
 
         # History buffer is full, handle wrap-around
         start_idx = (self._history_index - n_latest) % self._history_size
         if start_idx + n_latest <= self._history_size:
-            # No wrap-around
-            return self._feature_history[start_idx : start_idx + n_latest].copy()
+            # No wrap-around, return view
+            return self._feature_history[start_idx : start_idx + n_latest]  # Return view
 
-        # Handle wrap-around
+        # Handle wrap-around - must concatenate (allocation unavoidable here)
+        # This only happens when crossing buffer boundary
         first_part = self._feature_history[start_idx:]
         second_part = self._feature_history[: (start_idx + n_latest) % self._history_size]
         return np.vstack([first_part, second_part])

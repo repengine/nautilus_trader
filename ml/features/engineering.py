@@ -32,9 +32,9 @@ import numpy as np
 from ml._imports import HAS_POLARS
 from ml._imports import pl
 from ml.config.base import MLFeatureConfig
-from ml.constants import IndicatorNames
-from ml.constants import SystemConstants
-from ml.constants import TechnicalIndicatorPeriods
+from ml.config.constants import IndicatorNames
+from ml.config.constants import SystemConstants
+from ml.config.constants import TechnicalIndicatorPeriods
 
 
 if TYPE_CHECKING:
@@ -402,6 +402,96 @@ class IndicatorManager:
                 # Default to close price
                 indicator.update_raw(float(bar.close))
 
+    def update_batch_vectorized(
+        self,
+        open_prices: np.ndarray,
+        high_prices: np.ndarray,
+        low_prices: np.ndarray,
+        close_prices: np.ndarray,
+        volumes: np.ndarray,
+    ) -> list[dict[str, float]]:
+        """
+        Update indicators using vectorized operations for batch processing.
+
+        This method processes all price data efficiently without creating Bar objects,
+        while maintaining perfect feature parity with the online update_from_bar method.
+
+        Parameters
+        ----------
+        open_prices : np.ndarray
+            Array of open prices.
+        high_prices : np.ndarray
+            Array of high prices.
+        low_prices : np.ndarray
+            Array of low prices.
+        close_prices : np.ndarray
+            Array of close prices.
+        volumes : np.ndarray
+            Array of volumes.
+
+        Returns
+        -------
+        list[dict[str, float]]
+            List of indicator value dictionaries for each timestamp.
+
+        """
+        n_bars = len(close_prices)
+        all_values = []
+
+        # Process each bar but without creating Bar objects
+        for idx in range(n_bars):
+            # Update price history
+            self.price_history["closes"].append(float(close_prices[idx]))
+            self.price_history["volumes"].append(float(volumes[idx]))
+            self.price_history["highs"].append(float(high_prices[idx]))
+            self.price_history["lows"].append(float(low_prices[idx]))
+
+            # Keep history limited to avoid memory issues
+            max_history = SystemConstants.PRICE_HISTORY_MAXLEN
+            for key in self.price_history:
+                if len(self.price_history[key]) > max_history:
+                    self.price_history[key] = self.price_history[key][-max_history:]
+
+            # Update indicators directly with raw values
+            specs = self.config.get_indicator_specs()
+
+            for name, indicator in self.indicators.items():
+                spec = specs.get(name)
+                if spec is None:
+                    continue
+
+                # Handle different input types
+                if spec.get("input") == "volume":
+                    indicator.update_raw(float(volumes[idx]))
+                elif spec["type"] == "ATR":
+                    # ATR has update_raw(high, low, close)
+                    indicator.update_raw(
+                        float(high_prices[idx]),
+                        float(low_prices[idx]),
+                        float(close_prices[idx]),
+                    )
+                elif spec["type"] == "BB":
+                    # Bollinger Bands has update_raw(high, low, close)
+                    indicator.update_raw(
+                        float(high_prices[idx]),
+                        float(low_prices[idx]),
+                        float(close_prices[idx]),
+                    )
+                elif spec["type"] == "MACD":
+                    # MACD needs full bar data, but we're in batch mode so create a minimal bar-like structure
+                    # For consistency with update_from_bar which uses handle_bar()
+                    # We can't create full Bar objects here, but MACD only needs close price anyway
+                    indicator.update_raw(float(close_prices[idx]))
+                else:
+                    # Default to close price (for SMA, EMA, RSI, etc.)
+                    indicator.update_raw(float(close_prices[idx]))
+
+            # Get indicator values for this timestamp (don't normalize here - normalization happens in feature calculation)
+            values = self.get_values()
+            all_values.append(values)
+
+        return all_values
+
     def get_values(self, current_price: float | None = None) -> dict[str, float]:
         """
         Get current values from all indicators.
@@ -752,44 +842,25 @@ class FeatureEngineer:
         feature_rows = []
 
         # Process each bar sequentially to update indicators
-        # Import required Nautilus types
-        from nautilus_trader.model.data import BarSpecification
-        from nautilus_trader.model.data import BarType
-        from nautilus_trader.model.enums import AggressorSide
-        from nautilus_trader.model.enums import BarAggregation
-        from nautilus_trader.model.enums import PriceType
-        from nautilus_trader.model.identifiers import InstrumentId
-        from nautilus_trader.model.objects import Price
-        from nautilus_trader.model.objects import Quantity
-
-        # Create a dummy bar type for batch processing
-        instrument_id = InstrumentId.from_str("DUMMY.BATCH")
-        bar_spec = BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST)
-        bar_type = BarType(instrument_id, bar_spec, AggressorSide.BUYER)
+        # No need to import Bar-related types anymore as we're using vectorized processing
 
         # Extract price arrays
         open_prices, high_prices, low_prices, close_prices, volumes = self._extract_price_arrays(df)
 
-        # Process each row as a Bar object to ensure perfect consistency
+        # Use efficient batch processing without creating Bar objects
+        # This is the COLD path (training), so we can optimize for throughput
+        all_indicator_values = indicator_mgr.update_batch_vectorized(
+            open_prices=open_prices,
+            high_prices=high_prices,
+            low_prices=low_prices,
+            close_prices=close_prices,
+            volumes=volumes,
+        )
+
+        # Process features for each timestamp
         for idx in range(len(df)):
-            # Create a Bar object from the row data
-            # This ensures indicators process data exactly as they would online
-            bar = Bar(
-                bar_type=bar_type,
-                open=Price.from_str(str(open_prices[idx])),
-                high=Price.from_str(str(high_prices[idx])),
-                low=Price.from_str(str(low_prices[idx])),
-                close=Price.from_str(str(close_prices[idx])),
-                volume=Quantity.from_str(str(volumes[idx])),
-                ts_event=0,  # Timestamp not needed for indicator calculation
-                ts_init=0,
-            )
-
-            # Update all indicators with the bar
-            indicator_mgr.update_from_bar(bar)
-
-            # Get indicator values
-            ind_values = indicator_mgr.get_values()
+            # Get indicator values for this timestamp
+            ind_values = all_indicator_values[idx]
 
             # Calculate features using indicator values
             # Get row data as dict
@@ -837,11 +908,16 @@ class FeatureEngineer:
     ) -> int:
         """
         Calculate return and momentum features.
+
+        Note: closes list already contains the current close at the end,
+        so closes[-1] is current, closes[-2] is 1 bar ago, etc.
+
         """
         # Price returns
         for period in self.config.return_periods:
-            if len(closes) > period:
-                prev_close = closes[-period - 1]
+            if len(closes) > period:  # We have enough history including current
+                # Since closes[-1] is current, closes[-period-1] is the target previous close
+                prev_close = closes[-(period + 1)]
                 ret = safe_divide(close - prev_close, prev_close)
             else:
                 ret = 0.0
@@ -850,8 +926,9 @@ class FeatureEngineer:
 
         # Price momentum - same as returns for consistency
         for period in self.config.momentum_periods:
-            if len(closes) > period:
-                prev_close = closes[-period - 1]
+            if len(closes) > period:  # We have enough history including current
+                # Since closes[-1] is current, closes[-period-1] is the target previous close
+                prev_close = closes[-(period + 1)]
                 mom = safe_divide(close - prev_close, prev_close)
             else:
                 mom = 0.0
@@ -1057,7 +1134,7 @@ class FeatureEngineer:
         close = current_bar["close"]
         volume = current_bar["volume"]
 
-        # Get indicator values
+        # Get indicator values (don't normalize here - normalization happens in feature calculation)
         indicator_values = indicator_manager.get_values()
 
         # Get historical values from indicators
@@ -1102,7 +1179,13 @@ class FeatureEngineer:
             features_array = scaler.transform(features_array)
             return np.asarray(features_array[0])
 
-        return self.feature_buffer[:feature_idx].copy()
+        # Return view of the feature buffer (zero-allocation in hot path)
+        # SAFETY: This is safe because:
+        # 1. The feature buffer is pre-allocated and reused
+        # 2. The caller (MLSignalActor) immediately uses this for prediction
+        # 3. The buffer content is overwritten on the next bar
+        # 4. If the caller needs to store features, they are responsible for copying
+        return self.feature_buffer[:feature_idx]
 
     def _extract_data_arrays(
         self,
@@ -2038,8 +2121,8 @@ class _dummy_context_manager:
     Dummy context manager for when metrics is None.
     """
 
-    def __enter__(self):
+    def __enter__(self) -> _dummy_context_manager:
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: object) -> None:
         pass

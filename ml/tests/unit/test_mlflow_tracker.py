@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ml.config.xgboost_unified import MLflowConfig
+from ml.config.shared import MLflowConfig
 from ml.training.mlflow_tracker import MLflowXGBoostTracker
 
 
@@ -82,7 +82,7 @@ class TestMLflowXGBoostTracker:
             "feature_5": 0.05,
         }
 
-    def test_tracker_initialization(self, basic_config):
+    def test_tracker_initialization(self, basic_config) -> None:
         """
         Test tracker initialization.
         """
@@ -96,7 +96,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_ensure_mlflow(self, mock_mlflow, basic_config):
+    def test_ensure_mlflow(self, mock_mlflow, basic_config) -> None:
         """
         Test MLflow initialization.
         """
@@ -120,23 +120,34 @@ class TestMLflowXGBoostTracker:
         assert tracker._client == mock_client
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", False)
-    def test_ensure_mlflow_not_available(self, basic_config):
+    def test_ensure_mlflow_not_available(self, basic_config) -> None:
         """
         Test MLflow initialization when not available.
         """
         tracker = MLflowXGBoostTracker(basic_config)
 
-        # Should handle gracefully - no exception raised
-        tracker._ensure_mlflow()
+        # Should raise ImportError when MLflow is not available
+        with pytest.raises(ImportError, match="MLflow required but not installed"):
+            tracker._ensure_mlflow()
         assert tracker._mlflow is None
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_ensure_mlflow_with_autolog(self, mock_mlflow, basic_config):
+    def test_ensure_mlflow_with_autolog(self, mock_mlflow, basic_config) -> None:
         """
         Test MLflow initialization with auto-logging.
         """
-        config = MLflowConfig(**basic_config.__dict__, auto_log=True)
+        # Create new config with auto_log=True
+        config = MLflowConfig(
+            enabled=basic_config.enabled,
+            tracking_uri=basic_config.tracking_uri,
+            experiment_name=basic_config.experiment_name,
+            register_model=basic_config.register_model,
+            model_name=basic_config.model_name,
+            log_artifacts=basic_config.log_artifacts,
+            log_model=basic_config.log_model,
+            auto_log=True,
+        )
         tracker = MLflowXGBoostTracker(config)
 
         # Mock experiment
@@ -151,7 +162,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_start_run(self, mock_mlflow, basic_config):
+    def test_start_run(self, mock_mlflow, basic_config) -> None:
         """
         Test starting MLflow run.
         """
@@ -187,7 +198,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_start_run_auto_name(self, mock_mlflow, basic_config):
+    def test_start_run_auto_name(self, mock_mlflow, basic_config) -> None:
         """
         Test starting MLflow run with auto-generated name.
         """
@@ -214,7 +225,12 @@ class TestMLflowXGBoostTracker:
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
     def test_log_training_run(
-        self, mock_mlflow, basic_config, sample_model, sample_metrics, sample_feature_importance
+        self,
+        mock_mlflow,
+        basic_config,
+        sample_model,
+        sample_metrics,
+        sample_feature_importance,
     ):
         """
         Test comprehensive training run logging.
@@ -226,8 +242,9 @@ class TestMLflowXGBoostTracker:
         mock_run_info.run_id = "test_run_123"
         mock_run = MagicMock()
         mock_run.info = mock_run_info
-        mock_mlflow.start_run.return_value.__enter__ = MagicMock(return_value=mock_run)
-        mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=None)
+        mock_mlflow.start_run.return_value = mock_run
+        mock_mlflow.active_run.return_value = None  # No active run, so start_run will be called
+        mock_mlflow.end_run.return_value = None
 
         # Mock experiment
         mock_experiment = MagicMock()
@@ -276,7 +293,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_log_parameters(self, mock_mlflow, basic_config):
+    def test_log_parameters(self, mock_mlflow, basic_config) -> None:
         """
         Test parameter logging with filtering.
         """
@@ -311,7 +328,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_log_metrics_with_filtering(self, mock_mlflow, basic_config):
+    def test_log_metrics_with_filtering(self, mock_mlflow, basic_config) -> None:
         """
         Test metric logging with NaN/inf filtering.
         """
@@ -344,7 +361,10 @@ class TestMLflowXGBoostTracker:
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
     def test_log_feature_importance_top_features(
-        self, mock_mlflow, basic_config, sample_feature_importance
+        self,
+        mock_mlflow,
+        basic_config,
+        sample_feature_importance,
     ):
         """
         Test feature importance logging (top features only).
@@ -373,7 +393,7 @@ class TestMLflowXGBoostTracker:
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.HAS_XGBOOST", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_log_model_with_input_example(self, mock_mlflow, basic_config, sample_model):
+    def test_log_model_with_input_example(self, mock_mlflow, basic_config, sample_model) -> None:
         """
         Test model logging with input example.
         """
@@ -399,7 +419,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_log_artifacts(self, mock_mlflow, basic_config):
+    def test_log_artifacts(self, mock_mlflow, basic_config) -> None:
         """
         Test artifact logging.
         """
@@ -437,7 +457,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_log_metadata(self, mock_mlflow, basic_config):
+    def test_log_metadata(self, mock_mlflow, basic_config) -> None:
         """
         Test metadata logging as tags.
         """
@@ -456,7 +476,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_register_model(self, mock_mlflow, basic_config):
+    def test_register_model(self, mock_mlflow, basic_config) -> None:
         """
         Test model registration.
         """
@@ -509,7 +529,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_load_model(self, mock_mlflow, basic_config):
+    def test_load_model(self, mock_mlflow, basic_config) -> None:
         """
         Test model loading from registry.
         """
@@ -531,7 +551,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_load_model_by_version(self, mock_mlflow, basic_config):
+    def test_load_model_by_version(self, mock_mlflow, basic_config) -> None:
         """
         Test model loading by specific version.
         """
@@ -553,7 +573,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_get_model_info(self, mock_mlflow, basic_config):
+    def test_get_model_info(self, mock_mlflow, basic_config) -> None:
         """
         Test getting model information.
         """
@@ -619,7 +639,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_cleanup_old_runs(self, mock_mlflow, basic_config):
+    def test_cleanup_old_runs(self, mock_mlflow, basic_config) -> None:
         """
         Test cleanup of old runs.
         """
@@ -661,7 +681,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_cleanup_old_runs_no_cleanup_needed(self, mock_mlflow, basic_config):
+    def test_cleanup_old_runs_no_cleanup_needed(self, mock_mlflow, basic_config) -> None:
         """
         Test cleanup when no cleanup is needed.
         """
@@ -687,7 +707,7 @@ class TestMLflowXGBoostTracker:
 
     @patch("ml.training.mlflow_tracker.HAS_MLFLOW", True)
     @patch("ml.training.mlflow_tracker.mlflow")
-    def test_cleanup_old_runs_experiment_not_found(self, mock_mlflow, basic_config):
+    def test_cleanup_old_runs_experiment_not_found(self, mock_mlflow, basic_config) -> None:
         """
         Test cleanup when experiment doesn't exist.
         """
@@ -702,11 +722,21 @@ class TestMLflowXGBoostTracker:
         # Verify no further operations
         mock_mlflow.get_experiment_by_name.assert_called_once_with("test_experiment")
 
-    def test_model_operations_without_mlflow(self, basic_config):
+    def test_model_operations_without_mlflow(self, basic_config) -> None:
         """
         Test model operations when MLflow is not available.
         """
-        config = MLflowConfig(**basic_config.__dict__, enabled=False)
+        # Create config with enabled=False
+        config = MLflowConfig(
+            enabled=False,
+            tracking_uri=basic_config.tracking_uri,
+            experiment_name=basic_config.experiment_name,
+            register_model=basic_config.register_model,
+            model_name=basic_config.model_name,
+            log_artifacts=basic_config.log_artifacts,
+            log_model=basic_config.log_model,
+            auto_log=basic_config.auto_log,
+        )
         tracker = MLflowXGBoostTracker(config)
 
         # Should return None for operations when MLflow not available

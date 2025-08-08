@@ -23,6 +23,7 @@ objective functions tailored for financial machine learning applications.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -33,11 +34,14 @@ from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies
 from ml._imports import optuna
 from ml._imports import xgb
-from ml.config.xgboost_unified import OptunaConfig
+from ml.config.shared import OptunaConfig
 
 
 if TYPE_CHECKING:
     import optuna
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class XGBoostOptunaOptimizer:
@@ -186,7 +190,9 @@ class XGBoostOptunaOptimizer:
             return self._optuna.pruners.MedianPruner()
 
     def sample_xgboost_params(
-        self, trial: optuna.Trial, base_params: dict[str, Any]
+        self,
+        trial: optuna.Trial,
+        base_params: dict[str, Any],
     ) -> dict[str, Any]:
         """
         Sample XGBoost hyperparameters for a trial.
@@ -248,7 +254,7 @@ class XGBoostOptunaOptimizer:
         base_params: dict[str, Any],
         metric_function: Callable[[np.ndarray, np.ndarray], float],
         early_stopping_rounds: int = 50,
-    ) -> Callable:
+    ) -> Callable[[Any], float]:
         """
         Create Optuna objective function for XGBoost optimization.
 
@@ -330,17 +336,17 @@ class XGBoostOptunaOptimizer:
 
             except Exception as e:
                 # Log error and return worst possible score
-                print(f"Trial {trial.number} failed: {e}")
+                logger.info(f"Trial {trial.number} failed: {e}")
                 return float("-inf") if self.config.direction == "maximize" else float("inf")
 
         return objective
 
     def optimize(
         self,
-        objective: Callable,
+        objective: Callable[[Any], float],
         n_trials: int | None = None,
         timeout: int | None = None,
-        callbacks: list[Callable] | None = None,
+        callbacks: list[Callable[[Any, Any], None]] | None = None,
     ) -> dict[str, Any]:
         """
         Run Optuna optimization.
@@ -417,7 +423,7 @@ class XGBoostOptunaOptimizer:
             return results
 
         except KeyboardInterrupt:
-            print("\nOptimization interrupted by user")
+            logger.info("\nOptimization interrupted by user")
             if len(study.trials) > 0:
                 return {
                     "best_params": study.best_params,
@@ -459,7 +465,7 @@ class XGBoostOptunaOptimizer:
         }
 
         # Trial state distribution
-        states = {}
+        states: dict[str, int] = {}
         for trial in study.trials:
             state = trial.state.name
             states[state] = states.get(state, 0) + 1
@@ -470,7 +476,7 @@ class XGBoostOptunaOptimizer:
         try:
             importance = self._optuna.importance.get_param_importances(study)
             summary["param_importance"] = dict(
-                sorted(importance.items(), key=lambda x: x[1], reverse=True)
+                sorted(importance.items(), key=lambda x: x[1], reverse=True),
             )
         except Exception:
             summary["param_importance"] = {}

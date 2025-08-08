@@ -59,7 +59,7 @@ class TestMLMonitoringIntegration:
         not (HAS_PROMETHEUS and HAS_POLARS),
         reason="Requires both Prometheus and Polars for full integration",
     )
-    def test_data_loader_with_metrics_integration(self, registry):
+    def test_data_loader_with_metrics_integration(self, registry) -> None:
         """
         Test MLDataLoader integration with DataQualityCollector.
         """
@@ -94,7 +94,7 @@ class TestMLMonitoringIntegration:
         assert health["enabled"]
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_feature_engineer_with_metrics_integration(self, registry):
+    def test_feature_engineer_with_metrics_integration(self, registry) -> None:
         """
         Test FeatureEngineer integration with FeatureEngineeringCollector.
         """
@@ -144,7 +144,7 @@ class TestMLMonitoringIntegration:
         assert health["enabled"]
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_model_lifecycle_integration(self, registry):
+    def test_model_lifecycle_integration(self, registry) -> None:
         """
         Test ModelLifecycleCollector functionality.
         """
@@ -193,7 +193,7 @@ class TestMLMonitoringIntegration:
         assert health["enabled"]
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_performance_monitoring_integration(self, registry):
+    def test_performance_monitoring_integration(self, registry) -> None:
         """
         Test PerformanceDegradationMonitor functionality.
         """
@@ -247,7 +247,7 @@ class TestMLMonitoringIntegration:
         assert summary["model"] == "test_model"
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_resource_monitoring_integration(self, registry):
+    def test_resource_monitoring_integration(self, registry) -> None:
         """
         Test ResourceUtilizationCollector functionality.
         """
@@ -315,7 +315,7 @@ class TestMLMonitoringIntegration:
         assert isinstance(summary, dict)
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_full_registry_lifecycle_integration(self, registry):
+    def test_full_registry_lifecycle_integration(self, registry) -> None:
         """
         Test complete registry lifecycle with all collectors.
         """
@@ -367,7 +367,7 @@ class TestMLMonitoringIntegration:
         # After context exit, should be stopped
         assert not registry.started
 
-    def test_error_handling_integration(self, registry):
+    def test_error_handling_integration(self, registry) -> None:
         """
         Test that the system handles errors gracefully.
         """
@@ -402,7 +402,7 @@ class TestMLMonitoringIntegration:
         assert "collectors" in health
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_thread_safety_integration(self, registry):
+    def test_thread_safety_integration(self, registry) -> None:
         """
         Test thread safety across the system.
         """
@@ -459,7 +459,7 @@ class TestMLMonitoringIntegration:
             assert health["status"] == "healthy"
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_metrics_export_format_integration(self, registry):
+    def test_metrics_export_format_integration(self, registry) -> None:
         """
         Test that exported metrics follow Prometheus format.
         """
@@ -499,7 +499,7 @@ class TestMLMonitoringIntegration:
                                     float(parts[-2])
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Requires Prometheus client")
-    def test_performance_overhead_integration(self, registry):
+    def test_performance_overhead_integration(self, registry) -> None:
         """
         Test that metrics collection has minimal performance overhead.
         """

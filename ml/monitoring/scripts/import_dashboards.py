@@ -232,9 +232,9 @@ def import_directory(
         results[json_file.name] = (success, message)
 
         if success:
-            logger.info(f"✓ {json_file.name}: {message}")
+            logger.info(f" {json_file.name}: {message}")
         else:
-            logger.error(f"✗ {json_file.name}: {message}")
+            logger.error(f" {json_file.name}: {message}")
 
     return results
 

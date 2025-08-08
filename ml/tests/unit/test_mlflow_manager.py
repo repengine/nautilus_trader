@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from ml._imports import HAS_MLFLOW
-from ml.config.lightgbm_unified import MLflowConfig
+from ml.config.shared import MLflowConfig
 from ml.tracking.mlflow_manager import MLflowManager
 from ml.tracking.mlflow_manager import ModelStage
 
@@ -94,7 +94,7 @@ class TestMLflowManager:
     """
 
     @pytest.mark.skipif(not HAS_MLFLOW, reason="MLflow not available")
-    def test_init_with_config(self, mlflow_config):
+    def test_init_with_config(self, mlflow_config) -> None:
         """
         Test MLflowManager initialization with configuration.
         """
@@ -106,7 +106,7 @@ class TestMLflowManager:
         assert manager._current_run_id is None
         assert not manager._initialized
 
-    def test_ensure_initialized_sets_up_mlflow(self, mlflow_manager, mock_mlflow):
+    def test_ensure_initialized_sets_up_mlflow(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test that _ensure_initialized properly configures MLflow.
         """
@@ -117,7 +117,7 @@ class TestMLflowManager:
         mock_mlflow.set_tracking_uri.assert_called_once()
         mock_mlflow.tracking.MlflowClient.assert_called_once()
 
-    def test_run_context_manager(self, mlflow_manager, mock_mlflow):
+    def test_run_context_manager(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test run context manager functionality.
         """
@@ -127,7 +127,7 @@ class TestMLflowManager:
 
         mock_mlflow.end_run.assert_called_once()
 
-    def test_run_context_with_nested_run(self, mlflow_manager, mock_mlflow):
+    def test_run_context_with_nested_run(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test nested run context.
         """
@@ -139,7 +139,7 @@ class TestMLflowManager:
         # Should end both runs
         assert mock_mlflow.end_run.call_count == 2
 
-    def test_run_context_exception_handling(self, mlflow_manager, mock_mlflow):
+    def test_run_context_exception_handling(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test that run context properly ends run on exception.
         """
@@ -149,7 +149,7 @@ class TestMLflowManager:
 
         mock_mlflow.end_run.assert_called_once()
 
-    def test_log_training_session(self, mlflow_manager, mock_mlflow):
+    def test_log_training_session(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test comprehensive training session logging.
         """
@@ -171,7 +171,7 @@ class TestMLflowManager:
         mock_mlflow.log_params.assert_called()
         mock_mlflow.log_metrics.assert_called()
 
-    def test_log_params_batch_filtering(self, mlflow_manager, mock_mlflow):
+    def test_log_params_batch_filtering(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test parameter batch logging with filtering.
         """
@@ -198,7 +198,7 @@ class TestMLflowManager:
         assert call_args["none_param"] == "None"
         assert isinstance(call_args["object_param"], str)
 
-    def test_log_metrics_batch_validation(self, mlflow_manager, mock_mlflow):
+    def test_log_metrics_batch_validation(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test metrics batch logging with validation.
         """
@@ -221,7 +221,7 @@ class TestMLflowManager:
         assert "inf_metric" not in call_args
         assert "nan_metric" not in call_args
 
-    def test_log_feature_importance(self, mlflow_manager, mock_mlflow):
+    def test_log_feature_importance(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test feature importance logging.
         """
@@ -234,7 +234,7 @@ class TestMLflowManager:
         mock_mlflow.log_metrics.assert_called()
         mock_mlflow.log_artifact.assert_called()
 
-    def test_log_model_generic_xgboost(self, mlflow_manager, mock_mlflow):
+    def test_log_model_generic_xgboost(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test generic model logging with XGBoost detection.
         """
@@ -247,7 +247,7 @@ class TestMLflowManager:
 
         mock_mlflow.xgboost.log_model.assert_called_once()
 
-    def test_log_model_generic_lightgbm(self, mlflow_manager, mock_mlflow):
+    def test_log_model_generic_lightgbm(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test generic model logging with LightGBM detection.
         """
@@ -263,7 +263,7 @@ class TestMLflowManager:
 
         mock_mlflow.lightgbm.log_model.assert_called_once()
 
-    def test_log_model_generic_fallback(self, mlflow_manager, mock_mlflow):
+    def test_log_model_generic_fallback(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test generic model logging fallback to sklearn.
         """
@@ -279,7 +279,7 @@ class TestMLflowManager:
 
         mock_mlflow.sklearn.log_model.assert_called_once()
 
-    def test_log_artifacts_batch(self, mlflow_manager, mock_mlflow):
+    def test_log_artifacts_batch(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test batch artifact logging.
         """
@@ -295,7 +295,7 @@ class TestMLflowManager:
         # Should log each artifact as JSON file
         assert mock_mlflow.log_artifact.call_count == len(artifacts)
 
-    def test_register_model(self, mlflow_manager, mock_mlflow):
+    def test_register_model(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test model registration.
         """
@@ -317,7 +317,7 @@ class TestMLflowManager:
         mock_client.create_model_version.assert_called_once()
         mock_client.set_model_version_tag.assert_called()
 
-    def test_transition_model_stage(self, mlflow_manager, mock_mlflow):
+    def test_transition_model_stage(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test model stage transition.
         """
@@ -337,7 +337,7 @@ class TestMLflowManager:
             archive_existing_versions=True,
         )
 
-    def test_load_model_xgboost(self, mlflow_manager, mock_mlflow):
+    def test_load_model_xgboost(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test model loading with XGBoost flavor.
         """
@@ -354,7 +354,7 @@ class TestMLflowManager:
             "models:/test_model/Production",
         )
 
-    def test_load_model_fallback_to_lightgbm(self, mlflow_manager, mock_mlflow):
+    def test_load_model_fallback_to_lightgbm(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test model loading fallback to LightGBM.
         """
@@ -367,7 +367,7 @@ class TestMLflowManager:
         assert model == mock_model
         mock_mlflow.lightgbm.load_model.assert_called_once()
 
-    def test_load_model_by_version(self, mlflow_manager, mock_mlflow):
+    def test_load_model_by_version(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test loading specific model version.
         """
@@ -381,7 +381,7 @@ class TestMLflowManager:
             "models:/test_model/2",
         )
 
-    def test_compare_models(self, mlflow_manager, mock_mlflow):
+    def test_compare_models(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test model comparison functionality.
         """
@@ -413,7 +413,7 @@ class TestMLflowManager:
         assert "model_2" in results
         assert results["model_1"]["metric_value"] == 0.95
 
-    def test_cleanup_old_runs(self, mlflow_manager, mock_mlflow):
+    def test_cleanup_old_runs(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test cleanup of old runs.
         """
@@ -438,7 +438,7 @@ class TestMLflowManager:
         assert stats["runs_examined"] == 150
         assert mock_client.delete_run.call_count == 50
 
-    def test_cleanup_old_runs_dry_run(self, mlflow_manager, mock_mlflow):
+    def test_cleanup_old_runs_dry_run(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test dry run cleanup mode.
         """
@@ -460,7 +460,7 @@ class TestMLflowManager:
         assert stats["runs_deleted"] == 50
         assert mock_client.delete_run.call_count == 0  # No actual deletion
 
-    def test_get_experiment_summary(self, mlflow_manager, mock_mlflow):
+    def test_get_experiment_summary(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test experiment summary generation.
         """
@@ -491,7 +491,7 @@ class TestMLflowManager:
         assert summary["failed_runs"] == 5
         assert "metric_statistics" in summary
 
-    def test_health_check_without_mlflow(self, mlflow_config):
+    def test_health_check_without_mlflow(self, mlflow_config) -> None:
         """
         Test health check when MLflow is not available.
         """
@@ -503,7 +503,7 @@ class TestMLflowManager:
             assert not status["initialized"]
             assert not status["connectivity"]
 
-    def test_health_check_with_mlflow(self, mlflow_manager, mock_mlflow):
+    def test_health_check_with_mlflow(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test health check with MLflow available.
         """
@@ -516,7 +516,7 @@ class TestMLflowManager:
         assert status["connectivity"]
         assert status["total_experiments"] == 2
 
-    def test_health_check_with_connectivity_error(self, mlflow_manager, mock_mlflow):
+    def test_health_check_with_connectivity_error(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test health check with connectivity error.
         """
@@ -529,7 +529,7 @@ class TestMLflowManager:
         assert not status["connectivity"]
         assert "error" in status
 
-    def test_context_manager_with_tags(self, mlflow_manager, mock_mlflow):
+    def test_context_manager_with_tags(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test context manager with custom tags.
         """
@@ -546,7 +546,7 @@ class TestMLflowManager:
         assert passed_tags["dataset"] == "test_data"
         assert passed_tags["framework"] == "nautilus_trader"  # Default tag
 
-    def test_log_session_metadata(self, mlflow_manager, mock_mlflow):
+    def test_log_session_metadata(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test session metadata logging.
         """
@@ -560,7 +560,7 @@ class TestMLflowManager:
         mock_mlflow.log_metric.assert_called()
         mock_mlflow.set_tag.assert_called()
 
-    def test_invalid_experiment_name_handling(self, mlflow_manager, mock_mlflow):
+    def test_invalid_experiment_name_handling(self, mlflow_manager, mock_mlflow) -> None:
         """
         Test handling of invalid experiment name.
         """

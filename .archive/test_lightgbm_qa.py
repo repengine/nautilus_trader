@@ -227,7 +227,7 @@ def test_mldata_loader_integration() -> bool:
                 "feature2": np.random.randn(100),
                 "feature3": np.random.randn(100),
                 "target": np.random.randint(0, 2, 100),
-            }
+            },
         )
 
         # Initialize MLDataLoader
@@ -250,7 +250,7 @@ def test_mldata_loader_integration() -> bool:
                 "cat2": np.random.choice(["X", "Y"], 100),
                 "num1": np.random.randn(100),
                 "target": np.random.randint(0, 2, 100),
-            }
+            },
         )
 
         loader_cat = MLDataLoader(

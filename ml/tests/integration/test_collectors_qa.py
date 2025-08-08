@@ -37,6 +37,10 @@ from ml.monitoring.collectors.registry import MLMetricsRegistry
 from ml.monitoring.collectors.resources import ResourceUtilizationCollector
 
 
+# Configure module logger
+logger = logging.getLogger(__name__)
+
+
 class TestMLMonitoringQA:
     """
     Comprehensive QA tests for ML monitoring collectors.
@@ -56,7 +60,7 @@ class TestMLMonitoringQA:
                 except Exception:
                     pass
 
-    def test_full_collector_integration(self):
+    def test_full_collector_integration(self) -> None:
         """
         Test complete integration of all collectors.
         """
@@ -140,7 +144,7 @@ class TestMLMonitoringQA:
             model_stats = model_collector.get_model_stats()
             assert "deployments" in model_stats
 
-    def test_performance_overhead(self):
+    def test_performance_overhead(self) -> None:
         """
         Test that metrics collection overhead is < 5%.
         """
@@ -177,11 +181,11 @@ class TestMLMonitoringQA:
         # Calculate overhead
         if time_without_metrics > 0:
             overhead = (time_with_metrics - time_without_metrics) / time_without_metrics * 100
-            print(f"Metrics overhead: {overhead:.2f}%")
+            logger.info(f"Metrics overhead: {overhead:.2f}%")
             # Allow up to 10% overhead in tests (5% is production target)
             assert overhead < 10, f"Metrics overhead {overhead:.2f}% exceeds 10% limit"
 
-    def test_thread_safety(self):
+    def test_thread_safety(self) -> None:
         """
         Test concurrent access to collectors.
         """
@@ -212,7 +216,7 @@ class TestMLMonitoringQA:
         # Verify no errors occurred
         assert True  # If we get here, no exceptions were raised
 
-    def test_graceful_degradation_without_prometheus(self):
+    def test_graceful_degradation_without_prometheus(self) -> None:
         """
         Test system works without Prometheus installed.
         """
@@ -241,7 +245,7 @@ class TestMLMonitoringQA:
             assert not data_collector.enabled
             assert not feature_collector.enabled
 
-    def test_memory_stability(self):
+    def test_memory_stability(self) -> None:
         """
         Test for memory leaks during extended operation.
         """
@@ -268,7 +272,7 @@ class TestMLMonitoringQA:
                 # Check memory periodically
                 current_memory = process.memory_info().rss / 1024 / 1024
                 memory_growth = current_memory - initial_memory
-                print(f"Iteration {i}: Memory growth: {memory_growth:.2f} MB")
+                logger.info(f"Iteration {i}: Memory growth: {memory_growth:.2f} MB")
 
         # Final memory check
         final_memory = process.memory_info().rss / 1024 / 1024
@@ -277,7 +281,7 @@ class TestMLMonitoringQA:
         # Allow up to 50MB growth for 10k operations
         assert total_growth < 50, f"Excessive memory growth: {total_growth:.2f} MB"
 
-    def test_registry_lifecycle(self):
+    def test_registry_lifecycle(self) -> None:
         """
         Test MLMetricsRegistry lifecycle management.
         """
@@ -307,7 +311,7 @@ class TestMLMonitoringQA:
         # Registry should clean up properly
         assert True
 
-    def test_metrics_accuracy(self):
+    def test_metrics_accuracy(self) -> None:
         """
         Test that metrics are accurately recorded.
         """
@@ -342,7 +346,7 @@ class TestMLMonitoringQA:
             assert stats["deployments"]["successful"] >= 2
             assert stats["deployments"]["failed"] >= 1
 
-    def test_error_recovery(self):
+    def test_error_recovery(self) -> None:
         """
         Test recovery from errors during metric recording.
         """

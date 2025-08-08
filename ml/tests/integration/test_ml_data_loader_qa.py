@@ -21,6 +21,7 @@ MLDataLoader to ensure production readiness with ZERO technical debt.
 """
 
 import gc
+import logging
 import tempfile
 import time
 import tracemalloc
@@ -51,11 +52,20 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 if not HAS_POLARS:
     pytest.skip("Polars required for ML tests", allow_module_level=True)
 
+# Configure module logger
+logger = logging.getLogger(__name__)
+
 
 class TestMLDataLoaderIntegration:
     """
     Integration tests for MLDataLoader with real ParquetDataCatalog.
     """
+
+    temp_dir: str
+    catalog: ParquetDataCatalog
+    eurusd: InstrumentId
+    gbpusd: InstrumentId
+    usdjpy: InstrumentId
 
     @classmethod
     def setup_class(cls) -> None:
@@ -161,9 +171,14 @@ class TestMLDataLoaderIntegration:
         assert df["volume"].dtype == pl.Int64
 
         # Verify data integrity
-        assert df["high"].min() >= df["low"].min()
-        assert df["high"].max() >= df["open"].max()
-        assert df["high"].max() >= df["close"].max()
+        high_min = float(df["high"].min())
+        low_min = float(df["low"].min())
+        high_max = float(df["high"].max())
+        open_max = float(df["open"].max())
+        close_max = float(df["close"].max())
+        assert high_min >= low_min
+        assert high_max >= open_max
+        assert high_max >= close_max
 
     def test_load_quotes_from_real_catalog(self) -> None:
         """
@@ -408,6 +423,10 @@ class TestMLDataLoaderPerformance:
     Performance benchmarks for MLDataLoader.
     """
 
+    temp_dir: str
+    catalog: ParquetDataCatalog
+    instrument: InstrumentId
+
     @classmethod
     def setup_class(cls) -> None:
         """
@@ -474,8 +493,8 @@ class TestMLDataLoaderPerformance:
         # Performance requirement: < 2 seconds for 100k bars
         assert load_time < 2.0, f"Load time {load_time:.2f}s exceeds 2s limit"
 
-        print(f"Loaded 100,000 bars in {load_time:.3f} seconds")
-        print(f"Throughput: {100000 / load_time:.0f} bars/second")
+        logger.info(f"Loaded 100,000 bars in {load_time:.3f} seconds")
+        logger.info(f"Throughput: {100000 / load_time:.0f} bars/second")
 
     def test_cache_hit_performance(self) -> None:
         """
@@ -500,7 +519,7 @@ class TestMLDataLoaderPerformance:
         assert avg_time < 0.001, f"Avg cache hit time {avg_time:.4f}s exceeds 1ms"
         assert p99_time < 0.005, f"P99 cache hit time {p99_time:.4f}s exceeds 5ms"
 
-        print(f"Cache hit performance: avg={avg_time*1000:.2f}ms, p99={p99_time*1000:.2f}ms")
+        logger.info(f"Cache hit performance: avg={avg_time*1000:.2f}ms, p99={p99_time*1000:.2f}ms")
 
     def test_memory_efficiency(self) -> None:
         """
@@ -531,7 +550,9 @@ class TestMLDataLoaderPerformance:
         # Memory should be bounded by cache size
         assert memory_growth < 500, f"Memory growth {memory_growth:.1f}MB exceeds 500MB limit"
 
-        print(f"Memory efficiency: {memory_growth:.1f}MB growth for 5 loads with cache_size=3")
+        logger.info(
+            f"Memory efficiency: {memory_growth:.1f}MB growth for 5 loads with cache_size=3",
+        )
 
 
 class TestMLDataLoaderCompliance:
@@ -707,28 +728,28 @@ def run_qa_suite() -> dict[str, Any]:
 
 if __name__ == "__main__":
     # Run QA suite when executed directly
-    print("=" * 80)
-    print("ML DATA LOADER QA TEST SUITE")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("ML DATA LOADER QA TEST SUITE")
+    logger.info("=" * 80)
 
     report = run_qa_suite()
 
-    print("\nQA REPORT:")
-    print("-" * 40)
-    print(f"Timestamp: {report['timestamp']}")
-    print(f"Tests Passed: {report['tests_passed']}")
-    print(f"Tests Failed: {report['tests_failed']}")
-    print(f"Code Coverage: {report['coverage']:.1f}%")
+    logger.info("\nQA REPORT:")
+    logger.info("-" * 40)
+    logger.info(f"Timestamp: {report['timestamp']}")
+    logger.info(f"Tests Passed: {report['tests_passed']}")
+    logger.info(f"Tests Failed: {report['tests_failed']}")
+    logger.info(f"Code Coverage: {report['coverage']:.1f}%")
 
     if report["issues"]:
-        print("\nISSUES FOUND:")
+        logger.info("\nISSUES FOUND:")
         for issue in report["issues"]:
-            print(f"  - {issue}")
+            logger.info(f"  - {issue}")
 
     if report["recommendations"]:
-        print("\nRECOMMENDATIONS:")
+        logger.info("\nRECOMMENDATIONS:")
         for rec in report["recommendations"]:
-            print(f"  - {rec}")
+            logger.info(f"  - {rec}")
 
-    print("\nSTATUS:", "✅ PASSED" if report["tests_failed"] == 0 else "❌ FAILED")
-    print("=" * 80)
+    logger.info("\nSTATUS:", " PASSED" if report["tests_failed"] == 0 else " FAILED")
+    logger.info("=" * 80)

@@ -33,11 +33,11 @@ import pytest
 
 from ml._imports import HAS_XGBOOST
 from ml.config.base import MLFeatureConfig
-from ml.config.xgboost_unified import GPUConfig
-from ml.config.xgboost_unified import MLflowConfig
-from ml.config.xgboost_unified import OptunaConfig
-from ml.config.xgboost_unified import UnifiedXGBoostConfig
-from ml.training.xgboost_unified import UnifiedXGBoostTrainer
+from ml.config.shared import MLflowConfig
+from ml.config.shared import OptunaConfig
+from ml.config.shared import XGBoostGPUConfig as GPUConfig
+from ml.config.xgboost import UnifiedXGBoostConfig
+from ml.training.xgboost import UnifiedXGBoostTrainer
 
 
 class TestUnifiedXGBoostIntegration:
@@ -84,7 +84,7 @@ class TestUnifiedXGBoostIntegration:
                 "low": low_prices,
                 "close": close_prices,
                 "volume": volume,
-            }
+            },
         )
 
     @pytest.fixture
@@ -153,7 +153,7 @@ class TestUnifiedXGBoostIntegration:
         )
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_basic_training_pipeline(self, sample_financial_data, basic_training_config):
+    def test_basic_training_pipeline(self, sample_financial_data, basic_training_config) -> None:
         """
         Test basic training pipeline end-to-end.
         """
@@ -185,7 +185,7 @@ class TestUnifiedXGBoostIntegration:
         assert trainer._model is not None
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_multi_asset_training(self, basic_training_config):
+    def test_multi_asset_training(self, basic_training_config) -> None:
         """
         Test multi-asset training scenario.
         """
@@ -212,7 +212,7 @@ class TestUnifiedXGBoostIntegration:
                     "low": prices - np.abs(np.random.randn(n_samples)) * 0.02,
                     "close": prices + np.random.randn(n_samples) * 0.01,
                     "volume": np.random.randint(1000, 10000, n_samples),
-                }
+                },
             )
 
         # Configure for multi-asset
@@ -239,7 +239,11 @@ class TestUnifiedXGBoostIntegration:
         assert len(cross_sectional_features) > 0
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_cross_validation_integration(self, sample_financial_data, basic_training_config):
+    def test_cross_validation_integration(
+        self,
+        sample_financial_data,
+        basic_training_config,
+    ) -> None:
         """
         Test cross-validation integration.
         """
@@ -270,7 +274,11 @@ class TestUnifiedXGBoostIntegration:
         assert "sharpe_std" in summary
         assert len(summary["sharpe_scores"]) == 3
 
-    def test_feature_decay_tracking_integration(self, sample_financial_data, basic_training_config):
+    def test_feature_decay_tracking_integration(
+        self,
+        sample_financial_data,
+        basic_training_config,
+    ) -> None:
         """
         Test feature decay tracking over multiple training runs.
         """
@@ -311,7 +319,7 @@ class TestUnifiedXGBoostIntegration:
             )  # May or may not trigger depending on data
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_onnx_export_integration(self, sample_financial_data, basic_training_config):
+    def test_onnx_export_integration(self, sample_financial_data, basic_training_config) -> None:
         """
         Test ONNX export integration.
         """
@@ -339,7 +347,10 @@ class TestUnifiedXGBoostIntegration:
     @patch("ml.training.xgboost_unified.HAS_OPTUNA", True)
     @patch("ml.training.xgboost_unified.optuna")
     def test_optuna_integration_mocked(
-        self, mock_optuna, sample_financial_data, full_feature_config
+        self,
+        mock_optuna,
+        sample_financial_data,
+        full_feature_config,
     ):
         """
         Test Optuna integration with mocked components.
@@ -375,7 +386,10 @@ class TestUnifiedXGBoostIntegration:
     @patch("ml.training.xgboost_unified.HAS_MLFLOW", True)
     @patch("ml.training.xgboost_unified.mlflow")
     def test_mlflow_integration_mocked(
-        self, mock_mlflow, sample_financial_data, full_feature_config
+        self,
+        mock_mlflow,
+        sample_financial_data,
+        full_feature_config,
     ):
         """
         Test MLflow integration with mocked components.
@@ -404,7 +418,7 @@ class TestUnifiedXGBoostIntegration:
         mock_mlflow.set_experiment.assert_called_once_with("test_integration")
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_performance_benchmarking(self, basic_training_config):
+    def test_performance_benchmarking(self, basic_training_config) -> None:
         """
         Test training performance benchmarking.
         """
@@ -427,7 +441,7 @@ class TestUnifiedXGBoostIntegration:
                     "low": 100 + np.random.randn(size).cumsum() * 0.1 - 0.1,
                     "close": 100 + np.random.randn(size).cumsum() * 0.1,
                     "volume": np.random.randint(1000, 10000, size),
-                }
+                },
             )
 
             trainer = UnifiedXGBoostTrainer(basic_training_config)
@@ -444,7 +458,7 @@ class TestUnifiedXGBoostIntegration:
                     "total_time": total_time,
                     "accuracy": results["metrics"]["val_accuracy"],
                     "n_features": results["metadata"]["n_features"],
-                }
+                },
             )
 
         # Verify performance scaling is reasonable
@@ -458,7 +472,11 @@ class TestUnifiedXGBoostIntegration:
         # All training should complete in reasonable time (< 60 seconds for test data)
         assert all(r["total_time"] < 60 for r in performance_results)
 
-    def test_model_metadata_comprehensive(self, sample_financial_data, basic_training_config):
+    def test_model_metadata_comprehensive(
+        self,
+        sample_financial_data,
+        basic_training_config,
+    ) -> None:
         """
         Test comprehensive model metadata generation.
         """
@@ -505,7 +523,7 @@ class TestUnifiedXGBoostIntegration:
         assert metadata["training_time"] > 0
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_error_handling_integration(self, basic_training_config):
+    def test_error_handling_integration(self, basic_training_config) -> None:
         """
         Test error handling in integration scenarios.
         """
@@ -520,7 +538,7 @@ class TestUnifiedXGBoostIntegration:
                 "low": [99.0],
                 "close": [100.5],
                 "volume": [1000],
-            }
+            },
         )
 
         # Should handle gracefully (might warn but not crash)
@@ -534,7 +552,11 @@ class TestUnifiedXGBoostIntegration:
             assert "insufficient data" in str(e).lower() or "samples" in str(e).lower()
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_monotonic_constraints_integration(self, sample_financial_data, basic_training_config):
+    def test_monotonic_constraints_integration(
+        self,
+        sample_financial_data,
+        basic_training_config,
+    ) -> None:
         """
         Test monotonic constraints integration.
         """
@@ -556,7 +578,7 @@ class TestUnifiedXGBoostIntegration:
         # Verify constraints were applied (would be in model parameters)
         # This is more of an integration test to ensure no errors occur
 
-    def test_training_summary_output(self, sample_financial_data, basic_training_config):
+    def test_training_summary_output(self, sample_financial_data, basic_training_config) -> None:
         """
         Test training summary output generation.
         """
@@ -584,7 +606,7 @@ class TestUnifiedXGBoostPerformanceRequirements:
     """
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_inference_latency_requirement(self, sample_financial_data):
+    def test_inference_latency_requirement(self, sample_financial_data) -> None:
         """
         Test that inference meets P99 latency requirement (<5ms).
         """
@@ -629,7 +651,7 @@ class TestUnifiedXGBoostPerformanceRequirements:
         assert mean_latency < 2.0, f"Mean inference latency {mean_latency:.2f}ms is too high"
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_memory_stability_requirement(self, sample_financial_data):
+    def test_memory_stability_requirement(self, sample_financial_data) -> None:
         """
         Test memory usage stability over multiple training runs.
         """
@@ -677,7 +699,7 @@ class TestUnifiedXGBoostPerformanceRequirements:
         assert memory_variance < 25, f"Memory usage too variable: {memory_variance:.1f}"
 
     @pytest.mark.skipif(not HAS_XGBOOST, reason="XGBoost not available")
-    def test_training_time_scalability(self):
+    def test_training_time_scalability(self) -> None:
         """
         Test training time scalability with dataset size.
         """
@@ -706,7 +728,7 @@ class TestUnifiedXGBoostPerformanceRequirements:
                     "low": 100 + np.random.randn(size).cumsum() * 0.1 - 0.1,
                     "close": 100 + np.random.randn(size).cumsum() * 0.1,
                     "volume": np.random.randint(1000, 10000, size),
-                }
+                },
             )
 
             trainer = UnifiedXGBoostTrainer(config)

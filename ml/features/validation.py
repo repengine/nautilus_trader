@@ -31,19 +31,16 @@ import numpy as np
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
 from ml._imports import pl
-from ml.constants import MLConstants
+from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
-from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 
 
 POLARS_AVAILABLE = HAS_POLARS
@@ -129,7 +126,9 @@ class FeatureParityValidator:
         bar_spec = BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST)
         bar_type = BarType(instrument_id, bar_spec, AggressorSide.BUYER)
 
-        # Warm up indicators with initial data
+        # CRITICAL FIX: Warm up indicators with data up to start_idx-1 to match batch processing
+        # The batch processing processes all data, so indicators have state from the full dataset
+        # We need to warm up online indicators to the same state as of start_idx-1
         for i in range(start_idx):
             bar = self._create_bar_from_row(df, i, bar_type)
             indicator_mgr.update_from_bar(bar)
@@ -177,18 +176,23 @@ class FeatureParityValidator:
     ) -> list[np.ndarray]:
         """
         Calculate online features for validation period.
+
+        This method simulates TRUE real-time feature calculation by processing one bar
+        at a time, which is essential for accurate parity validation.
+
         """
         online_features_list = []
 
+        # Process each bar individually to match real-time processing
         for i in range(start_idx, end_idx):
-            # Update indicator manager
+            # Update indicator with current bar (one by one - true online simulation)
             bar = self._create_bar_from_row(df, i, bar_type)
             indicator_mgr.update_from_bar(bar)
 
-            # Get current bar data
+            # Get current bar data for feature calculation
             current_bar = self._extract_current_bar_data(df, i)
 
-            # Calculate online features
+            # Calculate online features using the current indicator state
             online_features = self.feature_engineer.calculate_features_online(
                 current_bar,
                 indicator_mgr,
@@ -371,58 +375,54 @@ class FeatureParityValidator:
 
         return report
 
-    def _create_bar_from_row(self, df: Any, idx: int, bar_type: BarType) -> Bar:
+    def _create_bar_from_row(self, df: Any, row_idx: int, bar_type: BarType) -> Any:
         """
-        Create a Bar object from a DataFrame row.
+        Create a Bar object from DataFrame row.
 
-        Parameters
-        ----------
-        df : pl.DataFrame or pd.DataFrame
-            DataFrame containing OHLCV data.
-        idx : int
-            Row index to convert.
-        bar_type : BarType
-            Bar type for the created bar.
-
-        Returns
-        -------
-        Bar
-            Nautilus Bar object.
+        This method is still needed for indicator warm-up during validation.
 
         """
-        # Extract OHLCV data with fallbacks (handle both polars and pandas)
-        if POLARS_AVAILABLE and hasattr(df, "to_numpy"):
-            open_price = float(df["open"][idx]) if "open" in df.columns else float(df["close"][idx])
-            high_price = float(df["high"][idx]) if "high" in df.columns else float(df["close"][idx])
-            low_price = float(df["low"][idx]) if "low" in df.columns else float(df["close"][idx])
-            close_price = float(df["close"][idx])
-            volume = float(df["volume"][idx]) if "volume" in df.columns else 0.0
+        from nautilus_trader.model.data import Bar
+        from nautilus_trader.model.objects import Price
+        from nautilus_trader.model.objects import Quantity
+
+        # Check if it's a Polars DataFrame by checking for specific Polars methods
+        if POLARS_AVAILABLE and hasattr(df, "row") and callable(getattr(df, "row", None)):
+            # Polars DataFrame
+            row = df.row(row_idx)
+            columns = df.columns
+            row_dict = dict(zip(columns, row))
         else:
-            open_price = (
-                float(df.iloc[idx]["open"])
-                if "open" in df.columns
-                else float(df.iloc[idx]["close"])
-            )
-            high_price = (
-                float(df.iloc[idx]["high"])
-                if "high" in df.columns
-                else float(df.iloc[idx]["close"])
-            )
-            low_price = (
-                float(df.iloc[idx]["low"]) if "low" in df.columns else float(df.iloc[idx]["close"])
-            )
-            close_price = float(df.iloc[idx]["close"])
-            volume = float(df.iloc[idx]["volume"]) if "volume" in df.columns else 0.0
+            # Pandas DataFrame
+            row_dict = df.iloc[row_idx].to_dict()
+
+        # Extract OHLCV values with defaults
+        close_val = float(row_dict.get("close", 0.0))
+        open_val = float(row_dict.get("open", close_val))
+        high_val = float(row_dict.get("high", close_val))
+        low_val = float(row_dict.get("low", close_val))
+        volume_val = float(row_dict.get("volume", 0.0))
+
+        # Create Price objects
+        open_price = Price.from_str(f"{open_val:.8f}")
+        high_price = Price.from_str(f"{high_val:.8f}")
+        low_price = Price.from_str(f"{low_val:.8f}")
+        close_price = Price.from_str(f"{close_val:.8f}")
+        volume_qty = Quantity.from_str(f"{volume_val:.8f}")
+
+        # Create timestamps (use dummy values for validation)
+        ts_event = 1_000_000_000 + row_idx * 60_000_000_000  # 1 minute intervals
+        ts_init = ts_event
 
         return Bar(
             bar_type=bar_type,
-            open=Price.from_str(str(open_price)),
-            high=Price.from_str(str(high_price)),
-            low=Price.from_str(str(low_price)),
-            close=Price.from_str(str(close_price)),
-            volume=Quantity.from_str(str(volume)),
-            ts_event=0,  # Not needed for feature calculation
-            ts_init=0,
+            open=open_price,
+            high=high_price,
+            low=low_price,
+            close=close_price,
+            volume=volume_qty,
+            ts_event=ts_event,
+            ts_init=ts_init,
         )
 
     def validate_performance(
