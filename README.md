@@ -16,10 +16,10 @@
 
 | Platform           | Rust   | Python     |
 | :----------------- | :----- | :--------- |
-| `Linux (x86_64)`   | 1.88.0 | 3.11-3.13  |
-| `Linux (ARM64)`    | 1.88.0 | 3.11-3.13  |
-| `macOS (ARM64)`    | 1.88.0 | 3.11-3.13  |
-| `Windows (x86_64)` | 1.88.0 | 3.11-3.13* |
+| `Linux (x86_64)`   | 1.89.0 | 3.11-3.13  |
+| `Linux (ARM64)`    | 1.89.0 | 3.11-3.13  |
+| `macOS (ARM64)`    | 1.89.0 | 3.11-3.13  |
+| `Windows (x86_64)` | 1.89.0 | 3.11-3.13* |
 
 \* Windows builds are currently pinned to CPython 3.13.2, see [installation guide](https://github.com/nautechsystems/nautilus_trader/blob/develop/docs/getting_started/installation.md).
 
@@ -43,7 +43,7 @@ and live deployment workloads.
 
 The platform is also universal, and asset-class-agnostic —  with any REST API or WebSocket feed able to be integrated via modular
 adapters. It supports high-frequency trading across a wide range of asset classes and instrument types
-including FX, Equities, Futures, Options, Crypto and Betting, enabling seamless operations across multiple venues simultaneously.
+including FX, Equities, Futures, Options, Crypto, DeFi, and Betting, enabling seamless operations across multiple venues simultaneously.
 
 ![nautilus-trader](https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/nautilus-trader.png "nautilus-trader")
 

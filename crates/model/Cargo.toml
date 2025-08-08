@@ -27,7 +27,7 @@ ffi = ["cbindgen", "nautilus-core/ffi"]
 python = ["pyo3", "nautilus-core/python"]
 stubs = ["rstest"]
 high-precision = []
-# DeFi domain model requires 18-decimal WEI precision, implying `high-precision`
+# DeFi domain model requires 18-decimal wei precision, implying `high-precision`
 defi = [
     "alloy-primitives",
     "high-precision",
@@ -40,7 +40,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 nautilus-core = { workspace = true }
 
-ahash = { workspace = true }
 alloy-primitives = { workspace = true, optional = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
