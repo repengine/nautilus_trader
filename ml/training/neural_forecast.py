@@ -455,6 +455,18 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
         full_df = pd.concat([train_df, val_df])
         forecasts = nf.predict(df=full_df, h=len(val_df))
 
+        # Explicitly check for missing or extra timestamps before filtering
+        forecast_timestamps = set(forecasts["ds"])
+        val_timestamps = set(val_df["ds"])
+        missing_in_forecast = val_timestamps - forecast_timestamps
+        extra_in_forecast = forecast_timestamps - val_timestamps
+        if missing_in_forecast or extra_in_forecast:
+            raise ValueError(
+                f"Timestamp misalignment detected:\n"
+                f"Missing in forecast: {sorted(missing_in_forecast)}\n"
+                f"Extra in forecast: {sorted(extra_in_forecast)}"
+            )
+
         # Ensure predictions align with validation timestamps
         forecasts = forecasts[forecasts["ds"].isin(val_df["ds"])]
 
