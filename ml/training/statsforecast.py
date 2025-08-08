@@ -290,24 +290,32 @@ class StatsForecastTrainer(BaseTrainer):
         Train StatsForecast models.
 
         Args:
-            train_data: Training data
-            val_data: Validation data (optional)
-            use_optuna: Whether to use Optuna for hyperparameter optimization
-            n_trials: Number of Optuna trials
+            train_data: Training data.
+            val_data: Validation data. If provided, it will be used for evaluation
+                regardless of ``use_optuna``.
+            use_optuna: Whether to use Optuna for hyperparameter optimization.
+            n_trials: Number of Optuna trials.
 
         Returns:
             Dictionary containing trained models and metrics
 
         """
-        # Prepare data
-        train_df, test_df, metadata = self.prepare_data(train_data)
+        # Prepare training and validation data
+        if val_data is not None:
+            train_train_df, train_test_df, metadata = self.prepare_data(train_data)
+            train_df = pd.concat([train_train_df, train_test_df])
 
-        if use_optuna and val_data is not None:
-            # Use Optuna for model selection
-            return self._train_with_optuna(train_df, test_df, n_trials)
+            val_train_df, val_test_df, _ = self.prepare_data(val_data)
+            val_df = pd.concat([val_train_df, val_test_df])
+        else:
+            train_df, val_df, metadata = self.prepare_data(train_data)
+
+        if use_optuna:
+            # Use Optuna for model selection (validation data always used for evaluation)
+            return self._train_with_optuna(train_df, val_df, n_trials)
         else:
             # Train with default parameters
-            return self._train_default(train_df, test_df, metadata)
+            return self._train_default(train_df, val_df, metadata)
 
     def _train_default(
         self,
