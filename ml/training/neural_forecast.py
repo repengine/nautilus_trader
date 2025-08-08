@@ -3,6 +3,7 @@ Neural Forecast trainer supporting time series transformer models with Optuna an
 support.
 """
 
+import logging
 import pickle
 import urllib.error
 import warnings
@@ -21,6 +22,8 @@ from sklearn.metrics import mean_squared_error
 
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 from ..config.settings import Settings
 from ..data.unified_loader import UnifiedNautilusDataLoader
@@ -51,7 +54,9 @@ try:
     NEURALFORECAST_AVAILABLE = True
 except ImportError:
     NEURALFORECAST_AVAILABLE = False
-    print("Warning: NeuralForecast not available. Install with: pip install neuralforecast")
+    logger.warning(
+        "NeuralForecast not available. Install with: pip install neuralforecast"
+    )
 
 
 class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
@@ -394,9 +399,11 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
             base_config=self.config,
         )
 
-        print("\nOptimization complete!")
-        print(f"Best parameters: {opt_results.best_params}")
-        print(f"Best {optimizer_config.metric_name}: {opt_results.best_value:.4f}")
+        self._log_info("Optimization complete!")
+        self._log_info(f"Best parameters: {opt_results.best_params}")
+        self._log_info(
+            f"Best {optimizer_config.metric_name}: {opt_results.best_value:.4f}"
+        )
 
         # Train final model with best parameters
         best_config = {**self.config, **opt_results.best_params}
@@ -431,7 +438,7 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
 
         """
         # Prepare data
-        print(f"Preparing data for {self.model_type}...")
+        self._log_info(f"Preparing data for {self.model_type}...")
         train_df, _, feature_names = self.prepare_data(train_data)
         val_df, _, _ = self.prepare_data(val_data)
 
@@ -440,18 +447,18 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
             val_df[feature] = self.scaler.transform(val_df[[feature]])
 
         # Create model
-        print(f"Creating {self.model_type} model...")
+        self._log_info(f"Creating {self.model_type} model...")
         model = self._create_model(params)
 
         # Create NeuralForecast object
         nf = NeuralForecast(models=[model], freq=self.freq)
 
         # Fit model
-        print(f"Training {self.model_type} model...")
+        self._log_info(f"Training {self.model_type} model...")
         nf.fit(df=train_df, val_size=len(val_df))
 
         # Generate predictions on validation set
-        print("Generating predictions...")
+        self._log_info("Generating predictions...")
         forecasts = nf.predict(df=train_df)
 
         # Calculate metrics
@@ -496,7 +503,7 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
         )
 
         if len(merged) == 0:
-            print("Warning: No overlapping timestamps for evaluation")
+            self._log_warning("No overlapping timestamps for evaluation")
             return {"val_mse": np.nan, "val_mae": np.nan, "val_mape": np.nan, "val_rmse": np.nan}
 
         # Get model column name (e.g., 'TFT', 'Informer', etc)
@@ -666,8 +673,8 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
         with open(latest_path, "wb") as f:
             pickle.dump(model_data, f)
 
-        print(f"\nModel saved to: {model_path}")
-        print(f"Also saved as: {latest_path}")
+        self._log_info(f"Model saved to: {model_path}")
+        self._log_info(f"Also saved as: {latest_path}")
 
         return model_path
 
@@ -727,7 +734,7 @@ def train_tft_model(
         FloatingPointError,
         RuntimeError,
     ) as e:
-        print(f"Error loading data: {e}")
+        logger.error(f"Error loading data: {e}")
         raise
 
     # Ensure timestamp column
@@ -817,7 +824,7 @@ def train_multi_model_ensemble(
         FloatingPointError,
         RuntimeError,
     ) as e:
-        print(f"Error loading data: {e}")
+        logger.error(f"Error loading data: {e}")
         raise
 
     # Ensure timestamp column
@@ -832,9 +839,9 @@ def train_multi_model_ensemble(
     all_results = {}
 
     for model_type in models:
-        print(f"\n{'='*60}")
-        print(f"Training {model_type} model...")
-        print(f"{'='*60}")
+        logger.info(f"{'='*60}")
+        logger.info(f"Training {model_type} model...")
+        logger.info(f"{'='*60}")
 
         # Configure trainer
         config = {
@@ -861,13 +868,17 @@ def train_multi_model_ensemble(
 
             all_results[model_type] = results
 
-            print(f"\n{model_type} Results:")
-            print(f"  MAE: {results['metrics']['val_mae']:.4f}")
-            print(f"  RMSE: {results['metrics']['val_rmse']:.4f}")
-            print(f"  MAPE: {results['metrics']['val_mape']:.2%}")
+            logger.info(f"{model_type} Results:")
+            logger.info(f"MAE: {results['metrics']['val_mae']:.4f}")
+            logger.info(
+                f"RMSE: {results['metrics']['val_rmse']:.4f}"
+            )
+            logger.info(
+                f"MAPE: {results['metrics']['val_mape']:.2%}"
+            )
 
         except (ValueError, TypeError, KeyError, AttributeError, RuntimeError) as e:
-            print(f"Error training {model_type}: {e}")
+            logger.error(f"Error training {model_type}: {e}")
             all_results[model_type] = {"error": str(e)}
 
     return all_results

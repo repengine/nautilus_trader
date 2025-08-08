@@ -3,6 +3,7 @@ StatsForecast trainer for fast statistical time series models with hierarchical
 forecasting support.
 """
 
+import logging
 import pickle
 import urllib.error
 import warnings
@@ -23,6 +24,8 @@ from sklearn.model_selection import TimeSeriesSplit
 
 warnings.filterwarnings("ignore")
 
+logger = logging.getLogger(__name__)
+
 # Enhanced imports for diagnostics
 
 import matplotlib.pyplot as plt
@@ -33,8 +36,6 @@ from statsmodels.stats.diagnostic import acorr_ljungbox
 
 from ..config.settings import Settings
 from ..data.unified_loader import UnifiedNautilusDataLoader
-from ..features.feature_engineering import FeatureConfig
-from ..features.feature_engineering import FeatureEngineerV2
 
 # Moved to conditional import to avoid circular dependency
 from ..utils.dataframe_converter import DataFrameConverter
@@ -65,8 +66,8 @@ try:
     STATSFORECAST_AVAILABLE = True
 except ImportError:
     STATSFORECAST_AVAILABLE = False
-    print(
-        "Warning: StatsForecast not available. Install with: pip install statsforecast hierarchicalforecast",
+    logger.warning(
+        "StatsForecast not available. Install with: pip install statsforecast hierarchicalforecast",
     )
 
 
@@ -141,8 +142,6 @@ class StatsForecastTrainer(BaseTrainer):
         self.n_jobs = config.get("n_jobs", -1)
         self.fallback_model = config.get("fallback_model", "Naive")
 
-        # Feature engineering (for exogenous variables if needed)
-        self.feature_engineer = FeatureEngineerV2(config.get("feature_config", FeatureConfig()))
 
     def _infer_season_length(self) -> int:
         """
@@ -189,7 +188,7 @@ class StatsForecastTrainer(BaseTrainer):
                 try:
                     model = model_map[model_name]()
                     models.append(model)
-                    print(f"  Added {model_name} model")
+                    self._log_info(f"Added {model_name} model")
                 except (
                     requests.exceptions.RequestException,
                     urllib.error.URLError,
@@ -197,12 +196,14 @@ class StatsForecastTrainer(BaseTrainer):
                     ValueError,
                     TypeError,
                 ) as e:
-                    print(f"  Warning: Could not create {model_name} model: {e}")
+                    self._log_warning(
+                        f"Could not create {model_name} model: {e}"
+                    )
 
         # Add fallback model if no models created
         if not models and self.fallback_model in model_map:
             models.append(model_map[self.fallback_model]())
-            print(f"  Added fallback {self.fallback_model} model")
+            self._log_info(f"Added fallback {self.fallback_model} model")
 
         return models
 
@@ -318,7 +319,9 @@ class StatsForecastTrainer(BaseTrainer):
         """
         Train models with default parameters.
         """
-        print(f"\nTraining {len(self.model_types)} StatsForecast models...")
+        self._log_info(
+            f"Training {len(self.model_types)} StatsForecast models..."
+        )
 
         # Create models
         self.models = self._create_models()
@@ -327,11 +330,13 @@ class StatsForecastTrainer(BaseTrainer):
         self.forecaster = StatsForecast(models=self.models, freq=self.freq, n_jobs=self.n_jobs)
 
         # Fit models
-        print("Fitting models...")
+        self._log_info("Fitting models...")
         self.forecaster.fit(train_df)
 
         # Generate forecasts
-        print(f"Generating {self.forecast_horizon}-step ahead forecasts...")
+        self._log_info(
+            f"Generating {self.forecast_horizon}-step ahead forecasts..."
+        )
         forecasts = self.forecaster.predict(h=self.forecast_horizon)
 
         # Evaluate on test set if available
@@ -367,7 +372,7 @@ class StatsForecastTrainer(BaseTrainer):
 
         # Calculate ensemble if requested
         if self.use_ensemble and len(self.models) > 1:
-            print("Creating ensemble forecast...")
+            self._log_info("Creating ensemble forecast...")
             model_cols = [type(m).__name__ for m in self.models]
             forecasts["ensemble"] = forecasts[model_cols].mean(axis=1)
 
@@ -396,12 +401,12 @@ class StatsForecastTrainer(BaseTrainer):
 
         # Print metrics
         if metrics:
-            print("\nModel performance:")
+            self._log_info("Model performance:")
             for model_name, model_metrics in metrics.items():
-                print(f"\n{model_name}:")
+                self._log_info(model_name)
                 for metric_name, value in model_metrics.items():
                     if not np.isnan(value):
-                        print(f"  {metric_name}: {value:.4f}")
+                        self._log_info(f"{metric_name}: {value:.4f}")
 
         return {
             "forecaster": self.forecaster,
@@ -429,7 +434,9 @@ class StatsForecastTrainer(BaseTrainer):
         from ..optimization import OptimizerConfig
         from ..optimization.search_spaces import StatsForecastSearchSpace
 
-        print(f"\nOptimizing StatsForecast models with Optuna ({n_trials} trials)...")
+        self._log_info(
+            f"Optimizing StatsForecast models with Optuna ({n_trials} trials)..."
+        )
 
         # Create optimizer
         optimizer_config = OptimizerConfig(
@@ -522,7 +529,9 @@ class StatsForecastTrainer(BaseTrainer):
         best_params = optimizer.optimize(objective)
 
         # Train final model with best parameters
-        print(f"\nTraining final model with best parameters: {best_params}")
+        self._log_info(
+            f"Training final model with best parameters: {best_params}"
+        )
 
         # Create models with best parameters
         self.models = []
@@ -628,7 +637,9 @@ class StatsForecastTrainer(BaseTrainer):
         base_forecasts = results["forecasts"]
 
         # Set up hierarchical reconciliation
-        print(f"\nApplying hierarchical reconciliation ({self.reconciliation_method})...")
+        self._log_info(
+            f"Applying hierarchical reconciliation ({self.reconciliation_method})..."
+        )
 
         # Get reconciliation method
         recon_methods = {
@@ -651,7 +662,7 @@ class StatsForecastTrainer(BaseTrainer):
 
         # Evaluate reconciled forecasts
         if len(test_df) >= self.forecast_horizon:
-            print("\nEvaluating reconciled forecasts...")
+            self._log_info("Evaluating reconciled forecasts...")
 
             # Calculate metrics for reconciled forecasts
             recon_metrics = {}
@@ -753,7 +764,7 @@ class StatsForecastTrainer(BaseTrainer):
 
             # Generate and log diagnostics if test data provided
             if test_df is not None and "forecasts" in results:
-                print("Generating model diagnostics...")
+                self._log_info("Generating model diagnostics...")
 
                 # Generate comprehensive diagnostics
                 diagnostics = self.generate_diagnostics(results, test_df, save_plots=True)
@@ -855,8 +866,8 @@ class StatsForecastTrainer(BaseTrainer):
             import mlflow
 
             run_id = mlflow.active_run().info.run_id
-            print(f"\nModel saved to MLflow: {run_id}")
-            print(f"Model URI: {model_uri}")
+            self._log_info(f"Model saved to MLflow: {run_id}")
+            self._log_info(f"Model URI: {model_uri}")
 
             return run_id
 
@@ -1050,7 +1061,7 @@ class StatsForecastTrainer(BaseTrainer):
 
         if not interval_cols:
             # Add bootstrap-based intervals if not present
-            print("Computing bootstrap prediction intervals...")
+            self._log_info("Computing bootstrap prediction intervals...")
 
             # For each model column
             model_cols = [col for col in forecasts.columns if col not in ["unique_id", "ds", "y"]]
@@ -1136,7 +1147,7 @@ class StatsForecastTrainer(BaseTrainer):
             plt.close()
 
         except (FileNotFoundError, OSError, ValueError, TypeError, RuntimeError) as e:
-            print(f"Error in seasonal decomposition: {e}")
+            self._log_error(f"Error in seasonal decomposition: {e}")
             return None
 
 
@@ -1186,7 +1197,9 @@ def main():
             polars.exceptions.PolarsError,
             RuntimeError,
         ) as e:
-            print(f"Warning: Could not load from catalog, falling back to parquet: {e}")
+            self._log_warning(
+                f"Could not load from catalog, falling back to parquet: {e}"
+            )
             # Fallback: load from parquet file using Polars
             # This is acceptable as it's in fallback logic when catalog is unavailable
             data = pl.read_parquet(data_path)
@@ -1205,13 +1218,15 @@ def main():
             test_df=test_df,
         )
 
-        print(f"\nTraining complete! MLflow run ID: {run_id}")
-        print(f"Best models: {[type(m).__name__ for m in results['models']]}")
+        logger.info(f"Training complete! MLflow run ID: {run_id}")
+        logger.info(
+            f"Best models: {[type(m).__name__ for m in results['models']]}"
+        )
 
         if "metrics" in results:
-            print("\nModel performance:")
+            logger.info("Model performance:")
             for model, metrics in results["metrics"].items():
-                print(f"{model}: RMSE={metrics['rmse']:.4f}")
+                logger.info(f"{model}: RMSE={metrics['rmse']:.4f}")
 
 
 if __name__ == "__main__":
