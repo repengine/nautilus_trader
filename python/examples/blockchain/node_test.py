@@ -48,8 +48,6 @@ def main() -> None:
     # Chain setup
     chain = Chain.ARBITRUM()
     print(f"\nChain: {chain}")
-    print(f"Chain ID: {chain.chain_id}")
-    print(f"Chain name: {chain.name}")
 
     # RPC URLs (equivalent to get_env_var calls)
     http_rpc_url = os.getenv("RPC_HTTP_URL", "https://arb1.arbitrum.io/rpc")
@@ -75,22 +73,20 @@ def main() -> None:
     builder.add_data_client(None, client_factory, client_config)
     node = builder.build()
 
-    # Pool instrument IDs to monitor (TODO: Add to config)
-    pools = [
-        InstrumentId.from_str("WETH/USDC-3000.UniswapV3:Arbitrum"),  # Arbitrum WETH/USDC 0.30% pool
-    ]
-
     actor_config = ImportableActorConfig(
-        actor_path="actors:BlockchainActor",  # Import from local actors.py
-        config_path="nautilus_trader.common:DataActorConfig",  # Not used yet, but required field
+        actor_path="actors:BlockchainActor",
+        config_path="actors:BlockchainActorConfig",
         config={
             "actor_id": "BLOCKCHAIN-001",
-            "log_events": "true",
-            "log_commands": "true",
+            "log_events": True,
+            "log_commands": True,
+            "chain": "Arbitrum",
+            "client_id": "BLOCKCHAIN-Arbitrum",
+            "pools": ["0xC31E54c7a869B9FcBEcc14363CF510d1c41fa443.Arbitrum:UniswapV3"],
         },
     )
 
-    # Add actor using factory approach
+    # Add actor using config approach
     node.add_actor_from_config(actor_config)
 
     node.run()
