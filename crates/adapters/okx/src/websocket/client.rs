@@ -68,7 +68,7 @@ use super::{
 };
 use crate::{
     common::{
-        consts::OKX_WS_PUBLIC_URL,
+        consts::{OKX_NAUTILUS_BROKER_ID, OKX_WS_PUBLIC_URL},
         credential::Credential,
         enums::{OKXInstrumentType, OKXOrderType, OKXPositionSide, OKXSide, OKXTradeMode},
         parse::{bar_spec_as_okx_channel, okx_instrument_type, parse_account_state},
@@ -1199,6 +1199,7 @@ impl OKXWebSocketClient {
         trigger_price: Option<Price>,
         post_only: Option<bool>,
         reduce_only: Option<bool>,
+        quote_quantity: Option<bool>,
         position_side: Option<PositionSide>,
     ) -> Result<(), OKXWsError> {
         let mut builder = WsPostOrderParamsBuilder::default();
@@ -1251,6 +1252,13 @@ impl OKXWebSocketClient {
             }
         };
 
+        if let Some(is_quote_quantity) = quote_quantity {
+            if is_quote_quantity {
+                builder.tgt_ccy(quote_currency.to_string());
+            }
+            // If is_quote_quantity is false, we don't set tgtCcy (defaults to base currency)
+        }
+
         builder.side(OKXSide::from(order_side));
 
         if let Some(pos_side) = position_side {
@@ -1271,6 +1279,8 @@ impl OKXWebSocketClient {
         } else if let Some(p) = price {
             builder.px(p.to_string());
         }
+
+        builder.tag(OKX_NAUTILUS_BROKER_ID);
 
         let params = builder
             .build()
@@ -1459,24 +1469,31 @@ impl OKXWebSocketClient {
             builder.td_mode(td_mode);
             builder.cl_ord_id(cl_ord_id.as_str());
             builder.side(OKXSide::from(ord_side));
+
             if let Some(ps) = pos_side {
                 builder.pos_side(OKXPositionSide::from(ps));
             }
+
             let okx_ord_type = if post_only.unwrap_or(false) {
                 OKXOrderType::PostOnly
             } else {
                 OKXOrderType::from(ord_type)
             };
+
             builder.ord_type(okx_ord_type);
             builder.sz(qty.to_string());
+
             if let Some(p) = pr {
                 builder.px(p.to_string());
             } else if let Some(p) = tp {
                 builder.px(p.to_string());
             }
+
             if let Some(ro) = reduce_only {
                 builder.reduce_only(ro);
             }
+
+            builder.tag(OKX_NAUTILUS_BROKER_ID);
 
             let params = builder
                 .build()
@@ -1838,7 +1855,7 @@ impl OKXWsMessageHandler {
             } = event
             {
                 if code == "0" {
-                    tracing::info!(
+                    tracing::debug!(
                         "Order operation successful: id={:?} op={op} code={code}",
                         id
                     );
@@ -1848,7 +1865,7 @@ impl OKXWsMessageHandler {
                             .get("sMsg")
                             .and_then(|s| s.as_str())
                             .unwrap_or("Order operation successful");
-                        tracing::debug!("Order success details: {success_msg}");
+                        tracing::debug!("Order details: {success_msg}");
 
                         // Note: We rely on the orders channel subscription to provide the proper
                         // OrderStatusReport with correct instrument ID and full order details.

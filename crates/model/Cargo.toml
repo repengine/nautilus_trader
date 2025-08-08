@@ -40,6 +40,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 nautilus-core = { workspace = true }
 
+ahash = { workspace = true }
 alloy-primitives = { workspace = true, optional = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
@@ -63,7 +64,6 @@ ustr = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-float-cmp = { workspace = true }
 iai = { workspace = true }
 proptest = { workspace = true }
 rstest = { workspace = true }
