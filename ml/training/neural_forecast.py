@@ -448,11 +448,15 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
 
         # Fit model
         print(f"Training {self.model_type} model...")
-        nf.fit(df=train_df, val_size=len(val_df))
+        nf.fit(df=train_df)
 
         # Generate predictions on validation set
         print("Generating predictions...")
-        forecasts = nf.predict(df=train_df)
+        full_df = pd.concat([train_df, val_df])
+        forecasts = nf.predict(df=full_df, h=len(val_df))
+
+        # Ensure predictions align with validation timestamps
+        forecasts = forecasts[forecasts["ds"].isin(val_df["ds"])]
 
         # Calculate metrics
         metrics = self._calculate_metrics(val_df, forecasts)
@@ -488,10 +492,12 @@ class NeuralForecastTrainer(ResourceManagedTrainerMixin, BaseTrainer):
             Dictionary of metrics
 
         """
-        # Align actual and forecast data
+        # Align actual and forecast data on the validation timestamps
+        forecast_df = forecast_df[forecast_df["ds"].isin(actual_df["ds"])]
         merged = actual_df.merge(
             forecast_df,
             on=["unique_id", "ds"],
+            how="inner",
             suffixes=("_actual", "_forecast"),
         )
 
