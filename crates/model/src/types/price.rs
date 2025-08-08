@@ -44,7 +44,7 @@ use crate::types::fixed::MAX_FLOAT_PRECISION;
 // -----------------------------------------------------------------------------
 
 // Use 128-bit integers when either `high-precision` or `defi` features are enabled. This is
-// required for the extended 18-decimal WEI precision used in DeFi contexts.
+// required for the extended 18-decimal wei precision used in DeFi contexts.
 
 #[cfg(feature = "high-precision")]
 pub type PriceRaw = i128;
@@ -158,7 +158,7 @@ impl Price {
         if precision > MAX_FLOAT_PRECISION {
             // Floats are only reliable up to ~16 decimal digits of precision regardless of feature flags
             anyhow::bail!(
-                "`precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Price::from_wei()` for WEI values instead"
+                "`precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Price::from_wei()` for wei values instead"
             );
         }
 
@@ -1026,12 +1026,11 @@ mod property_tests {
             let p_delta = Price::new(delta, precision);
 
             // Use raw arithmetic to avoid floating-point precision issues
-            if let Some(added_raw) = p_base.raw.checked_add(p_delta.raw) {
-                if let Some(result_raw) = added_raw.checked_sub(p_delta.raw) {
+            if let Some(added_raw) = p_base.raw.checked_add(p_delta.raw)
+                && let Some(result_raw) = added_raw.checked_sub(p_delta.raw) {
                     // (base + delta) - delta should equal base exactly using raw arithmetic
                     prop_assert_eq!(result_raw, p_base.raw, "Inverse operation failed in raw arithmetic");
                 }
-            }
         }
 
         /// Property: Price ordering should be transitive

@@ -27,6 +27,7 @@ Released on TBD (UTC).
 - Added `tick_scheme_name` field for instrument dictionary conversions
 - Added default `FixedTickScheme`(s) for all valid precisions
 - Added PancakeSwapV3 pool parsing (#2829), thanks @filipmacek
+- Added `PortfolioConfig.min_account_state_logging_interval_ms` config option for throttling account state logging
 
 ### Breaking Changes
 - Added `multiplier` field for `CurrencyPair` Arrow schema
@@ -71,6 +72,7 @@ Released on TBD (UTC).
 - Refined request of instruments (#2822), thanks @faysou
 - Updated `request_aggregated_bars` example (#2815), thanks @faysou
 - Updated PostgreSQL connection parameters to use 'nautilus' user (#2805), thanks @stastnypremysl
+- Upgraded Rust (MSRV) to 1.89.0
 - Upgraded `web3` for Polymarket allowances script (#2814), thanks @DeirhX
 - Upgraded `databento` crate to v0.30.0
 - Upgraded `datafusion` crate to v49.0.0

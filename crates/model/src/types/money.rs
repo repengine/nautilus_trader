@@ -109,7 +109,7 @@ impl Money {
         if currency.precision > MAX_FLOAT_PRECISION {
             // Floats are only reliable up to ~16 decimal digits of precision regardless of feature flags
             anyhow::bail!(
-                "`currency.precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Money::from_wei()` for WEI values instead"
+                "`currency.precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Money::from_wei()` for wei values instead"
             );
         }
 
@@ -521,9 +521,9 @@ mod tests {
     #[case(
         1_000_000_000_000_000_000_i128,
         18,
-        "WEI",
-        "Money(1000000000000000000, WEI)",
-        "1000000000000000000 WEI"
+        "wei",
+        "Money(1000000000000000000, wei)",
+        "1000000000000000000 wei"
     )] // High precision
     #[case(
         2_500_000_000_000_000_000_i128,
@@ -860,8 +860,8 @@ mod tests {
                 if let (Some(sum1), Some(sum2)) = (
                     money1.raw.checked_add(money2.raw),
                     money2.raw.checked_add(money3.raw)
-                ) {
-                    if let (Some(left), Some(right)) = (
+                )
+                    && let (Some(left), Some(right)) = (
                         sum1.checked_add(money3.raw),
                         money1.raw.checked_add(sum2)
                     ) {
@@ -869,7 +869,6 @@ mod tests {
                         let right_result = Money::from_raw(right, money1.currency);
                         prop_assert_eq!(left_result, right_result, "Addition should be associative");
                     }
-                }
             }
         }
 

@@ -4774,7 +4774,6 @@ dependencies = [
 name = "nautilus-model"
 version = "0.50.0"
 dependencies = [
- "ahash 0.8.12",
  "alloy-primitives",
  "anyhow",
  "cbindgen",
@@ -5077,6 +5076,7 @@ dependencies = [
  "nautilus-core",
  "nautilus-model",
  "pyo3",
+ "rand 0.9.2",
  "reqwest",
  "rstest",
  "serde_json",
