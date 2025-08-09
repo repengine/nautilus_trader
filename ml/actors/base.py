@@ -421,7 +421,7 @@ class ONNXModelLoader(ModelLoader):
         return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
 
 
-class MLSignal(Data):
+class MLSignal(Data):  # type: ignore[misc]
     """
     Custom data type for ML predictions.
 
@@ -510,7 +510,7 @@ ml_signal_confidence = Histogram(
 )
 
 
-class BaseMLInferenceActor(Actor, ABC):
+class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     """
     Enhanced base class for ML inference actors with production features.
 

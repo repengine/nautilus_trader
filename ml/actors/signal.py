@@ -442,7 +442,7 @@ _initialize_performance_metrics()
 # =================================================================================================
 
 
-class OptimizedMLSignal(Data):
+class OptimizedMLSignal(Data):  # type: ignore[misc]
     """
     Optimized ML signal with performance metrics.
 
@@ -564,7 +564,7 @@ class OptimizedMLSignal(Data):
         return self._ts_init
 
 
-class AdaptiveSignal(Data):
+class AdaptiveSignal(Data):  # type: ignore[misc]
     """
     Adaptive ML signal with dynamic thresholds.
 

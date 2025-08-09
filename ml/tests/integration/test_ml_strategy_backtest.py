@@ -338,7 +338,7 @@ class TestMLStrategyBacktest:
 
             # Create a mock ML signal actor for this instrument
             # Need to use a nested class definition to capture bars properly
-            class TestMLSignalActor(Actor):
+            class TestMLSignalActor(Actor):  # type: ignore[misc]
                 """
                 Test actor that generates ML signals based on bar data.
                 """
@@ -355,7 +355,7 @@ class TestMLStrategyBacktest:
                     self.bar_count = 0
                     self.signals_published = 0
 
-                def on_start(self):
+                def on_start(self) -> None:
                     # Subscribe to bars for this instrument
                     # Use the bar_type from the first bar
                     if self.bars_data:
@@ -523,7 +523,7 @@ class TestMLStrategyBacktest:
         engine.add_strategy(SimpleMLStrategy(config=strategy_config))
 
         # Create a test actor that generates extreme signals
-        class TestExtremeSignalActor(Actor):
+        class TestExtremeSignalActor(Actor):  # type: ignore[misc]
             """
             Test actor that generates extreme signals for edge case testing.
             """
@@ -534,7 +534,7 @@ class TestMLStrategyBacktest:
                 self.bar_count = 0
                 self.signal_count = 0
 
-            def on_start(self):
+            def on_start(self) -> None:
                 # Subscribe to bars
                 self.subscribe_bars(self.bar_type)
 
@@ -646,7 +646,7 @@ class TestMLStrategyBacktest:
         engine.add_instrument(test_instrument)
 
         # Create a test ML signal actor
-        class TestMetricsMLActor(Actor):
+        class TestMetricsMLActor(Actor):  # type: ignore[misc]
             """
             Test actor that generates ML signals for metrics testing.
             """
@@ -663,7 +663,7 @@ class TestMLStrategyBacktest:
                 self.bar_count = 0
                 self.signal_count = 0
 
-            def on_start(self):
+            def on_start(self) -> None:
                 # Subscribe to bars
                 self.subscribe_bars(self.bar_type)
 
