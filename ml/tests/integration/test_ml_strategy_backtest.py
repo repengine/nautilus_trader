@@ -338,7 +338,7 @@ class TestMLStrategyBacktest:
 
             # Create a mock ML signal actor for this instrument
             # Need to use a nested class definition to capture bars properly
-            class TestMLSignalActor(Actor):
+            class TestMLSignalActor(Actor):  # type: ignore[misc]
                 """
                 Test actor that generates ML signals based on bar data.
                 """
@@ -523,7 +523,7 @@ class TestMLStrategyBacktest:
         engine.add_strategy(SimpleMLStrategy(config=strategy_config))
 
         # Create a test actor that generates extreme signals
-        class TestExtremeSignalActor(Actor):
+        class TestExtremeSignalActor(Actor):  # type: ignore[misc]
             """
             Test actor that generates extreme signals for edge case testing.
             """
@@ -646,7 +646,7 @@ class TestMLStrategyBacktest:
         engine.add_instrument(test_instrument)
 
         # Create a test ML signal actor
-        class TestMetricsMLActor(Actor):
+        class TestMetricsMLActor(Actor):  # type: ignore[misc]
             """
             Test actor that generates ML signals for metrics testing.
             """
