@@ -150,7 +150,7 @@ def _initialize_metrics() -> None:
 _initialize_metrics()
 
 
-class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
+class BaseMLStrategy(Strategy, ABC):
     """
     Base class for ML-driven trading strategies.
 

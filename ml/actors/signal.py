@@ -442,7 +442,7 @@ _initialize_performance_metrics()
 # =================================================================================================
 
 
-class OptimizedMLSignal(Data):  # type: ignore[misc]
+class OptimizedMLSignal(Data):
     """
     Optimized ML signal with performance metrics.
 
@@ -564,7 +564,7 @@ class OptimizedMLSignal(Data):  # type: ignore[misc]
         return self._ts_init
 
 
-class AdaptiveSignal(Data):  # type: ignore[misc]
+class AdaptiveSignal(Data):
     """
     Adaptive ML signal with dynamic thresholds.
 
@@ -1402,7 +1402,7 @@ class MLSignalActor(BaseMLInferenceActor):
                     "threshold": 0.4,
                     "extremes": 0.3,
                     "momentum": 0.3,
-                }
+                },
             )
 
         # Feature engineering
@@ -1503,7 +1503,8 @@ class MLSignalActor(BaseMLInferenceActor):
             }
             return EnsembleStrategy(
                 strategies,
-                self._strat_config.ensemble_weights or {
+                self._strat_config.ensemble_weights
+                or {
                     "threshold": 0.4,
                     "extremes": 0.3,
                     "momentum": 0.3,
