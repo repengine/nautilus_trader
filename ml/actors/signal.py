@@ -46,6 +46,7 @@ from abc import abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 
+import msgspec
 import numpy as np
 
 from ml._imports import HAS_ONNX
@@ -62,7 +63,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import PositiveInt
-from nautilus_trader.core import Data
+from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -116,60 +117,17 @@ class OptimizationConfig(msgspec.Struct, frozen=True):
     Configuration for performance optimizations.
     """
 
-    def __init__(
-        self,
-        level: OptimizationLevel = OptimizationLevel.STANDARD,
-        enable_zero_copy: bool = False,
-        enable_model_warm_up: bool = False,
-        warm_up_iterations: int = 100,
-        pre_allocate_buffers: bool = True,
-        use_lock_free_buffers: bool = False,
-        reservoir_sample_size: int = 1000,
-        onnx_graph_optimization: str = "ORT_ENABLE_ALL",
-        onnx_execution_mode: str = "ORT_SEQUENTIAL",
-        onnx_intra_threads: int = 1,
-        onnx_inter_threads: int = 1,
-    ) -> None:
-        """
-        Initialize optimization configuration.
-
-        Parameters
-        ----------
-        level : OptimizationLevel, default=OptimizationLevel.STANDARD
-            The optimization level to use.
-        enable_zero_copy : bool, default=False
-            Whether to enable zero-copy optimizations.
-        enable_model_warm_up : bool, default=False
-            Whether to warm up the model before inference.
-        warm_up_iterations : int, default=100
-            Number of warm-up iterations.
-        pre_allocate_buffers : bool, default=True
-            Whether to pre-allocate feature buffers.
-        use_lock_free_buffers : bool, default=False
-            Whether to use lock-free buffers.
-        reservoir_sample_size : int, default=1000
-            Size of reservoir sampling for statistics.
-        onnx_graph_optimization : str, default="ORT_ENABLE_ALL"
-            ONNX Runtime graph optimization level.
-        onnx_execution_mode : str, default="ORT_SEQUENTIAL"
-            ONNX Runtime execution mode.
-        onnx_intra_threads : int, default=1
-            Number of intra-op threads for ONNX Runtime.
-        onnx_inter_threads : int, default=1
-            Number of inter-op threads for ONNX Runtime.
-
-        """
-        self.level = level
-        self.enable_zero_copy = enable_zero_copy
-        self.enable_model_warm_up = enable_model_warm_up
-        self.warm_up_iterations = warm_up_iterations
-        self.pre_allocate_buffers = pre_allocate_buffers
-        self.use_lock_free_buffers = use_lock_free_buffers
-        self.reservoir_sample_size = reservoir_sample_size
-        self.onnx_graph_optimization = onnx_graph_optimization
-        self.onnx_execution_mode = onnx_execution_mode
-        self.onnx_intra_threads = onnx_intra_threads
-        self.onnx_inter_threads = onnx_inter_threads
+    level: OptimizationLevel = OptimizationLevel.STANDARD
+    enable_zero_copy: bool = False
+    enable_model_warm_up: bool = False
+    warm_up_iterations: int = 100
+    pre_allocate_buffers: bool = True
+    use_lock_free_buffers: bool = False
+    reservoir_sample_size: int = 1000
+    onnx_graph_optimization: str = "ORT_ENABLE_ALL"
+    onnx_execution_mode: str = "ORT_SEQUENTIAL"
+    onnx_intra_threads: int = 1
+    onnx_inter_threads: int = 1
 
 
 class StrategyConfig(msgspec.Struct, frozen=True):
@@ -177,48 +135,13 @@ class StrategyConfig(msgspec.Struct, frozen=True):
     Configuration for signal generation strategies.
     """
 
-    def __init__(
-        self,
-        extremes_top_pct: float = 0.1,
-        momentum_lookback: int = 5,
-        ensemble_weights: dict[str, float] | None = None,
-        adaptive_volatility_factor: float = 2.0,
-        min_threshold: float = 0.1,
-        max_threshold: float = 0.95,
-        update_frequency: int = 10,
-    ) -> None:
-        """
-        Initialize strategy configuration.
-
-        Parameters
-        ----------
-        extremes_top_pct : float, default=0.1
-            Percentile for extreme value detection.
-        momentum_lookback : int, default=5
-            Lookback period for momentum calculation.
-        ensemble_weights : dict[str, float] | None, default=None
-            Weights for ensemble strategy components.
-        adaptive_volatility_factor : float, default=2.0
-            Factor for adaptive volatility scaling.
-        min_threshold : float, default=0.1
-            Minimum confidence threshold.
-        max_threshold : float, default=0.95
-            Maximum confidence threshold.
-        update_frequency : int, default=10
-            Frequency of threshold updates.
-
-        """
-        self.extremes_top_pct = extremes_top_pct
-        self.momentum_lookback = momentum_lookback
-        self.ensemble_weights = ensemble_weights or {
-            "threshold": 0.4,
-            "extremes": 0.3,
-            "momentum": 0.3,
-        }
-        self.adaptive_volatility_factor = adaptive_volatility_factor
-        self.min_threshold = min_threshold
-        self.max_threshold = max_threshold
-        self.update_frequency = update_frequency
+    extremes_top_pct: float = 0.1
+    momentum_lookback: int = 5
+    ensemble_weights: dict[str, float] | None = None
+    adaptive_volatility_factor: float = 2.0
+    min_threshold: float = 0.1
+    max_threshold: float = 0.95
+    update_frequency: int = 10
 
 
 class OptimizedMLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
@@ -519,7 +442,7 @@ _initialize_performance_metrics()
 # =================================================================================================
 
 
-class OptimizedMLSignal(Data):
+class OptimizedMLSignal(Data):  # type: ignore[misc]
     """
     Optimized ML signal with performance metrics.
 
@@ -641,7 +564,7 @@ class OptimizedMLSignal(Data):
         return self._ts_init
 
 
-class AdaptiveSignal(Data):
+class AdaptiveSignal(Data):  # type: ignore[misc]
     """
     Adaptive ML signal with dynamic thresholds.
 
@@ -1131,32 +1054,10 @@ class ONNXOptimizationConfig(msgspec.Struct, frozen=True):
     Configuration for ONNX runtime optimizations.
     """
 
-    def __init__(
-        self,
-        graph_optimization_level: str = "ORT_ENABLE_ALL",
-        execution_mode: str = "ORT_SEQUENTIAL",
-        intra_threads: int = 1,
-        inter_threads: int = 1,
-    ) -> None:
-        """
-        Initialize the ONNXOptimizationConfig.
-
-        Parameters
-        ----------
-        graph_optimization_level : str, default "ORT_ENABLE_ALL"
-            The ONNX runtime graph optimization level.
-        execution_mode : str, default "ORT_SEQUENTIAL"
-            The ONNX runtime execution mode.
-        intra_threads : int, default 1
-            Number of threads for intra-op parallelism.
-        inter_threads : int, default 1
-            Number of threads for inter-op parallelism.
-
-        """
-        self.graph_optimization_level = graph_optimization_level
-        self.execution_mode = execution_mode
-        self.intra_threads = intra_threads
-        self.inter_threads = inter_threads
+    graph_optimization_level: str = "ORT_ENABLE_ALL"
+    execution_mode: str = "ORT_SEQUENTIAL"
+    intra_threads: int = 1
+    inter_threads: int = 1
 
 
 class AdaptiveThresholdConfig(msgspec.Struct, frozen=True):
@@ -1164,32 +1065,10 @@ class AdaptiveThresholdConfig(msgspec.Struct, frozen=True):
     Configuration for adaptive thresholds.
     """
 
-    def __init__(
-        self,
-        base_threshold: float = 0.7,
-        volatility_factor: float = 2.0,
-        min_threshold: float = 0.1,
-        max_threshold: float = 0.95,
-    ) -> None:
-        """
-        Initialize the AdaptiveThresholdConfig.
-
-        Parameters
-        ----------
-        base_threshold : float, default 0.7
-            The base confidence threshold for signals.
-        volatility_factor : float, default 2.0
-            Factor for volatility-based threshold adjustment.
-        min_threshold : float, default 0.1
-            Minimum allowed threshold value.
-        max_threshold : float, default 0.95
-            Maximum allowed threshold value.
-
-        """
-        self.base_threshold = base_threshold
-        self.volatility_factor = volatility_factor
-        self.min_threshold = min_threshold
-        self.max_threshold = max_threshold
+    base_threshold: float = 0.7
+    volatility_factor: float = 2.0
+    min_threshold: float = 0.1
+    max_threshold: float = 0.95
 
 
 class HotPathConfig(msgspec.Struct, frozen=True):
@@ -1197,28 +1076,9 @@ class HotPathConfig(msgspec.Struct, frozen=True):
     Configuration for hot path optimizations.
     """
 
-    def __init__(
-        self,
-        enable_zero_copy: bool = True,
-        pre_allocate_buffers: bool = True,
-        use_lock_free_buffers: bool = True,
-    ) -> None:
-        """
-        Initialize the HotPathConfig.
-
-        Parameters
-        ----------
-        enable_zero_copy : bool, default True
-            Enable zero-copy operations for performance.
-        pre_allocate_buffers : bool, default True
-            Pre-allocate memory buffers to avoid runtime allocations.
-        use_lock_free_buffers : bool, default True
-            Use lock-free data structures for thread-safe operations.
-
-        """
-        self.enable_zero_copy = enable_zero_copy
-        self.pre_allocate_buffers = pre_allocate_buffers
-        self.use_lock_free_buffers = use_lock_free_buffers
+    enable_zero_copy: bool = True
+    pre_allocate_buffers: bool = True
+    use_lock_free_buffers: bool = True
 
 
 class PerformanceMonitor:
@@ -1518,7 +1378,32 @@ class MLSignalActor(BaseMLInferenceActor):
 
         # Get configurations
         self._opt_config = config.optimization_config or OptimizationConfig()
-        self._strat_config = config.strategy_config or StrategyConfig()
+        # Handle strategy config and set ensemble weights default
+        if config.strategy_config:
+            self._strat_config = config.strategy_config
+            if self._strat_config.ensemble_weights is None:
+                # Create a new config with default ensemble weights
+                self._strat_config = StrategyConfig(
+                    extremes_top_pct=self._strat_config.extremes_top_pct,
+                    momentum_lookback=self._strat_config.momentum_lookback,
+                    ensemble_weights={
+                        "threshold": 0.4,
+                        "extremes": 0.3,
+                        "momentum": 0.3,
+                    },
+                    adaptive_volatility_factor=self._strat_config.adaptive_volatility_factor,
+                    min_threshold=self._strat_config.min_threshold,
+                    max_threshold=self._strat_config.max_threshold,
+                    update_frequency=self._strat_config.update_frequency,
+                )
+        else:
+            self._strat_config = StrategyConfig(
+                ensemble_weights={
+                    "threshold": 0.4,
+                    "extremes": 0.3,
+                    "momentum": 0.3,
+                }
+            )
 
         # Feature engineering
         if config.feature_config is None:
@@ -1618,7 +1503,11 @@ class MLSignalActor(BaseMLInferenceActor):
             }
             return EnsembleStrategy(
                 strategies,
-                self._strat_config.ensemble_weights,
+                self._strat_config.ensemble_weights or {
+                    "threshold": 0.4,
+                    "extremes": 0.3,
+                    "momentum": 0.3,
+                },
                 threshold,
             )
         elif strategy == SignalStrategy.ADAPTIVE:

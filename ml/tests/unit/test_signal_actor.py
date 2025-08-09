@@ -1406,6 +1406,7 @@ class TestMLSignalActor:
             "momentum": MomentumStrategy(3, 0.5, 0.01),
         }
         assert config.strategy_config is not None
+        assert config.strategy_config.ensemble_weights is not None
         ensemble = EnsembleStrategy(strategies, config.strategy_config.ensemble_weights, 0.5)
 
         bar = self.create_test_bar()

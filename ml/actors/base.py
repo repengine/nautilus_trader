@@ -33,10 +33,6 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-
-if TYPE_CHECKING:
-    from nautilus_trader.core.data import Data as DataType
-
 import numpy as np
 
 # Import ML dependencies and check availability
@@ -50,7 +46,7 @@ from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
 from nautilus_trader.common.actor import Actor
 from nautilus_trader.common.config import ActorConfig
-from nautilus_trader.core import Data
+from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.identifiers import InstrumentId
@@ -425,7 +421,7 @@ class ONNXModelLoader(ModelLoader):
         return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
 
 
-class MLSignal(Data):
+class MLSignal(Data):  # type: ignore[misc]
     """
     Custom data type for ML predictions.
 
@@ -514,7 +510,7 @@ ml_signal_confidence = Histogram(
 )
 
 
-class BaseMLInferenceActor(Actor, ABC):
+class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     """
     Enhanced base class for ML inference actors with production features.
 

@@ -13,7 +13,7 @@ import sys
 import pytest
 
 
-def test_databento_setup():
+def test_databento_setup() -> None:
     """
     Test that Databento API key is configured and working.
 

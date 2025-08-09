@@ -398,11 +398,7 @@ class TestConfigurationSystem:
 
         assert config.extremes_top_pct == 0.1
         assert config.momentum_lookback == 5
-        assert config.ensemble_weights == {
-            "threshold": 0.4,
-            "extremes": 0.3,
-            "momentum": 0.3,
-        }
+        assert config.ensemble_weights is None
         assert config.adaptive_volatility_factor == 2.0
         assert config.min_threshold == 0.1
         assert config.max_threshold == 0.95
