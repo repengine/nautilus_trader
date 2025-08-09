@@ -514,7 +514,7 @@ class TestFeatureEngineer:
         assert fe.n_features == len(config.get_feature_names())
         # Buffer has extra space for safety (n_features + 20)
         assert len(fe.feature_buffer) >= fe.n_features
-        assert fe.feature_buffer.dtype == np.float64
+        assert fe.feature_buffer.dtype == np.float32  # Feature buffer uses float32 for performance
 
     def test_feature_engineer_with_custom_config(self) -> None:
         """
@@ -634,7 +634,7 @@ class TestFeatureEngineer:
         # Check output
         assert isinstance(features, np.ndarray)
         assert len(features) == fe.n_features
-        assert features.dtype == np.float64
+        assert features.dtype == np.float32  # Feature buffer uses float32 for performance
 
     def test_calculate_features_online_with_scaler(self) -> None:
         """

@@ -367,17 +367,16 @@ def onnx_test_model_path(xgboost_test_model: Any, tmp_path: Path) -> Path:
     if not HAS_ONNX:
         pytest.skip("ONNX Runtime not installed")
 
+    # XGBoost to ONNX conversion requires onnxmltools
     try:
-        from skl2onnx import convert_sklearn
-        from skl2onnx.common.data_types import FloatTensorType
+        from onnxmltools import convert_xgboost
+        from onnxmltools.convert.common.data_types import FloatTensorType
     except ImportError:
-        pytest.skip("skl2onnx not installed")
+        pytest.skip("onnxmltools not installed (required for XGBoost to ONNX conversion)")
 
-    # Define input type
-    initial_type = [("float_input", FloatTensorType([None, 10]))]
-
-    # Convert to ONNX
-    onnx_model = convert_sklearn(xgboost_test_model, initial_types=initial_type)
+    # Convert XGBoost model to ONNX
+    initial_type = [('float_input', FloatTensorType([None, 10]))]
+    onnx_model = convert_xgboost(xgboost_test_model, initial_types=initial_type)
 
     # Save to file
     model_path = tmp_path / "test_model.onnx"

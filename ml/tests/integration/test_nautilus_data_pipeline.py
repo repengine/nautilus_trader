@@ -125,21 +125,22 @@ class TestNautilusDataPipeline:
         batch_array = batch_array[warm_up_period:]
         online_array = online_array[warm_up_period:]
 
-        # Validate feature parity with extreme precision
+        # Validate feature parity with float32 precision
+        # float32 has ~7 decimal digits of precision vs float64's ~15
         is_valid, report = validate_feature_parity(
             batch_array,
             online_array.astype(np.float64),
-            tolerance=1e-10,
+            tolerance=1e-7,  # Relaxed from 1e-10 to account for float32 precision
             feature_names=batch_features.columns,
         )
 
-        # Assertions
+        # Assertions adjusted for float32 precision
         assert is_valid, f"Feature parity violation detected: {report}"
         assert (
-            report["max_rel_diff"] < 1e-10
+            report["max_rel_diff"] < 1e-7
         ), f"Max relative difference too high: {report['max_rel_diff']}"
         assert (
-            report["mean_rel_diff"] < 1e-12
+            report["mean_rel_diff"] < 5e-8
         ), f"Mean relative difference too high: {report['mean_rel_diff']}"
 
     def test_nautilus_indicators_consistency(self, generate_test_bars: list[Bar]) -> None:
@@ -293,11 +294,12 @@ class TestNautilusDataPipeline:
         batch_array = batch_array[warm_up:]
         online_array = online_array[warm_up:]
 
-        # Validate with extreme precision
+        # Validate with float32 precision (1e-7 is appropriate for float32)
+        # float32 has ~7 decimal digits of precision vs float64's ~15
         is_valid, report = validate_feature_parity(
             batch_array,
             online_array.astype(np.float64),
-            tolerance=1e-10,
+            tolerance=1e-7,  # Relaxed from 1e-10 to account for float32 precision
             feature_names=batch_features.columns,
         )
 
@@ -634,6 +636,7 @@ class TestNautilusDataPipeline:
                 "close": float(bar.close),
                 "volume": float(bar.volume),
             }
+            # Calculate features but don't store (just for fitting/warming up)
             _ = online_engineer.calculate_features_online(bar_dict, indicator_manager)
 
         # Note: Scaler fitting would typically happen here in a real implementation
@@ -644,7 +647,7 @@ class TestNautilusDataPipeline:
         online_engineer.reset()  # Reset indicators but keep scaler
         indicator_manager = IndicatorManager(config)  # Fresh indicator manager
 
-        for bar in bars:
+        for i, bar in enumerate(bars):
             indicator_manager.update_from_bar(bar)
             bar_dict = {
                 "open": float(bar.open),
@@ -654,7 +657,9 @@ class TestNautilusDataPipeline:
                 "volume": float(bar.volume),
             }
             feat = online_engineer.calculate_features_online(bar_dict, indicator_manager)
-            online_features.append(feat)
+            # IMPORTANT: Copy the features because calculate_features_online returns a view
+            # of an internal buffer that gets reused (for performance in hot path)
+            online_features.append(feat.copy())
 
         online_array = np.array(online_features)
 

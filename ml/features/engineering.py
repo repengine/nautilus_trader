@@ -625,7 +625,8 @@ class FeatureEngineer:
         self._feature_cache: dict[str, Any] = {}
         self._cache_hits = 0
         self._cache_misses = 0
-        self.feature_buffer = np.zeros(buffer_size, dtype=np.float64)
+        # Use float32 for feature buffer to match expected output dtype
+        self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
 
     def _extract_price_arrays(self, df: Any) -> tuple[npt.NDArray[np.float64], ...]:
         """
@@ -1193,7 +1194,8 @@ class FeatureEngineer:
         # 2. The caller (MLSignalActor) immediately uses this for prediction
         # 3. The buffer content is overwritten on the next bar
         # 4. If the caller needs to store features, they are responsible for copying
-        return self.feature_buffer[:feature_idx].astype(np.float32)
+        # Return a view directly without astype to avoid allocation
+        return self.feature_buffer[:feature_idx]
 
     def _extract_data_arrays(
         self,
