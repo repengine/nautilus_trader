@@ -25,31 +25,30 @@ Tests cover:
 
 NOTE: All MLflow server interactions are mocked to ensure tests are independent
 and do not require an actual MLflow server.
+
 """
 
 from __future__ import annotations
 
-import json
-import tempfile
-import time
-from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import Mock
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 from ml.config.shared import MLflowConfig
 from ml.tracking.mlflow_manager import MLflowManager
-from ml.tracking.mlflow_manager import ModelStage
 
 
 class TestMLflowManagerInitialization:
-    """Test MLflowManager initialization and configuration."""
+    """
+    Test MLflowManager initialization and configuration.
+    """
 
     def test_initialization_with_config(self) -> None:
-        """Test MLflowManager initializes with proper config."""
+        """
+        Test MLflowManager initializes with proper config.
+        """
         # Arrange
         config = MLflowConfig(
             tracking_uri="http://localhost:5000",
@@ -71,7 +70,9 @@ class TestMLflowManagerInitialization:
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_ensure_initialized_sets_up_mlflow(self, mock_mlflow: Mock) -> None:
-        """Test _ensure_initialized properly configures MLflow."""
+        """
+        Test _ensure_initialized properly configures MLflow.
+        """
         # Arrange
         config = MLflowConfig(
             tracking_uri="http://localhost:5000",
@@ -98,7 +99,9 @@ class TestMLflowManagerInitialization:
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_ensure_initialized_uses_existing_experiment(self, mock_mlflow: Mock) -> None:
-        """Test _ensure_initialized uses existing experiment if found."""
+        """
+        Test _ensure_initialized uses existing experiment if found.
+        """
         # Arrange
         config = MLflowConfig(
             experiment_name="existing_experiment",
@@ -119,7 +122,9 @@ class TestMLflowManagerInitialization:
 
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", False)
     def test_ensure_initialized_raises_when_mlflow_unavailable(self) -> None:
-        """Test _ensure_initialized raises error when MLflow not available."""
+        """
+        Test _ensure_initialized raises error when MLflow not available.
+        """
         # Arrange
         config = MLflowConfig()
         manager = MLflowManager(config)
@@ -130,12 +135,16 @@ class TestMLflowManagerInitialization:
 
 
 class TestMLflowManagerRunContext:
-    """Test MLflowManager run context management."""
+    """
+    Test MLflowManager run context management.
+    """
 
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_run_context_success(self, mock_mlflow: Mock) -> None:
-        """Test run_context successfully manages run lifecycle."""
+        """
+        Test run_context successfully manages run lifecycle.
+        """
         # Arrange
         config = MLflowConfig(experiment_name="test")
         manager = MLflowManager(config)
@@ -159,7 +168,9 @@ class TestMLflowManagerRunContext:
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_run_context_with_exception(self, mock_mlflow: Mock) -> None:
-        """Test run_context properly cleans up on exception."""
+        """
+        Test run_context properly cleans up on exception.
+        """
         # Arrange
         config = MLflowConfig(experiment_name="test")
         manager = MLflowManager(config)
@@ -182,7 +193,9 @@ class TestMLflowManagerRunContext:
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_run_context_nested(self, mock_mlflow: Mock) -> None:
-        """Test nested run context management."""
+        """
+        Test nested run context management.
+        """
         # Arrange
         config = MLflowConfig(experiment_name="test")
         manager = MLflowManager(config)
@@ -213,12 +226,16 @@ class TestMLflowManagerRunContext:
 
 
 class TestMLflowManagerLogging:
-    """Test MLflowManager logging functionality."""
+    """
+    Test MLflowManager logging functionality.
+    """
 
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_log_training_session_complete(self, mock_mlflow: Mock) -> None:
-        """Test log_training_session with all parameters."""
+        """
+        Test log_training_session with all parameters.
+        """
         # Arrange
         config = MLflowConfig(
             experiment_name="test",
@@ -238,8 +255,8 @@ class TestMLflowManagerLogging:
         class TestModel:
             def __init__(self) -> None:
                 pass
-        
-        model = TestModel()  # type: ignore[no-untyped-call]
+
+        model = TestModel()
         params = {"learning_rate": 0.01, "n_estimators": 100}
         metrics = {"accuracy": 0.95, "auc": 0.92}
         feature_importance = {"feature1": 0.5, "feature2": 0.3}
@@ -268,7 +285,9 @@ class TestMLflowManagerLogging:
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_log_params_batch_handles_types(self, mock_mlflow: Mock) -> None:
-        """Test _log_params_batch handles different parameter types."""
+        """
+        Test _log_params_batch handles different parameter types.
+        """
         # Arrange
         config = MLflowConfig()
         manager = MLflowManager(config)
@@ -300,7 +319,9 @@ class TestMLflowManagerLogging:
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_log_metrics_batch_validates_values(self, mock_mlflow: Mock) -> None:
-        """Test _log_metrics_batch validates and filters metrics."""
+        """
+        Test _log_metrics_batch validates and filters metrics.
+        """
         # Arrange
         config = MLflowConfig()
         manager = MLflowManager(config)
@@ -329,7 +350,9 @@ class TestMLflowManagerLogging:
     @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
     @patch("ml.tracking.mlflow_manager.mlflow")
     def test_log_feature_importance(self, mock_mlflow: Mock) -> None:
-        """Test _log_feature_importance logs metrics and artifacts."""
+        """
+        Test _log_feature_importance logs metrics and artifacts.
+        """
         # Arrange
         config = MLflowConfig()
         manager = MLflowManager(config)
@@ -354,4 +377,3 @@ class TestMLflowManagerLogging:
         logged_metrics = mock_mlflow.log_metrics.call_args[0][0]
         assert len(logged_metrics) == 2  # Only top 2
         mock_mlflow.log_artifact.assert_called_once()
-

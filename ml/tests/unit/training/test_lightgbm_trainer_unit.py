@@ -15,14 +15,14 @@
 """
 Unit tests for LightGBMTrainer.
 
-Tests focus on LightGBM-specific functionality while mocking the actual
-LightGBM training to ensure test isolation and speed.
+Tests focus on LightGBM-specific functionality while mocking the actual LightGBM
+training to ensure test isolation and speed.
+
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import Mock
@@ -31,20 +31,22 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from ml.config.lightgbm import DARTConfig
 from ml.config.lightgbm import EFBConfig
-from ml.config.lightgbm import GOSSConfig
 from ml.config.lightgbm import LightGBMTrainingConfig
 from ml.config.shared import LightGBMGPUConfig
 from ml.training.lightgbm import LightGBMTrainer
 
 
 class TestLightGBMTrainerInitialization:
-    """Test LightGBMTrainer initialization."""
+    """
+    Test LightGBMTrainer initialization.
+    """
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_init_with_basic_config(self) -> None:
-        """Test initialization with basic LightGBM configuration."""
+        """
+        Test initialization with basic LightGBM configuration.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -63,7 +65,9 @@ class TestLightGBMTrainerInitialization:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", False)
     def test_init_without_lightgbm_raises(self) -> None:
-        """Test initialization without LightGBM raises error."""
+        """
+        Test initialization without LightGBM raises error.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
 
@@ -73,12 +77,16 @@ class TestLightGBMTrainerInitialization:
 
 
 class TestLightGBMTrainerModelTraining:
-    """Test LightGBMTrainer model training."""
+    """
+    Test LightGBMTrainer model training.
+    """
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     @patch("ml.training.lightgbm.lgb")
     def test_train_model_basic(self, mock_lgb: Any) -> None:
-        """Test basic model training."""
+        """
+        Test basic model training.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -91,10 +99,11 @@ class TestLightGBMTrainerModelTraining:
         trainer = LightGBMTrainer(config)
         trainer._feature_names = ["feat1", "feat2"]
 
-        X_train = np.random.randn(80, 2)
-        y_train = np.random.randint(0, 2, 80)
-        X_val = np.random.randn(20, 2)
-        y_val = np.random.randint(0, 2, 20)
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((80, 2))
+        y_train = rng.integers(0, 2, 80)
+        X_val = rng.standard_normal((20, 2))
+        y_val = rng.integers(0, 2, 20)
 
         # Mock LightGBM components
         mock_train_data = MagicMock()
@@ -122,7 +131,9 @@ class TestLightGBMTrainerModelTraining:
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     @patch("ml.training.lightgbm.lgb")
     def test_train_model_with_gpu(self, mock_lgb: Any) -> None:
-        """Test model training with GPU configuration."""
+        """
+        Test model training with GPU configuration.
+        """
         # Arrange
         gpu_config = LightGBMGPUConfig(enabled=True, device_id=0, platform_id=0)
         config = LightGBMTrainingConfig(
@@ -132,10 +143,11 @@ class TestLightGBMTrainerModelTraining:
         )
         trainer = LightGBMTrainer(config)
 
-        X_train = np.random.randn(80, 2)
-        y_train = np.random.randint(0, 2, 80)
-        X_val = np.random.randn(20, 2)
-        y_val = np.random.randint(0, 2, 20)
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((80, 2))
+        y_train = rng.integers(0, 2, 80)
+        X_val = rng.standard_normal((20, 2))
+        y_val = rng.integers(0, 2, 20)
 
         # Mock LightGBM components
         mock_lgb.Dataset.return_value = MagicMock()
@@ -156,7 +168,9 @@ class TestLightGBMTrainerModelTraining:
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     @patch("ml.training.lightgbm.lgb")
     def test_train_model_with_efb(self, mock_lgb: Any) -> None:
-        """Test model training with EFB configuration."""
+        """
+        Test model training with EFB configuration.
+        """
         # Arrange
         efb_config = EFBConfig(
             enabled=True,
@@ -170,10 +184,11 @@ class TestLightGBMTrainerModelTraining:
         )
         trainer = LightGBMTrainer(config)
 
-        X_train = np.random.randn(80, 2)
-        y_train = np.random.randint(0, 2, 80)
-        X_val = np.random.randn(20, 2)
-        y_val = np.random.randint(0, 2, 20)
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((80, 2))
+        y_train = rng.integers(0, 2, 80)
+        X_val = rng.standard_normal((20, 2))
+        y_val = rng.integers(0, 2, 20)
 
         # Mock LightGBM components
         mock_lgb.Dataset.return_value = MagicMock()
@@ -192,11 +207,15 @@ class TestLightGBMTrainerModelTraining:
 
 
 class TestLightGBMTrainerPrediction:
-    """Test LightGBMTrainer prediction functionality."""
+    """
+    Test LightGBMTrainer prediction functionality.
+    """
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_predict_binary_classification(self) -> None:
-        """Test prediction for binary classification."""
+        """
+        Test prediction for binary classification.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -205,7 +224,8 @@ class TestLightGBMTrainerPrediction:
         )
         trainer = LightGBMTrainer(config)
 
-        X = np.random.randn(10, 2)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((10, 2))
         mock_model = MagicMock()
         mock_model.best_iteration = 50
         mock_model.predict.return_value = np.array([0.2, 0.7, 0.4, 0.9] + [0.5] * 6)
@@ -220,7 +240,9 @@ class TestLightGBMTrainerPrediction:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_predict_with_custom_threshold(self) -> None:
-        """Test prediction with custom threshold."""
+        """
+        Test prediction with custom threshold.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -229,7 +251,8 @@ class TestLightGBMTrainerPrediction:
         )
         trainer = LightGBMTrainer(config)
 
-        X = np.random.randn(5, 2)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((5, 2))
         mock_model = MagicMock()
         mock_model.best_iteration = 50
         mock_model.predict.return_value = np.array([0.2, 0.3, 0.6, 0.7, 0.8])
@@ -243,7 +266,9 @@ class TestLightGBMTrainerPrediction:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_predict_multiclass(self) -> None:
-        """Test prediction for multiclass classification."""
+        """
+        Test prediction for multiclass classification.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -252,17 +277,20 @@ class TestLightGBMTrainerPrediction:
         )
         trainer = LightGBMTrainer(config)
 
-        X = np.random.randn(5, 2)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((5, 2))
         mock_model = MagicMock()
         mock_model.best_iteration = 50
         # Multiclass returns probabilities for each class
-        mock_model.predict.return_value = np.array([
-            [0.7, 0.2, 0.1],
-            [0.1, 0.8, 0.1],
-            [0.2, 0.3, 0.5],
-            [0.9, 0.05, 0.05],
-            [0.1, 0.1, 0.8],
-        ])
+        mock_model.predict.return_value = np.array(
+            [
+                [0.7, 0.2, 0.1],
+                [0.1, 0.8, 0.1],
+                [0.2, 0.3, 0.5],
+                [0.9, 0.05, 0.05],
+                [0.1, 0.1, 0.8],
+            ],
+        )
 
         # Act
         predictions = trainer.predict(mock_model, X)
@@ -273,7 +301,9 @@ class TestLightGBMTrainerPrediction:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_predict_regression(self) -> None:
-        """Test prediction for regression."""
+        """
+        Test prediction for regression.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -282,10 +312,11 @@ class TestLightGBMTrainerPrediction:
         )
         trainer = LightGBMTrainer(config)
 
-        X = np.random.randn(10, 2)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((10, 2))
         mock_model = MagicMock()
         mock_model.best_iteration = 50
-        expected_predictions = np.random.randn(10)
+        expected_predictions = rng.standard_normal(10)
         mock_model.predict.return_value = expected_predictions
 
         # Act
@@ -296,11 +327,15 @@ class TestLightGBMTrainerPrediction:
 
 
 class TestLightGBMTrainerHyperparameters:
-    """Test LightGBMTrainer hyperparameter functionality."""
+    """
+    Test LightGBMTrainer hyperparameter functionality.
+    """
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_get_model_params(self) -> None:
-        """Test getting default model parameters."""
+        """
+        Test getting default model parameters.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -329,7 +364,9 @@ class TestLightGBMTrainerHyperparameters:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_get_model_params_with_scale_pos_weight(self) -> None:
-        """Test getting model parameters with scale_pos_weight."""
+        """
+        Test getting model parameters with scale_pos_weight.
+        """
         # Arrange
         config = LightGBMTrainingConfig(
             data_source="test_data.csv",
@@ -346,14 +383,21 @@ class TestLightGBMTrainerHyperparameters:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_suggest_hyperparameters_for_optuna(self) -> None:
-        """Test hyperparameter suggestion for Optuna optimization."""
+        """
+        Test hyperparameter suggestion for Optuna optimization.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
         trainer = LightGBMTrainer(config)
 
         # Mock Optuna trial
         mock_trial = MagicMock()
-        mock_trial.suggest_int.side_effect = [50, 5, 3, 20]  # num_leaves, max_depth, bagging_freq, min_child_samples
+        mock_trial.suggest_int.side_effect = [
+            50,
+            5,
+            3,
+            20,
+        ]  # num_leaves, max_depth, bagging_freq, min_child_samples
         mock_trial.suggest_float.side_effect = [
             0.1,  # learning_rate
             0.8,  # feature_fraction
@@ -378,11 +422,15 @@ class TestLightGBMTrainerHyperparameters:
 
 
 class TestLightGBMTrainerFeatureImportance:
-    """Test LightGBMTrainer feature importance functionality."""
+    """
+    Test LightGBMTrainer feature importance functionality.
+    """
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_get_feature_importance_when_fitted(self) -> None:
-        """Test getting feature importance from fitted model."""
+        """
+        Test getting feature importance from fitted model.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
         trainer = LightGBMTrainer(config)
@@ -403,7 +451,9 @@ class TestLightGBMTrainerFeatureImportance:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_get_feature_importance_when_not_fitted(self) -> None:
-        """Test getting feature importance when not fitted returns None."""
+        """
+        Test getting feature importance when not fitted returns None.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
         trainer = LightGBMTrainer(config)
@@ -416,7 +466,9 @@ class TestLightGBMTrainerFeatureImportance:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_plot_importance_when_not_fitted_raises(self) -> None:
-        """Test plotting importance when not fitted raises error."""
+        """
+        Test plotting importance when not fitted raises error.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
         trainer = LightGBMTrainer(config)
@@ -427,11 +479,15 @@ class TestLightGBMTrainerFeatureImportance:
 
 
 class TestLightGBMTrainerPersistence:
-    """Test LightGBMTrainer model persistence."""
+    """
+    Test LightGBMTrainer model persistence.
+    """
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_save_model_native_format(self, tmp_path: Any) -> None:
-        """Test saving model in LightGBM native format."""
+        """
+        Test saving model in LightGBM native format.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
         trainer = LightGBMTrainer(config)
@@ -464,7 +520,9 @@ class TestLightGBMTrainerPersistence:
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     @patch("ml.training.lightgbm.lgb")
     def test_load_model_native_format(self, mock_lgb: Any, tmp_path: Any) -> None:
-        """Test loading model from LightGBM native format."""
+        """
+        Test loading model from LightGBM native format.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
         trainer = LightGBMTrainer(config)
@@ -499,7 +557,9 @@ class TestLightGBMTrainerPersistence:
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_convert_to_onnx_fallback_to_text(self, tmp_path: Any) -> None:
-        """Test ONNX conversion fallback to text format when onnxmltools not available."""
+        """
+        Test ONNX conversion fallback to text format when onnxmltools not available.
+        """
         # Arrange
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
         trainer = LightGBMTrainer(config)
@@ -526,11 +586,15 @@ class TestLightGBMTrainerPersistence:
 
 
 class TestLightGBMTrainerBackwardCompatibility:
-    """Test backward compatibility aliases."""
+    """
+    Test backward compatibility aliases.
+    """
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_unified_lightgbm_trainer_alias(self) -> None:
-        """Test UnifiedLightGBMTrainer alias works."""
+        """
+        Test UnifiedLightGBMTrainer alias works.
+        """
         # Arrange
         from ml.training.lightgbm import UnifiedLightGBMTrainer
 

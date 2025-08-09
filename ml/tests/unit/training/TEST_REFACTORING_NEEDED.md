@@ -1,7 +1,8 @@
 # Test Refactoring Needed for ML Training Infrastructure
 
 ## Current Test Coverage Status
-- **ml/training/base.py**: 19% coverage  
+
+- **ml/training/base.py**: 19% coverage
 - **ml/training/xgboost.py**: 18% coverage
 - **ml/training/lightgbm.py**: 17% coverage
 - **ml/training/mlflow_tracker.py**: 13% coverage
@@ -12,7 +13,7 @@
 The configuration classes have evolved and now require additional parameters that weren't accounted for in the tests:
 
 - **LightGBMTrainingConfig** requires `data_source` parameter
-- **XGBoostTrainingConfig** requires `data_source` parameter  
+- **XGBoostTrainingConfig** requires `data_source` parameter
 - **BaseGPUConfig** has different parameters than expected (no `platform_id` for base class)
 - **MLTrainingConfig** may have additional required fields
 
@@ -22,6 +23,7 @@ The tests properly mock external dependencies (XGBoost, LightGBM, MLflow) but th
 ### 3. Refactoring Recommendations
 
 #### A. Configuration Classes Need Factory Methods or Builders
+
 ```python
 # Current: Tightly coupled, many required params
 config = LightGBMTrainingConfig(
@@ -74,6 +76,7 @@ These sections require actual ML library functionality and should be integration
 ### 5. Achievable Coverage with Current Architecture
 
 With the current architecture and without refactoring:
+
 - **Realistic Unit Test Coverage**: ~60-70%
 - **With Integration Tests**: ~85-90%
 - **Sections requiring refactoring for testability**: ~10-15%
@@ -89,12 +92,14 @@ With the current architecture and without refactoring:
 ### 7. Test Files Created
 
 Successfully created comprehensive test suites for:
+
 - `/home/nate/projects/nautilus_trader/ml/tests/unit/training/test_base_trainer_unit.py`
 - `/home/nate/projects/nautilus_trader/ml/tests/unit/training/test_xgboost_trainer_unit.py`
 - `/home/nate/projects/nautilus_trader/ml/tests/unit/training/test_lightgbm_trainer_unit.py`
 - `/home/nate/projects/nautilus_trader/ml/tests/unit/training/test_mlflow_tracker_unit.py`
 
 These tests follow best practices:
+
 - Focus on public API contracts
 - Mock all external dependencies
 - Test error conditions and edge cases
@@ -119,6 +124,7 @@ The test suite created provides a solid foundation for testing the ML training i
 4. Model-specific operations that require actual ML libraries
 
 The recommended approach is to:
+
 - Accept ~70% unit test coverage as reasonable
 - Add integration tests for the remaining functionality
 - Gradually refactor the code for better testability

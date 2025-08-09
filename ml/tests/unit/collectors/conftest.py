@@ -63,9 +63,9 @@ def monitoring_config(metric_name_manager: MetricNameManager) -> MonitoringConfi
     Provide a basic monitoring configuration with unique metrics prefix.
     """
     return MonitoringConfig(
-        enabled=True, 
-        metrics_port=8081, 
-        metrics_prefix=metric_name_manager._prefix.rstrip("_")
+        enabled=True,
+        metrics_port=8081,
+        metrics_prefix=metric_name_manager._prefix.rstrip("_"),
     )
 
 
@@ -114,6 +114,7 @@ def prometheus_registry_cleanup() -> Any:
     if HAS_PROMETHEUS:
         try:
             from prometheus_client import REGISTRY
+
             # Store metric names instead of collectors
             names_before = set(REGISTRY._names_to_collectors.keys())
         except (ImportError, AttributeError):
@@ -124,6 +125,7 @@ def prometheus_registry_cleanup() -> Any:
     if HAS_PROMETHEUS:
         try:
             from prometheus_client import REGISTRY
+
             # Get new metric names
             names_after = set(REGISTRY._names_to_collectors.keys())
             new_names = names_after - names_before

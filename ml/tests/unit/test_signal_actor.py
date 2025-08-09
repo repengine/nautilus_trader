@@ -36,13 +36,13 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from ml.actors.base import CircuitBreakerState
 from ml.actors.base import MLSignal
 from ml.actors.signal import AdaptiveSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
 from ml.actors.signal import StrategyConfig
-from ml.actors.base import CircuitBreakerState
 from ml.config.base import CircuitBreakerConfig
 from ml.features.engineering import FeatureConfig
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
@@ -631,9 +631,10 @@ class TestMLSignalActor:
         class FailingModel:
             def predict(self, X: np.ndarray) -> np.ndarray:
                 raise Exception("Model error")
+
             def predict_proba(self, X: np.ndarray) -> np.ndarray:
                 raise Exception("Model error")
-        
+
         actor._model = FailingModel()
 
         # Process bars to trigger circuit breaker

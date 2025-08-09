@@ -555,7 +555,8 @@ class TestFeatureEngineer:
         """
         Test batch feature calculation with scaling.
         """
-        from ml._imports import HAS_SKLEARN, check_ml_dependencies
+        from ml._imports import HAS_SKLEARN
+        from ml._imports import check_ml_dependencies
 
         if not HAS_SKLEARN:
             check_ml_dependencies(["sklearn"])
@@ -639,7 +640,8 @@ class TestFeatureEngineer:
         """
         Test online feature calculation with scaler.
         """
-        from ml._imports import HAS_SKLEARN, check_ml_dependencies
+        from ml._imports import HAS_SKLEARN
+        from ml._imports import check_ml_dependencies
 
         if not HAS_SKLEARN:
             check_ml_dependencies(["sklearn"])
@@ -841,37 +843,40 @@ class TestFeatureEngineer:
 
         # Create test data with alternating up/down periods to get varied RSI
         n_samples = 100
-        
+
+        # Initialize random generator for reproducibility
+        rng = np.random.default_rng(42)
+
         # Create price data that alternates between trending up and down
         # This should produce RSI values that cross the 50 level
         prices = [100.0]  # Start at 100
-        
+
         # Create periods of up and down trends
         segment_length = 10
         trend_strength = 2.0
-        
+
         for i in range(1, n_samples):
             segment = i // segment_length
             # Alternate between up and down trends
             if segment % 2 == 0:  # Up trend
-                change = np.random.normal(trend_strength, 1.0)
+                change = rng.normal(trend_strength, 1.0)
             else:  # Down trend
-                change = np.random.normal(-trend_strength, 1.0)
-            
+                change = rng.normal(-trend_strength, 1.0)
+
             new_price = max(prices[-1] + change, 50.0)  # Don't let price go too low
             prices.append(new_price)
-        
+
         prices_array = np.array(prices)
-        
+
         # Create proper OHLC data
         opens = np.roll(prices_array, 1)
         opens[0] = prices_array[0]
-        
+
         # Add small intrabar movements
         rng = np.random.default_rng(42)
         high_adjustment = rng.uniform(0.1, 1.0, n_samples)
         low_adjustment = rng.uniform(0.1, 1.0, n_samples)
-        
+
         highs = np.maximum(opens, prices_array) + high_adjustment
         lows = np.minimum(opens, prices_array) - low_adjustment
 
@@ -890,7 +895,7 @@ class TestFeatureEngineer:
         # Check RSI values are within normalized range [-1, 1]
         # RSI is normalized as (RSI - 50) / 50
         rsi_values = features_df["rsi"].to_numpy()
-        
+
         # After initialization period, all RSI values should be in range
         initialized_rsi = rsi_values[config.rsi_period :]
         assert np.all(initialized_rsi >= -1.0)
@@ -900,7 +905,7 @@ class TestFeatureEngineer:
         # RSI can get "stuck" in trending markets, so use a reasonable threshold
         # The key is that it's not completely constant
         assert initialized_rsi.std() > 0.002  # Shows the indicator is computing and varying
-        
+
         # Convert back to raw RSI for additional verification
         raw_rsi = initialized_rsi * 50.0 + 50.0
         assert np.all(raw_rsi >= 0.0)

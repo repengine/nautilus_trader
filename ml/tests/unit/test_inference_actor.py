@@ -366,7 +366,6 @@ class TestCircuitBreaker:
         with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
         assert breaker.state == CircuitBreakerState.HALF_OPEN
-
         # Act - Record enough successes to close
         breaker.record_success()
         breaker.record_success()
@@ -524,7 +523,7 @@ class TestModelLoaders:
             # Also patch the check_ml_dependencies to ensure it raises
             with patch("ml.actors.base.check_ml_dependencies") as mock_check:
                 mock_check.side_effect = ImportError("ONNX Runtime required but not installed")
-                
+
                 # Act
                 loader = ONNXModelLoader()
 
@@ -534,7 +533,7 @@ class TestModelLoaders:
                 # Test that load_model raises ImportError
                 with pytest.raises(ImportError, match="ONNX Runtime required but not installed"):
                     loader.load_model("dummy.onnx")
-                
+
                 # Verify the check was called
                 mock_check.assert_called_once_with(["onnx"])
 
@@ -2500,7 +2499,6 @@ class TestHealthMonitorEdgeCases:
         # Trigger status update - should become unhealthy due to model not loaded
         monitor._update_health_status()
         assert monitor.status == HealthStatus.UNHEALTHY
-
         # Load model and verify status updates to healthy
         monitor.set_model_loaded(True)
         assert monitor.status == HealthStatus.HEALTHY
@@ -3032,7 +3030,7 @@ class TestMissingCoverageAreas:
             # Also patch the check_ml_dependencies to ensure it raises
             with patch("ml.actors.base.check_ml_dependencies") as mock_check:
                 mock_check.side_effect = ImportError("ONNX Runtime required but not installed")
-                
+
                 # Act
                 loader = ONNXModelLoader()
 

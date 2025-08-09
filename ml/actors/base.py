@@ -31,11 +31,10 @@ from abc import abstractmethod
 from collections import deque
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
 
 if TYPE_CHECKING:
-    from nautilus_trader.common.actor import Actor as ActorType
     from nautilus_trader.core.data import Data as DataType
 
 import numpy as np
@@ -426,7 +425,7 @@ class ONNXModelLoader(ModelLoader):
         return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
 
 
-class MLSignal(Data):  # type: ignore[misc]
+class MLSignal(Data):
     """
     Custom data type for ML predictions.
 
@@ -515,7 +514,7 @@ ml_signal_confidence = Histogram(
 )
 
 
-class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
+class BaseMLInferenceActor(Actor, ABC):
     """
     Enhanced base class for ML inference actors with production features.
 

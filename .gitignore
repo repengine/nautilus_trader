@@ -24,6 +24,8 @@ logs/
 *.key
 *.key_secret
 *.env
+.env.local
+.env.*.local
 
 # Compressed files
 *.tar.gz*
@@ -68,6 +70,9 @@ dist/
 env/
 *tmp/
 *temp/
+
+# Submodules and libraries
+.libraries/
 
 # System and editor specific
 .cursorignore

@@ -310,7 +310,7 @@ class MLflowManager:
         Log parameters in batches to avoid MLflow limits.
         """
         # Filter serializable parameters
-        loggable_params = {}
+        loggable_params: dict[str, Any] = {}
         for key, value in params.items():
             if isinstance(value, int | float | bool):
                 loggable_params[key] = value

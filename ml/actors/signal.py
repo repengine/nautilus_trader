@@ -111,7 +111,7 @@ class OptimizationLevel(Enum):
 # =================================================================================================
 
 
-class OptimizationConfig:
+class OptimizationConfig(msgspec.Struct, frozen=True):
     """
     Configuration for performance optimizations.
     """
@@ -130,6 +130,35 @@ class OptimizationConfig:
         onnx_intra_threads: int = 1,
         onnx_inter_threads: int = 1,
     ) -> None:
+        """
+        Initialize optimization configuration.
+
+        Parameters
+        ----------
+        level : OptimizationLevel, default=OptimizationLevel.STANDARD
+            The optimization level to use.
+        enable_zero_copy : bool, default=False
+            Whether to enable zero-copy optimizations.
+        enable_model_warm_up : bool, default=False
+            Whether to warm up the model before inference.
+        warm_up_iterations : int, default=100
+            Number of warm-up iterations.
+        pre_allocate_buffers : bool, default=True
+            Whether to pre-allocate feature buffers.
+        use_lock_free_buffers : bool, default=False
+            Whether to use lock-free buffers.
+        reservoir_sample_size : int, default=1000
+            Size of reservoir sampling for statistics.
+        onnx_graph_optimization : str, default="ORT_ENABLE_ALL"
+            ONNX Runtime graph optimization level.
+        onnx_execution_mode : str, default="ORT_SEQUENTIAL"
+            ONNX Runtime execution mode.
+        onnx_intra_threads : int, default=1
+            Number of intra-op threads for ONNX Runtime.
+        onnx_inter_threads : int, default=1
+            Number of inter-op threads for ONNX Runtime.
+
+        """
         self.level = level
         self.enable_zero_copy = enable_zero_copy
         self.enable_model_warm_up = enable_model_warm_up
@@ -143,7 +172,7 @@ class OptimizationConfig:
         self.onnx_inter_threads = onnx_inter_threads
 
 
-class StrategyConfig:
+class StrategyConfig(msgspec.Struct, frozen=True):
     """
     Configuration for signal generation strategies.
     """
@@ -158,6 +187,27 @@ class StrategyConfig:
         max_threshold: float = 0.95,
         update_frequency: int = 10,
     ) -> None:
+        """
+        Initialize strategy configuration.
+
+        Parameters
+        ----------
+        extremes_top_pct : float, default=0.1
+            Percentile for extreme value detection.
+        momentum_lookback : int, default=5
+            Lookback period for momentum calculation.
+        ensemble_weights : dict[str, float] | None, default=None
+            Weights for ensemble strategy components.
+        adaptive_volatility_factor : float, default=2.0
+            Factor for adaptive volatility scaling.
+        min_threshold : float, default=0.1
+            Minimum confidence threshold.
+        max_threshold : float, default=0.95
+            Maximum confidence threshold.
+        update_frequency : int, default=10
+            Frequency of threshold updates.
+
+        """
         self.extremes_top_pct = extremes_top_pct
         self.momentum_lookback = momentum_lookback
         self.ensemble_weights = ensemble_weights or {
@@ -469,7 +519,7 @@ _initialize_performance_metrics()
 # =================================================================================================
 
 
-class OptimizedMLSignal(Data):  # type: ignore[misc]
+class OptimizedMLSignal(Data):
     """
     Optimized ML signal with performance metrics.
 
@@ -514,6 +564,35 @@ class OptimizedMLSignal(Data):  # type: ignore[misc]
         ts_event: int = 0,
         ts_init: int = 0,
     ) -> None:
+        """
+        Initialize optimized ML signal.
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            The instrument ID for the signal.
+        prediction : float
+            The model prediction value.
+        confidence : float
+            The confidence score.
+        signal_strength : float
+            The signal strength metric.
+        market_regime : str
+            The detected market regime.
+        adaptive_threshold : float
+            The adaptive threshold value.
+        feature_computation_time_ns : int
+            Feature computation time in nanoseconds.
+        inference_time_ns : int
+            Model inference time in nanoseconds.
+        total_latency_ns : int
+            Total end-to-end latency in nanoseconds.
+        ts_event : int, default=0
+            Event timestamp in nanoseconds.
+        ts_init : int, default=0
+            Initialization timestamp in nanoseconds.
+
+        """
         self.instrument_id = instrument_id
         self.prediction = prediction
         self.confidence = confidence
@@ -562,7 +641,7 @@ class OptimizedMLSignal(Data):  # type: ignore[misc]
         return self._ts_init
 
 
-class AdaptiveSignal(Data):  # type: ignore[misc]
+class AdaptiveSignal(Data):
     """
     Adaptive ML signal with dynamic thresholds.
 
@@ -598,6 +677,29 @@ class AdaptiveSignal(Data):  # type: ignore[misc]
         ts_event: int = 0,
         ts_init: int = 0,
     ) -> None:
+        """
+        Initialize adaptive signal.
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            The instrument ID for the signal.
+        prediction : float
+            The model prediction value.
+        confidence : float
+            The confidence score.
+        adaptive_threshold : float
+            The dynamically adjusted threshold.
+        signal_strength : float
+            The signal strength after adaptive adjustment.
+        market_regime : str
+            The detected market regime.
+        ts_event : int, default=0
+            Event timestamp in nanoseconds.
+        ts_init : int, default=0
+            Initialization timestamp in nanoseconds.
+
+        """
         self.instrument_id = instrument_id
         self.prediction = prediction
         self.confidence = confidence
@@ -658,6 +760,15 @@ class ThresholdSignalStrategy(SignalGenerationStrategy):
     """
 
     def __init__(self, threshold: float) -> None:
+        """
+        Initialize threshold signal strategy.
+
+        Parameters
+        ----------
+        threshold : float
+            The confidence threshold for generating signals.
+
+        """
         self.threshold = threshold
 
     def generate_signal(
@@ -668,6 +779,28 @@ class ThresholdSignalStrategy(SignalGenerationStrategy):
         features: np.ndarray,
         context: dict[str, Any],
     ) -> MLSignal | None:
+        """
+        Generate signal based on confidence threshold.
+
+        Parameters
+        ----------
+        bar : Bar
+            The current bar.
+        prediction : float
+            The model prediction.
+        confidence : float
+            The confidence score.
+        features : np.ndarray
+            The feature array.
+        context : dict[str, Any]
+            Additional context information.
+
+        Returns
+        -------
+        MLSignal | None
+            The generated signal or None if threshold not met.
+
+        """
         if confidence >= self.threshold:
             return MLSignal(
                 instrument_id=bar.bar_type.instrument_id,
@@ -686,6 +819,19 @@ class ExtremesStrategy(SignalGenerationStrategy):
     """
 
     def __init__(self, top_pct: float, threshold: float, window_size: int) -> None:
+        """
+        Initialize extremes strategy.
+
+        Parameters
+        ----------
+        top_pct : float
+            The percentile for extreme value detection.
+        threshold : float
+            The confidence threshold.
+        window_size : int
+            The window size for historical predictions.
+
+        """
         self.top_pct = top_pct
         self.threshold = threshold
         self.window_size = window_size
@@ -698,6 +844,28 @@ class ExtremesStrategy(SignalGenerationStrategy):
         features: np.ndarray,
         context: dict[str, Any],
     ) -> MLSignal | None:
+        """
+        Generate signal based on prediction extremes.
+
+        Parameters
+        ----------
+        bar : Bar
+            The current bar.
+        prediction : float
+            The model prediction.
+        confidence : float
+            The confidence score.
+        features : np.ndarray
+            The feature array.
+        context : dict[str, Any]
+            Additional context information.
+
+        Returns
+        -------
+        MLSignal | None
+            The generated signal or None if not extreme.
+
+        """
         history = context.get("prediction_history", [])
         if len(history) < self.window_size:
             return None
@@ -726,6 +894,19 @@ class MomentumStrategy(SignalGenerationStrategy):
     """
 
     def __init__(self, lookback: int, threshold: float, momentum_threshold: float) -> None:
+        """
+        Initialize momentum strategy.
+
+        Parameters
+        ----------
+        lookback : int
+            The lookback period for momentum calculation.
+        threshold : float
+            The confidence threshold.
+        momentum_threshold : float
+            The momentum threshold for signal generation.
+
+        """
         self.lookback = lookback
         self.threshold = threshold
         self.momentum_threshold = momentum_threshold
@@ -738,6 +919,28 @@ class MomentumStrategy(SignalGenerationStrategy):
         features: np.ndarray,
         context: dict[str, Any],
     ) -> MLSignal | None:
+        """
+        Generate signal based on prediction momentum.
+
+        Parameters
+        ----------
+        bar : Bar
+            The current bar.
+        prediction : float
+            The model prediction.
+        confidence : float
+            The confidence score.
+        features : np.ndarray
+            The feature array.
+        context : dict[str, Any]
+            Additional context information.
+
+        Returns
+        -------
+        MLSignal | None
+            The generated signal or None if momentum insufficient.
+
+        """
         history = context.get("prediction_history", [])
         if len(history) < self.lookback:
             return None
@@ -768,6 +971,19 @@ class EnsembleStrategy(SignalGenerationStrategy):
         weights: dict[str, float],
         threshold: float,
     ) -> None:
+        """
+        Initialize ensemble strategy.
+
+        Parameters
+        ----------
+        strategies : dict[str, SignalGenerationStrategy]
+            Dictionary of named strategies.
+        weights : dict[str, float]
+            Weights for each strategy.
+        threshold : float
+            The ensemble confidence threshold.
+
+        """
         self.strategies = strategies
         self.weights = weights
         self.threshold = threshold
@@ -780,6 +996,28 @@ class EnsembleStrategy(SignalGenerationStrategy):
         features: np.ndarray,
         context: dict[str, Any],
     ) -> MLSignal | None:
+        """
+        Generate signal using weighted ensemble voting.
+
+        Parameters
+        ----------
+        bar : Bar
+            The current bar.
+        prediction : float
+            The model prediction.
+        confidence : float
+            The confidence score.
+        features : np.ndarray
+            The feature array.
+        context : dict[str, Any]
+            Additional context information.
+
+        Returns
+        -------
+        MLSignal | None
+            The ensemble signal or None if threshold not met.
+
+        """
         ensemble_score = 0.0
         total_weight = 0.0
 
@@ -815,6 +1053,21 @@ class AdaptiveStrategy(SignalGenerationStrategy):
         min_threshold: float,
         max_threshold: float,
     ) -> None:
+        """
+        Initialize the AdaptiveStrategy.
+
+        Parameters
+        ----------
+        base_threshold : float
+            The base confidence threshold for signal generation.
+        volatility_factor : float
+            Factor for adjusting threshold based on market volatility.
+        min_threshold : float
+            Minimum allowed threshold value.
+        max_threshold : float
+            Maximum allowed threshold value.
+
+        """
         self.base_threshold = base_threshold
         self.volatility_factor = volatility_factor
         self.min_threshold = min_threshold
@@ -828,6 +1081,28 @@ class AdaptiveStrategy(SignalGenerationStrategy):
         features: np.ndarray,
         context: dict[str, Any],
     ) -> MLSignal | AdaptiveSignal | None:
+        """
+        Generate adaptive signal based on dynamic thresholds.
+
+        Parameters
+        ----------
+        bar : Bar
+            The current bar data.
+        prediction : float
+            The model prediction value.
+        confidence : float
+            The confidence score of the prediction.
+        features : np.ndarray
+            The computed feature array.
+        context : dict[str, Any]
+            Context dictionary containing adaptive threshold and timestamp.
+
+        Returns
+        -------
+        MLSignal | AdaptiveSignal | None
+            The generated signal if threshold is met, otherwise None.
+
+        """
         adaptive_threshold = context.get("adaptive_threshold", self.base_threshold)
         signal_strength = confidence / adaptive_threshold if adaptive_threshold > 0 else 0.0
 
@@ -851,7 +1126,7 @@ class AdaptiveStrategy(SignalGenerationStrategy):
 # =================================================================================================
 
 
-class ONNXOptimizationConfig:
+class ONNXOptimizationConfig(msgspec.Struct, frozen=True):
     """
     Configuration for ONNX runtime optimizations.
     """
@@ -863,13 +1138,28 @@ class ONNXOptimizationConfig:
         intra_threads: int = 1,
         inter_threads: int = 1,
     ) -> None:
+        """
+        Initialize the ONNXOptimizationConfig.
+
+        Parameters
+        ----------
+        graph_optimization_level : str, default "ORT_ENABLE_ALL"
+            The ONNX runtime graph optimization level.
+        execution_mode : str, default "ORT_SEQUENTIAL"
+            The ONNX runtime execution mode.
+        intra_threads : int, default 1
+            Number of threads for intra-op parallelism.
+        inter_threads : int, default 1
+            Number of threads for inter-op parallelism.
+
+        """
         self.graph_optimization_level = graph_optimization_level
         self.execution_mode = execution_mode
         self.intra_threads = intra_threads
         self.inter_threads = inter_threads
 
 
-class AdaptiveThresholdConfig:
+class AdaptiveThresholdConfig(msgspec.Struct, frozen=True):
     """
     Configuration for adaptive thresholds.
     """
@@ -881,13 +1171,28 @@ class AdaptiveThresholdConfig:
         min_threshold: float = 0.1,
         max_threshold: float = 0.95,
     ) -> None:
+        """
+        Initialize the AdaptiveThresholdConfig.
+
+        Parameters
+        ----------
+        base_threshold : float, default 0.7
+            The base confidence threshold for signals.
+        volatility_factor : float, default 2.0
+            Factor for volatility-based threshold adjustment.
+        min_threshold : float, default 0.1
+            Minimum allowed threshold value.
+        max_threshold : float, default 0.95
+            Maximum allowed threshold value.
+
+        """
         self.base_threshold = base_threshold
         self.volatility_factor = volatility_factor
         self.min_threshold = min_threshold
         self.max_threshold = max_threshold
 
 
-class HotPathConfig:
+class HotPathConfig(msgspec.Struct, frozen=True):
     """
     Configuration for hot path optimizations.
     """
@@ -898,6 +1203,19 @@ class HotPathConfig:
         pre_allocate_buffers: bool = True,
         use_lock_free_buffers: bool = True,
     ) -> None:
+        """
+        Initialize the HotPathConfig.
+
+        Parameters
+        ----------
+        enable_zero_copy : bool, default True
+            Enable zero-copy operations for performance.
+        pre_allocate_buffers : bool, default True
+            Pre-allocate memory buffers to avoid runtime allocations.
+        use_lock_free_buffers : bool, default True
+            Use lock-free data structures for thread-safe operations.
+
+        """
         self.enable_zero_copy = enable_zero_copy
         self.pre_allocate_buffers = pre_allocate_buffers
         self.use_lock_free_buffers = use_lock_free_buffers
@@ -909,6 +1227,15 @@ class PerformanceMonitor:
     """
 
     def __init__(self, reservoir_size: int = 1000) -> None:
+        """
+        Initialize the PerformanceMonitor.
+
+        Parameters
+        ----------
+        reservoir_size : int, default 1000
+            Maximum number of timing samples to store using reservoir sampling.
+
+        """
         self.feature_times: list[float] = []
         self.inference_times: list[float] = []
         self.total_times: list[float] = []
@@ -1008,6 +1335,13 @@ class ModelSwapper:
     """
 
     def __init__(self) -> None:
+        """
+        Initialize the ModelSwapper.
+
+        Provides atomic model swapping capability for hot reload without disrupting
+        inference operations.
+
+        """
         self._current_model: Any | None = None
         self._current_metadata: dict[str, Any] | None = None
         self._next_model: Any | None = None

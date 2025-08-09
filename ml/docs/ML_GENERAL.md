@@ -20,7 +20,7 @@ Fantastic—you’ve got exactly the right intuition: **use L2/L3 (T+1) to *teac
 - **Context Gating (cross‑asset/macro):** A low‑frequency **state model** (updated minutely to hourly) that ingests:
 
   - yield curve *levels/slope/curvature* + *deltas*,
-  - credit & funding signals (e.g., CDX IG/HY spread changes, OIS–T‑bill, CP stress proxies),
+  - credit & funding signals (e.g., CDX IG/HY spread changes, IS–T‑bill, CP stress proxies),
   - liquidity/volatility proxies (e.g., realized vol, spread regimes, MOVE/VIX‑like info, turnover),
   - FX pairs and DXY‑style composites,
   - cross‑asset beta/correlation shifts.
@@ -43,7 +43,7 @@ Fantastic—you’ve got exactly the right intuition: **use L2/L3 (T+1) to *teac
 ### B) **Cross‑asset & macro context**
 
 - **Yield curve:** levels (e.g., 2y/5y/10y), *slope* (2s10s), *curvature* (butterfly), **deltas** over 1h/1d.
-- **Credit & liquidity:** changes in CDX IG/HY, OIS–bill (funding stress), turnover and breadth proxies, ETF discounts if relevant.
+- **Credit & liquidity:** changes in CDX IG/HY, IS–bill (funding stress), turnover and breadth proxies, ETF discounts if relevant.
 - **FX & risk barometers:** DXY (or basket), key FX pairs tied to your instrument’s funding/export exposure.
 - **Structural context:** time‑of‑day, auction/proximity to macro releases, roll/expiry windows.
 

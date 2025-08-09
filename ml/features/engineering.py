@@ -762,7 +762,12 @@ class FeatureEngineer:
         features_scaled: Any  # Will be either pl.DataFrame or pd.DataFrame
         if POLARS_AVAILABLE:
             # Convert column names to list to avoid pandas Index issues
-            column_names = list(features_df.columns) if hasattr(features_df.columns, '__iter__') and not isinstance(features_df.columns, str) else features_df.columns
+            column_names = (
+                list(features_df.columns)
+                if hasattr(features_df.columns, "__iter__")
+                and not isinstance(features_df.columns, str)
+                else features_df.columns
+            )
             features_scaled = pl.DataFrame(features_scaled_array, schema=column_names)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:

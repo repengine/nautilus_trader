@@ -18,12 +18,8 @@ Tests for the ResourceUtilizationCollector class.
 
 from __future__ import annotations
 
-import sys
-import threading
 import time
 from typing import Any
-from unittest.mock import MagicMock
-from unittest.mock import patch
 
 import pytest
 
@@ -80,16 +76,16 @@ class TestResourceUtilizationCollector:
         Test recording model memory usage.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record model memory usage
-        collector.record_model_memory_usage("test_model", 1024*1024*256, "resident")
-        
+        collector.record_model_memory_usage("test_model", 1024 * 1024 * 256, "resident")
+
         # Check that metric was recorded
         value = collector.get_metric_value(
             "model_memory_usage_bytes",
-            {"model": "test_model", "memory_type": "resident"}
+            {"model": "test_model", "memory_type": "resident"},
         )
-        assert value == 1024*1024*256
+        assert value == 1024 * 1024 * 256
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
     def test_record_cpu_usage(self) -> None:
@@ -97,14 +93,14 @@ class TestResourceUtilizationCollector:
         Test recording CPU usage.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record CPU usage
         collector.record_cpu_usage(45.5, "process")
-        
+
         # Check that metric was recorded
         value = collector.get_metric_value(
             "cpu_usage_percent",
-            {"core": "process"}
+            {"core": "process"},
         )
         assert value == 45.5
 
@@ -114,29 +110,29 @@ class TestResourceUtilizationCollector:
         Test recording GPU metrics.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record GPU metrics
         collector.record_gpu_metrics(
             device="cuda:0",
             compute_utilization=85.0,
             memory_utilization=70.0,
-            memory_used_bytes=1024*1024*1024*6,  # 6 GB
-            memory_total_bytes=1024*1024*1024*8  # 8 GB
+            memory_used_bytes=1024 * 1024 * 1024 * 6,  # 6 GB
+            memory_total_bytes=1024 * 1024 * 1024 * 8,  # 8 GB
         )
-        
+
         # Check compute utilization
         value = collector.get_metric_value(
             "gpu_utilization_percent",
-            {"device": "cuda:0", "metric": "compute"}
+            {"device": "cuda:0", "metric": "compute"},
         )
         assert value == 85.0
-        
+
         # Check memory used
         value = collector.get_metric_value(
             "gpu_memory_usage_bytes",
-            {"device": "cuda:0", "memory_type": "used"}
+            {"device": "cuda:0", "memory_type": "used"},
         )
-        assert value == 1024*1024*1024*6
+        assert value == 1024 * 1024 * 1024 * 6
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
     def test_record_feature_store_size(self) -> None:
@@ -144,16 +140,16 @@ class TestResourceUtilizationCollector:
         Test recording feature store size.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record feature store size
-        collector.record_feature_store_size(1024*1024*100, "memory")  # 100 MB
-        
+        collector.record_feature_store_size(1024 * 1024 * 100, "memory")  # 100 MB
+
         # Check that metric was recorded
         value = collector.get_metric_value(
             "feature_store_size_bytes",
-            {"storage_type": "memory"}
+            {"storage_type": "memory"},
         )
-        assert value == 1024*1024*100
+        assert value == 1024 * 1024 * 100
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
     def test_background_monitoring_thread(self) -> None:
@@ -164,13 +160,13 @@ class TestResourceUtilizationCollector:
 
         # Start monitoring (may not start thread if psutil not available, but shouldn't error)
         collector.start_monitoring()
-        
+
         # Let it run for a bit (if started)
         time.sleep(0.01)
 
         # Stop monitoring (should not error)
         collector.stop_monitoring()
-        
+
         # Test should pass if no exceptions are raised
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
@@ -179,16 +175,16 @@ class TestResourceUtilizationCollector:
         Test recording disk usage.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record disk usage
-        collector.record_disk_usage("/data", 1024*1024*1024*5, "data")  # 5 GB
-        
+        collector.record_disk_usage("/data", 1024 * 1024 * 1024 * 5, "data")  # 5 GB
+
         # Check that metric was recorded
         value = collector.get_metric_value(
             "disk_usage_bytes",
-            {"path": "/data", "usage_type": "data"}
+            {"path": "/data", "usage_type": "data"},
         )
-        assert value == 1024*1024*1024*5
+        assert value == 1024 * 1024 * 1024 * 5
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
     def test_record_data_io(self) -> None:
@@ -196,16 +192,16 @@ class TestResourceUtilizationCollector:
         Test recording data I/O operations.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record data I/O
-        collector.record_data_io(1024*1024*100, "read", "bars")  # 100 MB read
-        
+        collector.record_data_io(1024 * 1024 * 100, "read", "bars")  # 100 MB read
+
         # Check that metric was recorded
         value = collector.get_metric_value(
             "data_io_bytes_total",
-            {"operation": "read", "data_type": "bars"}
+            {"operation": "read", "data_type": "bars"},
         )
-        assert value == 1024*1024*100
+        assert value == 1024 * 1024 * 100
 
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus client not available")
     def test_record_inference_batch_size(self) -> None:
@@ -213,14 +209,14 @@ class TestResourceUtilizationCollector:
         Test recording inference batch size.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record batch size
         collector.record_inference_batch_size("test_model", 32)
-        
+
         # Check that metric was recorded
         value = collector.get_metric_value(
             "inference_batch_size",
-            {"model": "test_model"}
+            {"model": "test_model"},
         )
         assert value == 32
 
@@ -230,14 +226,14 @@ class TestResourceUtilizationCollector:
         Test recording training data processed.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record training data processed
         collector.record_training_data_processed(1000, "train")
-        
+
         # Check that metric was recorded
         value = collector.get_metric_value(
             "training_data_rows_processed_total",
-            {"dataset": "train"}
+            {"dataset": "train"},
         )
         assert value == 1000
 
@@ -264,14 +260,14 @@ class TestResourceUtilizationCollector:
         Test getting resource summary.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record some metrics
-        collector.record_model_memory_usage("test_model", 1024*1024, "resident")
+        collector.record_model_memory_usage("test_model", 1024 * 1024, "resident")
         collector.record_cpu_usage(50.0, "process")
-        
+
         # Get summary
         summary = collector.get_resource_summary()
-        
+
         assert isinstance(summary, dict)
         # Should only contain non-None values
         for value in summary.values():
@@ -283,10 +279,10 @@ class TestResourceUtilizationCollector:
         Test health check returns expected information.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record some metrics
-        collector.record_model_memory_usage("test_model", 1024*1024, "resident")
-        
+        collector.record_model_memory_usage("test_model", 1024 * 1024, "resident")
+
         health = collector.health_check()
 
         assert health["enabled"] is True
@@ -300,26 +296,26 @@ class TestResourceUtilizationCollector:
         Test resetting metrics to initial state.
         """
         collector = ResourceUtilizationCollector(self.config)
-        
+
         # Record some metrics
-        collector.record_model_memory_usage("test_model", 1024*1024, "resident")
-        
+        collector.record_model_memory_usage("test_model", 1024 * 1024, "resident")
+
         # Verify metric exists
         value = collector.get_metric_value(
             "model_memory_usage_bytes",
-            {"model": "test_model", "memory_type": "resident"}
+            {"model": "test_model", "memory_type": "resident"},
         )
-        assert value == 1024*1024
-        
+        assert value == 1024 * 1024
+
         # Reset metrics
         collector.reset_metrics()
-        
+
         # After reset, the collector should be in a clean state
-        # The specific value depends on the implementation - 
+        # The specific value depends on the implementation -
         # Prometheus Gauges may retain values or be reset to 0
         value_after_reset = collector.get_metric_value(
             "model_memory_usage_bytes",
-            {"model": "test_model", "memory_type": "resident"}
+            {"model": "test_model", "memory_type": "resident"},
         )
         # Just verify the reset method can be called without error
         assert value_after_reset is not None
@@ -333,6 +329,6 @@ class TestResourceUtilizationCollector:
 
         # Should handle any errors gracefully
         collector.record_model_memory_usage("test", 1024, "resident")
-        
+
         # Collector should still be enabled
         assert collector.enabled
