@@ -26,6 +26,7 @@ import pickle
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
@@ -90,7 +91,7 @@ class SimpleMLActor(BaseMLInferenceActor):
                 self._model = pickle.load(f)  # noqa: S301
             self.log.info(f"Loaded model from {model_path}")
 
-    def _compute_features(self, bar: Bar) -> np.ndarray | None:
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Compute feature vector from bar data.
 
@@ -101,7 +102,7 @@ class SimpleMLActor(BaseMLInferenceActor):
 
         Returns
         -------
-        np.ndarray | None
+        npt.NDArray[np.float64] | None
             The feature vector or None if indicators not ready.
 
         """
@@ -159,13 +160,13 @@ class SimpleMLActor(BaseMLInferenceActor):
 
         return self._feature_buffer.copy()
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Generate prediction from features.
 
         Parameters
         ----------
-        features : np.ndarray
+        features : npt.NDArray[np.float64]
             The feature vector.
 
         Returns
@@ -175,7 +176,7 @@ class SimpleMLActor(BaseMLInferenceActor):
 
         """
         if isinstance(self._model, DummyModel):
-            return self._model.predict(features)
+            return self._model.predict(features.astype(np.float64))
 
         # Use real model
         features_2d = features.reshape(1, -1)
@@ -196,13 +197,13 @@ class DummyModel:
     Dummy model for demonstration when no real model is available.
     """
 
-    def predict(self, features: np.ndarray) -> tuple[float, float]:
+    def predict(self, features: npt.NDArray[np.float64]) -> tuple[float, float]:
         """
         Generate dummy predictions based on simple rules.
 
         Parameters
         ----------
-        features : np.ndarray
+        features : npt.NDArray[np.float64]
             The feature vector.
 
         Returns

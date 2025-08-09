@@ -27,6 +27,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from ml._imports import HAS_POLARS
@@ -127,7 +128,7 @@ class TestNautilusDataPipeline:
         # Validate feature parity with extreme precision
         is_valid, report = validate_feature_parity(
             batch_array,
-            online_array,
+            online_array.astype(np.float64),
             tolerance=1e-10,
             feature_names=batch_features.columns,
         )
@@ -295,7 +296,7 @@ class TestNautilusDataPipeline:
         # Validate with extreme precision
         is_valid, report = validate_feature_parity(
             batch_array,
-            online_array,
+            online_array.astype(np.float64),
             tolerance=1e-10,
             feature_names=batch_features.columns,
         )
@@ -683,7 +684,7 @@ class TestNautilusDataPipeline:
 
     # Helper methods for indicator calculations
 
-    def _calculate_rsi_batch(self, bars: list[Bar], period: int = 14) -> np.ndarray:
+    def _calculate_rsi_batch(self, bars: list[Bar], period: int = 14) -> npt.NDArray[np.float64]:
         """
         Calculate RSI in batch mode using Wilder's smoothing.
         """
@@ -719,14 +720,14 @@ class TestNautilusDataPipeline:
             rsi = np.where(avg_losses > 0, 100 - (100 / (1 + rs)), 100)
 
         # Add NaN for first value (no change from first bar)
-        rsi_with_first: np.ndarray = np.concatenate([np.array([np.nan]), rsi])
+        rsi_with_first: npt.NDArray[np.float64] = np.concatenate([np.array([np.nan]), rsi])
 
         # Mark uninitialized values as NaN
         rsi_with_first[:period] = np.nan
 
         return rsi_with_first
 
-    def _calculate_rsi_streaming(self, bars: list[Bar], period: int = 14) -> np.ndarray:
+    def _calculate_rsi_streaming(self, bars: list[Bar], period: int = 14) -> npt.NDArray[np.float64]:
         """
         Calculate RSI in streaming mode.
         """
@@ -742,7 +743,7 @@ class TestNautilusDataPipeline:
 
         return np.array(rsi_values)
 
-    def _calculate_macd_batch(self, bars: list[Bar]) -> np.ndarray:
+    def _calculate_macd_batch(self, bars: list[Bar]) -> npt.NDArray[np.float64]:
         """
         Calculate MACD in batch mode.
         """
@@ -753,11 +754,11 @@ class TestNautilusDataPipeline:
         ema_slow = self._calculate_ema(closes, 26)
 
         # MACD line
-        macd: np.ndarray = ema_fast - ema_slow
+        macd: npt.NDArray[np.float64] = ema_fast - ema_slow
 
         return macd
 
-    def _calculate_macd_streaming(self, bars: list[Bar]) -> np.ndarray:
+    def _calculate_macd_streaming(self, bars: list[Bar]) -> npt.NDArray[np.float64]:
         """
         Calculate MACD in streaming mode.
         """
@@ -773,7 +774,7 @@ class TestNautilusDataPipeline:
 
         return np.array(macd_values)
 
-    def _calculate_ema(self, data: np.ndarray, period: int) -> np.ndarray:
+    def _calculate_ema(self, data: npt.NDArray[np.float64], period: int) -> npt.NDArray[np.float64]:
         """
         Calculate EMA for batch processing.
         """
@@ -791,7 +792,7 @@ class TestNautilusDataPipeline:
         bars: list[Bar],
         period: int = 20,
         std_dev: float = 2.0,
-    ) -> dict[str, np.ndarray]:
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """
         Calculate Bollinger Bands in batch mode.
         """
@@ -820,7 +821,7 @@ class TestNautilusDataPipeline:
         bars: list[Bar],
         period: int = 20,
         std_dev: float = 2.0,
-    ) -> dict[str, np.ndarray]:
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """
         Calculate Bollinger Bands in streaming mode.
         """

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 import msgspec
 import numpy as np
+import numpy.typing as npt
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
@@ -404,11 +405,11 @@ class IndicatorManager:
 
     def update_batch_vectorized(
         self,
-        open_prices: np.ndarray,
-        high_prices: np.ndarray,
-        low_prices: np.ndarray,
-        close_prices: np.ndarray,
-        volumes: np.ndarray,
+        open_prices: npt.NDArray[np.float64],
+        high_prices: npt.NDArray[np.float64],
+        low_prices: npt.NDArray[np.float64],
+        close_prices: npt.NDArray[np.float64],
+        volumes: npt.NDArray[np.float64],
     ) -> list[dict[str, float]]:
         """
         Update indicators using vectorized operations for batch processing.
@@ -418,15 +419,15 @@ class IndicatorManager:
 
         Parameters
         ----------
-        open_prices : np.ndarray
+        open_prices : npt.NDArray[np.float64]
             Array of open prices.
-        high_prices : np.ndarray
+        high_prices : npt.NDArray[np.float64]
             Array of high prices.
-        low_prices : np.ndarray
+        low_prices : npt.NDArray[np.float64]
             Array of low prices.
-        close_prices : np.ndarray
+        close_prices : npt.NDArray[np.float64]
             Array of close prices.
-        volumes : np.ndarray
+        volumes : npt.NDArray[np.float64]
             Array of volumes.
 
         Returns
@@ -626,7 +627,7 @@ class FeatureEngineer:
         self._cache_misses = 0
         self.feature_buffer = np.zeros(buffer_size, dtype=np.float64)
 
-    def _extract_price_arrays(self, df: Any) -> tuple[np.ndarray, ...]:
+    def _extract_price_arrays(self, df: Any) -> tuple[npt.NDArray[np.float64], ...]:
         """
         Extract price arrays from DataFrame.
         """
@@ -1071,7 +1072,7 @@ class FeatureEngineer:
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
         scaler: Any = None,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float32]:
         """
         Calculate features for online inference using indicator manager.
 
@@ -1089,7 +1090,7 @@ class FeatureEngineer:
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float32]
             Feature array ready for model prediction.
 
         """
@@ -1129,7 +1130,7 @@ class FeatureEngineer:
         indicator_manager: IndicatorManager,
         scaler: Any = None,
         timer: Any = None,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float32]:
         """
         Implement online feature calculation internally.
         """
@@ -1192,12 +1193,12 @@ class FeatureEngineer:
         # 2. The caller (MLSignalActor) immediately uses this for prediction
         # 3. The buffer content is overwritten on the next bar
         # 4. If the caller needs to store features, they are responsible for copying
-        return self.feature_buffer[:feature_idx]
+        return self.feature_buffer[:feature_idx].astype(np.float32)
 
     def _extract_data_arrays(
         self,
         df: Any,
-    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64] | None, npt.NDArray[np.float64] | None]:
         """
         Extract data arrays from DataFrame for batch processing.
         """
@@ -1214,7 +1215,7 @@ class FeatureEngineer:
     def _calculate_return_momentum_features(
         self,
         close: float,
-        close_array: np.ndarray,
+        close_array: npt.NDArray[np.float64],
         idx: int,
         features: dict[str, float],
     ) -> None:
@@ -1239,7 +1240,7 @@ class FeatureEngineer:
 
     def _calculate_volatility_features_batch(
         self,
-        close_array: np.ndarray,
+        close_array: npt.NDArray[np.float64],
         idx: int,
         features: dict[str, float],
     ) -> None:
@@ -1267,8 +1268,8 @@ class FeatureEngineer:
         volume: float,
         bar_data: dict[str, float],
         ind_values: dict[str, float],
-        high_array: np.ndarray | None,
-        low_array: np.ndarray | None,
+        high_array: npt.NDArray[np.float64] | None,
+        low_array: npt.NDArray[np.float64] | None,
         idx: int,
         features: dict[str, float],
     ) -> None:
@@ -1417,7 +1418,7 @@ class FeatureEngineer:
     def _extract_bid_ask_data(
         self,
         df: Any,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Extract bid/ask price and size arrays from DataFrame.
         """
@@ -1437,10 +1438,10 @@ class FeatureEngineer:
 
     def _calculate_spread_metrics(
         self,
-        bid_prices: np.ndarray,
-        ask_prices: np.ndarray,
-        bid_sizes: np.ndarray,
-        ask_sizes: np.ndarray,
+        bid_prices: npt.NDArray[np.float64],
+        ask_prices: npt.NDArray[np.float64],
+        bid_sizes: npt.NDArray[np.float64],
+        ask_sizes: npt.NDArray[np.float64],
         start_idx: int,
         end_idx: int,
     ) -> tuple[list[float], list[float], list[float], list[float]]:
@@ -1630,7 +1631,7 @@ class FeatureEngineer:
 
         return features
 
-    def _extract_trade_data(self, df: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _extract_trade_data(self, df: Any) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Extract trade price, volume, and side arrays from DataFrame.
         """
@@ -1648,9 +1649,9 @@ class FeatureEngineer:
 
     def _calculate_trade_metrics(
         self,
-        trade_prices: np.ndarray,
-        trade_volumes: np.ndarray,
-        trade_sides: np.ndarray,
+        trade_prices: npt.NDArray[np.float64],
+        trade_volumes: npt.NDArray[np.float64],
+        trade_sides: npt.NDArray[np.float64],
         start_idx: int,
         end_idx: int,
     ) -> tuple[float, float, float, float]:

@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
@@ -421,7 +422,7 @@ class ONNXModelLoader(ModelLoader):
         return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
 
 
-class MLSignal(Data):  # type: ignore[misc]
+class MLSignal(Data):
     """
     Custom data type for ML predictions.
 
@@ -433,7 +434,7 @@ class MLSignal(Data):  # type: ignore[misc]
         The model prediction value.
     confidence : float
         The confidence score for the prediction (0.0 to 1.0).
-    features : np.ndarray, optional
+    features : npt.NDArray[np.float32], optional
         The feature vector used for prediction (for debugging).
     ts_event : int
         The UNIX timestamp (nanoseconds) when the signal was generated.
@@ -447,7 +448,7 @@ class MLSignal(Data):  # type: ignore[misc]
         instrument_id: InstrumentId,
         prediction: float,
         confidence: float,
-        features: np.ndarray | None = None,
+        features: npt.NDArray[np.float32] | None = None,
         ts_event: int = 0,
         ts_init: int = 0,
     ) -> None:
@@ -462,7 +463,7 @@ class MLSignal(Data):  # type: ignore[misc]
             The model's prediction value.
         confidence : float
             The confidence level of the prediction (0.0 to 1.0).
-        features : np.ndarray, optional
+        features : npt.NDArray[np.float32], optional
             The feature values used for this prediction.
         ts_event : int, default 0
             The event timestamp in nanoseconds.
@@ -510,7 +511,7 @@ ml_signal_confidence = Histogram(
 )
 
 
-class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
+class BaseMLInferenceActor(Actor, ABC):
     """
     Enhanced base class for ML inference actors with production features.
 
@@ -567,8 +568,8 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         self._model_metadata: dict[str, Any] = {}
         self._model_version: str | None = None
         self._model_loader: ModelLoader = PickleModelLoader()
-        self._features_buffer: np.ndarray | None = None
-        self._feature_window: deque[np.ndarray] = deque(
+        self._features_buffer: npt.NDArray[np.float32] | None = None
+        self._feature_window: deque[npt.NDArray[np.float32]] = deque(
             maxlen=self._feature_config.lookback_window,
         )
 
@@ -728,7 +729,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             f"Circuit breaker: {self._circuit_breaker.state.value if self._circuit_breaker else 'disabled'}",
         )
 
-    def _generate_prediction_protected(self, bar: Bar, features: np.ndarray) -> None:
+    def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:
         """
         Generate ML prediction with circuit breaker protection.
 
@@ -739,7 +740,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         ----------
         bar : Bar
             The current bar data.
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The computed feature vector.
 
         """
@@ -858,7 +859,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         ...
 
     @abstractmethod
-    def _compute_features(self, bar: Bar) -> np.ndarray | None:
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Compute feature vector from current bar data.
 
@@ -874,14 +875,14 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
         Returns
         -------
-        np.ndarray | None
+        npt.NDArray[np.float32] | None
             The computed feature vector, or None if not ready.
 
         """
         ...
 
     @abstractmethod
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Generate prediction from feature vector.
 
@@ -890,7 +891,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
         Parameters
         ----------
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The feature vector for prediction.
 
         Returns
@@ -1097,13 +1098,13 @@ class PickleMLInferenceActor(BaseMLInferenceActor):
 
         self.log.info(f"Loaded model from {model_path}")
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Generate prediction using the loaded model.
 
         Parameters
         ----------
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The feature vector for prediction.
 
         Returns
@@ -1164,13 +1165,13 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
                 f"providers={self._model_metadata.get('providers', [])}",
             )
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Generate prediction using ONNX Runtime.
 
         Parameters
         ----------
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The feature vector for prediction.
 
         Returns
@@ -1249,7 +1250,7 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
         self.log.info("Technical indicators initialized for enhanced ML actor")
 
-    def _compute_features(self, bar: Bar) -> np.ndarray | None:
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Compute feature vector with <500μs latency requirement.
 
@@ -1260,7 +1261,7 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
         Returns
         -------
-        np.ndarray | None
+        npt.NDArray[np.float64] | None
             Feature vector or None if indicators not ready.
 
         """
@@ -1329,13 +1330,13 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         # The actual loading is handled by the model loader in _load_model_with_metadata
         # This method can be used for additional setup if needed
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Generate prediction based on model type.
 
         Parameters
         ----------
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             Feature vector.
 
         Returns
@@ -1347,9 +1348,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         if isinstance(self._model_loader, ONNXModelLoader):
             return self._predict_onnx(features)
         else:
-            return self._predict_sklearn(features)
+            return self._predict_sklearn(features.astype(np.float64))
 
-    def _predict_onnx(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict_onnx(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         ONNX model prediction.
         """
@@ -1368,7 +1369,7 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
         return prediction, confidence
 
-    def _predict_sklearn(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict_sklearn(self, features: npt.NDArray[np.float64]) -> tuple[float, float]:
         """
         Scikit-learn model prediction.
         """

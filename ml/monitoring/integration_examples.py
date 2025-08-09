@@ -27,6 +27,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.data import DataQualityCollector
@@ -381,8 +382,8 @@ class MonitoredModelTrainer:
 
     def train_model(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
+        X: npt.NDArray[np.float64],
+        y: npt.NDArray[np.float64],
         model_name: str = "xgboost_v1",
         instrument: str = "EURUSD",
     ) -> Any:
@@ -391,9 +392,9 @@ class MonitoredModelTrainer:
 
         Parameters
         ----------
-        X : np.ndarray
+        X : npt.NDArray[np.float64]
             Training features.
-        y : np.ndarray
+        y : npt.NDArray[np.float64]
             Training labels.
         model_name : str, default "xgboost_v1"
             Model identifier.
@@ -444,21 +445,21 @@ class MonitoredModelTrainer:
 
         return model
 
-    def _preprocess_data(self, X: np.ndarray) -> np.ndarray:
+    def _preprocess_data(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """
         Preprocess training data.
         """
         # Simplified preprocessing
         return X
 
-    def _train_internal(self, X: np.ndarray, y: np.ndarray) -> Any:
+    def _train_internal(self, X: npt.NDArray[np.float64], y: npt.NDArray[np.float64]) -> Any:
         """
         Train the model (simplified).
         """
         # In reality, train actual model
         return {"model": "dummy", "trained": True}
 
-    def _validate_model(self, model: Any, X: np.ndarray, y: np.ndarray) -> float:
+    def _validate_model(self, model: Any, X: npt.NDArray[np.float64], y: npt.NDArray[np.float64]) -> float:
         """
         Validate model performance.
         """
@@ -545,7 +546,7 @@ def example_complete_integration() -> None:
 
         # Prepare training data
         X = features_df.to_numpy()
-        y = np.random.randint(0, 2, size=len(features_df))
+        y = np.random.randint(0, 2, size=len(features_df)).astype(np.float64)
 
         # Train model (will record metrics)
         trainer.train_model(

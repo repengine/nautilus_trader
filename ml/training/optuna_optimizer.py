@@ -28,6 +28,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ml._imports import HAS_OPTUNA
 from ml._imports import HAS_XGBOOST
@@ -247,12 +248,12 @@ class XGBoostOptunaOptimizer:
 
     def create_objective_function(
         self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+        X_train: npt.NDArray[np.float64],
+        y_train: npt.NDArray[np.float64],
+        X_val: npt.NDArray[np.float64],
+        y_val: npt.NDArray[np.float64],
         base_params: dict[str, Any],
-        metric_function: Callable[[np.ndarray, np.ndarray], float],
+        metric_function: Callable[[npt.NDArray[np.float64], npt.NDArray[np.float64]], float],
         early_stopping_rounds: int = 50,
     ) -> Callable[[Any], float]:
         """
@@ -260,17 +261,17 @@ class XGBoostOptunaOptimizer:
 
         Parameters
         ----------
-        X_train : np.ndarray
+        X_train : npt.NDArray[np.float64]
             Training features.
-        y_train : np.ndarray
+        y_train : npt.NDArray[np.float64]
             Training targets.
-        X_val : np.ndarray
+        X_val : npt.NDArray[np.float64]
             Validation features.
-        y_val : np.ndarray
+        y_val : npt.NDArray[np.float64]
             Validation targets.
         base_params : dict[str, Any]
             Base XGBoost parameters.
-        metric_function : Callable[[np.ndarray, np.ndarray], float]
+        metric_function : Callable[[npt.NDArray[np.float64], npt.NDArray[np.float64]], float]
             Function to calculate optimization metric.
         early_stopping_rounds : int, default 50
             Early stopping rounds for XGBoost training.

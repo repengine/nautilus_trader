@@ -26,6 +26,7 @@ import random
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 
 if TYPE_CHECKING:
@@ -96,20 +97,20 @@ class LockFreeRingBuffer:
         self._index = (self._index + 1) % self._size
         self._count = min(self._count + 1, self._size)
 
-    def append_array(self, values: np.ndarray) -> None:
+    def append_array(self, values: npt.NDArray[np.float64]) -> None:
         """
         Append multiple values efficiently.
 
         Parameters
         ----------
-        values : np.ndarray
+        values : npt.NDArray[np.float64]
             Array of values to append.
 
         """
         for value in values:
             self.append(float(value))
 
-    def get_last(self, n: int = 1) -> np.ndarray:
+    def get_last(self, n: int = 1) -> npt.NDArray[np.float64]:
         """
         Get last n values as NumPy array view (zero-copy when possible).
 
@@ -120,7 +121,7 @@ class LockFreeRingBuffer:
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Array view containing the last n values (no copy when contiguous).
 
         """
@@ -150,7 +151,7 @@ class LockFreeRingBuffer:
         second_part = self._buffer[: (start_idx + n) % self._size]
         return np.concatenate([first_part, second_part])
 
-    def get_window(self, start: int, length: int) -> np.ndarray:
+    def get_window(self, start: int, length: int) -> npt.NDArray[np.float64]:
         """
         Get a window of values starting from relative position.
 
@@ -163,7 +164,7 @@ class LockFreeRingBuffer:
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Array view containing the requested window (no copy when contiguous).
 
         """
@@ -196,13 +197,13 @@ class LockFreeRingBuffer:
         second_part = self._buffer[:remaining]
         return np.concatenate([first_part, second_part])
 
-    def get_all(self) -> np.ndarray:
+    def get_all(self) -> npt.NDArray[np.float64]:
         """
         Get all values in chronological order.
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Array containing all values from oldest to newest.
 
         """
@@ -378,13 +379,13 @@ class ReservoirSampler:
         sample = self._reservoir[: self._count]
         return {p: float(np.percentile(sample, p)) for p in percentiles}
 
-    def get_sample(self) -> np.ndarray:
+    def get_sample(self) -> npt.NDArray[np.float32]:
         """
         Get current reservoir sample.
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Array view containing current reservoir sample.
 
         """
@@ -471,13 +472,13 @@ class PreAllocatedFeatureCache:
         """
         return self._history_count
 
-    def get_current_buffer(self) -> np.ndarray:
+    def get_current_buffer(self) -> npt.NDArray[np.float32]:
         """
         Get the current feature buffer for in-place computation.
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Pre-allocated buffer for current features.
 
         """
@@ -495,13 +496,13 @@ class PreAllocatedFeatureCache:
         """
         return self._current_features_view
 
-    def get_normalized_buffer(self) -> np.ndarray:
+    def get_normalized_buffer(self) -> npt.NDArray[np.float32]:
         """
         Get the normalized feature buffer for in-place computation.
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Pre-allocated buffer for normalized features.
 
         """
@@ -519,19 +520,19 @@ class PreAllocatedFeatureCache:
         """
         return self._normalized_features_view
 
-    def get_onnx_input_buffer(self) -> np.ndarray:
+    def get_onnx_input_buffer(self) -> npt.NDArray[np.float32]:
         """
         Get ONNX input buffer (shape: [1, n_features]) for inference.
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Pre-allocated ONNX input buffer.
 
         """
         return self._onnx_input_buffer
 
-    def prepare_onnx_input(self, use_normalized: bool = True) -> np.ndarray:
+    def prepare_onnx_input(self, use_normalized: bool = True) -> npt.NDArray[np.float32]:
         """
         Prepare ONNX input buffer with current features.
 
@@ -542,7 +543,7 @@ class PreAllocatedFeatureCache:
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             ONNX input buffer ready for inference.
 
         """
@@ -565,7 +566,7 @@ class PreAllocatedFeatureCache:
         self._history_index = (self._history_index + 1) % self._history_size
         self._history_count = min(self._history_count + 1, self._history_size)
 
-    def get_feature_history(self, n_latest: int | None = None) -> np.ndarray:
+    def get_feature_history(self, n_latest: int | None = None) -> npt.NDArray[np.float32]:
         """
         Get feature history in chronological order.
 
@@ -576,7 +577,7 @@ class PreAllocatedFeatureCache:
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Feature history array view with shape [n_vectors, n_features].
 
         """

@@ -27,6 +27,7 @@ import time
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
@@ -173,7 +174,7 @@ class FeatureParityValidator:
         bar_type: BarType,
         start_idx: int,
         end_idx: int,
-    ) -> list[np.ndarray]:
+    ) -> list[npt.NDArray[np.float32]]:
         """
         Calculate online features for validation period.
 
@@ -206,8 +207,8 @@ class FeatureParityValidator:
 
     def _create_validation_report(
         self,
-        differences: np.ndarray,
-        max_differences_per_feature: np.ndarray,
+        differences: npt.NDArray[np.float64],
+        max_differences_per_feature: npt.NDArray[np.float64],
         max_difference_overall: float,
         feature_names: list[str],
         failing_features: list[str],

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ml.actors.base import MLSignal
 from ml.actors.signal import AdaptiveSignal
@@ -71,7 +72,7 @@ class CustomSignalStrategy(SignalGenerationStrategy):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
         context: dict[str, Any],
     ) -> MLSignal | None:
         # Custom logic: multiply confidence by multiplier
@@ -82,7 +83,7 @@ class CustomSignalStrategy(SignalGenerationStrategy):
                 instrument_id=bar.bar_type.instrument_id,
                 prediction=prediction,
                 confidence=min(adjusted_confidence, 1.0),
-                features=features if context.get("log_predictions", False) else None,
+                features=features.astype(np.float32) if context.get("log_predictions", False) and features is not None else None,
                 ts_event=bar.ts_event,
                 ts_init=context["timestamp_ns"],
             )
@@ -282,7 +283,7 @@ class SimpleTestModel:
     Simple model for testing that can be pickled.
     """
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         return np.array([0.8])
 
 

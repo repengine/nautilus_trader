@@ -20,6 +20,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
+import numpy.typing as npt
 
 
 # Mock sklearn module for tests
@@ -46,9 +47,9 @@ class MockSklearnModule:
             def __init__(self) -> None:
                 self.mean_ = None
                 self.scale_ = None
-                self.n_features_in_ = None
+                self.n_features_in_: int | None = None
 
-            def fit(self, X: np.ndarray) -> "MockSklearnModule.preprocessing.StandardScaler":
+            def fit(self, X: npt.NDArray[np.float64]) -> "MockSklearnModule.preprocessing.StandardScaler":
                 """
                 Mock fit method.
                 """
@@ -60,7 +61,7 @@ class MockSklearnModule:
                 self.n_features_in_ = X.shape[1]
                 return self
 
-            def transform(self, X: np.ndarray) -> np.ndarray:
+            def transform(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
                 """
                 Mock transform method.
                 """
@@ -68,7 +69,7 @@ class MockSklearnModule:
                     raise ValueError("Scaler not fitted")
                 return (X - self.mean_) / self.scale_
 
-            def fit_transform(self, X: np.ndarray) -> np.ndarray:
+            def fit_transform(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
                 """
                 Mock fit_transform method.
                 """
@@ -81,7 +82,7 @@ class MockSklearnModule:
         """
 
         @staticmethod
-        def accuracy_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        def accuracy_score(y_true: npt.NDArray[np.float64], y_pred: npt.NDArray[np.float64]) -> float:
             """
             Mock accuracy score.
             """
@@ -90,7 +91,7 @@ class MockSklearnModule:
             return float(np.mean(y_true == y_pred))
 
         @staticmethod
-        def precision_score(y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any) -> float:
+        def precision_score(y_true: npt.NDArray[np.float64], y_pred: npt.NDArray[np.float64], **kwargs: Any) -> float:
             """
             Mock precision score.
             """
@@ -99,7 +100,7 @@ class MockSklearnModule:
             return 0.85
 
         @staticmethod
-        def recall_score(y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any) -> float:
+        def recall_score(y_true: npt.NDArray[np.float64], y_pred: npt.NDArray[np.float64], **kwargs: Any) -> float:
             """
             Mock recall score.
             """
@@ -108,7 +109,7 @@ class MockSklearnModule:
             return 0.80
 
         @staticmethod
-        def f1_score(y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any) -> float:
+        def f1_score(y_true: npt.NDArray[np.float64], y_pred: npt.NDArray[np.float64], **kwargs: Any) -> float:
             """
             Mock f1 score.
             """
@@ -205,7 +206,7 @@ class MockPolarsModule:
             """
             return self
 
-        def to_numpy(self) -> np.ndarray:
+        def to_numpy(self) -> npt.NDArray[np.float64]:
             """
             Mock to_numpy method.
             """
@@ -310,7 +311,7 @@ class MockPolarsModule:
                 return MockPolarsModule.Series(self.data[key])
             return self.data[key]
 
-        def to_numpy(self) -> np.ndarray:
+        def to_numpy(self) -> npt.NDArray[np.float64]:
             """
             Mock to_numpy method.
             """

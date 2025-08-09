@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ml._imports import HAS_POLARS
 from ml._imports import HAS_XGBOOST
@@ -89,7 +90,7 @@ class XGBoostTrainer(BaseMLTrainer):
         self,
         data: Any,  # pl.DataFrame when polars is available
         target_col: str = "target",
-    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
         """
         Prepare features and target for XGBoost training.
 
@@ -102,7 +103,7 @@ class XGBoostTrainer(BaseMLTrainer):
 
         Returns
         -------
-        tuple[np.ndarray, np.ndarray, dict[str, Any]]
+        tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]
             A tuple containing:
             - X: Feature array
             - y: Target array
@@ -143,10 +144,10 @@ class XGBoostTrainer(BaseMLTrainer):
 
     def _train_model(
         self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+        X_train: npt.NDArray[np.float64],
+        y_train: npt.NDArray[np.float64],
+        X_val: npt.NDArray[np.float64],
+        y_val: npt.NDArray[np.float64],
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
@@ -154,13 +155,13 @@ class XGBoostTrainer(BaseMLTrainer):
 
         Parameters
         ----------
-        X_train : np.ndarray
+        X_train : npt.NDArray[np.float64]
             Training features.
-        y_train : np.ndarray
+        y_train : npt.NDArray[np.float64]
             Training targets.
-        X_val : np.ndarray
+        X_val : npt.NDArray[np.float64]
             Validation features.
-        y_val : np.ndarray
+        y_val : npt.NDArray[np.float64]
             Validation targets.
         **kwargs : Any
             Additional training parameters.
@@ -231,7 +232,7 @@ class XGBoostTrainer(BaseMLTrainer):
             "metrics": metrics,
         }
 
-    def predict(self, model: Any, X: np.ndarray, **kwargs: Any) -> np.ndarray:
+    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float64]:
         """
         Make predictions using XGBoost model.
 
@@ -239,14 +240,14 @@ class XGBoostTrainer(BaseMLTrainer):
         ----------
         model : Any
             The trained XGBoost model.
-        X : np.ndarray
+        X : npt.NDArray[np.float64]
             Features to predict on.
         **kwargs : Any
             Additional prediction parameters.
 
         Returns
         -------
-        np.ndarray
+        npt.NDArray[np.float64]
             Model predictions.
 
         """
@@ -420,22 +421,22 @@ class XGBoostTrainer(BaseMLTrainer):
 
     def get_shap_values(
         self,
-        X: np.ndarray,
+        X: npt.NDArray[np.float64],
         interaction: bool = False,
-    ) -> np.ndarray | None:
+    ) -> npt.NDArray[np.float64] | None:
         """
         Calculate SHAP values for model interpretability.
 
         Parameters
         ----------
-        X : np.ndarray
+        X : npt.NDArray[np.float64]
             Features to explain.
         interaction : bool, default False
             Whether to calculate interaction values.
 
         Returns
         -------
-        np.ndarray | None
+        npt.NDArray[np.float64] | None
             SHAP values or None if not available.
 
         """

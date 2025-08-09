@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from ml.config.shared import OptunaConfig
@@ -51,15 +52,15 @@ class TestXGBoostOptunaOptimizer:
         )
 
     @pytest.fixture
-    def sample_data(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def sample_data(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Create sample training data.
         """
         rng = np.random.Generator(np.random.PCG64(42))
         X_train = rng.standard_normal((100, 5))
-        y_train = rng.integers(0, 2, 100)
+        y_train = rng.integers(0, 2, 100).astype(np.float64)
         X_val = rng.standard_normal((50, 5))
-        y_val = rng.integers(0, 2, 50)
+        y_val = rng.integers(0, 2, 50).astype(np.float64)
         return X_train, y_train, X_val, y_val
 
     def test_optimizer_initialization(self, basic_config: OptunaConfig) -> None:
@@ -367,7 +368,7 @@ class TestXGBoostOptunaOptimizer:
         mock_optuna: MagicMock,
         mock_xgb: MagicMock,
         basic_config: OptunaConfig,
-        sample_data: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        sample_data: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]],
     ) -> None:
         """
         Test objective function creation.
@@ -378,7 +379,7 @@ class TestXGBoostOptunaOptimizer:
 
         base_params = {"objective": "binary:logistic"}
 
-        def metric_function(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        def metric_function(y_true: npt.NDArray[np.float64], y_pred: npt.NDArray[np.float64]) -> float:
             return float(np.mean((y_true - y_pred) ** 2))
 
         # Create objective
@@ -426,7 +427,7 @@ class TestXGBoostOptunaOptimizer:
         mock_optuna: MagicMock,
         mock_xgb: MagicMock,
         basic_config: OptunaConfig,
-        sample_data: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        sample_data: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]],
     ) -> None:
         """
         Test objective function creation for regression.
@@ -437,7 +438,7 @@ class TestXGBoostOptunaOptimizer:
 
         base_params = {"objective": "reg:squarederror"}
 
-        def metric_function(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        def metric_function(y_true: npt.NDArray[np.float64], y_pred: npt.NDArray[np.float64]) -> float:
             return float(-np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
         objective = optimizer.create_objective_function(
@@ -473,7 +474,7 @@ class TestXGBoostOptunaOptimizer:
         mock_optuna: MagicMock,
         mock_xgb: MagicMock,
         basic_config: OptunaConfig,
-        sample_data: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        sample_data: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]],
     ) -> None:
         """
         Test objective function exception handling.
@@ -484,7 +485,7 @@ class TestXGBoostOptunaOptimizer:
 
         base_params = {"objective": "binary:logistic"}
 
-        def metric_function(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        def metric_function(y_true: npt.NDArray[np.float64], y_pred: npt.NDArray[np.float64]) -> float:
             return float(np.mean((y_true - y_pred) ** 2))
 
         objective = optimizer.create_objective_function(

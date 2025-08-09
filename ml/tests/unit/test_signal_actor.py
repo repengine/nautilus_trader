@@ -34,6 +34,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from ml.actors.base import CircuitBreakerState
@@ -73,10 +74,10 @@ class MockTestModel:
     Mock model for testing.
     """
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         return np.array([0.8])
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         return np.array([[0.2, 0.8]])
 
 
@@ -337,7 +338,7 @@ class TestMLSignalActor:
         confidences = [0.6] * len(predictions)
         prediction_idx = 0
 
-        def mock_predict(features: np.ndarray) -> tuple[float, float]:
+        def mock_predict(features: npt.NDArray[np.float64]) -> tuple[float, float]:
             nonlocal prediction_idx
             if prediction_idx < len(predictions):
                 result = predictions[prediction_idx], confidences[prediction_idx]
@@ -350,7 +351,7 @@ class TestMLSignalActor:
             actor.on_bar(self.create_test_bar(close_price=1.1000))
 
         # Now mock predict and process more bars
-        actor._predict = mock_predict  # type: ignore[method-assign]
+        actor._predict = mock_predict  # type: ignore[assignment]
 
         # Process bars to build prediction history
         for i in range(len(predictions) + 5):
@@ -629,10 +630,10 @@ class TestMLSignalActor:
 
         # Force failures by creating a model that always raises exceptions
         class FailingModel:
-            def predict(self, X: np.ndarray) -> np.ndarray:
+            def predict(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
                 raise Exception("Model error")
 
-            def predict_proba(self, X: np.ndarray) -> np.ndarray:
+            def predict_proba(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
                 raise Exception("Model error")
 
         actor._model = FailingModel()
@@ -874,8 +875,8 @@ class TestMLSignalActor:
         actor = self.create_test_actor(config)
 
         # Fill windows with test data
-        actor._prediction_window = np.array([0.4, 0.5, 0.6, 0.7, 0.8])
-        actor._volatility_window = np.array([0.01, 0.02, 0.03, 0.02, 0.01])
+        actor._prediction_window[:] = np.array([0.4, 0.5, 0.6, 0.7, 0.8], dtype=np.float32)
+        actor._volatility_window[:] = np.array([0.01, 0.02, 0.03, 0.02, 0.01], dtype=np.float32)
 
         # Update adaptive threshold
         initial_threshold = actor._adaptive_threshold

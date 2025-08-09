@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ml._imports import HAS_LIGHTGBM
 from ml._imports import HAS_POLARS
@@ -89,7 +90,7 @@ class LightGBMTrainer(BaseMLTrainer):
         self,
         data: Any,  # pl.DataFrame when polars is available
         target_col: str = "target",
-    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
         """
         Prepare features and target for LightGBM training.
 
@@ -150,10 +151,10 @@ class LightGBMTrainer(BaseMLTrainer):
 
     def _train_model(
         self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+        X_train: npt.NDArray[np.float64],
+        y_train: npt.NDArray[np.float64],
+        X_val: npt.NDArray[np.float64],
+        y_val: npt.NDArray[np.float64],
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
@@ -270,7 +271,7 @@ class LightGBMTrainer(BaseMLTrainer):
             "metrics": metrics,
         }
 
-    def predict(self, model: Any, X: np.ndarray, **kwargs: Any) -> np.ndarray:
+    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float64]:
         """
         Make predictions using LightGBM model.
 

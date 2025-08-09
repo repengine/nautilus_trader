@@ -35,6 +35,7 @@ from unittest.mock import Mock
 from unittest.mock import patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from ml.actors.base import BaseMLInferenceActor
@@ -64,10 +65,10 @@ class SimplePickleableModel:
     Simple ML model that can be pickled for testing.
     """
 
-    def predict(self, X: Any) -> np.ndarray:
+    def predict(self, X: Any) -> npt.NDArray[np.float64]:
         return np.array([0.75])
 
-    def predict_proba(self, X: Any) -> np.ndarray:
+    def predict_proba(self, X: Any) -> npt.NDArray[np.float64]:
         return np.array([[0.25, 0.75]])
 
 
@@ -215,9 +216,9 @@ class MockMLInferenceActor(BaseMLInferenceActor):
         Mock feature initialization.
         """
         self.features_initialized = True
-        self._features_buffer = np.zeros(5)  # Mock feature buffer
+        self._features_buffer = np.zeros(5, dtype=np.float32)  # Mock feature buffer
 
-    def _compute_features(self, bar: Bar) -> np.ndarray | None:
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Mock feature computation.
         """
@@ -225,7 +226,7 @@ class MockMLInferenceActor(BaseMLInferenceActor):
             return None
         return np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Mock prediction.
         """
@@ -594,7 +595,7 @@ class TestBaseMLInferenceActor:
         # Mock slow prediction
         original_predict = actor._predict
 
-        def slow_predict(features: np.ndarray) -> Any:
+        def slow_predict(features: npt.NDArray[np.float32]) -> Any:
             time.sleep(0.01)  # 10ms delay
             return original_predict(features)
 
@@ -776,10 +777,10 @@ class TestPickleMLInferenceActor:
             def _initialize_features(self) -> None:
                 pass
 
-            def _compute_features(self, bar: Bar) -> np.ndarray:
+            def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
                 return np.array([1.0, 2.0, 3.0])
 
-            def _predict(self, features: np.ndarray) -> Any:
+            def _predict(self, features: npt.NDArray[np.float32]) -> Any:
                 return super()._predict(features)
 
         actor = TestActor(config)
@@ -812,7 +813,7 @@ class TestPickleMLInferenceActor:
             def _initialize_features(self) -> None:
                 pass
 
-            def _compute_features(self, bar: Bar) -> np.ndarray:
+            def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
                 return np.array([1.0, 2.0, 3.0])
 
         actor = TestActor(config)
@@ -835,7 +836,7 @@ class TestPickleMLInferenceActor:
             def _initialize_features(self) -> None:
                 pass
 
-            def _compute_features(self, bar: Bar) -> np.ndarray:
+            def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
                 return np.array([1.0, 2.0, 3.0])
 
         actor = TestActor(config)
@@ -864,7 +865,7 @@ class TestPickleMLInferenceActor:
             def _initialize_features(self) -> None:
                 pass
 
-            def _compute_features(self, bar: Bar) -> np.ndarray:
+            def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
                 return np.array([1.0, 2.0, 3.0])
 
         actor = TestActor(config)
@@ -893,7 +894,7 @@ class TestPickleMLInferenceActor:
             def _initialize_features(self) -> None:
                 pass
 
-            def _compute_features(self, bar: Bar) -> np.ndarray:
+            def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
                 return np.array([1.0, 2.0, 3.0])
 
         actor = TestActor(config)

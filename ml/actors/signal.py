@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import msgspec
 import numpy as np
+import numpy.typing as npt
 
 from ml._imports import HAS_ONNX
 from ml._imports import HAS_PROMETHEUS
@@ -442,7 +443,7 @@ _initialize_performance_metrics()
 # =================================================================================================
 
 
-class OptimizedMLSignal(Data):  # type: ignore[misc]
+class OptimizedMLSignal(Data):
     """
     Optimized ML signal with performance metrics.
 
@@ -564,7 +565,7 @@ class OptimizedMLSignal(Data):  # type: ignore[misc]
         return self._ts_init
 
 
-class AdaptiveSignal(Data):  # type: ignore[misc]
+class AdaptiveSignal(Data):
     """
     Adaptive ML signal with dynamic thresholds.
 
@@ -663,7 +664,7 @@ class SignalGenerationStrategy(ABC):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
         context: dict[str, Any],
     ) -> MLSignal | None:
         """
@@ -699,7 +700,7 @@ class ThresholdSignalStrategy(SignalGenerationStrategy):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
         context: dict[str, Any],
     ) -> MLSignal | None:
         """
@@ -713,7 +714,7 @@ class ThresholdSignalStrategy(SignalGenerationStrategy):
             The model prediction.
         confidence : float
             The confidence score.
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The feature array.
         context : dict[str, Any]
             Additional context information.
@@ -764,7 +765,7 @@ class ExtremesStrategy(SignalGenerationStrategy):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
         context: dict[str, Any],
     ) -> MLSignal | None:
         """
@@ -778,7 +779,7 @@ class ExtremesStrategy(SignalGenerationStrategy):
             The model prediction.
         confidence : float
             The confidence score.
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The feature array.
         context : dict[str, Any]
             Additional context information.
@@ -839,7 +840,7 @@ class MomentumStrategy(SignalGenerationStrategy):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
         context: dict[str, Any],
     ) -> MLSignal | None:
         """
@@ -853,7 +854,7 @@ class MomentumStrategy(SignalGenerationStrategy):
             The model prediction.
         confidence : float
             The confidence score.
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The feature array.
         context : dict[str, Any]
             Additional context information.
@@ -916,7 +917,7 @@ class EnsembleStrategy(SignalGenerationStrategy):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
         context: dict[str, Any],
     ) -> MLSignal | None:
         """
@@ -930,7 +931,7 @@ class EnsembleStrategy(SignalGenerationStrategy):
             The model prediction.
         confidence : float
             The confidence score.
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The feature array.
         context : dict[str, Any]
             Additional context information.
@@ -1001,7 +1002,7 @@ class AdaptiveStrategy(SignalGenerationStrategy):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
         context: dict[str, Any],
     ) -> MLSignal | AdaptiveSignal | None:
         """
@@ -1015,7 +1016,7 @@ class AdaptiveStrategy(SignalGenerationStrategy):
             The model prediction value.
         confidence : float
             The confidence score of the prediction.
-        features : np.ndarray
+        features : npt.NDArray[np.float32]
             The computed feature array.
         context : dict[str, Any]
             Context dictionary containing adaptive threshold and timestamp.
@@ -1654,7 +1655,7 @@ class MLSignalActor(BaseMLInferenceActor):
             except ImportError:
                 self.log.warning("Lock-free buffers not available, using standard buffers")
 
-    def _compute_features(self, bar: Bar) -> np.ndarray | None:
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Compute feature vector from bar.
         """
@@ -1686,7 +1687,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
         return features
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Generate prediction from features.
         """
@@ -1726,7 +1727,7 @@ class MLSignalActor(BaseMLInferenceActor):
             # Re-raise to let base class handle circuit breaker and health monitoring
             raise
 
-    def _generate_prediction_protected(self, bar: Bar, features: np.ndarray) -> None:
+    def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:
         """
         Generate ML prediction with signal generation.
         """
@@ -1765,7 +1766,7 @@ class MLSignalActor(BaseMLInferenceActor):
         bar: Bar,
         prediction: float,
         confidence: float,
-        features: np.ndarray,
+        features: npt.NDArray[np.float32],
     ) -> None:
         """
         Try to generate and publish a signal.

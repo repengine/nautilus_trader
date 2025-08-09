@@ -101,9 +101,9 @@ class TestLightGBMTrainerModelTraining:
 
         rng = np.random.default_rng(42)
         X_train = rng.standard_normal((80, 2))
-        y_train = rng.integers(0, 2, 80)
+        y_train = rng.integers(0, 2, 80).astype(np.float64)
         X_val = rng.standard_normal((20, 2))
-        y_val = rng.integers(0, 2, 20)
+        y_val = rng.integers(0, 2, 20).astype(np.float64)
 
         # Mock LightGBM components
         mock_train_data = MagicMock()
@@ -145,9 +145,9 @@ class TestLightGBMTrainerModelTraining:
 
         rng = np.random.default_rng(42)
         X_train = rng.standard_normal((80, 2))
-        y_train = rng.integers(0, 2, 80)
+        y_train = rng.integers(0, 2, 80).astype(np.float64)
         X_val = rng.standard_normal((20, 2))
-        y_val = rng.integers(0, 2, 20)
+        y_val = rng.integers(0, 2, 20).astype(np.float64)
 
         # Mock LightGBM components
         mock_lgb.Dataset.return_value = MagicMock()
@@ -186,9 +186,9 @@ class TestLightGBMTrainerModelTraining:
 
         rng = np.random.default_rng(42)
         X_train = rng.standard_normal((80, 2))
-        y_train = rng.integers(0, 2, 80)
+        y_train = rng.integers(0, 2, 80).astype(np.float64)
         X_val = rng.standard_normal((20, 2))
-        y_val = rng.integers(0, 2, 20)
+        y_val = rng.integers(0, 2, 20).astype(np.float64)
 
         # Mock LightGBM components
         mock_lgb.Dataset.return_value = MagicMock()

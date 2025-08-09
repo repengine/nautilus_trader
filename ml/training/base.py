@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ml._imports import HAS_MLFLOW
 from ml._imports import HAS_ONNX
@@ -284,7 +285,7 @@ class BaseMLTrainer(ABC):
         self,
         data: Any,  # pl.DataFrame when polars is available
         target_col: str = "target",
-    ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
         """
         Prepare features and target for training.
 
@@ -312,10 +313,10 @@ class BaseMLTrainer(ABC):
     @abstractmethod
     def _train_model(
         self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+        X_train: npt.NDArray[np.float64],
+        y_train: npt.NDArray[np.float64],
+        X_val: npt.NDArray[np.float64],
+        y_val: npt.NDArray[np.float64],
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
@@ -346,7 +347,7 @@ class BaseMLTrainer(ABC):
         ...
 
     @abstractmethod
-    def predict(self, model: Any, X: np.ndarray, **kwargs: Any) -> np.ndarray:
+    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float64]:
         """
         Make predictions using the trained model.
 
@@ -430,10 +431,10 @@ class BaseMLTrainer(ABC):
 
     def _optimize_hyperparameters(
         self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+        X_train: npt.NDArray[np.float64],
+        y_train: npt.NDArray[np.float64],
+        X_val: npt.NDArray[np.float64],
+        y_val: npt.NDArray[np.float64],
         **kwargs: Any,
     ) -> dict[str, Any]:
         """
@@ -517,10 +518,10 @@ class BaseMLTrainer(ABC):
 
     def _train_with_params(
         self,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+        X_train: npt.NDArray[np.float64],
+        y_train: npt.NDArray[np.float64],
+        X_val: npt.NDArray[np.float64],
+        y_val: npt.NDArray[np.float64],
         params: dict[str, Any],
     ) -> Any:
         """
@@ -550,8 +551,8 @@ class BaseMLTrainer(ABC):
 
     def _calculate_objective_metric(
         self,
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
+        y_true: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float64],
     ) -> float:
         """
         Calculate metric for Optuna optimization.
@@ -578,8 +579,8 @@ class BaseMLTrainer(ABC):
 
     def _cross_validate(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
+        X: npt.NDArray[np.float64],
+        y: npt.NDArray[np.float64],
         **kwargs: Any,
     ) -> list[dict[str, float]]:
         """
@@ -612,8 +613,8 @@ class BaseMLTrainer(ABC):
 
     def _time_series_cv(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
+        X: npt.NDArray[np.float64],
+        y: npt.NDArray[np.float64],
         n_folds: int,
         **kwargs: Any,
     ) -> list[dict[str, float]]:
@@ -673,8 +674,8 @@ class BaseMLTrainer(ABC):
 
     def _standard_cv(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
+        X: npt.NDArray[np.float64],
+        y: npt.NDArray[np.float64],
         n_folds: int,
         **kwargs: Any,
     ) -> list[dict[str, float]]:
@@ -833,8 +834,8 @@ class BaseMLTrainer(ABC):
     def evaluate(
         self,
         model: Any,
-        X: np.ndarray,
-        y: np.ndarray,
+        X: npt.NDArray[np.float64],
+        y: npt.NDArray[np.float64],
     ) -> dict[str, float]:
         """
         Evaluate model performance using standard ML metrics.
@@ -864,8 +865,8 @@ class BaseMLTrainer(ABC):
 
     def calculate_trading_metrics(
         self,
-        returns: np.ndarray,
-        predictions: np.ndarray,
+        returns: npt.NDArray[np.float64],
+        predictions: npt.NDArray[np.float64],
     ) -> dict[str, float]:
         """
         Calculate trading-specific performance metrics.
@@ -1040,7 +1041,7 @@ class BaseMLTrainer(ABC):
 
         return data[:split_idx], data[split_idx:]
 
-    def _is_classification_problem(self, y: np.ndarray) -> bool:
+    def _is_classification_problem(self, y: npt.NDArray[np.float64]) -> bool:
         """
         Determine if this is a classification problem based on target values.
 
@@ -1069,8 +1070,8 @@ class BaseMLTrainer(ABC):
 
     def _calculate_classification_metrics(
         self,
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
+        y_true: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float64],
     ) -> dict[str, float]:
         """
         Calculate classification metrics.
@@ -1097,8 +1098,8 @@ class BaseMLTrainer(ABC):
 
     def _calculate_regression_metrics(
         self,
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
+        y_true: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float64],
     ) -> dict[str, float]:
         """
         Calculate regression metrics.
@@ -1113,8 +1114,8 @@ class BaseMLTrainer(ABC):
         r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
 
         return {
-            "mse": mse,
-            "rmse": rmse,
-            "mae": mae,
-            "r2_score": r2,
+            "mse": float(mse),
+            "rmse": float(rmse),
+            "mae": float(mae),
+            "r2_score": float(r2),
         }

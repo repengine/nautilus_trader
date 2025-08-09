@@ -30,6 +30,7 @@ from datetime import datetime
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from ml._imports import HAS_LIGHTGBM
@@ -148,7 +149,7 @@ def generate_realistic_ohlcv(
 
 def create_correlated_multi_instrument_data(
     instruments: dict[str, float],
-    correlation_matrix: np.ndarray | None = None,
+    correlation_matrix: npt.NDArray[np.float64] | None = None,
     start_time: datetime = datetime(2024, 1, 1),
     n_bars: int = 1000,
     common_volatility: float = 0.01,
@@ -161,7 +162,7 @@ def create_correlated_multi_instrument_data(
     ----------
     instruments : dict[str, float]
         Mapping of instrument symbols to base prices
-    correlation_matrix : np.ndarray, optional
+    correlation_matrix : npt.NDArray[np.float64], optional
         Correlation matrix for returns. If None, uses default correlations
     start_time : datetime
         Starting timestamp for the data
@@ -260,8 +261,8 @@ def create_correlated_multi_instrument_data(
 
 
 def validate_feature_parity(
-    batch_features: np.ndarray,
-    online_features: np.ndarray,
+    batch_features: npt.NDArray[np.float64],
+    online_features: npt.NDArray[np.float64],
     tolerance: float = 1e-10,
     feature_names: list[str] | None = None,
 ) -> tuple[bool, dict[str, Any]]:
@@ -270,9 +271,9 @@ def validate_feature_parity(
 
     Parameters
     ----------
-    batch_features : np.ndarray
+    batch_features : npt.NDArray[np.float64]
         Features calculated in batch mode (training)
-    online_features : np.ndarray
+    online_features : npt.NDArray[np.float64]
         Features calculated online (inference)
     tolerance : float, default 1e-10
         Maximum allowed relative tolerance

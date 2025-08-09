@@ -27,6 +27,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from ml._imports import HAS_POLARS
 from ml._imports import pl
@@ -54,8 +55,8 @@ class ParityTestUtils:
 
     @staticmethod
     def assert_features_equal(
-        batch_features: np.ndarray,
-        online_features: np.ndarray,
+        batch_features: npt.NDArray[np.float32],
+        online_features: npt.NDArray[np.float32],
         feature_names: list[str] | None = None,
         tolerance: float | None = None,
     ) -> None:
@@ -64,9 +65,9 @@ class ParityTestUtils:
 
         Parameters
         ----------
-        batch_features : np.ndarray
+        batch_features : npt.NDArray[np.float32]
             Features computed in batch mode.
-        online_features : np.ndarray
+        online_features : npt.NDArray[np.float32]
             Features computed in online mode.
         feature_names : list[str], optional
             Names of features for better error reporting.
@@ -130,7 +131,7 @@ class ParityTestUtils:
     @staticmethod
     def compare_feature_vectors(
         batch_df: Any,  # pl.DataFrame or pd.DataFrame
-        online_features: list[np.ndarray],
+        online_features: list[npt.NDArray[np.float32]],
         feature_names: list[str],
         tolerance: float | None = None,
     ) -> None:
@@ -141,7 +142,7 @@ class ParityTestUtils:
         ----------
         batch_df : pl.DataFrame or pd.DataFrame
             Batch computed features.
-        online_features : list[np.ndarray]
+        online_features : list[npt.NDArray[np.float32]]
             List of online feature vectors.
         feature_names : list[str]
             Names of features.

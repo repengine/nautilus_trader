@@ -39,6 +39,7 @@ from unittest.mock import Mock
 from unittest.mock import patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from ml.actors.base import CircuitBreaker
@@ -85,13 +86,13 @@ class SimpleTestModel:
     Simple test model for pickle loading.
     """
 
-    def predict(self, X: Any) -> np.ndarray:
+    def predict(self, X: Any) -> npt.NDArray[np.float64]:
         """
         Return simple prediction.
         """
         return np.array([0.75])
 
-    def predict_proba(self, X: Any) -> np.ndarray:
+    def predict_proba(self, X: Any) -> npt.NDArray[np.float64]:
         """
         Return prediction probabilities.
         """
@@ -347,7 +348,7 @@ class TestCircuitBreaker:
             can_execute = breaker.can_execute()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
         assert can_execute is True
 
     def test_circuit_closes_after_successful_recovery(self) -> None:
@@ -365,7 +366,7 @@ class TestCircuitBreaker:
         # Transition to half-open
         with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]        # Act - Record enough successes to close
+        assert breaker.state == CircuitBreakerState.HALF_OPEN        # Act - Record enough successes to close
         breaker.record_success()
         breaker.record_success()
 
@@ -384,13 +385,13 @@ class TestCircuitBreaker:
         breaker.record_failure()
         with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
 
         # Act - Record failure in half-open state
         breaker.record_failure()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.OPEN
     def test_success_reduces_failure_count_when_closed(self) -> None:
         """
         Test success reduces failure count when circuit is closed.
@@ -565,8 +566,8 @@ class MockMLInferenceActor:
         self._model_metadata: dict[str, Any] = {}
         self._model_version: str | None = None
         self._model_loader: ModelLoader = PickleModelLoader()
-        self._features_buffer: np.ndarray | None = None
-        self._feature_window: deque[np.ndarray] = deque(
+        self._features_buffer: npt.NDArray[np.float32] | None = None
+        self._feature_window: deque[npt.NDArray[np.float32]] = deque(
             maxlen=self._feature_config.lookback_window,
         )
 
@@ -644,7 +645,7 @@ class MockMLInferenceActor:
         self.features_initialized = True
         self._features_buffer = np.zeros(10, dtype=np.float32)
 
-    def _compute_features(self, bar: Bar) -> np.ndarray | None:
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Mock feature computation with timing simulation.
         """
@@ -658,7 +659,7 @@ class MockMLInferenceActor:
 
         return np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Mock prediction with configurable behavior.
         """
@@ -787,7 +788,7 @@ class MockMLInferenceActor:
         # Generate prediction with circuit breaker protection
         self._generate_prediction_protected(bar, features)
 
-    def _generate_prediction_protected(self, bar: Bar, features: np.ndarray) -> None:
+    def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:
         """
         Mock prediction generation.
         """
@@ -2378,7 +2379,7 @@ class TestCircuitBreakerEdgeCases:
             can_execute = breaker.can_execute()
 
         # Assert
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
         assert can_execute is True
 
     def test_circuit_breaker_multiple_success_threshold(self) -> None:
@@ -2393,16 +2394,16 @@ class TestCircuitBreakerEdgeCases:
         breaker.record_failure()
         with patch("time.time", return_value=time.time() + 61):
             breaker.can_execute()
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
 
         # Record partial successes
         breaker.record_success()
         breaker.record_success()
-        assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]  # Still half-open
+        assert breaker.state == CircuitBreakerState.HALF_OPEN  # Still half-open
 
         # Final success should close circuit
         breaker.record_success()
-        assert breaker.state == CircuitBreakerState.CLOSED  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.CLOSED
     def test_circuit_breaker_success_count_tracking(self) -> None:
         """
         Test circuit breaker success count tracking.
@@ -3008,12 +3009,12 @@ class TestMissingCoverageAreas:
         # Move to half-open after timeout
         with patch("time.time", return_value=time.time() + 61):
             can_execute = breaker.can_execute()
-            assert breaker.state == CircuitBreakerState.HALF_OPEN  # type: ignore[comparison-overlap]
+            assert breaker.state == CircuitBreakerState.HALF_OPEN
             assert can_execute is True
 
         # Success in half-open should close circuit
         breaker.record_success()
-        assert breaker.state == CircuitBreakerState.CLOSED  # type: ignore[comparison-overlap]
+        assert breaker.state == CircuitBreakerState.CLOSED
 
     def test_onnx_model_loader_import_error_paths(self) -> None:
         """
