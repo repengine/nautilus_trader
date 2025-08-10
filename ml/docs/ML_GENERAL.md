@@ -178,31 +178,6 @@ Fantastic—you’ve got exactly the right intuition: **use L2/L3 (T+1) to *teac
 
 ---
 
-## 10) Concrete next steps (2–3 weeks)
-
-**Week 1**
-
-- Implement **Teacher–Student v1** for one instrument:
-
-  - Labels: next‑tick up, spread widen in 1s, fill‑within‑t for size S.
-  - Student: LightGBM (L1 features only).
-  - Nightly job writes: `teacher_eval.json`, `student.onnx`, `calibration.pkl`.
-- Ship **regime v0**: simple gradient‑boosted classifier on yield curve deltas + credit + FX; produce `regime_vector`.
-
-**Week 2**
-
-- Deploy students behind **Ray Serve**; expose `/score` and `/metrics`.
-- Add **policy overlay**: CVXPY schedule w/ caps from regime; wire Prom metrics for hit‑rate, slippage vs expectation.
-- UI pages: State & Throttle, Microstructure Lens (minimal read‑only first).
-
-**Week 3**
-
-- Add **calibration + drift monitors** (Evidently or custom): nightly HTML reports; alert on drift.
-- Expand to 2–3 instruments; introduce **Ray Tune** for HPO of student models.
-- Start **execution policy A/B** (conservative vs aggressive) with traffic split in Ray Serve.
-
----
-
 ## Where each tool from your list shines (for this plan)
 
 - **LightGBM/XGBoost**: students; ONNX/Treelite export for speed.

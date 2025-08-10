@@ -1,17 +1,4 @@
-# -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
-#
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-# -------------------------------------------------------------------------------------------------
+
 """
 Base trainer class for ML model training.
 
@@ -24,7 +11,6 @@ serialization.
 from __future__ import annotations
 
 import logging
-import pickle
 import time
 from abc import ABC
 from abc import abstractmethod
@@ -936,8 +922,11 @@ class BaseMLTrainer(ABC):
 
     def save_model(self, path: str | Path) -> None:
         """
-        Save the trained model to disk.
+        Save the trained model to disk in production format.
 
+        This method should be overridden by specific trainers to save
+        in their native format (XGBoost JSON, LightGBM TXT, etc).
+        
         Parameters
         ----------
         path : str | Path
@@ -950,21 +939,28 @@ class BaseMLTrainer(ABC):
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save model with metadata
-        model_data = {
-            "model": self._model,
-            "feature_names": self._feature_names,
-            "training_metrics": self._training_metrics,
-        }
+        # Import here to avoid circular dependency
+        from ml.models.saver import save_model_with_metadata
+        
+        # Save in production format with metadata
+        # Use -1 to indicate variable batch size for type safety
+        saved_path = save_model_with_metadata(
+            model=self._model,
+            path=save_path,
+            input_shape=(-1, len(self._feature_names)),
+            training_metadata={
+                "feature_names": self._feature_names,
+                "training_metrics": self._training_metrics,
+                "trainer_class": self.__class__.__name__,
+            },
+            force_pickle=False,  # Never use pickle for production
+        )
 
-        with open(save_path, "wb") as f:
-            pickle.dump(model_data, f)
-
-        self._log_info(f"Model saved to {save_path}")
+        self._log_info(f"Model saved to {saved_path}")
 
     def load_model(self, path: str | Path) -> None:
         """
-        Load a trained model from disk.
+        Load a trained model from disk using ProductionModelLoader.
 
         Parameters
         ----------
@@ -976,12 +972,16 @@ class BaseMLTrainer(ABC):
         if not load_path.exists():
             raise FileNotFoundError(f"Model file not found: {load_path}")
 
-        with open(load_path, "rb") as f:
-            model_data = pickle.load(f)  # noqa: S301
-
-        self._model = model_data["model"]
-        self._feature_names = model_data.get("feature_names", [])
-        self._training_metrics = model_data.get("training_metrics", {})
+        # Import here to avoid circular dependency
+        from ml.models.loader import ProductionModelLoader
+        
+        # Load using production loader
+        loader = ProductionModelLoader()
+        model, metadata = loader.load_model(str(load_path))
+        
+        self._model = model
+        self._feature_names = metadata.get("feature_names", [])
+        self._training_metrics = metadata.get("training_metrics", {})
         self._is_fitted = True
 
         self._log_info(f"Model loaded from {load_path}")

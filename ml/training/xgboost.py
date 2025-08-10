@@ -1,17 +1,4 @@
-# -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
-#
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-# -------------------------------------------------------------------------------------------------
+
 """
 XGBoost trainer for financial time series prediction.
 
@@ -35,6 +22,7 @@ from ml._imports import pl
 from ml._imports import xgb
 from ml.config.xgboost import XGBoostTrainingConfig
 from ml.training.base import BaseMLTrainer
+from ml.training.model_exporter import ModelExportMixin
 
 
 if TYPE_CHECKING:
@@ -43,7 +31,7 @@ if TYPE_CHECKING:
     import xgboost as xgb
 
 
-class XGBoostTrainer(BaseMLTrainer):
+class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
     """
     XGBoost trainer for financial time series prediction.
 
@@ -173,15 +161,15 @@ class XGBoostTrainer(BaseMLTrainer):
 
         """
         # Create DMatrix objects
+        # Note: We don't pass feature_names to DMatrix to avoid ONNX conversion issues
+        # XGBoost will use default names f0, f1, f2... which work with onnxmltools
         self._dtrain = xgb.DMatrix(
             X_train,
             label=y_train,
-            feature_names=self._feature_names if self._feature_names else None,
         )
         self._dval = xgb.DMatrix(
             X_val,
             label=y_val,
-            feature_names=self._feature_names if self._feature_names else None,
         )
 
         # Prepare parameters
@@ -252,10 +240,8 @@ class XGBoostTrainer(BaseMLTrainer):
 
         """
         # Create DMatrix for prediction
-        dmatrix = xgb.DMatrix(
-            X,
-            feature_names=self._feature_names if self._feature_names else None,
-        )
+        # Note: We don't pass feature_names to avoid issues - XGBoost will use default names
+        dmatrix = xgb.DMatrix(X)
 
         # Make predictions
         predictions = model.predict(dmatrix)
@@ -361,21 +347,36 @@ class XGBoostTrainer(BaseMLTrainer):
             from onnxmltools import convert_xgboost
             from onnxmltools.convert.common.data_types import FloatTensorType
 
-            # Define input type
-            initial_type = [
-                ("float_input", FloatTensorType([None, len(self._feature_names)])),
-            ]
+            # IMPORTANT: onnxmltools expects feature names in format f0, f1, f2...
+            # So we need to temporarily save the model with default feature names
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+                # Save model without feature names (XGBoost will use f0, f1, f2...)
+                model.save_model(tmp.name)
+                # Reload model without feature names
+                import xgboost as xgb
+                temp_booster = xgb.Booster()
+                temp_booster.load_model(tmp.name)
+                
+                # Define input type
+                initial_type = [
+                    ("float_input", FloatTensorType([None, len(self._feature_names)])),
+                ]
 
-            # Convert model
-            onnx_model = convert_xgboost(
-                model,
-                initial_types=initial_type,
-                target_opset=12,
-            )
+                # Convert model using the temp booster without custom feature names
+                onnx_model = convert_xgboost(
+                    temp_booster,
+                    initial_types=initial_type,
+                    target_opset=12,
+                )
 
-            # Save ONNX model
-            with open(path, "wb") as f:
-                f.write(onnx_model.SerializeToString())
+                # Save ONNX model
+                with open(path, "wb") as f:
+                    f.write(onnx_model.SerializeToString())
+                    
+                # Clean up temp file
+                import os
+                os.unlink(tmp.name)
 
         except ImportError:
             self._log_warning(
@@ -462,9 +463,30 @@ class XGBoostTrainer(BaseMLTrainer):
             self._log_warning("SHAP not installed. Install with: pip install shap")
             return None
 
+    # ModelExportMixin implementation methods
+    def get_model(self) -> Any:
+        """Get the trained model instance."""
+        return self._booster if self._booster is not None else self._model
+
+    def get_feature_names(self) -> list[str]:
+        """Get the feature names used in training."""
+        return self._feature_names
+
+    def get_training_metadata(self) -> dict[str, Any]:
+        """Get training metadata."""
+        return {
+            **self._training_metrics,
+            "config": {
+                "objective": self._xgb_config.objective,
+                "n_estimators": self._xgb_config.n_estimators,
+                "max_depth": self._xgb_config.max_depth,
+                "learning_rate": self._xgb_config.learning_rate,
+            },
+        }
+
     def save_model(self, path: str | Path) -> None:
         """
-        Save the trained XGBoost model.
+        Save the trained XGBoost model in native JSON format.
 
         Parameters
         ----------
@@ -478,19 +500,30 @@ class XGBoostTrainer(BaseMLTrainer):
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save as XGBoost native format
+        # Ensure it's saved as JSON for production use
+        if save_path.suffix not in {".json", ".xgb"}:
+            save_path = save_path.with_suffix(".json")
+
+        # Save as XGBoost native JSON format
         self._booster.save_model(str(save_path))
         self._log_info(f"XGBoost model saved to {save_path}")
 
-        # Also save metadata
-        metadata_path = save_path.with_suffix(".meta")
+        # Save metadata in standard format
+        metadata_path = save_path.with_suffix(save_path.suffix + ".meta.json")
         metadata = {
-            "feature_names": self._feature_names,
-            "training_metrics": self._training_metrics,
-            "config": {
-                "objective": self._xgb_config.objective,
-                "n_estimators": self._xgb_config.n_estimators,
-                "max_depth": self._xgb_config.max_depth,
+            "model_type": "xgboost",
+            "path": str(save_path),
+            "input_shape": [None, len(self._feature_names)],
+            "output_shape": [None, 1],
+            "training_metadata": {
+                "feature_names": self._feature_names,
+                "training_metrics": self._training_metrics,
+                "trainer_class": self.__class__.__name__,
+                "config": {
+                    "objective": self._xgb_config.objective,
+                    "n_estimators": self._xgb_config.n_estimators,
+                    "max_depth": self._xgb_config.max_depth,
+                },
             },
         }
 
@@ -522,15 +555,24 @@ class XGBoostTrainer(BaseMLTrainer):
         self._model = self._booster
         self._is_fitted = True
 
-        # Load metadata if available
-        metadata_path = load_path.with_suffix(".meta")
+        # Load metadata if available (try both .meta.json and .meta for backward compat)
+        metadata_path = load_path.with_suffix(load_path.suffix + ".meta.json")
+        if not metadata_path.exists():
+            metadata_path = load_path.with_suffix(".meta")
+        
         if metadata_path.exists():
             import json
 
             with open(metadata_path) as f:
                 metadata = json.load(f)
-                self._feature_names = metadata.get("feature_names", [])
-                self._training_metrics = metadata.get("training_metrics", {})
+                # Handle both flat and nested metadata structures
+                if "training_metadata" in metadata:
+                    training_meta = metadata["training_metadata"]
+                    self._feature_names = training_meta.get("feature_names", [])
+                    self._training_metrics = training_meta.get("training_metrics", {})
+                else:
+                    self._feature_names = metadata.get("feature_names", [])
+                    self._training_metrics = metadata.get("training_metrics", {})
 
         self._log_info(f"XGBoost model loaded from {load_path}")
 

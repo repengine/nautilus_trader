@@ -1,0 +1,132 @@
+{
+  "models": {
+    "model_1754768931076496": {
+      "model_id": "model_1754768931076496",
+      "model_path": "ml/tests/data/model_registry/models/xgb_v1.json",
+      "version": "1.0.0",
+      "metadata": {
+        "trained_by": "XGBoostTrainer",
+        "features": [
+          "sma_10",
+          "rsi_14",
+          "volume_ratio"
+        ],
+        "training_metrics": {
+          "accuracy": 0.92,
+          "auc": 0.88,
+          "f1_score": 0.85
+        },
+        "training_samples": 100000,
+        "training_date": 1754768931.0764914,
+        "deployment_config": {
+          "target": "ml_signal_actor",
+          "instruments": [
+            "EURUSD",
+            "GBPUSD"
+          ],
+          "max_positions": 5,
+          "confidence_threshold": 0.7
+        }
+      },
+      "deployment_status": "active",
+      "deployed_to": [
+        "ml_signal_actor"
+      ],
+      "created_at": 1754768931.0764985,
+      "last_modified": 1754768931.0780783,
+      "performance_history": [
+        {
+          "live_accuracy": 0.9,
+          "pnl": 1000,
+          "trades": 10,
+          "sharpe_ratio": 1.5,
+          "max_drawdown": 0.05,
+          "timestamp": 1754768931.076705
+        },
+        {
+          "live_accuracy": 0.91,
+          "pnl": 1500,
+          "trades": 15,
+          "sharpe_ratio": 1.6,
+          "max_drawdown": 0.04,
+          "timestamp": 1754768931.0768437
+        },
+        {
+          "live_accuracy": 0.92,
+          "pnl": 2000,
+          "trades": 20,
+          "sharpe_ratio": 1.7,
+          "max_drawdown": 0.030000000000000002,
+          "timestamp": 1754768931.0769837
+        }
+      ]
+    },
+    "model_1754768931077181": {
+      "model_id": "model_1754768931077181",
+      "model_path": "ml/tests/data/model_registry/models/xgb_v2.json",
+      "version": "2.0.0",
+      "metadata": {
+        "trained_by": "XGBoostTrainer",
+        "features": [
+          "sma_10",
+          "rsi_14",
+          "volume_ratio",
+          "atr_20"
+        ],
+        "training_metrics": {
+          "accuracy": 0.94,
+          "auc": 0.91,
+          "f1_score": 0.89
+        },
+        "improvements": "Added ATR feature, improved hyperparameters",
+        "deployment_config": {
+          "target": "ml_signal_actor",
+          "instruments": [
+            "EURUSD",
+            "GBPUSD"
+          ],
+          "max_positions": 5,
+          "confidence_threshold": 0.7
+        }
+      },
+      "deployment_status": "inactive",
+      "deployed_to": [
+        "ml_signal_actor"
+      ],
+      "created_at": 1754768931.0771828,
+      "last_modified": 1754768931.0779297,
+      "performance_history": [
+        {
+          "live_accuracy": 0.93,
+          "pnl": 2000,
+          "trades": 30,
+          "timestamp": 1754768931.0774312
+        },
+        {
+          "live_accuracy": 0.85,
+          "pnl": -500,
+          "alert": "Accuracy dropped below threshold",
+          "timestamp": 1754768931.0779295
+        }
+      ]
+    }
+  },
+  "ab_tests": {
+    "ab_test_1754768931": {
+      "model_a": "model_1754768931076496",
+      "model_b": "model_1754768931077181",
+      "split_ratio": 0.5,
+      "duration_hours": 24,
+      "target": "ml_signal_actor",
+      "start_time": 1754768931.0773041,
+      "end_time": 1754855331.0773044,
+      "status": "active"
+    }
+  },
+  "deployments": {
+    "ml_signal_actor": [
+      "model_1754768931076496"
+    ]
+  },
+  "last_updated": 1754768931.0780804
+}

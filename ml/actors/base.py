@@ -1,17 +1,4 @@
-# -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
-#
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-# -------------------------------------------------------------------------------------------------
+
 """
 Base class for ML inference actors.
 
@@ -281,85 +268,10 @@ class CircuitBreaker:
         }
 
 
-class ModelLoader(ABC):
-    """
-    Abstract base class for model loading strategies.
-    """
-
-    @abstractmethod
-    def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
-        """
-        Load model and return model with metadata.
-
-        Parameters
-        ----------
-        path : str
-            Path to model file.
-
-        Returns
-        -------
-        tuple[Any, dict[str, Any]]
-            Tuple of (model, metadata).
-
-        """
-
-    @abstractmethod
-    def get_model_version(self, path: str) -> str:
-        """
-        Get model version without loading.
-
-        Parameters
-        ----------
-        path : str
-            Path to model file.
-
-        Returns
-        -------
-        str
-            Model version string.
-
-        """
-
-
-class PickleModelLoader(ModelLoader):
-    """
-    Model loader for pickle/joblib models.
-    """
-
-    def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
-        """
-        Load pickle model.
-        """
-        model_path = Path(path)
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {path}")
-
-        with open(model_path, "rb") as f:
-            model = pickle.load(f)  # noqa: S301
-
-        # Generate metadata
-        metadata = {
-            "path": str(model_path),
-            "size_bytes": model_path.stat().st_size,
-            "modified_time": model_path.stat().st_mtime,
-            "version": self.get_model_version(path),
-            "type": "pickle",
-        }
-
-        return model, metadata
-
-    def get_model_version(self, path: str) -> str:
-        """
-        Get model version based on file modification time and size.
-        """
-        model_path = Path(path)
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {path}")
-
-        stat = model_path.stat()
-        # Create version hash from file size and modification time
-        version_string = f"{stat.st_size}_{stat.st_mtime}"
-        return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
+# Model loaders have been moved to ml/models/loader.py
+# Import from there instead
+from ml.models.loader import ModelLoader
+from ml.models.loader import ProductionModelLoader
 
 
 class ONNXModelLoader(ModelLoader):
@@ -424,18 +336,25 @@ class ONNXModelLoader(ModelLoader):
 
 class MLSignal(Data):  # type: ignore[misc]
     """
-    Custom data type for ML predictions.
+    ML signal data class for signal generation.
+
+    Clean, simple data class with required model_id field for tracking.
+    No confusing aliases or "unified" terminology.
 
     Parameters
     ----------
     instrument_id : InstrumentId
         The instrument the prediction is for.
+    model_id : str
+        Unique identifier for the model that generated this signal.
     prediction : float
         The model prediction value.
     confidence : float
         The confidence score for the prediction (0.0 to 1.0).
     features : npt.NDArray[np.float32], optional
         The feature vector used for prediction (for debugging).
+    metadata : dict[str, Any], optional
+        Additional metadata for the signal.
     ts_event : int
         The UNIX timestamp (nanoseconds) when the signal was generated.
     ts_init : int
@@ -446,9 +365,11 @@ class MLSignal(Data):  # type: ignore[misc]
     def __init__(
         self,
         instrument_id: InstrumentId,
+        model_id: str,
         prediction: float,
         confidence: float,
         features: npt.NDArray[np.float32] | None = None,
+        metadata: dict[str, Any] | None = None,
         ts_event: int = 0,
         ts_init: int = 0,
     ) -> None:
@@ -459,12 +380,16 @@ class MLSignal(Data):  # type: ignore[misc]
         ----------
         instrument_id : InstrumentId
             The instrument this signal is for.
+        model_id : str
+            The model identifier for tracking.
         prediction : float
             The model's prediction value.
         confidence : float
             The confidence level of the prediction (0.0 to 1.0).
         features : npt.NDArray[np.float32], optional
             The feature values used for this prediction.
+        metadata : dict[str, Any], optional
+            Additional signal metadata.
         ts_event : int, default 0
             The event timestamp in nanoseconds.
         ts_init : int, default 0
@@ -472,9 +397,11 @@ class MLSignal(Data):  # type: ignore[misc]
 
         """
         self.instrument_id = instrument_id
+        self.model_id = model_id
         self.prediction = prediction
         self.confidence = confidence
         self.features = features
+        self.metadata = metadata or {}
         self._ts_event = ts_event
         self._ts_init = ts_init
 
@@ -513,20 +440,20 @@ ml_signal_confidence = Histogram(
 
 class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     """
-    Enhanced base class for ML inference actors with production features.
+    Base class for ML inference actors with production features.
 
     This class provides a foundation for building ML-powered actors that perform
-    real-time inference on market data with enterprise-grade features including:
+    real-time inference on market data with:
     - Model hot-reloading capability
     - Health monitoring and status reporting
     - Circuit breaker pattern for fault tolerance
     - Comprehensive metrics and observability
-    - Indicator state preservation during reloads
+    - Proper model_id tracking for signals
 
     Key principles:
     - All indicators and models are loaded during initialization
     - Feature computation uses pre-allocated numpy arrays
-    - No blocking operations in event handlers
+    - No blocking operations in event handlers (HOT PATH)
     - Memory usage is bounded and predictable
     - <500μs feature computation, <2ms inference, <5ms end-to-end
 
@@ -567,7 +494,8 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         self._model: Any = None
         self._model_metadata: dict[str, Any] = {}
         self._model_version: str | None = None
-        self._model_loader: ModelLoader = PickleModelLoader()
+        self._model_id: str = "unknown"  # Track model ID for signals
+        self._model_loader: ModelLoader = ProductionModelLoader()
         self._features_buffer: npt.NDArray[np.float32] | None = None
         self._feature_window: deque[npt.NDArray[np.float32]] = deque(
             maxlen=self._feature_config.lookback_window,
@@ -797,6 +725,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             if confidence >= self._config.prediction_threshold and self._config.publish_signals:
                 signal = MLSignal(
                     instrument_id=bar.bar_type.instrument_id,
+                    model_id=self._model_id,
                     prediction=prediction,
                     confidence=confidence,
                     features=features if self._config.log_predictions else None,
@@ -913,12 +842,32 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 self._config.model_path,
             )
             self._model_version = self._model_metadata.get("version")
+            
+            # Extract model_id from metadata or generate from path
+            if "model_id" in self._model_metadata:
+                self._model_id = self._model_metadata["model_id"]
+            elif "training_metadata" in self._model_metadata:
+                training_meta = self._model_metadata["training_metadata"]
+                if "model_id" in training_meta:
+                    self._model_id = training_meta["model_id"]
+                else:
+                    # Generate from path and version
+                    from pathlib import Path
+                    model_name = Path(self._config.model_path).stem
+                    version_str = self._model_version[:8] if self._model_version else "v1"
+                    self._model_id = f"{model_name}_{version_str}"
+            else:
+                # Fallback: use filename and version
+                from pathlib import Path
+                model_name = Path(self._config.model_path).stem
+                self._model_id = f"{model_name}_{self._model_version[:8] if self._model_version else 'v1'}"
 
             # Call the original abstract method for backward compatibility
             self._load_model()
 
             self.log.info(
                 f"Loaded model with metadata: "
+                f"model_id={self._model_id}, "
                 f"version={self._model_version}, "
                 f"size={self._model_metadata.get('size_bytes', 0)} bytes, "
                 f"type={self._model_metadata.get('type', 'unknown')}",
@@ -1199,6 +1148,172 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
         return prediction, confidence
 
 
+class MLSignalActor(BaseMLInferenceActor):
+    """
+    Production ML signal actor for real-time inference.
+    
+    Implements clean signal generation with model_id tracking,
+    handles multiple instruments, and gracefully handles failures.
+    """
+    
+    def __init__(self, config: MLActorConfig) -> None:
+        """
+        Initialize ML signal actor.
+        
+        Parameters
+        ----------
+        config : MLActorConfig
+            Actor configuration including model path and instruments.
+        """
+        super().__init__(config)
+        
+        # Track configured instruments
+        self._instruments: list[InstrumentId] = []
+        if hasattr(config, 'instruments'):
+            self._instruments = config.instruments
+        elif hasattr(config, 'instrument_id') and config.instrument_id:
+            self._instruments = [config.instrument_id]
+        
+        # Feature computation
+        self._sma_fast: Any = None
+        self._sma_slow: Any = None
+        self._rsi: Any = None
+        
+        # Pre-allocated feature buffer
+        self._feature_size = 10  # Standard feature size
+        self._feature_buffer = np.zeros(self._feature_size, dtype=np.float32)
+    
+    def on_bar(self, bar: Bar) -> None:
+        """
+        Process bar and generate signal if appropriate.
+        
+        Filters by configured instruments and handles failures gracefully.
+        """
+        # Filter by configured instruments
+        if self._instruments and bar.bar_type.instrument_id not in self._instruments:
+            return
+        
+        # Call parent implementation which handles everything
+        super().on_bar(bar)
+    
+    def _load_model(self) -> None:
+        """
+        Model loading handled by parent _load_model_with_metadata.
+        """
+        # Model is already loaded by parent class
+        # This is called for compatibility
+        pass
+    
+    def _initialize_features(self) -> None:
+        """
+        Initialize technical indicators for feature computation.
+        """
+        from nautilus_trader.indicators.average.sma import SimpleMovingAverage
+        from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+        
+        self._sma_fast = SimpleMovingAverage(10)
+        self._sma_slow = SimpleMovingAverage(20)
+        self._rsi = RelativeStrengthIndex(14)
+        
+        self.log.info(f"Initialized indicators for {self.__class__.__name__}")
+    
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
+        """
+        Compute features from bar data.
+        
+        Returns None if indicators not ready.
+        """
+        # Update indicators
+        self._sma_fast.handle_bar(bar)
+        self._sma_slow.handle_bar(bar)
+        self._rsi.handle_bar(bar)
+        
+        # Check if initialized
+        if not (self._sma_fast.initialized and 
+                self._sma_slow.initialized and 
+                self._rsi.initialized):
+            return None
+        
+        # Compute features in pre-allocated buffer
+        close_price = float(bar.close)
+        
+        self._feature_buffer[0] = close_price / float(self._sma_fast.value)
+        self._feature_buffer[1] = close_price / float(self._sma_slow.value)
+        self._feature_buffer[2] = float(self._sma_fast.value) / float(self._sma_slow.value)
+        self._feature_buffer[3] = float(self._rsi.value) / 100.0
+        self._feature_buffer[4] = float(bar.high - bar.low) / close_price
+        self._feature_buffer[5] = float(bar.close - bar.open) / close_price
+        self._feature_buffer[6] = float(bar.volume) / 1_000_000.0  # Normalized volume
+        
+        # Fill remaining features with zeros for consistency
+        self._feature_buffer[7:] = 0.0
+        
+        return self._feature_buffer
+    
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
+        """
+        Generate prediction from features.
+        
+        Handles different model types and gracefully handles errors.
+        """
+        if self._model is None:
+            return 0.0, 0.0
+        
+        try:
+            # Check if model is wrapped with unified interface
+            if hasattr(self._model, 'predict') and hasattr(self._model, 'metadata'):
+                # Using Agent 2's model wrapper
+                result = self._model.predict(features)
+                if isinstance(result, tuple):
+                    return result
+                else:
+                    # Single value prediction
+                    prediction = float(result)
+                    confidence = abs(prediction) if prediction != 0 else 0.5
+                    return prediction, confidence
+            
+            # Handle raw models (backward compatibility)
+            features_2d = features.reshape(1, -1)
+            
+            # ONNX model
+            if hasattr(self._model, 'run'):
+                if 'input_names' in self._model_metadata:
+                    input_name = self._model_metadata['input_names'][0]
+                else:
+                    input_name = self._model.get_inputs()[0].name
+                
+                outputs = self._model.run(None, {input_name: features_2d.astype(np.float32)})
+                
+                if len(outputs) >= 2:
+                    return float(outputs[0][0]), float(outputs[1][0])
+                else:
+                    prediction = float(outputs[0][0])
+                    return prediction, abs(prediction)
+            
+            # Scikit-learn style model
+            elif hasattr(self._model, 'predict'):
+                if hasattr(self._model, 'predict_proba'):
+                    probabilities = self._model.predict_proba(features_2d)[0]
+                    prediction = float(np.argmax(probabilities))
+                    confidence = float(np.max(probabilities))
+                    return prediction, confidence
+                else:
+                    prediction = float(self._model.predict(features_2d)[0])
+                    confidence = abs(prediction) if prediction != 0 else 0.5
+                    return prediction, confidence
+            
+            else:
+                self.log.error(f"Unknown model type: {type(self._model)}")
+                return 0.0, 0.0
+                
+        except Exception as e:
+            # Log error but don't crash - graceful degradation
+            if hasattr(self, 'log'):
+                self.log.error(f"Prediction failed: {e}")
+            # Re-raise to let base class handle circuit breaker
+            raise
+
+
 class EnhancedMLInferenceActor(BaseMLInferenceActor):
     """
     Complete demonstration of enhanced ML inference actor.
@@ -1217,12 +1332,8 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         """
         super().__init__(config)
 
-        # Choose model loader based on file extension
-        model_path = Path(config.model_path)
-        if model_path.suffix.lower() == ".onnx":
-            self._model_loader = ONNXModelLoader()
-        else:
-            self._model_loader = PickleModelLoader()
+        # Use ProductionModelLoader for automatic format detection
+        self._model_loader = ProductionModelLoader()
 
         # Pre-allocated feature buffer for performance
         self._feature_buffer = np.zeros(20, dtype=np.float32)  # Adjust size as needed

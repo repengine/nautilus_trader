@@ -289,7 +289,3 @@ For issues or questions:
 1. Check the [troubleshooting guide](#troubleshooting)
 2. Review logs: `docker-compose logs`
 3. Open an issue with relevant logs and configuration
-
-## License
-
-Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.

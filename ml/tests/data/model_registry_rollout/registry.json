@@ -1,0 +1,56 @@
+{
+  "models": {
+    "model_1754768931078451": {
+      "model_id": "model_1754768931078451",
+      "model_path": "ml/tests/data/model_registry_rollout/models/prod.onnx",
+      "version": "1.0.0",
+      "metadata": {
+        "name": "production_model",
+        "deployment_config": {
+          "target": "ml_signal_actor"
+        }
+      },
+      "deployment_status": "testing",
+      "deployed_to": [
+        "ml_signal_actor"
+      ],
+      "created_at": 1754768931.0784535,
+      "last_modified": 1754768931.0788784,
+      "performance_history": []
+    },
+    "model_1754768931078516": {
+      "model_id": "model_1754768931078516",
+      "model_path": "ml/tests/data/model_registry_rollout/models/new.onnx",
+      "version": "1.0.0",
+      "metadata": {
+        "name": "new_model"
+      },
+      "deployment_status": "testing",
+      "deployed_to": [
+        "ml_signal_actor"
+      ],
+      "created_at": 1754768931.078522,
+      "last_modified": 1754768931.0788786,
+      "performance_history": []
+    }
+  },
+  "ab_tests": {
+    "ab_test_1754768931": {
+      "model_a": "model_1754768931078451",
+      "model_b": "model_1754768931078516",
+      "split_ratio": 0.5,
+      "duration_hours": 1,
+      "target": "ml_signal_actor",
+      "start_time": 1754768931.0788777,
+      "end_time": 1754772531.0788777,
+      "status": "active"
+    }
+  },
+  "deployments": {
+    "ml_signal_actor": [
+      "model_1754768931078451",
+      "model_1754768931078516"
+    ]
+  },
+  "last_updated": 1754768931.0788813
+}

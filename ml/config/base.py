@@ -1,17 +1,4 @@
-# -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
-#
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-# -------------------------------------------------------------------------------------------------
+
 """
 Base configuration classes for ML components using msgspec.
 
@@ -23,6 +10,10 @@ and training components, following Nautilus conventions.
 from __future__ import annotations
 
 from typing import Any
+from typing import Literal
+
+import msgspec
+from msgspec import ValidationError
 
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
@@ -122,6 +113,8 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     ----------
     model_path : str
         Path to the trained model file (supports .pkl, .joblib, .onnx formats).
+    model_id : str
+        Unique identifier for the model (required for tracking).
     bar_type : BarType
         The bar type to subscribe to for ML inference.
     instrument_id : InstrumentId
@@ -164,6 +157,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     """
 
     model_path: str
+    model_id: str  # NEW - required for tracking
     bar_type: BarType
     instrument_id: InstrumentId
     prediction_threshold: NonNegativeFloat = 0.5
@@ -253,3 +247,130 @@ class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
     early_stopping_rounds: PositiveInt = 50
     validation_metric: str = "accuracy"
     save_model_path: str | None = None
+
+
+class ModelRegistryConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML model registry.
+
+    Parameters
+    ----------
+    registry_path : str, default "ml/registry"
+        Base path for model registry storage.
+    enable_mlflow : bool, default False
+        Whether to enable MLflow integration for experiment tracking.
+    mlflow_tracking_uri : str, optional
+        MLflow tracking server URI. If None, uses local file storage.
+    auto_versioning : bool, default True
+        Whether to automatically version models on registration.
+    max_versions_per_model : PositiveInt, default 10
+        Maximum number of versions to keep per model.
+
+    """
+
+    registry_path: str = "ml/registry"
+    enable_mlflow: bool = False
+    mlflow_tracking_uri: str | None = None
+    auto_versioning: bool = True
+    max_versions_per_model: PositiveInt = 10
+
+
+class MultiModelStrategyConfig(MLStrategyConfig, kw_only=True, frozen=True):
+    """
+    Configuration for strategies consuming multiple models.
+
+    Parameters
+    ----------
+    target_model_ids : list[str]
+        List of model IDs this strategy will consume signals from.
+    aggregation_mode : str
+        How to aggregate signals from multiple models: "voting", "weighted_average", or "best".
+    model_weights : dict[str, float], optional
+        Weights for each model ID when using weighted_average aggregation.
+        Keys are model IDs, values are weights. If None, uses equal weights.
+    required_models : PositiveInt, default 1
+        Minimum number of models that must provide signals before trading.
+
+    """
+
+    target_model_ids: list[str]
+    aggregation_mode: Literal["voting", "weighted_average", "best"]
+    model_weights: dict[str, float] | None = None
+    required_models: PositiveInt = 1
+
+
+class ModelDeploymentConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for model deployment.
+
+    Parameters
+    ----------
+    deployment_target : str
+        Where to deploy the model: "actor", "strategy", or "both".
+    rollout_strategy : str
+        How to roll out the model: "immediate", "gradual", or "canary".
+    rollout_percentage : NonNegativeFloat, default 100.0
+        Percentage of traffic to route to new model (0.0 to 100.0).
+    health_check_interval : PositiveInt, default 60
+        Interval in seconds between health checks.
+    auto_rollback_on_error : bool, default True
+        Whether to automatically rollback on deployment errors.
+
+    """
+
+    deployment_target: Literal["actor", "strategy", "both"]
+    rollout_strategy: Literal["immediate", "gradual", "canary"]
+    rollout_percentage: NonNegativeFloat = 100.0
+    health_check_interval: PositiveInt = 60
+    auto_rollback_on_error: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate percentage is between 0 and 100."""
+        if self.rollout_percentage > 100.0:
+            raise ValidationError(
+                f"rollout_percentage must be between 0.0 and 100.0, got {self.rollout_percentage}"
+            )
+
+
+class CanaryDeploymentConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for canary deployments.
+
+    Parameters
+    ----------
+    initial_traffic_percentage : NonNegativeFloat, default 10.0
+        Initial percentage of traffic for canary deployment (0.0 to 100.0).
+    increment_percentage : NonNegativeFloat, default 10.0
+        Percentage to increase traffic by on each promotion (0.0 to 100.0).
+    promotion_interval_seconds : PositiveInt, default 300
+        Time between automatic promotions in seconds.
+    error_threshold_percentage : NonNegativeFloat, default 5.0
+        Error rate threshold that triggers automatic rollback (0.0 to 100.0).
+    latency_threshold_ms : PositiveFloat, default 100.0
+        Latency threshold in milliseconds that triggers rollback.
+    auto_promote : bool, default True
+        Whether to automatically promote canary based on metrics.
+    auto_rollback : bool, default True
+        Whether to automatically rollback on threshold violations.
+
+    """
+
+    initial_traffic_percentage: NonNegativeFloat = 10.0
+    increment_percentage: NonNegativeFloat = 10.0
+    promotion_interval_seconds: PositiveInt = 300
+    error_threshold_percentage: NonNegativeFloat = 5.0
+    latency_threshold_ms: PositiveFloat = 100.0
+    auto_promote: bool = True
+    auto_rollback: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate all percentages are between 0 and 100."""
+        for field_name, value in [
+            ("initial_traffic_percentage", self.initial_traffic_percentage),
+            ("increment_percentage", self.increment_percentage),
+            ("error_threshold_percentage", self.error_threshold_percentage),
+        ]:
+            if value > 100.0:
+                raise ValidationError(
+                    f"{field_name} must be between 0.0 and 100.0, got {value}"
+                )

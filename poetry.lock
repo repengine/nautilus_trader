@@ -3509,10 +3509,9 @@ files = [
 name = "lightgbm"
 version = "4.6.0"
 description = "LightGBM Python-package"
-optional = true
+optional = false
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "extra == \"ml\" or extra == \"ml-causal\""
 files = [
     {file = "lightgbm-4.6.0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:b7a393de8a334d5c8e490df91270f0763f83f959574d504c7ccb9eee4aef70ed"},
     {file = "lightgbm-4.6.0-py3-none-macosx_12_0_arm64.whl", hash = "sha256:2dafd98d4e02b844ceb0b61450a660681076b1ea6c7adb8c566dfd66832aafad"},
@@ -4856,10 +4855,9 @@ reference = ["Pillow", "google-re2 ; python_version < \"3.13\""]
 name = "onnxmltools"
 version = "1.14.0"
 description = "Converts Machine Learning models to ONNX"
-optional = true
+optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "extra == \"ml\""
 files = [
     {file = "onnxmltools-1.14.0-py2.py3-none-any.whl", hash = "sha256:8036cdcc16d50cf91fe7470d4a91a5bd7d2006170d052b051f33287aa7615252"},
     {file = "onnxmltools-1.14.0.tar.gz", hash = "sha256:d8178f617dab385e96332c3c34be038470b23cb19dd89f40212e867919206544"},
@@ -5474,10 +5472,9 @@ testing = ["coverage", "pytest", "pytest-benchmark"]
 name = "polars"
 version = "1.32.2"
 description = "Blazingly fast DataFrame library"
-optional = true
+optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"ml\""
 files = [
     {file = "polars-1.32.2-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f21da6a5210898ec800b7e9e667fb53eb9161b7ceb812ee6555ff5661a00e517"},
     {file = "polars-1.32.2-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:d3f4e061312ef6c2a907378ce407a6132734fe1a13f261a1984a1a9ca2f6febc"},
@@ -9106,4 +9103,4 @@ polymarket = ["py-clob-client"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "0ace9f50304b008ee0bafb6d2421bf3de1948f7427db775787f63633a25d989b"
+content-hash = "c843e55bbabf5f5d4806a1d2db0da36fe57a0956a11a9d8749efb67929bc4d27"

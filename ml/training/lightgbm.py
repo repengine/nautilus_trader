@@ -1,17 +1,4 @@
-# -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
-#
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-# -------------------------------------------------------------------------------------------------
+
 """
 LightGBM trainer for financial time series prediction.
 
@@ -36,6 +23,7 @@ from ml._imports import lgb
 from ml._imports import pl
 from ml.config.lightgbm import LightGBMTrainingConfig
 from ml.training.base import BaseMLTrainer
+from ml.training.model_exporter import ModelExportMixin
 
 
 if TYPE_CHECKING:
@@ -44,7 +32,7 @@ if TYPE_CHECKING:
     import polars as pl
 
 
-class LightGBMTrainer(BaseMLTrainer):
+class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
     """
     LightGBM trainer for financial time series prediction.
 
@@ -230,8 +218,8 @@ class LightGBMTrainer(BaseMLTrainer):
             if self._lgb_config.efb_config.bundle_size > 0:
                 params["max_bundle"] = self._lgb_config.efb_config.bundle_size
 
-        # Callbacks for early stopping
-        callbacks = [
+        # Callbacks for early stopping - type as list of Any to satisfy mypy
+        callbacks: list[Any] = [
             lgb.early_stopping(self._lgb_config.early_stopping_rounds),
             lgb.log_evaluation(period=0),  # Disable verbose output
         ]
@@ -497,9 +485,31 @@ class LightGBMTrainer(BaseMLTrainer):
         except ImportError:
             self._log_warning("matplotlib not installed. Install with: pip install matplotlib")
 
+    # ModelExportMixin implementation methods
+    def get_model(self) -> Any:
+        """Get the trained model instance."""
+        return self._booster if self._booster is not None else self._model
+
+    def get_feature_names(self) -> list[str]:
+        """Get the feature names used in training."""
+        return self._feature_names
+
+    def get_training_metadata(self) -> dict[str, Any]:
+        """Get training metadata."""
+        return {
+            **self._training_metrics,
+            "categorical_features": self._categorical_features,
+            "config": {
+                "objective": self._lgb_config.objective,
+                "n_estimators": self._lgb_config.n_estimators,
+                "num_leaves": self._lgb_config.num_leaves,
+                "learning_rate": self._lgb_config.learning_rate,
+            },
+        }
+
     def save_model(self, path: str | Path) -> None:
         """
-        Save the trained LightGBM model.
+        Save the trained LightGBM model in native text format.
 
         Parameters
         ----------
@@ -513,20 +523,31 @@ class LightGBMTrainer(BaseMLTrainer):
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Ensure it's saved as text for production use
+        if save_path.suffix not in {".txt", ".lgb"}:
+            save_path = save_path.with_suffix(".txt")
+
         # Save as LightGBM native format
         self._booster.save_model(str(save_path), num_iteration=self._booster.best_iteration)
         self._log_info(f"LightGBM model saved to {save_path}")
 
-        # Also save metadata
-        metadata_path = save_path.with_suffix(".meta")
+        # Save metadata in standard format
+        metadata_path = save_path.with_suffix(save_path.suffix + ".meta.json")
         metadata = {
-            "feature_names": self._feature_names,
-            "categorical_features": self._categorical_features,
-            "training_metrics": self._training_metrics,
-            "config": {
-                "objective": self._lgb_config.objective,
-                "n_estimators": self._lgb_config.n_estimators,
-                "num_leaves": self._lgb_config.num_leaves,
+            "model_type": "lightgbm",
+            "path": str(save_path),
+            "input_shape": [None, len(self._feature_names)],
+            "output_shape": [None, 1],
+            "training_metadata": {
+                "feature_names": self._feature_names,
+                "categorical_features": self._categorical_features,
+                "training_metrics": self._training_metrics,
+                "trainer_class": self.__class__.__name__,
+                "config": {
+                    "objective": self._lgb_config.objective,
+                    "n_estimators": self._lgb_config.n_estimators,
+                    "num_leaves": self._lgb_config.num_leaves,
+                },
             },
         }
 
@@ -555,14 +576,24 @@ class LightGBMTrainer(BaseMLTrainer):
         self._model = self._booster
         self._is_fitted = True
 
-        # Load metadata if available
-        metadata_path = load_path.with_suffix(".meta")
+        # Load metadata if available (try both .meta.json and .meta for backward compat)
+        metadata_path = load_path.with_suffix(load_path.suffix + ".meta.json")
+        if not metadata_path.exists():
+            metadata_path = load_path.with_suffix(".meta")
+        
         if metadata_path.exists():
             with open(metadata_path) as f:
                 metadata = json.load(f)
-                self._feature_names = metadata.get("feature_names", [])
-                self._categorical_features = metadata.get("categorical_features", [])
-                self._training_metrics = metadata.get("training_metrics", {})
+                # Handle both flat and nested metadata structures
+                if "training_metadata" in metadata:
+                    training_meta = metadata["training_metadata"]
+                    self._feature_names = training_meta.get("feature_names", [])
+                    self._categorical_features = training_meta.get("categorical_features", [])
+                    self._training_metrics = training_meta.get("training_metrics", {})
+                else:
+                    self._feature_names = metadata.get("feature_names", [])
+                    self._categorical_features = metadata.get("categorical_features", [])
+                    self._training_metrics = metadata.get("training_metrics", {})
 
         self._log_info(f"LightGBM model loaded from {load_path}")
 

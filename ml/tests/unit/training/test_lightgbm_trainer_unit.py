@@ -1,17 +1,4 @@
-# -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
-#  https://nautechsystems.io
-#
-#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
-#  You may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-# -------------------------------------------------------------------------------------------------
+
 """
 Unit tests for LightGBMTrainer.
 
@@ -64,6 +51,7 @@ class TestLightGBMTrainerInitialization:
         assert trainer._categorical_features == []
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", False)
+    @patch("ml._imports.HAS_LIGHTGBM", False)
     def test_init_without_lightgbm_raises(self) -> None:
         """
         Test initialization without LightGBM raises error.
@@ -72,7 +60,7 @@ class TestLightGBMTrainerInitialization:
         config = LightGBMTrainingConfig(data_source="test_data.csv", target_column="target")
 
         # Act & Assert
-        with pytest.raises(ImportError, match="lightgbm"):
+        with pytest.raises(ImportError, match="LightGBM"):
             LightGBMTrainer(config)
 
 
