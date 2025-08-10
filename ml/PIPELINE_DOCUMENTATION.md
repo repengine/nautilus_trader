@@ -12,10 +12,10 @@ graph LR
     C --> D[ProductionModelLoader]
     D --> E[Inference Actor]
     E --> F[Trading Signals]
-    
+
     B -.-> G[ONNX Conversion]
     G -.-> C
-    
+
     style C fill:#f9f,stroke:#333,stroke-width:4px
     style D fill:#bbf,stroke:#333,stroke-width:2px
 ```
@@ -35,13 +35,13 @@ graph LR
   - Never uses pickle for production models
 
 #### Framework-Specific Trainers
-- **`XGBoostTrainer`**: 
+- **`XGBoostTrainer`**:
   - Saves models in native `.json` format
   - Supports ONNX export via `export_to_onnx()`
   - Includes metadata with feature names and training metrics
 
 - **`LightGBMTrainer`**:
-  - Saves models in native `.txt` format  
+  - Saves models in native `.txt` format
   - Supports ONNX export
   - Preserves categorical feature information
 
@@ -217,8 +217,8 @@ Is it for production use?
 ### Error Messages
 When attempting to load pickle files:
 ```
-ValueError: Pickle format not supported for security reasons. 
-Please export your model to ONNX or native format. 
+ValueError: Pickle format not supported for security reasons.
+Please export your model to ONNX or native format.
 File: /path/to/model.pkl
 ```
 

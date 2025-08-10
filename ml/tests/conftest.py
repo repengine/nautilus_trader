@@ -8,11 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from ml.tests.data import (
-    get_model_registry_dir,
-    get_model_registry_rollout_dir,
-    get_test_data_dir,
-)
+from ml.tests.data import get_model_registry_dir
+from ml.tests.data import get_model_registry_rollout_dir
+from ml.tests.data import get_test_data_dir
 
 
 @pytest.fixture

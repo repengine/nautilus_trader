@@ -120,3 +120,5 @@ OLD/
 
 # Shell scripts (from remote)
 *.sh
+
+services/

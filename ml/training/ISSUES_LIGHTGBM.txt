@@ -1,0 +1,128 @@
+LightGBMModel (inference wrapper)
+
+
+What’s solid
+
+Single wrapper for Booster and sklearn LGBM models; enforces 2-D input and returns float32. Clean, production-friendly predict() surface.
+
+Issues & fixes
+
+Model type detection can misclassify.
+You detect “Booster” by hasattr(model, 'predict') and not hasattr('predict_proba'). LGBMRegressor also has no predict_proba, so it’ll be misread as a Booster.
+Fix: use explicit type checks:
+
+python
+Copy
+Edit
+from lightgbm import Booster, LGBMClassifier, LGBMRegressor
+if isinstance(model, Booster): ...
+elif isinstance(model, (LGBMClassifier, LGBMRegressor)): ...
+else: raise TypeError(...)
+Output shape/semantics not fully standardized.
+
+Binary cls (Booster or sklearn): return 1-D p_up vector.
+
+Multiclass: return 2-D probs [n, n_classes].
+
+Regression: return 1-D floats.
+Your sklearn branch handles binary (columns→[:,1]), but Booster branch can differ depending on objective. Normalize shapes so downstream code is deterministic.
+
+Best-iteration fallback.
+You pass num_iteration=self._model.best_iteration. If that’s None, LightGBM uses all trees—fine, but make it explicit:
+
+python
+Copy
+Edit
+best = getattr(self._model, "best_iteration", None)
+preds = self._model.predict(features, num_iteration=best)
+Schema & dtype guard (serve-time safety).
+You accept metadata but don’t validate. Add a fast check against:
+
+ordered feature_names length & hash
+
+expected dtype (float32)
+Hard-fail on mismatch to prevent silent garbage scoring.
+
+LightGBMTrainer (training/export)
+
+
+What’s solid
+
+Polars→NumPy path with categorical handling; early stopping; clean lgb.train usage with named features; saves native LightGBM text model; ONNX export hook; feature importance/plot helper.
+
+Issues & fixes
+
+predict() thresholds by default (bad for trading).
+Returning hard classes hides probability information that your strategy needs.
+Fix: default to probabilities; add a return_labels flag for evaluation only. Also ensure probabilities return as float32:
+
+python
+Copy
+Edit
+if self._lgb_config.objective == "binary":
+    proba = model.predict(X, num_iteration=model.best_iteration)
+    return proba.astype(np.float32)  # strategy thresholds later
+GPU param compatibility.
+You set params["device"] = "gpu". Some LightGBM versions expect device_type="gpu".
+Fix: version-guard:
+
+python
+Copy
+Edit
+import lightgbm as lgb
+if getattr(lgb, "__version__", "3.3") >= "4.0":
+    params["device"] = "gpu"
+else:
+    params["device_type"] = "gpu"
+params["gpu_platform_id"] = ...
+params["gpu_device_id"] = ...
+Prepare data dtype & categorical parity.
+pl.DataFrame.to_numpy() will give float64. You later cast predictions to float32, but not features.
+Fix: cast X = X.astype(np.float32) in prepare_data(); record dtypes in metadata so serve-time can enforce.
+
+Metadata completeness.
+You persist good basics, but to enable schema enforcement and best-iter replay, add:
+
+best_iteration, objective, metric
+
+ordered feature_names and a lightweight schema hash
+
+feature dtypes, training date range/symbols
+
+multiclass n_classes (so output_shape isn’t hardcoded [None, 1])
+Save in sidecar and validate in the loader/wrapper.
+
+ONNX export pre/post-processing.
+Document whether scalers/calibrators are baked into the ONNX graph. If not, persist their params and enforce at serve-time. (Right now only the model is exported.)
+
+Calibration hook.
+Add optional isotonic/Platt calibration post-fit (persist artifact + config). Your live signals will be more reliable (better Brier/log-loss and threshold stability).
+
+Return types for multiclass.
+If objective="multiclass", ensure trainer predict() can return the proba matrix (not just argmax) when requested; strategies/analytics often need per-class probs.
+
+GOSS/DART/EFB toggles vs objective checks.
+You flip boosting_type to "goss"/"dart" when enabled. Sanity-check that with objective/metric, and document trade-offs (e.g., DART can complicate best-iter/generalization; GOSS changes sampling).
+
+Integration notes (so it “just works” inside Nautilus Trader)
+End-to-end dtype & schema parity. Train on float32, serve on float32. Validate (n_features, order, dtype, schema_hash) before every load. (Prevents foot-guns when features evolve.)
+
+Best-iteration propagation. You record it—great. Ensure wrapper uses it on predict; backtest/live parity will match the early-stopped model.
+
+Probabilities in the strategy. Keep thresholds/cooldowns in the strategy (not the trainer). That’s where you’ll later do context-gating and A/B.
+
+ONNX later, native now. Native LightGBM text + Python Booster is already fast. ONNX is a nice next step once schema/calibration are locked.
+
+Minimal patch list (actionable)
+Wrapper type check & outputs (in LightGBMModel) → proper isinstance, standardize shapes, add schema/dtype checks. 
+
+Trainer predict defaults to proba (binary & multiclass), add return_labels flag and keep float32. 
+
+GPU version guard for device/device_type. 
+
+Cast features to float32 in prepare_data(), and record dtypes + schema hash in metadata. 
+
+Metadata++: include best_iteration, objective/metric, n_classes (if multiclass), feature dtypes, training window; fix output_shape for multiclass. 
+
+(Optional) Calibration: add isotonic/Platt step and persist.
+

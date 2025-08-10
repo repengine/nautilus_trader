@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 
 class TestDataStructure:
     """Test that test data is properly organized and accessible."""
@@ -68,7 +66,7 @@ class TestDataStructure:
         # This test would normally grep through production code
         # to ensure no references to test data paths
         # For now, we just document the requirement
-        pass  # Implementation deferred
+        # Implementation deferred
 
     def test_registry_json_has_correct_paths(
         self,

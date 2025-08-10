@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import os
-import pickle
 import tempfile
 import time
 from collections import deque
@@ -35,11 +34,11 @@ from ml.actors.base import HealthMonitor
 from ml.actors.base import HealthStatus
 from ml.actors.base import MLSignal
 from ml.actors.base import ONNXModelLoader
-from ml.models.loader import ModelLoader
-from ml.models.loader import ProductionModelLoader
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
+from ml.models.loader import ModelLoader
+from ml.models.loader import ProductionModelLoader
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
@@ -422,89 +421,6 @@ class TestModelLoaders:
     """
     Test model loading strategies.
     """
-
-    def test_pickle_model_loader_success(self) -> None:
-        """
-        Test successful pickle model loading.
-        """
-        # Arrange
-        model = SimpleTestModel()
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            pickle.dump(model, f)
-            model_path = f.name
-
-        # Using a mock loader for pickle testing
-        loader = Mock(spec=ModelLoader)
-        def mock_load(path: str) -> tuple[Any, dict[str, Any]]:
-            with open(path, "rb") as f:
-                model = pickle.load(f)
-            metadata = {
-                "path": path,
-                "type": "pickle",
-                "size_bytes": os.path.getsize(path),
-                "version": "1.0.0"
-            }
-            return model, metadata
-        loader.load_model = Mock(side_effect=mock_load)
-
-        try:
-            # Act
-            loaded_model, metadata = loader.load_model(model_path)
-
-            # Assert
-            assert loaded_model is not None
-            assert hasattr(loaded_model, "predict")
-            assert metadata["path"] == model_path
-            assert metadata["type"] == "pickle"
-            assert "size_bytes" in metadata
-            assert "version" in metadata
-        finally:
-            os.unlink(model_path)
-
-    def test_pickle_model_loader_file_not_found(self) -> None:
-        """
-        Test pickle model loader with non-existent file.
-        """
-        # Arrange
-        # Using a mock loader for pickle testing
-        loader = Mock(spec=ModelLoader)
-        loader.load_model = Mock(side_effect=lambda path: pickle.load(open(path, "rb")))
-
-        # Act & Assert
-        with pytest.raises(FileNotFoundError):
-            loader.load_model("/nonexistent/model.pkl")
-
-    @pytest.mark.skip(reason="Pickle model loader deprecated in favor of ProductionModelLoader")
-    def test_pickle_model_loader_version_generation(self) -> None:
-        """
-        Test pickle model loader version generation.
-        """
-        # Arrange
-        model = SimpleTestModel()
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            pickle.dump(model, f)
-            model_path = f.name
-
-        # Using a mock loader for pickle testing
-        loader = Mock(spec=ModelLoader)
-        loader.load_model = Mock(side_effect=lambda path: pickle.load(open(path, "rb")))
-
-        try:
-            # Act
-            version1 = loader.get_model_version(model_path)
-
-            # Modify file and get version again
-            time.sleep(0.01)  # Ensure different mtime
-            with open(model_path, "ab") as f:
-                f.write(b"extra")
-
-            version2 = loader.get_model_version(model_path)
-
-            # Assert
-            assert version1 != version2
-            assert len(version1) == 8  # MD5 hash truncated to 8 chars
-        finally:
-            os.unlink(model_path)
 
     @pytest.mark.skipif(not _onnx_available(), reason="ONNX Runtime not available")
     def test_onnx_model_loader_initialization(self) -> None:
@@ -2767,83 +2683,12 @@ class TestPickleMLInferenceActorConcrete:
             instrument_id=instrument_id,
         )
 
-    def test_pickle_actor_initialization(self, config: MLActorConfig) -> None:
-        """
-        Test PickleMLInferenceActor initialization (concrete class).
-        """
-        # Note: PickleMLInferenceActor is abstract, so we test the model loader directly
-        # This tests the initialization pattern that would be used by concrete implementations
-        # Using a mock loader for pickle testing
-        loader = Mock(spec=ModelLoader)
-        loader.load_model = Mock(side_effect=lambda path: pickle.load(open(path, "rb")))
-        assert loader is not None
-
-    def test_pickle_actor_with_health_monitoring(self, config: MLActorConfig) -> None:
-        """
-        Test PickleMLInferenceActor pattern with health monitoring enabled.
-        """
-        # Note: Since concrete class is abstract, we test with mock actor
-        config_with_health = MLActorConfig(
-            model_id="test_model",
-            model_path=config.model_path,
-            bar_type=config.bar_type,
-            instrument_id=config.instrument_id,
-            enable_health_monitoring=True,
-        )
-
-        # Act - Use mock actor to test the pattern
-        actor = MockMLInferenceActor(config_with_health)
-
-        # Assert
-        assert isinstance(actor._model_loader, ProductionModelLoader)
-        assert actor._health_monitor is not None
 
 
 class TestModelLoaderErrorHandling:
     """
     Test model loader error handling scenarios.
     """
-
-    def test_pickle_model_loader_corrupt_file(self) -> None:
-        """
-        Test pickle model loader with corrupt file.
-        """
-        # Arrange
-        # Using a mock loader for pickle testing
-        loader = Mock(spec=ModelLoader)
-        loader.load_model = Mock(side_effect=lambda path: pickle.load(open(path, "rb")))
-
-        # Create a file with invalid pickle data
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            f.write(b"not_valid_pickle_data")
-            corrupt_path = f.name
-
-        try:
-            # Act & Assert
-            with pytest.raises(Exception):  # Could be various pickle exceptions
-                loader.load_model(corrupt_path)
-        finally:
-            os.unlink(corrupt_path)
-
-    def test_pickle_model_loader_empty_file(self) -> None:
-        """
-        Test pickle model loader with empty file.
-        """
-        # Arrange
-        # Using a mock loader for pickle testing
-        loader = Mock(spec=ModelLoader)
-        loader.load_model = Mock(side_effect=lambda path: pickle.load(open(path, "rb")))
-
-        # Create empty file
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            empty_path = f.name  # File is empty
-
-        try:
-            # Act & Assert
-            with pytest.raises(Exception):  # EOFError or similar
-                loader.load_model(empty_path)
-        finally:
-            os.unlink(empty_path)
 
     def test_model_loader_permissions_error(self) -> None:
         """
@@ -3076,46 +2921,14 @@ class TestMissingCoverageAreas:
                 with pytest.raises(ImportError, match="ONNX Runtime required but not installed"):
                     loader.load_model("dummy.onnx")
 
-    @pytest.mark.skip(reason="Pickle model loader deprecated in favor of ProductionModelLoader")
-    def test_pickle_model_loader_metadata_generation(self) -> None:
-        """
-        Test pickle model loader metadata generation.
-        """
-        # Arrange
-        # Using a mock loader for pickle testing
-        loader = Mock(spec=ModelLoader)
-        loader.load_model = Mock(side_effect=lambda path: pickle.load(open(path, "rb")))
-        model = SimpleTestModel()
-
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            pickle.dump(model, f)
-            model_path = f.name
-
-        try:
-            # Act
-            loaded_model, metadata = loader.load_model(model_path)
-
-            # Assert metadata completeness
-            required_fields = ["path", "size_bytes", "modified_time", "version", "type"]
-            for field in required_fields:
-                assert field in metadata
-
-            assert metadata["type"] == "pickle"
-            assert metadata["path"] == model_path
-            assert metadata["size_bytes"] > 0
-
-        finally:
-            os.unlink(model_path)
 
     def test_model_loader_abc_coverage(self) -> None:
         """
         Test ModelLoader abstract base class coverage.
         """
         # This tests the abstract methods are defined
-        # Using a mock loader for pickle testing
         loader = Mock(spec=ModelLoader)
-        loader.load_model = Mock(side_effect=lambda path: pickle.load(open(path, "rb")))
-
+        
         # These methods should exist (abstract methods implemented)
         assert hasattr(loader, "load_model")
         assert hasattr(loader, "get_model_version")

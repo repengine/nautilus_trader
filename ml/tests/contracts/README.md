@@ -54,7 +54,7 @@ Add contract tests when:
 def test_actor_publishes_signal_on_bar():
     """Contract: Actor MUST publish MLSignal when receiving bar data."""
     # Test ensures ANY actor implementation follows this rule
-    
+
 def test_model_prediction_dimensions():
     """Contract: Model predictions MUST match expected output shape."""
     # Test ensures ANY model follows the interface

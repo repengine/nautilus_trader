@@ -14,21 +14,22 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from ml._imports import HAS_LIGHTGBM, check_ml_dependencies, lgb
+from ml._imports import HAS_LIGHTGBM
+from ml._imports import check_ml_dependencies
 from ml.models.base import BaseModel
 
 
 class LightGBMModel(BaseModel):
     """
     LightGBM model wrapper for production inference.
-    
+
     Supports both raw Booster objects and sklearn-style LGBMClassifier/LGBMRegressor.
     """
-    
+
     def __init__(self, model: Any, metadata: dict[str, Any]) -> None:
         """
         Initialize LightGBM model.
-        
+
         Parameters
         ----------
         model : lightgbm.Booster or lightgbm.LGBMClassifier/LGBMRegressor
@@ -38,32 +39,34 @@ class LightGBMModel(BaseModel):
         """
         if not HAS_LIGHTGBM:
             check_ml_dependencies(["lightgbm"])
-        
+
         super().__init__(model, metadata)
-        
+
         # Determine if it's a Booster or sklearn-style model
-        self._is_booster = hasattr(model, 'predict') and not hasattr(model, 'predict_proba')
-    
+        # Raw Booster: has best_iteration but no booster_ attribute
+        # sklearn-style: has booster_ attribute (LGBMClassifier/LGBMRegressor)
+        self._is_booster = hasattr(model, "best_iteration") and not hasattr(model, "booster_")
+
     def predict(self, features: NDArray[np.float32]) -> NDArray[np.float32]:
         """
         Make prediction with LightGBM model.
-        
+
         Parameters
         ----------
         features : NDArray[np.float32]
             Input features
-            
+
         Returns
         -------
         NDArray[np.float32]
             Model predictions
         """
         self.validate_input(features)
-        
+
         # Ensure 2D input
         if features.ndim == 1:
             features = features.reshape(1, -1)
-        
+
         if self._is_booster:
             # Raw Booster object
             predictions = self._model.predict(features, num_iteration=self._model.best_iteration)
@@ -78,5 +81,5 @@ class LightGBMModel(BaseModel):
             else:
                 # Regression model
                 predictions = self._model.predict(features)
-        
+
         return np.asarray(predictions, dtype=np.float32)

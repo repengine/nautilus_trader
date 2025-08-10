@@ -9,16 +9,18 @@ ensuring consistent model lifecycle management across different storage backends
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from abc import ABC
+from abc import abstractmethod
+from dataclasses import dataclass
+from dataclasses import field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class DeploymentStatus(Enum):
     """Model deployment status."""
-    
+
     INACTIVE = "inactive"       # Model registered but not deployed
     ACTIVE = "active"           # Model actively serving predictions
     TESTING = "testing"         # Model in A/B test or shadow mode
@@ -30,7 +32,7 @@ class DeploymentStatus(Enum):
 class ModelInfo:
     """
     Information about a registered model.
-    
+
     Attributes
     ----------
     model_id : str
@@ -52,7 +54,7 @@ class ModelInfo:
     performance_history : list[dict[str, Any]]
         Performance metrics over time
     """
-    
+
     model_id: str
     model_path: Path
     version: str
@@ -67,7 +69,7 @@ class ModelInfo:
 class ModelRegistry(ABC):
     """
     Abstract base class for model registry implementations.
-    
+
     The registry is responsible for:
     - Tracking all trained models
     - Managing model deployments
@@ -75,17 +77,17 @@ class ModelRegistry(ABC):
     - Coordinating A/B tests
     - Handling rollbacks
     """
-    
+
     @abstractmethod
     def register_model(
         self,
         model_path: Path,
         metadata: dict[str, Any],
-        version: Optional[str] = None,
+        version: str | None = None,
     ) -> str:
         """
         Register a new model in the registry.
-        
+
         Parameters
         ----------
         model_path : Path
@@ -94,24 +96,24 @@ class ModelRegistry(ABC):
             Model metadata (features, training metrics, etc.)
         version : Optional[str]
             Model version (auto-generated if not provided)
-            
+
         Returns
         -------
         str
             Unique model ID
         """
         ...
-    
+
     @abstractmethod
     def deploy_model(
         self,
         model_id: str,
         target: str,
-        config: Optional[dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ) -> bool:
         """
         Deploy a model to a target (actor/strategy).
-        
+
         Parameters
         ----------
         model_id : str
@@ -120,55 +122,55 @@ class ModelRegistry(ABC):
             Deployment target (e.g., "ml_signal_actor")
         config : Optional[dict[str, Any]]
             Deployment configuration
-            
+
         Returns
         -------
         bool
             True if deployment successful
         """
         ...
-    
+
     @abstractmethod
     def get_active_models(self) -> list[ModelInfo]:
         """
         Get all currently deployed models.
-        
+
         Returns
         -------
         list[ModelInfo]
             List of active model information
         """
         ...
-    
+
     @abstractmethod
     def get_all_models(self) -> list[ModelInfo]:
         """
         Get all registered models.
-        
+
         Returns
         -------
         list[ModelInfo]
             List of all model information
         """
         ...
-    
+
     @abstractmethod
-    def get_model(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model(self, model_id: str) -> ModelInfo | None:
         """
         Get information about a specific model.
-        
+
         Parameters
         ----------
         model_id : str
             Model ID to retrieve
-            
+
         Returns
         -------
         Optional[ModelInfo]
             Model information if found
         """
         ...
-    
+
     @abstractmethod
     def track_performance(
         self,
@@ -177,7 +179,7 @@ class ModelRegistry(ABC):
     ) -> None:
         """
         Track model performance metrics.
-        
+
         Parameters
         ----------
         model_id : str
@@ -186,7 +188,7 @@ class ModelRegistry(ABC):
             Performance metrics to track
         """
         ...
-    
+
     @abstractmethod
     def get_performance_history(
         self,
@@ -194,19 +196,19 @@ class ModelRegistry(ABC):
     ) -> list[dict[str, Any]]:
         """
         Get performance history for a model.
-        
+
         Parameters
         ----------
         model_id : str
             Model ID
-            
+
         Returns
         -------
         list[dict[str, Any]]
             Performance history
         """
         ...
-    
+
     @abstractmethod
     def rollback(
         self,
@@ -215,38 +217,38 @@ class ModelRegistry(ABC):
     ) -> bool:
         """
         Rollback to a previous model version.
-        
+
         Parameters
         ----------
         target : str
             Deployment target
         to_model_id : str
             Model ID to rollback to
-            
+
         Returns
         -------
         bool
             True if rollback successful
         """
         ...
-    
+
     @abstractmethod
     def retire_model(self, model_id: str) -> bool:
         """
         Retire a model from production.
-        
+
         Parameters
         ----------
         model_id : str
             Model ID to retire
-            
+
         Returns
         -------
         bool
             True if retirement successful
         """
         ...
-    
+
     @abstractmethod
     def configure_ab_test(
         self,
@@ -254,10 +256,10 @@ class ModelRegistry(ABC):
         split_ratio: float,
         duration_hours: int,
         target: str,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Configure A/B test between models.
-        
+
         Parameters
         ----------
         models : list[str]
@@ -268,30 +270,30 @@ class ModelRegistry(ABC):
             Test duration in hours
         target : str
             Deployment target
-            
+
         Returns
         -------
         Optional[dict[str, Any]]
             A/B test configuration if successful
         """
         ...
-    
+
     @abstractmethod
     def compare_models(
         self,
         model_ids: list[str],
         metric: str,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Compare performance between models.
-        
+
         Parameters
         ----------
         model_ids : list[str]
             List of model IDs to compare
         metric : str
             Metric to compare on
-            
+
         Returns
         -------
         Optional[dict[str, Any]]

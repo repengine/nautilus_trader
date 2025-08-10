@@ -14,7 +14,7 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
   # ❌ BAD: Testing implementation details
   assert actor._bars_processed == 10
   assert actor._feature_buffer.shape == (1, 20)
-  
+
   # ✅ GOOD: Testing observable behavior
   stats = actor.get_statistics()
   assert stats["bars_processed"] == 10
@@ -28,7 +28,7 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
   ```python
   # ❌ BAD: Mock that doesn't represent real behavior
   mock_model = Mock(return_value=0.5)
-  
+
   # ✅ GOOD: Minimal real model
   model = TestModelFactory.create_minimal_xgboost_model(n_features=5)
   ```
@@ -52,11 +52,11 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
 ```python
 class TestActorContracts:
     """Behavioral contracts all ML actors must satisfy."""
-    
+
     def test_actor_must_handle_warmup_period(self, any_actor):
         """Actors MUST buffer data during warmup without predictions."""
         # Test the CONTRACT, not the implementation
-        
+
     def test_actor_must_publish_valid_signals(self, any_actor):
         """Actors MUST publish signals with required fields."""
         # Verify signal structure, not how it's generated
@@ -75,13 +75,13 @@ class TestActorContracts:
 ```python
 class TestFeatureEngineer:
     """Unit tests for FeatureEngineer."""
-    
+
     def test_calculate_features_with_valid_data(self):
         """Test feature calculation with normal inputs."""
-        
+
     def test_calculate_features_with_missing_data(self):
         """Test handling of missing values."""
-        
+
     def test_calculate_features_with_extreme_values(self):
         """Test handling of outliers and edge cases."""
 ```
@@ -99,10 +99,10 @@ class TestFeatureEngineer:
 ```python
 class TestMLPipeline:
     """Integration tests for ML pipeline."""
-    
+
     def test_end_to_end_signal_generation(self):
         """Test complete flow from bars to signals."""
-        
+
     def test_feature_parity_training_inference(self):
         """Verify features match between training and inference."""
 ```
@@ -140,7 +140,7 @@ class TestModelFactory:
         output_path: Path = None
     ) -> Path:
         """Create minimal but valid XGBoost model."""
-        
+
     @staticmethod
     def create_onnx_model(
         n_features: int,
@@ -158,11 +158,11 @@ Centralized fixtures for consistent test data:
 @pytest.fixture
 def sample_bars(n_bars: int = 100) -> list[Bar]:
     """Generate sample bar data."""
-    
+
 @pytest.fixture
 def sample_features(n_samples: int = 100, n_features: int = 10) -> np.ndarray:
     """Generate sample feature matrix."""
-    
+
 @pytest.fixture
 def test_model_path(tmp_path, n_features: int = 10) -> Path:
     """Create and return path to test model."""
@@ -197,19 +197,19 @@ def validate_test_data(data: Any) -> None:
 ```python
 class MockMLActor(Actor):
     """Mock actor for testing."""
-    
+
     def __init__(self, config):
         super().__init__(config)
         # Initialize with realistic defaults
         self._setup_realistic_behavior()
-    
+
     def get_statistics(self) -> dict[str, Any]:
         """Implement ALL public methods."""
         return {
             "bars_processed": self.bar_count,
             "status": "healthy"
         }
-    
+
     def _setup_realistic_behavior(self):
         """Configure mock to behave realistically."""
         # Return values should be realistic
@@ -252,7 +252,7 @@ def test_inference_latency():
         actor.predict(features)
         elapsed = (time.perf_counter_ns() - start) / 1_000_000  # ms
         times.append(elapsed)
-    
+
     p99 = np.percentile(times, 99)
     assert p99 < 5.0, f"P99 latency {p99}ms exceeds 5ms requirement"
 ```
@@ -262,17 +262,17 @@ def test_inference_latency():
 def test_no_memory_leaks():
     """Test for memory leaks in hot path."""
     import tracemalloc
-    
+
     tracemalloc.start()
     snapshot1 = tracemalloc.take_snapshot()
-    
+
     # Run operations
     for _ in range(1000):
         actor.on_bar(bar)
-    
+
     snapshot2 = tracemalloc.take_snapshot()
     top_stats = snapshot2.compare_to(snapshot1, 'lineno')
-    
+
     # Check for significant memory growth
     for stat in top_stats[:10]:
         assert stat.size_diff < 1_000_000  # Less than 1MB growth
@@ -300,7 +300,7 @@ def test_hot_path_zero_allocation():
 # .coveragerc
 [run]
 source = ml/
-omit = 
+omit =
     ml/tests/*
     ml/experimental/*
 
@@ -358,10 +358,10 @@ pytest ml/tests/ -v --cov=ml --cov-report=html
   run: |
     # Fast fail on unit tests
     pytest ml/tests/unit/ --fail-fast
-    
+
     # Run full suite if units pass
     pytest ml/tests/ --cov=ml --cov-fail-under=90
-    
+
     # Run performance tests
     pytest ml/tests/performance/ --benchmark-only
 ```
@@ -395,7 +395,7 @@ def test_complex_scenario(caplog):
     with caplog.at_level(logging.DEBUG):
         # Test code
         pass
-    
+
     # Examine logs on failure
     if failed:
         print(caplog.text)
@@ -419,10 +419,10 @@ assert len(actor.get_buffered_data()) == 100
 # ❌ BAD: Tests depend on execution order
 class TestActor:
     actor = None  # Shared state!
-    
+
     def test_1_init(self):
         self.actor = Actor()
-    
+
     def test_2_process(self):
         self.actor.process()  # Fails if test_1 didn't run
 
@@ -431,7 +431,7 @@ class TestActor:
     def test_init(self):
         actor = Actor()
         assert actor.is_initialized()
-    
+
     def test_process(self):
         actor = Actor()
         actor.process()
@@ -481,23 +481,23 @@ from ml.component import Component
 
 class TestComponent:
     """Test suite for Component."""
-    
+
     @pytest.fixture
     def component(self):
         """Create component instance for testing."""
         return Component(test_config)
-    
+
     def test_normal_operation(self, component):
         """Test component under normal conditions."""
         result = component.process(valid_input)
         assert result.is_valid()
         assert result.value > 0
-    
+
     def test_edge_case(self, component):
         """Test component with edge case input."""
         result = component.process(edge_input)
         assert result.handled_gracefully()
-    
+
     def test_error_handling(self, component):
         """Test component error handling."""
         with pytest.raises(ValueError):
@@ -513,21 +513,21 @@ from ml.pipeline import Pipeline
 
 class TestFeatureIntegration:
     """Integration tests for feature."""
-    
+
     @pytest.fixture
     def pipeline(self):
         """Create full pipeline for testing."""
         return Pipeline.create_test_pipeline()
-    
+
     def test_end_to_end_flow(self, pipeline):
         """Test complete data flow through pipeline."""
         input_data = create_test_data()
         result = pipeline.process(input_data)
-        
+
         # Verify data transformations
         assert result.shape == expected_shape
         assert result.dtype == expected_dtype
-        
+
         # Verify business logic
         assert result.meets_requirements()
 ```
@@ -542,34 +542,34 @@ import numpy as np
 
 class TestComponentPerformance:
     """Performance test suite."""
-    
+
     @pytest.mark.benchmark
     def test_latency_requirement(self, benchmark):
         """Test component meets latency requirements."""
         component = Component()
         data = create_test_data()
-        
+
         result = benchmark(component.process, data)
-        
+
         # Verify latency
         assert benchmark.stats['mean'] < 0.001  # 1ms
         assert benchmark.stats['max'] < 0.005   # 5ms
-    
+
     @pytest.mark.memory
     def test_memory_usage(self):
         """Test component memory usage."""
         import tracemalloc
-        
+
         tracemalloc.start()
         component = Component()
-        
+
         # Process multiple iterations
         for _ in range(1000):
             component.process(data)
-        
+
         current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-        
+
         # Verify memory usage
         assert peak < 100_000_000  # 100MB limit
 ```

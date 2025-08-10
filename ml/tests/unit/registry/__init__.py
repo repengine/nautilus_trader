@@ -1,4 +1,5 @@
-"""Unit tests for ML model registry components.
+"""
+Unit tests for ML model registry components.
 
 This package contains unit tests for individual registry components:
 

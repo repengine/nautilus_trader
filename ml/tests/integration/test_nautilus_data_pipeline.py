@@ -24,9 +24,6 @@ from ml.data.loader import MLDataLoader
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
-from .test_utils import create_correlated_multi_instrument_data
-from .test_utils import generate_realistic_ohlcv
-from .test_utils import validate_feature_parity
 from nautilus_trader.indicators.bollinger_bands import BollingerBands
 from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence as MACD
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
@@ -34,6 +31,10 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
+
+from .test_utils import create_correlated_multi_instrument_data
+from .test_utils import generate_realistic_ohlcv
+from .test_utils import validate_feature_parity
 
 
 if TYPE_CHECKING:

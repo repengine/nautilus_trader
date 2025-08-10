@@ -68,7 +68,7 @@ repos:
         name: check tests pass
         description: Runs tests for changed files and all ML tests if ML files changed
         entry: .pre-commit-hooks/check_tests_pass.py
-        language: script
+        language: system
         types: [python]
         pass_filenames: true
         stages: [pre-commit]
@@ -77,7 +77,7 @@ repos:
         name: check ML test coverage
         description: Ensures new ML modules have ≥90% test coverage
         entry: .pre-commit-hooks/check_test_coverage.py
-        language: script
+        language: system
         types: [python]
         files: 'ml/.*\.py$'
         pass_filenames: true
@@ -87,7 +87,7 @@ repos:
         name: check ML performance
         description: Ensures ML inference doesn't regress beyond 20% tolerance
         entry: .pre-commit-hooks/check_ml_performance.py
-        language: script
+        language: system
         types: [python]
         files: 'ml/(inference|core)/.*\.py$'
         pass_filenames: true
@@ -97,7 +97,7 @@ repos:
         name: check ML feature parity
         description: Validates training/inference compute identical features
         entry: .pre-commit-hooks/check_feature_parity.py
-        language: script
+        language: system
         types: [python]
         files: 'ml/(training|inference)/features\.py$'
         pass_filenames: true
@@ -107,7 +107,7 @@ repos:
         name: check test coverage (>80%)
         description: Ensures all Python code has >80% test coverage
         entry: .pre-commit-hooks/check_test_coverage_general.py
-        language: script
+        language: system
         types: [python]
         pass_filenames: true
         stages: [pre-commit]
@@ -116,7 +116,7 @@ repos:
         name: check tests pass cleanly
         description: Ensures tests pass with no failures, errors, or warnings
         entry: .pre-commit-hooks/check_tests_clean.py
-        language: script
+        language: system
         types: [python]
         pass_filenames: true
         stages: [pre-commit]
@@ -125,7 +125,7 @@ repos:
         name: check mypy (0 errors)
         description: Ensures mypy type checking passes with zero errors
         entry: .pre-commit-hooks/check_mypy_clean.py
-        language: script
+        language: system
         types: [python]
         pass_filenames: true
         stages: [pre-commit]
@@ -134,7 +134,7 @@ repos:
         name: check docstrings
         description: Ensures all public symbols have proper docstrings
         entry: .pre-commit-hooks/check_docstrings.py
-        language: script
+        language: system
         types: [python]
         files: 'ml/.*\.py$'
         pass_filenames: true
@@ -144,7 +144,7 @@ repos:
         name: check Nautilus patterns
         description: Validates ML code follows Nautilus architectural patterns
         entry: .pre-commit-hooks/check_nautilus_patterns.py
-        language: script
+        language: system
         types: [python]
         files: 'ml/.*\.py$'
         pass_filenames: true
@@ -154,7 +154,7 @@ repos:
         name: check Prometheus metrics
         description: Ensures ML components have proper monitoring
         entry: .pre-commit-hooks/check_prometheus_metrics.py
-        language: script
+        language: system
         types: [python]
         files: 'ml/(actors|strategies)/.*\.py$'
         pass_filenames: true

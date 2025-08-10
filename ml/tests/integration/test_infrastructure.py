@@ -12,11 +12,12 @@ from typing import Any
 
 import numpy as np
 
-from .test_utils import compute_nautilus_indicators
-from .test_utils import validate_feature_parity
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
+
+from .test_utils import compute_nautilus_indicators
+from .test_utils import validate_feature_parity
 
 
 class TestInfrastructure:

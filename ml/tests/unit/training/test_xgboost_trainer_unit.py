@@ -220,8 +220,9 @@ class TestXGBoostTrainerPrediction:
         # Act
         predictions = trainer.predict(mock_model, X)
 
-        # Assert
-        np.testing.assert_array_equal(predictions, expected_predictions)
+        # Assert - predictions should be float32 now
+        assert predictions.dtype == np.float32
+        np.testing.assert_array_almost_equal(predictions, expected_predictions, decimal=6)
 
 
 class TestXGBoostTrainerHyperparameters:
@@ -408,14 +409,16 @@ class TestXGBoostTrainerPersistence:
 
         # Assert
         mock_booster.save_model.assert_called_once_with(str(save_path))
-        # Check metadata file was created
-        metadata_path = save_path.with_suffix(".meta")
+        # Check metadata file was created with correct naming convention
+        metadata_path = save_path.with_suffix(save_path.suffix + ".meta.json")
         assert metadata_path.exists()
 
         with open(metadata_path) as f:
             metadata = json.load(f)
-            assert metadata["feature_names"] == ["feat1", "feat2"]
-            assert metadata["training_metrics"]["accuracy"] == 0.95
+            # Check training metadata nested structure
+            training_metadata = metadata["training_metadata"]
+            assert training_metadata["feature_names"] == ["feat1", "feat2"]
+            assert training_metadata["training_metrics"]["accuracy"] == 0.95
 
     @patch("ml.training.xgboost.HAS_XGBOOST", True)
     @patch("ml.training.xgboost.xgb")

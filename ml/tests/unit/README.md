@@ -99,18 +99,18 @@ class TestFeatureEngineer:
         # Arrange
         engineer = FeatureEngineer(config=valid_config)
         bar_data = create_test_bars(count=100)
-        
-        # Act  
+
+        # Act
         features = engineer.compute_features(bar_data)
-        
+
         # Assert
         assert features.shape == (100, expected_feature_count)
-        
+
     def test_compute_features_with_insufficient_data_raises_value_error(self):
         """Test edge cases and error conditions."""
         engineer = FeatureEngineer(config=valid_config)
         bar_data = create_test_bars(count=5)  # Too few
-        
+
         with pytest.raises(ValueError, match="Insufficient data"):
             engineer.compute_features(bar_data)
 ```

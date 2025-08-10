@@ -340,10 +340,10 @@ def create_onnx_model_for_features(
 ) -> Path:
     """
     Create an ONNX model that matches the given feature count.
-    
+
     This creates a simple classifier that accepts n_features as input
     and outputs a probability.
-    
+
     Parameters
     ----------
     n_features : int
@@ -352,32 +352,32 @@ def create_onnx_model_for_features(
         Temporary directory to save the model
     model_name : str
         Name for the ONNX file
-        
+
     Returns
     -------
     Path
         Path to the created ONNX model
-        
+
     """
     if not HAS_XGBOOST:
         pytest.skip("XGBoost not installed")
     if not HAS_ONNX:
         pytest.skip("ONNX Runtime not installed")
-        
+
     try:
         from onnxmltools import convert_xgboost
         from onnxmltools.convert.common.data_types import FloatTensorType
     except ImportError:
         pytest.skip("onnxmltools not installed (required for XGBoost to ONNX conversion)")
-    
+
     # Create a simple XGBoost model with the right dimensions
     import numpy as np
     import xgboost as xgb
-    
+
     # Generate dummy training data with correct feature count
     X_train = np.random.randn(100, n_features).astype(np.float32)
     y_train = np.random.randint(0, 2, 100)
-    
+
     # Train a simple model
     model = xgb.XGBClassifier(
         n_estimators=10,
@@ -385,16 +385,16 @@ def create_onnx_model_for_features(
         random_state=42,
     )
     model.fit(X_train, y_train)
-    
+
     # Convert to ONNX with correct input shape
-    initial_type = [('float_input', FloatTensorType([None, n_features]))]
+    initial_type = [("float_input", FloatTensorType([None, n_features]))]
     onnx_model = convert_xgboost(model, initial_types=initial_type)
-    
+
     # Save to file
     model_path = tmp_path / model_name
     with open(model_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
-    
+
     return model_path
 
 
@@ -402,7 +402,7 @@ def create_onnx_model_for_features(
 def onnx_test_model_path(xgboost_test_model: Any, tmp_path: Path) -> Path:
     """
     Legacy fixture - creates ONNX model with 10 features for backward compatibility.
-    
+
     For new tests, use create_onnx_model_for_features() directly.
     """
     return create_onnx_model_for_features(10, tmp_path)

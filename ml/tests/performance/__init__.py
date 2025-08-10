@@ -1,4 +1,5 @@
-"""Performance and benchmark tests for ML components.
+"""
+Performance and benchmark tests for ML components.
 
 This package contains performance-critical tests that verify ML components
 meet latency and memory requirements. These tests focus on:

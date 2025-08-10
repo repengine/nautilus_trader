@@ -10,15 +10,16 @@ minimum standards before deployment to production.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Any
 
 
 @dataclass
 class QualityGate:
     """
     Defines a quality threshold that must be met.
-    
+
     Attributes
     ----------
     metric_name : str
@@ -30,7 +31,7 @@ class QualityGate:
     required : bool
         Whether this gate must pass for overall validation
     """
-    
+
     metric_name: str
     threshold: float
     comparison: str = "gte"  # greater than or equal
@@ -41,7 +42,7 @@ class QualityGate:
 class ValidationResult:
     """
     Results from quality gate validation.
-    
+
     Attributes
     ----------
     model_id : str
@@ -57,7 +58,7 @@ class ValidationResult:
     gate_results : dict[str, dict[str, Any]]
         Detailed results for each gate
     """
-    
+
     model_id: str
     timestamp: float = field(default_factory=time.time)
     overall_pass: bool = True
@@ -69,15 +70,15 @@ class ValidationResult:
 class ModelQualityValidator:
     """
     Validates models against defined quality gates.
-    
+
     This validator ensures models meet minimum quality standards
     before being deployed to production environments.
     """
-    
-    def __init__(self, default_gates: Optional[list[QualityGate]] = None) -> None:
+
+    def __init__(self, default_gates: list[QualityGate] | None = None) -> None:
         """
         Initialize quality validator.
-        
+
         Parameters
         ----------
         default_gates : Optional[list[QualityGate]]
@@ -90,16 +91,16 @@ class ModelQualityValidator:
             QualityGate("latency_p99_ms", 100, "lte", required=True),
             QualityGate("memory_mb", 1000, "lte", required=False),
         ]
-    
+
     def validate(
         self,
         model_id: str,
         metrics: dict[str, float],
-        gates: Optional[list[QualityGate]] = None,
+        gates: list[QualityGate] | None = None,
     ) -> ValidationResult:
         """
         Validate model against quality gates.
-        
+
         Parameters
         ----------
         model_id : str
@@ -108,7 +109,7 @@ class ModelQualityValidator:
             Model metrics to validate
         gates : Optional[list[QualityGate]]
             Quality gates to use (defaults to default_gates)
-            
+
         Returns
         -------
         ValidationResult
@@ -116,36 +117,36 @@ class ModelQualityValidator:
         """
         gates = gates or self.default_gates
         result = ValidationResult(model_id=model_id)
-        
+
         for gate in gates:
             gate_result = self._evaluate_gate(gate, metrics.get(gate.metric_name))
-            
+
             if gate_result["passed"]:
                 result.gates_passed += 1
             else:
                 result.gates_failed += 1
                 if gate.required:
                     result.overall_pass = False
-            
+
             result.gate_results[gate.metric_name] = gate_result
-        
+
         return result
-    
+
     def _evaluate_gate(
         self,
         gate: QualityGate,
-        actual_value: Optional[float],
+        actual_value: float | None,
     ) -> dict[str, Any]:
         """
         Evaluate a single quality gate.
-        
+
         Parameters
         ----------
         gate : QualityGate
             Gate to evaluate
         actual_value : Optional[float]
             Actual metric value
-            
+
         Returns
         -------
         dict[str, Any]
@@ -159,7 +160,7 @@ class ModelQualityValidator:
                 "required": gate.required,
                 "reason": "metric_not_found",
             }
-        
+
         # Perform comparison
         passed = False
         if gate.comparison == "gte":
@@ -172,7 +173,7 @@ class ModelQualityValidator:
             passed = actual_value < gate.threshold
         elif gate.comparison == "eq":
             passed = abs(actual_value - gate.threshold) < 1e-10
-        
+
         return {
             "threshold": gate.threshold,
             "actual": actual_value,
@@ -181,11 +182,11 @@ class ModelQualityValidator:
             "comparison": gate.comparison,
             "margin": actual_value - gate.threshold if gate.comparison in ["gte", "gt"] else gate.threshold - actual_value,
         }
-    
+
     def create_deployment_gates(self) -> list[QualityGate]:
         """
         Create standard gates for production deployment.
-        
+
         Returns
         -------
         list[QualityGate]
@@ -197,25 +198,25 @@ class ModelQualityValidator:
             QualityGate("precision", 0.80, "gte", required=True),
             QualityGate("recall", 0.80, "gte", required=True),
             QualityGate("f1_score", 0.80, "gte", required=True),
-            
+
             # Latency gates
             QualityGate("latency_p50_ms", 10, "lte", required=True),
             QualityGate("latency_p99_ms", 50, "lte", required=True),
             QualityGate("latency_p999_ms", 100, "lte", required=False),
-            
+
             # Resource gates
             QualityGate("memory_mb", 500, "lte", required=True),
             QualityGate("model_size_mb", 100, "lte", required=False),
-            
+
             # Stability gates
             QualityGate("error_rate", 0.01, "lte", required=True),
             QualityGate("feature_drift_score", 0.1, "lte", required=False),
         ]
-    
+
     def create_canary_gates(self) -> list[QualityGate]:
         """
         Create relaxed gates for canary deployments.
-        
+
         Returns
         -------
         list[QualityGate]

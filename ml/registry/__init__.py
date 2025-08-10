@@ -23,9 +23,9 @@ from ml.registry.local_registry import LocalModelRegistry
 
 
 __all__ = [
-    "ModelRegistry",
+    "DeploymentStatus",
     "LocalModelRegistry",
     "ModelDeploymentManager",
     "ModelInfo",
-    "DeploymentStatus",
+    "ModelRegistry",
 ]

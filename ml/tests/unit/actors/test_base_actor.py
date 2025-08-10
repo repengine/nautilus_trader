@@ -262,6 +262,41 @@ class MockMLInferenceActor(BaseMLInferenceActor):
         mock_id.value = "MockMLInferenceActor"
         return mock_id
 
+    def get_statistics(self) -> dict[str, Any]:
+        """
+        Get observable statistics for behavior-based testing.
+
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary containing observable metrics:
+            - bars_processed: number of bars processed
+            - predictions_made: number of predictions made
+            - avg_inference_time_ms: average inference time in milliseconds
+            - avg_feature_time_ms: average feature computation time in milliseconds
+            - status: actor status ("running" or "stopped")
+        """
+        # Calculate average times safely
+        avg_inference_time = (
+            self._total_inference_time / max(self.prediction_calls, 1)
+            if hasattr(self, "_total_inference_time") and self.prediction_calls > 0
+            else 0.0
+        )
+
+        avg_feature_time = (
+            getattr(self, "_total_feature_time", 0.0) / max(self._bars_processed, 1)
+            if self._bars_processed > 0
+            else 0.0
+        )
+
+        return {
+            "bars_processed": self._bars_processed,
+            "predictions_made": self.prediction_calls,
+            "avg_inference_time_ms": avg_inference_time,
+            "avg_feature_time_ms": avg_feature_time,
+            "status": "running" if hasattr(self, "model_loaded") and self.model_loaded else "stopped",
+        }
+
 
 class TestBaseMLInferenceActor:
     """
@@ -341,7 +376,7 @@ class TestBaseMLInferenceActor:
         assert len(actor._feature_window) == 0  # OK - testing window initialization
         assert actor._total_inference_time == 0.0  # OK - testing timing initialization
         assert actor._last_prediction_time == 0  # OK - testing timing initialization
-        
+
         # Test behavior instead of private attributes
         base_stats = actor.get_statistics()
         assert base_stats.get("predictions_made", 0) == 0, "Should start with no predictions"
@@ -403,7 +438,7 @@ class TestBaseMLInferenceActor:
         for i in range(actor._config.warm_up_period - 1):
             actor.on_bar(sample_bar)
 
-        # Assert - test behavior instead of private attributes  
+        # Assert - test behavior instead of private attributes
         base_stats = actor.get_statistics()
         assert base_stats.get("bars_processed", 0) == actor._config.warm_up_period - 1, "Should have processed warmup-1 bars"
         assert actor._is_warmed_up is False

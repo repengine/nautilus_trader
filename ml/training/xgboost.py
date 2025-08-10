@@ -220,7 +220,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             "metrics": metrics,
         }
 
-    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float64]:
+    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float32]:
         """
         Make predictions using XGBoost model.
 
@@ -235,8 +235,8 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
 
         Returns
         -------
-        npt.NDArray[np.float64]
-            Model predictions.
+        npt.NDArray[np.float32]
+            Model predictions (float32 for production/inference compatibility).
 
         """
         # Create DMatrix for prediction
@@ -251,7 +251,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             threshold = kwargs.get("threshold", 0.5)
             predictions = (predictions > threshold).astype(int)
 
-        return np.array(predictions)
+        return np.array(predictions, dtype=np.float32)
 
     def _create_model(self, params: dict[str, Any]) -> Any:
         """
@@ -300,6 +300,11 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
         if self._xgb_config.scale_pos_weight is not None:
             params["scale_pos_weight"] = self._xgb_config.scale_pos_weight
 
+        # For binary classification, ensure base_score is within valid range
+        # to avoid XGBoost errors when data is highly imbalanced
+        if self._xgb_config.objective in ["binary:logistic", "binary:logitraw"]:
+            params["base_score"] = 0.5  # Safe default for binary classification
+
         # Remove None values
         params = {k: v for k, v in params.items() if v is not None}
 
@@ -344,12 +349,12 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
 
         """
         try:
-            from onnxmltools import convert_xgboost
-            from onnxmltools.convert.common.data_types import FloatTensorType
-
             # IMPORTANT: onnxmltools expects feature names in format f0, f1, f2...
             # So we need to temporarily save the model with default feature names
             import tempfile
+
+            from onnxmltools import convert_xgboost
+            from onnxmltools.convert.common.data_types import FloatTensorType
             with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
                 # Save model without feature names (XGBoost will use f0, f1, f2...)
                 model.save_model(tmp.name)
@@ -357,7 +362,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
                 import xgboost as xgb
                 temp_booster = xgb.Booster()
                 temp_booster.load_model(tmp.name)
-                
+
                 # Define input type
                 initial_type = [
                     ("float_input", FloatTensorType([None, len(self._feature_names)])),
@@ -373,7 +378,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
                 # Save ONNX model
                 with open(path, "wb") as f:
                     f.write(onnx_model.SerializeToString())
-                    
+
                 # Clean up temp file
                 import os
                 os.unlink(tmp.name)
@@ -424,7 +429,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
         self,
         X: npt.NDArray[np.float64],
         interaction: bool = False,
-    ) -> npt.NDArray[np.float64] | None:
+    ) -> npt.NDArray[np.float32] | None:
         """
         Calculate SHAP values for model interpretability.
 
@@ -437,8 +442,8 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
 
         Returns
         -------
-        npt.NDArray[np.float64] | None
-            SHAP values or None if not available.
+        npt.NDArray[np.float32] | None
+            SHAP values (float32) or None if not available.
 
         """
         if not self._is_fitted or self._booster is None:
@@ -455,9 +460,9 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
 
             if interaction:
                 shap_interaction = explainer.shap_interaction_values(X)
-                return np.array(shap_interaction)
+                return np.array(shap_interaction, dtype=np.float32)
 
-            return np.array(shap_values)
+            return np.array(shap_values, dtype=np.float32)
 
         except ImportError:
             self._log_warning("SHAP not installed. Install with: pip install shap")
@@ -559,7 +564,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
         metadata_path = load_path.with_suffix(load_path.suffix + ".meta.json")
         if not metadata_path.exists():
             metadata_path = load_path.with_suffix(".meta")
-        
+
         if metadata_path.exists():
             import json
 

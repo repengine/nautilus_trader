@@ -10,15 +10,16 @@ and rollback based on performance metrics.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Any
 
 
 @dataclass
 class CanaryConfig:
     """
     Configuration for canary deployment.
-    
+
     Attributes
     ----------
     traffic_percentage : float
@@ -38,7 +39,7 @@ class CanaryConfig:
     error_rate_threshold : float
         Maximum acceptable error rate
     """
-    
+
     traffic_percentage: float = 5.0
     success_metric: str = "accuracy"
     baseline_threshold: float = 0.95
@@ -53,7 +54,7 @@ class CanaryConfig:
 class CanaryDeployment:
     """
     Tracks state of a canary deployment.
-    
+
     Attributes
     ----------
     deployment_id : str
@@ -71,11 +72,11 @@ class CanaryDeployment:
     metrics : dict[str, Any]
         Collected performance metrics
     """
-    
+
     deployment_id: str
     model_id: str
     config: CanaryConfig
-    baseline_performance: Optional[float] = None
+    baseline_performance: float | None = None
     created_at: float = field(default_factory=time.time)
     status: str = "active"
     metrics: dict[str, Any] = field(default_factory=lambda: {
@@ -86,16 +87,16 @@ class CanaryDeployment:
         "metric_values": [],
         "latency_values": [],
     })
-    
+
     def record_metric(
         self,
         metric_value: float,
-        latency_ms: Optional[float] = None,
+        latency_ms: float | None = None,
         error_occurred: bool = False,
     ) -> None:
         """
         Record a metric observation for the canary.
-        
+
         Parameters
         ----------
         metric_value : float
@@ -106,21 +107,21 @@ class CanaryDeployment:
             Whether an error occurred
         """
         self.metrics["sample_count"] += 1
-        
+
         if error_occurred:
             self.metrics["error_count"] += 1
         else:
             self.metrics["success_count"] += 1
             self.metrics["metric_sum"] += metric_value
             self.metrics["metric_values"].append(metric_value)
-        
+
         if latency_ms is not None:
             self.metrics["latency_values"].append(latency_ms)
-    
+
     def should_promote(self) -> tuple[bool, str]:
         """
         Check if canary should be promoted to production.
-        
+
         Returns
         -------
         tuple[bool, str]
@@ -128,25 +129,25 @@ class CanaryDeployment:
         """
         if self.status != "active":
             return False, "not_active"
-        
+
         duration_hours = (time.time() - self.created_at) / 3600
         sample_count = self.metrics["sample_count"]
         success_count = self.metrics["success_count"]
         error_count = self.metrics["error_count"]
-        
+
         if sample_count < self.config.min_samples:
             return False, "insufficient_samples"
-        
+
         error_rate = error_count / sample_count if sample_count > 0 else 0.0
         if error_rate > self.config.error_rate_threshold:
             return False, "high_error_rate"
-        
+
         current_performance = (
             self.metrics["metric_sum"] / success_count
             if success_count > 0
             else 0.0
         )
-        
+
         if self.baseline_performance is not None:
             relative_performance = (
                 current_performance / self.baseline_performance
@@ -155,16 +156,16 @@ class CanaryDeployment:
             )
             if relative_performance < self.config.baseline_threshold:
                 return False, "performance_below_baseline"
-        
+
         if duration_hours >= self.config.monitoring_duration_hours:
             return True, "monitoring_period_complete"
-        
+
         return False, "monitoring_in_progress"
-    
+
     def should_rollback(self) -> tuple[bool, str]:
         """
         Check if canary should be rolled back.
-        
+
         Returns
         -------
         tuple[bool, str]
@@ -172,34 +173,34 @@ class CanaryDeployment:
         """
         if self.status != "active":
             return False, "not_active"
-        
+
         sample_count = self.metrics["sample_count"]
-        
+
         # Need minimum samples to make decision
         if sample_count < min(self.config.min_samples, 30):
             return False, "insufficient_samples"
-        
+
         error_count = self.metrics["error_count"]
         success_count = self.metrics["success_count"]
-        
+
         error_rate = error_count / sample_count if sample_count > 0 else 0.0
         if error_rate > self.config.error_rate_threshold:
             return True, "high_error_rate"
-        
+
         if success_count > 0:
             current_performance = self.metrics["metric_sum"] / success_count
-            
+
             if self.baseline_performance is not None and self.baseline_performance > 0:
                 relative_performance = current_performance / self.baseline_performance
                 if relative_performance < self.config.baseline_threshold:
                     return True, "performance_degradation"
-        
+
         return False, "metrics_acceptable"
-    
+
     def get_status_summary(self) -> dict[str, Any]:
         """
         Get summary of canary deployment status.
-        
+
         Returns
         -------
         dict[str, Any]
@@ -208,30 +209,30 @@ class CanaryDeployment:
         sample_count = self.metrics["sample_count"]
         success_count = self.metrics["success_count"]
         error_count = self.metrics["error_count"]
-        
+
         current_performance = (
             self.metrics["metric_sum"] / success_count
             if success_count > 0
             else 0.0
         )
-        
+
         error_rate = error_count / sample_count if sample_count > 0 else 0.0
-        
+
         avg_latency = (
             sum(self.metrics["latency_values"]) / len(self.metrics["latency_values"])
             if self.metrics["latency_values"]
             else 0.0
         )
-        
+
         duration_hours = (time.time() - self.created_at) / 3600
-        
+
         relative_performance = 1.0
         if self.baseline_performance is not None and self.baseline_performance > 0:
             relative_performance = current_performance / self.baseline_performance
-        
+
         should_promote, promote_reason = self.should_promote()
         should_rollback, rollback_reason = self.should_rollback()
-        
+
         return {
             "deployment_id": self.deployment_id,
             "model_id": self.model_id,

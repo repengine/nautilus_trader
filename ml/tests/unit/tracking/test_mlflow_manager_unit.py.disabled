@@ -54,8 +54,8 @@ class TestMLflowManagerInitialization:
         assert manager._experiment_id is None
         assert not manager._initialized
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_ensure_initialized_sets_up_mlflow(self, mock_mlflow: Mock) -> None:
         """
         Test _ensure_initialized properly configures MLflow.
@@ -83,8 +83,8 @@ class TestMLflowManagerInitialization:
         mock_mlflow.set_tracking_uri.assert_called_once_with("http://localhost:5000")
         mock_mlflow.create_experiment.assert_called_once()
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_ensure_initialized_uses_existing_experiment(self, mock_mlflow: Mock) -> None:
         """
         Test _ensure_initialized uses existing experiment if found.
@@ -107,7 +107,7 @@ class TestMLflowManagerInitialization:
         assert manager._experiment_id == "existing123"
         mock_mlflow.create_experiment.assert_not_called()
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", False)
+    @patch("ml._imports.HAS_MLFLOW", False)
     def test_ensure_initialized_raises_when_mlflow_unavailable(self) -> None:
         """
         Test _ensure_initialized raises error when MLflow not available.
@@ -126,8 +126,8 @@ class TestMLflowManagerRunContext:
     Test MLflowManager run context management.
     """
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_run_context_success(self, mock_mlflow: Mock) -> None:
         """
         Test run_context successfully manages run lifecycle.
@@ -152,8 +152,8 @@ class TestMLflowManagerRunContext:
         mock_mlflow.end_run.assert_called_once()
         assert manager._current_run_id is None
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_run_context_with_exception(self, mock_mlflow: Mock) -> None:
         """
         Test run_context properly cleans up on exception.
@@ -177,8 +177,8 @@ class TestMLflowManagerRunContext:
         mock_mlflow.end_run.assert_called_once()
         assert manager._current_run_id is None
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_run_context_nested(self, mock_mlflow: Mock) -> None:
         """
         Test nested run context management.
@@ -217,8 +217,8 @@ class TestMLflowManagerLogging:
     Test MLflowManager logging functionality.
     """
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_log_training_session_complete(self, mock_mlflow: Mock) -> None:
         """
         Test log_training_session with all parameters.
@@ -269,8 +269,8 @@ class TestMLflowManagerLogging:
         mock_mlflow.log_artifact.assert_called()
         mock_mlflow.sklearn.log_model.assert_called_once()
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_log_params_batch_handles_types(self, mock_mlflow: Mock) -> None:
         """
         Test _log_params_batch handles different parameter types.
@@ -303,8 +303,8 @@ class TestMLflowManagerLogging:
         assert logged_params["none_param"] == "None"
         assert len(logged_params["long_string"]) == 250
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_log_metrics_batch_validates_values(self, mock_mlflow: Mock) -> None:
         """
         Test _log_metrics_batch validates and filters metrics.
@@ -334,8 +334,8 @@ class TestMLflowManagerLogging:
         assert "inf_value" not in logged_metrics
         assert "string_value" not in logged_metrics
 
-    @patch("ml.tracking.mlflow_manager.HAS_MLFLOW", True)
-    @patch("ml.tracking.mlflow_manager.mlflow")
+    @patch("ml._imports.HAS_MLFLOW", True)
+    @patch("ml._imports.mlflow")
     def test_log_feature_importance(self, mock_mlflow: Mock) -> None:
         """
         Test _log_feature_importance logs metrics and artifacts.

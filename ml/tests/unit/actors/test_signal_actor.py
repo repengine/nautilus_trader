@@ -14,11 +14,10 @@ Tests cover:
 """
 
 import contextlib
-import json
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import numpy as np
 import numpy.typing as npt
@@ -33,6 +32,7 @@ from ml.actors.signal import SignalStrategy
 from ml.actors.signal import StrategyConfig
 from ml.config.base import CircuitBreakerConfig
 from ml.features.engineering import FeatureConfig
+from ml.tests.fixtures.model_factory import TestModelFactory
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
@@ -92,9 +92,17 @@ class TestMLSignalActor:
         except ImportError:
             pass
 
-        # Create temporary model file - we'll mock the actual loading
-        self.temp_model_file = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
-        self.temp_model_file.close()
+        # Create temporary directory for test models
+        self.temp_dir = Path(tempfile.mkdtemp())
+
+        # Create a valid test model using TestModelFactory
+        # Note: We use 23 features because that's what the FeatureConfig actually produces
+        # despite only specifying 5 feature_names (the feature_names is just a subset)
+        self.temp_model_file_path = TestModelFactory.create_minimal_xgboost_model(
+            n_features=23,  # Match the actual feature count produced by FeatureConfig
+            model_type="classification",
+            output_path=self.temp_dir / "test_model.json"
+        )
 
         # Create basic test configuration
         self.instrument_id = InstrumentId.from_str("EURUSD.SIM")
@@ -116,7 +124,7 @@ class TestMLSignalActor:
         self.config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.7,
@@ -186,8 +194,10 @@ class TestMLSignalActor:
         """
         Clean up test fixtures.
         """
-        # Remove temporary model file
-        Path(self.temp_model_file.name).unlink(missing_ok=True)
+        # Remove temporary model files and directory
+        import shutil
+        if hasattr(self, "temp_dir") and self.temp_dir.exists():
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def create_test_actor(self, config: MLSignalActorConfig | None = None) -> MLSignalActor:
         """
@@ -196,27 +206,19 @@ class TestMLSignalActor:
         if config is None:
             config = self.config
 
-        # Mock the model loading to avoid file I/O issues in tests
-        mock_model = MockTestModel()
-        mock_metadata = {"n_features": 5}
-        
-        with patch('ml.models.loader.ProductionModelLoader') as mock_loader_class:
-            mock_loader_instance = Mock()
-            mock_loader_instance.load_model.return_value = (mock_model, mock_metadata)
-            mock_loader_class.return_value = mock_loader_instance
-            
-            actor = MLSignalActor(config)
+        # Create the actor with real model loading (using TestModelFactory models)
+        actor = MLSignalActor(config)
 
-            # Register with Nautilus components
-            actor.register_base(
-                portfolio=self.portfolio,
-                msgbus=self.msgbus,
-                cache=self.cache,
-                clock=self.clock,
-            )
+        # Register with Nautilus components
+        actor.register_base(
+            portfolio=self.portfolio,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
 
-            # Start the actor
-            actor.start()
+        # Start the actor
+        actor.start()
 
         return actor
 
@@ -262,7 +264,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,
@@ -274,7 +276,7 @@ class TestMLSignalActor:
         actor = self.create_test_actor(config)
 
         # Verify model was loaded
-        assert actor._model is not None, f"Model not loaded from {self.temp_model_file.name}"
+        assert actor._model is not None, f"Model not loaded from {self.temp_model_file_path!s}"
 
         # Subscribe to signals
         signals_received = []
@@ -302,7 +304,7 @@ class TestMLSignalActor:
 
         # Should have generated signals after warm-up - test behavior, not implementation
         assert actor._is_warmed_up, "Actor not warmed up"
-        
+
         # Test behavior: verify signals were published by checking statistics
         signal_stats = actor.get_signal_statistics()
         assert signal_stats.get("predictions_made", 0) > 0, "No predictions were made during processing"
@@ -314,7 +316,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,
@@ -362,7 +364,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,
@@ -393,7 +395,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.3,
@@ -428,7 +430,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,
@@ -462,7 +464,7 @@ class TestMLSignalActor:
 
         # Adaptive threshold should have changed due to volatility
         assert actor._adaptive_threshold != initial_threshold
-        
+
         # Test behavior: verify bars were processed by checking statistics
         signal_stats = actor.get_signal_statistics()
         assert signal_stats.get("bars_processed", 0) > 0, "No bars were processed"
@@ -474,7 +476,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,
@@ -534,7 +536,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.1,  # Very low threshold
@@ -866,7 +868,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,
@@ -946,7 +948,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,
@@ -998,7 +1000,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             signal_strategy=SignalStrategy.ENSEMBLE,
@@ -1013,7 +1015,7 @@ class TestMLSignalActor:
         config_default = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-002",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             signal_strategy=SignalStrategy.ENSEMBLE,
@@ -1096,7 +1098,7 @@ class TestMLSignalActor:
             config = MLSignalActorConfig(
                 model_id="test_model",
                 component_id=f"MLSignalActor-{strategy.value}",
-                model_path=self.temp_model_file.name,
+                model_path=str(self.temp_model_file_path),
                 bar_type=self.bar_type,
                 instrument_id=self.instrument_id,
                 signal_strategy=strategy,
@@ -1140,7 +1142,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             enable_hot_reload=True,
@@ -1162,7 +1164,7 @@ class TestMLSignalActor:
         config_no_features = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             feature_config=None,
@@ -1184,7 +1186,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             feature_config=feature_config,
@@ -1195,7 +1197,10 @@ class TestMLSignalActor:
         # Test behavior: verify feature configuration was applied correctly
         # The feature buffer size should match the configured feature count
         # This is a configuration validation test, not implementation testing
-        expected_features = len(feature_config.enabled_features)
+        if feature_config.feature_names:
+            expected_features = len(feature_config.feature_names)
+        else:
+            expected_features = 10  # Default feature count when not specified
         assert expected_features >= 3, f"Configuration should enable at least 3 features, got {expected_features}"
 
     def test_ensemble_signal_with_no_component_signals(self) -> None:
@@ -1297,7 +1302,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             signal_strategy=SignalStrategy.ADAPTIVE,
@@ -1404,7 +1409,7 @@ class TestMLSignalActor:
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
-            model_path=self.temp_model_file.name,
+            model_path=str(self.temp_model_file_path),
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             prediction_threshold=0.5,

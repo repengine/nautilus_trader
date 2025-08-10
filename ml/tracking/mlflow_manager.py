@@ -22,14 +22,20 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ml._imports import HAS_LIGHTGBM
 from ml._imports import HAS_MLFLOW
+from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies
 from ml._imports import mlflow
 from ml.config.shared import MLflowConfig
 
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     import mlflow
+
+    MLFramework = Literal["xgboost", "lightgbm", "sklearn", "auto"]
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -65,16 +71,21 @@ class MLflowManager:
     - Artifact management and metadata tracking
     - Cleanup and retention policies
     - Performance metrics comparison
+    - Framework-specific autologging (XGBoost, LightGBM, scikit-learn)
+    - Automatic framework detection from model type
     - Graceful degradation when MLflow is unavailable
 
     Parameters
     ----------
     config : MLflowConfig
         Configuration for MLflow tracking and registry operations.
+    framework : str, default "auto"
+        ML framework to use ("xgboost", "lightgbm", "sklearn", "auto").
+        If "auto", will detect from model type when logging.
 
     """
 
-    def __init__(self, config: MLflowConfig) -> None:
+    def __init__(self, config: MLflowConfig, framework: MLFramework = "auto") -> None:
         """
         Initialize MLflow manager.
 
@@ -82,14 +93,100 @@ class MLflowManager:
         ----------
         config : MLflowConfig
             MLflow configuration settings.
+        framework : str, default "auto"
+            ML framework to use. Options: "xgboost", "lightgbm", "sklearn", "auto".
+            If "auto", will detect from model type when logging.
 
         """
         self.config = config
+        self.framework: MLFramework = framework
         self._mlflow: Any = None
         self._client: Any = None
         self._current_run_id: str | None = None
         self._experiment_id: str | None = None
         self._initialized = False
+
+    def _detect_framework(self, model: Any) -> str:
+        """
+        Detect ML framework from model type.
+
+        Parameters
+        ----------
+        model : Any
+            The model object to detect framework from.
+
+        Returns
+        -------
+        str
+            Detected framework name.
+
+        """
+        model_type = type(model).__name__
+        module_name = type(model).__module__ if hasattr(type(model), "__module__") else ""
+
+        # Check for XGBoost
+        if "xgboost" in module_name.lower() or "XGB" in model_type or hasattr(model, "get_booster"):
+            return "xgboost"
+
+        # Check for LightGBM
+        if (
+            "lightgbm" in module_name.lower()
+            or "LGB" in model_type
+            or hasattr(model, "booster_")
+            or model_type in ["Booster", "LGBMClassifier", "LGBMRegressor", "LGBMRanker"]
+        ):
+            return "lightgbm"
+
+        # Check for scikit-learn
+        if "sklearn" in module_name.lower() or "scikit" in module_name.lower():
+            return "sklearn"
+
+        # Default to sklearn for unknown types
+        logger.warning(f"Could not detect framework for {model_type}, defaulting to sklearn")
+        return "sklearn"
+
+    def _enable_autolog(self) -> None:
+        """
+        Enable auto-logging for the configured framework.
+        """
+        if not self.config.auto_log or self.framework == "auto":
+            return
+
+        try:
+            if self.framework == "xgboost":
+                if not HAS_XGBOOST:
+                    logger.warning("XGBoost not available for autologging")
+                    return
+                self._mlflow.xgboost.autolog(
+                    importance_types=["weight", "gain", "cover"],
+                    log_input_examples=False,  # Can be large for financial data
+                    log_model_signatures=True,
+                    log_models=True,
+                    disable=False,
+                    exclusive=False,
+                    disable_for_unsupported_versions=False,
+                    silent=False,
+                )
+                logger.info("XGBoost auto-logging enabled")
+            elif self.framework == "lightgbm":
+                if not HAS_LIGHTGBM:
+                    logger.warning("LightGBM not available for autologging")
+                    return
+                self._mlflow.lightgbm.autolog(
+                    log_models=self.config.log_model,
+                    log_input_examples=False,
+                    log_model_signatures=True,
+                )
+                logger.info("LightGBM auto-logging enabled")
+            elif self.framework == "sklearn":
+                self._mlflow.sklearn.autolog(
+                    log_models=self.config.log_model,
+                    log_input_examples=False,
+                    log_model_signatures=True,
+                )
+                logger.info("Scikit-learn auto-logging enabled")
+        except Exception as e:
+            logger.warning(f"Could not enable auto-logging: {e}")
 
     def _ensure_initialized(self) -> None:
         """
@@ -119,6 +216,10 @@ class MLflowManager:
             # Setup experiment
             if self.config.experiment_name:
                 self._setup_experiment()
+
+            # Enable auto-logging if configured and framework is specified
+            if self.framework != "auto" and self.config.auto_log:
+                self._enable_autolog()
 
             self._initialized = True
 
@@ -268,6 +369,13 @@ class MLflowManager:
             The run ID of the logged session.
 
         """
+        # Auto-detect framework if needed
+        if self.framework == "auto" and model is not None:
+            detected = self._detect_framework(model)
+            # Type cast needed for mypy - _detect_framework returns valid framework strings
+            self.framework = detected  # type: ignore[assignment]
+            logger.info(f"Auto-detected framework: {self.framework}")
+
         with self.run_context(run_name=run_name, tags=tags) as run_id:
             # Log parameters
             self._log_params_batch(params)
@@ -376,40 +484,56 @@ class MLflowManager:
         """
         Log model with automatic framework detection.
         """
-        model_type = type(model).__name__.lower()
+        # Ensure framework is set
+        if self.framework == "auto":
+            detected = self._detect_framework(model)
+            # Type cast needed for mypy - _detect_framework returns valid framework strings
+            self.framework = detected  # type: ignore[assignment]
 
         try:
-            if "xgboost" in model_type or hasattr(model, "get_booster"):
+            # Prepare input example if feature names are provided
+            input_example = None
+            if feature_names:
+                # Create a small example with random data
+                rng = np.random.default_rng()
+                input_example = rng.standard_normal((1, len(feature_names)))
+
+            # Common parameters for all frameworks
+            common_params = {
+                "artifact_path": "model",
+                "registered_model_name": (
+                    self.config.model_name if self.config.register_model else None
+                ),
+                "signature": model_signature,
+                "input_example": input_example,
+            }
+
+            # Log model with appropriate flavor
+            if self.framework == "xgboost":
+                if not HAS_XGBOOST:
+                    logger.warning("XGBoost not available, skipping model logging")
+                    return
                 self._mlflow.xgboost.log_model(
                     xgb_model=model,
-                    artifact_path="model",
-                    registered_model_name=(
-                        self.config.model_name if self.config.register_model else None
-                    ),
-                    signature=model_signature,
-                    await_registration_for=300,
+                    await_registration_for=300,  # Wait up to 5 minutes for registration
+                    **common_params,
                 )
-            elif "lightgbm" in model_type or hasattr(model, "booster_"):
+            elif self.framework == "lightgbm":
+                if not HAS_LIGHTGBM:
+                    logger.warning("LightGBM not available, skipping model logging")
+                    return
                 self._mlflow.lightgbm.log_model(
                     lgb_model=model,
-                    artifact_path="model",
-                    registered_model_name=(
-                        self.config.model_name if self.config.register_model else None
-                    ),
-                    signature=model_signature,
+                    **common_params,
                 )
             else:
-                # Generic pickle logging
+                # Default to sklearn
                 self._mlflow.sklearn.log_model(
                     sk_model=model,
-                    artifact_path="model",
-                    registered_model_name=(
-                        self.config.model_name if self.config.register_model else None
-                    ),
-                    signature=model_signature,
+                    **common_params,
                 )
 
-            logger.info("Model logged successfully")
+            logger.info(f"Model logged successfully using {self.framework} flavor")
 
         except Exception as e:
             logger.warning(f"Failed to log model: {e}")
@@ -604,20 +728,51 @@ class MLflowManager:
         try:
             model_uri = f"models:/{model_name}/{stage.value}"
 
-            # Try different model flavors
-            try:
-                model = self._mlflow.xgboost.load_model(model_uri)
-            except Exception:
-                try:
+            # Try to load with the configured framework
+            if self.framework != "auto":
+                if self.framework == "xgboost":
+                    if not HAS_XGBOOST:
+                        check_ml_dependencies(["xgboost"])
+                    model = self._mlflow.xgboost.load_model(model_uri)
+                elif self.framework == "lightgbm":
+                    if not HAS_LIGHTGBM:
+                        check_ml_dependencies(["lightgbm"])
                     model = self._mlflow.lightgbm.load_model(model_uri)
-                except Exception:
+                else:
                     model = self._mlflow.sklearn.load_model(model_uri)
+                
+                logger.info(f"Loaded {self.framework} model: {model_name} ({stage.value})")
+                return model
 
-            logger.info(f"Loaded model: {model_name} ({stage.value})")
-            return model
+            # Auto-detect framework from registered model
+            # Try each framework in order
+            for framework in ["xgboost", "lightgbm", "sklearn"]:
+                try:
+                    if framework == "xgboost":
+                        if not HAS_XGBOOST:
+                            continue
+                        model = self._mlflow.xgboost.load_model(model_uri)
+                    elif framework == "lightgbm":
+                        if not HAS_LIGHTGBM:
+                            continue
+                        model = self._mlflow.lightgbm.load_model(model_uri)
+                    else:
+                        model = self._mlflow.sklearn.load_model(model_uri)
+                    
+                    logger.info(f"Loaded {framework} model: {model_name} ({stage.value})")
+                    # Type cast needed for mypy - framework comes from our iteration
+                    self.framework = framework  # type: ignore[assignment]
+                    return model
+                except Exception as e:
+                    # Try next framework
+                    logger.debug(f"Framework {framework} failed: {e}")
+                    continue
+
+            # If all fail, raise the last exception
+            raise ValueError(f"Could not load model {model_name} with any supported framework")
 
         except Exception as e:
-            logger.info(f"Error loading model: {e}")
+            logger.error(f"Error loading model: {e}")
             raise
 
     def load_model_by_version(self, model_name: str, version: str) -> Any:
@@ -642,20 +797,53 @@ class MLflowManager:
         try:
             model_uri = f"models:/{model_name}/{version}"
 
-            # Try different model flavors
-            try:
-                model = self._mlflow.xgboost.load_model(model_uri)
-            except Exception:
-                try:
+            # Try to load with the configured framework
+            if self.framework != "auto":
+                if self.framework == "xgboost":
+                    if not HAS_XGBOOST:
+                        check_ml_dependencies(["xgboost"])
+                    model = self._mlflow.xgboost.load_model(model_uri)
+                elif self.framework == "lightgbm":
+                    if not HAS_LIGHTGBM:
+                        check_ml_dependencies(["lightgbm"])
                     model = self._mlflow.lightgbm.load_model(model_uri)
-                except Exception:
+                else:
                     model = self._mlflow.sklearn.load_model(model_uri)
+                
+                logger.info(f"Loaded {self.framework} model: {model_name} v{version}")
+                return model
 
-            logger.info(f"Loaded model: {model_name} v{version}")
-            return model
+            # Auto-detect framework from registered model
+            # Try each framework in order
+            for framework in ["xgboost", "lightgbm", "sklearn"]:
+                try:
+                    if framework == "xgboost":
+                        if not HAS_XGBOOST:
+                            continue
+                        model = self._mlflow.xgboost.load_model(model_uri)
+                    elif framework == "lightgbm":
+                        if not HAS_LIGHTGBM:
+                            continue
+                        model = self._mlflow.lightgbm.load_model(model_uri)
+                    else:
+                        model = self._mlflow.sklearn.load_model(model_uri)
+                    
+                    logger.info(f"Loaded {framework} model: {model_name} v{version}")
+                    # Type cast needed for mypy - framework comes from our iteration
+                    self.framework = framework  # type: ignore[assignment]
+                    return model
+                except Exception as e:
+                    # Try next framework
+                    logger.debug(f"Framework {framework} failed: {e}")
+                    continue
+
+            # If all fail, raise the last exception
+            raise ValueError(
+                f"Could not load model {model_name} v{version} with any supported framework",
+            )
 
         except Exception as e:
-            logger.info(f"Error loading model version: {e}")
+            logger.error(f"Error loading model version: {e}")
             raise
 
     def compare_models(
@@ -911,3 +1099,56 @@ class MLflowManager:
                 status["error"] = str(e)
 
         return status
+
+
+# Backward compatibility aliases
+class MLflowXGBoostManager(MLflowManager):
+    """
+    Backward compatibility alias for MLflowManager with XGBoost default.
+
+    .. deprecated:: 2.1.0
+        Use :class:`MLflowManager` with framework="xgboost" instead.
+
+    """
+
+    def __init__(self, config: MLflowConfig) -> None:
+        """
+        Initialize XGBoost-specific MLflow manager.
+
+        Parameters
+        ----------
+        config : MLflowConfig
+            MLflow configuration settings.
+
+        """
+        super().__init__(config, framework="xgboost")
+        logger.warning(
+            "MLflowXGBoostManager is deprecated. "
+            "Use MLflowManager(config, framework='xgboost') instead.",
+        )
+
+
+class MLflowLightGBMManager(MLflowManager):
+    """
+    Backward compatibility alias for MLflowManager with LightGBM default.
+
+    .. deprecated:: 2.1.0
+        Use :class:`MLflowManager` with framework="lightgbm" instead.
+
+    """
+
+    def __init__(self, config: MLflowConfig) -> None:
+        """
+        Initialize LightGBM-specific MLflow manager.
+
+        Parameters
+        ----------
+        config : MLflowConfig
+            MLflow configuration settings.
+
+        """
+        super().__init__(config, framework="lightgbm")
+        logger.warning(
+            "MLflowLightGBMManager is deprecated. "
+            "Use MLflowManager(config, framework='lightgbm') instead.",
+        )

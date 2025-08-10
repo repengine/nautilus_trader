@@ -259,7 +259,7 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
             "metrics": metrics,
         }
 
-    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float64]:
+    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float32]:
         """
         Make predictions using LightGBM model.
 
@@ -274,23 +274,29 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
 
         Returns
         -------
-        np.ndarray
-            Model predictions.
+        npt.NDArray[np.float32]
+            Model predictions (float32 for production/inference compatibility).
 
         """
         # Make predictions
         predictions = model.predict(X, num_iteration=model.best_iteration)
 
-        # For classification, apply threshold if needed
+        # For classification, convert probabilities to class predictions
         if self._lgb_config.objective in ["binary", "multiclass"]:
             if self._lgb_config.objective == "binary":
-                threshold = kwargs.get("threshold", 0.5)
-                predictions = (predictions > threshold).astype(int)
+                # Always apply threshold for binary classification unless explicitly disabled
+                if kwargs.get("return_probabilities", False):
+                    # Return raw probabilities if explicitly requested
+                    return np.array(predictions)
+                else:
+                    # Convert to binary predictions using threshold
+                    threshold = kwargs.get("threshold", 0.5)
+                    predictions = (predictions > threshold).astype(int)
             else:
                 # For multiclass, get the class with highest probability
                 predictions = np.argmax(predictions, axis=1)
 
-        return np.array(predictions)
+        return np.array(predictions, dtype=np.float32)
 
     def _create_model(self, params: dict[str, Any]) -> Any:
         """
@@ -580,7 +586,7 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
         metadata_path = load_path.with_suffix(load_path.suffix + ".meta.json")
         if not metadata_path.exists():
             metadata_path = load_path.with_suffix(".meta")
-        
+
         if metadata_path.exists():
             with open(metadata_path) as f:
                 metadata = json.load(f)

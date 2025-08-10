@@ -12,48 +12,44 @@ These tests define the contracts for ML strategies:
 
 import time
 from collections import deque
-from typing import Any, Dict, Optional
-from unittest.mock import Mock, MagicMock
+from typing import Any
+from unittest.mock import Mock
 
 import numpy as np
-import pytest
-
-from nautilus_trader.core.data import Data
-from nautilus_trader.model.identifiers import InstrumentId, ClientId
-from nautilus_trader.test_kit.stubs.component import TestComponentStubs
-from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 
 from ml.actors.base import MLSignal
 from ml.strategies.base import BaseMLStrategy
+from nautilus_trader.core.data import Data
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 class TestStrategyContracts:
     """Test suite for strategy signal handling contracts."""
-    
+
     def test_strategy_receives_ml_signals(self) -> None:
         """
         Strategy MUST receive MLSignal via on_data().
-        
+
         Given: Strategy subscribed to MLSignal
         When: MLSignal is published
         Then: Strategy's on_data() is called with signal
         """
         # Create test strategy
         strategy = self._create_test_strategy()
-        
+
         # Track on_data calls
         received_data = []
         original_on_data = strategy.on_data
-        
+
         def mock_on_data(data: Data) -> None:
             received_data.append(data)
             original_on_data(data)
-        
+
         strategy.on_data = mock_on_data
-        
+
         # Note: In actual usage, the strategy subscribes in on_start()
         # For testing, we'll just simulate the data reception directly
-        
+
         # Create and "publish" signal
         signal = MLSignal(
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
@@ -64,20 +60,20 @@ class TestStrategyContracts:
             ts_event=time.time_ns(),
             ts_init=time.time_ns(),
         )
-        
+
         # Simulate signal reception
         strategy.on_data(signal)
-        
+
         # Assert
         assert len(received_data) == 1, "Strategy should receive the signal"
         assert isinstance(received_data[0], MLSignal), "Received data should be MLSignal"
         assert received_data[0].prediction == 0.7, "Signal data should be preserved"
         assert received_data[0].confidence == 0.85, "Signal confidence should be preserved"
-    
+
     def test_strategy_filters_by_model_id(self) -> None:
         """
         Strategy can filter signals by model_id.
-        
+
         Given: Strategy configured for specific model_id
         When: Multiple signals with different model_ids
         Then: Only configured model signals are processed
@@ -86,11 +82,11 @@ class TestStrategyContracts:
         strategy = self._create_test_strategy(
             target_model_ids=["xgb_eurusd_1h_v2"]
         )
-        
+
         # Track processed signals
         processed_signals = []
         strategy._process_signal = Mock(side_effect=lambda s: processed_signals.append(s))
-        
+
         # Create signals from different models
         signals = [
             MLSignal(
@@ -121,19 +117,19 @@ class TestStrategyContracts:
                 ts_init=time.time_ns(),
             ),
         ]
-        
+
         # Process all signals
         for signal in signals:
             strategy.on_data(signal)
-        
+
         # Assert only target model signal was processed
         assert len(processed_signals) == 1, "Only target model signal should be processed"
         assert processed_signals[0].model_id == "xgb_eurusd_1h_v2"
-    
+
     def test_strategy_handles_multiple_model_signals(self) -> None:
         """
         Strategy can aggregate signals from multiple models.
-        
+
         Given: Signals from 3 different models
         When: All signals arrive within time window
         Then: Strategy aggregates and makes decision
@@ -144,11 +140,11 @@ class TestStrategyContracts:
             required_models=3,
             time_window_ms=1000,
         )
-        
+
         # Track trading decisions
         trading_decisions = []
         strategy._execute_trade = Mock(side_effect=lambda d: trading_decisions.append(d))
-        
+
         # Create signals from 3 models (all bullish)
         base_time = time.time_ns()
         signals = [
@@ -180,23 +176,23 @@ class TestStrategyContracts:
                 ts_init=base_time + 200_000_000,
             ),
         ]
-        
+
         # Process signals
         for signal in signals:
             strategy.on_data(signal)
-        
+
         # Assert aggregation occurred
         assert len(trading_decisions) >= 1, "Should make trading decision after aggregation"
-        
+
         # Check aggregated decision
         decision = trading_decisions[0]
         assert decision["action"] in ["BUY", "SELL"], "Should have clear action"
         assert decision["confidence"] > 0.7, "Aggregated confidence should be high with 3 bullish signals"
-    
+
     def test_strategy_respects_signal_confidence_threshold(self) -> None:
         """
         Strategy only acts on high-confidence signals.
-        
+
         Given: Strategy with min_confidence=0.8
         When: Signals with varying confidence
         Then: Only high-confidence signals trigger trades
@@ -205,11 +201,11 @@ class TestStrategyContracts:
         strategy = self._create_test_strategy(
             min_confidence=0.8
         )
-        
+
         # Track trade executions
         executed_trades = []
         strategy._execute_trade = Mock(side_effect=lambda t: executed_trades.append(t))
-        
+
         # Create signals with different confidence levels
         signals = [
             MLSignal(
@@ -240,19 +236,19 @@ class TestStrategyContracts:
                 ts_init=time.time_ns(),
             ),
         ]
-        
+
         # Process signals
         for signal in signals:
             strategy.on_data(signal)
-        
+
         # Assert only high-confidence signal triggered trade
         assert len(executed_trades) == 1, "Only one high-confidence trade should execute"
         assert executed_trades[0]["signal"].confidence >= 0.8
-    
+
     def test_strategy_handles_conflicting_signals(self) -> None:
         """
         Strategy handles conflicting signals from different models.
-        
+
         Given: Conflicting signals (buy vs sell)
         When: Signals arrive close in time
         Then: Strategy resolves conflict appropriately
@@ -264,11 +260,11 @@ class TestStrategyContracts:
             model_weights={"model_1": 0.6, "model_2": 0.4},
             required_models=2,  # Need both models
         )
-        
+
         # Track decisions
         decisions = []
         strategy._make_decision = Mock(side_effect=lambda d: decisions.append(d))
-        
+
         # Create conflicting signals
         base_time = time.time_ns()
         signals = [
@@ -291,23 +287,23 @@ class TestStrategyContracts:
                 ts_init=base_time + 50_000_000,
             ),
         ]
-        
+
         # Process signals
         for signal in signals:
             strategy.on_data(signal)
-        
+
         # Assert conflict was resolved
         assert len(decisions) > 0, "Strategy should make a decision"
-        
+
         # With weights 0.6 and 0.4, and predictions 0.8 and 0.2:
         # Weighted average = 0.6 * 0.8 + 0.4 * 0.2 = 0.48 + 0.08 = 0.56 (slightly bullish)
         final_decision = decisions[-1]
         assert "weighted_prediction" in final_decision or "action" in final_decision
-    
+
     def test_strategy_maintains_signal_history(self) -> None:
         """
         Strategy maintains recent signal history for analysis.
-        
+
         Given: Stream of signals
         When: Signals are received
         Then: Recent history is maintained with size limit
@@ -316,7 +312,7 @@ class TestStrategyContracts:
         strategy = self._create_test_strategy(
             history_size=10
         )
-        
+
         # Send 15 signals
         for i in range(15):
             signal = MLSignal(
@@ -329,19 +325,19 @@ class TestStrategyContracts:
                 ts_init=time.time_ns(),
             )
             strategy.on_data(signal)
-        
+
         # Check history is maintained with size limit
-        if hasattr(strategy, '_signal_history'):
+        if hasattr(strategy, "_signal_history"):
             assert len(strategy._signal_history) <= 10, "History should be bounded"
-            
+
             # Verify most recent signals are kept
             history_indices = [s.metadata.get("index") for s in strategy._signal_history]
             assert min(history_indices) >= 5, "Should keep most recent signals"
-    
+
     def test_strategy_tracks_model_performance(self) -> None:
         """
         Strategy tracks performance per model for adaptive weighting.
-        
+
         Given: Signals and resulting trades
         When: Trades complete with P&L
         Then: Model performance metrics are updated
@@ -350,11 +346,11 @@ class TestStrategyContracts:
         strategy = self._create_test_strategy(
             track_performance=True
         )
-        
+
         # Initialize performance tracking
-        if not hasattr(strategy, '_model_performance'):
+        if not hasattr(strategy, "_model_performance"):
             strategy._model_performance = {}
-        
+
         # Simulate signal → trade → result cycle
         signal = MLSignal(
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
@@ -365,22 +361,22 @@ class TestStrategyContracts:
             ts_event=time.time_ns(),
             ts_init=time.time_ns(),
         )
-        
+
         # Process signal
         strategy.on_data(signal)
-        
+
         # Simulate trade result
         strategy._update_model_performance("model_1", profit=100.0)
-        
+
         # Check performance is tracked
         assert "model_1" in strategy._model_performance
         perf = strategy._model_performance["model_1"]
         assert "total_trades" in perf or "profit" in perf or "accuracy" in perf
-    
+
     # Helper methods
     def _create_test_strategy(self, **kwargs: Any) -> Any:
         """Create a test strategy with configurable behavior."""
-        
+
         class TestMLStrategy(BaseMLStrategy):
             def __init__(self, config: Any) -> None:
                 super().__init__(config)
@@ -394,40 +390,40 @@ class TestStrategyContracts:
                 self.model_weights = kwargs.get("model_weights", {})
                 self.history_size = kwargs.get("history_size", 100)
                 self.track_performance = kwargs.get("track_performance", False)
-                
+
                 # Internal state
                 self._signal_buffer: dict[str, MLSignal] = {}
                 self._signal_history: deque[Any] = deque(maxlen=self.history_size)
                 self._model_signals: dict[str, MLSignal] = {}
-                self._model_performance: Dict[str, Any] = {}
-            
+                self._model_performance: dict[str, Any] = {}
+
             def on_data(self, data: Data) -> None:
                 if isinstance(data, MLSignal):
                     # Add to history
                     self._signal_history.append(data)
-                    
+
                     # Filter by model_id if configured
                     if self.target_model_ids:
-                        model_id = getattr(data, 'model_id', None) or data.metadata.get("model_id")
+                        model_id = getattr(data, "model_id", None) or data.metadata.get("model_id")
                         if model_id not in self.target_model_ids:
                             return
-                    
+
                     # Check confidence threshold
                     if data.confidence < self.min_confidence:
                         return
-                    
+
                     # Handle aggregation
                     if self.aggregation_mode:
                         self._aggregate_signal(data)
                     else:
                         # Process single signal
                         self._process_signal(data)
-            
+
             def _aggregate_signal(self, signal: MLSignal) -> None:
-                model_id = getattr(signal, 'model_id', None) or signal.metadata.get("model_id")
+                model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id")
                 if model_id:
                     self._model_signals[model_id] = signal
-                
+
                 # Check if we have enough signals
                 if len(self._model_signals) >= self.required_models:
                     # Aggregate and make decision
@@ -435,11 +431,11 @@ class TestStrategyContracts:
                         weighted_pred = sum(
                             self.model_weights.get(mid, 1.0) * s.prediction
                             for mid, s in self._model_signals.items()
-                        ) / sum(self.model_weights.get(mid, 1.0) 
+                        ) / sum(self.model_weights.get(mid, 1.0)
                                for mid in self._model_signals.keys())
-                        
+
                         avg_confidence = np.mean([s.confidence for s in self._model_signals.values()])
-                        
+
                         self._make_decision({
                             "weighted_prediction": weighted_pred,
                             "confidence": avg_confidence,
@@ -448,33 +444,31 @@ class TestStrategyContracts:
                         # Simple voting
                         bullish = sum(1 for s in self._model_signals.values() if s.prediction > 0.5)
                         bearish = len(self._model_signals) - bullish
-                        
+
                         action = "BUY" if bullish > bearish else "SELL"
                         confidence = max(s.confidence for s in self._model_signals.values())
-                        
+
                         self._execute_trade({
                             "action": action,
                             "confidence": confidence,
                             "signal": signal,
                         })
-                    
+
                     # Clear buffer after decision
                     self._model_signals.clear()
-            
+
             def _process_signal(self, signal: MLSignal) -> None:
                 """Process individual signal."""
                 # For testing: execute trade if confidence is sufficient
                 if signal.confidence >= self.min_confidence:
                     self._execute_trade({"signal": signal})
-            
-            def _make_decision(self, decision: Dict[str, Any]) -> None:
+
+            def _make_decision(self, decision: dict[str, Any]) -> None:
                 """Make trading decision."""
-                pass
-            
-            def _execute_trade(self, trade: Dict[str, Any]) -> None:
+
+            def _execute_trade(self, trade: dict[str, Any]) -> None:
                 """Execute trade based on signal."""
-                pass
-            
+
             def _update_model_performance(self, model_id: str, profit: float) -> None:
                 """Update model performance metrics."""
                 if model_id not in self._model_performance:
@@ -482,28 +476,27 @@ class TestStrategyContracts:
                         "total_trades": 0,
                         "total_profit": 0.0,
                     }
-                
+
                 self._model_performance[model_id]["total_trades"] += 1
                 self._model_performance[model_id]["total_profit"] += profit
-            
+
             def _process_ml_signal(self, signal: MLSignal) -> None:
                 """Abstract method implementation for testing."""
-                pass
-        
+
         # Create config
         from ml.config.base import MLStrategyConfig
         from nautilus_trader.model.identifiers import InstrumentId
-        
+
         class TestConfig(MLStrategyConfig, frozen=True):
             instrument_id: InstrumentId = InstrumentId.from_str("EURUSD.SIM")
             ml_signal_source: str = "ML_ACTOR"
             position_size_pct: float = 0.1
             min_confidence: float = kwargs.get("min_confidence", 0.0)
             max_positions: int = 1
-        
+
         config = TestConfig()
-        
+
         # Simple initialization - just create the strategy
         strategy = TestMLStrategy(config)
-        
+
         return strategy

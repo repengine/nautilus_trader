@@ -88,10 +88,10 @@ def test_signal_actor_to_strategy_communication():
     # Setup both components in test environment
     signal_actor = MLSignalActor(config)
     strategy = SimpleMLStrategy(config)
-    
+
     # Connect via test message bus
     connect_components(signal_actor, strategy)
-    
+
     # Send market data and verify signal flow
     signal_actor.on_bar(test_bar)
     assert strategy.received_signals
@@ -103,11 +103,11 @@ def test_training_to_inference_parity():
     """Ensure training features match inference features exactly."""
     # Train model with specific feature configuration
     model = train_model(training_data, feature_config)
-    
+
     # Run inference with same configuration
     inference_features = compute_inference_features(test_data, feature_config)
     training_features = compute_training_features(test_data, feature_config)
-    
+
     # Verify exact parity (1e-10 tolerance)
     np.testing.assert_allclose(training_features, inference_features, rtol=1e-10)
 ```

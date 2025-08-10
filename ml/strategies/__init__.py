@@ -11,7 +11,7 @@ from ml.strategies.ml_strategy import MultiModelMLStrategy
 
 __all__ = [
     "BaseMLStrategy",
-    "SimpleMLStrategy",
     "MLTradingStrategy",
     "MultiModelMLStrategy",
+    "SimpleMLStrategy",
 ]

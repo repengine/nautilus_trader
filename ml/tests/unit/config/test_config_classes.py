@@ -2,22 +2,17 @@
 Tests for ML configuration classes.
 """
 
-from typing import Any
 
 import pytest
 from msgspec import ValidationError
 
+from ml.config.base import CanaryDeploymentConfig
+from ml.config.base import MLActorConfig
+from ml.config.base import ModelDeploymentConfig
+from ml.config.base import ModelRegistryConfig
+from ml.config.base import MultiModelStrategyConfig
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
-
-from ml.config.base import (
-    CanaryDeploymentConfig,
-    MLActorConfig,
-    MLStrategyConfig,
-    ModelDeploymentConfig,
-    ModelRegistryConfig,
-    MultiModelStrategyConfig,
-)
 
 
 class TestModelRegistryConfig:
@@ -26,7 +21,7 @@ class TestModelRegistryConfig:
     def test_default_values(self) -> None:
         """Test ModelRegistryConfig default values."""
         config = ModelRegistryConfig()
-        
+
         assert config.registry_path == "ml/registry"
         assert config.enable_mlflow is False
         assert config.mlflow_tracking_uri is None
@@ -42,7 +37,7 @@ class TestModelRegistryConfig:
             auto_versioning=False,
             max_versions_per_model=5,
         )
-        
+
         assert config.registry_path == "/custom/path"
         assert config.enable_mlflow is True
         assert config.mlflow_tracking_uri == "http://localhost:5000"
@@ -61,7 +56,7 @@ class TestMLActorConfig:
             bar_type=BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
         )
-        
+
         assert config.model_id == "test_model_v1"
         assert config.model_path == "/path/to/model.onnx"
 
@@ -80,7 +75,7 @@ class TestMultiModelStrategyConfig:
             model_weights={"model1": 0.5, "model2": 0.3, "model3": 0.2},
             required_models=2,
         )
-        
+
         assert config.target_model_ids == ["model1", "model2", "model3"]
         assert config.aggregation_mode == "weighted_average"
         assert config.model_weights == {"model1": 0.5, "model2": 0.3, "model3": 0.2}
@@ -96,7 +91,7 @@ class TestMultiModelStrategyConfig:
             aggregation_mode="voting",
             required_models=1,
         )
-        
+
         assert config.aggregation_mode == "voting"
         assert config.model_weights is None  # Not needed for voting
 
@@ -111,7 +106,7 @@ class TestModelDeploymentConfig:
             rollout_strategy="immediate",
             rollout_percentage=100.0,
         )
-        
+
         assert config.deployment_target == "actor"
         assert config.rollout_strategy == "immediate"
         assert config.rollout_percentage == 100.0
@@ -125,7 +120,7 @@ class TestModelDeploymentConfig:
             rollout_percentage=25.0,
             health_check_interval=30,
         )
-        
+
         assert config.rollout_strategy == "gradual"
         assert config.rollout_percentage == 25.0
         assert config.health_check_interval == 30
@@ -146,7 +141,7 @@ class TestCanaryDeploymentConfig:
     def test_default_canary_config(self) -> None:
         """Test CanaryDeploymentConfig default values."""
         config = CanaryDeploymentConfig()
-        
+
         assert config.initial_traffic_percentage == 10.0
         assert config.increment_percentage == 10.0
         assert config.promotion_interval_seconds == 300
@@ -166,7 +161,7 @@ class TestCanaryDeploymentConfig:
             auto_promote=False,
             auto_rollback=False,
         )
-        
+
         assert config.initial_traffic_percentage == 5.0
         assert config.increment_percentage == 5.0
         assert config.promotion_interval_seconds == 600
@@ -192,13 +187,13 @@ class TestConfigIntegration:
             registry_path="/models/registry",
             enable_mlflow=True,
         )
-        
+
         deployment_config = ModelDeploymentConfig(
             deployment_target="actor",
             rollout_strategy="canary",
             rollout_percentage=10.0,
         )
-        
+
         # These should work together
         assert registry_config.registry_path == "/models/registry"
         assert deployment_config.rollout_strategy == "canary"
@@ -212,14 +207,14 @@ class TestConfigIntegration:
             bar_type=BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
         )
-        
+
         actor2_config = MLActorConfig(
             model_path="/models/lgb_v1.txt",
             model_id="lgb_v1",
             bar_type=BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
         )
-        
+
         # Strategy that consumes signals from both actors
         strategy_config = MultiModelStrategyConfig(
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
@@ -230,7 +225,7 @@ class TestConfigIntegration:
             model_weights={"xgb_v1": 0.6, "lgb_v1": 0.4},
             required_models=2,
         )
-        
+
         # Verify model_ids match
         assert actor1_config.model_id in strategy_config.target_model_ids
         assert actor2_config.model_id in strategy_config.target_model_ids

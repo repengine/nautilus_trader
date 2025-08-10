@@ -17,10 +17,29 @@
 Pre-commit hook to ensure tests pass without failures, errors, or warnings.
 """
 
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+
+# Check if running in virtual environment
+def check_venv():
+    """Check if running in a virtual environment."""
+    # Check for virtualenv or venv
+    in_virtualenv = hasattr(sys, 'real_prefix')
+    in_venv = sys.base_prefix != sys.prefix
+    has_venv_var = 'VIRTUAL_ENV' in os.environ
+    
+    if not (in_virtualenv or in_venv or has_venv_var):
+        print("⚠️  Warning: Not running in a virtual environment!")
+        print("Please activate your virtual environment and try again.")
+        print(f"Python: {sys.executable}")
+        sys.exit(1)
+
+
+check_venv()
 
 
 def get_test_files_for_changed_files(changed_files):
@@ -148,6 +167,8 @@ def run_tests_clean(test_files):
 
     # Run pytest with warning capture
     cmd = [
+        sys.executable,
+        "-m",
         "pytest",
         "-xvs",  # Stop on first failure, verbose, no capture
         "--tb=short",

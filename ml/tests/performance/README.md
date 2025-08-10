@@ -61,7 +61,7 @@ make update-ml-baseline
 
 Add performance tests when:
 - Creating new inference pathways
-- Modifying feature computation logic  
+- Modifying feature computation logic
 - Adding new indicators or models
 - Optimizing hot path operations
 - Introducing caching or pooling
@@ -74,7 +74,7 @@ def test_feature_computation_latency():
     start = time.perf_counter_ns()
     features = engineer.compute_features(bar)
     duration = time.perf_counter_ns() - start
-    
+
     assert duration < 500_000  # 500μs in nanoseconds
 ```
 

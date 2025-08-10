@@ -1444,7 +1444,7 @@ class MLSignalActor(BaseMLInferenceActor):
     def _load_model(self) -> None:
         """
         Load ML model with optional optimizations.
-        
+
         The SmartModelLoader in the base class automatically detects the model format
         (ONNX, pickle, joblib) and loads it appropriately.
         """
@@ -1458,10 +1458,10 @@ class MLSignalActor(BaseMLInferenceActor):
             # SmartModelLoader handles all formats automatically
             # No need to call abstract method - it's implemented in base class
             pass
-        
+
         # Model is loaded by base class in on_start via _load_model_with_metadata
         # which uses the SmartModelLoader
-        
+
         # Warm up if configured
         if self._opt_config.enable_model_warm_up and self._model is not None:
             self._warm_up_model()
@@ -1471,7 +1471,7 @@ class MLSignalActor(BaseMLInferenceActor):
         Load ONNX model with optimizations.
         """
         if not HAS_ONNX:
-            check_ml_dependencies(["onnxruntime"])
+            check_ml_dependencies(["onnx"])  # accept alias in checker
 
         # Create optimized session options
         session_options = ort.SessionOptions()
@@ -1620,7 +1620,8 @@ class MLSignalActor(BaseMLInferenceActor):
 
         try:
             # Check if this is a Mock object (for testing)
-            from unittest.mock import Mock, MagicMock
+            from unittest.mock import MagicMock
+            from unittest.mock import Mock
             if isinstance(self._model, (Mock, MagicMock)):
                 # Let the test mocks work as before
                 if hasattr(self._model, "run"):
@@ -1647,13 +1648,13 @@ class MLSignalActor(BaseMLInferenceActor):
                     prediction = float(self._model.predict(features_2d)[0])
                     confidence = min(abs(prediction), 1.0) if prediction != 0 else 0.5
                     return prediction, confidence
-            
+
             # Check if model uses the unified interface
             if hasattr(self._model, "predict") and hasattr(self._model, "metadata"):
                 # Unified model wrapper - just call predict
                 result = self._model.predict(features)
                 return result[0], result[1]
-            
+
             # Fallback for legacy models not using the wrapper
             # This ensures backward compatibility
             if hasattr(self._model, "run") and "input_names" in self._model_metadata:
@@ -1675,11 +1676,22 @@ class MLSignalActor(BaseMLInferenceActor):
                 confidence = float(np.max(probabilities))
                 return prediction, confidence
             elif hasattr(self._model, "predict"):
-                # Raw general model
-                features_2d = features.reshape(1, -1)
-                prediction = float(self._model.predict(features_2d)[0])
-                confidence = min(abs(prediction), 1.0) if prediction != 0 else 0.5
-                return prediction, confidence
+                # Check if this is a raw XGBoost Booster
+                if hasattr(self._model, "num_features") and hasattr(self._model, "get_score"):
+                    # Raw XGBoost Booster - needs DMatrix
+                    from ml._imports import xgb
+                    features_2d = features.reshape(1, -1)
+                    dmatrix = xgb.DMatrix(features_2d)
+                    predictions = self._model.predict(dmatrix)
+                    prediction = float(predictions[0])
+                    confidence = min(abs(prediction), 1.0) if prediction != 0 else 0.5
+                    return prediction, confidence
+                else:
+                    # Raw general model (sklearn, etc.)
+                    features_2d = features.reshape(1, -1)
+                    prediction = float(self._model.predict(features_2d)[0])
+                    confidence = min(abs(prediction), 1.0) if prediction != 0 else 0.5
+                    return prediction, confidence
             else:
                 self.log.error(f"Unsupported model type: {type(self._model)}")
                 return 0.0, 0.0

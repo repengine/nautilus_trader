@@ -333,7 +333,7 @@ class BaseMLTrainer(ABC):
         ...
 
     @abstractmethod
-    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float64]:
+    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float32]:
         """
         Make predictions using the trained model.
 
@@ -342,14 +342,14 @@ class BaseMLTrainer(ABC):
         model : Any
             The trained model.
         X : np.ndarray
-            Features to predict on.
+            Features to predict on (can be float64 for compatibility).
         **kwargs : Any
             Additional prediction parameters.
 
         Returns
         -------
-        np.ndarray
-            Model predictions.
+        npt.NDArray[np.float32]
+            Model predictions (always float32 for inference compatibility).
 
         """
         ...
@@ -538,7 +538,7 @@ class BaseMLTrainer(ABC):
     def _calculate_objective_metric(
         self,
         y_true: npt.NDArray[np.float64],
-        y_pred: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float32] | npt.NDArray[np.float64],
     ) -> float:
         """
         Calculate metric for Optuna optimization.
@@ -852,7 +852,7 @@ class BaseMLTrainer(ABC):
     def calculate_trading_metrics(
         self,
         returns: npt.NDArray[np.float64],
-        predictions: npt.NDArray[np.float64],
+        predictions: npt.NDArray[np.float32] | npt.NDArray[np.float64],
     ) -> dict[str, float]:
         """
         Calculate trading-specific performance metrics.
@@ -926,7 +926,7 @@ class BaseMLTrainer(ABC):
 
         This method should be overridden by specific trainers to save
         in their native format (XGBoost JSON, LightGBM TXT, etc).
-        
+
         Parameters
         ----------
         path : str | Path
@@ -941,7 +941,7 @@ class BaseMLTrainer(ABC):
 
         # Import here to avoid circular dependency
         from ml.models.saver import save_model_with_metadata
-        
+
         # Save in production format with metadata
         # Use -1 to indicate variable batch size for type safety
         saved_path = save_model_with_metadata(
@@ -974,11 +974,11 @@ class BaseMLTrainer(ABC):
 
         # Import here to avoid circular dependency
         from ml.models.loader import ProductionModelLoader
-        
+
         # Load using production loader
         loader = ProductionModelLoader()
         model, metadata = loader.load_model(str(load_path))
-        
+
         self._model = model
         self._feature_names = metadata.get("feature_names", [])
         self._training_metrics = metadata.get("training_metrics", {})
@@ -1041,7 +1041,7 @@ class BaseMLTrainer(ABC):
 
         return data[:split_idx], data[split_idx:]
 
-    def _is_classification_problem(self, y: npt.NDArray[np.float64]) -> bool:
+    def _is_classification_problem(self, y: npt.NDArray[np.float32] | npt.NDArray[np.float64]) -> bool:
         """
         Determine if this is a classification problem based on target values.
 
@@ -1071,7 +1071,7 @@ class BaseMLTrainer(ABC):
     def _calculate_classification_metrics(
         self,
         y_true: npt.NDArray[np.float64],
-        y_pred: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float32] | npt.NDArray[np.float64],
     ) -> dict[str, float]:
         """
         Calculate classification metrics.
@@ -1099,7 +1099,7 @@ class BaseMLTrainer(ABC):
     def _calculate_regression_metrics(
         self,
         y_true: npt.NDArray[np.float64],
-        y_pred: npt.NDArray[np.float64],
+        y_pred: npt.NDArray[np.float32] | npt.NDArray[np.float64],
     ) -> dict[str, float]:
         """
         Calculate regression metrics.

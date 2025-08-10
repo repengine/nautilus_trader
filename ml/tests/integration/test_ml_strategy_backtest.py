@@ -34,10 +34,8 @@ from ml.features.engineering import FeatureConfig
 from ml.strategies.base import SimpleMLStrategy
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
-from nautilus_trader.common.enums import ComponentState
 from nautilus_trader.common.actor import Actor
 from nautilus_trader.config import ActorConfig
-from nautilus_trader.config import ImportableActorConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import StreamingConfig
 from nautilus_trader.model.currencies import USD
@@ -196,11 +194,12 @@ class TestMLStrategyBacktest:
             lookback_window=20,
             normalize_features=True,
         )
-        
+
         # Create model with correct feature dimensions
         from ml.features import FeatureEngineer
+
         from .conftest import create_onnx_model_for_features
-        
+
         engineer = FeatureEngineer(config=feature_config)
         n_features = len(engineer.get_feature_names())
         onnx_model_path = create_onnx_model_for_features(n_features, tmp_path)
@@ -227,8 +226,7 @@ class TestMLStrategyBacktest:
         )
 
         # Create and add actor directly
-        from ml.actors.signal import MLSignalActor
-        
+
         actor = MLSignalActor(config=actor_config)
         engine.add_actor(actor)
 
@@ -255,20 +253,20 @@ class TestMLStrategyBacktest:
         # Verify the pipeline completed successfully
         # We have a reference to the actor we created
         assert actor.is_stopped, "Actor should be stopped after backtest"
-        
+
         # Check the engine completed normally
         # The fact that run() completed without exception means success
-        
+
         # Verify backtest processed events
         assert engine.iteration > 0, "Backtest should have processed events"
-        
+
         # Check health status (this is a PUBLIC method)
         health_status = actor.get_health_status()
         assert health_status["status"] in [
             "healthy",
             "degraded",
         ], f"Unexpected health status: {health_status}"
-        
+
         # The test passes if:
         # 1. The pipeline ran without crashing
         # 2. The actor processed data (implied by successful completion)

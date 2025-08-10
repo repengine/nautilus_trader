@@ -11,15 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import warnings
 from abc import ABC
 from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING
-from typing import Any
-
-import numpy as np
-from numpy.typing import NDArray
+from typing import TYPE_CHECKING, Any
 
 from ml._imports import HAS_LIGHTGBM
 from ml._imports import HAS_ONNX
@@ -28,15 +23,11 @@ from ml._imports import check_ml_dependencies
 from ml._imports import lgb
 from ml._imports import ort
 from ml._imports import xgb
-from ml.models import LightGBMModel
-from ml.models import ModelMetadata
-from ml.models import ModelType
-from ml.models import ONNXModel
-from ml.models import XGBoostModel
 from ml.models import create_model_wrapper
 
+
 if TYPE_CHECKING:
-    from ml.models import BaseModel
+    pass
 
 
 class ModelLoader(ABC):
@@ -230,8 +221,8 @@ class ProductionModelLoader(ModelLoader):
             model.load_model(str(model_path))
             is_booster = True
         except Exception:
-            # Try loading as sklearn-like model
-            import xgboost as xgb_module
+            # Try loading as sklearn-like model using centralized import
+            from ml._imports import xgb as xgb_module
 
             # XGBoost sklearn models can be loaded directly
             model = xgb_module.XGBClassifier()
@@ -399,7 +390,6 @@ class SecurityError(Exception):
     Raised when attempting to load insecure model formats.
     """
 
-    pass
 
 
 __all__ = [

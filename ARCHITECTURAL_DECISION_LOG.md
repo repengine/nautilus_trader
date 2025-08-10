@@ -1,5 +1,58 @@
 # Architectural Decision Log
 
+## Date: 2025-08-10
+
+### Decision: Standardized Float32 Dtype Policy for ML Inference
+
+#### Context
+The ML module had inconsistent dtype usage across training and inference paths:
+- Training code used `np.float64` for numerical stability
+- Inference code used `np.float32` for performance
+- This created potential precision mismatches and confusion
+
+#### Decision
+Established a clear dtype policy for the ML module:
+
+1. **Training Path (Cold)**:
+   - Internal computations can use `np.float64` for numerical stability
+   - Training data (`X_train`, `y_train`) can remain `np.float64`
+   - Model fitting uses native precision
+
+2. **Inference Path (Hot)**:
+   - ALL model predictions MUST return `np.float32`
+   - Feature arrays for inference use `np.float32`
+   - ONNX models natively use float32
+   - Pre-allocated buffers use `np.float32`
+
+3. **Implementation**:
+   ```python
+   # Training (cold path) - float64 internally OK
+   X_train = data.astype(np.float64)  # For stability
+   model.fit(X_train, y_train)
+
+   # Inference (hot path) - MUST use float32
+   X_inference = features.astype(np.float32)
+   predictions = model.predict(X_inference)  # Returns np.float32
+   ```
+
+#### Rationale
+- **ONNX Optimization**: ONNX Runtime is optimized for float32
+- **Hardware Acceleration**: GPUs and modern CPUs have better float32 throughput
+- **Memory Efficiency**: Half the memory usage vs float64
+- **Compatibility**: Most production ML systems use float32
+- **Performance**: ~2x faster inference with float32 on most hardware
+
+#### Migration
+- Updated all `predict()` methods to return `np.float32`
+- Feature buffers already use `np.float32`
+- SHAP values converted to `np.float32` for consistency
+- Training internals unchanged (can still use float64 for stability)
+
+#### Validation
+- Type hints updated to reflect dtype policy
+- Tests verify dtype consistency
+- MyPy catches type mismatches at build time
+
 ## Date: 2025-08-09
 
 ### Decision: Production Model Loading Architecture - ONNX First, No Pickle
@@ -169,7 +222,7 @@ Implemented a comprehensive test-driven refactoring with 5 clearly separated mod
   - <500μs feature computation, <2ms inference, <5ms end-to-end
   - Model loaded once at initialization
   - Nautilus's optimized indicators (Rust/Cython)
-  
+
 - **COLD PATH** (training, data preparation):
   - Polars/pandas allowed
   - Heavy computations acceptable
@@ -211,7 +264,7 @@ Implemented a comprehensive test-driven refactoring with 5 clearly separated mod
 - Existing models need model_id added
 
 #### Implementation Details
-- **Test files created**: 
+- **Test files created**:
   - `test_actor_contracts.py` - Actor behavior requirements
   - `test_model_contracts.py` - Model abstraction requirements
   - `test_training_contracts.py` - Training pipeline requirements
@@ -276,7 +329,7 @@ Established comprehensive testing protocol and infrastructure:
 # ❌ BAD
 assert actor._bars_processed == 10
 
-# ✅ GOOD  
+# ✅ GOOD
 stats = actor.get_statistics()
 assert stats["bars_processed"] == 10
 
@@ -295,4 +348,3 @@ model_path = TestModelFactory.create_minimal_xgboost_model(
 - **Mitigation**: Cache test models where appropriate
 
 ---
-
