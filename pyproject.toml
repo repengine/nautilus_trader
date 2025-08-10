@@ -45,6 +45,7 @@ dependencies = [
     "uvicorn[standard] (>=0.35.0,<0.36.0)",
     "prometheus-client (>=0.22.1,<0.23.0)",
     "mlflow (>=3.2.0,<4.0.0)",
+    "hypothesis (>=6.137.1,<7.0.0)",
 ]
 
 [project.urls]

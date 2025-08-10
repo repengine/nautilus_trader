@@ -32,7 +32,10 @@ class ConcreteModel(BaseModel):
         self.validate_input(features)
 
         # Simple transformation for testing
-        if features.ndim == 1:
+        if features.size == 0:
+            # Handle empty array case
+            return np.array([], dtype=np.float32)
+        elif features.ndim == 1:
             result: NDArray[np.float32] = (features * 2.0).astype(np.float32)
             return result
         else:
