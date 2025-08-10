@@ -271,30 +271,38 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
             Features to predict on.
         **kwargs : Any
             Additional prediction parameters.
+            - return_labels: bool, default False
+                If True, return predicted labels for classification.
+                If False (default), return probabilities/raw values.
+            - threshold: float, default 0.5
+                Threshold for binary classification when return_labels=True.
 
         Returns
         -------
         npt.NDArray[np.float32]
             Model predictions (float32 for production/inference compatibility).
+            For classification: probabilities by default, labels if return_labels=True.
+            For regression: predicted values.
 
         """
         # Make predictions
         predictions = model.predict(X, num_iteration=model.best_iteration)
 
-        # For classification, convert probabilities to class predictions
+        # For classification, optionally convert probabilities to labels
         if self._lgb_config.objective in ["binary", "multiclass"]:
             if self._lgb_config.objective == "binary":
-                # Always apply threshold for binary classification unless explicitly disabled
-                if kwargs.get("return_probabilities", False):
-                    # Return raw probabilities if explicitly requested
-                    return np.array(predictions)
-                else:
-                    # Convert to binary predictions using threshold
+                # By default, return probabilities for ML pipeline compatibility
+                if kwargs.get("return_labels", False):
+                    # Only apply threshold if explicitly requested
                     threshold = kwargs.get("threshold", 0.5)
                     predictions = (predictions > threshold).astype(int)
+                # else: keep as probabilities (default behavior)
             else:
-                # For multiclass, get the class with highest probability
-                predictions = np.argmax(predictions, axis=1)
+                # For multiclass
+                if kwargs.get("return_labels", False):
+                    # Get the class with highest probability
+                    predictions = np.argmax(predictions, axis=1)
+                # else: keep as probability matrix (default behavior)
 
         return np.array(predictions, dtype=np.float32)
 
@@ -539,11 +547,19 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
 
         # Save metadata in standard format
         metadata_path = save_path.with_suffix(save_path.suffix + ".meta.json")
+
+        # Include best_iteration if available and is a valid integer
+        best_iteration = getattr(self._booster, "best_iteration", None)
+        if best_iteration is not None and not isinstance(best_iteration, int):
+            # Handle mock objects or invalid types
+            best_iteration = None
+
         metadata = {
             "model_type": "lightgbm",
             "path": str(save_path),
             "input_shape": [None, len(self._feature_names)],
             "output_shape": [None, 1],
+            "best_iteration": best_iteration,  # Add best_iteration for use in inference
             "training_metadata": {
                 "feature_names": self._feature_names,
                 "categorical_features": self._categorical_features,

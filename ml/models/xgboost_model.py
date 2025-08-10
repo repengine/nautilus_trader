@@ -43,8 +43,14 @@ class XGBoostModel(BaseModel):
 
         super().__init__(model, metadata)
 
-        # Determine if it's a Booster or sklearn-style model
-        self._is_booster = hasattr(model, "predict") and not hasattr(model, "predict_proba")
+        # Properly detect model type using isinstance
+        # xgb.Booster is the raw booster object
+        # xgb.XGBClassifier and xgb.XGBRegressor are sklearn-style wrappers
+        if HAS_XGBOOST:
+            self._is_booster = isinstance(model, xgb.Booster)
+        else:
+            # Fallback if xgboost not available (shouldn't happen due to check above)
+            self._is_booster = hasattr(model, "predict") and not hasattr(model, "predict_proba")
 
     def predict(self, features: NDArray[np.float32]) -> NDArray[np.float32]:
         """
@@ -67,13 +73,23 @@ class XGBoostModel(BaseModel):
             features = features.reshape(1, -1)
 
         if self._is_booster:
-            # Raw Booster object
+            # Raw Booster object - use inplace_predict for better performance
             if not HAS_XGBOOST:
                 check_ml_dependencies(["xgboost"])
 
-            # Create DMatrix for prediction
-            dmatrix = xgb.DMatrix(features)
-            predictions = self._model.predict(dmatrix)
+            # Use inplace_predict for better performance - avoids DMatrix creation overhead
+            # Check if best_iteration is available in metadata
+            best_iteration = self._metadata.get("best_iteration")
+
+            if best_iteration is not None:
+                # Use iteration_range for best iteration support (XGBoost >= 1.4)
+                predictions = self._model.inplace_predict(
+                    features,
+                    iteration_range=(0, best_iteration),
+                )
+            else:
+                # No best iteration specified, use all trees
+                predictions = self._model.inplace_predict(features)
         else:
             # Sklearn-style model
             if hasattr(self._model, "predict_proba"):

@@ -232,24 +232,39 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             Features to predict on.
         **kwargs : Any
             Additional prediction parameters.
+            - return_labels: bool, default False
+                If True, return predicted labels for classification.
+                If False (default), return probabilities/raw values.
+            - threshold: float, default 0.5
+                Threshold for binary classification when return_labels=True.
 
         Returns
         -------
         npt.NDArray[np.float32]
             Model predictions (float32 for production/inference compatibility).
+            For classification: probabilities by default, labels if return_labels=True.
+            For regression: predicted values.
 
         """
         # Create DMatrix for prediction
         # Note: We don't pass feature_names to avoid issues - XGBoost will use default names
         dmatrix = xgb.DMatrix(X)
 
-        # Make predictions
-        predictions = model.predict(dmatrix)
+        # Make predictions - use best_iteration if available
+        best_iteration = getattr(model, "best_iteration", None)
+        if best_iteration is not None:
+            predictions = model.predict(dmatrix, iteration_range=(0, best_iteration))
+        else:
+            predictions = model.predict(dmatrix)
 
-        # For classification, apply threshold if needed
+        # For classification, optionally convert probabilities to labels
         if self._xgb_config.objective in ["binary:logistic", "binary:logitraw"]:
-            threshold = kwargs.get("threshold", 0.5)
-            predictions = (predictions > threshold).astype(int)
+            # By default, return probabilities for ML pipeline compatibility
+            if kwargs.get("return_labels", False):
+                # Only apply threshold if explicitly requested
+                threshold = kwargs.get("threshold", 0.5)
+                predictions = (predictions > threshold).astype(int)
+            # else: keep as probabilities (default behavior)
 
         return np.array(predictions, dtype=np.float32)
 
@@ -515,11 +530,19 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
 
         # Save metadata in standard format
         metadata_path = save_path.with_suffix(save_path.suffix + ".meta.json")
+
+        # Include best_iteration if available and is a valid integer
+        best_iteration = getattr(self._booster, "best_iteration", None)
+        if best_iteration is not None and not isinstance(best_iteration, int):
+            # Handle mock objects or invalid types
+            best_iteration = None
+
         metadata = {
             "model_type": "xgboost",
             "path": str(save_path),
             "input_shape": [None, len(self._feature_names)],
             "output_shape": [None, 1],
+            "best_iteration": best_iteration,  # Add best_iteration for use in inference
             "training_metadata": {
                 "feature_names": self._feature_names,
                 "training_metrics": self._training_metrics,

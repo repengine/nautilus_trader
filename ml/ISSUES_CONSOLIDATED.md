@@ -22,7 +22,7 @@ preds = booster.inplace_predict(features, validate_features=False)
 # Also apply best iteration if available:
 if self.best_iteration:
     preds = booster.inplace_predict(
-        features, 
+        features,
         iteration_range=(0, self.best_iteration + 1),
         validate_features=False
     )
@@ -151,7 +151,7 @@ if objective == "binary":
 def predict(self, X, return_labels=False):
     proba = model.predict(X, num_iteration=model.best_iteration)
     proba = proba.astype(np.float32)  # Ensure float32
-    
+
     if return_labels:
         return (proba > 0.5).astype(int)
     return proba  # Default: return probabilities
@@ -210,7 +210,7 @@ class BaseMLInferenceActor:
     def _load_model_with_metadata(self):
         self._model = ProductionModelLoader.load(...)  # First load
         self._load_model()  # Calls subclass method
-        
+
 class PickleMLInferenceActor(BaseMLInferenceActor):
     def _load_model(self):
         self._model = pickle.load(...)  # Second load (overwrites!)
@@ -227,7 +227,7 @@ class BaseMLInferenceActor:
 
 class PickleMLInferenceActor(BaseMLInferenceActor):
     _skip_base_load = True  # Skip base loading
-    
+
     def _load_model(self):
         if self.config.allow_pickle:  # Security check
             self._model = pickle.load(...)
@@ -278,12 +278,12 @@ def _predict_with_timing(self, features):
     feature_start = time.perf_counter_ns()
     features = self._compute_features(bar)
     feature_time_ns = time.perf_counter_ns() - feature_start
-    
+
     # Measure inference
     inference_start = time.perf_counter_ns()
     prediction = self._model.predict(features)
     inference_time_ns = time.perf_counter_ns() - inference_start
-    
+
     # Record real measurements
     self._record_performance(feature_time_ns, inference_time_ns)
     return prediction
@@ -411,7 +411,7 @@ class OptimizedMLSignalActor(BaseMLInferenceActor):
 
 ### 🔴 Must Fix NOW (Breaking/Security)
 1. **Bar construction error** - Runtime crash
-2. **Duplicate MLSignalActor** - Import confusion  
+2. **Duplicate MLSignalActor** - Import confusion
 3. **Pickle in production** - Security vulnerability
 4. **Missing feature engineer** - AttributeError
 
@@ -439,7 +439,7 @@ class OptimizedMLSignalActor(BaseMLInferenceActor):
 - Return float32
 
 ### ml/models/lightgbm_model.py
-- Fix isinstance checks  
+- Fix isinstance checks
 - Use best_iteration
 - Return float32
 
@@ -477,7 +477,7 @@ class OptimizedMLSignalActor(BaseMLInferenceActor):
 ### Day 1: Critical Fixes (2-3 hours)
 ```bash
 # 1. Rename duplicate classes
-# 2. Fix Bar construction 
+# 2. Fix Bar construction
 # 3. Add pickle security check
 # 4. Initialize feature engineer
 ```
@@ -513,21 +513,21 @@ class OptimizedMLSignalActor(BaseMLInferenceActor):
 def test_all_fixes():
     # 1. Test XGBoost inplace_predict
     assert inference_time < 2.0  # ms
-    
+
     # 2. Test best iteration
     assert model.predict with best_iter != without
-    
+
     # 3. Test probability output
     assert 0 <= prediction <= 1
-    
+
     # 4. Test float32 consistency
     assert features.dtype == np.float32
     assert predictions.dtype == np.float32
-    
+
     # 5. Test no pickle in prod
     with pytest.raises(SecurityError):
         PickleMLInferenceActor(allow_pickle=False)
-    
+
     # 6. Test feature parity
     assert max_diff < 1e-10
 ```

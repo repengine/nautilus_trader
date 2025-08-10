@@ -42,10 +42,15 @@ class LightGBMModel(BaseModel):
 
         super().__init__(model, metadata)
 
-        # Determine if it's a Booster or sklearn-style model
-        # Raw Booster: has best_iteration but no booster_ attribute
-        # sklearn-style: has booster_ attribute (LGBMClassifier/LGBMRegressor)
-        self._is_booster = hasattr(model, "best_iteration") and not hasattr(model, "booster_")
+        # Properly detect model type using isinstance
+        # lgb.Booster is the raw booster object
+        # lgb.LGBMClassifier and lgb.LGBMRegressor are sklearn-style wrappers
+        if HAS_LIGHTGBM:
+            from ml._imports import lgb
+            self._is_booster = isinstance(model, lgb.Booster)
+        else:
+            # Fallback if lightgbm not available (shouldn't happen due to check above)
+            self._is_booster = hasattr(model, "best_iteration") and not hasattr(model, "booster_")
 
     def predict(self, features: NDArray[np.float32]) -> NDArray[np.float32]:
         """
@@ -69,7 +74,17 @@ class LightGBMModel(BaseModel):
 
         if self._is_booster:
             # Raw Booster object
-            predictions = self._model.predict(features, num_iteration=self._model.best_iteration)
+            # Use best_iteration from metadata if available, otherwise from model
+            best_iteration = self._metadata.get("best_iteration")
+            if best_iteration is None:
+                # Fall back to model's best_iteration attribute if not in metadata
+                best_iteration = getattr(self._model, "best_iteration", None)
+
+            if best_iteration is not None:
+                predictions = self._model.predict(features, num_iteration=best_iteration)
+            else:
+                # No best iteration specified, use all trees
+                predictions = self._model.predict(features)
         else:
             # Sklearn-style model
             if hasattr(self._model, "predict_proba"):

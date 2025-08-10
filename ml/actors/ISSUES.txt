@@ -1,12 +1,12 @@
 Big picture: these are strong, production-shaped actors (hot-path discipline, health/circuit breaker, hot-reload hooks). The main gaps now are output semantics (probability vs label), feature/schema parity checks, true latency measurement, and unifying hot-reload/metrics across actors. I’ll call out concrete fixes.
 
 What’s working well
-Hot path discipline & observability: preallocation, bounded windows, circuit breaker, health monitor, Prometheus counters/histograms are all in the right places. 
- 
+Hot path discipline & observability: preallocation, bounded windows, circuit breaker, health monitor, Prometheus counters/histograms are all in the right places.
 
-Model abstraction: ProductionModelLoader (+ format-specific ONNX loader) with metadata & version hashing; MLSignal is a clean bus payload. 
 
-Strategy layer: the signal.py actor cleanly separates scoring from signal policy (threshold/extremes/momentum/ensemble/adaptive). This is exactly where trading rules should live. 
+Model abstraction: ProductionModelLoader (+ format-specific ONNX loader) with metadata & version hashing; MLSignal is a clean bus payload.
+
+Strategy layer: the signal.py actor cleanly separates scoring from signal policy (threshold/extremes/momentum/ensemble/adaptive). This is exactly where trading rules should live.
 
 Priority fixes (actionable)
 Two classes named MLSignalActor in different modules (API confusion).
@@ -15,8 +15,8 @@ Rename/export clearly to avoid import mistakes and drift. Suggest:
 Keep the richer, policy-driven one as ml.actors.signal.MLSignalActor.
 
 Rename the simpler one in base.py to SimpleMLSignalActor (or move to examples/).
-This avoids ambiguous imports and different gating semantics under the same name. 
- 
+This avoids ambiguous imports and different gating semantics under the same name.
+
 
 Prediction semantics: return probabilities, not labels.
 Right now several branches set prediction = argmax with confidence = max_proba, or for regression confidence = |prediction|. For trading, you want a score (p_up), with the policy (threshold/cooldown) in the strategy.
@@ -25,34 +25,34 @@ Standardize _predict(...) -> (score, confidence) where score = probability (bina
 
 For regression models, add a post-fit calibrator (Platt/Isotonic) and store it; don’t use abs(prediction) as confidence.
 
-Keep thresholding only in the strategy layer (your signal.py already does this). 
- 
+Keep thresholding only in the strategy layer (your signal.py already does this).
+
 
 Schema & dtype guards (train↔serve parity).
-Before scoring, verify feature length, order, dtype, and a schema hash against the model’s sidecar metadata. Hard-fail on mismatch to prevent silent garbage inputs. (You already have metadata flowing through the loaders—use it.) Also standardize the hot path to float32 end-to-end (a few branches cast to float64). 
- 
+Before scoring, verify feature length, order, dtype, and a schema hash against the model’s sidecar metadata. Hard-fail on mismatch to prevent silent garbage inputs. (You already have metadata flowing through the loaders—use it.) Also standardize the hot path to float32 end-to-end (a few branches cast to float64).
+
 
 Measure real latencies, don’t use placeholders.
-signal.py records performance with a fixed feature_time_ns = 500_000. Replace with start/stop stamps around feature and inference sections (you already measure feature time precisely in base.py). Wire the real numbers into PerformanceMonitor + Prom histograms. 
- 
+signal.py records performance with a fixed feature_time_ns = 500_000. Replace with start/stop stamps around feature and inference sections (you already measure feature time precisely in base.py). Wire the real numbers into PerformanceMonitor + Prom histograms.
+
 
 XGBoost fast path: use inplace_predict and best-iteration.
-In the “raw Booster” branch you build a DMatrix per call—slow. Use booster.inplace_predict(features.reshape(1,-1), validate_features=False) and, if you saved best_iteration in metadata, pass iteration_range=(0, best_iter+1). This will cut per-tick overhead materially. 
+In the “raw Booster” branch you build a DMatrix per call—slow. Use booster.inplace_predict(features.reshape(1,-1), validate_features=False) and, if you saved best_iteration in metadata, pass iteration_range=(0, best_iter+1). This will cut per-tick overhead materially.
 
 Hot-reload: one mechanism, not two.
-base.py already schedules version checks and reloads; signal.py has a separate _should_hot_reload() that always returns False and a ModelSwapper that never swaps. Consolidate on the base mechanism (version check via loader), and if you want double-buffer swaps, call the swapper inside the base reload path. Also consider atomic symlink (current → v_...) to publish new models. 
- 
+base.py already schedules version checks and reloads; signal.py has a separate _should_hot_reload() that always returns False and a ModelSwapper that never swaps. Consolidate on the base mechanism (version check via loader), and if you want double-buffer swaps, call the swapper inside the base reload path. Also consider atomic symlink (current → v_...) to publish new models.
+
 
 Pickle in prod (disable by default).
-PickleMLInferenceActor should be guarded with allow_pickle=False in config; otherwise refuse to load. Keep it only for tests/prototyping. 
+PickleMLInferenceActor should be guarded with allow_pickle=False in config; otherwise refuse to load. Keep it only for tests/prototyping.
 
 ONNX output semantics.
-ONNX branches assume “1st output is prediction, 2nd is confidence or else 0.95/|pred|.” That’s risky. Require an output schema in metadata ({"kind": "binary_proba", "index": 1}), or bake post-processing (sigmoid/softmax + calibration) into the ONNX graph to guarantee a well-defined probability. 
- 
+ONNX branches assume “1st output is prediction, 2nd is confidence or else 0.95/|pred|.” That’s risky. Require an output schema in metadata ({"kind": "binary_proba", "index": 1}), or bake post-processing (sigmoid/softmax + calibration) into the ONNX graph to guarantee a well-defined probability.
+
 
 Metrics: unify names/labels across modules.
-You currently have two different metric sets (and names) for predictions/latency. Pick one namespace (e.g., nautilus_ml_*) and consistent labels {actor_id, model, phase} so Grafana panels don’t fork. Reuse the same histograms where possible. 
- 
+You currently have two different metric sets (and names) for predictions/latency. Pick one namespace (e.g., nautilus_ml_*) and consistent labels {actor_id, model, phase} so Grafana panels don’t fork. Reuse the same histograms where possible.
+
 
 Feature safety nits.
 
@@ -60,22 +60,22 @@ Guard average_volume (avoid divide-by-zero).
 
 Avoid digging into indicator private fields (_inputs) for backup; prefer public state or replay bars to restore.
 
-In base.py’s simple actor, hard-coded feature size (10) vs actual trained schema will drift—either read size from metadata or from the feature engineer. 
+In base.py’s simple actor, hard-coded feature size (10) vs actual trained schema will drift—either read size from metadata or from the feature engineer.
 
 Nice polish (soon)
-Multi-instrument: the simple actor filters instruments but only subscribes one bar_type. If you plan multi-instrument, subscribe per instrument or document single-instrument scope. 
+Multi-instrument: the simple actor filters instruments but only subscribes one bar_type. If you plan multi-instrument, subscribe per instrument or document single-instrument scope.
 
-Doc/contract: document _predict contract explicitly: binary → probability in [0,1]; regression → calibrated probability (if used for direction); multiclass → proba vector. Then align the strategy policies to that contract. 
+Doc/contract: document _predict contract explicitly: binary → probability in [0,1]; regression → calibrated probability (if used for direction); multiclass → proba vector. Then align the strategy policies to that contract.
 
 TL;DR changes I’d make first
-Rename duplicate MLSignalActors; make the strategy-enabled one the canonical. 
- 
+Rename duplicate MLSignalActors; make the strategy-enabled one the canonical.
 
-Enforce schema/dtype checks at load & score; standardize to float32. 
 
-Replace latency placeholder with real timers (both feature & inference) in signal.py. 
+Enforce schema/dtype checks at load & score; standardize to float32.
 
-XGBoost inplace_predict + best-iter; unify ONNX output semantics via metadata or baked post-processing. 
- 
+Replace latency placeholder with real timers (both feature & inference) in signal.py.
 
-Disable pickle by default. 
+XGBoost inplace_predict + best-iter; unify ONNX output semantics via metadata or baked post-processing.
+
+
+Disable pickle by default.

@@ -1,5 +1,5 @@
 XGBoostModel (inference wrapper) — observations & fixes
-File: xgboost_model.py 
+File: xgboost_model.py
 
 What’s good
 
@@ -46,7 +46,7 @@ Input validation beyond shape.
 Add (cheap) checks against metadata: number/order of features and dtype. Hard-fail if mismatch to prevent silent garbage inputs.
 
 XGBoostTrainer (training/export) — observations & fixes
-File: xgboost.py 
+File: xgboost.py
 
 What’s good
 
@@ -105,27 +105,27 @@ Feature importance & SHAP.
 All good for analysis. Just ensure these utilities never run in hot paths. (They don’t today.)
 
 Integration insights (how these two fit NautilusTrader)
-Serve-time safety: use your sidecar metadata from the trainer to validate the live feature vector before every score (names, count, dtype, hash). Fail fast. (You already write training_metadata.feature_names—extend it and wire the check in the wrapper/loader.) 
+Serve-time safety: use your sidecar metadata from the trainer to validate the live feature vector before every score (names, count, dtype, hash). Fail fast. (You already write training_metadata.feature_names—extend it and wire the check in the wrapper/loader.)
 
-Latency: in the Nautilus actor, pre-allocate a np.float32 row buffer for features and call Booster.inplace_predict (or ONNXRuntime later). Avoid Pandas/Polars in hot loop. 
+Latency: in the Nautilus actor, pre-allocate a np.float32 row buffer for features and call Booster.inplace_predict (or ONNXRuntime later). Avoid Pandas/Polars in hot loop.
 
-Thresholding: keep thresholds and cooldowns in the strategy (not the trainer). You’ll want to A/B and regime-gate these later. 
+Thresholding: keep thresholds and cooldowns in the strategy (not the trainer). You’ll want to A/B and regime-gate these later.
 
-Best-iteration propagation: trainer stores it → metadata → wrapper reads it → predict with iteration_range. This keeps backtest/live parity with early stopping. 
+Best-iteration propagation: trainer stores it → metadata → wrapper reads it → predict with iteration_range. This keeps backtest/live parity with early stopping.
 
 Quick patch list (actionable)
-Type detection fix in XGBoostModel.__init__ (use isinstance checks). 
+Type detection fix in XGBoostModel.__init__ (use isinstance checks).
 
-Swap to inplace_predict in Booster path; add best-iteration handling via metadata. 
- 
+Swap to inplace_predict in Booster path; add best-iteration handling via metadata.
 
-Trainer predict() returns probs (add return_proba flag); never hard-threshold by default. 
 
-Add version guard for GPU params; set predictor="gpu_predictor" on v1.x. 
+Trainer predict() returns probs (add return_proba flag); never hard-threshold by default.
 
-Metadata++: include best_iteration, dtypes, schema hash, training window, output shape. Enforce in loader/wrapper. 
+Add version guard for GPU params; set predictor="gpu_predictor" on v1.x.
 
-Unify dtype to float32 end-to-end and ensure the wrapper’s validate_input checks it. 
+Metadata++: include best_iteration, dtypes, schema hash, training window, output shape. Enforce in loader/wrapper.
+
+Unify dtype to float32 end-to-end and ensure the wrapper’s validate_input checks it.
 
 Calibration hooks: add optional isotonic/Platt post-fit + persist; strategy uses calibrated probs.
 

@@ -30,7 +30,7 @@ def check_venv():
     in_virtualenv = hasattr(sys, 'real_prefix')
     in_venv = sys.base_prefix != sys.prefix
     has_venv_var = 'VIRTUAL_ENV' in os.environ
-    
+
     if not (in_virtualenv or in_venv or has_venv_var):
         print("⚠️  Warning: Not running in a virtual environment!")
         print("Please activate your virtual environment and try again.")

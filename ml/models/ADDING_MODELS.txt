@@ -52,11 +52,11 @@ Sidecar transforms: if embedding is painful, persist scaler/calibrator in metada
 
 How to add each family (concrete guidance)
 scikit‑learn-ish (incl. pmdarima* pipelines)
-Export: skl2onnx converts estimators and full Pipelines to ONNX; this is the easiest path. 
+Export: skl2onnx converts estimators and full Pipelines to ONNX; this is the easiest path.
 onnx.ai
 +1
 
-Notes: pmdarima exposes a scikit‑like API but wraps statsmodels under the hood; it’s not on the official supported list, so conversion may require custom converter or (easier) distill to a student that is ONNX‑friendly. 
+Notes: pmdarima exposes a scikit‑like API but wraps statsmodels under the hood; it’s not on the official supported list, so conversion may require custom converter or (easier) distill to a student that is ONNX‑friendly.
 onnx.ai
 PyPI
 
@@ -66,7 +66,7 @@ Export: onnxmltools/skl2onnx → ONNX; or keep native + later Treelite; ONNX kee
 Serve: ONNX Runtime on CPU; pass best_iteration via metadata and respect it.
 
 PyTorch (plain, pytorch‑forecasting, neuralforecast)
-Export: torch.onnx.export(model, example_input, opset=… , dynamic_axes=…). Works well if the forward is tensor‑pure. 
+Export: torch.onnx.export(model, example_input, opset=… , dynamic_axes=…). Works well if the forward is tensor‑pure.
 PyTorch Documentation
 PyTorch
 
@@ -75,20 +75,20 @@ Gotchas: set dynamic axes for batch; freeze any non‑Tensor inputs (categorical
 pytorch‑forecasting / neuralforecast: both are PyTorch‑based—export is usually fine if you call the underlying nn.Module with the processed tensors you’d feed during serve. (Avoid exporting the high‑level “trainer”; export the core model.)
 
 PyTorch Geometric (PyG)
-Export: No upstream ONNX support right now; maintainers recommend TorchScript. 
+Export: No upstream ONNX support right now; maintainers recommend TorchScript.
 GitHub
 
 Plan: Use PyG models as teachers offline → train an ONNX student (trees or small MLP) on their outputs. If you need direct serving, run a tiny TorchScript microservice and keep the bus contract identical, but your actor won’t load it natively.
 
 statsmodels / arch (ARIMA/GARCH families)
-Export: No official ONNX converters for statsmodels; same story for arch (GARCH). 
+Export: No official ONNX converters for statsmodels; same story for arch (GARCH).
 GitHub
 Stack Overflow
 
 Plan: Treat them as teachers (risk/vol/seasonality nowcasts). Distill to an ONNX student (e.g., linear or tree) or compute their numeric outputs offline and train a student to emulate them from L1 features.
 
 River (online/streaming)
-Export: River is designed for in‑process updates, not ONNX export. Use it for online adapters (e.g., a tiny logistic that slowly re‑calibrates) in a separate actor, or distill its behavior to an ONNX student periodically. 
+Export: River is designed for in‑process updates, not ONNX export. Use it for online adapters (e.g., a tiny logistic that slowly re‑calibrates) in a separate actor, or distill its behavior to an ONNX student periodically.
 riverml.xyz
 
 EconML / CausalML (causal estimators)
@@ -97,7 +97,7 @@ Export: These meta‑learners compose many models; not ONNX‑friendly by defaul
 Plan: Use them as slow cadence teachers to produce a risk multiplier or treatment effect you fold into regime gating (prior), then distill that mapping into an ONNX student if you need it inside the fast path.
 
 ONNX Runtime tips (so it flies)
-Providers: CPU EP by default; enable CUDA only if your graph justifies it. ONNX Runtime handles provider partitioning; CPU fallback keeps it robust. 
+Providers: CPU EP by default; enable CUDA only if your graph justifies it. ONNX Runtime handles provider partitioning; CPU fallback keeps it robust.
 ONNX Runtime
 
 Opset: pick one (e.g., 17) and freeze it fleet‑wide; newer is fine but keep it uniform.
@@ -144,22 +144,22 @@ Use the exact actor; confirm latency histogram & Brier/log‑loss.
 
 Compatibility matrix (quick view)
 Family	ONNX?	Deployment path
-scikit‑learn	Yes	skl2onnx → ORT. 
+scikit‑learn	Yes	skl2onnx → ORT.
 onnx.ai
-pmdarima	Not listed	Try custom converter; else distill to ONNX student. 
+pmdarima	Not listed	Try custom converter; else distill to ONNX student.
 onnx.ai
 PyPI
-statsmodels (ARIMA)	No	Teacher only → distill. 
+statsmodels (ARIMA)	No	Teacher only → distill.
 GitHub
 Stack Overflow
 arch (GARCH)	No std. path	Teacher only → distill.
 LightGBM/XGBoost	Yes	onnxmltools/skl2onnx → ORT.
-PyTorch	Yes	torch.onnx.export → ORT. 
+PyTorch	Yes	torch.onnx.export → ORT.
 PyTorch Documentation
 PyTorch Forecasting / NeuralForecast	Yes (PyTorch)	Export underlying nn.Module.
-PyTorch Geometric	No (upstream)	TorchScript svc or distill. 
+PyTorch Geometric	No (upstream)	TorchScript svc or distill.
 GitHub
-River	N/A	In‑process online adapter or distill. 
+River	N/A	In‑process online adapter or distill.
 riverml.xyz
 EconML / CausalML	No std. path	Teacher (prior/gating) → distill.
 

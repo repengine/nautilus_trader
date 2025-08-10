@@ -145,6 +145,8 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
         Whether to enable health status monitoring and reporting.
     max_feature_latency_ms : PositiveFloat, default 0.5
         Maximum allowed feature computation latency in milliseconds.
+    allow_pickle : bool, default False
+        Whether to allow loading pickle models (security risk in production).
     component_id : ComponentId, optional
         The component ID. If None then the identifier will be taken from the actor class name.
     log_events : bool, default True
@@ -172,6 +174,7 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     circuit_breaker_config: CircuitBreakerConfig | None = None
     enable_health_monitoring: bool = True
     max_feature_latency_ms: PositiveFloat = 0.5
+    allow_pickle: bool = False
     component_id: ComponentId | None = None
     log_events: bool = True
     log_commands: bool = True

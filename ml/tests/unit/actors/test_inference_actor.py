@@ -2928,7 +2928,7 @@ class TestMissingCoverageAreas:
         """
         # This tests the abstract methods are defined
         loader = Mock(spec=ModelLoader)
-        
+
         # These methods should exist (abstract methods implemented)
         assert hasattr(loader, "load_model")
         assert hasattr(loader, "get_model_version")

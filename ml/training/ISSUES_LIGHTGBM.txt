@@ -114,15 +114,15 @@ Probabilities in the strategy. Keep thresholds/cooldowns in the strategy (not th
 ONNX later, native now. Native LightGBM text + Python Booster is already fast. ONNX is a nice next step once schema/calibration are locked.
 
 Minimal patch list (actionable)
-Wrapper type check & outputs (in LightGBMModel) → proper isinstance, standardize shapes, add schema/dtype checks. 
+Wrapper type check & outputs (in LightGBMModel) → proper isinstance, standardize shapes, add schema/dtype checks.
 
-Trainer predict defaults to proba (binary & multiclass), add return_labels flag and keep float32. 
+Trainer predict defaults to proba (binary & multiclass), add return_labels flag and keep float32.
 
-GPU version guard for device/device_type. 
+GPU version guard for device/device_type.
 
-Cast features to float32 in prepare_data(), and record dtypes + schema hash in metadata. 
+Cast features to float32 in prepare_data(), and record dtypes + schema hash in metadata.
 
-Metadata++: include best_iteration, objective/metric, n_classes (if multiclass), feature dtypes, training window; fix output_shape for multiclass. 
+Metadata++: include best_iteration, objective/metric, n_classes (if multiclass), feature dtypes, training window; fix output_shape for multiclass.
 
 (Optional) Calibration: add isotonic/Platt step and persist.
 

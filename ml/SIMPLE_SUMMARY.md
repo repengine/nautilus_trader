@@ -18,26 +18,26 @@ The student doesn't need to understand WHY, just needs to mimic WHAT the teacher
 1. Teacher Model (Offline)
    - Train complex model (PyTorch, TFT, etc.) on rich data
    - Can be slow, doesn't matter
-   
+
 2. Student Model (Distillation)
    - Train simple model (LightGBM) to copy teacher's predictions
    - Only uses features available live
-   
+
 3. Export to ONNX
    - Convert student to ONNX format (fast, secure, portable)
-   
+
 4. Load in Actor
    - Actor loads ONNX model once at startup
-   
+
 5. Real-time Inference
    - Actor computes features from live data
    - Runs model (<2ms)
    - Publishes signal
-   
+
 6. Strategy Receives Signal
    - Gets probability from actor
    - Applies trading logic (thresholds, position sizing)
-   
+
 7. Execute Trades
    - Send orders to market
 ```

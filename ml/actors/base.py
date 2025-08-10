@@ -1042,6 +1042,15 @@ class PickleMLInferenceActor(BaseMLInferenceActor):
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
+        # Security check for pickle loading
+        if not self._config.allow_pickle:
+            from ml.models.loader import SecurityError
+            raise SecurityError(
+                "Pickle loading is disabled for security. "
+                "Set allow_pickle=True to enable (not recommended for production) "
+                "or use ONNX/native model formats instead."
+            )
+
         with open(model_path, "rb") as f:
             self._model = pickle.load(f)  # noqa: S301
 
@@ -1148,9 +1157,9 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
         return prediction, confidence
 
 
-class MLSignalActor(BaseMLInferenceActor):
+class SimpleMLSignalActor(BaseMLInferenceActor):
     """
-    Production ML signal actor for real-time inference.
+    Simple ML signal actor for real-time inference.
 
     Implements clean signal generation with model_id tracking,
     handles multiple instruments, and gracefully handles failures.
@@ -1158,7 +1167,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
     def __init__(self, config: MLActorConfig) -> None:
         """
-        Initialize ML signal actor.
+        Initialize simple ML signal actor.
 
         Parameters
         ----------

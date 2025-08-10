@@ -1,9 +1,9 @@
 Big picture
-✅ Directionally right: one feature engineer with Nautilus indicators, a hot (online) path that preallocates a buffer, and a cold (batch) path that walks history—this is exactly what you want for parity. 
+✅ Directionally right: one feature engineer with Nautilus indicators, a hot (online) path that preallocates a buffer, and a cold (batch) path that walks history—this is exactly what you want for parity.
 
-✅ Parity harness: the validator warms indicators, computes online features bar-by-bar, and compares against batch—perfect pattern. 
+✅ Parity harness: the validator warms indicators, computes online features bar-by-bar, and compares against batch—perfect pattern.
 
-⚠️ Two engineering variants diverge: the “revised” file introduces optional indicators (Keltner, OBV, BIR, spread analyzer), but also adds a few breaking bugs and some type/shape drift. You should consolidate to one module. 
+⚠️ Two engineering variants diverge: the “revised” file introduces optional indicators (Keltner, OBV, BIR, spread analyzer), but also adds a few breaking bugs and some type/shape drift. You should consolidate to one module.
 
 engineering.py (version A — “Enhanced…parity”) — what to fix
 
@@ -111,23 +111,23 @@ Calibrators: if you scale or calibrate (Platt/Isotonic), persist the artifact an
 
 Minimal patch list (high-leverage)
 Unify indicator updates
-Use handle_bar(bar) for ATR/BB/MACD in both batch and online; if you stay bar-less in batch, confirm update_raw(...) is bit-exact to handle_bar for your Nautilus version (usually not). 
+Use handle_bar(bar) for ATR/BB/MACD in both batch and online; if you stay bar-less in batch, confirm update_raw(...) is bit-exact to handle_bar for your Nautilus version (usually not).
 
 Fix Bar creation in version B
-Replace the float-only constructor with a proper Bar (as you do in the validator), or drop Bars and use consistent raw updates. This is a runtime correctness fix. 
+Replace the float-only constructor with a proper Bar (as you do in the validator), or drop Bars and use consistent raw updates. This is a runtime correctness fix.
 
 Make Polars robust
-When building the features frame, backfill missing columns with zeros before .select(feature_names) to avoid early-row failures. 
+When building the features frame, backfill missing columns with zeros before .select(feature_names) to avoid early-row failures.
 
 Lock dtype to float32
-Buffer, scaler outputs, and the final Numpy array returned to the model should all be float32. Enforce in code and in the model’s metadata. 
+Buffer, scaler outputs, and the final Numpy array returned to the model should all be float32. Enforce in code and in the model’s metadata.
 
 Normalize naming
-Map any *_raw internal indicator values to the canonical feature names listed by get_feature_names() in both paths. 
+Map any *_raw internal indicator values to the canonical feature names listed by get_feature_names() in both paths.
 
 Metadata & capability bits
-Emit flags in the sidecar (include_keltner, include_obv, include_book_imbalance, include_spread_analyzer, include_microstructure, include_trade_flow, approximate_macd_signal, l2_used, trades_used) and validate at load. 
+Emit flags in the sidecar (include_keltner, include_obv, include_book_imbalance, include_spread_analyzer, include_microstructure, include_trade_flow, approximate_macd_signal, l2_used, trades_used) and validate at load.
 
 Parity CI
-Keep your validator as a CI check over a small fixture (or generated GBM data). Add a second mode that applies the trained scaler to both sides before comparing. 
+Keep your validator as a CI check over a small fixture (or generated GBM data). Add a second mode that applies the trained scaler to both sides before comparing.
 

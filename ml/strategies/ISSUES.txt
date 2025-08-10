@@ -1,32 +1,32 @@
 What’s solid
-Hot-path discipline: preallocated buffers, no blocking, warm-up/warm-down, health and circuit-breaker logic are all the right shape for Nautilus’ event loop. 
- 
+Hot-path discipline: preallocated buffers, no blocking, warm-up/warm-down, health and circuit-breaker logic are all the right shape for Nautilus’ event loop.
 
-Message-bus friendly signals: a small Data subclass for ML signals + publish_data(DataType(...), …) keeps the ML side decoupled. Good model_id tracking too. 
 
-Observability: counters/histograms for predictions, latency, confidence distributions, and module-level metrics init in the optimized actor. 
- 
+Message-bus friendly signals: a small Data subclass for ML signals + publish_data(DataType(...), …) keeps the ML side decoupled. Good model_id tracking too.
 
-ONNX path awareness: optimized ORT session options and provider selection are in place, with a clean metadata surface (input_names, output_names). 
- 
+Observability: counters/histograms for predictions, latency, confidence distributions, and module-level metrics init in the optimized actor.
+
+
+ONNX path awareness: optimized ORT session options and provider selection are in place, with a clean metadata surface (input_names, output_names).
+
 
 High-priority issues to fix
 Model is loaded twice in some subclasses
 Base._load_model_with_metadata() loads via ProductionModelLoader and then calls the subclass’ _load_model(). In PickleMLInferenceActor, _load_model() loads the file again, overriding the already-loaded model. That’s wasteful and brittle.
-Fix: In Base, only call _load_model() if the subclass needs extra setup; make the pickle actor set its own loader (or override _load_model_with_metadata). Or, in subclasses, make _load_model() a no-op when the base already set self._model. 
+Fix: In Base, only call _load_model() if the subclass needs extra setup; make the pickle actor set its own loader (or override _load_model_with_metadata). Or, in subclasses, make _load_model() a no-op when the base already set self._model.
 
 Pickle in prod
 PickleMLInferenceActor uses pickle.load directly. That’s unsafe for prod artifacts.
-Fix: gate behind allow_pickle=True (default False) and log a clear warning; otherwise refuse. Prefer ONNX / native JSON (xgb/lgbm). 
+Fix: gate behind allow_pickle=True (default False) and log a clear warning; otherwise refuse. Prefer ONNX / native JSON (xgb/lgbm).
 
 Two different classes named MLSignalActor
 You define MLSignalActor in both files with different behavior. That will confuse importers and readers.
-Fix: rename one (e.g., SimpleMLSignalActor vs MLSignalActor), or keep the advanced one as MLSignalActor and move the simple demo under examples/. 
- 
+Fix: rename one (e.g., SimpleMLSignalActor vs MLSignalActor), or keep the advanced one as MLSignalActor and move the simple demo under examples/.
+
 
 Optimized actor is missing its feature engine
 OptimizedMLSignalActor inherits BaseMLInferenceActor, but then references self._feature_engineer without ever creating it (only the other MLSignalActor sets it up). You’ll fall back to hardcoded feature counts and then hit AttributeError when computing features.
-Fix: either subclass the advanced MLSignalActor, or instantiate FeatureEngineer and IndicatorManager in its __init__/_initialize_features(). 
+Fix: either subclass the advanced MLSignalActor, or instantiate FeatureEngineer and IndicatorManager in its __init__/_initialize_features().
 
 Confidence semantics are inconsistent
 Multiple code paths set confidence = abs(prediction) or 1.0 for regressors; base actor also uses confidence >= threshold to decide whether to publish. That leads to “always publish” or meaningless gating.
@@ -34,68 +34,68 @@ Fix: standardize:
 
 Binary classifier → prediction = p_up ∈ [0,1], confidence = calibrated(p_up) (or just p_up).
 
-Regression → either calibrate to a probability (sidecar calibrator) or keep confidence separate from the regression value; don’t use abs(prediction). Put the decision thresholding in the signal strategy, not the base. 
- 
+Regression → either calibrate to a probability (sidecar calibrator) or keep confidence separate from the regression value; don’t use abs(prediction). Put the decision thresholding in the signal strategy, not the base.
+
 
 Real latency isn’t measured in the advanced actor
 _record_performance uses a constant feature_time_ns = 500_000, then infers inference time from that.
-Fix: measure start/end of feature and inference sections separately; record both. Otherwise the P99 targets can’t be trusted. 
+Fix: measure start/end of feature and inference sections separately; record both. Otherwise the P99 targets can’t be trusted.
 
 Hot-reload is stubbed/inconsistent
 Base schedules version checks and hot-reload; the advanced actor’s _should_hot_reload() always returns False.
-Fix: pick one approach: file-hash/mtime polling with atomic symlink swap (current -> vYYMMDD_HHMM) and a double-buffer swapper (you already wrote ModelSwapper; wire it up). 
- 
+Fix: pick one approach: file-hash/mtime polling with atomic symlink swap (current -> vYYMMDD_HHMM) and a double-buffer swapper (you already wrote ModelSwapper; wire it up).
+
 
 XGBoost path uses per-call DMatrix
 In the advanced actor, raw Booster path constructs a DMatrix per prediction. That’s slow.
-Fix: use Booster.inplace_predict(features, validate_features=False) and apply iteration_range to respect best-iteration. (You already have the loader/metadata plumbing to carry that.) 
+Fix: use Booster.inplace_predict(features, validate_features=False) and apply iteration_range to respect best-iteration. (You already have the loader/metadata plumbing to carry that.)
 
 Metrics duplication & naming drift
 Base and advanced actors publish overlapping but differently named metrics.
-Fix: unify metric names/labels so dashboards don’t fork (e.g., one latency histogram with {actor_id, phase=inference|features|total} and one predictions counter). 
- 
+Fix: unify metric names/labels so dashboards don’t fork (e.g., one latency histogram with {actor_id, phase=inference|features|total} and one predictions counter).
+
 
 Multi-instrument partial wiring
 Base actor filters by instrument IDs in on_bar, but only subscribes a single bar_type.
-Fix: either subscribe one bar_type per instrument or document it as single-instrument; otherwise signals will silently not fire for non-subscribed instruments. 
+Fix: either subscribe one bar_type per instrument or document it as single-instrument; otherwise signals will silently not fire for non-subscribed instruments.
 
 “Tighten it up” (quick diffs you can make now)
 Base loader call chain
 
 In Base._load_model_with_metadata(): add a guard if getattr(self, "_expects_manual_load", False): self._load_model(); else: pass.
 
-In pickle actor: set _expects_manual_load = True or set self._model_loader = NoopLoader() and load only once. 
+In pickle actor: set _expects_manual_load = True or set self._model_loader = NoopLoader() and load only once.
 
 Ban pickle by default
 
-In PickleMLInferenceActor._load_model(): if not self._config.allow_pickle: raise RuntimeError("Pickle disabled in prod"). Add allow_pickle=False to MLActorConfig. 
+In PickleMLInferenceActor._load_model(): if not self._config.allow_pickle: raise RuntimeError("Pickle disabled in prod"). Add allow_pickle=False to MLActorConfig.
 
 Confidence & thresholding
 
-Make base actor always publish (prediction, confidence) to a strategy layer, and remove confidence-based gating from the base. Gate only in strategy (threshold/extremes/adaptive). 
- 
+Make base actor always publish (prediction, confidence) to a strategy layer, and remove confidence-based gating from the base. Gate only in strategy (threshold/extremes/adaptive).
+
 
 Measure real times
 
-Wrap _compute_features and _predict with two perf_counter_ns() stamps; feed exact numbers into the performance monitor and histograms. 
+Wrap _compute_features and _predict with two perf_counter_ns() stamps; feed exact numbers into the performance monitor and histograms.
 
 XGB booster path
 
-Replace DMatrix with inplace_predict; optionally pass iteration_range=(0, best_iter+1) if present in metadata. 
+Replace DMatrix with inplace_predict; optionally pass iteration_range=(0, best_iter+1) if present in metadata.
 
 Rename classes
 
-Keep MLSignalActor (advanced, strategy-driven) and rename the basic demo to ExampleMLSignalActor (or move under examples/). 
- 
+Keep MLSignalActor (advanced, strategy-driven) and rename the basic demo to ExampleMLSignalActor (or move under examples/).
+
 
 Wire OptimizedMLSignalActor correctly
 
-Subclass MLSignalActor (advanced) or create FeatureEngineer/IndicatorManager in its own init; ensure n_features is from the real pipeline. 
+Subclass MLSignalActor (advanced) or create FeatureEngineer/IndicatorManager in its own init; ensure n_features is from the real pipeline.
 
 Unify metrics
 
-One namespace: nautilus_ml_* with consistent label sets; drop duplicate histograms. 
- 
+One namespace: nautilus_ml_* with consistent label sets; drop duplicate histograms.
+
 
 Nice-to-have (soon)
 Schema guard: on every load, compare feature length/order/dtypes against the model’s sidecar metadata; hard-fail on mismatch.

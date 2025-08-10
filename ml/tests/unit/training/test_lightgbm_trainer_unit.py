@@ -202,7 +202,7 @@ class TestLightGBMTrainerPrediction:
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_predict_binary_classification(self) -> None:
         """
-        Test prediction for binary classification.
+        Test prediction for binary classification - returns probabilities by default.
         """
         # Arrange
         config = LightGBMTrainingConfig(
@@ -218,18 +218,23 @@ class TestLightGBMTrainerPrediction:
         mock_model.best_iteration = 50
         mock_model.predict.return_value = np.array([0.2, 0.7, 0.4, 0.9] + [0.5] * 6)
 
-        # Act
+        # Act - default behavior returns probabilities
         predictions = trainer.predict(mock_model, X)
 
-        # Assert
+        # Assert - should return probabilities
         assert predictions.shape == (10,)
-        assert all(p in [0, 1] for p in predictions)
+        assert all(0 <= p <= 1 for p in predictions)  # Probabilities in [0, 1]
         mock_model.predict.assert_called_once_with(X, num_iteration=50)
+
+        # Test explicit label request
+        mock_model.reset_mock()
+        labels = trainer.predict(mock_model, X, return_labels=True)
+        assert all(p in [0, 1] for p in labels)  # Binary labels
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_predict_with_custom_threshold(self) -> None:
         """
-        Test prediction with custom threshold.
+        Test prediction with custom threshold when return_labels=True.
         """
         # Arrange
         config = LightGBMTrainingConfig(
@@ -245,8 +250,8 @@ class TestLightGBMTrainerPrediction:
         mock_model.best_iteration = 50
         mock_model.predict.return_value = np.array([0.2, 0.3, 0.6, 0.7, 0.8])
 
-        # Act
-        predictions = trainer.predict(mock_model, X, threshold=0.3)
+        # Act - need to request labels explicitly with custom threshold
+        predictions = trainer.predict(mock_model, X, return_labels=True, threshold=0.3)
 
         # Assert
         expected = np.array([0, 0, 1, 1, 1])
@@ -280,12 +285,19 @@ class TestLightGBMTrainerPrediction:
             ],
         )
 
-        # Act
+        # Act - default behavior returns probabilities
         predictions = trainer.predict(mock_model, X)
 
-        # Assert
+        # Assert - should return probability matrix
+        assert predictions.shape == (5, 3)  # probabilities for each class
+        # Use allclose for float32 conversion tolerance
+        np.testing.assert_allclose(predictions, mock_model.predict.return_value, rtol=1e-6)
+
+        # Test label request
+        mock_model.reset_mock()
+        labels = trainer.predict(mock_model, X, return_labels=True)
         expected = np.array([0, 1, 2, 0, 2])  # argmax of each row
-        np.testing.assert_array_equal(predictions, expected)
+        np.testing.assert_array_equal(labels, expected)
 
     @patch("ml.training.lightgbm.HAS_LIGHTGBM", True)
     def test_predict_regression(self) -> None:

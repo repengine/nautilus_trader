@@ -841,12 +841,13 @@ class BaseMLTrainer(ABC):
             Dictionary of evaluation metrics.
 
         """
-        predictions = self.predict(model, X)
-
-        # Determine if this is a classification or regression problem
+        # For classification metrics, we need labels not probabilities
         if self._is_classification_problem(y):
+            predictions = self.predict(model, X, return_labels=True)
             return self._calculate_classification_metrics(y, predictions)
         else:
+            # For regression, we get raw values
+            predictions = self.predict(model, X)
             return self._calculate_regression_metrics(y, predictions)
 
     def calculate_trading_metrics(

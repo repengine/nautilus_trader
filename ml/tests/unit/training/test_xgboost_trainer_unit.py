@@ -140,7 +140,7 @@ class TestXGBoostTrainerPrediction:
     @patch("ml.training.xgboost.xgb")
     def test_predict_binary_classification(self, mock_xgb: Any) -> None:
         """
-        Test prediction for binary classification.
+        Test prediction for binary classification - returns probabilities by default.
         """
         # Arrange
         config = XGBoostTrainingConfig(
@@ -155,23 +155,30 @@ class TestXGBoostTrainerPrediction:
         X = rng.standard_normal((10, 2))
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([0.2, 0.7, 0.4, 0.9] + [0.5] * 6)
+        # Mock best_iteration attribute check
+        mock_model.best_iteration = None
 
         mock_dmatrix = MagicMock()
         mock_xgb.DMatrix.return_value = mock_dmatrix
 
-        # Act
+        # Act - default behavior returns probabilities
         predictions = trainer.predict(mock_model, X)
 
-        # Assert
+        # Assert - should return probabilities
         assert predictions.shape == (10,)
-        assert all(p in [0, 1] for p in predictions)
+        assert all(0 <= p <= 1 for p in predictions)  # Probabilities in [0, 1]
         mock_model.predict.assert_called_once_with(mock_dmatrix)
+
+        # Test explicit label request
+        mock_model.reset_mock()
+        labels = trainer.predict(mock_model, X, return_labels=True)
+        assert all(p in [0, 1] for p in labels)  # Binary labels
 
     @patch("ml.training.xgboost.HAS_XGBOOST", True)
     @patch("ml.training.xgboost.xgb")
     def test_predict_with_custom_threshold(self, mock_xgb: Any) -> None:
         """
-        Test prediction with custom threshold.
+        Test prediction with custom threshold when return_labels=True.
         """
         # Arrange
         config = XGBoostTrainingConfig(
@@ -185,11 +192,12 @@ class TestXGBoostTrainerPrediction:
         X = rng.standard_normal((5, 2))
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([0.2, 0.3, 0.6, 0.7, 0.8])
+        mock_model.best_iteration = None
 
         mock_xgb.DMatrix.return_value = MagicMock()
 
-        # Act
-        predictions = trainer.predict(mock_model, X, threshold=0.3)
+        # Act - need to request labels explicitly with custom threshold
+        predictions = trainer.predict(mock_model, X, return_labels=True, threshold=0.3)
 
         # Assert
         expected = np.array([0, 0, 1, 1, 1])

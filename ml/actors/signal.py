@@ -1249,6 +1249,26 @@ class OptimizedMLSignalActor(BaseMLInferenceActor):
 
         self._optimized_config = config
 
+        # Initialize feature engineer for optimized actor
+        from ml.features.engineering import FeatureEngineer, FeatureConfig
+        # Convert MLFeatureConfig to FeatureConfig if needed
+        if config.feature_config:
+            if isinstance(config.feature_config, FeatureConfig):
+                feature_config = config.feature_config
+            else:
+                # Create FeatureConfig with base config values
+                feature_config = FeatureConfig(
+                    lookback_window=config.feature_config.lookback_window,
+                    indicators=config.feature_config.indicators,
+                    feature_names=config.feature_config.feature_names,
+                    normalize_features=config.feature_config.normalize_features,
+                    fill_missing_with=config.feature_config.fill_missing_with,
+                    average_volume=config.feature_config.average_volume,
+                )
+        else:
+            feature_config = None
+        self._feature_engineer = FeatureEngineer(feature_config)
+
         # Performance monitoring
         self._performance_monitor = PerformanceMonitor(1000)
 

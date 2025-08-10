@@ -804,9 +804,27 @@ class TestPickleMLInferenceActor:
             instrument_id=instrument_id,
         )
 
+    @pytest.fixture
+    def config_with_pickle(
+        self,
+        bar_type: BarType,
+        instrument_id: InstrumentId,
+        model_file: str,
+    ) -> MLActorConfig:
+        """
+        Create test configuration with pickle loading enabled.
+        """
+        return MLActorConfig(
+            model_id="test_model",
+            model_path=model_file,
+            bar_type=bar_type,
+            instrument_id=instrument_id,
+            allow_pickle=True,  # Enable pickle for testing
+        )
+
     def test_load_model_success(
         self,
-        config: MLActorConfig,
+        config_with_pickle: MLActorConfig,
         mock_model: Any,
     ) -> None:
         """
@@ -824,7 +842,7 @@ class TestPickleMLInferenceActor:
             def _predict(self, features: npt.NDArray[np.float32]) -> Any:
                 return super()._predict(features)
 
-        actor = TestActor(config)
+        actor = TestActor(config_with_pickle)
 
         # Act
         actor._load_model()
@@ -834,6 +852,30 @@ class TestPickleMLInferenceActor:
         # Verify model functionality
         result = actor._model.predict(np.array([[1, 2, 3]]))
         assert len(result) > 0
+
+    def test_load_model_security_check(
+        self,
+        config: MLActorConfig,
+        mock_model: Any,
+    ) -> None:
+        """
+        Test that pickle loading is blocked by default for security.
+        """
+
+        # Arrange
+        class TestActor(PickleMLInferenceActor):
+            def _initialize_features(self) -> None:
+                pass
+
+            def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
+                return np.array([1.0, 2.0, 3.0])
+
+        actor = TestActor(config)
+
+        # Act & Assert
+        from ml.models.loader import SecurityError
+        with pytest.raises(SecurityError, match="Pickle loading is disabled"):
+            actor._load_model()
 
     def test_load_model_file_not_found(
         self,
@@ -849,6 +891,7 @@ class TestPickleMLInferenceActor:
             model_path="/nonexistent/model.pkl",
             bar_type=bar_type,
             instrument_id=instrument_id,
+            allow_pickle=True,  # Need to enable pickle to get to file check
         )
 
         class TestActor(PickleMLInferenceActor):
@@ -866,7 +909,7 @@ class TestPickleMLInferenceActor:
 
     def test_predict_with_classification_model(
         self,
-        config: MLActorConfig,
+        config_with_pickle: MLActorConfig,
         mock_model: Any,
     ) -> None:
         """
@@ -881,7 +924,7 @@ class TestPickleMLInferenceActor:
             def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
                 return np.array([1.0, 2.0, 3.0])
 
-        actor = TestActor(config)
+        actor = TestActor(config_with_pickle)
         actor._model = mock_model
         features = np.array([1.0, 2.0, 3.0])
 
@@ -894,7 +937,7 @@ class TestPickleMLInferenceActor:
 
     def test_predict_with_regression_model(
         self,
-        config: MLActorConfig,
+        config_with_pickle: MLActorConfig,
     ) -> None:
         """
         Test prediction with regression model (no predict_proba).
@@ -910,7 +953,7 @@ class TestPickleMLInferenceActor:
             def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
                 return np.array([1.0, 2.0, 3.0])
 
-        actor = TestActor(config)
+        actor = TestActor(config_with_pickle)
         actor._model = regression_model
         features = np.array([1.0, 2.0, 3.0])
 

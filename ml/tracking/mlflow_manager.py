@@ -740,7 +740,7 @@ class MLflowManager:
                     model = self._mlflow.lightgbm.load_model(model_uri)
                 else:
                     model = self._mlflow.sklearn.load_model(model_uri)
-                
+
                 logger.info(f"Loaded {self.framework} model: {model_name} ({stage.value})")
                 return model
 
@@ -758,7 +758,7 @@ class MLflowManager:
                         model = self._mlflow.lightgbm.load_model(model_uri)
                     else:
                         model = self._mlflow.sklearn.load_model(model_uri)
-                    
+
                     logger.info(f"Loaded {framework} model: {model_name} ({stage.value})")
                     # Type cast needed for mypy - framework comes from our iteration
                     self.framework = framework  # type: ignore[assignment]
@@ -809,7 +809,7 @@ class MLflowManager:
                     model = self._mlflow.lightgbm.load_model(model_uri)
                 else:
                     model = self._mlflow.sklearn.load_model(model_uri)
-                
+
                 logger.info(f"Loaded {self.framework} model: {model_name} v{version}")
                 return model
 
@@ -827,7 +827,7 @@ class MLflowManager:
                         model = self._mlflow.lightgbm.load_model(model_uri)
                     else:
                         model = self._mlflow.sklearn.load_model(model_uri)
-                    
+
                     logger.info(f"Loaded {framework} model: {model_name} v{version}")
                     # Type cast needed for mypy - framework comes from our iteration
                     self.framework = framework  # type: ignore[assignment]
