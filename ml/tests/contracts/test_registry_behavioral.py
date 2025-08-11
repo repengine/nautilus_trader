@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
@@ -37,7 +38,7 @@ class TestRegistryBehaviors:
             registry_path = Path(tmp_dir)
             registry = LocalModelRegistry(registry_path)
 
-            results = {"registered": [], "errors": [], "deployed": []}
+            results: dict[str, list[Any]] = {"registered": [], "errors": [], "deployed": []}
             lock = threading.Lock()
 
             def register_and_deploy(index: int) -> None:
@@ -191,6 +192,7 @@ class TestRegistryBehaviors:
 
             # Verify v2 is no longer active
             v2_info = registry.get_model(model_id_v2)
+            assert v2_info is not None
             assert v2_info.deployment_status == DeploymentStatus.INACTIVE
 
             # Verify performance history is preserved
@@ -357,6 +359,7 @@ class TestRegistryBehaviors:
 
             # Verify new model is deployed to target
             v2_info = registry.get_model(model_id_v2)
+            assert v2_info is not None
             assert "live_trading" in v2_info.deployed_to
             assert v2_info.deployment_status == DeploymentStatus.ACTIVE
 
@@ -441,4 +444,5 @@ class TestRegistryBehaviors:
 
             # Check it wasn't deployed
             bad_model_info = registry.get_model(bad_student_model_id)
+            assert bad_model_info is not None
             assert bad_model_info.deployment_status == DeploymentStatus.INACTIVE

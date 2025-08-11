@@ -212,5 +212,6 @@ class TestRegistryDeployment:
             assert advanced is True
 
             status = registry.get_rollout_status(rollout_id)
+            assert status is not None
             assert status["current_stage"] == 1
             assert status["traffic_split"] == 0.25

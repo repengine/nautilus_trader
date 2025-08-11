@@ -15,7 +15,7 @@ from __future__ import annotations
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 import numpy as np
 import pytest
@@ -34,7 +34,7 @@ class TestEnhancedLocalModelRegistry:
     """Test enhanced LocalModelRegistry with all integrated features."""
 
     @pytest.fixture
-    def temp_dir(self) -> Path:
+    def temp_dir(self) -> Generator[Path, None, None]:
         """Create temporary directory for testing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             yield Path(tmpdir)
@@ -544,6 +544,7 @@ class TestEnhancedLocalModelRegistry:
         assert advanced is True
 
         status = registry.get_rollout_status(rollout_id)
+        assert status is not None
         assert status["current_stage"] == 1
         assert status["traffic_split"] == 0.25
 

@@ -320,11 +320,14 @@ class TestModelRegistryProperties:
 
             model_versions = {}
 
-            for name in model_names:
+            for idx, name in enumerate(model_names):
                 # Sanitize name for filesystem
                 safe_name = "".join(c for c in name if c.isalnum() or c in "_-")
                 if not safe_name:
-                    safe_name = "model"
+                    safe_name = f"model_{idx}"
+                else:
+                    # Ensure uniqueness by adding index
+                    safe_name = f"{safe_name}_{idx}"
 
                 # Create model file (must be ONNX for security)
                 model_path = Path(tmpdir) / f"{safe_name}_model.onnx"

@@ -71,6 +71,7 @@ class TestRegistryProperties:
             model_info = registry2.get_model(model_id)
 
             # Original metrics should be in manifest
+            assert model_info is not None
             assert model_info.manifest.performance_metrics == metrics
 
             # Tracked metrics should be in history
@@ -168,6 +169,7 @@ class TestRegistryProperties:
             # Operations on first model shouldn't affect others
             for name in model_names[1:]:
                 model_info = registry.get_model(model_ids[name])
+                assert model_info is not None
                 assert model_info.deployment_status.value == "inactive"
                 assert len(model_info.performance_history) == 0
                 assert model_info.manifest.model_id == name

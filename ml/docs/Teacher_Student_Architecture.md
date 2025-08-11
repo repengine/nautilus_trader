@@ -1,7 +1,7 @@
 # Teacher–Student Distillation for Live L1 Inference
 
 This guide describes how to train a high‑quality teacher model (with T+1 access
-to L1/L2/L3 market data), distill it into a fast LightGBM student (L1‑only), ver
+to L1/L2/L3 market data), distill it into a fast LightGBM student (L1-only), ver
 sion and validate the artifacts, and deploy the student for live inference via N
 autilus Trader’s ML actor and strategy.
 
@@ -9,17 +9,15 @@ The approach ensures train↔serve parity, tight latency budgets (<5 ms p99), an
 clean deployment/rollback via the model registries.
 
 ## Architecture Overview
-- Teacher (offline): Temporal Fusion Transformer (TFT) or other heavy model trai
-ned with rich features (L2/L3 allowed). Outputs calibrated probabilities on a st
+- Teacher (offline): Temporal Fusion Transformer (TFT) or other heavy model trained with rich features (L2/L3 allowed). Outputs calibrated probabilities on a st
 udent window.
-- Student (online): LightGBM distilled on L1‑only features to mimic teacher prob
+- Student (online): LightGBM distilled on L1-only features to mimic teacher prob
 abilities; exported to ONNX with sigmoid (+ optional Platt) baked in for low‑lat
 ency inference.
 - Registries:
   - Distillation Registry: Training‑side versioning, lineage (teacher→student),
 acceptance metrics, purging.
-  - Local Model Registry: Production manifest and auto‑deployment gating (L1‑onl
-y, latency, lineage).
+  - Local Model Registry: Production manifest and auto‑deployment gating (L1-only, latency, lineage).
 - Inference: `ONNXMLInferenceActor` loads the ONNX model, validates feature sche
 ma, computes L1 features online, infers probability, and publishes `MLSignal`.
 - Execution: `MLTradingStrategy` consumes signals (prediction=probability, confi

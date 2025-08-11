@@ -68,7 +68,7 @@ class ValidationResult:
     gate_results: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class CanaryConfig:
     """
     Configuration for canary deployment.

@@ -251,15 +251,15 @@ class TestRegistryPerformance:
             registry_file = registry_path / "registry.json"
             save_times = []
 
-            def track_saves():
+            def track_saves() -> None:
                 """Monitor registry file modifications."""
-                last_mtime = 0
+                last_mtime = 0.0
                 for _ in range(20):  # Check for 1 second
                     if registry_file.exists():
                         mtime = registry_file.stat().st_mtime
                         if mtime != last_mtime:
                             save_times.append(time.time())
-                            last_mtime = mtime
+                            last_mtime = float(mtime)
                     time.sleep(0.05)
 
             # Start monitoring in background

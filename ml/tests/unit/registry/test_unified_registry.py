@@ -39,7 +39,7 @@ class DummyModel:
     def __init__(self, name: str = "dummy"):
         self.name = name
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """Dummy prediction."""
         return np.ones(X.shape[0])
 
@@ -108,9 +108,11 @@ class TestUnifiedRegistry:
 
         # Verify lineage
         student_info = self.registry.get_model(student_id)
+        assert student_info is not None
         assert student_info.manifest.parent_id == teacher_id
 
         teacher_info = self.registry.get_model(teacher_id)
+        assert teacher_info is not None
         assert student_id in teacher_info.manifest.children_ids
 
         # Verify student constraints
@@ -267,6 +269,7 @@ class TestUnifiedRegistry:
 
         # Check deployment
         student_info = self.registry.get_model(student_id)
+        assert student_info is not None
         assert student_info.deployment_status == DeploymentStatus.ACTIVE
         assert "ml_signal_actor" in student_info.deployed_to
 
@@ -284,6 +287,7 @@ class TestUnifiedRegistry:
         )
 
         bad_info = self.registry.get_model(bad_id)
+        assert bad_info is not None
         assert bad_info.deployment_status == DeploymentStatus.INACTIVE
         assert len(bad_info.deployed_to) == 0
 
@@ -370,6 +374,7 @@ class TestUnifiedRegistry:
 
         # Verify
         model_info = self.registry.get_model(model_id)
+        assert model_info is not None
         assert model_info.manifest.role == ModelRole.INFERENCE
         assert model_info.manifest.parent_id is None  # No parent
         assert len(model_info.manifest.children_ids) == 0  # No children
