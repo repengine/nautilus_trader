@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ml.registry.canary import CanaryConfig
-from ml.registry.canary import CanaryDeployment
+from ml.registry.dataclasses import CanaryConfig
+from ml.registry.dataclasses import CanaryDeployment
 
 
 class TestCanaryDeployment:
@@ -36,6 +36,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=config,
             baseline_performance=0.90,
         )
@@ -52,6 +53,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=CanaryConfig(),
         )
 
@@ -73,6 +75,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=CanaryConfig(),
         )
 
@@ -94,6 +97,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=CanaryConfig(error_rate_threshold=0.05),
         )
 
@@ -113,6 +117,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=CanaryConfig(baseline_threshold=0.95),
             baseline_performance=0.90,
         )
@@ -131,6 +136,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=CanaryConfig(min_samples=100),
         )
 
@@ -155,6 +161,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=config,
             baseline_performance=0.90,
         )
@@ -167,7 +174,7 @@ class TestCanaryDeployment:
             deployment.record_metric(0.92, error_occurred=False)
 
         # Mock time for the promotion check
-        with patch("ml.registry.canary.time.time") as mock_time:
+        with patch("ml.registry.dataclasses.time.time") as mock_time:
             # Fast forward time to after monitoring period
             mock_time.return_value = 1000000.0 + 3700  # > 1 hour
 
@@ -183,6 +190,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=config,
         )
 
@@ -206,6 +214,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=config,
         )
 
@@ -218,7 +227,7 @@ class TestCanaryDeployment:
         for _ in range(10):
             deployment.record_metric(0.0, error_occurred=True)
 
-        with patch("ml.registry.canary.time.time") as mock_time:
+        with patch("ml.registry.dataclasses.time.time") as mock_time:
             # Fast forward time
             mock_time.return_value = 1000000.0 + 3700
 
@@ -232,6 +241,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=CanaryConfig(traffic_percentage=15.0),
             baseline_performance=0.90,
         )
@@ -265,6 +275,7 @@ class TestCanaryDeployment:
         deployment = CanaryDeployment(
             deployment_id="canary_001",
             model_id="model_v2",
+            target="ml_signal_actor",
             config=CanaryConfig(),
         )
 

@@ -288,6 +288,158 @@ Implemented a comprehensive test-driven refactoring with 5 clearly separated mod
 
 ---
 
+## Date: 2025-01-11
+
+### Decision: Unified Model Registry with Self-Describing Manifests
+
+#### Context
+The ML module had multiple challenges with model management:
+- **No unified model tracking**: Different model types (teachers, students, inference) handled separately
+- **Unclear model requirements**: No way to declare what data/features a model needs
+- **Missing lineage tracking**: No connection between teacher and student models in distillation
+- **Manual deployment validation**: No automatic checks for deployment constraints
+- **Inconsistent model metadata**: Different structures for different model types
+
+The teacher-student distillation workflow required:
+- Teachers using rich L2/L3 order book data offline
+- Students distilled to use L1-only data for live trading
+- Strict latency requirements (<5ms) for production deployment
+- Feature parity validation between training and inference
+
+#### Decision
+Implemented a unified model registry with self-describing manifests that handle ALL model types through comprehensive declarations:
+
+1. **`ModelManifest` - Self-Describing Model Identity**:
+   ```python
+   @dataclass
+   class ModelManifest:
+       # Identity & Role
+       model_id: str
+       role: ModelRole  # TEACHER, STUDENT, INFERENCE
+       data_requirements: DataRequirements  # L1_ONLY, L1_L2, L1_L2_L3
+
+       # Schema & Validation
+       feature_schema: dict[str, str]  # Exact features required
+       feature_schema_hash: str  # Hash for validation
+
+       # Relationships
+       parent_id: Optional[str]  # Teacher for students
+       children_ids: list[str]  # Students from teacher
+
+       # Constraints & Performance
+       deployment_constraints: dict  # {"max_latency_ms": 5}
+       performance_metrics: dict  # {"accuracy": 0.68}
+   ```
+
+2. **Enhanced `LocalModelRegistry`**:
+   - Manifest-based registration with validation
+   - Role-based queries (`get_models_by_role()`)
+   - Data requirement filtering (`get_models_by_data_requirements()`)
+   - Complete lineage tracking (`get_model_lineage()`)
+   - LRU caching for performance
+   - Auto-deployment with contract validation
+
+3. **Integration with Existing `MLSignalActor`**:
+   - Extended `MLInferenceConfig` to support both:
+     - `model_path` (existing direct loading)
+     - `model_id` + `registry_path` (new registry-based)
+   - Modified `BaseMLInferenceActor._load_model_with_metadata()` to load from registry
+   - Automatic feature configuration from manifest
+   - Deployment constraint validation
+
+4. **Test Contract Driven Development**:
+   - Each model role has enforced contracts
+   - Teachers: Must use L2/L3 data, 20+ features
+   - Students: Must use L1-only, <5ms latency, have parent
+   - Automatic validation on registration
+
+#### Key Architectural Principles
+
+**Manifest vs Metadata Separation:**
+- **Manifest**: Core identity and requirements (validated, required)
+  - WHO: Role in the system
+  - WHAT: Data and features needed
+  - HOW: Performance characteristics
+  - WHERE: Lineage relationships
+  - WHEN: Deployment constraints
+
+- **Metadata**: Additional context (flexible, optional)
+  - Training notes, experiment tracking
+  - Runtime statistics, deployment history
+  - User annotations, custom metrics
+
+**No New Wrapper Modules:**
+- All functionality integrated into existing components
+- Configuration-driven approach
+- Backward compatible with existing `model_path` usage
+
+#### Rationale
+- **Self-Describing**: Models carry all requirements with them
+- **Type Safety**: Strongly typed manifests prevent errors
+- **Validation**: Automatic contract enforcement
+- **Simplicity**: Single registry for all model types
+- **Performance**: LRU caching, lazy loading
+- **Lineage**: Complete teacher-student tracking
+
+#### Implementation Details
+- **Files Modified**:
+  - `ml/registry/base.py`: Added `ModelManifest`, `ModelRole`, `DataRequirements`
+  - `ml/registry/local_registry.py`: Enhanced with manifest support
+  - `ml/config/base.py`: Extended `MLInferenceConfig`
+  - `ml/actors/base.py`: Added registry loading support
+
+- **New Test Infrastructure**:
+  - `test_model_contracts.py`: Contract definitions for each role
+  - `test_unified_registry.py`: Registry functionality tests
+  - `ModelContractValidator`: Validates manifests against contracts
+
+#### Consequences
+**Positive:**
+- Unified model management across all types
+- Automatic validation prevents deployment errors
+- Self-documenting models with manifests
+- Complete audit trail via lineage
+- Backward compatible with existing code
+- Enables sophisticated teacher-student workflows
+
+**Negative:**
+- Existing models need manifest creation
+- Some hypothesis tests need updating for new API
+- Additional validation overhead (minimal)
+
+#### Example Usage
+```python
+# Register teacher model (offline, L2/L3 data)
+teacher_manifest = ModelManifest(
+    model_id="tft_teacher_001",
+    role=ModelRole.TEACHER,
+    data_requirements=DataRequirements.L1_L2_L3,
+    feature_schema={...},  # 20+ L2/L3 features
+    deployment_constraints={"max_latency_ms": 1000}
+)
+
+# Register student model (live trading, L1-only)
+student_manifest = ModelManifest(
+    model_id="lgb_student_001",
+    role=ModelRole.STUDENT,
+    data_requirements=DataRequirements.L1_ONLY,
+    parent_id="tft_teacher_001",
+    feature_schema={...},  # L1-only features
+    deployment_constraints={"max_latency_ms": 5}
+)
+
+registry.register_model(path, manifest, auto_deploy=True)
+
+# Use in MLSignalActor (backward compatible)
+config = MLSignalActorConfig(
+    model_id="lgb_student_001",  # Load from registry
+    registry_path="ml/models",
+    use_manifest_features=True  # Use manifest schema
+)
+```
+
+---
+
 ## 2024-12-10: ML Testing Protocol and Infrastructure
 
 ### Context

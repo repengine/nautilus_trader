@@ -18,6 +18,7 @@ import pytest
 
 from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
+from ml.features.engineering import FeatureEngineer
 from ml.features.validation import FeatureParityError
 from ml.features.validation import FeatureParityValidator
 from ml.features.validation import validate_feature_parity
@@ -478,6 +479,117 @@ class TestValidateFeatureParityFunction:
         # Should use custom values
         assert report["tolerance"] == tolerance
         assert report["n_samples_validated"] == 10
+
+
+class TestUnifiedFeatureCalculation:
+    """
+    Test the unified calculate_features method.
+    """
+
+    def test_unified_method_batch_mode(self) -> None:
+        """
+        Test unified method in batch mode produces same results as calculate_features_batch.
+        """
+        config = FeatureConfig()
+        engineer = FeatureEngineer(config)
+
+        # Create test data
+        validator = FeatureParityValidator(config=config)
+        df = validator.generate_test_data(n_samples=100)
+
+        # Calculate using unified method
+        features_unified, scaler_unified = engineer.calculate_features(
+            data=df,
+            mode="batch",
+            fit_scaler=True,
+        )
+
+        # Calculate using direct method
+        features_direct, scaler_direct = engineer.calculate_features_batch(
+            df=df,
+            fit_scaler=True,
+        )
+
+        # Should produce identical results
+        import numpy as np
+        if hasattr(features_unified, "to_numpy"):
+            unified_array = features_unified.to_numpy()
+            direct_array = features_direct.to_numpy()
+        else:
+            unified_array = features_unified.values
+            direct_array = features_direct.values
+
+        np.testing.assert_allclose(unified_array, direct_array, rtol=1e-10)
+
+    def test_unified_method_online_mode(self) -> None:
+        """
+        Test unified method in online mode produces same results as calculate_features_online.
+        """
+        config = FeatureConfig()
+        engineer = FeatureEngineer(config)
+
+        # Create test data
+        current_bar = {
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 1000000.0,
+        }
+
+        # Create indicator manager
+        from ml.features.engineering import IndicatorManager
+        indicator_mgr = IndicatorManager(config)
+
+        # Warm up indicators with some data
+        from nautilus_trader.test_kit.stubs.data import TestDataStubs
+        for i in range(50):
+            # Create a simple bar for warmup
+            bar = TestDataStubs.bar_5decimal(ts_event=i, ts_init=i)
+            indicator_mgr.update_from_bar(bar)
+
+        # Calculate using unified method
+        features_unified = engineer.calculate_features(
+            data=current_bar,
+            mode="online",
+            indicator_manager=indicator_mgr,
+        )
+
+        # Calculate using direct method
+        features_direct = engineer.calculate_features_online(
+            current_bar=current_bar,
+            indicator_manager=indicator_mgr,
+        )
+
+        # Should produce identical results
+        import numpy as np
+        np.testing.assert_allclose(features_unified, features_direct, rtol=1e-10)
+
+    def test_unified_method_invalid_mode(self) -> None:
+        """
+        Test unified method with invalid mode raises ValueError.
+        """
+        config = FeatureConfig()
+        engineer = FeatureEngineer(config)
+
+        with pytest.raises(ValueError, match="Invalid mode: invalid"):
+            engineer.calculate_features(
+                data={},
+                mode="invalid",
+            )
+
+    def test_unified_method_online_without_manager(self) -> None:
+        """
+        Test unified method in online mode without indicator_manager raises ValueError.
+        """
+        config = FeatureConfig()
+        engineer = FeatureEngineer(config)
+
+        with pytest.raises(ValueError, match="indicator_manager is required for online mode"):
+            engineer.calculate_features(
+                data={"close": 100.0},
+                mode="online",
+            )
 
 
 class TestPolarsCompatibility:

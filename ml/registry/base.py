@@ -16,6 +16,7 @@ from dataclasses import field
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from typing import Optional
 
 
 class DeploymentStatus(Enum):
@@ -28,42 +29,110 @@ class DeploymentStatus(Enum):
     FAILED = "failed"           # Model deployment failed
 
 
+class ModelRole(Enum):
+    """Model role in the system."""
+
+    TEACHER = "teacher"         # Teacher model using rich L2/L3 data
+    STUDENT = "student"         # Student model distilled for L1-only inference
+    INFERENCE = "inference"     # Direct inference model (no distillation)
+    ENSEMBLE = "ensemble"       # Ensemble of multiple models
+    FEATURE = "feature"         # Feature engineering model
+
+
+class DataRequirements(Enum):
+    """Data requirements for model operation."""
+
+    L1_ONLY = "l1_only"        # Only L1 market data (trades/quotes)
+    L1_L2 = "l1_l2"            # L1 + L2 (order book)
+    L1_L2_L3 = "l1_l2_l3"      # L1 + L2 + L3 (detailed order flow)
+    HISTORICAL = "historical"   # Historical data only (no streaming)
+    STREAMING = "streaming"     # Real-time streaming data
+
+
 @dataclass
-class ModelInfo:
+class ModelManifest:
     """
-    Information about a registered model.
+    Self-describing model manifest with complete metadata.
+
+    Every model carries this manifest to declare its capabilities,
+    requirements, and relationships - enabling the registry to
+    automatically understand and manage ALL model types.
 
     Attributes
     ----------
     model_id : str
         Unique identifier for the model
+    role : ModelRole
+        Model's role in the system (teacher/student/inference/etc)
+    data_requirements : DataRequirements
+        Data requirements for model operation
+    architecture : str
+        Model architecture (XGBoost, LightGBM, TFT, etc)
+    feature_schema : dict[str, str]
+        Feature names and types expected by the model
+    feature_schema_hash : str
+        Hash of feature schema for validation
+    parent_id : Optional[str]
+        Parent model ID for lineage tracking (e.g., teacher for a student)
+    children_ids : list[str]
+        Child model IDs (e.g., students distilled from this teacher)
+    training_config : dict[str, Any]
+        Configuration used for training
+    performance_metrics : dict[str, float]
+        Model performance metrics
+    deployment_constraints : dict[str, Any]
+        Constraints for deployment (latency, memory, etc)
+    version : str
+        Semantic version of the model
+    created_at : float
+        Unix timestamp of creation
+    last_modified : float
+        Unix timestamp of last modification
+    """
+
+    model_id: str
+    role: ModelRole
+    data_requirements: DataRequirements
+    architecture: str
+    feature_schema: dict[str, str]
+    feature_schema_hash: str
+    parent_id: Optional[str] = None
+    children_ids: list[str] = field(default_factory=list)
+    training_config: dict[str, Any] = field(default_factory=dict)
+    performance_metrics: dict[str, float] = field(default_factory=dict)
+    deployment_constraints: dict[str, Any] = field(default_factory=dict)
+    version: str = "1.0.0"
+    created_at: float = 0.0
+    last_modified: float = 0.0
+
+
+@dataclass
+class ModelInfo:
+    """
+    Complete model information including manifest and deployment details.
+
+    Attributes
+    ----------
+    manifest : ModelManifest
+        Self-describing model manifest
     model_path : Path
         Path to the model file
-    version : str
-        Model version (semantic versioning)
-    metadata : dict[str, Any]
-        Model metadata (features, metrics, etc.)
     deployment_status : DeploymentStatus
         Current deployment status
     deployed_to : list[str]
         List of deployment targets (actors/strategies)
-    created_at : float
-        Unix timestamp of registration
-    last_modified : float
-        Unix timestamp of last modification
     performance_history : list[dict[str, Any]]
         Performance metrics over time
+    metadata : dict[str, Any]
+        Additional metadata not in manifest
     """
 
-    model_id: str
+    manifest: ModelManifest
     model_path: Path
-    version: str
-    metadata: dict[str, Any]
     deployment_status: DeploymentStatus
     deployed_to: list[str]
-    created_at: float
-    last_modified: float
     performance_history: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ModelRegistry(ABC):
@@ -82,8 +151,10 @@ class ModelRegistry(ABC):
     def register_model(
         self,
         model_path: Path,
-        metadata: dict[str, Any],
-        version: str | None = None,
+        manifest: ModelManifest,
+        auto_deploy: bool = False,
+        quality_gates: list[Any] | None = None,
+        enforce_quality: bool = False,
     ) -> str:
         """
         Register a new model in the registry.
@@ -92,10 +163,14 @@ class ModelRegistry(ABC):
         ----------
         model_path : Path
             Path to the model file
-        metadata : dict[str, Any]
-            Model metadata (features, training metrics, etc.)
-        version : Optional[str]
-            Model version (auto-generated if not provided)
+        manifest : ModelManifest
+            Self-describing model manifest
+        auto_deploy : bool
+            Whether to automatically deploy if validation passes
+        quality_gates : list[Any] | None
+            Quality gates to validate before registration
+        enforce_quality : bool
+            If True, raise error on quality gate failure
 
         Returns
         -------

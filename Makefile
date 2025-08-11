@@ -452,3 +452,39 @@ help:  #-- Show this help message and exit
 			} \
 		} \
 	}' $(MAKEFILE_LIST)
+
+#== ML Property Testing
+
+.PHONY: test-ml-properties
+test-ml-properties:  #-- Run ML property-based tests with Hypothesis
+	$(info $(M) Running ML property tests with Hypothesis...)
+	HYPOTHESIS_PROFILE=ci uv run --active --no-sync pytest ml/tests/unit/*hypothesis*.py \
+		--hypothesis-show-statistics \
+		--tb=short \
+		-v
+
+.PHONY: test-ml-properties-debug
+test-ml-properties-debug:  #-- Run ML property tests in debug mode (more examples)
+	$(info $(M) Running ML property tests in debug mode...)
+	HYPOTHESIS_PROFILE=debug uv run --active --no-sync pytest ml/tests/unit/*hypothesis*.py \
+		--hypothesis-show-statistics \
+		--hypothesis-seed=0 \
+		-vv
+
+.PHONY: test-ml-invariants
+test-ml-invariants:  #-- Test critical ML invariants (RSI bounds, feature parity, etc)
+	$(info $(M) Testing critical ML invariants...)
+	uv run --active --no-sync pytest \
+		ml/tests/unit/features/test_feature_engineering_hypothesis.py::TestFeatureEngineerProperties::test_rsi_bounds_property \
+		ml/tests/unit/features/test_feature_engineering_hypothesis.py::TestFeatureEngineerProperties::test_feature_count_consistency \
+		-v
+
+.PHONY: ml-coverage
+ml-coverage:  #-- Generate ML module coverage report with property tests
+	$(info $(M) Generating ML coverage report...)
+	uv run --active --no-sync pytest ml/tests/ \
+		--cov=ml \
+		--cov-report=term-missing \
+		--cov-report=html:htmlcov/ml \
+		--cov-fail-under=75
+	@echo "Coverage report generated in htmlcov/ml/index.html"

@@ -47,9 +47,13 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
 - Test public interfaces only
 - Focus on invariants and guarantees
 - Implementation-agnostic
+- Use Hypothesis for property-based testing
 
 **Example Structure**:
 ```python
+from hypothesis import given, strategies as st, assume
+import numpy as np
+
 class TestActorContracts:
     """Behavioral contracts all ML actors must satisfy."""
 
@@ -60,6 +64,24 @@ class TestActorContracts:
     def test_actor_must_publish_valid_signals(self, any_actor):
         """Actors MUST publish signals with required fields."""
         # Verify signal structure, not how it's generated
+
+    @given(
+        n_bars=st.integers(min_value=1, max_value=1000),
+        bar_values=st.floats(min_value=0.01, max_value=10000, allow_nan=False)
+    )
+    def test_actor_preserves_temporal_order(self, any_actor, n_bars, bar_values):
+        """Property: Actor must process bars in order and maintain causality."""
+        bars = [create_bar(value=bar_values) for _ in range(n_bars)]
+
+        timestamps = []
+        for bar in bars:
+            any_actor.on_bar(bar)
+            if any_actor.has_signal():
+                signal = any_actor.get_latest_signal()
+                timestamps.append(signal.ts_event)
+
+        # Property: Signals must be temporally ordered
+        assert timestamps == sorted(timestamps)
 ```
 
 ### 2. Unit Tests (`unit/test_*.py`)
@@ -177,6 +199,385 @@ def validate_test_data(data: Any) -> None:
     assert not np.any(np.isnan(data)), "Test data contains NaN"
     assert not np.any(np.isinf(data)), "Test data contains inf"
     assert data.shape[0] > 0, "Test data is empty"
+```
+
+## Property-Based Testing with Hypothesis
+
+### Core Properties for ML Systems
+
+#### 1. Numerical Stability Properties
+```python
+from hypothesis import given, strategies as st, assume
+import numpy as np
+
+class NumericalStabilityProperties:
+    """Properties ensuring numerical stability across ML components."""
+
+    @given(
+        features=st.arrays(
+            dtype=np.float32,
+            shape=st.tuples(
+                st.integers(1, 100),  # samples
+                st.integers(1, 50),   # features
+            ),
+            elements=st.one_of(
+                st.floats(-1e6, 1e6, allow_nan=False),
+                st.just(0.0),  # Test zero handling
+                st.floats(min_value=1e-10, max_value=1e-8),  # Small values
+                st.floats(min_value=1e8, max_value=1e10),    # Large values
+            )
+        )
+    )
+    def test_model_handles_extreme_values(self, model, features):
+        """Property: Models must handle extreme values without NaN/Inf."""
+        predictions = model.predict(features)
+
+        assert not np.any(np.isnan(predictions)), "Model produced NaN"
+        assert not np.any(np.isinf(predictions)), "Model produced Inf"
+        assert predictions.shape[0] == features.shape[0], "Shape mismatch"
+
+    @given(
+        data=st.lists(
+            st.floats(allow_nan=True, allow_infinity=True),
+            min_size=10,
+            max_size=1000
+        )
+    )
+    def test_feature_engineering_handles_dirty_data(self, data):
+        """Property: Feature engineering must sanitize dirty data."""
+        # Use actual FeatureEngineer from ml/features/engineering.py
+        from ml.features.engineering import FeatureEngineer, FeatureConfig
+
+        config = FeatureConfig(
+            sma_periods=[10, 20],
+            ema_periods=[12, 26],
+            use_returns=True,
+            use_log_returns=False
+        )
+        engineer = FeatureEngineer(config)
+
+        # FeatureEngineer has compute_features_batch for batch processing
+        features = engineer.compute_features_batch(np.array(data))
+
+        # Property: Output must be clean
+        assert not np.any(np.isnan(features)), "Features contain NaN"
+        assert not np.any(np.isinf(features)), "Features contain Inf"
+```
+
+#### 2. Temporal Consistency Properties
+```python
+class TemporalConsistencyProperties:
+    """Properties ensuring temporal consistency in trading systems."""
+
+    @given(
+        timestamps=st.lists(
+            st.integers(min_value=0, max_value=10**18),
+            min_size=2,
+            max_size=100,
+            unique=True
+        ).map(sorted)  # Ensure temporal order
+    )
+    def test_no_lookahead_bias(self, strategy, timestamps):
+        """Property: Strategies cannot use future information."""
+        for i, ts in enumerate(timestamps):
+            features = strategy.compute_features_at_time(ts)
+
+            # Property: Features only use data up to current time
+            feature_timestamps = strategy.get_feature_timestamps(features)
+            assert all(ft <= ts for ft in feature_timestamps)
+
+    @given(
+        window_size=st.integers(min_value=10, max_value=1000),
+        n_updates=st.integers(min_value=100, max_value=10000)
+    )
+    def test_rolling_window_consistency(self, window_size, n_updates):
+        """Property: Rolling windows maintain fixed size after filling."""
+        window = RollingWindow(window_size)
+
+        for i in range(n_updates):
+            window.update(i)
+
+            if i >= window_size:
+                assert len(window) == window_size
+                assert window.oldest() == i - window_size + 1
+                assert window.newest() == i
+```
+
+#### 3. Concurrency and Atomicity Properties
+```python
+class ConcurrencyProperties:
+    """Properties ensuring thread-safety and atomicity."""
+
+    @given(
+        n_concurrent_updates=st.integers(min_value=2, max_value=10),
+        updates_per_thread=st.integers(min_value=10, max_value=100)
+    )
+    def test_model_swap_atomicity(self, n_concurrent_updates, updates_per_thread):
+        """Property: Model swaps must be atomic."""
+        from ml.actors.signal import MLSignalActor
+        from ml.config.base import MLActorConfig
+
+        config = MLActorConfig(
+            model_path="test_model.onnx",
+            warm_up_period=10
+        )
+        actor = MLSignalActor(config)
+
+        def swap_model(version):
+            # MLSignalActor has hot_swap_model method for atomic swaps
+            for i in range(updates_per_thread):
+                new_model = create_test_model(version=f"{version}.{i}")
+                actor.hot_swap_model(new_model)
+
+        threads = []
+        for v in range(n_concurrent_updates):
+            t = threading.Thread(target=swap_model, args=(v,))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # Property: Actor must have exactly one valid model
+        assert actor._model is not None
+        # Property: No partial updates
+        assert actor.get_health_status()["status"] == "healthy"
+
+    @given(
+        queue_size=st.integers(min_value=10, max_value=100),
+        n_producers=st.integers(min_value=1, max_value=5),
+        items_per_producer=st.integers(min_value=50, max_value=200)
+    )
+    def test_bounded_queue_never_exceeds_limit(self, queue_size, n_producers, items_per_producer):
+        """Property: Bounded queues never exceed their limit."""
+        queue = BoundedQueue(max_size=queue_size)
+
+        def produce_items(producer_id):
+            for i in range(items_per_producer):
+                queue.try_add(f"{producer_id}:{i}")
+
+        threads = [
+            threading.Thread(target=produce_items, args=(i,))
+            for i in range(n_producers)
+        ]
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Property: Queue size never exceeds limit
+        assert len(queue) <= queue_size
+```
+
+#### 4. Performance Invariant Properties
+```python
+class PerformanceInvariantProperties:
+    """Properties ensuring performance requirements are maintained."""
+
+    @given(
+        n_iterations=st.integers(min_value=100, max_value=1000),
+        feature_dim=st.integers(min_value=10, max_value=100)
+    )
+    def test_hot_path_latency_invariant(self, n_iterations, feature_dim):
+        """Property: Hot path latency must stay under 5ms P99."""
+        # Use actual ML actor from the system
+        from ml.actors.signal import MLSignalActor
+        from ml.config.base import MLActorConfig
+
+        config = MLActorConfig(
+            model_path="test_model.onnx",
+            warm_up_period=10,
+            n_features=feature_dim
+        )
+        actor = MLSignalActor(config)
+
+        # Test actual on_bar method
+        latencies = []
+        for _ in range(n_iterations):
+            bar = create_test_bar()
+            start = time.perf_counter()
+            actor.on_bar(bar)  # Actual method name
+            latencies.append(time.perf_counter() - start)
+
+        p99 = np.percentile(latencies, 99)
+        assert p99 < 0.005, f"P99 latency {p99*1000:.1f}ms exceeds 5ms"
+
+    @given(
+        n_operations=st.integers(min_value=1000, max_value=10000)
+    )
+    def test_zero_allocation_invariant(self, n_operations):
+        """Property: Hot path must have zero allocations."""
+        from ml.actors.signal import OptimizedMLSignalActor
+        from ml.config.base import MLActorConfig
+
+        # Use OptimizedMLSignalActor which has zero-allocation optimizations
+        config = MLActorConfig(
+            model_path="test_model.onnx",
+            warm_up_period=10,
+            use_lock_free_buffers=True,
+            enable_zero_copy=True
+        )
+        actor = OptimizedMLSignalActor(config)
+
+        # Warm up
+        for _ in range(100):
+            actor.on_bar(create_test_bar())
+
+        # Measure allocations
+        import tracemalloc
+        tracemalloc.start()
+        snapshot1 = tracemalloc.take_snapshot()
+
+        for _ in range(n_operations):
+            actor.on_bar(create_test_bar())
+
+        snapshot2 = tracemalloc.take_snapshot()
+        stats = snapshot2.compare_to(snapshot1, 'lineno')
+
+        # Property: No significant allocations in hot path
+        hot_path_allocations = [
+            stat for stat in stats
+            if 'on_bar' in str(stat) or '_compute_features' in str(stat)
+        ]
+
+        for stat in hot_path_allocations:
+            assert stat.size_diff < 1000, f"Hot path allocated {stat.size_diff} bytes"
+```
+
+### Hypothesis Strategies for ML Testing
+
+#### Custom Strategies for Trading Data
+```python
+# ml/tests/strategies.py
+from hypothesis import strategies as st
+import numpy as np
+
+# Bar data strategy
+bar_strategy = st.builds(
+    Bar,
+    open=st.floats(min_value=0.01, max_value=10000),
+    high=st.floats(min_value=0.01, max_value=10000),
+    low=st.floats(min_value=0.01, max_value=10000),
+    close=st.floats(min_value=0.01, max_value=10000),
+    volume=st.integers(min_value=0, max_value=1000000),
+    ts_event=st.integers(min_value=0, max_value=10**18)
+).filter(lambda bar: bar.low <= bar.high and
+         bar.low <= bar.open <= bar.high and
+         bar.low <= bar.close <= bar.high)
+
+# Feature matrix strategy
+feature_matrix_strategy = st.arrays(
+    dtype=np.float32,
+    shape=st.tuples(
+        st.integers(min_value=1, max_value=1000),  # samples
+        st.integers(min_value=1, max_value=100),   # features
+    ),
+    elements=st.floats(
+        min_value=-100,
+        max_value=100,
+        allow_nan=False,
+        allow_infinity=False,
+        width=32
+    )
+)
+
+# Model configuration strategy
+model_config_strategy = st.builds(
+    MLModelConfig,
+    model_type=st.sampled_from(['xgboost', 'lightgbm', 'onnx']),
+    n_features=st.integers(min_value=1, max_value=100),
+    warmup_bars=st.integers(min_value=10, max_value=1000),
+    prediction_threshold=st.floats(min_value=0.0, max_value=1.0)
+)
+```
+
+### Hypothesis Testing Patterns
+
+#### Pattern 1: Stateful Testing
+```python
+from hypothesis.stateful import RuleBasedStateMachine, rule, invariant
+from ml.actors.signal import MLSignalActor
+from ml.registry.local_registry import LocalModelRegistry
+from pathlib import Path
+
+class MLPipelineStateMachine(RuleBasedStateMachine):
+    """Test ML pipeline state transitions using actual components."""
+
+    def __init__(self):
+        super().__init__()
+        # Use real components from the ML module
+        from ml.config.base import MLActorConfig
+        config = MLActorConfig(
+            model_path="test_model.onnx",
+            warm_up_period=10
+        )
+        self.actor = MLSignalActor(config)
+        self.registry = LocalModelRegistry(Path("/tmp/test_registry"))
+        self.n_bars_processed = 0
+        self.model_versions = []
+
+    @rule(bar=bar_strategy)
+    def process_bar(self, bar):
+        """Process a bar through the actor."""
+        self.actor.on_bar(bar)
+        self.n_bars_processed += 1
+
+    @rule()
+    def register_model(self):
+        """Register a new model version."""
+        if self.n_bars_processed > 100:
+            # Register model with the actual registry
+            model_info = {
+                "name": "test_model",
+                "version": f"v{len(self.model_versions)}",
+                "metrics": {"accuracy": 0.95}
+            }
+            version_id = self.registry.register_model(model_info)
+            self.model_versions.append(version_id)
+
+    @invariant()
+    def actor_always_healthy(self):
+        """Invariant: Actor always in healthy state."""
+        health = self.actor.get_health_status()
+        assert health["status"] in ["healthy", "warming_up"]
+
+    @invariant()
+    def registry_consistent(self):
+        """Invariant: Registry maintains consistency."""
+        if self.model_versions:
+            latest = self.registry.get_latest_version("test_model")
+            assert latest is not None
+
+# Run the state machine test
+TestMLPipeline = MLPipelineStateMachine.TestCase
+```
+
+#### Pattern 2: Compositional Testing
+```python
+@composite
+def feature_pipeline_strategy(draw):
+    """Generate valid feature pipeline configurations."""
+    n_features = draw(st.integers(min_value=5, max_value=50))
+
+    # Draw correlated components
+    indicators = draw(st.lists(
+        st.sampled_from(['SMA', 'EMA', 'RSI', 'MACD']),
+        min_size=1,
+        max_size=n_features // 2
+    ))
+
+    lookback_periods = draw(st.lists(
+        st.integers(min_value=5, max_value=100),
+        min_size=len(indicators),
+        max_size=len(indicators)
+    ))
+
+    return FeaturePipelineConfig(
+        indicators=indicators,
+        lookback_periods=lookback_periods,
+        total_features=n_features
+    )
 ```
 
 ## Mock Guidelines

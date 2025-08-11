@@ -16,9 +16,12 @@ from typing import Any
 
 from ml._imports import HAS_MLFLOW
 from ml._imports import check_ml_dependencies
+from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelInfo
+from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRegistry
+from ml.registry.base import ModelRole
 
 
 if HAS_MLFLOW:
@@ -82,8 +85,10 @@ class MLflowModelRegistry(ModelRegistry):
     def register_model(
         self,
         model_path: Path,
-        metadata: dict[str, Any],
-        version: str | None = None,
+        manifest: ModelManifest,
+        auto_deploy: bool = False,
+        quality_gates: list[Any] | None = None,
+        enforce_quality: bool = False,
     ) -> str:
         """
         Register a model in MLflow.
@@ -92,10 +97,14 @@ class MLflowModelRegistry(ModelRegistry):
         ----------
         model_path : Path
             Path to the model file
-        metadata : dict[str, Any]
-            Model metadata
-        version : Optional[str]
-            Model version (auto-assigned by MLflow if not provided)
+        manifest : ModelManifest
+            Self-describing model manifest
+        auto_deploy : bool
+            Whether to automatically deploy if validation passes
+        quality_gates : list[Any] | None
+            Quality gates to validate before registration
+        enforce_quality : bool
+            If True, raise error on quality gate failure
 
         Returns
         -------
@@ -105,17 +114,20 @@ class MLflowModelRegistry(ModelRegistry):
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
-        # Extract model name from path or metadata
-        model_name = metadata.get("model_name", model_path.stem)
+        # Extract model name from manifest
+        model_name = manifest.model_id
 
         # Register model with MLflow
         try:
             # Log the model file
             with mlflow.start_run() as run:
-                # Log metadata as parameters
-                for key, value in metadata.items():
-                    if isinstance(value, (str, int, float, bool)):
-                        mlflow.log_param(key, value)
+                # Log manifest fields as parameters
+                mlflow.log_param("model_id", manifest.model_id)
+                mlflow.log_param("role", manifest.role.value)
+                mlflow.log_param("data_requirements", manifest.data_requirements.value)
+                mlflow.log_param("architecture", manifest.architecture)
+                mlflow.log_param("version", manifest.version)
+                mlflow.log_param("feature_schema_hash", manifest.feature_schema_hash)
 
                 # Log model artifact
                 mlflow.log_artifact(str(model_path))
@@ -127,14 +139,31 @@ class MLflowModelRegistry(ModelRegistry):
                     name=model_name,
                 )
 
-                # Add tags to model version
-                for key, value in metadata.items():
-                    self.client.set_model_version_tag(
-                        name=model_name,
-                        version=result.version,
-                        key=key,
-                        value=str(value),
-                    )
+                # Add manifest fields as tags
+                self.client.set_model_version_tag(
+                    name=model_name,
+                    version=result.version,
+                    key="role",
+                    value=manifest.role.value,
+                )
+                self.client.set_model_version_tag(
+                    name=model_name,
+                    version=result.version,
+                    key="data_requirements",
+                    value=manifest.data_requirements.value,
+                )
+                self.client.set_model_version_tag(
+                    name=model_name,
+                    version=result.version,
+                    key="architecture",
+                    value=manifest.architecture,
+                )
+                self.client.set_model_version_tag(
+                    name=model_name,
+                    version=result.version,
+                    key="feature_schema_hash",
+                    value=manifest.feature_schema_hash,
+                )
 
                 model_id = f"{model_name}/{result.version}"
                 logger.info(f"Registered model {model_id} in MLflow")
@@ -231,17 +260,27 @@ class MLflowModelRegistry(ModelRegistry):
                         else mv.creation_timestamp / 1000  # Fallback to creation time
                     )
 
-                    # Create ModelInfo
-                    model_info = ModelInfo(
+                    # Create manifest
+                    manifest = ModelManifest(
                         model_id=model_id,
-                        model_path=Path(mv.source),  # Safe now, checked above
+                        role=ModelRole.INFERENCE,  # Default role
+                        data_requirements=DataRequirements.L1_ONLY,  # Default requirement
+                        architecture=mv.name,
+                        feature_schema={},  # Would need to extract from tags
+                        feature_schema_hash="",  # Would need to compute
                         version=str(mv.version),
-                        metadata=dict(mv.tags),
-                        deployment_status=DeploymentStatus.ACTIVE,
-                        deployed_to=self._deployment_cache.get(model_id, []),
                         created_at=mv.creation_timestamp / 1000,
                         last_modified=last_modified,
+                    )
+
+                    # Create ModelInfo
+                    model_info = ModelInfo(
+                        manifest=manifest,
+                        model_path=Path(mv.source),  # Safe now, checked above
+                        deployment_status=DeploymentStatus.ACTIVE,
+                        deployed_to=self._deployment_cache.get(model_id, []),
                         performance_history=self._performance_cache.get(model_id, []),
+                        metadata=dict(mv.tags),
                     )
                     active_models.append(model_info)
 
@@ -286,16 +325,26 @@ class MLflowModelRegistry(ModelRegistry):
                         else mv.creation_timestamp / 1000  # Fallback to creation time
                     )
 
-                    model_info = ModelInfo(
+                    # Create manifest
+                    manifest = ModelManifest(
                         model_id=model_id,
-                        model_path=Path(mv.source),  # Safe now, checked above
+                        role=ModelRole.INFERENCE,  # Default role
+                        data_requirements=DataRequirements.L1_ONLY,  # Default requirement
+                        architecture=mv.name,
+                        feature_schema={},  # Would need to extract from tags
+                        feature_schema_hash="",  # Would need to compute
                         version=str(mv.version),
-                        metadata=dict(mv.tags),
-                        deployment_status=deployment_status,
-                        deployed_to=self._deployment_cache.get(model_id, []),
                         created_at=mv.creation_timestamp / 1000,
                         last_modified=last_modified,
+                    )
+
+                    model_info = ModelInfo(
+                        manifest=manifest,
+                        model_path=Path(mv.source),  # Safe now, checked above
+                        deployment_status=deployment_status,
+                        deployed_to=self._deployment_cache.get(model_id, []),
                         performance_history=self._performance_cache.get(model_id, []),
+                        metadata=dict(mv.tags),
                     )
                     all_models.append(model_info)
 
@@ -340,16 +389,26 @@ class MLflowModelRegistry(ModelRegistry):
                 else mv.creation_timestamp / 1000  # Fallback to creation time
             )
 
-            return ModelInfo(
+            # Create manifest
+            manifest = ModelManifest(
                 model_id=model_id,
-                model_path=Path(mv.source),  # Safe now, checked above
+                role=ModelRole.INFERENCE,  # Default role
+                data_requirements=DataRequirements.L1_ONLY,  # Default requirement
+                architecture=mv.name,
+                feature_schema={},  # Would need to extract from tags
+                feature_schema_hash="",  # Would need to compute
                 version=str(mv.version),
-                metadata=dict(mv.tags),
-                deployment_status=deployment_status,
-                deployed_to=self._deployment_cache.get(model_id, []),
                 created_at=mv.creation_timestamp / 1000,
                 last_modified=last_modified,
+            )
+
+            return ModelInfo(
+                manifest=manifest,
+                model_path=Path(mv.source),  # Safe now, checked above
+                deployment_status=deployment_status,
+                deployed_to=self._deployment_cache.get(model_id, []),
                 performance_history=self._performance_cache.get(model_id, []),
+                metadata=dict(mv.tags),
             )
 
         except Exception as e:

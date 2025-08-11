@@ -836,11 +836,63 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     def _load_model_with_metadata(self) -> None:
         """
         Load model with metadata tracking for hot reload support.
+        Supports both direct model path and registry-based loading.
         """
         try:
-            self._model, self._model_metadata = self._model_loader.load_model(
-                self._config.model_path,
-            )
+            # Check if we should load from registry (only if model_id is set WITHOUT model_path)
+            if (hasattr(self._config, 'model_id') and self._config.model_id and
+                (not hasattr(self._config, 'model_path') or not self._config.model_path)):
+                # Load from unified registry
+                from pathlib import Path
+                from ml.registry.local_registry import LocalModelRegistry
+
+                registry_path = Path(self._config.registry_path) if hasattr(self._config, 'registry_path') else Path("ml/models")
+                registry = LocalModelRegistry(registry_path)
+
+                # Get model info from registry
+                model_info = registry.get_model(self._config.model_id)
+                if not model_info:
+                    raise ValueError(f"Model {self._config.model_id} not found in registry")
+
+                # Load the actual model
+                self._model = registry.load_model(self._config.model_id)
+
+                # Extract metadata from manifest
+                manifest = model_info.manifest
+                self._model_metadata = {
+                    "model_id": manifest.model_id,
+                    "version": manifest.version,
+                    "type": manifest.architecture,
+                    "role": manifest.role.value,
+                    "data_requirements": manifest.data_requirements.value,
+                    "feature_schema": manifest.feature_schema,
+                    "feature_schema_hash": manifest.feature_schema_hash,
+                    "parent_id": manifest.parent_id,
+                    "performance_metrics": manifest.performance_metrics,
+                    "deployment_constraints": manifest.deployment_constraints,
+                }
+
+                # Use manifest features if configured
+                if hasattr(self._config, 'use_manifest_features') and self._config.use_manifest_features:
+                    # Override feature config with manifest schema
+                    self._feature_names = list(manifest.feature_schema.keys())
+                    self.log.info(f"Using {len(self._feature_names)} features from manifest")
+
+                # Check deployment constraints
+                if "max_latency_ms" in manifest.deployment_constraints:
+                    max_latency = manifest.deployment_constraints["max_latency_ms"]
+                    if hasattr(self._config, 'max_inference_latency_ms'):
+                        if self._config.max_inference_latency_ms > max_latency:
+                            self.log.warning(
+                                f"Config latency {self._config.max_inference_latency_ms}ms "
+                                f"exceeds model constraint {max_latency}ms"
+                            )
+
+            else:
+                # Load from direct path (existing behavior)
+                self._model, self._model_metadata = self._model_loader.load_model(
+                    self._config.model_path,
+                )
             self._model_version = self._model_metadata.get("version")
 
             # Extract model_id from metadata or generate from path
@@ -1156,170 +1208,6 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
 
         return prediction, confidence
 
-
-class SimpleMLSignalActor(BaseMLInferenceActor):
-    """
-    Simple ML signal actor for real-time inference.
-
-    Implements clean signal generation with model_id tracking,
-    handles multiple instruments, and gracefully handles failures.
-    """
-
-    def __init__(self, config: MLActorConfig) -> None:
-        """
-        Initialize simple ML signal actor.
-
-        Parameters
-        ----------
-        config : MLActorConfig
-            Actor configuration including model path and instruments.
-        """
-        super().__init__(config)
-
-        # Track configured instruments
-        self._instruments: list[InstrumentId] = []
-        if hasattr(config, "instruments"):
-            self._instruments = config.instruments
-        elif hasattr(config, "instrument_id") and config.instrument_id:
-            self._instruments = [config.instrument_id]
-
-        # Feature computation
-        self._sma_fast: Any = None
-        self._sma_slow: Any = None
-        self._rsi: Any = None
-
-        # Pre-allocated feature buffer
-        self._feature_size = 10  # Standard feature size
-        self._feature_buffer = np.zeros(self._feature_size, dtype=np.float32)
-
-    def on_bar(self, bar: Bar) -> None:
-        """
-        Process bar and generate signal if appropriate.
-
-        Filters by configured instruments and handles failures gracefully.
-        """
-        # Filter by configured instruments
-        if self._instruments and bar.bar_type.instrument_id not in self._instruments:
-            return
-
-        # Call parent implementation which handles everything
-        super().on_bar(bar)
-
-    def _load_model(self) -> None:
-        """
-        Model loading handled by parent _load_model_with_metadata.
-        """
-        # Model is already loaded by parent class
-        # This is called for compatibility
-
-    def _initialize_features(self) -> None:
-        """
-        Initialize technical indicators for feature computation.
-        """
-        from nautilus_trader.indicators.average.sma import SimpleMovingAverage
-        from nautilus_trader.indicators.rsi import RelativeStrengthIndex
-
-        self._sma_fast = SimpleMovingAverage(10)
-        self._sma_slow = SimpleMovingAverage(20)
-        self._rsi = RelativeStrengthIndex(14)
-
-        self.log.info(f"Initialized indicators for {self.__class__.__name__}")
-
-    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
-        """
-        Compute features from bar data.
-
-        Returns None if indicators not ready.
-        """
-        # Update indicators
-        self._sma_fast.handle_bar(bar)
-        self._sma_slow.handle_bar(bar)
-        self._rsi.handle_bar(bar)
-
-        # Check if initialized
-        if not (self._sma_fast.initialized and
-                self._sma_slow.initialized and
-                self._rsi.initialized):
-            return None
-
-        # Compute features in pre-allocated buffer
-        close_price = float(bar.close)
-
-        self._feature_buffer[0] = close_price / float(self._sma_fast.value)
-        self._feature_buffer[1] = close_price / float(self._sma_slow.value)
-        self._feature_buffer[2] = float(self._sma_fast.value) / float(self._sma_slow.value)
-        self._feature_buffer[3] = float(self._rsi.value) / 100.0
-        self._feature_buffer[4] = float(bar.high - bar.low) / close_price
-        self._feature_buffer[5] = float(bar.close - bar.open) / close_price
-        self._feature_buffer[6] = float(bar.volume) / 1_000_000.0  # Normalized volume
-
-        # Fill remaining features with zeros for consistency
-        self._feature_buffer[7:] = 0.0
-
-        return self._feature_buffer
-
-    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
-        """
-        Generate prediction from features.
-
-        Handles different model types and gracefully handles errors.
-        """
-        if self._model is None:
-            return 0.0, 0.0
-
-        try:
-            # Check if model is wrapped with unified interface
-            if hasattr(self._model, "predict") and hasattr(self._model, "metadata"):
-                # Using Agent 2's model wrapper
-                result = self._model.predict(features)
-                if isinstance(result, tuple):
-                    return result
-                else:
-                    # Single value prediction
-                    prediction = float(result)
-                    confidence = abs(prediction) if prediction != 0 else 0.5
-                    return prediction, confidence
-
-            # Handle raw models (backward compatibility)
-            features_2d = features.reshape(1, -1)
-
-            # ONNX model
-            if hasattr(self._model, "run"):
-                if "input_names" in self._model_metadata:
-                    input_name = self._model_metadata["input_names"][0]
-                else:
-                    input_name = self._model.get_inputs()[0].name
-
-                outputs = self._model.run(None, {input_name: features_2d.astype(np.float32)})
-
-                if len(outputs) >= 2:
-                    return float(outputs[0][0]), float(outputs[1][0])
-                else:
-                    prediction = float(outputs[0][0])
-                    return prediction, abs(prediction)
-
-            # Scikit-learn style model
-            elif hasattr(self._model, "predict"):
-                if hasattr(self._model, "predict_proba"):
-                    probabilities = self._model.predict_proba(features_2d)[0]
-                    prediction = float(np.argmax(probabilities))
-                    confidence = float(np.max(probabilities))
-                    return prediction, confidence
-                else:
-                    prediction = float(self._model.predict(features_2d)[0])
-                    confidence = abs(prediction) if prediction != 0 else 0.5
-                    return prediction, confidence
-
-            else:
-                self.log.error(f"Unknown model type: {type(self._model)}")
-                return 0.0, 0.0
-
-        except Exception as e:
-            # Log error but don't crash - graceful degradation
-            if hasattr(self, "log"):
-                self.log.error(f"Prediction failed: {e}")
-            # Re-raise to let base class handle circuit breaker
-            raise
 
 
 class EnhancedMLInferenceActor(BaseMLInferenceActor):

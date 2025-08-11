@@ -60,8 +60,14 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
 
     Parameters
     ----------
-    model_path : str
+    model_path : str, optional
         Path to the trained model file (supports .pkl, .joblib, .onnx formats).
+        Either model_path or model_id must be provided.
+    model_id : str, optional
+        Model ID to load from the unified registry.
+        Either model_path or model_id must be provided.
+    registry_path : str, optional
+        Path to the model registry. Required if using model_id.
     prediction_threshold : NonNegativeFloat, default 0.5
         Minimum confidence threshold for predictions to be considered valid.
     max_inference_latency_ms : PositiveFloat, default 5.0
@@ -72,15 +78,30 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
         Batch size for model inference (for models that support batching).
     warm_up_period : NonNegativeInt, default 50
         Number of bars to process before starting predictions (for indicator initialization).
+    use_manifest_features : bool, default True
+        If True and using model_id, use feature schema from model manifest.
+        If False, use feature_config even with manifest-based models.
 
     """
 
-    model_path: str
+    model_path: str | None = None
+    model_id: str | None = None
+    registry_path: str | None = None
     prediction_threshold: NonNegativeFloat = 0.5
     max_inference_latency_ms: PositiveFloat = 5.0
     feature_config: MLFeatureConfig | None = None
     batch_size: PositiveInt = 1
     warm_up_period: NonNegativeInt = 50
+    use_manifest_features: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate configuration."""
+        if not self.model_path and not self.model_id:
+            raise ValidationError("Either model_path or model_id must be provided")
+        if self.model_id and not self.registry_path:
+            raise ValidationError("registry_path is required when using model_id")
+        if self.model_path and self.model_id:
+            raise ValidationError("Cannot specify both model_path and model_id")
 
 
 class CircuitBreakerConfig(NautilusConfig, kw_only=True, frozen=True):

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 """
-Canary deployment functionality for gradual model rollout.
+Shared data structures for the ML registry.
 
-This module provides canary deployment patterns with automatic promotion
-and rollback based on performance metrics.
+This module contains dataclasses used across the registry system for
+quality validation, canary deployments, and statistical analysis.
 """
 
 from __future__ import annotations
@@ -13,6 +13,59 @@ import time
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
+from typing import Optional
+
+
+@dataclass
+class QualityGate:
+    """
+    Defines a quality threshold that must be met.
+
+    Attributes
+    ----------
+    metric_name : str
+        Name of the metric to check
+    threshold : float
+        Minimum or maximum acceptable value
+    comparison : str
+        Comparison operator ('gte', 'lte', 'eq', 'gt', 'lt')
+    required : bool
+        Whether this gate must pass for overall validation
+    """
+
+    metric_name: str
+    threshold: float
+    comparison: str = "gte"  # greater than or equal
+    required: bool = True
+
+
+@dataclass
+class ValidationResult:
+    """
+    Results from quality gate validation.
+
+    Attributes
+    ----------
+    model_id : str
+        Model being validated
+    timestamp : float
+        When validation occurred
+    overall_pass : bool
+        Whether all required gates passed
+    gates_passed : int
+        Number of gates that passed
+    gates_failed : int
+        Number of gates that failed
+    gate_results : dict[str, dict[str, Any]]
+        Detailed results for each gate
+    """
+
+    model_id: str
+    timestamp: float = field(default_factory=time.time)
+    overall_pass: bool = True
+    gates_passed: int = 0
+    gates_failed: int = 0
+    gate_results: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -43,7 +96,7 @@ class CanaryConfig:
     traffic_percentage: float = 5.0
     success_metric: str = "accuracy"
     baseline_threshold: float = 0.95
-    monitoring_duration_hours: int = 24
+    monitoring_duration_hours: float = 24.0
     auto_promote: bool = True
     auto_rollback: bool = True
     min_samples: int = 100
@@ -61,8 +114,12 @@ class CanaryDeployment:
         Unique deployment identifier
     model_id : str
         Model being deployed
+    target : str
+        Deployment target
     config : CanaryConfig
         Deployment configuration
+    baseline_model_id : Optional[str]
+        ID of baseline model for comparison
     baseline_performance : Optional[float]
         Performance of current production model
     created_at : float
@@ -75,8 +132,10 @@ class CanaryDeployment:
 
     deployment_id: str
     model_id: str
+    target: str
     config: CanaryConfig
-    baseline_performance: float | None = None
+    baseline_model_id: Optional[str] = None
+    baseline_performance: Optional[float] = None
     created_at: float = field(default_factory=time.time)
     status: str = "active"
     metrics: dict[str, Any] = field(default_factory=lambda: {
@@ -91,7 +150,7 @@ class CanaryDeployment:
     def record_metric(
         self,
         metric_value: float,
-        latency_ms: float | None = None,
+        latency_ms: Optional[float] = None,
         error_occurred: bool = False,
     ) -> None:
         """
@@ -252,3 +311,68 @@ class CanaryDeployment:
             "should_rollback": should_rollback,
             "rollback_reason": rollback_reason,
         }
+
+
+@dataclass
+class RolloutPlan:
+    """
+    Tracks gradual rollout plan and progress.
+
+    Attributes
+    ----------
+    rollout_id : str
+        Unique rollout identifier
+    current_model_id : str
+        Currently deployed model
+    new_model_id : str
+        New model being rolled out
+    target : str
+        Deployment target
+    stages : list[float]
+        Traffic percentages for each stage
+    stage_duration_minutes : int
+        Duration of each stage
+    current_stage : int
+        Current stage index
+    started_at : float
+        When rollout started
+    status : str
+        Rollout status
+    stage_results : list[dict[str, Any]]
+        Results from each completed stage
+    """
+
+    rollout_id: str
+    current_model_id: str
+    new_model_id: str
+    target: str
+    stages: list[float]
+    stage_duration_minutes: int
+    current_stage: int = 0
+    started_at: float = field(default_factory=time.time)
+    status: str = "active"
+    stage_results: list[dict[str, Any]] = field(default_factory=list)
+
+    def get_current_traffic_split(self) -> float:
+        """Get current traffic percentage for new model."""
+        if self.current_stage < len(self.stages):
+            return self.stages[self.current_stage]
+        return 1.0  # Full deployment
+
+    def advance_stage(self) -> bool:
+        """
+        Advance to next rollout stage.
+
+        Returns
+        -------
+        bool
+            True if advanced, False if already at final stage
+        """
+        if self.current_stage < len(self.stages) - 1:
+            self.current_stage += 1
+            return True
+        return False
+
+    def is_complete(self) -> bool:
+        """Check if rollout is complete."""
+        return self.current_stage >= len(self.stages) - 1 and self.stages[-1] == 1.0

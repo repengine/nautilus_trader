@@ -1,0 +1,84 @@
+name: ML Property Tests
+
+on:
+  push:
+    branches: [main, develop, ml]
+    paths:
+      - 'ml/**'
+      - '.github/workflows/ml-property-tests.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'ml/**'
+
+jobs:
+  property-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[ml]"
+        pip install hypothesis pytest-cov
+
+    - name: Run property tests with coverage
+      run: |
+        python -m pytest ml/tests/unit/*hypothesis*.py \
+          --hypothesis-show-statistics \
+          --hypothesis-profile=ci \
+          --cov=ml \
+          --cov-report=xml \
+          --cov-report=term-missing \
+          -v
+
+    - name: Check critical invariants
+      run: |
+        # Run tests that check mathematical invariants
+        python -m pytest ml/tests/unit/features/test_feature_engineering_hypothesis.py::TestFeatureEngineerProperties::test_rsi_bounds_property -v
+        python -m pytest ml/tests/unit/features/test_feature_engineering_hypothesis.py::TestFeatureEngineerProperties::test_feature_count_consistency -v
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: ml-property-tests
+        name: ml-property-coverage
+
+    - name: Generate hypothesis statistics report
+      if: always()
+      run: |
+        echo "## Hypothesis Test Statistics" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        python -m pytest ml/tests/unit/*hypothesis*.py --hypothesis-show-statistics 2>&1 | grep -A 20 "Hypothesis Statistics" >> $GITHUB_STEP_SUMMARY || true
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+    - name: Check minimum coverage
+      run: |
+        # Extract coverage percentage and ensure it meets minimum
+        coverage_percent=$(python -m pytest ml/tests/unit/*hypothesis*.py --cov=ml --cov-report=term | grep "TOTAL" | awk '{print $4}' | sed 's/%//')
+        echo "Coverage: ${coverage_percent}%"
+        if (( $(echo "$coverage_percent < 75" | bc -l) )); then
+          echo "Coverage ${coverage_percent}% is below minimum 75%"
+          exit 1
+        fi

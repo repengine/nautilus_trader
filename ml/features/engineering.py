@@ -517,8 +517,14 @@ class IndicatorManager:
                 else:
                     # Apply same normalization as batch processing
                     if name == "rsi":
-                        # RSI normalization: (RSI - 50) / 50 to get range [-1, 1]
-                        values[name] = (indicator.value - 50.0) / 50.0
+                        # Nautilus RSI returns values in [0, 1] range, not [0, 100]
+                        # Normalize to [-1, 1] for ML: (RSI - 0.5) * 2
+                        raw_rsi = indicator.value
+                        # Runtime assertion: RSI must be in [0, 1]
+                        assert 0 <= raw_rsi <= 1, f"RSI out of bounds: {raw_rsi}"
+                        values[name] = (raw_rsi - 0.5) * 2.0
+                        # Runtime assertion: Normalized RSI must be in [-1, 1]
+                        assert -1 <= values[name] <= 1, f"Normalized RSI out of bounds: {values[name]}"
                     else:
                         values[name] = indicator.value
             else:
@@ -771,6 +777,85 @@ class FeatureEngineer:
 
         return features_scaled, self.scaler
 
+    def calculate_features(
+        self,
+        data: Any,  # Can be DataFrame for batch or dict for online
+        mode: str = "batch",
+        indicator_manager: IndicatorManager | None = None,
+        fit_scaler: bool = False,
+        scaler_fit_ratio: float = 0.7,
+        scaler: Any = None,
+    ) -> Any:
+        """
+        Unified feature calculation method for both batch and online modes.
+
+        This method ensures perfect feature parity between training (batch) and
+        inference (online) by routing to the same underlying computation logic.
+
+        Parameters
+        ----------
+        data : Any
+            - For batch mode: pl.DataFrame or pd.DataFrame with OHLCV data
+            - For online mode: dict with current bar data (open, high, low, close, volume)
+        mode : str, default "batch"
+            Computation mode - either "batch" or "online"
+        indicator_manager : IndicatorManager, optional
+            Required for online mode. Manages indicator state.
+        fit_scaler : bool, default False
+            Whether to fit a StandardScaler (batch mode only)
+        scaler_fit_ratio : float, default 0.7
+            Ratio of data for fitting scaler (batch mode only)
+        scaler : StandardScaler, optional
+            Pre-fitted scaler for scaling features (online mode only)
+
+        Returns
+        -------
+        Any
+            - For batch mode: tuple[DataFrame, StandardScaler or None]
+            - For online mode: npt.NDArray[np.float32]
+
+        Raises
+        ------
+        ValueError
+            If mode is not "batch" or "online"
+            If online mode is specified without indicator_manager
+
+        Examples
+        --------
+        Batch mode (training):
+        >>> config = FeatureConfig()  # doctest: +SKIP
+        >>> engineer = FeatureEngineer(config)  # doctest: +SKIP
+        >>> features_df, scaler = engineer.calculate_features(  # doctest: +SKIP
+        ...     df, mode="batch", fit_scaler=True
+        ... )
+
+        Online mode (inference):
+        >>> features = engineer.calculate_features(  # doctest: +SKIP
+        ...     current_bar, mode="online",
+        ...     indicator_manager=indicator_mgr,
+        ...     scaler=scaler
+        ... )
+
+        """
+        if mode == "batch":
+            return self.calculate_features_batch(
+                df=data,
+                fit_scaler=fit_scaler,
+                scaler_fit_ratio=scaler_fit_ratio,
+            )
+        elif mode == "online":
+            if indicator_manager is None:
+                msg = "indicator_manager is required for online mode"
+                raise ValueError(msg)
+            return self.calculate_features_online(
+                current_bar=data,
+                indicator_manager=indicator_manager,
+                scaler=scaler,
+            )
+        else:
+            msg = f"Invalid mode: {mode}. Must be 'batch' or 'online'"
+            raise ValueError(msg)
+
     def calculate_features_batch(
         self,
         df: Any,  # pl.DataFrame or pd.DataFrame
@@ -983,8 +1068,12 @@ class FeatureEngineer:
             feature_idx += 1
 
         # RSI features
-        rsi_normalized = indicator_values.get("rsi", 0.0)
-        rsi_raw = rsi_normalized * 50.0 + 50.0
+        rsi_normalized = indicator_values.get("rsi", 0.0)  # Already in [-1, 1] range
+        # Runtime assertion: Normalized RSI must be in [-1, 1]
+        assert -1 <= rsi_normalized <= 1, f"RSI normalized out of bounds: {rsi_normalized}"
+        # Convert back to [0, 100] for threshold checks
+        rsi_raw = (rsi_normalized / 2.0 + 0.5) * 100.0
+        assert 0 <= rsi_raw <= 100, f"RSI raw out of bounds: {rsi_raw}"
         self.feature_buffer[feature_idx] = rsi_normalized
         self.feature_buffer[feature_idx + 1] = 1.0 if rsi_raw > 70 else 0.0
         self.feature_buffer[feature_idx + 2] = 1.0 if rsi_raw < 30 else 0.0
@@ -1274,9 +1363,10 @@ class FeatureEngineer:
                 features[f"volume_ratio_{period}"] = 1.0
 
         # RSI features
-        rsi_normalized = ind_values.get("rsi", 0.0)
+        rsi_normalized = ind_values.get("rsi", 0.0)  # Already in [-1, 1] range
         features["rsi"] = rsi_normalized
-        rsi_raw = rsi_normalized * 50.0 + 50.0
+        # Convert back to [0, 100] for threshold checks
+        rsi_raw = (rsi_normalized / 2.0 + 0.5) * 100.0
         features["rsi_overbought"] = 1.0 if rsi_raw > 70 else 0.0
         features["rsi_oversold"] = 1.0 if rsi_raw < 30 else 0.0
 

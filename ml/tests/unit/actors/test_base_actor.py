@@ -378,7 +378,7 @@ class TestBaseMLInferenceActor:
         assert actor._last_prediction_time == 0  # OK - testing timing initialization
 
         # Test behavior instead of private attributes
-        base_stats = actor.get_statistics()
+        base_stats = actor.get_health_status()
         assert base_stats.get("predictions_made", 0) == 0, "Should start with no predictions"
         assert base_stats.get("bars_processed", 0) == 0, "Should start with no bars processed"
         assert actor._is_warmed_up is False
@@ -439,7 +439,7 @@ class TestBaseMLInferenceActor:
             actor.on_bar(sample_bar)
 
         # Assert - test behavior instead of private attributes
-        base_stats = actor.get_statistics()
+        base_stats = actor.get_health_status()
         assert base_stats.get("bars_processed", 0) == actor._config.warm_up_period - 1, "Should have processed warmup-1 bars"
         assert actor._is_warmed_up is False
         assert actor.prediction_calls == 0
@@ -461,7 +461,7 @@ class TestBaseMLInferenceActor:
             actor.on_bar(sample_bar)
 
         # Assert - test behavior instead of private attributes
-        base_stats = actor.get_statistics()
+        base_stats = actor.get_health_status()
         assert base_stats.get("bars_processed", 0) == actor._config.warm_up_period, "Should have processed all warmup bars"
         assert actor._is_warmed_up is True
         assert actor.prediction_calls == 1  # Last bar triggered prediction
@@ -482,7 +482,7 @@ class TestBaseMLInferenceActor:
         actor.on_bar(sample_bar)
 
         # Assert - test behavior instead of private attributes
-        base_stats = actor.get_statistics()
+        base_stats = actor.get_health_status()
         assert base_stats.get("bars_processed", 0) == 1, "Should have processed 1 bar"
         assert len(actor._feature_window) == 0
         assert actor.prediction_calls == 0
@@ -503,7 +503,7 @@ class TestBaseMLInferenceActor:
         actor._generate_prediction_protected(sample_bar, features)
 
         # Assert - test behavior instead of private attributes
-        base_stats = actor.get_statistics()
+        base_stats = actor.get_health_status()
         assert base_stats.get("predictions_made", 0) == 1, "Should have made 1 prediction"
         assert actor._total_inference_time > 0
         assert actor.prediction_calls == 1
