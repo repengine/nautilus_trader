@@ -61,8 +61,7 @@ VERSION 2:
 
 **Executive Summary**
 
-- Build a first-class feature system mirroring the model system: a typed “Featur
-e Registry” with manifests, a deterministic pipeline (batch/online parity), life
+- Build a first-class feature system mirroring the model system: a typed "Feature Registry" with manifests, a deterministic pipeline (batch/online parity), life
 cycle automation (create → validate → promote → deprecate → scrap), and runtime
 governance (latency/footprint contracts).
 - Leverage the existing FeatureEngineer and FeatureParityValidator as the hot/co
@@ -78,8 +77,7 @@ transforms with Nautilus indicators.
 **Current State (Findings)**
 
 - Feature computation:
-  - FeatureEngineer and IndicatorManager already enforce batch/online parity wit
-h strict math and tolerance checks. Online path uses pre-allocated buffers; batc
+  - FeatureEngineer and IndicatorManager already enforce batch/online parity with strict math and tolerance checks. Online path uses pre-allocated buffers; batc
 h uses Polars/Pandas.
   - FeatureParityValidator warms indicators and validates end-to-end parity, sha
 pes, and per-feature bounds.
@@ -122,8 +120,7 @@ on gates.
 
 - Determinism and parity: single source-of-truth transforms with strict batch/on
 line equivalence.
-- Typed manifests and contracts: the same rigor as ModelManifest applied to feat
-ure sets.
+- Typed manifests and contracts: the same rigor as ModelManifest applied to feature sets.
 - Performance-first hot path: zero allocations, L1-only for students; teacher fe
 atures can be rich offline but must distill to L1-only at serve.
 - Deployment automation: manifest-driven loading and validation; fail fast if mi
@@ -277,8 +274,7 @@ ll.
 - What to adopt:
   - Configurable, strategy-driven pipelines (expand_basic/expand_all pattern), b
 ut implemented as typed transforms rather than arbitrary strategy hooks.
-  - Multi-timeframe composites, shifted candles, correlation pairs: keep them te
-acher-side/offline in pipeline and distill into student “soft labels.” Do not ru
+  - Multi-timeframe composites, shifted candles, correlation pairs: keep them teacher-side/offline in pipeline and distill into student "soft labels." Do not ru
 n these heavy transforms in the hot path.
   - Pipeline and label pipelines separation: keep label generation separate and
 manifest it for reproducibility.
@@ -317,8 +313,7 @@ oday).
 parallel to model registry doc).
 - Pipeline interface
   - Add `ml/features/pipeline.py`:
-    - `FeatureTransform` base, catalog, and a thin runner that calls into curren
-t FeatureEngineer stages.
+    - `FeatureTransform` base, catalog, and a thin runner that calls into current FeatureEngineer stages.
     - Start by wrapping existing FeatureEngineer sections into discrete transfor
 ms (returns/momentum, volatility, indicators, optional bundles).
   - Add a manifest generator:
@@ -356,8 +351,7 @@ ch like our model one?”)**
 
 - Yes. Implement a Feature Registry and declarative feature pipeline that mirror
 s the Model Registry’s rigor:
-  - Automated creation from training, strict parity and latency validation, prom
-otion gates, deprecation/scrapping, lineage tying models to feature sets, and ru
+  - Automated creation from training, strict parity and latency validation, promotion gates, deprecation/scrapping, lineage tying models to feature sets, and ru
 ntime schema/hash validation by the actor.
 
 **Next Steps (Practical, Incremental)**
@@ -418,8 +412,7 @@ _batch, transform_online, stateful).
   - PipelineSpec: declarative list of transforms + parameters.
   - PipelineRunner:
     - compile(pipeline_spec, capabilities)
-    - run_batch(df) respecting parity rules (using IndicatorManager sequence whe
-n needed)
+    - run_batch(df) respecting parity rules (using IndicatorManager sequence when needed)
     - run_online(current_bar, indicator_manager, buffer) zero-allocation, pre-al
 located order
     - compute_feature_names(), dtypes; compute pipeline_signature.
@@ -533,8 +526,7 @@ racts reject any L2 under Student.
 `from hypothesis import given, strategies as st
 from ml.registry.feature_registry import FeatureManifest
 
-@given(st.lists(st.text(min_size=1, max_size=20), min_size=1, max_size=32, uniqu
-e=True))
+@given(st.lists(st.text(min_size=1, max_size=20), min_size=1, max_size=32, unique=True))
 def test_manifest_schema_hash_determinism(names):
     dtypes = ["float32"] * len(names)
     m1 = FeatureManifest(feature_names=names, feature_dtypes=dtypes, pipeline_si

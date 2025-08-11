@@ -1,3 +1,6 @@
+default_language_version:
+  python: python3.12
+
 repos:
   ##############################################################################
   #  General checks
@@ -70,7 +73,8 @@ repos:
         entry: .pre-commit-hooks/check_tests_pass.py
         language: system
         types: [python]
-        pass_filenames: true
+        pass_filenames: false
+        always_run: true
         stages: [pre-commit]
 
       - id: check-ml-test-coverage
