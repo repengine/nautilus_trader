@@ -32,8 +32,6 @@ just need to override the `execute`, `process`, `send` and `receive` methods.
 from typing import Callable
 
 from nautilus_trader.common.enums import LogColor
-from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.core.datetime import max_date
 from nautilus_trader.core.datetime import min_date
 from nautilus_trader.core.datetime import time_object_to_dt
 from nautilus_trader.data.config import DataEngineConfig
@@ -105,6 +103,7 @@ from nautilus_trader.model.data cimport BarAggregation
 from nautilus_trader.model.data cimport BarType
 from nautilus_trader.model.data cimport CustomData
 from nautilus_trader.model.data cimport DataType
+from nautilus_trader.model.data cimport FundingRateUpdate
 from nautilus_trader.model.data cimport IndexPriceUpdate
 from nautilus_trader.model.data cimport InstrumentClose
 from nautilus_trader.model.data cimport InstrumentStatus
@@ -121,10 +120,6 @@ from nautilus_trader.model.instruments.base cimport Instrument
 from nautilus_trader.model.instruments.synthetic cimport SyntheticInstrument
 from nautilus_trader.model.objects cimport Price
 from nautilus_trader.model.objects cimport Quantity
-
-
-cdef inline uint64_t _instrument_ts_init(Instrument instrument):
-    return instrument.ts_init
 
 
 cdef class DataEngine(Component):
@@ -187,6 +182,7 @@ cdef class DataEngine(Component):
         self._topic_cache_status: dict[InstrumentId, str] = {}
         self._topic_cache_mark_prices: dict[InstrumentId, str] = {}
         self._topic_cache_index_prices: dict[InstrumentId, str] = {}
+        self._topic_cache_funding_rates: dict[InstrumentId, str] = {}
         self._topic_cache_close_prices: dict[InstrumentId, str] = {}
         self._topic_cache_snapshots: dict[tuple[InstrumentId, int], str] = {}
         self._topic_cache_custom: dict[tuple[DataType, InstrumentId], str] = {}
@@ -316,6 +312,23 @@ cdef class DataEngine(Component):
 
         """
         return self._external_clients.copy()
+
+    cpdef bint _is_backtest_client(self, DataClient client):
+        """
+        Check if we're in a backtest context by looking for the default backtest client.
+
+        Returns
+        -------
+        bool
+            True if in backtest context, else False.
+
+        """
+        # Avoid importing `BacktestMarketDataClient` from the `backtest` subpackage at
+        # module import time – doing so creates a circular import between
+        # `nautilus_trader.data` and `nautilus_trader.backtest`.
+        from nautilus_trader.backtest.data_client import BacktestMarketDataClient
+
+        return isinstance(client, BacktestMarketDataClient)
 
 # --REGISTRATION ----------------------------------------------------------------------------------
 
@@ -558,6 +571,23 @@ cdef class DataEngine(Component):
         cdef MarketDataClient client
         for client in [c for c in self._clients.values() if isinstance(c, MarketDataClient)]:
             subscriptions += client.subscribed_index_prices()
+
+        return subscriptions
+
+    cpdef list subscribed_funding_rates(self):
+        """
+        Return the funding rate update instruments subscribed to.
+
+        Returns
+        -------
+        list[InstrumentId]
+
+        """
+        cdef list subscriptions = []
+
+        cdef MarketDataClient client
+        for client in [c for c in self._clients.values() if isinstance(c, MarketDataClient)]:
+            subscriptions += client.subscribed_funding_rates()
 
         return subscriptions
 
@@ -823,6 +853,8 @@ cdef class DataEngine(Component):
             self._handle_subscribe_mark_prices(client, command)
         elif isinstance(command, SubscribeIndexPrices):
             self._handle_subscribe_index_prices(client, command)
+        elif isinstance(command, SubscribeFundingRates):
+            self._handle_subscribe_funding_rates(client, command)
         elif isinstance(command, SubscribeBars):
             self._handle_subscribe_bars(client, command)
         elif isinstance(command, SubscribeInstrumentStatus):
@@ -850,6 +882,8 @@ cdef class DataEngine(Component):
             self._handle_unsubscribe_mark_prices(client, command)
         elif isinstance(command, UnsubscribeIndexPrices):
             self._handle_unsubscribe_index_prices(client, command)
+        elif isinstance(command, UnsubscribeFundingRates):
+            self._handle_unsubscribe_funding_rates(client, command)
         elif isinstance(command, UnsubscribeBars):
             self._handle_unsubscribe_bars(client, command)
         elif isinstance(command, UnsubscribeInstrumentStatus):
@@ -1118,6 +1152,13 @@ cdef class DataEngine(Component):
         if command.instrument_id not in client.subscribed_index_prices():
             client.subscribe_index_prices(command)
 
+    cpdef void _handle_subscribe_funding_rates(self, MarketDataClient client, SubscribeFundingRates command):
+        Condition.not_none(client, "client")
+        Condition.not_none(command.instrument_id, "instrument_id")
+
+        if command.instrument_id not in client.subscribed_funding_rates():
+            client.subscribe_funding_rates(command)
+
     cpdef void _handle_subscribe_bars(self, MarketDataClient client, SubscribeBars command):
         Condition.not_none(client, "client")
 
@@ -1303,6 +1344,15 @@ cdef class DataEngine(Component):
             if command.instrument_id in client.subscribed_index_prices():
                 client.unsubscribe_index_prices(command)
 
+    cpdef void _handle_unsubscribe_funding_rates(self, MarketDataClient client, UnsubscribeFundingRates command):
+        Condition.not_none(client, "client")
+
+        if not self._msgbus.has_subscribers(
+            self._get_funding_rates_topic(command.instrument_id),
+        ):
+            if command.instrument_id in client.subscribed_funding_rates():
+                client.unsubscribe_funding_rates(command)
+
     cpdef void _handle_unsubscribe_bars(self, MarketDataClient client, UnsubscribeBars command):
         Condition.not_none(client, "client")
 
@@ -1443,12 +1493,7 @@ cdef class DataEngine(Component):
     cpdef void _handle_date_range_request(self, DataClient client, RequestData request):
         cdef DataClient used_client = client
 
-        # Avoid importing `BacktestMarketDataClient` from the `backtest` subpackage at
-        # module import time – doing so creates a circular import between
-        # `nautilus_trader.data` and `nautilus_trader.backtest`.
-        from nautilus_trader.backtest.data_client import BacktestMarketDataClient
-
-        if isinstance(client, BacktestMarketDataClient):
+        if self._is_backtest_client(client):
             used_client = None
 
         # Capping dates to the now datetime
@@ -1627,8 +1672,7 @@ cdef class DataEngine(Component):
                 self._log.error(f"Cannot find instrument for {request.instrument_id}")
                 return
 
-            data = data[-1]
-        elif isinstance(request, RequestInstruments):
+        if isinstance(request, RequestInstruments) or isinstance(request, RequestInstrument):
             only_last = request.params.get("only_last", True)
 
             if only_last:
@@ -1905,11 +1949,7 @@ cdef class DataEngine(Component):
             if response_2.data_type.type == Instrument:
                 update_catalog = response_2.params.get("update_catalog", False)
                 force_update_catalog = response_2.params.get("force_update_catalog", False)
-
-                if isinstance(response_2.data, list):
-                    self._handle_instruments(response_2.data, update_catalog, force_update_catalog)
-                else:
-                    self._handle_instrument(response_2.data, update_catalog, force_update_catalog)
+                self._handle_instruments(response_2.data, update_catalog, force_update_catalog)
             elif response_2.data_type.type == QuoteTick:
                 if response_2.params.get("bars_market_data_type"):
                     response_2.data = self._handle_aggregated_bars(response_2)
@@ -2240,6 +2280,13 @@ cdef class DataEngine(Component):
             self._topic_cache_index_prices[instrument_id] = topic
         return topic
 
+    cdef str _get_funding_rates_topic(self, InstrumentId instrument_id):
+        cdef str topic = self._topic_cache_funding_rates.get(instrument_id)
+        if topic is None:
+            topic = f"data.funding_rates.{instrument_id.venue}.{instrument_id.symbol}"
+            self._topic_cache_funding_rates[instrument_id] = topic
+        return topic
+
     cdef str _get_close_prices_topic(self, InstrumentId instrument_id):
         cdef str topic = self._topic_cache_close_prices.get(instrument_id)
         if topic is None:
@@ -2285,7 +2332,7 @@ cdef class DataEngine(Component):
         return topic
 
     # Python wrapper to enable callbacks
-    cpdef void _internal_update_instruments(self, list instruments: [Instrument]):
+    cpdef void _internal_update_instruments(self, list instruments):
         # Handle all instruments individually
         cdef Instrument instrument
 
@@ -2627,3 +2674,16 @@ cdef class DataEngine(Component):
             topic=self._get_trades_topic(synthetic_instrument_id),
             msg=synthetic_trade,
         )
+
+    cpdef void _handle_funding_rate(self, FundingRateUpdate funding_rate):
+        """
+        Handle a funding rate update.
+
+        Parameters
+        ----------
+        funding_rate : FundingRateUpdate
+            The funding rate update to handle.
+
+        """
+        cdef str topic = self._get_funding_rates_topic(funding_rate.instrument_id)
+        self._msgbus.publish_c(topic=topic, msg=funding_rate)

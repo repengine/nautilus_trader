@@ -16,7 +16,6 @@
 from typing import Any
 
 from nautilus_trader.adapters.okx.constants import OKX_VENUE
-from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.core import nautilus_pyo3
@@ -35,8 +34,6 @@ class OKXInstrumentProvider(InstrumentProvider):
     ----------
     client : nautilus_pyo3.OKXHttpClient
         The OKX HTTP client.
-    clock : LiveClock
-        The clock instance.
     instrument_types : tuple[OKXInstrumentType, ...]
         The instrument types to load.
     contract_types : tuple[OKXContractType, ...], optional
@@ -49,14 +46,12 @@ class OKXInstrumentProvider(InstrumentProvider):
     def __init__(
         self,
         client: nautilus_pyo3.OKXHttpClient,
-        clock: LiveClock,
         instrument_types: tuple[OKXInstrumentType, ...],
         contract_types: tuple[OKXContractType, ...] | None = None,
         config: InstrumentProviderConfig | None = None,
     ) -> None:
         super().__init__(config=config)
         self._client = client
-        self._clock = clock
         self._instrument_types = instrument_types
         self._contract_types = contract_types
         self._log_warnings = config.log_warnings if config else True

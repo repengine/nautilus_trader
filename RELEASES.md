@@ -9,6 +9,7 @@ Released on TBD (UTC).
 - Added additional built-in backtest fill models (#2795), thanks @faysou and @stefansimik
 - Added `OrderBookDepth10DataWrangler` (#2801), thanks @trylovetom
 - Added `group_size` parameter for PyO3 `OrderBook.pprint(...)` and `OwnOrderBook.pprint(...)`
+- Added custom error logging function support for `RetryManager`
 - Added Bybit options support (#2821), thanks @Baerenstein
 - Added Bybit `is_leverage` order parameter support
 - Added `persist_account_events` config option for `CacheConfig` (default `True` to retain current behavior)
@@ -28,6 +29,9 @@ Released on TBD (UTC).
 - Added default `FixedTickScheme`(s) for all valid precisions
 - Added PancakeSwapV3 pool parsing (#2829), thanks @filipmacek
 - Added `PortfolioConfig.min_account_state_logging_interval_ms` config option for throttling account state logging
+- Added `allow_cash_borrowing` config option for `BacktestVenueConfig` to enable negative balances in cash accounts
+- Added borrowing support for Bybit SPOT accounts, enabling margin trading with negative balances
+- Added initial DEX Pool filtering configuration (#2842), thanks @filipmacek
 
 ### Breaking Changes
 - Added `multiplier` field for `CurrencyPair` Arrow schema
@@ -42,6 +46,7 @@ Released on TBD (UTC).
 - Refactored OKX adapter to Rust API clients
 - Refactored `BacktestDataIterator` (#2791) to consolidate data generator usage, thanks @faysou
 - Introduced `SharedCell` / `WeakCell` wrappers for ergonomic and safer handling of `Rc<RefCell<T>>` / `Weak<RefCell<T>>` pairs
+- Implement live subscriptions for blockchain data client (#2832), thanks @filipmacek
 - Added stream iterators support `BacktestDataIterator`
 - Added serialization support for execution reports
 - Added serialization support for execution report commands
@@ -50,12 +55,14 @@ Released on TBD (UTC).
 - Added integration test service management targets (#2765), thanks @stastnypremysl
 - Added integration tests for dYdX bar-partitioning and large-history handling (#2773), thanks @nicolad
 - Added make build-debug-pyo3 (#2802), thanks @faysou
+- Add pytest timer (#2834), thanks @faysou
 - Optimized identifiers hashing to avoid frequent recomputations using C strings
 - Optimized data engine topic string caching for message bus publishing to avoid frequent f-string constructions
 - Optimized Redis key scans to improve efficiency over a network
 - Completed bar request implementation for OKX (#2789), thanks @nicolad
 - Enabled parallel pytest tests with `pytest-xdist` (#2808), thanks @stastnypremysl
 - Standardized DeFi chain name validation for `InstrumentId` (#2826), thanks @filipmacek
+- Support several instrument versions with `request_instrument` (#2835), thanks @faysou
 - Improved typing for all the DEX IDs with `DexType` and add validation (#2827), thanks @filipmacek
 - Improved reconciliation handling of internally generated orders to align positions (now uses the `INTERNAL-DIFF` strategy ID)
 - Improved data client for blockchain adapter (#2787), thanks @filipmacek
@@ -68,6 +75,7 @@ Released on TBD (UTC).
 - Refined Rust catalog path handling (#2743), thanks @faysou
 - Refined Rust `GreeksCalculator` (#2760), thanks @faysou
 - Refined Databento bars timestamp decoding and backtest execution usage (#2800), thanks @faysou
+- Refined allowed queries for bars from `BacktestDataConfig` (#2838), thanks @faysou
 - Refined `FillModel` (#2795), thanks @faysou and @stefansimik
 - Refined request of instruments (#2822), thanks @faysou
 - Updated `request_aggregated_bars` example (#2815), thanks @faysou
@@ -76,7 +84,7 @@ Released on TBD (UTC).
 - Upgraded `web3` for Polymarket allowances script (#2814), thanks @DeirhX
 - Upgraded `databento` crate to v0.30.0
 - Upgraded `datafusion` crate to v49.0.0
-- Upgraded `redis` crate to v0.32.4
+- Upgraded `redis` crate to v0.32.5
 - Upgraded `tokio` crate to v1.47.1
 
 ### Fixes
@@ -97,7 +105,7 @@ Released on TBD (UTC).
 - Fixed EOD bar for Interactive Brokers (#2764), thanks @faysou
 - Fixed dYdX Take Profit order type mapping error (#2758), thanks @nicolad
 - Fixed typo in logging for dYdX adapter (#2790), thanks @DeirhX
-- Fixed bars request pagination logic for OKX (#2798), thanks @nicolad
+- Fixed bars request pagination logic for OKX (#2798, #2825), thanks @nicolad
 - Fixed dYdX order and fill message schemas (#2824), thanks @davidsblom
 - Fixed Binance Spot testnet streaming URL, thanks for reporting @Frzgunr1
 - Fixed Binance Ed25519 key handling
@@ -107,6 +115,7 @@ Released on TBD (UTC).
 - Added FFI Memory Contract developer guide
 - Added mixed debugging instructions and example (#2806), thanks @faysou
 - Improved dYdX integration guide (#2751), thanks @nicolad
+- Update IB documentation for option spreads (#2839), thanks @faysou
 
 ### Deprecations
 None

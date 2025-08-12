@@ -76,6 +76,7 @@ pub fn model(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::data::status::InstrumentStatus>()?;
     m.add_class::<crate::data::trade::TradeTick>()?;
     m.add_class::<crate::data::close::InstrumentClose>()?;
+    m.add_class::<crate::data::funding::FundingRateUpdate>()?;
     m.add_function(wrap_pyfunction!(
         crate::python::data::greeks::py_black_scholes_greeks,
         m
@@ -229,6 +230,7 @@ pub fn model(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<crate::defi::data::PoolLiquidityUpdateType>()?;
         m.add_class::<crate::defi::data::PoolLiquidityUpdate>()?;
         m.add_class::<crate::defi::data::Block>()?;
+        m.add_class::<crate::defi::dex::DexType>()?;
     }
     Ok(())
 }

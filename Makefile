@@ -305,7 +305,7 @@ cargo-test-coverage-crate-%:  #-- Run Rust tests with coverage reporting for a s
 #------------------------------------------------------------------------------
 
 # List of crates whose criterion/iai benches run in the performance workflow
-CI_BENCH_CRATES := nautilus-core nautilus-model nautilus-common
+CI_BENCH_CRATES := nautilus-core nautilus-model nautilus-common nautilus-live
 
 # NOTE:
 # - We invoke `cargo bench` *once per crate* to avoid the well-known
@@ -378,7 +378,7 @@ init-db:  #-- Initialize PostgreSQL database schema
 .PHONY: pytest
 pytest:  #-- Run Python tests with pytest in parallel with immediate failure reporting
 	$(info $(M) Running Python tests in parallel with immediate failure reporting...)
-	uv run --active --no-sync pytest --new-first --failed-first --tb=line -n logical --dist=loadgroup --maxfail=50 $(if $(filter true,$(VERBOSE)),-v,)
+	uv run --active --no-sync pytest --new-first --failed-first --tb=line -n logical --dist=loadgroup --maxfail=50 --durations=0 --durations-min=10.0 $(if $(filter true,$(VERBOSE)),-v,)
 
 .PHONY: pytest-memory-tracking
 pytest-memory-tracking:  #-- Run Python tests with memory tracking enabled

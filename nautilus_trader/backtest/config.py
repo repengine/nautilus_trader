@@ -125,12 +125,18 @@ class BacktestVenueConfig(NautilusConfig, frozen=True):
         The instrument specific leverage configuration (for margin accounts).
     margin_model : MarginModelConfig, optional
         The margin calculation model configuration. Default 'leveraged'.
-    book_type : str
+    modules : list[ImportableActorConfig], optional
+        The simulation modules for the venue.
+    fill_model : ImportableFillModelConfig, optional
+        The fill model for the venue.
+    latency_model : ImportableLatencyModelConfig, optional
+        The latency model for the venue.
+    fee_model : ImportableFeeModelConfig, optional
+        The fee model for the venue.
+    book_type : str, default 'L1_MBP'
         The default order book type.
     routing : bool, default False
         If multi-venue routing should be enabled for the execution client.
-    frozen_account : bool, default False
-        If the account for this exchange is frozen (balances will not change).
     reject_stop_orders : bool, default True
         If stop orders are rejected on submission if trigger price is in the market.
     support_gtd_orders : bool, default True
@@ -155,14 +161,10 @@ class BacktestVenueConfig(NautilusConfig, frozen=True):
         - If Low is closer to Open than High then the processing order is Open, Low, High, Close.
     trade_execution : bool, default False
         If trades should be processed by the matching engine(s) (and move the market).
-    modules : list[ImportableActorConfig], optional
-        The simulation modules for the venue.
-    fill_model : ImportableFillModelConfig, optional
-        The fill model for the venue.
-    latency_model : ImportableLatencyModelConfig, optional
-        The latency model for the venue.
-    fee_model : ImportableFeeModelConfig, optional
-        The fee model for the venue.
+    allow_cash_borrowing : bool, default False
+        If borrowing is allowed for cash accounts (negative balances).
+    frozen_account : bool, default False
+        If the account for this exchange is frozen (balances will not change).
 
     """
 
@@ -174,9 +176,12 @@ class BacktestVenueConfig(NautilusConfig, frozen=True):
     default_leverage: float = 1.0
     leverages: dict[str, float] | None = None
     margin_model: MarginModelConfig | None = None
+    modules: list[ImportableActorConfig] | None = None
+    fill_model: ImportableFillModelConfig | None = None
+    latency_model: ImportableLatencyModelConfig | None = None
+    fee_model: ImportableFeeModelConfig | None = None
     book_type: str = "L1_MBP"
     routing: bool = False
-    frozen_account: bool = False
     reject_stop_orders: bool = True
     support_gtd_orders: bool = True
     support_contingent_orders: bool = True
@@ -186,10 +191,8 @@ class BacktestVenueConfig(NautilusConfig, frozen=True):
     bar_execution: bool = True
     bar_adaptive_high_low_ordering: bool = False
     trade_execution: bool = False
-    modules: list[ImportableActorConfig] | None = None
-    fill_model: ImportableFillModelConfig | None = None
-    latency_model: ImportableLatencyModelConfig | None = None
-    fee_model: ImportableFeeModelConfig | None = None
+    allow_cash_borrowing: bool = False
+    frozen_account: bool = False
 
 
 class BacktestDataConfig(NautilusConfig, frozen=True):
@@ -276,10 +279,6 @@ class BacktestDataConfig(NautilusConfig, frozen=True):
         if self.data_cls is Bar:
             used_bar_types = []
 
-            if self.bar_types is None and self.instrument_ids is None:
-                assert self.instrument_id, "No `instrument_id` for Bar data config"
-                assert self.bar_spec, "No `bar_spec` for Bar data config"
-
             if self.instrument_id is not None and self.bar_spec is not None:
                 bar_type = f"{self.instrument_id}-{self.bar_spec}-EXTERNAL"
                 used_bar_types = [bar_type]
@@ -292,8 +291,8 @@ class BacktestDataConfig(NautilusConfig, frozen=True):
             if len(used_bar_types) > 0:
                 filter_expr = f'(field("bar_type") == "{used_bar_types[0]}")'
 
-            for bar_type in used_bar_types[1:]:
-                filter_expr = f'{filter_expr} | (field("bar_type") == "{bar_type}")'
+                for bar_type in used_bar_types[1:]:
+                    filter_expr = f'{filter_expr} | (field("bar_type") == "{bar_type}")'
         else:
             filter_expr = self.filter_expr
 

@@ -78,7 +78,6 @@ def get_cached_okx_http_client(
 @lru_cache(1)
 def get_cached_okx_instrument_provider(
     client: nautilus_pyo3.OKXHttpClient,
-    clock: LiveClock,
     instrument_types: tuple[OKXInstrumentType, ...],
     contract_types: tuple[OKXContractType, ...] | None = None,
     config: InstrumentProviderConfig | None = None,
@@ -92,8 +91,6 @@ def get_cached_okx_instrument_provider(
     ----------
     client : OKXHttpClient
         The OKX HTTP client.
-    clock : LiveClock
-        The clock instance.
     instrument_types : tuple[OKXInstrumentType, ...]
         The product types to load.
     contract_types : tuple[OKXInstrumentType, ...], optional
@@ -108,7 +105,6 @@ def get_cached_okx_instrument_provider(
     """
     return OKXInstrumentProvider(
         client=client,
-        clock=clock,
         instrument_types=instrument_types,
         contract_types=contract_types,
         config=config,
@@ -161,7 +157,6 @@ class OKXLiveDataClientFactory(LiveDataClientFactory):
         )
         provider = get_cached_okx_instrument_provider(
             client=client,
-            clock=clock,
             instrument_types=config.instrument_types,
             contract_types=config.contract_types,
             config=config.instrument_provider,
@@ -224,7 +219,6 @@ class OKXLiveExecClientFactory(LiveExecClientFactory):
         )
         provider = get_cached_okx_instrument_provider(
             client=client,
-            clock=clock,
             instrument_types=config.instrument_types,
             contract_types=config.contract_types,
             config=config.instrument_provider,
