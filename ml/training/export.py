@@ -25,7 +25,7 @@ from numpy.typing import NDArray
 from ml._imports import HAS_LIGHTGBM
 from ml._imports import HAS_ONNX
 from ml._imports import HAS_XGBOOST
-from ml.config.constants import ExportFormats
+from ml.config.constants import SUFFIX_ONNX
 from ml.config.names import ONNX_INPUT_NAME
 
 
@@ -43,11 +43,11 @@ def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
     """
     if file_path is not None:
         suffix = file_path.suffix.lower()
-        if suffix == ExportFormats.SUFFIX_ONNX:
+        if suffix == SUFFIX_ONNX:
             return ModelType.ONNX
-        if suffix in {".json", ".ubj", ExportFormats.SUFFIX_XGB}:
+        if suffix in {".json", ".ubj", ".xgb"}:
             return ModelType.XGBOOST
-        if suffix in {".txt", ExportFormats.SUFFIX_LGB}:
+        if suffix in {".txt", ".lgb"}:
             return ModelType.LIGHTGBM
 
     # Object-based detection
@@ -174,7 +174,7 @@ def _save_onnx_model(model: Any, path: Path) -> Path:
     if HAS_ONNX:
         import onnx
 
-        model_path = path.with_suffix(ExportFormats.SUFFIX_ONNX)
+        model_path = path.with_suffix(SUFFIX_ONNX)
         onnx.save(model, str(model_path))
         return model_path
     else:

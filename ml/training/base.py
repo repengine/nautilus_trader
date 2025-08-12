@@ -1,4 +1,3 @@
-
 """
 Base trainer class for ML model training.
 
@@ -333,7 +332,12 @@ class BaseMLTrainer(ABC):
         ...
 
     @abstractmethod
-    def predict(self, model: Any, X: npt.NDArray[np.float64], **kwargs: Any) -> npt.NDArray[np.float32]:
+    def predict(
+        self,
+        model: Any,
+        X: npt.NDArray[np.float64],
+        **kwargs: Any,
+    ) -> npt.NDArray[np.float32]:
         """
         Make predictions using the trained model.
 
@@ -947,7 +951,6 @@ class BaseMLTrainer(ABC):
         # Temporarily disabled - should use registry
         # Save in production format with metadata
         self._log_info(f"Model save disabled - use registry instead: {save_path}")
-        return str(save_path)
 
     def load_model(self, path: str | Path) -> None:
         """
@@ -963,12 +966,19 @@ class BaseMLTrainer(ABC):
         if not load_path.exists():
             raise FileNotFoundError(f"Model file not found: {load_path}")
 
-        # Import here to avoid circular dependency
-        # from ml.models.loader import ProductionModelLoader  # TODO: Use registry
+        # TODO: Use registry for loading
+        # For now, just load the model file directly
+        import pickle
 
-        # Load using production loader
-        loader = ProductionModelLoader()
-        model, metadata = loader.load_model(str(load_path))
+        with open(load_path, "rb") as f:
+            loaded_data = pickle.load(f)
+
+        if isinstance(loaded_data, dict):
+            model = loaded_data.get("model")
+            metadata = loaded_data.get("metadata", {})
+        else:
+            model = loaded_data
+            metadata = {}
 
         self._model = model
         self._feature_names = metadata.get("feature_names", [])
@@ -1032,7 +1042,10 @@ class BaseMLTrainer(ABC):
 
         return data[:split_idx], data[split_idx:]
 
-    def _is_classification_problem(self, y: npt.NDArray[np.float32] | npt.NDArray[np.float64]) -> bool:
+    def _is_classification_problem(
+        self,
+        y: npt.NDArray[np.float32] | npt.NDArray[np.float64],
+    ) -> bool:
         """
         Determine if this is a classification problem based on target values.
 

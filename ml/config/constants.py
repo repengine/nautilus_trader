@@ -29,6 +29,8 @@ class ExportFormats(Enum):
 
 # File extensions (not part of enum)
 SUFFIX_ONNX = ".onnx"
+SUFFIX_XGB = ".xgb"
+SUFFIX_LGB = ".lgb"
 
 
 class Versions:
