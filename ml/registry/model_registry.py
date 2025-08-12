@@ -631,7 +631,7 @@ class LocalModelRegistry(ModelRegistry):
                     session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
                     # Use CPU provider for predictable latency
-                    providers = [Providers.ONNX_PROVIDER_CPU]
+                    providers = [Providers.CPU]
 
                     model = ort.InferenceSession(
                         str(model_path),

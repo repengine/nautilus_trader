@@ -26,7 +26,9 @@ from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import RolloutPlan
 from ml.registry.dataclasses import ValidationResult
-from ml.registry.local_registry import LocalModelRegistry
+from ml.registry.feature_registry import LocalFeatureRegistry
+from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.strategy_registry import LocalStrategyRegistry
 from ml.registry.statistics import calculate_sample_size
 from ml.registry.statistics import welch_t_test
 
@@ -36,7 +38,9 @@ __all__ = [
     "CanaryDeployment",
     "DataRequirements",
     "DeploymentStatus",
+    "LocalFeatureRegistry",
     "LocalModelRegistry",
+    "LocalStrategyRegistry",
     "ModelInfo",
     "ModelManifest",
     "ModelRegistry",
