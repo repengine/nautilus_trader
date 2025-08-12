@@ -1,8 +1,9 @@
 """
 Hypothesis-based property tests for feature engineering.
 
-These tests verify functional properties and invariants rather than
-specific implementations, making them robust to refactoring.
+These tests verify functional properties and invariants rather than specific
+implementations, making them robust to refactoring.
+
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ from ml.features.engineering import IndicatorManager
 
 
 class TestFeatureEngineerProperties:
-    """Property-based tests for FeatureEngineer."""
+    """
+    Property-based tests for FeatureEngineer.
+    """
 
     @given(
         n_samples=st.integers(min_value=100, max_value=1000),
@@ -38,7 +41,12 @@ class TestFeatureEngineerProperties:
         ),
     )
     @settings(max_examples=20, deadline=5000)
-    def test_feature_count_consistency(self, n_samples: int, return_periods: list[int], momentum_periods: list[int]) -> None:
+    def test_feature_count_consistency(
+        self,
+        n_samples: int,
+        return_periods: list[int],
+        momentum_periods: list[int],
+    ) -> None:
         """
         Property: Number of features should be consistent regardless of computation mode.
 
@@ -54,13 +62,15 @@ class TestFeatureEngineerProperties:
 
         # Generate test data
         prices = 100 + np.cumsum(np.random.randn(n_samples) * 0.01)
-        df = pd.DataFrame({
-            "open": prices * 0.99,
-            "high": prices * 1.01,
-            "low": prices * 0.98,
-            "close": prices,
-            "volume": np.random.uniform(900000, 1100000, n_samples),
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices * 0.99,
+                "high": prices * 1.01,
+                "low": prices * 0.98,
+                "close": prices,
+                "volume": np.random.uniform(900000, 1100000, n_samples),
+            },
+        )
 
         # Calculate batch features
         features_batch, _ = engineer.calculate_features(df, mode="batch")
@@ -70,6 +80,7 @@ class TestFeatureEngineerProperties:
 
         # Warm up indicators
         from nautilus_trader.test_kit.stubs.data import TestDataStubs
+
         for i in range(50):
             bar = TestDataStubs.bar_5decimal(ts_event=i, ts_init=i)
             indicator_mgr.update_from_bar(bar)
@@ -89,11 +100,16 @@ class TestFeatureEngineerProperties:
         )
 
         # Property: Feature count must match
-        batch_feature_count = len(features_batch.columns) if hasattr(features_batch, 'columns') else features_batch.shape[1]
+        batch_feature_count = (
+            len(features_batch.columns)
+            if hasattr(features_batch, "columns")
+            else features_batch.shape[1]
+        )
         online_feature_count = len(features_online)
 
-        assert batch_feature_count == online_feature_count, \
-            f"Feature count mismatch: batch={batch_feature_count}, online={online_feature_count}"
+        assert (
+            batch_feature_count == online_feature_count
+        ), f"Feature count mismatch: batch={batch_feature_count}, online={online_feature_count}"
 
     @given(
         close_prices=st.lists(
@@ -117,24 +133,26 @@ class TestFeatureEngineerProperties:
         engineer = FeatureEngineer(config)
 
         # Create test data
-        df = pd.DataFrame({
-            "open": close_prices,
-            "high": [p * 1.01 for p in close_prices],
-            "low": [p * 0.99 for p in close_prices],
-            "close": close_prices,
-            "volume": [1000000.0] * len(close_prices),
-        })
+        df = pd.DataFrame(
+            {
+                "open": close_prices,
+                "high": [p * 1.01 for p in close_prices],
+                "low": [p * 0.99 for p in close_prices],
+                "close": close_prices,
+                "volume": [1000000.0] * len(close_prices),
+            },
+        )
 
         # Calculate features
         features, _ = engineer.calculate_features(df, mode="batch")
 
         # Check RSI bounds
         feature_names = config.get_feature_names()
-        rsi_columns = [col for col in feature_names if 'rsi' in col.lower()]
+        rsi_columns = [col for col in feature_names if "rsi" in col.lower()]
 
         for rsi_col in rsi_columns:
-            if rsi_col in features.columns or hasattr(features, 'select'):
-                if hasattr(features, 'select'):
+            if rsi_col in features.columns or hasattr(features, "select"):
+                if hasattr(features, "select"):
                     # Polars DataFrame
                     rsi_values = features.select(rsi_col).to_numpy().flatten()
                 else:
@@ -146,8 +164,8 @@ class TestFeatureEngineerProperties:
 
                 if len(valid_rsi) > 0:
                     # RSI is normalized to [-1, 1] range for ML features
-                    assert np.all(valid_rsi >= -1.0), f"RSI normalized values below -1 found"
-                    assert np.all(valid_rsi <= 1.0), f"RSI normalized values above 1 found"
+                    assert np.all(valid_rsi >= -1.0), "RSI normalized values below -1 found"
+                    assert np.all(valid_rsi <= 1.0), "RSI normalized values above 1 found"
 
     # TODO: Fix this test - EMA features are normalized which breaks monotonicity
     # @given(
@@ -163,7 +181,6 @@ class TestFeatureEngineerProperties:
         This tests that indicators respond correctly to trends.
         """
         # Skip this test for now - needs rework
-        pass
         return
         # Create monotonically increasing prices
         prices = np.linspace(100, 200, 50)
@@ -175,34 +192,38 @@ class TestFeatureEngineerProperties:
         )
         engineer = FeatureEngineer(config)
 
-        df = pd.DataFrame({
-            "open": prices * 0.99,
-            "high": prices * 1.01,
-            "low": prices * 0.98,
-            "close": prices,
-            "volume": [1000000.0] * 50,  # Fixed size since this is skipped
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices * 0.99,
+                "high": prices * 1.01,
+                "low": prices * 0.98,
+                "close": prices,
+                "volume": [1000000.0] * 50,  # Fixed size since this is skipped
+            },
+        )
 
         features, _ = engineer.calculate_features(df, mode="batch")
 
         # Check volume MA columns (we're using volume_ma_periods)
         feature_names = config.get_feature_names()
         # Look for volume-related moving average features
-        ma_columns = [col for col in feature_names if 'volume' in col.lower() and 'ma' in col.lower()]
+        ma_columns = [
+            col for col in feature_names if "volume" in col.lower() and "ma" in col.lower()
+        ]
 
         # Since we're testing the principle, we can also check EMA features
-        ema_columns = [col for col in feature_names if 'ema' in col.lower()]
+        ema_columns = [col for col in feature_names if "ema" in col.lower()]
 
         # Test EMA features (which are always present)
         for ema_col in ema_columns[:1]:  # Test at least one EMA
-            if ema_col in features.columns or hasattr(features, 'select'):
-                if hasattr(features, 'select'):
+            if ema_col in features.columns or hasattr(features, "select"):
+                if hasattr(features, "select"):
                     ema_values = features.select(ema_col).to_numpy().flatten()
                 else:
                     ema_values = features[ema_col].values
 
                 # Check trend after warmup (skip NaN values)
-                valid_ema = ema_values[20 * 2:]  # Fixed window size since this is skipped
+                valid_ema = ema_values[20 * 2 :]  # Fixed window size since this is skipped
 
                 if len(valid_ema) > 1:
                     # Moving average should generally increase with monotonic prices
@@ -211,8 +232,9 @@ class TestFeatureEngineerProperties:
 
                     # Allow for small numerical errors, but should be mostly increasing
                     if total_steps > 0:
-                        assert increasing_steps / total_steps > 0.8, \
-                            f"EMA not following monotonic price trend"
+                        assert (
+                            increasing_steps / total_steps > 0.8
+                        ), "EMA not following monotonic price trend"
 
     @given(
         n_samples=st.integers(min_value=100, max_value=500),
@@ -238,32 +260,36 @@ class TestFeatureEngineerProperties:
         engineer = FeatureEngineer(config)
 
         # Calculate features for both scales
-        df_base = pd.DataFrame({
-            "open": base_prices * 0.99,
-            "high": base_prices * 1.01,
-            "low": base_prices * 0.98,
-            "close": base_prices,
-            "volume": [1000000.0] * n_samples,
-        })
+        df_base = pd.DataFrame(
+            {
+                "open": base_prices * 0.99,
+                "high": base_prices * 1.01,
+                "low": base_prices * 0.98,
+                "close": base_prices,
+                "volume": [1000000.0] * n_samples,
+            },
+        )
 
-        df_scaled = pd.DataFrame({
-            "open": scaled_prices * 0.99,
-            "high": scaled_prices * 1.01,
-            "low": scaled_prices * 0.98,
-            "close": scaled_prices,
-            "volume": [1000000.0] * n_samples,
-        })
+        df_scaled = pd.DataFrame(
+            {
+                "open": scaled_prices * 0.99,
+                "high": scaled_prices * 1.01,
+                "low": scaled_prices * 0.98,
+                "close": scaled_prices,
+                "volume": [1000000.0] * n_samples,
+            },
+        )
 
         features_base, _ = engineer.calculate_features(df_base, mode="batch")
         features_scaled, _ = engineer.calculate_features(df_scaled, mode="batch")
 
         # Check return features (should be identical)
         feature_names = config.get_feature_names()
-        return_columns = [col for col in feature_names if 'return' in col.lower()]
+        return_columns = [col for col in feature_names if "return" in col.lower()]
 
         for ret_col in return_columns:
-            if ret_col in features_base.columns or hasattr(features_base, 'select'):
-                if hasattr(features_base, 'select'):
+            if ret_col in features_base.columns or hasattr(features_base, "select"):
+                if hasattr(features_base, "select"):
                     base_returns = features_base.select(ret_col).to_numpy().flatten()
                     scaled_returns = features_scaled.select(ret_col).to_numpy().flatten()
                 else:
@@ -278,7 +304,7 @@ class TestFeatureEngineerProperties:
                         base_returns[valid_mask],
                         scaled_returns[valid_mask],
                         rtol=1e-6,
-                        err_msg=f"Returns not scale-invariant for {ret_col}"
+                        err_msg=f"Returns not scale-invariant for {ret_col}",
                     )
 
     @given(
@@ -298,6 +324,7 @@ class TestFeatureEngineerProperties:
 
         # Warm up
         from nautilus_trader.test_kit.stubs.data import TestDataStubs
+
         for i in range(20):
             bar = TestDataStubs.bar_5decimal(ts_event=i, ts_init=i)
             indicator_mgr.update_from_bar(bar)
@@ -321,12 +348,15 @@ class TestFeatureEngineerProperties:
             )
 
             # Check that we're getting a view of the same buffer
-            buffer_ids.append(features.base.ctypes.data if features.base is not None else id(features))
+            buffer_ids.append(
+                features.base.ctypes.data if features.base is not None else id(features),
+            )
 
         # Property: Should reuse the same buffer (most IDs should be the same)
         unique_buffers = len(set(buffer_ids))
-        assert unique_buffers <= 2, \
-            f"Too many unique buffers created ({unique_buffers}), violates zero-allocation principle"
+        assert (
+            unique_buffers <= 2
+        ), f"Too many unique buffers created ({unique_buffers}), violates zero-allocation principle"
 
     @given(
         prices=st.lists(
@@ -348,20 +378,22 @@ class TestFeatureEngineerProperties:
         )
         engineer = FeatureEngineer(config)
 
-        df = pd.DataFrame({
-            "open": prices,
-            "high": [p * 1.01 for p in prices],
-            "low": [p * 0.99 for p in prices],
-            "close": prices,
-            "volume": [1000000.0] * len(prices),
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p * 1.01 for p in prices],
+                "low": [p * 0.99 for p in prices],
+                "close": prices,
+                "volume": [1000000.0] * len(prices),
+            },
+        )
 
         # Calculate features twice
         features1, _ = engineer.calculate_features(df, mode="batch")
         features2, _ = engineer.calculate_features(df, mode="batch")
 
         # Convert to numpy for comparison
-        if hasattr(features1, 'to_numpy'):
+        if hasattr(features1, "to_numpy"):
             array1 = features1.to_numpy()
             array2 = features2.to_numpy()
         else:
@@ -370,6 +402,7 @@ class TestFeatureEngineerProperties:
 
         # Property: Should be identical
         np.testing.assert_array_equal(
-            array1, array2,
-            err_msg="Feature calculation is not deterministic"
+            array1,
+            array2,
+            err_msg="Feature calculation is not deterministic",
         )

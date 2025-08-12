@@ -3,8 +3,9 @@
 """
 Abstract base class for model registry implementations.
 
-This module defines the contract that all model registries must follow,
-ensuring consistent model lifecycle management across different storage backends.
+This module defines the contract that all model registries must follow, ensuring
+consistent model lifecycle management across different storage backends.
+
 """
 
 from __future__ import annotations
@@ -16,37 +17,42 @@ from dataclasses import field
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from typing import Optional
 
 
 class DeploymentStatus(Enum):
-    """Model deployment status."""
+    """
+    Model deployment status.
+    """
 
-    INACTIVE = "inactive"       # Model registered but not deployed
-    ACTIVE = "active"           # Model actively serving predictions
-    TESTING = "testing"         # Model in A/B test or shadow mode
-    RETIRED = "retired"         # Model retired from production
-    FAILED = "failed"           # Model deployment failed
+    INACTIVE = "inactive"  # Model registered but not deployed
+    ACTIVE = "active"  # Model actively serving predictions
+    TESTING = "testing"  # Model in A/B test or shadow mode
+    RETIRED = "retired"  # Model retired from production
+    FAILED = "failed"  # Model deployment failed
 
 
 class ModelRole(Enum):
-    """Model role in the system."""
+    """
+    Model role in the system.
+    """
 
-    TEACHER = "teacher"         # Teacher model using rich L2/L3 data
-    STUDENT = "student"         # Student model distilled for L1-only inference
-    INFERENCE = "inference"     # Direct inference model (no distillation)
-    ENSEMBLE = "ensemble"       # Ensemble of multiple models
-    FEATURE = "feature"         # Feature engineering model
+    TEACHER = "teacher"  # Teacher model using rich L2/L3 data
+    STUDENT = "student"  # Student model distilled for L1-only inference
+    INFERENCE = "inference"  # Direct inference model (no distillation)
+    ENSEMBLE = "ensemble"  # Ensemble of multiple models
+    FEATURE = "feature"  # Feature engineering model
 
 
 class DataRequirements(Enum):
-    """Data requirements for model operation."""
+    """
+    Data requirements for model operation.
+    """
 
-    L1_ONLY = "l1_only"        # Only L1 market data (trades/quotes)
-    L1_L2 = "l1_l2"            # L1 + L2 (order book)
-    L1_L2_L3 = "l1_l2_l3"      # L1 + L2 + L3 (detailed order flow)
-    HISTORICAL = "historical"   # Historical data only (no streaming)
-    STREAMING = "streaming"     # Real-time streaming data
+    L1_ONLY = "l1_only"  # Only L1 market data (trades/quotes)
+    L1_L2 = "l1_l2"  # L1 + L2 (order book)
+    L1_L2_L3 = "l1_l2_l3"  # L1 + L2 + L3 (detailed order flow)
+    HISTORICAL = "historical"  # Historical data only (no streaming)
+    STREAMING = "streaming"  # Real-time streaming data
 
 
 @dataclass
@@ -88,6 +94,7 @@ class ModelManifest:
         Unix timestamp of creation
     last_modified : float
         Unix timestamp of last modification
+
     """
 
     model_id: str
@@ -96,7 +103,7 @@ class ModelManifest:
     architecture: str
     feature_schema: dict[str, str]
     feature_schema_hash: str
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     children_ids: list[str] = field(default_factory=list)
     training_config: dict[str, Any] = field(default_factory=dict)
     performance_metrics: dict[str, float] = field(default_factory=dict)
@@ -125,6 +132,7 @@ class ModelInfo:
         Performance metrics over time
     metadata : dict[str, Any]
         Additional metadata not in manifest
+
     """
 
     manifest: ModelManifest
@@ -145,6 +153,7 @@ class ModelRegistry(ABC):
     - Monitoring model performance
     - Coordinating A/B tests
     - Handling rollbacks
+
     """
 
     @abstractmethod
@@ -176,6 +185,7 @@ class ModelRegistry(ABC):
         -------
         str
             Unique model ID
+
         """
         ...
 
@@ -202,6 +212,7 @@ class ModelRegistry(ABC):
         -------
         bool
             True if deployment successful
+
         """
         ...
 
@@ -214,6 +225,7 @@ class ModelRegistry(ABC):
         -------
         list[ModelInfo]
             List of active model information
+
         """
         ...
 
@@ -226,6 +238,7 @@ class ModelRegistry(ABC):
         -------
         list[ModelInfo]
             List of all model information
+
         """
         ...
 
@@ -243,6 +256,7 @@ class ModelRegistry(ABC):
         -------
         Optional[ModelInfo]
             Model information if found
+
         """
         ...
 
@@ -261,6 +275,7 @@ class ModelRegistry(ABC):
             Model ID
         metrics : dict[str, Any]
             Performance metrics to track
+
         """
         ...
 
@@ -281,6 +296,7 @@ class ModelRegistry(ABC):
         -------
         list[dict[str, Any]]
             Performance history
+
         """
         ...
 
@@ -304,6 +320,7 @@ class ModelRegistry(ABC):
         -------
         bool
             True if rollback successful
+
         """
         ...
 
@@ -321,6 +338,7 @@ class ModelRegistry(ABC):
         -------
         bool
             True if retirement successful
+
         """
         ...
 
@@ -350,6 +368,7 @@ class ModelRegistry(ABC):
         -------
         Optional[dict[str, Any]]
             A/B test configuration if successful
+
         """
         ...
 
@@ -373,5 +392,6 @@ class ModelRegistry(ABC):
         -------
         Optional[dict[str, Any]]
             Comparison results
+
         """
         ...

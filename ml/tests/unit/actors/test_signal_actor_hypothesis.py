@@ -1,8 +1,9 @@
 """
 Hypothesis-based property tests for ML signal actors.
 
-These tests verify actor behavioral properties and state transitions
-that must hold regardless of implementation.
+These tests verify actor behavioral properties and state transitions that must hold
+regardless of implementation.
+
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from hypothesis import assume
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -22,12 +22,13 @@ from ml.actors.base import CircuitBreakerState
 from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
-from ml.config.base import MLActorConfig
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
 class TestMLSignalActorProperties:
-    """Property-based tests for ML signal actors."""
+    """
+    Property-based tests for ML signal actors.
+    """
 
     @given(
         warm_up_period=st.integers(min_value=5, max_value=100),
@@ -40,8 +41,8 @@ class TestMLSignalActorProperties:
 
         This ensures the actor respects the warmup requirement.
         """
-        from nautilus_trader.model.identifiers import InstrumentId
         from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
 
         config = MLSignalActorConfig(
             model_path="dummy_model.onnx",
@@ -69,8 +70,9 @@ class TestMLSignalActorProperties:
 
             if in_warmup:
                 # Property: Should not make predictions during warmup
-                assert not actor._is_warmed_up or bars_processed == 0, \
-                    f"Actor warmed up too early at bar {bars_processed}"
+                assert (
+                    not actor._is_warmed_up or bars_processed == 0
+                ), f"Actor warmed up too early at bar {bars_processed}"
 
     @given(
         n_features=st.integers(min_value=5, max_value=100),
@@ -83,8 +85,8 @@ class TestMLSignalActorProperties:
 
         This ensures no memory leaks or growing buffers.
         """
-        from nautilus_trader.model.identifiers import InstrumentId
         from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
 
         config = MLSignalActorConfig(
             model_path="dummy_model.onnx",
@@ -109,7 +111,11 @@ class TestMLSignalActorProperties:
         threshold=st.floats(min_value=0.1, max_value=0.9),
     )
     @settings(max_examples=20, deadline=5000)
-    def test_signal_threshold_property(self, prediction_values: list[float], threshold: float) -> None:
+    def test_signal_threshold_property(
+        self,
+        prediction_values: list[float],
+        threshold: float,
+    ) -> None:
         """
         Property: Signals should only be generated above threshold.
 
@@ -125,6 +131,7 @@ class TestMLSignalActorProperties:
 
             if should_signal:
                 from nautilus_trader.model.identifiers import InstrumentId
+
                 signal = MLSignal(
                     instrument_id=InstrumentId.from_str("TEST.USD"),
                     model_id="test_model",
@@ -137,8 +144,9 @@ class TestMLSignalActorProperties:
 
         # Property: All generated signals should have confidence > threshold
         for signal in signals_generated:
-            assert signal.confidence > threshold, \
-                f"Signal with confidence {signal.confidence} <= threshold {threshold}"
+            assert (
+                signal.confidence > threshold
+            ), f"Signal with confidence {signal.confidence} <= threshold {threshold}"
 
     @given(
         failure_rates=st.lists(
@@ -149,7 +157,11 @@ class TestMLSignalActorProperties:
         failure_threshold=st.integers(min_value=3, max_value=10),
     )
     @settings(max_examples=20, deadline=5000)
-    def test_circuit_breaker_state_transitions(self, failure_rates: list[float], failure_threshold: int) -> None:
+    def test_circuit_breaker_state_transitions(
+        self,
+        failure_rates: list[float],
+        failure_threshold: int,
+    ) -> None:
         """
         Property: Circuit breaker state transitions must be valid.
 
@@ -200,7 +212,11 @@ class TestMLSignalActorProperties:
         max_latency_ms=st.floats(min_value=1.0, max_value=5.0),
     )
     @settings(max_examples=20, deadline=5000)
-    def test_latency_monitoring_property(self, latencies_ms: list[float], max_latency_ms: float) -> None:
+    def test_latency_monitoring_property(
+        self,
+        latencies_ms: list[float],
+        max_latency_ms: float,
+    ) -> None:
         """
         Property: Latency violations should be detected and counted.
 
@@ -252,8 +268,7 @@ class TestMLSignalActorProperties:
         total = long_count + short_count + neutral_count
 
         # Property: Counts should sum to total predictions
-        assert total == len(predictions), \
-            f"Count mismatch: {total} != {len(predictions)}"
+        assert total == len(predictions), f"Count mismatch: {total} != {len(predictions)}"
 
         # Property: All counts should be non-negative
         assert long_count >= 0, "Negative long count"
@@ -275,7 +290,7 @@ class TestMLSignalActorProperties:
                 long_ratio + short_ratio + neutral_ratio,
                 1.0,
                 rtol=1e-10,
-                err_msg="Ratios don't sum to 1"
+                err_msg="Ratios don't sum to 1",
             )
 
 
@@ -284,12 +299,13 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
     Stateful testing for ML signal actor behavior.
 
     This ensures that sequences of operations maintain invariants.
+
     """
 
     def __init__(self) -> None:
         super().__init__()
-        from nautilus_trader.model.identifiers import InstrumentId
         from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
 
         self.config = MLSignalActorConfig(
             model_path="dummy_model.onnx",
@@ -308,23 +324,28 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
 
     @rule(target=bars)
     def process_bar(self) -> Any:
-        """Process a new bar."""
+        """
+        Process a new bar.
+        """
         bar = TestDataStubs.bar_5decimal(
             ts_event=self.bars_processed,
-            ts_init=self.bars_processed
+            ts_init=self.bars_processed,
         )
         self.bars_processed += 1
 
         # Check warmup invariant
         if self.bars_processed <= self.config.warm_up_period:
-            assert not self.actor._is_warmed_up or self.bars_processed == 1, \
-                "Warmed up during warmup period"
+            assert (
+                not self.actor._is_warmed_up or self.bars_processed == 1
+            ), "Warmed up during warmup period"
 
         return bar
 
     @rule(bar=bars)
     def check_prediction_count(self, bar: Any) -> None:
-        """Verify prediction count increases correctly."""
+        """
+        Verify prediction count increases correctly.
+        """
         old_count = self.predictions_made
 
         # After warmup, predictions should increase
@@ -333,12 +354,15 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
             self.predictions_made += 1
 
             # Invariant: Prediction count should only increase
-            assert self.predictions_made > old_count, \
-                "Prediction count didn't increase after warmup"
+            assert (
+                self.predictions_made > old_count
+            ), "Prediction count didn't increase after warmup"
 
     @rule()
     def check_circuit_breaker_state(self) -> None:
-        """Verify circuit breaker state is valid."""
+        """
+        Verify circuit breaker state is valid.
+        """
         # State should always be one of the valid states
         valid_states = [
             CircuitBreakerState.CLOSED,
@@ -351,13 +375,16 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
 
     @rule()
     def verify_metrics_consistency(self) -> None:
-        """Verify metrics are internally consistent."""
+        """
+        Verify metrics are internally consistent.
+        """
         # Invariants:
         # - Bars processed >= predictions made (due to warmup)
         # - All counts should be non-negative
 
-        assert self.bars_processed >= self.predictions_made, \
-            f"More predictions ({self.predictions_made}) than bars ({self.bars_processed})"
+        assert (
+            self.bars_processed >= self.predictions_made
+        ), f"More predictions ({self.predictions_made}) than bars ({self.bars_processed})"
 
         assert self.bars_processed >= 0, "Negative bars processed"
         assert self.predictions_made >= 0, "Negative predictions"

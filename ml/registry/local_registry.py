@@ -3,8 +3,9 @@
 """
 Local file-based model registry implementation.
 
-This module provides a JSON-based registry for environments without
-external model registry services like MLflow.
+This module provides a JSON-based registry for environments without external model
+registry services like MLflow.
+
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import RolloutPlan
 from ml.registry.dataclasses import ValidationResult
-from ml.registry.statistics import calculate_sample_size
 from ml.registry.statistics import welch_t_test
 
 
@@ -38,14 +38,19 @@ class LocalModelRegistry(ModelRegistry):
     """
     Local file-based model registry using JSON for persistence.
 
-    This registry stores all model information in a local JSON file,
-    providing a lightweight solution for model lifecycle management
-    without external dependencies.
+    This registry stores all model information in a local JSON file, providing a
+    lightweight solution for model lifecycle management without external dependencies.
 
     Thread-safe for concurrent operations.
+
     """
 
-    def __init__(self, registry_path: Path, cache_size: int = 10, batch_save_interval: float = 0.1) -> None:
+    def __init__(
+        self,
+        registry_path: Path,
+        cache_size: int = 10,
+        batch_save_interval: float = 0.1,
+    ) -> None:
         """
         Initialize local model registry with caching and batch saves.
 
@@ -57,6 +62,7 @@ class LocalModelRegistry(ModelRegistry):
             Maximum number of models to cache in memory
         batch_save_interval : float
             Seconds to wait before flushing batch saves (default 0.1s)
+
         """
         self.registry_path = registry_path
         self.registry_path.mkdir(parents=True, exist_ok=True)
@@ -80,10 +86,14 @@ class LocalModelRegistry(ModelRegistry):
         # Initialize or load registry
         self._load_registry()
 
-        logger.info(f"Initialized LocalModelRegistry at {registry_path} with cache_size={cache_size}, batch_save_interval={batch_save_interval}s")
+        logger.info(
+            f"Initialized LocalModelRegistry at {registry_path} with cache_size={cache_size}, batch_save_interval={batch_save_interval}s",
+        )
 
     def _load_registry(self) -> None:
-        """Load registry from disk or create new one."""
+        """
+        Load registry from disk or create new one.
+        """
         if self.registry_file.exists():
             with open(self.registry_file) as f:
                 data = json.load(f)
@@ -107,6 +117,7 @@ class LocalModelRegistry(ModelRegistry):
         ----------
         immediate : bool
             If True, save immediately. If False, batch the save.
+
         """
         with self._lock:
             if immediate:
@@ -130,12 +141,14 @@ class LocalModelRegistry(ModelRegistry):
                     # Schedule new save
                     self._save_timer = threading.Timer(
                         self.batch_save_interval,
-                        self._flush_batch_save
+                        self._flush_batch_save,
                     )
                     self._save_timer.start()
 
     def _do_save(self) -> None:
-        """Perform the actual save to disk."""
+        """
+        Perform the actual save to disk.
+        """
         try:
             data = {
                 "models": {
@@ -159,7 +172,9 @@ class LocalModelRegistry(ModelRegistry):
             raise
 
     def _flush_batch_save(self) -> None:
-        """Flush pending batch saves."""
+        """
+        Flush pending batch saves.
+        """
         with self._lock:
             if self._pending_save:
                 try:
@@ -174,7 +189,9 @@ class LocalModelRegistry(ModelRegistry):
                     self._save_timer = None
 
     def _model_info_to_dict(self, model_info: ModelInfo) -> dict[str, Any]:
-        """Convert ModelInfo to dictionary for JSON serialization."""
+        """
+        Convert ModelInfo to dictionary for JSON serialization.
+        """
         manifest_dict = {
             "model_id": model_info.manifest.model_id,
             "role": model_info.manifest.role.value,
@@ -202,7 +219,9 @@ class LocalModelRegistry(ModelRegistry):
         }
 
     def _dict_to_model_info(self, data: dict[str, Any]) -> ModelInfo:
-        """Convert dictionary to ModelInfo."""
+        """
+        Convert dictionary to ModelInfo.
+        """
         # Handle both old and new format
         if "manifest" in data:
             manifest_data = data["manifest"]
@@ -246,7 +265,9 @@ class LocalModelRegistry(ModelRegistry):
         )
 
     def _generate_model_id(self) -> str:
-        """Generate unique model ID."""
+        """
+        Generate unique model ID.
+        """
         timestamp = int(time.time() * 1000000)  # Microsecond precision
         return f"model_{timestamp}"
 
@@ -278,6 +299,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         str
             Unique model ID
+
         """
         with self._lock:
             # Validate model file exists
@@ -288,7 +310,7 @@ class LocalModelRegistry(ModelRegistry):
             if model_path.suffix != ".onnx":
                 raise ValueError(
                     f"Only ONNX models are supported for security reasons. "
-                    f"Got: {model_path.suffix}. Please export your model to ONNX format."
+                    f"Got: {model_path.suffix}. Please export your model to ONNX format.",
                 )
 
             # Security: Validate path is safe
@@ -306,7 +328,8 @@ class LocalModelRegistry(ModelRegistry):
             # Auto-version if needed
             if not manifest.version:
                 existing_versions = [
-                    m.manifest.version for m in self._models.values()
+                    m.manifest.version
+                    for m in self._models.values()
                     if m.manifest.architecture == manifest.architecture
                 ]
                 if existing_versions:
@@ -327,12 +350,13 @@ class LocalModelRegistry(ModelRegistry):
 
                 if not quality_validation_result.overall_pass and enforce_quality:
                     failed_gates = [
-                        name for name, result in quality_validation_result.gate_results.items()
+                        name
+                        for name, result in quality_validation_result.gate_results.items()
                         if not result["passed"] and result["required"]
                     ]
                     raise ValueError(
                         f"Quality gates not met for model {manifest.model_id}. "
-                        f"Failed gates: {failed_gates}"
+                        f"Failed gates: {failed_gates}",
                     )
 
             # Create model info
@@ -367,7 +391,7 @@ class LocalModelRegistry(ModelRegistry):
 
             logger.info(
                 f"Registered {manifest.role.value} model {manifest.model_id} "
-                f"(version {manifest.version}) at {model_path}"
+                f"(version {manifest.version}) at {model_path}",
             )
 
             # Auto-deploy if requested and validation passes
@@ -409,7 +433,7 @@ class LocalModelRegistry(ModelRegistry):
                         logger.info(f"Auto-deployed {manifest.model_id} to {target}")
                 else:
                     logger.warning(
-                        f"Auto-deploy skipped for {manifest.model_id}: {errors}"
+                        f"Auto-deploy skipped for {manifest.model_id}: {errors}",
                     )
 
             return manifest.model_id
@@ -436,6 +460,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         bool
             True if deployment successful
+
         """
         with self._lock:
             if model_id not in self._models:
@@ -466,28 +491,38 @@ class LocalModelRegistry(ModelRegistry):
             return True
 
     def get_active_models(self) -> list[ModelInfo]:
-        """Get all currently deployed models."""
+        """
+        Get all currently deployed models.
+        """
         with self._lock:
             return [
-                model_info for model_info in self._models.values()
+                model_info
+                for model_info in self._models.values()
                 if model_info.deployment_status == DeploymentStatus.ACTIVE
             ]
 
     def get_all_models(self) -> list[ModelInfo]:
-        """Get all registered models."""
+        """
+        Get all registered models.
+        """
         with self._lock:
             return list(self._models.values())
 
     def get_model(self, model_id: str) -> ModelInfo | None:
-        """Get information about a specific model."""
+        """
+        Get information about a specific model.
+        """
         with self._lock:
             return self._models.get(model_id)
 
     def get_models_by_role(self, role: ModelRole) -> list[ModelInfo]:
-        """Get all models with a specific role."""
+        """
+        Get all models with a specific role.
+        """
         with self._lock:
             return [
-                model_info for model_info in self._models.values()
+                model_info
+                for model_info in self._models.values()
                 if model_info.manifest.role == role
             ]
 
@@ -495,15 +530,20 @@ class LocalModelRegistry(ModelRegistry):
         self,
         requirements: DataRequirements,
     ) -> list[ModelInfo]:
-        """Get all models with specific data requirements."""
+        """
+        Get all models with specific data requirements.
+        """
         with self._lock:
             return [
-                model_info for model_info in self._models.values()
+                model_info
+                for model_info in self._models.values()
                 if model_info.manifest.data_requirements == requirements
             ]
 
     def get_model_lineage(self, model_id: str) -> list[ModelInfo]:
-        """Get complete lineage of a model (parents and children)."""
+        """
+        Get complete lineage of a model (parents and children).
+        """
         with self._lock:
             if model_id not in self._models:
                 return []
@@ -543,6 +583,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         Any | None
             Loaded model object (ONNX InferenceSession) or None if not found
+
         """
         with self._lock:
             # Check cache first
@@ -570,14 +611,18 @@ class LocalModelRegistry(ModelRegistry):
             try:
                 if model_path.suffix == ".onnx":
                     # Load ONNX model following signal actor pattern
-                    from ml._imports import HAS_ONNX, check_ml_dependencies, ort
+                    from ml._imports import HAS_ONNX
+                    from ml._imports import check_ml_dependencies
+                    from ml._imports import ort
 
                     if not HAS_ONNX:
                         check_ml_dependencies(["onnxruntime"])
 
                     # Create optimized session like in ONNXModelLoader
                     session_options = ort.SessionOptions()
-                    session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    session_options.graph_optimization_level = (
+                        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    )
                     session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
                     # Use CPU provider for predictable latency
@@ -591,7 +636,7 @@ class LocalModelRegistry(ModelRegistry):
                 else:
                     logger.error(
                         f"Unsupported model format: {model_path.suffix}. "
-                        f"Only ONNX models are supported for security reasons."
+                        f"Only ONNX models are supported for security reasons.",
                     )
                     return None
 
@@ -628,6 +673,7 @@ class LocalModelRegistry(ModelRegistry):
             Model ID
         metrics : dict[str, Any]
             Performance metrics
+
         """
         with self._lock:
             if model_id not in self._models:
@@ -650,7 +696,9 @@ class LocalModelRegistry(ModelRegistry):
         self,
         model_id: str,
     ) -> list[dict[str, Any]]:
-        """Get performance history for a model."""
+        """
+        Get performance history for a model.
+        """
         with self._lock:
             if model_id not in self._models:
                 return []
@@ -675,6 +723,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         bool
             True if rollback successful
+
         """
         with self._lock:
             if to_model_id not in self._models:
@@ -705,12 +754,12 @@ class LocalModelRegistry(ModelRegistry):
             logger.info(f"Rolled back {target} to model {to_model_id}")
             return True
 
-
     def flush(self) -> None:
         """
         Flush any pending batch saves immediately.
 
         Call this before shutdown or when immediate persistence is needed.
+
         """
         with self._lock:
             if self._pending_save:
@@ -722,7 +771,9 @@ class LocalModelRegistry(ModelRegistry):
                 logger.debug("Flushed pending batch saves")
 
     def __del__(self) -> None:
-        """Ensure pending saves are flushed on cleanup."""
+        """
+        Ensure pending saves are flushed on cleanup.
+        """
         try:
             self.flush()
         except Exception:
@@ -743,6 +794,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         bool
             True if path is valid and safe
+
         """
         try:
             resolved = path.resolve()
@@ -765,6 +817,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         bool
             True if retirement successful
+
         """
         with self._lock:
             if model_id not in self._models:
@@ -812,6 +865,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         Optional[dict[str, Any]]
             A/B test configuration
+
         """
         with self._lock:
             if len(models) != 2:
@@ -875,6 +929,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         Optional[dict[str, Any]]
             Comparison results
+
         """
         with self._lock:
             results = []
@@ -894,11 +949,13 @@ class LocalModelRegistry(ModelRegistry):
                         break
 
                 if metric_value is not None:
-                    results.append({
-                        "model_id": model_id,
-                        "version": model_info.manifest.version,
-                        metric: metric_value,
-                    })
+                    results.append(
+                        {
+                            "model_id": model_id,
+                            "version": model_info.manifest.version,
+                            metric: metric_value,
+                        },
+                    )
 
             if not results:
                 return None
@@ -938,6 +995,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         ValidationResult
             Validation results with pass/fail status
+
         """
         result = ValidationResult(model_id=model_id)
 
@@ -974,6 +1032,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         dict[str, Any]
             Gate evaluation result
+
         """
         if actual_value is None:
             return {
@@ -1003,7 +1062,11 @@ class LocalModelRegistry(ModelRegistry):
             "passed": passed,
             "required": gate.required,
             "comparison": gate.comparison,
-            "margin": actual_value - gate.threshold if gate.comparison in ["gte", "gt"] else gate.threshold - actual_value,
+            "margin": (
+                actual_value - gate.threshold
+                if gate.comparison in ["gte", "gt"]
+                else gate.threshold - actual_value
+            ),
         }
 
     def validate_model_quality(
@@ -1025,6 +1088,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         ValidationResult
             Validation results
+
         """
         with self._lock:
             if model_id not in self._models:
@@ -1070,6 +1134,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         str
             Canary deployment ID
+
         """
         with self._lock:
             if model_id not in self._models:
@@ -1087,9 +1152,14 @@ class LocalModelRegistry(ModelRegistry):
             else:
                 # Find current production model for target
                 for m_id, m_info in self._models.items():
-                    if target in m_info.deployed_to and m_info.deployment_status == DeploymentStatus.ACTIVE:
+                    if (
+                        target in m_info.deployed_to
+                        and m_info.deployment_status == DeploymentStatus.ACTIVE
+                    ):
                         baseline_model_id = m_id
-                        baseline_performance = m_info.manifest.performance_metrics.get(config.success_metric)
+                        baseline_performance = m_info.manifest.performance_metrics.get(
+                            config.success_metric,
+                        )
                         break
 
             # Create canary deployment
@@ -1118,7 +1188,9 @@ class LocalModelRegistry(ModelRegistry):
             return deployment_id
 
     def get_canary_deployment(self, deployment_id: str) -> CanaryDeployment | None:
-        """Get canary deployment by ID."""
+        """
+        Get canary deployment by ID.
+        """
         if not hasattr(self, "_canary_deployments"):
             return None
         return self._canary_deployments.get(deployment_id)
@@ -1143,6 +1215,7 @@ class LocalModelRegistry(ModelRegistry):
             Response latency
         error_occurred : bool
             Whether an error occurred
+
         """
         with self._lock:
             if not hasattr(self, "_canary_deployments"):
@@ -1165,6 +1238,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         tuple[bool, str]
             (should_promote, reason)
+
         """
         with self._lock:
             if not hasattr(self, "_canary_deployments"):
@@ -1189,6 +1263,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         tuple[bool, str]
             (should_rollback, reason)
+
         """
         with self._lock:
             if not hasattr(self, "_canary_deployments"):
@@ -1213,6 +1288,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         bool
             True if promotion successful
+
         """
         with self._lock:
             if not hasattr(self, "_canary_deployments"):
@@ -1260,6 +1336,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         Optional[dict[str, Any]]
             Statistical comparison results
+
         """
         with self._lock:
             if len(model_ids) != 2:
@@ -1287,6 +1364,7 @@ class LocalModelRegistry(ModelRegistry):
 
             # Perform Welch's t-test
             import numpy as np
+
             test_result = welch_t_test(
                 np.array(samples_a),
                 np.array(samples_b),
@@ -1326,6 +1404,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         str
             A/B test ID
+
         """
         with self._lock:
             # Use existing configure_ab_test
@@ -1355,7 +1434,9 @@ class LocalModelRegistry(ModelRegistry):
         model_id: str,
         metric_value: float,
     ) -> None:
-        """Track metric for A/B test."""
+        """
+        Track metric for A/B test.
+        """
         with self._lock:
             if not hasattr(self, "_ab_test_metrics"):
                 return
@@ -1377,6 +1458,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         Optional[dict[str, Any]]
             Analysis results
+
         """
         with self._lock:
             if not hasattr(self, "_ab_test_metrics"):
@@ -1401,6 +1483,7 @@ class LocalModelRegistry(ModelRegistry):
                 return None
 
             import numpy as np
+
             control_mean = np.mean(control_samples)
             treatment_mean = np.mean(treatment_samples)
 
@@ -1442,6 +1525,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         bool
             True if successful
+
         """
         with self._lock:
             if new_model_id not in self._models:
@@ -1451,7 +1535,10 @@ class LocalModelRegistry(ModelRegistry):
             # Find current model for target
             current_model_id = None
             for model_id, model_info in self._models.items():
-                if target in model_info.deployed_to and model_info.deployment_status == DeploymentStatus.ACTIVE:
+                if (
+                    target in model_info.deployed_to
+                    and model_info.deployment_status == DeploymentStatus.ACTIVE
+                ):
                     current_model_id = model_id
                     break
 
@@ -1467,7 +1554,7 @@ class LocalModelRegistry(ModelRegistry):
                 logger.warning(
                     f"Feature schema mismatch during hot reload: "
                     f"current={current_model.manifest.feature_schema_hash}, "
-                    f"new={new_model.manifest.feature_schema_hash}"
+                    f"new={new_model.manifest.feature_schema_hash}",
                 )
 
             # Deploy new model
@@ -1508,6 +1595,7 @@ class LocalModelRegistry(ModelRegistry):
         -------
         str
             Rollout ID
+
         """
         with self._lock:
             if current_model_id not in self._models or new_model_id not in self._models:
@@ -1535,7 +1623,10 @@ class LocalModelRegistry(ModelRegistry):
                 self.configure_ab_test(
                     models=[current_model_id, new_model_id],
                     split_ratio=1.0 - stages[0],
-                    duration_hours=max(1, stage_duration_minutes * 60),  # Convert to hours (stage_duration is already in minutes * 60)
+                    duration_hours=max(
+                        1,
+                        stage_duration_minutes * 60,
+                    ),  # Convert to hours (stage_duration is already in minutes * 60)
                     target=target,
                 )
 
@@ -1543,7 +1634,9 @@ class LocalModelRegistry(ModelRegistry):
             return rollout_id
 
     def get_rollout_status(self, rollout_id: str) -> dict[str, Any] | None:
-        """Get rollout status."""
+        """
+        Get rollout status.
+        """
         with self._lock:
             if not hasattr(self, "_rollout_plans"):
                 return None
@@ -1561,7 +1654,9 @@ class LocalModelRegistry(ModelRegistry):
             }
 
     def advance_rollout_stage(self, rollout_id: str) -> bool:
-        """Advance to next rollout stage."""
+        """
+        Advance to next rollout stage.
+        """
         with self._lock:
             if not hasattr(self, "_rollout_plans"):
                 return False
@@ -1576,7 +1671,10 @@ class LocalModelRegistry(ModelRegistry):
                 self.configure_ab_test(
                     models=[rollout.current_model_id, rollout.new_model_id],
                     split_ratio=1.0 - new_split,
-                    duration_hours=max(1, int(rollout.stage_duration_minutes / 60)),  # Convert minutes to hours, min 1
+                    duration_hours=max(
+                        1,
+                        int(rollout.stage_duration_minutes / 60),
+                    ),  # Convert minutes to hours, min 1
                     target=rollout.target,
                 )
                 logger.info(f"Advanced rollout {rollout_id} to stage {rollout.current_stage}")

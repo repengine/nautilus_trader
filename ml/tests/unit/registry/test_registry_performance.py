@@ -3,8 +3,8 @@
 """
 Performance tests for model registry.
 
-These tests ensure the registry meets performance requirements
-for production use cases.
+These tests ensure the registry meets performance requirements for production use cases.
+
 """
 
 from __future__ import annotations
@@ -15,9 +15,6 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
@@ -26,10 +23,14 @@ from ml.registry.local_registry import LocalModelRegistry
 
 
 class TestRegistryPerformance:
-    """Test registry performance under load."""
+    """
+    Test registry performance under load.
+    """
 
     def test_registry_bulk_registration_performance(self) -> None:
-        """Test registry can handle 100 models in under 5 seconds."""
+        """
+        Test registry can handle 100 models in under 5 seconds.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
             registry = LocalModelRegistry(registry_path)
@@ -72,7 +73,9 @@ class TestRegistryPerformance:
             assert len(all_models) == 100
 
     def test_registry_concurrent_read_performance(self) -> None:
-        """Test registry handles concurrent reads efficiently."""
+        """
+        Test registry handles concurrent reads efficiently.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
             registry = LocalModelRegistry(registry_path)
@@ -102,7 +105,9 @@ class TestRegistryPerformance:
             read_times = []
 
             def read_models() -> None:
-                """Read all models and measure time."""
+                """
+                Read all models and measure time.
+                """
                 thread_start = time.time()
                 for model_id in model_ids:
                     info = registry.get_model(model_id)
@@ -132,7 +137,9 @@ class TestRegistryPerformance:
             assert avg_read_time < 0.1, f"Average read time {avg_read_time:.3f}s"
 
     def test_registry_path_validation_performance(self) -> None:
-        """Test path validation doesn't significantly impact performance."""
+        """
+        Test path validation doesn't significantly impact performance.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
             registry = LocalModelRegistry(registry_path)
@@ -164,7 +171,9 @@ class TestRegistryPerformance:
             assert validation_time < 0.01, f"Validation took {validation_time*1000:.2f}ms"
 
     def test_registry_security_rejection_performance(self) -> None:
-        """Test security checks reject invalid paths quickly."""
+        """
+        Test security checks reject invalid paths quickly.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
             registry = LocalModelRegistry(registry_path)
@@ -188,7 +197,9 @@ class TestRegistryPerformance:
             assert rejection_time < 0.001, f"Rejection took {rejection_time*1000:.2f}ms"
 
     def test_registry_persistence_performance(self) -> None:
-        """Test registry save/load performance."""
+        """
+        Test registry save/load performance.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
 
@@ -237,14 +248,16 @@ class TestRegistryPerformance:
             assert len(registry2.get_all_models()) == 50
 
     def test_batch_save_performance(self) -> None:
-        """Test batch save reduces I/O operations."""
+        """
+        Test batch save reduces I/O operations.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
 
             # Create registry with 50ms batch interval
             registry = LocalModelRegistry(
                 registry_path,
-                batch_save_interval=0.05  # 50ms
+                batch_save_interval=0.05,  # 50ms
             )
 
             # Track saves by monitoring file modification time
@@ -252,7 +265,9 @@ class TestRegistryPerformance:
             save_times = []
 
             def track_saves() -> None:
-                """Monitor registry file modifications."""
+                """
+                Monitor registry file modifications.
+                """
                 last_mtime = 0.0
                 for _ in range(20):  # Check for 1 second
                     if registry_file.exists():

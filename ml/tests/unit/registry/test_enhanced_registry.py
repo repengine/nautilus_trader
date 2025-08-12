@@ -8,14 +8,16 @@ This test file uses TDD to define all expected behavior for:
 - Canary deployment management
 - Statistical model comparison
 - Hot reload and gradual rollout
+
 """
 
 from __future__ import annotations
 
 import tempfile
 import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import numpy as np
 import pytest
@@ -31,22 +33,30 @@ from ml.registry.local_registry import LocalModelRegistry
 
 
 class TestEnhancedLocalModelRegistry:
-    """Test enhanced LocalModelRegistry with all integrated features."""
+    """
+    Test enhanced LocalModelRegistry with all integrated features.
+    """
 
     @pytest.fixture
     def temp_dir(self) -> Generator[Path, None, None]:
-        """Create temporary directory for testing."""
+        """
+        Create temporary directory for testing.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             yield Path(tmpdir)
 
     @pytest.fixture
     def registry(self, temp_dir: Path) -> LocalModelRegistry:
-        """Create registry instance."""
+        """
+        Create registry instance.
+        """
         return LocalModelRegistry(temp_dir)
 
     @pytest.fixture
     def sample_manifest(self) -> ModelManifest:
-        """Create sample model manifest."""
+        """
+        Create sample model manifest.
+        """
         return ModelManifest(
             model_id="test_model_001",
             role=ModelRole.STUDENT,
@@ -61,7 +71,9 @@ class TestEnhancedLocalModelRegistry:
 
     @pytest.fixture
     def model_path(self, temp_dir: Path) -> Path:
-        """Create dummy ONNX model file."""
+        """
+        Create dummy ONNX model file.
+        """
         model_file = temp_dir / "model.onnx"
         model_file.write_bytes(b"dummy_onnx_model")
         return model_file
@@ -74,7 +86,9 @@ class TestEnhancedLocalModelRegistry:
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
-        """Test model registration with passing quality gates."""
+        """
+        Test model registration with passing quality gates.
+        """
         # Define quality gates
         gates = [
             QualityGate("accuracy", 0.8, "gte", required=True),
@@ -99,7 +113,9 @@ class TestEnhancedLocalModelRegistry:
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
-        """Test model registration fails when quality gates not met."""
+        """
+        Test model registration fails when quality gates not met.
+        """
         # Set strict gates that will fail
         gates = [
             QualityGate("accuracy", 0.9, "gte", required=True),  # Will fail
@@ -120,7 +136,9 @@ class TestEnhancedLocalModelRegistry:
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
-        """Test post-registration quality validation."""
+        """
+        Test post-registration quality validation.
+        """
         # Register without gates
         model_id = registry.register_model(
             model_path=model_path,
@@ -148,7 +166,9 @@ class TestEnhancedLocalModelRegistry:
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
-        """Test starting a canary deployment."""
+        """
+        Test starting a canary deployment.
+        """
         # Register model
         model_id = registry.register_model(
             model_path=model_path,
@@ -189,7 +209,9 @@ class TestEnhancedLocalModelRegistry:
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
-        """Test updating canary deployment metrics."""
+        """
+        Test updating canary deployment metrics.
+        """
         # Setup canary
         model_id = registry.register_model(
             model_path=model_path,
@@ -226,7 +248,9 @@ class TestEnhancedLocalModelRegistry:
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
-        """Test canary evaluation for auto-promotion."""
+        """
+        Test canary evaluation for auto-promotion.
+        """
         # Setup canary with short monitoring period
         model_id = registry.register_model(
             model_path=model_path,
@@ -274,7 +298,9 @@ class TestEnhancedLocalModelRegistry:
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
-        """Test canary evaluation for auto-rollback."""
+        """
+        Test canary evaluation for auto-rollback.
+        """
         # Setup canary
         model_id = registry.register_model(
             model_path=model_path,
@@ -315,7 +341,9 @@ class TestEnhancedLocalModelRegistry:
         registry: LocalModelRegistry,
         temp_dir: Path,
     ) -> None:
-        """Test statistical comparison between models."""
+        """
+        Test statistical comparison between models.
+        """
         # Register two models
         manifest1 = ModelManifest(
             model_id="model_a",
@@ -367,7 +395,9 @@ class TestEnhancedLocalModelRegistry:
         registry: LocalModelRegistry,
         temp_dir: Path,
     ) -> None:
-        """Test A/B test setup and analysis."""
+        """
+        Test A/B test setup and analysis.
+        """
         # Register two models
         manifest1 = ModelManifest(
             model_id="control",
@@ -439,7 +469,9 @@ class TestEnhancedLocalModelRegistry:
         registry: LocalModelRegistry,
         temp_dir: Path,
     ) -> None:
-        """Test hot reload functionality."""
+        """
+        Test hot reload functionality.
+        """
         # Register and deploy initial model
         manifest_v1 = ModelManifest(
             model_id="model_v1",
@@ -492,7 +524,9 @@ class TestEnhancedLocalModelRegistry:
         registry: LocalModelRegistry,
         temp_dir: Path,
     ) -> None:
-        """Test gradual rollout with stages."""
+        """
+        Test gradual rollout with stages.
+        """
         # Register models
         manifest_current = ModelManifest(
             model_id="current_prod",
@@ -555,7 +589,9 @@ class TestEnhancedLocalModelRegistry:
         registry: LocalModelRegistry,
         temp_dir: Path,
     ) -> None:
-        """Test complete deployment pipeline with quality gates and canary."""
+        """
+        Test complete deployment pipeline with quality gates and canary.
+        """
         # Define strict quality gates
         quality_gates = [
             QualityGate("accuracy", 0.8, "gte", required=True),
@@ -631,7 +667,9 @@ class TestEnhancedLocalModelRegistry:
         assert active_models[0].manifest.model_id == "production_model"
 
     def test_type_safety_with_mypy(self) -> None:
-        """Ensure all methods have proper type hints for mypy --strict."""
+        """
+        Ensure all methods have proper type hints for mypy --strict.
+        """
         # This test doesn't run but ensures we think about types
         registry: LocalModelRegistry
         model_id: str

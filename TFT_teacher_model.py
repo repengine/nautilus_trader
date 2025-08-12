@@ -12,16 +12,17 @@ your parquet store and feature engineering pipeline.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple, List, Dict
 
 import numpy as np
+
 
 # Optional heavy deps (import when available)
 try:
     import torch
-    from pytorch_lightning import Trainer
-    from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
+    from pytorch_forecasting import TemporalFusionTransformer
+    from pytorch_forecasting import TimeSeriesDataSet
     from pytorch_forecasting.metrics import QuantileLoss
+    from pytorch_lightning import Trainer
 except Exception:  # pragma: no cover
     torch = None
     Trainer = None
@@ -57,7 +58,7 @@ class TFTTeacher:
         self._calibrator = None  # isotonic or platt
         self._calibrator_kind = None
 
-    def fit(self, dataset: "TimeSeriesDataSet") -> "TFTTeacher":
+    def fit(self, dataset: TimeSeriesDataSet) -> TFTTeacher:
         if TemporalFusionTransformer is None:
             raise ImportError("pytorch-forecasting and lightning are required.")
         torch.manual_seed(self.cfg.seed)
@@ -71,10 +72,16 @@ class TFTTeacher:
             log_interval=10,
             reduce_on_plateau_patience=2,
         )
-        trainer = Trainer(max_epochs=self.cfg.max_epochs, accelerator=("gpu" if self.cfg.gpus>0 else "cpu"),
-                          devices=self.cfg.gpus if self.cfg.gpus>0 else None)
-        trainer.fit(self.model, train_dataloaders=dataset.to_dataloader(train=True, batch_size=128, num_workers=0),
-                    val_dataloaders=dataset.to_dataloader(train=False, batch_size=256, num_workers=0))
+        trainer = Trainer(
+            max_epochs=self.cfg.max_epochs,
+            accelerator=("gpu" if self.cfg.gpus > 0 else "cpu"),
+            devices=self.cfg.gpus if self.cfg.gpus > 0 else None,
+        )
+        trainer.fit(
+            self.model,
+            train_dataloaders=dataset.to_dataloader(train=True, batch_size=128, num_workers=0),
+            val_dataloaders=dataset.to_dataloader(train=False, batch_size=256, num_workers=0),
+        )
         return self
 
     def calibrate(self, X_val: np.ndarray, y_val: np.ndarray) -> None:
@@ -83,7 +90,7 @@ class TFTTeacher:
         # Replace this with your own flow that extracts probabilities from the TFT model.
         if LogisticRegression is not None:
             lr = LogisticRegression(solver="lbfgs")
-            lr.fit(X_val.reshape(-1,1), y_val.astype(int))
+            lr.fit(X_val.reshape(-1, 1), y_val.astype(int))
             self._calibrator = lr
             self._calibrator_kind = "platt"
         elif IsotonicRegression is not None:
@@ -97,7 +104,7 @@ class TFTTeacher:
         p = p_raw.astype(np.float32)
         if self._calibrator is not None:
             if self._calibrator_kind == "platt":
-                p = self._calibrator.predict_proba(p.reshape(-1,1))[:,1]
+                p = self._calibrator.predict_proba(p.reshape(-1, 1))[:, 1]
             else:
                 p = self._calibrator.transform(p)
-        return p.reshape(-1,1)
+        return p.reshape(-1, 1)

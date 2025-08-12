@@ -1,4 +1,3 @@
-
 """
 Enhanced feature engineering with perfect batch/real-time consistency.
 
@@ -23,6 +22,13 @@ from ml.config.base import MLFeatureConfig
 from ml.config.constants import IndicatorNames
 from ml.config.constants import SystemConstants
 from ml.config.constants import TechnicalIndicatorPeriods
+from ml.features.pipeline import PipelineRunner
+from ml.features.pipeline import PipelineSpec
+from ml.features.pipeline import TransformSpec
+from ml.registry.base import DataRequirements
+from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRole
+from ml.registry.feature_registry import compute_schema_hash
 
 
 if TYPE_CHECKING:
@@ -524,7 +530,9 @@ class IndicatorManager:
                         assert 0 <= raw_rsi <= 1, f"RSI out of bounds: {raw_rsi}"
                         values[name] = (raw_rsi - 0.5) * 2.0
                         # Runtime assertion: Normalized RSI must be in [-1, 1]
-                        assert -1 <= values[name] <= 1, f"Normalized RSI out of bounds: {values[name]}"
+                        assert (
+                            -1 <= values[name] <= 1
+                        ), f"Normalized RSI out of bounds: {values[name]}"
                     else:
                         values[name] = indicator.value
             else:
@@ -620,6 +628,79 @@ class FeatureEngineer:
         self._cache_misses = 0
         # Use float32 for feature buffer to match expected output dtype
         self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
+
+    # ===== Manifest & Pipeline helpers =====
+    def build_pipeline_spec_from_config(self) -> PipelineSpec:
+        """
+        Build a default PipelineSpec from the current configuration.
+
+        This mirrors the core feature blocks in engineering and preserves the ordering
+        used by get_feature_names().
+
+        """
+        return PipelineSpec(
+            transforms=[
+                TransformSpec(name="returns", params={"periods": list(self.config.return_periods)}),
+                TransformSpec(
+                    name="momentum",
+                    params={"periods": list(self.config.momentum_periods)},
+                ),
+                TransformSpec(name="volatility", params={}),
+                TransformSpec(
+                    name="volume_ratio",
+                    params={"periods": list(self.config.volume_ma_periods)},
+                ),
+                TransformSpec(name="core_indicators", params={}),
+            ],
+        )
+
+    def generate_feature_manifest(
+        self,
+        name: str,
+        version: str,
+        role: FeatureRole,
+        data_requirements: DataRequirements,
+        pipeline_version: str = "1.0.0",
+        capability_flags: dict[str, Any] | None = None,
+        constraints: dict[str, Any] | None = None,
+        parity_tolerance: float = 0.0,
+        parity_digest: dict[str, Any] | None = None,
+        perf_digest: dict[str, Any] | None = None,
+        parent_feature_set_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> FeatureManifest:
+        """
+        Create a FeatureManifest from the current engineer configuration.
+        """
+        spec = self.build_pipeline_spec_from_config()
+        runner = PipelineRunner(spec, allowable=data_requirements)
+        names = runner.compute_feature_names()
+        dtypes = ["float32"] * len(names)
+        signature = runner.compute_signature()
+        schema_hash = compute_schema_hash(names, dtypes, signature)
+        now = float(np.float64(np.datetime64("now").astype("datetime64[s]").astype(int)))
+
+        return FeatureManifest(
+            feature_set_id="",
+            name=name,
+            version=version,
+            role=role,
+            data_requirements=data_requirements,
+            feature_names=names,
+            feature_dtypes=dtypes,
+            schema_hash=schema_hash,
+            pipeline_signature=signature,
+            pipeline_version=pipeline_version,
+            capability_flags=capability_flags or {},
+            constraints=constraints or {},
+            parity_tolerance=parity_tolerance,
+            parity_digest=parity_digest or {},
+            perf_digest=perf_digest or {},
+            parent_feature_set_id=parent_feature_set_id,
+            metadata=metadata or {},
+            created_at=now,
+            last_modified=now,
+        )
 
     def _extract_price_arrays(self, df: Any) -> tuple[npt.NDArray[np.float64], ...]:
         """
@@ -1276,7 +1357,11 @@ class FeatureEngineer:
     def _extract_data_arrays(
         self,
         df: Any,
-    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64] | None, npt.NDArray[np.float64] | None]:
+    ) -> tuple[
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64] | None,
+        npt.NDArray[np.float64] | None,
+    ]:
         """
         Extract data arrays from DataFrame for batch processing.
         """
@@ -1497,7 +1582,12 @@ class FeatureEngineer:
     def _extract_bid_ask_data(
         self,
         df: Any,
-    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    ) -> tuple[
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+    ]:
         """
         Extract bid/ask price and size arrays from DataFrame.
         """
@@ -1710,7 +1800,10 @@ class FeatureEngineer:
 
         return features
 
-    def _extract_trade_data(self, df: Any) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def _extract_trade_data(
+        self,
+        df: Any,
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Extract trade price, volume, and side arrays from DataFrame.
         """

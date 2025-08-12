@@ -14,6 +14,7 @@ Outputs
 -------
 - teacher_meta.json
 - teacher_preds.npz  (q_train for student training; optionally logits z_T)
+
 """
 
 from __future__ import annotations
@@ -21,19 +22,23 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 
 import numpy as np
 
-from .TFT_teacher_model import TFTTeacher, TFTTeacherConfig
+from .TFT_teacher_model import TFTTeacher
+from .TFT_teacher_model import TFTTeacherConfig
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--teacher_features_npz", required=False, help="placeholder in this scaffold" )
-    ap.add_argument("--student_window_npz",  required=True, help= ".npz with p_raw_val and y_val_true" )
-    ap.add_argument("--out_dir",             required=True)
-    ap.add_argument("--model_id",            required=True)
+    ap.add_argument("--teacher_features_npz", required=False, help="placeholder in this scaffold")
+    ap.add_argument(
+        "--student_window_npz",
+        required=True,
+        help=".npz with p_raw_val and y_val_true",
+    )
+    ap.add_argument("--out_dir", required=True)
+    ap.add_argument("--model_id", required=True)
     args = ap.parse_args()
 
     # In a real pipeline, you'd build a TimeSeriesDataSet and fit the model.

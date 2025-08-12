@@ -1,4 +1,3 @@
-
 """
 Constants for ML components.
 
@@ -9,6 +8,48 @@ maintainability and clarity.
 
 from enum import Enum
 from typing import Final
+
+
+# ============================================================================
+# MODEL EXPORT FORMATS
+# ============================================================================
+
+
+class ExportFormats(Enum):
+    """
+    Supported model export formats.
+    """
+
+    ONNX = "onnx"
+    LIGHTGBM = "lightgbm"
+    XGBOOST = "xgboost"
+    PICKLE = "pickle"
+    JSON = "json"
+
+
+# File extensions (not part of enum)
+SUFFIX_ONNX = ".onnx"
+
+
+class Versions:
+    """
+    Version constants for ML components.
+    """
+
+    ONNX_OPSET = 17
+    LIGHTGBM_MIN = "3.0.0"
+    XGBOOST_MIN = "1.6.0"
+    DEFAULT_MANIFEST_VERSION = "1.0.0"
+    DEFAULT_TRAINER_VERSION = "1.0.0"
+
+
+class Providers:
+    """
+    ONNX Runtime providers.
+    """
+
+    CPU = "CPUExecutionProvider"
+    CUDA = "CUDAExecutionProvider"
 
 
 # ============================================================================

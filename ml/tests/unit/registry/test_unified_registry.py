@@ -3,14 +3,16 @@
 """
 Tests for unified model registry with self-describing models.
 
-This module tests the simplified registry that handles ALL model types
-through self-describing manifests, following test contract driven development.
+This module tests the simplified registry that handles ALL model types through self-
+describing manifests, following test contract driven development.
+
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+
 # import pickle  # Removed - using ONNX only for security
 import tempfile
 import time
@@ -22,45 +24,55 @@ import pytest
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
-from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.local_registry import LocalModelRegistry
-from ml.tests.unit.registry.test_model_contracts import (
-    ModelContractValidator,
-    create_valid_teacher_manifest,
-    create_valid_student_manifest,
-)
+from ml.tests.unit.registry.test_model_contracts import ModelContractValidator
+from ml.tests.unit.registry.test_model_contracts import create_valid_student_manifest
+from ml.tests.unit.registry.test_model_contracts import create_valid_teacher_manifest
 
 
 class DummyModel:
-    """Dummy model for testing."""
+    """
+    Dummy model for testing.
+    """
 
     def __init__(self, name: str = "dummy"):
         self.name = name
 
     def predict(self, X: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
-        """Dummy prediction."""
+        """
+        Dummy prediction.
+        """
         return np.ones(X.shape[0])
 
 
 class TestUnifiedRegistry:
-    """Test suite for unified model registry."""
+    """
+    Test suite for unified model registry.
+    """
 
     def setup_method(self) -> None:
-        """Set up test fixtures."""
+        """
+        Set up test fixtures.
+        """
         self.temp_dir = tempfile.mkdtemp()
         self.registry_path = Path(self.temp_dir) / "registry"
         self.registry = LocalModelRegistry(self.registry_path, cache_size=5)
         self.validator = ModelContractValidator()
 
     def teardown_method(self) -> None:
-        """Clean up test fixtures."""
+        """
+        Clean up test fixtures.
+        """
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_register_teacher_model(self) -> None:
-        """Test registering a teacher model with manifest."""
+        """
+        Test registering a teacher model with manifest.
+        """
         # Create teacher manifest
         manifest = create_valid_teacher_manifest()
 
@@ -85,7 +97,9 @@ class TestUnifiedRegistry:
         assert len(model_info.manifest.feature_schema) >= 20
 
     def test_register_student_model_with_lineage(self) -> None:
-        """Test registering a student model with teacher lineage."""
+        """
+        Test registering a student model with teacher lineage.
+        """
         # Register teacher first
         teacher_manifest = create_valid_teacher_manifest()
         teacher_path = self.registry_path / "teacher.onnx"
@@ -120,7 +134,9 @@ class TestUnifiedRegistry:
         assert student_info.manifest.deployment_constraints["max_latency_ms"] <= 5
 
     def test_get_models_by_role(self) -> None:
-        """Test filtering models by role."""
+        """
+        Test filtering models by role.
+        """
         # Register multiple models
         for i in range(3):
             teacher_manifest = create_valid_teacher_manifest()
@@ -146,7 +162,9 @@ class TestUnifiedRegistry:
         assert all(m.manifest.role == ModelRole.STUDENT for m in students)
 
     def test_get_models_by_data_requirements(self) -> None:
-        """Test filtering models by data requirements."""
+        """
+        Test filtering models by data requirements.
+        """
         # Register L1-only model
         l1_manifest = create_valid_student_manifest("teacher_001")
         l1_path = self.registry_path / "l1_model.onnx"
@@ -161,19 +179,21 @@ class TestUnifiedRegistry:
 
         # Query by data requirements
         l1_models = self.registry.get_models_by_data_requirements(
-            DataRequirements.L1_ONLY
+            DataRequirements.L1_ONLY,
         )
         assert len(l1_models) == 1
         assert l1_models[0].manifest.data_requirements == DataRequirements.L1_ONLY
 
         l3_models = self.registry.get_models_by_data_requirements(
-            DataRequirements.L1_L2_L3
+            DataRequirements.L1_L2_L3,
         )
         assert len(l3_models) == 1
         assert l3_models[0].manifest.data_requirements == DataRequirements.L1_L2_L3
 
     def test_get_model_lineage(self) -> None:
-        """Test getting complete model lineage."""
+        """
+        Test getting complete model lineage.
+        """
         # Create lineage: grandparent -> parent -> child1, child2
         grandparent_manifest = create_valid_teacher_manifest()
         grandparent_manifest.model_id = "grandparent"
@@ -208,7 +228,9 @@ class TestUnifiedRegistry:
     def test_model_caching(self) -> None:
         pytest.skip("Skipping cache test - requires valid ONNX models or mocking")
         return
-        """Test in-memory model caching with LRU eviction."""
+        """
+        Test in-memory model caching with LRU eviction.
+        """
         # Create models exceeding cache size
         for i in range(7):  # Cache size is 5
             manifest = create_valid_teacher_manifest()
@@ -250,7 +272,9 @@ class TestUnifiedRegistry:
         assert "model_new" in self.registry._model_cache
 
     def test_auto_deploy_with_validation(self) -> None:
-        """Test auto-deployment with contract validation."""
+        """
+        Test auto-deployment with contract validation.
+        """
         # Valid student should auto-deploy
         teacher_manifest = create_valid_teacher_manifest()
         teacher_path = self.registry_path / "teacher.onnx"
@@ -292,7 +316,9 @@ class TestUnifiedRegistry:
         assert len(bad_info.deployed_to) == 0
 
     def test_performance_tracking(self) -> None:
-        """Test tracking model performance over time."""
+        """
+        Test tracking model performance over time.
+        """
         manifest = create_valid_teacher_manifest()
         model_path = self.registry_path / "model.onnx"
         model_path.write_bytes(b"ONNX_MODEL")
@@ -317,7 +343,9 @@ class TestUnifiedRegistry:
         assert all("timestamp" in h for h in history)
 
     def test_manifest_validation_integration(self) -> None:
-        """Test that manifests are validated against contracts."""
+        """
+        Test that manifests are validated against contracts.
+        """
         # Create manifest with invalid feature schema hash
         manifest = create_valid_teacher_manifest()
         manifest.feature_schema_hash = "invalid_hash"
@@ -336,7 +364,9 @@ class TestUnifiedRegistry:
         assert any("L1-only" in err for err in errors)
 
     def test_inference_model_registration(self) -> None:
-        """Test registering direct inference models."""
+        """
+        Test registering direct inference models.
+        """
         # Create inference model manifest
         feature_schema = {
             "price": "float32",

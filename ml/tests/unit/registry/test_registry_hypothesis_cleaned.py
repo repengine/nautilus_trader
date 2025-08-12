@@ -1,8 +1,9 @@
 """
 Hypothesis-based property tests for model registry.
 
-These tests verify registry invariants that must hold regardless of implementation.
-Only includes tests for properties that are still valid in the new API.
+These tests verify registry invariants that must hold regardless of implementation. Only
+includes tests for properties that are still valid in the new API.
+
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import numpy as np
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -22,7 +22,9 @@ from ml.registry.local_registry import LocalModelRegistry
 
 
 class TestRegistryProperties:
-    """Test algebraic properties of the registry."""
+    """
+    Test algebraic properties of the registry.
+    """
 
     @given(
         metrics=st.dictionaries(
@@ -30,7 +32,7 @@ class TestRegistryProperties:
             st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
             min_size=1,
             max_size=5,
-        )
+        ),
     )
     @settings(max_examples=20, deadline=5000)
     def test_metrics_persistence(self, metrics: dict[str, float]) -> None:
@@ -124,11 +126,15 @@ class TestRegistryProperties:
 
     @given(
         model_names=st.lists(
-            st.text(min_size=1, max_size=10, alphabet=st.characters(min_codepoint=97, max_codepoint=122)),
+            st.text(
+                min_size=1,
+                max_size=10,
+                alphabet=st.characters(min_codepoint=97, max_codepoint=122),
+            ),
             min_size=2,
             max_size=5,
             unique=True,
-        )
+        ),
     )
     @settings(max_examples=10, deadline=5000)
     def test_model_isolation(self, model_names: list[str]) -> None:

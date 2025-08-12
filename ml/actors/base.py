@@ -1,4 +1,3 @@
-
 """
 Base class for ML inference actors.
 
@@ -836,17 +835,27 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     def _load_model_with_metadata(self) -> None:
         """
         Load model with metadata tracking for hot reload support.
+
         Supports both direct model path and registry-based loading.
+
         """
         try:
             # Check if we should load from registry (only if model_id is set WITHOUT model_path)
-            if (hasattr(self._config, 'model_id') and self._config.model_id and
-                (not hasattr(self._config, 'model_path') or not self._config.model_path)):
+            if (
+                hasattr(self._config, "model_id")
+                and self._config.model_id
+                and (not hasattr(self._config, "model_path") or not self._config.model_path)
+            ):
                 # Load from unified registry
                 from pathlib import Path
+
                 from ml.registry.local_registry import LocalModelRegistry
 
-                registry_path = Path(self._config.registry_path) if hasattr(self._config, 'registry_path') else Path("ml/models")
+                registry_path = (
+                    Path(self._config.registry_path)
+                    if hasattr(self._config, "registry_path")
+                    else Path("ml/models")
+                )
                 registry = LocalModelRegistry(registry_path)
 
                 # Get model info from registry
@@ -873,7 +882,10 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 }
 
                 # Use manifest features if configured
-                if hasattr(self._config, 'use_manifest_features') and self._config.use_manifest_features:
+                if (
+                    hasattr(self._config, "use_manifest_features")
+                    and self._config.use_manifest_features
+                ):
                     # Override feature config with manifest schema
                     self._feature_names = list(manifest.feature_schema.keys())
                     self.log.info(f"Using {len(self._feature_names)} features from manifest")
@@ -881,11 +893,11 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 # Check deployment constraints
                 if "max_latency_ms" in manifest.deployment_constraints:
                     max_latency = manifest.deployment_constraints["max_latency_ms"]
-                    if hasattr(self._config, 'max_inference_latency_ms'):
+                    if hasattr(self._config, "max_inference_latency_ms"):
                         if self._config.max_inference_latency_ms > max_latency:
                             self.log.warning(
                                 f"Config latency {self._config.max_inference_latency_ms}ms "
-                                f"exceeds model constraint {max_latency}ms"
+                                f"exceeds model constraint {max_latency}ms",
                             )
 
             else:
@@ -905,14 +917,18 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 else:
                     # Generate from path and version
                     from pathlib import Path
+
                     model_name = Path(self._config.model_path).stem
                     version_str = self._model_version[:8] if self._model_version else "v1"
                     self._model_id = f"{model_name}_{version_str}"
             else:
                 # Fallback: use filename and version
                 from pathlib import Path
+
                 model_name = Path(self._config.model_path).stem
-                self._model_id = f"{model_name}_{self._model_version[:8] if self._model_version else 'v1'}"
+                self._model_id = (
+                    f"{model_name}_{self._model_version[:8] if self._model_version else 'v1'}"
+                )
 
             # Call the original abstract method for backward compatibility
             self._load_model()
@@ -1097,10 +1113,11 @@ class PickleMLInferenceActor(BaseMLInferenceActor):
         # Security check for pickle loading
         if not self._config.allow_pickle:
             from ml.models.loader import SecurityError
+
             raise SecurityError(
                 "Pickle loading is disabled for security. "
                 "Set allow_pickle=True to enable (not recommended for production) "
-                "or use ONNX/native model formats instead."
+                "or use ONNX/native model formats instead.",
             )
 
         with open(model_path, "rb") as f:
@@ -1207,7 +1224,6 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
             confidence = 0.95
 
         return prediction, confidence
-
 
 
 class EnhancedMLInferenceActor(BaseMLInferenceActor):

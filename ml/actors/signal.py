@@ -1,4 +1,3 @@
-
 """
 ML Signal Actor for real-time inference and signal generation.
 
@@ -31,6 +30,7 @@ import time
 from abc import ABC
 from abc import abstractmethod
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import msgspec
@@ -49,6 +49,7 @@ from ml.config.base import MLActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
+from ml.registry.feature_registry import LocalFeatureRegistry
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.model.data import Bar
@@ -169,6 +170,10 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     enable_hot_reload: bool = False
     hot_reload_interval: PositiveInt = 300
     custom_strategy: Any | None = None  # SignalGenerationStrategy
+    # Feature registry integration
+    feature_set_id: str | None = None
+    registry_path: str | None = None
+    use_registry_features: bool = False
 
 
 # =================================================================================================
@@ -179,6 +184,7 @@ _metrics_initialized = False
 _prediction_distribution_metric = None
 _confidence_distribution_metric = None
 _signal_generation_time_metric = None
+_feature_time_by_feature_set_metric = None
 _signals_generated_metric = None
 _adaptive_threshold_metric = None
 _market_regime_metric = None
@@ -240,6 +246,18 @@ def _initialize_performance_metrics() -> None:
                 Histogram,
                 REGISTRY._names_to_collectors["nautilus_ml_signal_generation_seconds"],
             )
+        if "nautilus_ml_feature_time_by_feature_set_seconds" not in existing_names:
+            _feature_time_by_feature_set_metric = Histogram(
+                "nautilus_ml_feature_time_by_feature_set_seconds",
+                "Feature computation latency by feature_set_id",
+                ["actor_id", "feature_set_id"],
+                buckets=[0.00005, 0.0001, 0.0005, 0.001, 0.002],
+            )
+        else:
+            _feature_time_by_feature_set_metric = cast(
+                Histogram,
+                REGISTRY._names_to_collectors["nautilus_ml_feature_time_by_feature_set_seconds"],
+            )
 
         if "nautilus_ml_signals_generated_total" not in existing_names:
             _signals_generated_metric = Counter(
@@ -298,6 +316,12 @@ def _initialize_performance_metrics() -> None:
             "nautilus_ml_signals_generated_total",
             "Total number of signals generated",
             ["actor_id", "strategy", "signal_type"],
+        )
+        _feature_time_by_feature_set_metric = Histogram(
+            "nautilus_ml_feature_time_by_feature_set_seconds",
+            "Feature computation latency by feature_set_id",
+            ["actor_id", "feature_set_id"],
+            buckets=[0.00005, 0.0001, 0.0005, 0.001, 0.002],
         )
         _adaptive_threshold_metric = Histogram(
             "nautilus_ml_adaptive_threshold",
@@ -1032,6 +1056,31 @@ class MLSignalActor(BaseMLInferenceActor):
                 else FeatureConfig()
             )
         self._feature_engineer = FeatureEngineer(self._feature_config)
+        self._feature_set_id: str | None = None
+        # Optional: validate features against feature registry manifest
+        if (
+            hasattr(config, "feature_set_id")
+            and hasattr(config, "registry_path")
+            and config.use_registry_features
+            and config.feature_set_id is not None
+            and config.registry_path is not None
+        ):
+            try:
+                freg = LocalFeatureRegistry(Path(config.registry_path))
+                manifest = freg.get_feature_set(config.feature_set_id)
+            except Exception as e:  # pragma: no cover - safety
+                manifest = None
+                self.log.warning(f"Feature registry load failed: {e}")
+            if manifest is not None:
+                expected = list(manifest.feature_names)
+                actual = self._feature_engineer.config.get_feature_names()
+                if expected != actual:
+                    raise ValueError(
+                        "Feature schema mismatch with manifest: "
+                        f"expected {len(expected)} names (hash={manifest.schema_hash}), got {len(actual)}",
+                    )
+                # else, features are validated
+                self._feature_set_id = manifest.feature_set_id
         self._indicator_manager: IndicatorManager | None = None
 
         # Signal generation state
@@ -1145,6 +1194,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
         The SmartModelLoader in the base class automatically detects the model format
         (ONNX, pickle, joblib) and loads it appropriately.
+
         """
         # For OPTIMIZED level with ONNX, use specialized loading with performance options
         if (
@@ -1306,6 +1356,15 @@ class MLSignalActor(BaseMLInferenceActor):
         feature_time = (time.perf_counter() - start_time) * 1000
         if feature_time > self._config.max_feature_latency_ms:
             self.log.warning(f"Feature computation slow: {feature_time:.3f}ms")
+        # Record feature latency by feature set if available
+        if _feature_time_by_feature_set_metric and self._feature_set_id:
+            try:
+                _feature_time_by_feature_set_metric.labels(
+                    actor_id=self.id.value,
+                    feature_set_id=self._feature_set_id,
+                ).observe(feature_time / 1000.0)
+            except Exception:
+                pass
 
         return features
 
@@ -1320,6 +1379,7 @@ class MLSignalActor(BaseMLInferenceActor):
             # Check if this is a Mock object (for testing)
             from unittest.mock import MagicMock
             from unittest.mock import Mock
+
             if isinstance(self._model, (Mock, MagicMock)):
                 # Let the test mocks work as before
                 if hasattr(self._model, "run"):
@@ -1378,6 +1438,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 if hasattr(self._model, "num_features") and hasattr(self._model, "get_score"):
                     # Raw XGBoost Booster - needs DMatrix
                     from ml._imports import xgb
+
                     features_2d = features.reshape(1, -1)
                     dmatrix = xgb.DMatrix(features_2d)
                     predictions = self._model.predict(dmatrix)

@@ -2,9 +2,11 @@
 Hypothesis configuration for ML property tests.
 
 This file sets up profiles for different testing environments.
+
 """
 
 from hypothesis import settings
+
 
 # Register CI profile for faster tests in CI
 settings.register_profile(
@@ -36,5 +38,7 @@ settings.register_profile(
 
 # Load profile from environment
 import os
+
+
 profile = os.getenv("HYPOTHESIS_PROFILE", "default")
 settings.load_profile(profile)

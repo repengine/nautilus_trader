@@ -2,6 +2,7 @@
 Comprehensive property tests to increase ML module coverage to 85%.
 
 Focus on critical untested functionality with property-based testing.
+
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-from hypothesis import assume
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -23,7 +23,6 @@ from ml.data.loader import MLDataLoader
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
-from ml.models.base import BaseModel
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
@@ -32,7 +31,9 @@ from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
 class TestDataLoaderProperties:
-    """Property tests for DataLoader class (91% coverage)."""
+    """
+    Property tests for DataLoader class (91% coverage).
+    """
 
     @given(
         n_samples=st.integers(min_value=100, max_value=1000),
@@ -45,17 +46,20 @@ class TestDataLoaderProperties:
         """
         # Create mock catalog
         from unittest.mock import MagicMock
+
         catalog = MagicMock()
 
         # Create test data
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=n_samples, freq="1min"),
-            "open": np.random.randn(n_samples) * 0.01 + 100,
-            "high": np.random.randn(n_samples) * 0.01 + 101,
-            "low": np.random.randn(n_samples) * 0.01 + 99,
-            "close": np.random.randn(n_samples) * 0.01 + 100,
-            "volume": np.random.uniform(900000, 1100000, n_samples),
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=n_samples, freq="1min"),
+                "open": np.random.randn(n_samples) * 0.01 + 100,
+                "high": np.random.randn(n_samples) * 0.01 + 101,
+                "low": np.random.randn(n_samples) * 0.01 + 99,
+                "close": np.random.randn(n_samples) * 0.01 + 100,
+                "volume": np.random.uniform(900000, 1100000, n_samples),
+            },
+        )
 
         loader = MLDataLoader(catalog=catalog, cache_size=cache_size)
 
@@ -74,10 +78,12 @@ class TestDataLoaderProperties:
         """
         Property: Train/test split should preserve data and ratios.
         """
-        df = pd.DataFrame({
-            "close": np.random.randn(n_samples) * 0.01 + 100,
-            "volume": np.random.uniform(900000, 1100000, n_samples),
-        })
+        df = pd.DataFrame(
+            {
+                "close": np.random.randn(n_samples) * 0.01 + 100,
+                "volume": np.random.uniform(900000, 1100000, n_samples),
+            },
+        )
 
         # Create mock catalog
         catalog = MagicMock()
@@ -99,7 +105,9 @@ class TestDataLoaderProperties:
 
 
 class TestCacheProperties:
-    """Property tests for PreAllocatedFeatureCache (88% coverage)."""
+    """
+    Property tests for PreAllocatedFeatureCache (88% coverage).
+    """
 
     @given(
         history_size=st.integers(min_value=10, max_value=100),
@@ -122,8 +130,8 @@ class TestCacheProperties:
             keys_added.append(key)
 
         # Properties - check the actual cache structure
-        assert cache._current_features.shape == (n_features,), f"Wrong current features shape"
-        assert cache._feature_history.shape == (history_size, n_features), f"Wrong history shape"
+        assert cache._current_features.shape == (n_features,), "Wrong current features shape"
+        assert cache._feature_history.shape == (history_size, n_features), "Wrong history shape"
 
         # Current features should be accessible
         assert cache._current_features is not None
@@ -155,7 +163,9 @@ class TestCacheProperties:
 
 
 class TestIndicatorManagerProperties:
-    """Property tests for IndicatorManager."""
+    """
+    Property tests for IndicatorManager.
+    """
 
     @given(
         n_bars=st.integers(min_value=50, max_value=200),
@@ -202,8 +212,9 @@ class TestIndicatorManagerProperties:
         config = FeatureConfig()
 
         # Create bars with specific prices
-        from nautilus_trader.model.objects import Price, Quantity
         from nautilus_trader.model.data import Bar
+        from nautilus_trader.model.objects import Price
+        from nautilus_trader.model.objects import Quantity
 
         # First run
         mgr1 = IndicatorManager(config)
@@ -242,17 +253,17 @@ class TestIndicatorManagerProperties:
         for key in values1:
             assert key in values2, f"Key {key} missing in second run"
             np.testing.assert_allclose(
-                values1[key], values2[key],
+                values1[key],
+                values2[key],
                 rtol=1e-10,
-                err_msg=f"Indicator {key} not deterministic"
+                err_msg=f"Indicator {key} not deterministic",
             )
 
 
-import pytest
-
-
 class TestModelRegistryProperties:
-    """Property tests for model registry (85% coverage)."""
+    """
+    Property tests for model registry (85% coverage).
+    """
 
     @given(
         n_versions=st.integers(min_value=2, max_value=20),
@@ -357,7 +368,9 @@ class TestModelRegistryProperties:
 
 
 class TestStrategyProperties:
-    """Property tests for ML strategies (74% coverage)."""
+    """
+    Property tests for ML strategies (74% coverage).
+    """
 
     @given(
         warm_up_period=st.integers(min_value=10, max_value=100),
@@ -368,9 +381,8 @@ class TestStrategyProperties:
         """
         Property: Strategy should respect warmup period.
         """
-        from ml.config.base import MLActorConfig
-        from nautilus_trader.model.identifiers import InstrumentId
         from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
 
         config = MLActorConfig(
             model_path="dummy_model.pkl",
@@ -383,6 +395,7 @@ class TestStrategyProperties:
 
         # Create mock actor (since we don't have BaseMLStrategy)
         from ml.actors.base import BaseMLInferenceActor
+
         strategy = MagicMock(spec=BaseMLInferenceActor)
         strategy._config = config
         strategy._bars_processed = 0
@@ -416,7 +429,11 @@ class TestStrategyProperties:
         threshold=st.floats(min_value=0.5, max_value=0.95),
     )
     @settings(max_examples=10, deadline=5000)
-    def test_strategy_threshold_enforcement(self, predictions: list[float], threshold: float) -> None:
+    def test_strategy_threshold_enforcement(
+        self,
+        predictions: list[float],
+        threshold: float,
+    ) -> None:
         """
         Property: Strategy should only trade above threshold.
         """
@@ -425,10 +442,12 @@ class TestStrategyProperties:
         for pred in predictions:
             confidence = abs(pred)
             if confidence > threshold:
-                trades.append({
-                    "direction": np.sign(pred),
-                    "confidence": confidence,
-                })
+                trades.append(
+                    {
+                        "direction": np.sign(pred),
+                        "confidence": confidence,
+                    },
+                )
 
         # Properties
         for trade in trades:
@@ -437,7 +456,9 @@ class TestStrategyProperties:
 
 
 class TestFeatureEngineeringExtended:
-    """Extended property tests for feature engineering."""
+    """
+    Extended property tests for feature engineering.
+    """
 
     @given(
         n_features=st.integers(min_value=10, max_value=100),
@@ -449,13 +470,15 @@ class TestFeatureEngineeringExtended:
         Property: Feature shapes should be consistent across modes.
         """
         # Generate data
-        df = pd.DataFrame({
-            "open": np.random.randn(n_samples) * 0.01 + 100,
-            "high": np.random.randn(n_samples) * 0.01 + 101,
-            "low": np.random.randn(n_samples) * 0.01 + 99,
-            "close": np.random.randn(n_samples) * 0.01 + 100,
-            "volume": np.random.uniform(900000, 1100000, n_samples),
-        })
+        df = pd.DataFrame(
+            {
+                "open": np.random.randn(n_samples) * 0.01 + 100,
+                "high": np.random.randn(n_samples) * 0.01 + 101,
+                "low": np.random.randn(n_samples) * 0.01 + 99,
+                "close": np.random.randn(n_samples) * 0.01 + 100,
+                "volume": np.random.uniform(900000, 1100000, n_samples),
+            },
+        )
 
         config = FeatureConfig()
         engineer = FeatureEngineer(config)
@@ -464,7 +487,7 @@ class TestFeatureEngineeringExtended:
         batch_features, _ = engineer.calculate_features(df, mode="batch")
 
         # Get feature count
-        if hasattr(batch_features, 'shape'):
+        if hasattr(batch_features, "shape"):
             batch_shape = batch_features.shape
         else:
             batch_shape = (len(batch_features), len(batch_features.columns))
@@ -486,13 +509,15 @@ class TestFeatureEngineeringExtended:
         Property: Features should handle NaN values correctly.
         """
         # Create data with potential edge cases
-        df = pd.DataFrame({
-            "open": prices,
-            "high": [p * 1.01 for p in prices],
-            "low": [p * 0.99 for p in prices],
-            "close": prices,
-            "volume": [1000000.0] * len(prices),
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p * 1.01 for p in prices],
+                "low": [p * 0.99 for p in prices],
+                "close": prices,
+                "volume": [1000000.0] * len(prices),
+            },
+        )
 
         config = FeatureConfig()
         engineer = FeatureEngineer(config)
@@ -500,7 +525,7 @@ class TestFeatureEngineeringExtended:
         features, _ = engineer.calculate_features(df, mode="batch")
 
         # Convert to numpy for analysis
-        if hasattr(features, 'to_numpy'):
+        if hasattr(features, "to_numpy"):
             feature_array = features.to_numpy()
         else:
             feature_array = features.values
@@ -515,5 +540,7 @@ class TestFeatureEngineeringExtended:
         non_warmup_nans = nan_rows[warmup_period:]
 
         # After warmup, should have minimal NaNs
-        nan_ratio = np.sum(non_warmup_nans) / len(non_warmup_nans) if len(non_warmup_nans) > 0 else 0
+        nan_ratio = (
+            np.sum(non_warmup_nans) / len(non_warmup_nans) if len(non_warmup_nans) > 0 else 0
+        )
         assert nan_ratio < 0.1, f"Too many NaNs after warmup: {nan_ratio:.1%}"

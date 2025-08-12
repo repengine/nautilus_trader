@@ -21,12 +21,13 @@ NOTE: This file focuses on the student. The teacher is handled separately.
 
 from __future__ import annotations
 
-import json
 import hashlib
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Tuple
+import json
+from dataclasses import asdict
+from dataclasses import dataclass
 
 import numpy as np
+
 
 # LightGBM can be absent in some environments; delay import errors to fit().
 try:
@@ -36,8 +37,8 @@ except Exception:  # pragma: no cover - optional at import time
 
 # Optional calibration
 try:
-    from sklearn.linear_model import LogisticRegression
     from sklearn.isotonic import IsotonicRegression
+    from sklearn.linear_model import LogisticRegression
 except Exception:  # pragma: no cover - optional
     LogisticRegression = None
     IsotonicRegression = None
@@ -45,10 +46,12 @@ except Exception:  # pragma: no cover - optional
 # ONNX export
 try:
     import onnx
-    from onnx import helper, numpy_helper
-    from onnxmltools.convert.lightgbm.operator_converters.LightGbm import convert_lightgbm as convert_lgbm_booster
-    from onnxmltools.convert.common._topology import Topology, Variable
+    from onnx import helper
+    from onnx import numpy_helper
+    from onnxmltools.convert.common._topology import Topology
+    from onnxmltools.convert.common._topology import Variable
     from onnxmltools.convert.common.data_types import FloatTensorType
+    from onnxmltools.convert.lightgbm.operator_converters.LightGbm import convert_lightgbm as convert_lgbm_booster
 except Exception:  # pragma: no cover - optional
     onnx = None
     helper = None
@@ -59,7 +62,7 @@ except Exception:  # pragma: no cover - optional
     FloatTensorType = None
 
 
-def schema_hash(feature_names: List[str], dtypes: Optional[List[str]] = None) -> str:
+def schema_hash(feature_names: list[str], dtypes: list[str] | None = None) -> str:
     payload = "|".join(feature_names) + "||" + "|".join(dtypes or [])
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -67,21 +70,22 @@ def schema_hash(feature_names: List[str], dtypes: Optional[List[str]] = None) ->
 @dataclass
 class StudentMeta:
     model_id: str
-    feature_names: List[str]
-    feature_dtypes: List[str]
+    feature_names: list[str]
+    feature_dtypes: list[str]
     feature_schema_hash: str
-    output_schema: Dict
-    best_iteration: Optional[int]
+    output_schema: dict
+    best_iteration: int | None
     opset: int
     trainer_version: str
-    train_date_range: Optional[Tuple[str, str]] = None
-    calibrator_kind: Optional[str] = None
-    calibrator_params: Optional[Dict] = None
-    flags: Optional[Dict] = None
+    train_date_range: tuple[str, str] | None = None
+    calibrator_kind: str | None = None
+    calibrator_params: dict | None = None
+    flags: dict | None = None
 
 
 class LightGBMStudentDistiller:
-    """Student that distills a teacher's outputs to a LightGBM model and exports ONNX.
+    """
+    Student that distills a teacher's outputs to a LightGBM model and exports ONNX.
 
     Parameters
     ----------
@@ -95,15 +99,18 @@ class LightGBMStudentDistiller:
         Early stopping rounds.
     opset : int
         ONNX opset for export.
+
     """
 
-    def __init__(self,
-                 objective: str = "logit_mse",
-                 kd_lambda: float = 0.5,
-                 lgb_params: Optional[Dict] = None,
-                 early_stopping: int = 200,
-                 opset: int = 17,
-                 trainer_version: str = "0.1.0"):
+    def __init__(
+        self,
+        objective: str = "logit_mse",
+        kd_lambda: float = 0.5,
+        lgb_params: dict | None = None,
+        early_stopping: int = 200,
+        opset: int = 17,
+        trainer_version: str = "0.1.0",
+    ):
         self.objective = objective
         self.kd_lambda = kd_lambda
         self.lgb_params = lgb_params or {
@@ -119,9 +126,9 @@ class LightGBMStudentDistiller:
         self.opset = opset
         self.trainer_version = trainer_version
 
-        self.model = None            # LightGBM Booster
+        self.model = None  # LightGBM Booster
         self.best_iteration = None
-        self._calibrator = None      # (kind, params) OR fitted sklearn object
+        self._calibrator = None  # (kind, params) OR fitted sklearn object
         self._calibrator_kind = None
 
     # ---------- Distillation targets ----------
@@ -137,15 +144,15 @@ class LightGBMStudentDistiller:
 
     # ---------- Custom objectives (return grad,hess) ----------
 
-    def _obj_hybrid(self, pred_raw: np.ndarray, dataset) -> Tuple[np.ndarray, np.ndarray]:
+    def _obj_hybrid(self, pred_raw: np.ndarray, dataset) -> tuple[np.ndarray, np.ndarray]:
         # pred_raw = s (student logit); labels = q_T (teacher prob)
         q = dataset.get_label()
         p = 1.0 / (1.0 + np.exp(-pred_raw))
-        g_ce = (p - q)
+        g_ce = p - q
         h_ce = p * (1.0 - p)
 
         z = self.teacher_logits(q)
-        g_mse = (pred_raw - z)
+        g_mse = pred_raw - z
         h_mse = np.ones_like(pred_raw)
 
         lam = float(self.kd_lambda)
@@ -155,19 +162,24 @@ class LightGBMStudentDistiller:
 
     # ---------- Fit ----------
 
-    def fit(self,
-            X_train: np.ndarray,
-            q_train: np.ndarray,
-            X_val: np.ndarray,
-            y_val_true: Optional[np.ndarray] = None) -> "LightGBMStudentDistiller":
+    def fit(
+        self,
+        X_train: np.ndarray,
+        q_train: np.ndarray,
+        X_val: np.ndarray,
+        y_val_true: np.ndarray | None = None,
+    ) -> LightGBMStudentDistiller:
         if lgb is None:
             raise ImportError("lightgbm is required to train the student.")
         X_train = np.asarray(X_train, dtype=np.float32, order="C")
-        X_val   = np.asarray(X_val,   dtype=np.float32, order="C")
+        X_val = np.asarray(X_val, dtype=np.float32, order="C")
         q_train = np.asarray(q_train, dtype=np.float32)
 
         train_set = lgb.Dataset(X_train, label=q_train)
-        val_set   = lgb.Dataset(X_val,   label=(y_val_true if y_val_true is not None else q_train[:len(X_val)]))
+        val_set = lgb.Dataset(
+            X_val,
+            label=(y_val_true if y_val_true is not None else q_train[: len(X_val)]),
+        )
 
         params = dict(self.lgb_params)  # copy
         # We'll always train a raw-score model (logit space); metrics can be logloss on truth.
@@ -195,18 +207,17 @@ class LightGBMStudentDistiller:
         )
         self.best_iteration = getattr(self.model, "best_iteration", None)
 
-        # Optional post-calibration on true labels if provided
+        # Optional post-calibration on true labels if provided (fit on raw scores z)
         if y_val_true is not None:
             z_val = self._predict_raw(X_val)
-            p_val = 1.0 / (1.0 + np.exp(-z_val))
             if LogisticRegression is not None:
                 lr = LogisticRegression(solver="lbfgs")
-                lr.fit(p_val.reshape(-1,1), y_val_true.astype(int))
+                lr.fit(z_val.reshape(-1, 1), y_val_true.astype(int))
                 self._calibrator = lr
                 self._calibrator_kind = "platt"
             elif IsotonicRegression is not None:
                 iso = IsotonicRegression(out_of_bounds="clip")
-                iso.fit(p_val, y_val_true.astype(float))
+                iso.fit(z_val, y_val_true.astype(float))
                 self._calibrator = iso
                 self._calibrator_kind = "isotonic"
             else:
@@ -220,34 +231,47 @@ class LightGBMStudentDistiller:
         if self.model is None:
             raise RuntimeError("Model not trained.")
         X = np.asarray(X, dtype=np.float32, order="C")
-        return self.model.predict(X, num_iteration=self.best_iteration)
+        # For LightGBM binary, request raw scores (logits) if supported
+        try:
+            return self.model.predict(X, num_iteration=self.best_iteration, raw_score=True)
+        except TypeError:  # some boosters may not support raw_score param
+            return self.model.predict(X, num_iteration=self.best_iteration)
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         z = self._predict_raw(X)
         p = 1.0 / (1.0 + np.exp(-z))
         if self._calibrator is not None:
             if self._calibrator_kind == "platt":
-                p = self._calibrator.predict_proba(p.reshape(-1,1))[:,1]
+                # Apply Platt on raw scores: use learned coef/intercept
+                coef = float(self._calibrator.coef_.ravel()[0])
+                intercept = float(self._calibrator.intercept_.ravel()[0])
+                p = 1.0 / (1.0 + np.exp(-(coef * z + intercept)))
             elif self._calibrator_kind == "isotonic":
                 p = self._calibrator.transform(p)
-        return p.astype(np.float32).reshape(-1,1)
+        return p.astype(np.float32).reshape(-1, 1)
 
     # ---------- Export ----------
 
-    def export_onnx(self,
-                    feature_names: List[str],
-                    out_dir: str,
-                    model_id: str,
-                    train_date_range: Optional[Tuple[str, str]] = None,
-                    flags: Optional[Dict] = None) -> Tuple[str, str]:
-        """Export ONNX (trees) + bake sigmoid (+ Platt) and save sidecar metadata.
+    def export_onnx(
+        self,
+        feature_names: list[str],
+        out_dir: str,
+        model_id: str,
+        train_date_range: tuple[str, str] | None = None,
+        flags: dict | None = None,
+    ) -> tuple[str, str]:
+        """
+        Export ONNX (trees) + bake sigmoid (+ Platt) and save sidecar metadata.
 
         Returns
         -------
         (onnx_path, meta_path)
+
         """
         if onnx is None or convert_lgbm_booster is None or FloatTensorType is None:
-            raise ImportError("onnx/onnxmltools are required for export. pip install onnx onnxmltools")
+            raise ImportError(
+                "onnx/onnxmltools are required for export. pip install onnx onnxmltools",
+            )
         if self.model is None:
             raise RuntimeError("Train the model before export.")
 
@@ -272,20 +296,19 @@ class LightGBMStudentDistiller:
         initializers = []
 
         if self._calibrator_kind == "platt" and self._calibrator is not None:
-            # sklearn LR: predict_proba(sigmoid(w*z + b)). We want p = sigmoid(w*z + b).
+            # Apply Platt via Mul/Add for portability: p = sigmoid(a*z + b)
             coef = float(self._calibrator.coef_.ravel()[0])
             bias = float(self._calibrator.intercept_.ravel()[0])
-            w_name = "platt_W"
+            a_name = "platt_a"
             b_name = "platt_b"
-            W = numpy_helper.from_array(np.array([[coef]], dtype=np.float32), name=w_name)
-            B = numpy_helper.from_array(np.array([bias], dtype=np.float32), name=b_name)
-            initializers.extend([W, B])
-            gemm_out = "gemm_out"
-            nodes.append(helper.make_node("Gemm",
-                                          inputs=[last_output, w_name, b_name],
-                                          outputs=[gemm_out],
-                                          alpha=1.0, beta=1.0, transB=1))
-            last_output = gemm_out
+            A = numpy_helper.from_array(np.array(coef, dtype=np.float32), name=a_name)
+            B = numpy_helper.from_array(np.array(bias, dtype=np.float32), name=b_name)
+            initializers.extend([A, B])
+            mul_out = "platt_mul_out"
+            add_out = "platt_add_out"
+            nodes.append(helper.make_node("Mul", inputs=[last_output, a_name], outputs=[mul_out]))
+            nodes.append(helper.make_node("Add", inputs=[mul_out, b_name], outputs=[add_out]))
+            last_output = add_out
 
         # Sigmoid to get probability
         prob_name = "probability"
@@ -314,10 +337,14 @@ class LightGBMStudentDistiller:
             trainer_version=self.trainer_version,
             train_date_range=train_date_range,
             calibrator_kind=self._calibrator_kind,
-            calibrator_params=None if self._calibrator_kind != "platt" else {
-                "coef": float(self._calibrator.coef_.ravel()[0]),
-                "intercept": float(self._calibrator.intercept_.ravel()[0]),
-            },
+            calibrator_params=(
+                None
+                if self._calibrator_kind != "platt"
+                else {
+                    "coef": float(self._calibrator.coef_.ravel()[0]),
+                    "intercept": float(self._calibrator.intercept_.ravel()[0]),
+                }
+            ),
             flags=flags or {},
         )
         meta_path = os.path.join(out_dir, "student.meta.json")

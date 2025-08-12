@@ -1,8 +1,9 @@
 """
 Comprehensive hypothesis tests for ML module functionality.
 
-These tests focus on critical properties and invariants that must hold
-across the entire ML pipeline, regardless of implementation details.
+These tests focus on critical properties and invariants that must hold across the entire
+ML pipeline, regardless of implementation details.
+
 """
 
 from __future__ import annotations
@@ -14,28 +15,23 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from hypothesis import assume
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ml.config.base import MLActorConfig
 from ml.core.cache import PreAllocatedFeatureCache
-from ml.data.loader import MLDataLoader
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
-from ml.features.engineering import IndicatorManager
-from ml.models.base import BaseModel
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.local_registry import LocalModelRegistry
 
 
-import pytest
-
 class TestEndToEndProperties:
-    """Test properties that span the entire ML pipeline."""
+    """
+    Test properties that span the entire ML pipeline.
+    """
 
     @given(
         n_samples=st.integers(min_value=100, max_value=500),
@@ -43,7 +39,12 @@ class TestEndToEndProperties:
         train_ratio=st.floats(min_value=0.5, max_value=0.9),
     )
     @settings(max_examples=10, deadline=10000)
-    def test_training_inference_consistency(self, n_samples: int, n_features: int, train_ratio: float) -> None:
+    def test_training_inference_consistency(
+        self,
+        n_samples: int,
+        n_features: int,
+        train_ratio: float,
+    ) -> None:
         """
         Property: Features used in training must match inference features.
 
@@ -51,13 +52,15 @@ class TestEndToEndProperties:
         """
         # Generate synthetic data
         prices = 100 + np.cumsum(np.random.randn(n_samples) * 0.01)
-        df = pd.DataFrame({
-            "open": prices * 0.99,
-            "high": prices * 1.01,
-            "low": prices * 0.98,
-            "close": prices,
-            "volume": np.random.uniform(900000, 1100000, n_samples),
-        })
+        df = pd.DataFrame(
+            {
+                "open": prices * 0.99,
+                "high": prices * 1.01,
+                "low": prices * 0.98,
+                "close": prices,
+                "volume": np.random.uniform(900000, 1100000, n_samples),
+            },
+        )
 
         # Split data
         train_size = int(n_samples * train_ratio)
@@ -70,21 +73,23 @@ class TestEndToEndProperties:
 
         # Calculate training features
         train_features, scaler = engineer.calculate_features(
-            train_df, mode="batch", fit_scaler=True
+            train_df,
+            mode="batch",
+            fit_scaler=True,
         )
 
         # Property: Feature count should match configuration
         feature_count = (
             len(train_features.columns)
-            if hasattr(train_features, 'columns')
+            if hasattr(train_features, "columns")
             else train_features.shape[1]
         )
         # Just check that we have features
-        assert feature_count > 0, f"No features generated"
+        assert feature_count > 0, "No features generated"
 
         # Property: Scaler should be fitted on training data only
         if scaler is not None:
-            assert hasattr(scaler, 'mean_'), "Scaler not fitted"
+            assert hasattr(scaler, "mean_"), "Scaler not fitted"
             assert len(scaler.mean_) == feature_count, "Scaler dimension mismatch"
 
     @given(
@@ -117,7 +122,7 @@ class TestEndToEndProperties:
         assert initial_buffer_id == final_buffer_id, "Buffer was reallocated"
 
         # History size should be bounded
-        assert cache._feature_history.shape[0] == cache_size, f"History size changed"
+        assert cache._feature_history.shape[0] == cache_size, "History size changed"
 
     @given(
         n_models=st.integers(min_value=2, max_value=10),
@@ -170,8 +175,9 @@ class TestEndToEndProperties:
 
             # Property: Best model should have highest metric value
             for version, metric_value in model_metrics.items():
-                assert metric_value <= best_metric, \
-                    f"Found model with better metric: {metric_value} > {best_metric}"
+                assert (
+                    metric_value <= best_metric
+                ), f"Found model with better metric: {metric_value} > {best_metric}"
 
     @given(
         window_size=st.integers(min_value=10, max_value=100),
@@ -195,13 +201,13 @@ class TestEndToEndProperties:
             all_values.append(value)
 
             # Property: Window size never exceeds max
-            assert len(window) <= window_size, \
-                f"Window size {len(window)} > max {window_size}"
+            assert len(window) <= window_size, f"Window size {len(window)} > max {window_size}"
 
             # Property: After filling, size is exactly window_size
             if i >= window_size:
-                assert len(window) == window_size, \
-                    f"Window not at capacity: {len(window)} != {window_size}"
+                assert (
+                    len(window) == window_size
+                ), f"Window not at capacity: {len(window)} != {window_size}"
 
                 # Property: Window contains last window_size elements
                 expected = all_values[-window_size:]
@@ -217,7 +223,11 @@ class TestEndToEndProperties:
         confidence_threshold=st.floats(min_value=0.5, max_value=0.95),
     )
     @settings(max_examples=10, deadline=5000)
-    def test_signal_generation_properties(self, predictions: list[float], confidence_threshold: float) -> None:
+    def test_signal_generation_properties(
+        self,
+        predictions: list[float],
+        confidence_threshold: float,
+    ) -> None:
         """
         Property: Signal generation must respect thresholds and constraints.
 
@@ -239,16 +249,19 @@ class TestEndToEndProperties:
         # Properties to verify
         for signal in signals_generated:
             # Property: All signals must exceed threshold
-            assert signal["confidence"] > confidence_threshold, \
-                f"Signal confidence {signal['confidence']} <= threshold {confidence_threshold}"
+            assert (
+                signal["confidence"] > confidence_threshold
+            ), f"Signal confidence {signal['confidence']} <= threshold {confidence_threshold}"
 
             # Property: Prediction must be -1, 0, or 1
-            assert signal["prediction"] in [-1, 0, 1], \
-                f"Invalid prediction value: {signal['prediction']}"
+            assert signal["prediction"] in [
+                -1,
+                0,
+                1,
+            ], f"Invalid prediction value: {signal['prediction']}"
 
             # Property: Confidence must be positive
-            assert signal["confidence"] >= 0, \
-                f"Negative confidence: {signal['confidence']}"
+            assert signal["confidence"] >= 0, f"Negative confidence: {signal['confidence']}"
 
         # Property: Signal timestamps must be monotonic
         timestamps = [s["timestamp"] for s in signals_generated]
@@ -265,8 +278,6 @@ class TestEndToEndProperties:
 
         Critical for real-time trading systems.
         """
-        import time
-
         latencies = []
         violations = 0
 
@@ -291,8 +302,7 @@ class TestEndToEndProperties:
 
         # Violation rate should be reasonable
         violation_rate = violations / n_bars
-        assert violation_rate < 0.5, \
-            f"Too many latency violations: {violation_rate:.1%}"
+        assert violation_rate < 0.5, f"Too many latency violations: {violation_rate:.1%}"
 
     @given(
         model_accuracy=st.floats(min_value=0.0, max_value=1.0),
@@ -300,7 +310,12 @@ class TestEndToEndProperties:
         model_recall=st.floats(min_value=0.0, max_value=1.0),
     )
     @settings(max_examples=10, deadline=5000)
-    def test_metric_validity(self, model_accuracy: float, model_precision: float, model_recall: float) -> None:
+    def test_metric_validity(
+        self,
+        model_accuracy: float,
+        model_precision: float,
+        model_recall: float,
+    ) -> None:
         """
         Property: Model metrics must be valid probabilities.
 
@@ -315,8 +330,7 @@ class TestEndToEndProperties:
         # Properties
         for name, value in metrics.items():
             # Property: Metrics must be in [0, 1]
-            assert 0 <= value <= 1, \
-                f"Metric {name}={value} outside valid range [0,1]"
+            assert 0 <= value <= 1, f"Metric {name}={value} outside valid range [0,1]"
 
         # Property: F1 score calculation
         if model_precision + model_recall > 0:
@@ -327,8 +341,9 @@ class TestEndToEndProperties:
             min_pr = min(model_precision, model_recall)
             max_pr = max(model_precision, model_recall)
             # Allow small numerical error
-            assert min_pr - 1e-10 <= f1 <= max_pr + 1e-10, \
-                f"F1 {f1} not between precision {model_precision} and recall {model_recall}"
+            assert (
+                min_pr - 1e-10 <= f1 <= max_pr + 1e-10
+            ), f"F1 {f1} not between precision {model_precision} and recall {model_recall}"
 
     @given(
         state_sequence=st.lists(
@@ -363,9 +378,9 @@ class TestEndToEndProperties:
             # else: Invalid transition, stay in current state
 
             # Property: Must always be in a valid state
-            assert current_state in valid_transitions.keys(), \
-                f"Invalid state: {current_state}"
+            assert current_state in valid_transitions.keys(), f"Invalid state: {current_state}"
 
         # Property: Can always reach stopped state
-        assert "stopped" in valid_transitions.get(current_state, []) or current_state == "stopped", \
-            f"Cannot reach stopped state from {current_state}"
+        assert (
+            "stopped" in valid_transitions.get(current_state, []) or current_state == "stopped"
+        ), f"Cannot reach stopped state from {current_state}"

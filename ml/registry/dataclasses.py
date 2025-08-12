@@ -3,8 +3,9 @@
 """
 Shared data structures for the ML registry.
 
-This module contains dataclasses used across the registry system for
-quality validation, canary deployments, and statistical analysis.
+This module contains dataclasses used across the registry system for quality validation,
+canary deployments, and statistical analysis.
+
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ import time
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
-from typing import Optional
 
 
 @dataclass
@@ -31,6 +31,7 @@ class QualityGate:
         Comparison operator ('gte', 'lte', 'eq', 'gt', 'lt')
     required : bool
         Whether this gate must pass for overall validation
+
     """
 
     metric_name: str
@@ -58,6 +59,7 @@ class ValidationResult:
         Number of gates that failed
     gate_results : dict[str, dict[str, Any]]
         Detailed results for each gate
+
     """
 
     model_id: str
@@ -91,6 +93,7 @@ class CanaryConfig:
         Minimum samples before making decisions
     error_rate_threshold : float
         Maximum acceptable error rate
+
     """
 
     traffic_percentage: float = 5.0
@@ -128,29 +131,32 @@ class CanaryDeployment:
         Current status (active, promoted, rolled_back)
     metrics : dict[str, Any]
         Collected performance metrics
+
     """
 
     deployment_id: str
     model_id: str
     target: str
     config: CanaryConfig
-    baseline_model_id: Optional[str] = None
-    baseline_performance: Optional[float] = None
+    baseline_model_id: str | None = None
+    baseline_performance: float | None = None
     created_at: float = field(default_factory=time.time)
     status: str = "active"
-    metrics: dict[str, Any] = field(default_factory=lambda: {
-        "sample_count": 0,
-        "success_count": 0,
-        "error_count": 0,
-        "metric_sum": 0.0,
-        "metric_values": [],
-        "latency_values": [],
-    })
+    metrics: dict[str, Any] = field(
+        default_factory=lambda: {
+            "sample_count": 0,
+            "success_count": 0,
+            "error_count": 0,
+            "metric_sum": 0.0,
+            "metric_values": [],
+            "latency_values": [],
+        },
+    )
 
     def record_metric(
         self,
         metric_value: float,
-        latency_ms: Optional[float] = None,
+        latency_ms: float | None = None,
         error_occurred: bool = False,
     ) -> None:
         """
@@ -164,6 +170,7 @@ class CanaryDeployment:
             Response latency in milliseconds
         error_occurred : bool
             Whether an error occurred
+
         """
         self.metrics["sample_count"] += 1
 
@@ -185,6 +192,7 @@ class CanaryDeployment:
         -------
         tuple[bool, str]
             (should_promote, reason)
+
         """
         if self.status != "active":
             return False, "not_active"
@@ -202,9 +210,7 @@ class CanaryDeployment:
             return False, "high_error_rate"
 
         current_performance = (
-            self.metrics["metric_sum"] / success_count
-            if success_count > 0
-            else 0.0
+            self.metrics["metric_sum"] / success_count if success_count > 0 else 0.0
         )
 
         if self.baseline_performance is not None:
@@ -229,6 +235,7 @@ class CanaryDeployment:
         -------
         tuple[bool, str]
             (should_rollback, reason)
+
         """
         if self.status != "active":
             return False, "not_active"
@@ -264,15 +271,14 @@ class CanaryDeployment:
         -------
         dict[str, Any]
             Status summary including metrics and decisions
+
         """
         sample_count = self.metrics["sample_count"]
         success_count = self.metrics["success_count"]
         error_count = self.metrics["error_count"]
 
         current_performance = (
-            self.metrics["metric_sum"] / success_count
-            if success_count > 0
-            else 0.0
+            self.metrics["metric_sum"] / success_count if success_count > 0 else 0.0
         )
 
         error_rate = error_count / sample_count if sample_count > 0 else 0.0
@@ -340,6 +346,7 @@ class RolloutPlan:
         Rollout status
     stage_results : list[dict[str, Any]]
         Results from each completed stage
+
     """
 
     rollout_id: str
@@ -354,7 +361,9 @@ class RolloutPlan:
     stage_results: list[dict[str, Any]] = field(default_factory=list)
 
     def get_current_traffic_split(self) -> float:
-        """Get current traffic percentage for new model."""
+        """
+        Get current traffic percentage for new model.
+        """
         if self.current_stage < len(self.stages):
             return self.stages[self.current_stage]
         return 1.0  # Full deployment
@@ -367,6 +376,7 @@ class RolloutPlan:
         -------
         bool
             True if advanced, False if already at final stage
+
         """
         if self.current_stage < len(self.stages) - 1:
             self.current_stage += 1
@@ -374,5 +384,7 @@ class RolloutPlan:
         return False
 
     def is_complete(self) -> bool:
-        """Check if rollout is complete."""
+        """
+        Check if rollout is complete.
+        """
         return self.current_stage >= len(self.stages) - 1 and self.stages[-1] == 1.0
