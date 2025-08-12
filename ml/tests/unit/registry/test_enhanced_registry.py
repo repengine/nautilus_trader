@@ -29,7 +29,7 @@ from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import ValidationResult
-from ml.registry.local_registry import LocalModelRegistry
+from ml.registry.model_registry import LocalModelRegistry
 
 
 class TestEnhancedLocalModelRegistry:

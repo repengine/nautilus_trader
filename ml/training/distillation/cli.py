@@ -28,7 +28,7 @@ import numpy as np
 
 from ml.distillation.lightgbm_student import LightGBMStudentDistiller
 from ml.distillation.lightgbm_student import schema_hash
-from ml.registry.local_registry import LocalModelRegistry
+from ml.registry.model_registry import LocalModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
 

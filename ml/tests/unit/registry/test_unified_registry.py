@@ -26,7 +26,7 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.local_registry import LocalModelRegistry
+from ml.registry.model_registry import LocalModelRegistry
 from ml.tests.unit.registry.test_model_contracts import ModelContractValidator
 from ml.tests.unit.registry.test_model_contracts import create_valid_student_manifest
 from ml.tests.unit.registry.test_model_contracts import create_valid_teacher_manifest

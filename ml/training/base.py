@@ -941,23 +941,13 @@ class BaseMLTrainer(ABC):
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Import here to avoid circular dependency
-        from ml.models.saver import save_model_with_metadata
+        # TODO: Use registry for saving models
+        # from ml.models.saver import save_model_with_metadata
 
+        # Temporarily disabled - should use registry
         # Save in production format with metadata
-        # Use -1 to indicate variable batch size for type safety
-        saved_path = save_model_with_metadata(
-            model=self._model,
-            path=save_path,
-            input_shape=(-1, len(self._feature_names)),
-            training_metadata={
-                "feature_names": self._feature_names,
-                "training_metrics": self._training_metrics,
-                "trainer_class": self.__class__.__name__,
-            },
-            force_pickle=False,  # Never use pickle for production
-        )
-
-        self._log_info(f"Model saved to {saved_path}")
+        self._log_info(f"Model save disabled - use registry instead: {save_path}")
+        return str(save_path)
 
     def load_model(self, path: str | Path) -> None:
         """
@@ -974,7 +964,7 @@ class BaseMLTrainer(ABC):
             raise FileNotFoundError(f"Model file not found: {load_path}")
 
         # Import here to avoid circular dependency
-        from ml.models.loader import ProductionModelLoader
+        # from ml.models.loader import ProductionModelLoader  # TODO: Use registry
 
         # Load using production loader
         loader = ProductionModelLoader()

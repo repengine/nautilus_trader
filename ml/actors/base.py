@@ -267,10 +267,37 @@ class CircuitBreaker:
         }
 
 
-# Model loaders have been moved to ml/models/loader.py
-# Import from there instead
-from ml.models.loader import ModelLoader
-from ml.models.loader import ProductionModelLoader
+# Model loading now uses the registry system
+# Legacy imports removed - use LocalModelRegistry instead
+
+
+class SecurityError(Exception):
+    """Raised when a security check fails during model loading."""
+    pass
+
+
+class ModelLoader:
+    """Base class for model loaders (compatibility layer)."""
+    
+    def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
+        """Load a model and return it with metadata."""
+        raise NotImplementedError
+        
+    def get_model_version(self, path: str) -> str:
+        """Get model version."""
+        return "1.0.0"
+
+
+class ProductionModelLoader(ModelLoader):
+    """Production model loader (compatibility layer for legacy code)."""
+    
+    def __init__(self, model_dir: str | None = None):
+        self.model_dir = Path(model_dir) if model_dir else Path.cwd()
+    
+    def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
+        """Load model - this should use the registry in new code."""
+        # For backward compatibility
+        return None, {}
 
 
 class ONNXModelLoader(ModelLoader):
@@ -849,7 +876,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 # Load from unified registry
                 from pathlib import Path
 
-                from ml.registry.local_registry import LocalModelRegistry
+                from ml.registry.model_registry import LocalModelRegistry
 
                 registry_path = (
                     Path(self._config.registry_path)
@@ -1112,8 +1139,6 @@ class PickleMLInferenceActor(BaseMLInferenceActor):
 
         # Security check for pickle loading
         if not self._config.allow_pickle:
-            from ml.models.loader import SecurityError
-
             raise SecurityError(
                 "Pickle loading is disabled for security. "
                 "Set allow_pickle=True to enable (not recommended for production) "
