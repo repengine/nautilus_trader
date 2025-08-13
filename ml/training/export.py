@@ -24,8 +24,15 @@ from numpy.typing import NDArray
 
 from ml._imports import HAS_LIGHTGBM
 from ml._imports import HAS_ONNX
+from ml._imports import HAS_ONNX_CORE
 from ml._imports import HAS_XGBOOST
+from ml._imports import lgb
+from ml._imports import onnx
+from ml._imports import onnxmltools
+from ml._imports import skl2onnx
+from ml._imports import xgb
 from ml.config.constants import SUFFIX_ONNX
+from ml.config.constants import Versions
 from ml.config.names import ONNX_INPUT_NAME
 
 
@@ -57,19 +64,15 @@ def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
     except Exception:
         pass
 
-    if HAS_XGBOOST:
+    if HAS_XGBOOST and xgb is not None:
         try:
-            import xgboost as xgb
-
             if isinstance(model, xgb.Booster) or model.__class__.__name__.startswith("XGB"):
                 return ModelType.XGBOOST
         except Exception:
             pass
 
-    if HAS_LIGHTGBM:
+    if HAS_LIGHTGBM and lgb is not None:
         try:
-            import lightgbm as lgb
-
             if isinstance(model, lgb.Booster) or model.__class__.__name__.startswith("LGBM"):
                 return ModelType.LIGHTGBM
         except Exception:
@@ -83,7 +86,8 @@ def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
 
 
 # Unified default opset for ONNX exports used by training layer
-DEFAULT_ONNX_OPSET = 15
+# Delegate to central Versions to avoid drift across modules.
+DEFAULT_ONNX_OPSET = Versions.ONNX_OPSET
 
 
 def save_model_with_metadata(
@@ -150,7 +154,7 @@ def _save_lightgbm_model(model: Any, path: Path) -> Path:
 
     # Support both sklearn wrapper (has booster_) and raw Booster
     try:
-        import lightgbm as lgb
+        assert lgb is not None
     except Exception:  # pragma: no cover - fallback to pickle
         return _save_pickle_model(model, path)
 
@@ -171,9 +175,7 @@ def _save_lightgbm_model(model: Any, path: Path) -> Path:
 
 
 def _save_onnx_model(model: Any, path: Path) -> Path:
-    if HAS_ONNX:
-        import onnx
-
+    if HAS_ONNX_CORE and onnx is not None:
         model_path = path.with_suffix(SUFFIX_ONNX)
         onnx.save(model, str(model_path))
         return model_path
@@ -223,31 +225,37 @@ def convert_to_onnx(
     if model_type == ModelType.XGBOOST:
         if not HAS_XGBOOST:
             raise ImportError("XGBoost not installed")
-        from onnxmltools import convert_xgboost
+        assert onnxmltools is not None
         from onnxmltools.convert.common.data_types import FloatTensorType
 
         initial_type = [(ONNX_INPUT_NAME, FloatTensorType([None, sample_input.shape[-1]]))]
-        onnx_model = convert_xgboost(model, initial_types=initial_type, target_opset=opset_version)
+        onnx_model = onnxmltools.convert_xgboost(
+            model,
+            initial_types=initial_type,
+            target_opset=opset_version,
+        )
 
     elif model_type == ModelType.LIGHTGBM:
         if not HAS_LIGHTGBM:
             raise ImportError("LightGBM not installed")
-        from onnxmltools import convert_lightgbm
+        assert onnxmltools is not None
         from onnxmltools.convert.common.data_types import FloatTensorType
 
         initial_type = [(ONNX_INPUT_NAME, FloatTensorType([None, sample_input.shape[-1]]))]
-        onnx_model = convert_lightgbm(model, initial_types=initial_type, target_opset=opset_version)
+        onnx_model = onnxmltools.convert_lightgbm(
+            model,
+            initial_types=initial_type,
+            target_opset=opset_version,
+        )
 
     elif model_type == ModelType.SKLEARN:
-        from skl2onnx import to_onnx
-
-        onnx_model = to_onnx(model, sample_input[:1], target_opset=opset_version)
+        assert skl2onnx is not None
+        onnx_model = skl2onnx.to_onnx(model, sample_input[:1], target_opset=opset_version)
 
     else:
         raise ValueError(f"Cannot convert {model_type} to ONNX")
 
-    import onnx
-
+    assert HAS_ONNX_CORE and onnx is not None
     onnx.save(onnx_model, str(output_path))
 
     metadata_dict = {
@@ -258,7 +266,7 @@ def convert_to_onnx(
         "modified_time": output_path.stat().st_mtime,
         "input_shape": sample_input.shape,
         "output_shape": None,
-        "input_names": ["float_input"],
+        "input_names": [ONNX_INPUT_NAME],
         "output_names": None,
     }
     metadata_path = output_path.with_suffix(".onnx.meta.json")

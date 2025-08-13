@@ -43,4 +43,4 @@ def test_validate_and_promote(tmp_path: Path) -> None:
     ok = reg.validate_and_promote(fid, gates)
     assert ok is True
     got = reg.get_feature_set(fid)
-    assert got is not None and got.stage.value == "prod"
+    assert got is not None and got.manifest.stage.value == "prod"

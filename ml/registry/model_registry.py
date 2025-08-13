@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 """
-Local file-based model registry implementation.
+Local file-based model registry implementation with configurable persistence backends.
 
-This module provides a JSON-based registry for environments without external model
-registry services like MLflow.
+This module provides a registry that can use either JSON files or PostgreSQL for persistence,
+making it suitable for both development and production environments.
 
 """
 
@@ -15,11 +15,9 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ml.config.constants import SUFFIX_ONNX
-from ml.config.constants import ExportFormats
-from ml.config.constants import Providers
 from ml.config.constants import Versions
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
@@ -32,6 +30,10 @@ from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import RolloutPlan
 from ml.registry.dataclasses import ValidationResult
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import ModelTable
+from ml.registry.persistence import PersistenceConfig
+from ml.registry.persistence import PersistenceManager
 from ml.registry.statistics import welch_t_test
 
 
@@ -54,27 +56,43 @@ class LocalModelRegistry(ModelRegistry):
         registry_path: Path,
         cache_size: int = 10,
         batch_save_interval: float = 0.1,
+        persistence_config: PersistenceConfig | None = None,
+        policy_config: RegistryPolicyConfig | None = None,
+        onnx_runtime_config: OnnxRuntimeConfig | None = None,
     ) -> None:
         """
-        Initialize local model registry with caching and batch saves.
+        Initialize local model registry with configurable persistence backend.
 
         Parameters
         ----------
         registry_path : Path
-            Directory path for registry storage
+            Directory path for registry storage (used for model files)
         cache_size : int
             Maximum number of models to cache in memory
         batch_save_interval : float
             Seconds to wait before flushing batch saves (default 0.1s)
+        persistence_config : PersistenceConfig | None
+            Persistence configuration. If None, defaults to JSON backend.
 
         """
         self.registry_path = registry_path
         self.registry_path.mkdir(parents=True, exist_ok=True)
         self.cache_size = cache_size
         self.batch_save_interval = batch_save_interval
+        self._policy = policy_config or RegistryPolicyConfig()
+        self._onnx_rt = onnx_runtime_config or OnnxRuntimeConfig()
 
         # Store absolute path for security validation
         self._registry_root = self.registry_path.resolve()
+
+        # Setup persistence
+        if persistence_config is None:
+            persistence_config = PersistenceConfig(
+                backend=BackendType.JSON,
+                json_path=registry_path,
+            )
+        self.persistence = PersistenceManager(persistence_config)
+        self.backend = persistence_config.backend
 
         self.registry_file = self.registry_path / "registry.json"
         self._lock = threading.RLock()  # Use RLock to allow reentrant locking
@@ -91,27 +109,62 @@ class LocalModelRegistry(ModelRegistry):
         self._load_registry()
 
         logger.info(
-            f"Initialized LocalModelRegistry at {registry_path} with cache_size={cache_size}, batch_save_interval={batch_save_interval}s",
+            f"Initialized LocalModelRegistry at {registry_path} with backend={self.backend.value}, cache_size={cache_size}, batch_save_interval={batch_save_interval}s",
         )
 
     def _load_registry(self) -> None:
         """
-        Load registry from disk or create new one.
+        Load registry from persistence backend or create new one.
         """
-        if self.registry_file.exists():
-            with open(self.registry_file) as f:
-                data = json.load(f)
-                self._models: dict[str, ModelInfo] = {
-                    model_id: self._dict_to_model_info(model_data)
-                    for model_id, model_data in data.get("models", {}).items()
-                }
-                self._ab_tests: dict[str, dict[str, Any]] = data.get("ab_tests", {})
-                self._deployments: dict[str, list[str]] = data.get("deployments", {})
-        else:
-            self._models = {}
-            self._ab_tests = {}
-            self._deployments = {}  # target -> model_ids
-            self._save_registry()
+        if self.backend == BackendType.JSON:
+            if self.registry_file.exists():
+                data = self.persistence.load_json("registry.json")
+                if data is not None:
+                    self._models: dict[str, ModelInfo] = {
+                        model_id: self._dict_to_model_info(model_data)
+                        for model_id, model_data in data.get("models", {}).items()
+                    }
+                    self._ab_tests: dict[str, dict[str, Any]] = data.get("ab_tests", {})
+                    self._deployments: dict[str, list[str]] = data.get("deployments", {})
+                else:
+                    self._models = {}
+                    self._ab_tests = {}
+                    self._deployments = {}
+            else:
+                self._models = {}
+                self._ab_tests = {}
+                self._deployments = {}  # target -> model_ids
+                self._save_registry()
+        elif self.backend == BackendType.POSTGRES:
+            # Load all models from PostgreSQL
+            session = self.persistence.get_session()
+            if session is None:
+                self._models = {}
+                self._ab_tests = {}
+                self._deployments = {}
+                return
+            try:
+                self._models = {}
+                self._ab_tests = {}
+                self._deployments = {}
+
+                models = session.query(ModelTable).all()
+                for model in models:
+                    model_info = self._db_to_model_info(model)
+                    self._models[model_info.manifest.model_id] = model_info
+
+                    # Reconstruct deployments
+                    for target in cast(list[str], model.deployed_to) or []:
+                        if target not in self._deployments:
+                            self._deployments[target] = []
+                        self._deployments[target].append(model_info.manifest.model_id)
+            except Exception as e:
+                logger.warning(f"Error loading from database: {e}. Starting with empty registry.")
+                self._models = {}
+                self._ab_tests = {}
+                self._deployments = {}
+            finally:
+                session.close()
 
     def _save_registry(self, immediate: bool = False) -> None:
         """
@@ -268,6 +321,115 @@ class LocalModelRegistry(ModelRegistry):
             metadata=data.get("metadata", {}),
         )
 
+    def _db_to_model_info(self, db_model: ModelTable) -> ModelInfo:
+        """
+        Convert database model to ModelInfo.
+
+        Parameters
+        ----------
+        db_model : ModelTable
+            Database model record
+
+        Returns
+        -------
+        ModelInfo
+            Model information object
+
+        """
+        manifest = ModelManifest(
+            model_id=cast(str, db_model.model_id),
+            role=ModelRole(cast(str, db_model.role)),
+            data_requirements=DataRequirements(cast(str, db_model.data_requirements)),
+            architecture=cast(str, db_model.architecture),
+            feature_schema=cast(dict[str, str], db_model.feature_schema) or {},
+            feature_schema_hash=cast(str, db_model.feature_schema_hash),
+            parent_id=db_model.parent_id,
+            children_ids=cast(list[str], db_model.children_ids) or [],
+            training_config=cast(dict[str, Any], db_model.training_config) or {},
+            performance_metrics=cast(dict[str, float], db_model.performance_metrics) or {},
+            deployment_constraints=cast(dict[str, Any], db_model.deployment_constraints) or {},
+            version=cast(str, db_model.version),
+            created_at=db_model.created_at.timestamp() if db_model.created_at else time.time(),
+            last_modified=db_model.last_modified.timestamp() if db_model.last_modified else time.time(),
+        )
+
+        return ModelInfo(
+            manifest=manifest,
+            model_path=Path(cast(str, db_model.model_path)),
+            deployment_status=DeploymentStatus(cast(str, db_model.deployment_status)),
+            deployed_to=cast(list[str], db_model.deployed_to) or [],
+            performance_history=cast(list[dict[str, Any]], db_model.performance_history) or [],
+            metadata=cast(dict[str, Any], db_model.extra_metadata) or {},
+        )
+
+    def _save_model_to_db(self, model_info: ModelInfo) -> None:
+        """
+        Save model to PostgreSQL database.
+
+        Parameters
+        ----------
+        model_info : ModelInfo
+            Model information to save
+
+        """
+        session = self.persistence.get_session()
+        if session is None:
+            return
+        try:
+            # Check if model exists
+            existing = session.query(ModelTable).filter_by(
+                model_id=model_info.manifest.model_id
+            ).first()
+
+            if existing:
+                # Update existing model
+                existing.role = model_info.manifest.role.value
+                existing.data_requirements = model_info.manifest.data_requirements.value
+                existing.architecture = model_info.manifest.architecture
+                existing.feature_schema = model_info.manifest.feature_schema
+                existing.feature_schema_hash = model_info.manifest.feature_schema_hash
+                existing.parent_id = model_info.manifest.parent_id
+                existing.children_ids = model_info.manifest.children_ids
+                existing.training_config = model_info.manifest.training_config
+                existing.performance_metrics = model_info.manifest.performance_metrics
+                existing.deployment_constraints = model_info.manifest.deployment_constraints
+                existing.deployment_status = model_info.deployment_status.value
+                existing.deployed_to = model_info.deployed_to
+                existing.version = model_info.manifest.version
+                existing.extra_metadata = model_info.metadata
+                existing.model_path = str(model_info.model_path)
+                existing.performance_history = model_info.performance_history
+            else:
+                # Create new model
+                new_model = ModelTable(
+                    model_id=model_info.manifest.model_id,
+                    role=model_info.manifest.role.value,
+                    data_requirements=model_info.manifest.data_requirements.value,
+                    architecture=model_info.manifest.architecture,
+                    feature_schema=model_info.manifest.feature_schema,
+                    feature_schema_hash=model_info.manifest.feature_schema_hash,
+                    parent_id=model_info.manifest.parent_id,
+                    children_ids=model_info.manifest.children_ids,
+                    training_config=model_info.manifest.training_config,
+                    performance_metrics=model_info.manifest.performance_metrics,
+                    deployment_constraints=model_info.manifest.deployment_constraints,
+                    deployment_status=model_info.deployment_status.value,
+                    deployed_to=model_info.deployed_to,
+                    version=model_info.manifest.version,
+                    extra_metadata=model_info.metadata,
+                    model_path=str(model_info.model_path),
+                    performance_history=model_info.performance_history,
+                )
+                session.add(new_model)
+
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save model to database: {e}")
+            raise
+        finally:
+            session.close()
+
     def _generate_model_id(self) -> str:
         """
         Generate unique model ID.
@@ -391,7 +553,20 @@ class LocalModelRegistry(ModelRegistry):
 
             # Store and save
             self._models[manifest.model_id] = model_info
-            self._save_registry()
+
+            # Persist to backend
+            if self.backend == BackendType.POSTGRES:
+                self._save_model_to_db(model_info)
+            else:
+                self._save_registry()
+
+            # Log audit
+            self.persistence.log_audit(
+                entity_type="model",
+                entity_id=manifest.model_id,
+                action="registered",
+                changes={"role": manifest.role.value, "status": model_info.deployment_status.value},
+            )
 
             logger.info(
                 f"Registered {manifest.role.value} model {manifest.model_id} "
@@ -419,9 +594,14 @@ class LocalModelRegistry(ModelRegistry):
                         errors.append("Student must have parent_id")
                     # Check latency constraint
                     if "inference_latency_ms" in manifest.performance_metrics:
-                        if manifest.performance_metrics["inference_latency_ms"] > 5:
+                        if (
+                            manifest.performance_metrics["inference_latency_ms"]
+                            > float(self._policy.max_inference_latency_ms)
+                        ):
                             is_valid = False
-                            errors.append("Student inference must be under 5ms")
+                            errors.append(
+                                f"Student inference must be under {self._policy.max_inference_latency_ms}ms",
+                            )
 
                 if is_valid:
                     # Determine deployment target based on role
@@ -611,7 +791,6 @@ class LocalModelRegistry(ModelRegistry):
 
             # Only support ONNX format for security
             try:
-                from ml.config.constants import ExportFormats
                 from ml.config.constants import Providers
 
                 if model_path.suffix == SUFFIX_ONNX:
@@ -625,13 +804,32 @@ class LocalModelRegistry(ModelRegistry):
 
                     # Create optimized session like in ONNXModelLoader
                     session_options = ort.SessionOptions()
-                    session_options.graph_optimization_level = (
-                        ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    # Map config to ORT
+                    level_map = {
+                        "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+                        "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
+                        "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+                        "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+                    }
+                    exec_map = {
+                        "sequential": ort.ExecutionMode.ORT_SEQUENTIAL,
+                        "parallel": ort.ExecutionMode.ORT_PARALLEL,
+                    }
+                    session_options.graph_optimization_level = level_map.get(
+                        self._onnx_rt.graph_optimization_level,
+                        ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
                     )
-                    session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                    session_options.execution_mode = exec_map.get(
+                        self._onnx_rt.execution_mode,
+                        ort.ExecutionMode.ORT_SEQUENTIAL,
+                    )
+                    if self._onnx_rt.intra_threads is not None:
+                        session_options.intra_op_num_threads = int(self._onnx_rt.intra_threads)
+                    if self._onnx_rt.inter_threads is not None:
+                        session_options.inter_op_num_threads = int(self._onnx_rt.inter_threads)
 
-                    # Use CPU provider for predictable latency
-                    providers = [Providers.CPU]
+                    # Providers from config
+                    providers = self._onnx_rt.providers or [Providers.CPU]
 
                     model = ort.InferenceSession(
                         str(model_path),
@@ -1658,6 +1856,7 @@ class LocalModelRegistry(ModelRegistry):
                 "status": rollout.status,
             }
 
+from ml.config.base import RegistryPolicyConfig, OnnxRuntimeConfig
     def advance_rollout_stage(self, rollout_id: str) -> bool:
         """
         Advance to next rollout stage.

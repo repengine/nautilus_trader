@@ -14,11 +14,17 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from dataclasses import asdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
+from ml.registry.persistence import PersistenceManager
+from ml.registry.persistence import StrategyTable
 
 
 # =================================================================================================
@@ -156,17 +162,26 @@ class StrategyInfo:
 
 class LocalStrategyRegistry:
     """
-    Local file-based strategy registry.
+    Strategy registry with configurable persistence backend.
+
+    Supports both JSON files and PostgreSQL for persistence,
+    making it suitable for both development and production environments.
     """
 
-    def __init__(self, base_path: Path) -> None:
+    def __init__(
+        self,
+        base_path: Path,
+        persistence_config: PersistenceConfig | None = None,
+    ) -> None:
         """
-        Initialize strategy registry.
+        Initialize strategy registry with configurable persistence backend.
 
         Parameters
         ----------
         base_path : Path
             Base directory for storing strategies.
+        persistence_config : PersistenceConfig | None
+            Persistence configuration. If None, defaults to JSON backend.
 
         """
         self.base_path = Path(base_path)
@@ -176,9 +191,22 @@ class LocalStrategyRegistry:
         # Create directories
         self.strategies_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize registry file if it doesn't exist
-        if not self.registry_file.exists():
-            self._save_registry({})
+        # Setup persistence
+        if persistence_config is None:
+            persistence_config = PersistenceConfig(
+                backend=BackendType.JSON,
+                json_path=self.strategies_dir,
+            )
+        self.persistence = PersistenceManager(persistence_config)
+        self.backend = persistence_config.backend
+
+        # Initialize registry
+        if self.backend == BackendType.JSON:
+            if not self.registry_file.exists():
+                self._save_registry({})
+        elif self.backend == BackendType.POSTGRES:
+            # PostgreSQL tables are created automatically by SQLAlchemy
+            pass
 
     def register_strategy(
         self,
@@ -215,13 +243,24 @@ class LocalStrategyRegistry:
             json.dump(manifest.to_dict(), f, indent=2)
 
         # Update registry
-        registry = self._load_registry()
-        registry[manifest.strategy_id] = {
-            "manifest_path": str(manifest_path),
-            "file_path": str(dest_path),
-            "registered_at": manifest.created_at,
-        }
-        self._save_registry(registry)
+        if self.backend == BackendType.JSON:
+            registry = self._load_registry()
+            registry[manifest.strategy_id] = {
+                "manifest_path": str(manifest_path),
+                "file_path": str(dest_path),
+                "registered_at": manifest.created_at,
+            }
+            self._save_registry(registry)
+        elif self.backend == BackendType.POSTGRES:
+            self._save_strategy_to_db(manifest, dest_path)
+
+        # Log audit
+        self.persistence.log_audit(
+            entity_type="strategy",
+            entity_id=manifest.strategy_id,
+            action="registered",
+            changes={"type": manifest.strategy_type.value, "version": manifest.version},
+        )
 
         return manifest.strategy_id
 
@@ -240,21 +279,40 @@ class LocalStrategyRegistry:
             Strategy information or None if not found.
 
         """
-        registry = self._load_registry()
+        if self.backend == BackendType.JSON:
+            registry = self._load_registry()
 
-        if strategy_id not in registry:
-            return None
+            if strategy_id not in registry:
+                return None
 
-        entry = registry[strategy_id]
-        manifest_path = Path(entry["manifest_path"])
+            entry = registry[strategy_id]
+            manifest_path = Path(entry["manifest_path"])
 
-        with open(manifest_path) as f:
-            manifest_data = json.load(f)
+            with open(manifest_path) as f:
+                manifest_data = json.load(f)
 
-        manifest = StrategyManifest.from_dict(manifest_data)
-        file_path = Path(entry["file_path"])
+            manifest = StrategyManifest.from_dict(manifest_data)
+            file_path = Path(entry["file_path"])
 
-        return StrategyInfo(manifest=manifest, file_path=file_path)
+            return StrategyInfo(manifest=manifest, file_path=file_path)
+        elif self.backend == BackendType.POSTGRES:
+            session = self.persistence.get_session()
+            if session is None:
+                return None
+
+            try:
+                strategy = session.query(StrategyTable).filter_by(
+                    strategy_id=strategy_id
+                ).first()
+
+                if strategy is None:
+                    return None
+
+                return self._db_to_strategy_info(strategy)
+            finally:
+                session.close()
+
+        return None
 
     def is_registered(self, strategy_id: str) -> bool:
         """
@@ -271,8 +329,23 @@ class LocalStrategyRegistry:
             True if registered.
 
         """
-        registry = self._load_registry()
-        return strategy_id in registry
+        if self.backend == BackendType.JSON:
+            registry = self._load_registry()
+            return strategy_id in registry
+        elif self.backend == BackendType.POSTGRES:
+            session = self.persistence.get_session()
+            if session is None:
+                return False
+
+            try:
+                exists = session.query(StrategyTable).filter_by(
+                    strategy_id=strategy_id
+                ).first() is not None
+                return exists
+            finally:
+                session.close()
+
+        return False
 
     def get_strategies_for_regime(self, regime: MarketRegime) -> list[StrategyInfo]:
         """
@@ -514,5 +587,153 @@ class LocalStrategyRegistry:
         """
         Save registry to file.
         """
-        with open(self.registry_file, "w") as f:
-            json.dump(registry, f, indent=2)
+        if self.backend == BackendType.JSON:
+            self.persistence.save_json(registry, "registry.json")
+        # PostgreSQL doesn't need this as it's saved per operation
+
+    def _db_to_strategy_info(self, db_strategy: StrategyTable) -> StrategyInfo:
+        """
+        Convert database strategy to StrategyInfo.
+
+        Parameters
+        ----------
+        db_strategy : StrategyTable
+            Database strategy record
+
+        Returns
+        -------
+        StrategyInfo
+            Strategy information object
+
+        """
+        # Parse timeframe_range
+        range_str = db_strategy.timeframe_range if db_strategy.timeframe_range else ""
+        if range_str:
+            parts = range_str.split(",")
+            timeframe_range = (parts[0], parts[1] if len(parts) > 1 else "")
+        else:
+            timeframe_range = ("", "")
+
+        manifest = StrategyManifest(
+            strategy_id=cast(str, db_strategy.strategy_id),
+            strategy_type=StrategyType(cast(str, db_strategy.strategy_type)),
+            version=cast(str, db_strategy.version),
+            required_models=cast(list[str] | None, db_strategy.required_models),
+            required_features=cast(list[str], db_strategy.required_features) or [],
+            suitable_regimes=[MarketRegime(r) for r in (cast(list[str], db_strategy.suitable_regimes) or [])],
+            instrument_types=cast(list[str], db_strategy.instrument_types) or [],
+            timeframe_range=timeframe_range,
+            max_position_size=cast(float, db_strategy.max_position_size) or 0.0,
+            max_leverage=cast(float, db_strategy.max_leverage) or 0.0,
+            max_drawdown=cast(float, db_strategy.max_drawdown) or 0.0,
+            stop_loss_type=cast(str, db_strategy.stop_loss_type) or "",
+            min_sharpe_ratio=cast(float, db_strategy.min_sharpe_ratio) or 0.0,
+            min_win_rate=cast(float, db_strategy.min_win_rate) or 0.0,
+            max_correlation_with_portfolio=cast(float, db_strategy.max_correlation_with_portfolio) or 0.0,
+            parent_strategy_id=db_strategy.parent_strategy_id,
+            incompatible_strategies=cast(list[str], db_strategy.incompatible_strategies) or [],
+            config_schema=cast(dict[str, str], db_strategy.config_schema) or {},
+            default_config=cast(dict[str, Any], db_strategy.default_config) or {},
+            backtest_metrics=cast(dict[str, float], db_strategy.backtest_metrics) or {},
+            live_metrics=cast(dict[str, float] | None, db_strategy.live_metrics),
+            created_at=db_strategy.created_at.timestamp() if db_strategy.created_at else time.time(),
+            last_modified=db_strategy.last_modified.timestamp() if db_strategy.last_modified else time.time(),
+            author=cast(str, db_strategy.author) or "",
+            description=cast(str, db_strategy.description) or "",
+        )
+
+        # Extract file path from metadata
+        metadata = db_strategy.extra_metadata or {}  # type: ignore[attr-defined]
+        file_path = Path(metadata.get("file_path", ""))
+
+        return StrategyInfo(manifest=manifest, file_path=file_path)
+
+    def _save_strategy_to_db(self, manifest: StrategyManifest, file_path: Path) -> None:
+        """
+        Save strategy to PostgreSQL database.
+
+        Parameters
+        ----------
+        manifest : StrategyManifest
+            Strategy manifest to save
+        file_path : Path
+            Path to strategy file
+
+        """
+        session = self.persistence.get_session()
+        if session is None:
+            return
+
+        try:
+            # Check if strategy exists
+            existing = session.query(StrategyTable).filter_by(
+                strategy_id=manifest.strategy_id
+            ).first()
+
+            # Convert timeframe_range tuple to string
+            timeframe_range_str = ",".join(manifest.timeframe_range) if manifest.timeframe_range else ""
+
+            # Store file path in metadata
+            metadata = {"file_path": str(file_path)}
+
+            if existing:
+                # Update existing strategy
+                existing.strategy_type = manifest.strategy_type.value
+                existing.version = manifest.version
+                existing.required_models = manifest.required_models
+                existing.required_features = manifest.required_features
+                existing.suitable_regimes = [r.value for r in manifest.suitable_regimes]
+                existing.instrument_types = manifest.instrument_types
+                existing.timeframe_range = timeframe_range_str
+                existing.max_position_size = manifest.max_position_size
+                existing.max_leverage = manifest.max_leverage
+                existing.max_drawdown = manifest.max_drawdown
+                existing.stop_loss_type = manifest.stop_loss_type
+                existing.min_sharpe_ratio = manifest.min_sharpe_ratio
+                existing.min_win_rate = manifest.min_win_rate
+                existing.max_correlation_with_portfolio = manifest.max_correlation_with_portfolio
+                existing.parent_strategy_id = manifest.parent_strategy_id
+                existing.incompatible_strategies = manifest.incompatible_strategies
+                existing.config_schema = manifest.config_schema
+                existing.default_config = manifest.default_config
+                existing.backtest_metrics = manifest.backtest_metrics
+                existing.live_metrics = manifest.live_metrics
+                existing.author = manifest.author
+                existing.description = manifest.description
+                existing.extra_metadata = metadata  # type: ignore[attr-defined]
+            else:
+                # Create new strategy
+                new_strategy = StrategyTable(
+                    strategy_id=manifest.strategy_id,
+                    strategy_type=manifest.strategy_type.value,
+                    version=manifest.version,
+                    required_models=manifest.required_models,
+                    required_features=manifest.required_features,
+                    suitable_regimes=[r.value for r in manifest.suitable_regimes],
+                    instrument_types=manifest.instrument_types,
+                    timeframe_range=timeframe_range_str,
+                    max_position_size=manifest.max_position_size,
+                    max_leverage=manifest.max_leverage,
+                    max_drawdown=manifest.max_drawdown,
+                    stop_loss_type=manifest.stop_loss_type,
+                    min_sharpe_ratio=manifest.min_sharpe_ratio,
+                    min_win_rate=manifest.min_win_rate,
+                    max_correlation_with_portfolio=manifest.max_correlation_with_portfolio,
+                    parent_strategy_id=manifest.parent_strategy_id,
+                    incompatible_strategies=manifest.incompatible_strategies,
+                    config_schema=manifest.config_schema,
+                    default_config=manifest.default_config,
+                    backtest_metrics=manifest.backtest_metrics,
+                    live_metrics=manifest.live_metrics,
+                    author=manifest.author,
+                    description=manifest.description,
+                    extra_metadata=metadata,  # type: ignore[call-arg]
+                )
+                session.add(new_strategy)
+
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise RuntimeError(f"Failed to save strategy to database: {e}") from e
+        finally:
+            session.close()

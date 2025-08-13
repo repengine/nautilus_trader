@@ -27,7 +27,7 @@ class DummyOrtSession:
     def get_inputs(self) -> list[Any]:
         return self._inputs
 
-    def run(self, _: Any, __: dict[str, Any]) -> list[np.ndarray]:
+    def run(self, _: Any, __: dict[str, Any]) -> list[np.ndarray[Any, np.dtype[np.float32]]]:
         # Return deterministic probabilities
         return [np.array([[0.25], [0.75]], dtype=np.float32)]
 
@@ -50,7 +50,7 @@ def test_registry_registers_teacher_and_student_and_loads_onnx(
     import ml._imports as imports
 
     class DummyOrtModule:
-        InferenceSession = DummyOrtSession  # type: ignore[attr-defined]
+        InferenceSession = DummyOrtSession
 
         class SessionOptions:
             def __init__(self) -> None:
@@ -106,6 +106,6 @@ def test_registry_registers_teacher_and_student_and_loads_onnx(
     # Load student ONNX via registry
     session = registry.load_model(student_id)
     assert session is not None
-    outs = session.run(None, {"input": np.zeros((2, 2), dtype=np.float32)})  # type: ignore[arg-type]
+    outs = session.run(None, {"input": np.zeros((2, 2), dtype=np.float32)})
     assert isinstance(outs, list)
     assert outs[0].dtype == np.float32

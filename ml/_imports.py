@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import lightgbm as lgb
     import mlflow
+    import onnx
     import onnxmltools
     import onnxruntime as ort
     import optuna
@@ -39,6 +40,18 @@ except ImportError as e:
     HAS_ONNX = False
     ONNX_IMPORT_ERROR = e
     ort = None
+
+
+# ONNX core (model IO/helpers)
+try:
+    import onnx
+
+    HAS_ONNX_CORE = True
+    ONNX_CORE_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_ONNX_CORE = False
+    ONNX_CORE_IMPORT_ERROR = e
+    onnx = None  # type: ignore[assignment,unused-ignore]
 
 
 # Polars
@@ -142,6 +155,12 @@ except ImportError as e:
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
+from collections.abc import Callable
+
+
+_PROM_REGISTRY: Any
+_GENERATE_LATEST: Callable[[Any], bytes]
+
 try:
     from prometheus_client import Counter
     from prometheus_client import Gauge
@@ -304,6 +323,33 @@ except ImportError as e:
             """
             return self
 
+    class _DummyRegistry:
+        """Minimal dummy of prometheus_client.REGISTRY used for name lookups."""
+
+        def __init__(self) -> None:
+            self._names_to_collectors: dict[str, Any] = {}
+
+    # Provide underlying symbols, then expose unified names below
+    _PROM_REGISTRY = _DummyRegistry()
+
+    def _generate_latest_dummy(registry: Any = None) -> bytes:
+        return b""
+
+    _GENERATE_LATEST = _generate_latest_dummy
+else:
+    # When Prometheus is available, normalize symbol names for consistent exports
+    from prometheus_client import REGISTRY as _REAL_REGISTRY
+    from prometheus_client import generate_latest as _REAL_GENERATE_LATEST
+
+    _PROM_REGISTRY = _REAL_REGISTRY
+    _GENERATE_LATEST = _REAL_GENERATE_LATEST
+
+# Public, unified names with stable signatures
+def generate_latest(registry: Any = None) -> bytes:
+    return _GENERATE_LATEST(registry)
+
+REGISTRY: Any = _PROM_REGISTRY
+
 
 def check_ml_dependencies(required: list[str]) -> None:
     """
@@ -398,10 +444,10 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 
 __all__ = [
-    # Availability flags
     "HAS_LIGHTGBM",
     "HAS_MLFLOW",
     "HAS_ONNX",
+    "HAS_ONNX_CORE",
     "HAS_ONNX_EXPORT",
     "HAS_OPTUNA",
     "HAS_PANDAS",
@@ -409,25 +455,26 @@ __all__ = [
     "HAS_PROMETHEUS",
     "HAS_SKLEARN",
     "HAS_XGBOOST",
-    # Import errors
     "LIGHTGBM_IMPORT_ERROR",
     "MLFLOW_IMPORT_ERROR",
-    "ONNX_IMPORT_ERROR",
+    "ONNX_CORE_IMPORT_ERROR",
     "ONNX_EXPORT_IMPORT_ERROR",
+    "ONNX_IMPORT_ERROR",
     "OPTUNA_IMPORT_ERROR",
     "PANDAS_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
+    "REGISTRY",
     "SKLEARN_IMPORT_ERROR",
     "XGBOOST_IMPORT_ERROR",
     "Counter",
     "Gauge",
     "Histogram",
-    # Utility function
     "check_ml_dependencies",
-    # Imported modules (may be None)
+    "generate_latest",
     "lgb",
     "mlflow",
+    "onnx",
     "onnxmltools",
     "optuna",
     "ort",

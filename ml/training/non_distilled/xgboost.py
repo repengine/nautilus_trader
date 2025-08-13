@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     import xgboost as xgb
 
 
-class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
+class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):  # type: ignore[misc]
     """
     XGBoost trainer for financial time series prediction.
 
@@ -373,18 +373,20 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             # So we need to temporarily save the model with default feature names
             import tempfile
 
-            from onnxmltools import convert_xgboost
             from onnxmltools.convert.common.data_types import FloatTensorType
 
+            from ml._imports import onnxmltools
             from ml.config.names import ONNX_INPUT_NAME
 
             with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
                 # Save model without feature names (XGBoost will use f0, f1, f2...)
                 model.save_model(tmp.name)
                 # Reload model without feature names
-                import xgboost as xgb
+                from ml._imports import xgb as _xgb
 
-                temp_booster = xgb.Booster()
+                if _xgb is None:
+                    raise ImportError("xgboost not installed")
+                temp_booster = _xgb.Booster()
                 temp_booster.load_model(tmp.name)
 
                 # Define input type
@@ -393,7 +395,9 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
                 ]
 
                 # Convert model using the temp booster without custom feature names
-                onnx_model = convert_xgboost(
+                if onnxmltools is None:
+                    raise ImportError("onnxmltools not installed")
+                onnx_model = onnxmltools.convert_xgboost(
                     temp_booster,
                     initial_types=initial_type,
                     target_opset=DEFAULT_ONNX_OPSET,

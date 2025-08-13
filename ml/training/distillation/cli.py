@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 CLI to train and register a LightGBM student from teacher outputs.
 

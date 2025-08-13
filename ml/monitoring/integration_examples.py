@@ -24,8 +24,7 @@ from ml.monitoring.collectors.registry import MLMetricsRegistry
 
 
 if TYPE_CHECKING:
-    import polars as pl
-
+    from ml._imports import pl
     from ml.data.loader import MLDataLoader
     from ml.features.engineering import FeatureEngineer
 
@@ -143,7 +142,8 @@ class MonitoredMLDataLoader:
         Check if data is in cache (simulated).
         """
         # In real implementation, check actual cache
-        return np.random.random() > 0.3  # 70% cache hit ratio
+        rng = np.random.default_rng()
+        return bool(rng.random() > 0.3)  # 70% cache hit ratio
 
     def _calculate_missing_ratios(self, df: pl.DataFrame) -> dict[str, float]:
         """
@@ -180,7 +180,8 @@ class MonitoredMLDataLoader:
         """
         # In real implementation, compare with current time
         # For demo, return random staleness
-        return np.random.uniform(0, 60)
+        rng = np.random.default_rng()
+        return float(rng.uniform(0, 60))
 
 
 # =============================================================================
@@ -332,9 +333,10 @@ class MonitoredFeatureEngineer:
         Calculate feature drift scores (simplified).
         """
         drift_scores = {}
+        rng = np.random.default_rng()
         for col in features.columns[:5]:  # Check first 5 features
             # Simplified drift calculation (in reality, compare with reference distribution)
-            drift_scores[col] = np.random.uniform(0, 0.3)
+            drift_scores[col] = float(rng.uniform(0, 0.3))
         return drift_scores
 
 
@@ -485,6 +487,7 @@ def example_complete_integration() -> None:
     metrics.start()
 
     try:
+        rng = np.random.default_rng()
         # Example 1: Data Loading with Metrics
         logger.info("Loading data with quality metrics...")
         from ml.data.loader import MLDataLoader
@@ -533,7 +536,7 @@ def example_complete_integration() -> None:
 
         # Prepare training data
         X = features_df.to_numpy()
-        y = np.random.randint(0, 2, size=len(features_df)).astype(np.float64)
+        y = rng.integers(0, 2, size=len(features_df)).astype(np.float64)
 
         # Train model (will record metrics)
         trainer.train_model(
@@ -551,12 +554,12 @@ def example_complete_integration() -> None:
         for i in range(10):
             with metrics.ml_metrics.time_prediction("xgboost_demo", "EURUSD") as timer:
                 # Simulate inference
-                time.sleep(np.random.uniform(0.001, 0.01))
+                time.sleep(float(rng.uniform(0.001, 0.01)))
 
                 # Set prediction details
                 timer.set_prediction(
                     prediction_class="buy" if i % 2 == 0 else "sell",
-                    confidence=np.random.uniform(0.6, 0.95),
+                    confidence=float(rng.uniform(0.6, 0.95)),
                 )
 
         logger.info("Performed 100 inferences with metrics")

@@ -68,6 +68,9 @@ class BaseTeacher(ABC):
         Fit Platt calibration on raw scores vs true labels.
         """
         try:
+            from ml._imports import HAS_SKLEARN
+            if not HAS_SKLEARN:
+                raise ImportError
             from sklearn.linear_model import LogisticRegression
 
             lr = LogisticRegression(solver="lbfgs")

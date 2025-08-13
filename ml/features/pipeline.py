@@ -32,7 +32,7 @@ class FeatureTransform(Protocol):
 
     def requires(self) -> DataRequirements:
         """
-        Required data level for this transform (used for gating).
+        Return required data level for this transform (used for gating).
         """
         ...
 
@@ -41,7 +41,7 @@ class _ReturnsTransform:
     name = "returns"
 
     def feature_names(self, params: Mapping[str, Any]) -> list[str]:
-        periods: Iterable[int] = params.get("periods", [1, 5, 10, 20])  # type: ignore[assignment]
+        periods: Iterable[int] = params.get("periods", [1, 5, 10, 20])
         return [f"return_{int(p)}" for p in periods]
 
     def requires(self) -> DataRequirements:
@@ -52,7 +52,7 @@ class _MomentumTransform:
     name = "momentum"
 
     def feature_names(self, params: Mapping[str, Any]) -> list[str]:
-        periods: Iterable[int] = params.get("periods", [5, 10, 20])  # type: ignore[assignment]
+        periods: Iterable[int] = params.get("periods", [5, 10, 20])
         return [f"momentum_{int(p)}" for p in periods]
 
     def requires(self) -> DataRequirements:
@@ -77,7 +77,7 @@ class _VolumeRatioTransform:
     name = "volume_ratio"
 
     def feature_names(self, params: Mapping[str, Any]) -> list[str]:
-        periods: Iterable[int] = params.get("periods", [5, 10, 20])  # type: ignore[assignment]
+        periods: Iterable[int] = params.get("periods", [5, 10, 20])
         return [f"volume_ratio_{int(p)}" for p in periods]
 
     def requires(self) -> DataRequirements:

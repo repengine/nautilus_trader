@@ -616,8 +616,11 @@ class FeatureParityValidator:
             }
             return pl.DataFrame(data)
         else:
-            import pandas as pd
+            from ml._imports import check_ml_dependencies
+            from ml._imports import pd
 
+            if pd is None:
+                check_ml_dependencies(["pandas"])
             data = {
                 "timestamp": pd.date_range(
                     start="2024-01-01",

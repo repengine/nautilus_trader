@@ -353,7 +353,7 @@ class MLMetricsRegistry:
             return None
 
         try:
-            from prometheus_client import REGISTRY
+            from ml._imports import REGISTRY
 
             return REGISTRY
         except ImportError:
@@ -373,7 +373,7 @@ class MLMetricsRegistry:
             return ""
 
         try:
-            from prometheus_client import generate_latest
+            from ml._imports import generate_latest
 
             return generate_latest().decode("utf-8")
         except ImportError:

@@ -329,6 +329,7 @@ no_strict_optional = false
 warn_no_return = true
 warn_unused_configs = true
 warn_unused_ignores = true
+plugins = ["sqlalchemy.ext.mypy.plugin"]
 
 [[tool.mypy.overrides]]
 no_strict_optional = true
@@ -338,6 +339,30 @@ module = [
     "nautilus_trader/adapters/binance/*",
     "nautilus_trader/adapters/interactive_brokers/*",
     "nautilus_trader/indicators/ta_lib/*",
+]
+
+# SQLAlchemy-specific overrides for registry persistence
+[[tool.mypy.overrides]]
+module = "ml.registry.persistence"
+# These are SQLAlchemy-specific issues that are false positives
+# The ORM converts Column types to actual values at runtime
+disable_error_code = [
+    "misc",  # For "Class cannot subclass Base (has type Any)"
+    "arg-type",  # For create_engine argument type issues
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.registry.model_registry",
+    "ml.registry.feature_registry", 
+    "ml.registry.strategy_registry",
+]
+# SQLAlchemy Column to value conversion issues
+# At runtime, Column[str] becomes str, but mypy can't know this
+disable_error_code = [
+    "arg-type",  # For Column[T] -> T conversion in constructors
+    "assignment",  # For value -> Column[T] assignments
+    "union-attr",  # For Column[T] | T union attribute access
 ]
 
 [tool.pytest.ini_options]

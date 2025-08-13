@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 Teacher calibration CLI (compat shim) — forwards to tft_cli when registry args provided.
 
@@ -16,6 +17,7 @@ Two modes:
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -47,7 +49,7 @@ class CalibratingTeacher(BaseTeacher):
         self._is_fitted = True
         return self
 
-    def predict_logits(self, X: np.ndarray) -> np.ndarray:
+    def predict_logits(self, X: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
         """
         Pass through raw logits.
 

@@ -330,11 +330,14 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
             try:
                 # Try to create a simple GPU-based DMatrix to test GPU availability
                 import numpy as np
-                import xgboost as xgb
 
+                from ml._imports import xgb as _xgb
+
+                if _xgb is None:
+                    raise ImportError("xgboost not installed")
                 rng = np.random.default_rng(42)
                 test_data = rng.standard_normal((10, 5))
-                test_dtrain = xgb.DMatrix(test_data, enable_categorical=False)
+                test_dtrain = _xgb.DMatrix(test_data, enable_categorical=False)
                 # If this doesn't raise, GPU should be available
                 del test_dtrain, test_data
             except Exception as e:
@@ -342,9 +345,9 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
         # Check Optuna availability
         if self.optuna_config and self.optuna_config.enabled:
-            try:
-                import optuna  # noqa: F401
-            except ImportError:
+            from ml._imports import HAS_OPTUNA
+
+            if not HAS_OPTUNA:
                 warnings.append(
                     "Optuna optimization requested but optuna not installed. "
                     "Install with: pip install 'nautilus-trader[ml]'",
@@ -352,9 +355,9 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
         # Check MLflow availability
         if self.mlflow_config and self.mlflow_config.enabled:
-            try:
-                import mlflow  # noqa: F401
-            except ImportError:
+            from ml._imports import HAS_MLFLOW
+
+            if not HAS_MLFLOW:
                 warnings.append(
                     "MLflow tracking requested but mlflow not installed. "
                     "Install with: pip install 'nautilus-trader[ml]'",
@@ -362,10 +365,9 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
         # Check ONNX availability
         if self.export_onnx:
-            try:
-                import onnxmltools  # noqa: F401
-                import skl2onnx  # noqa: F401
-            except ImportError:
+            from ml._imports import HAS_ONNX_EXPORT
+
+            if not HAS_ONNX_EXPORT:
                 warnings.append(
                     "ONNX export requested but onnx tools not installed. "
                     "Install with: pip install onnxmltools skl2onnx",

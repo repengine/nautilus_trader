@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -62,8 +63,8 @@ def test_auto_deploy_gates(
     import ml._imports as imports
 
     class DummyOrtModule:
-        class InferenceSession:  # type: ignore[no-redef]
-            def __init__(self, *args, **kwargs) -> None:
+        class InferenceSession:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
                 pass
 
         class SessionOptions:
@@ -77,8 +78,8 @@ def test_auto_deploy_gates(
             ORT_SEQUENTIAL = 0
 
     # Ensure HAS_ONNX true for auto-deploy load
-    imports.HAS_ONNX = True  # type: ignore[assignment]
-    imports.ort = DummyOrtModule()  # type: ignore[assignment]
+    imports.HAS_ONNX = True
+    imports.ort = DummyOrtModule()
 
     model_id = registry.register_model(model_path, manifest, auto_deploy=True)
 

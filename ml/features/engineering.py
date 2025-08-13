@@ -17,6 +17,8 @@ import numpy.typing as npt
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
+from ml._imports import HAS_SKLEARN
+from ml._imports import pd
 from ml._imports import pl
 from ml.config.base import MLFeatureConfig
 from ml.config.constants import IndicatorNames
@@ -35,14 +37,7 @@ if TYPE_CHECKING:
     from ml.monitoring.collectors.features import FeatureEngineeringCollector
 
 
-# Optional sklearn import - StandardScaler is only needed for scaling
-try:
-    from sklearn.preprocessing import StandardScaler
-
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    StandardScaler = None
-    SKLEARN_AVAILABLE = False
+# sklearn is optional; import lazily where used and gate via HAS_SKLEARN
 
 from nautilus_trader.indicators.atr import AverageTrueRange
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
@@ -620,7 +615,8 @@ class FeatureEngineer:
         feature_names = self.config.get_feature_names()
         self.n_features = len(feature_names)
         # Add some extra space for potential additional features in online calculation
-        buffer_size = self.n_features + 20  # Extra buffer for safety
+        from ml.config.constants import SystemConstants
+        buffer_size = self.n_features + SystemConstants.FEATURE_BUFFER_PAD
 
         # Cache statistics for metrics
         self._feature_cache: dict[str, Any] = {}
@@ -729,8 +725,10 @@ class FeatureEngineer:
         if POLARS_AVAILABLE:
             return pl.DataFrame({name: [] for name in feature_names})
         else:
-            import pandas as pd
+            if pd is None:
+                from ml._imports import check_ml_dependencies
 
+                check_ml_dependencies(["pandas"])
             return pd.DataFrame(columns=feature_names)
 
     def _create_pandas_features_dataframe(
@@ -742,8 +740,10 @@ class FeatureEngineer:
         """
         Create pandas DataFrame from feature rows.
         """
-        import pandas as pd
+        if pd is None:
+            from ml._imports import check_ml_dependencies
 
+            check_ml_dependencies(["pandas"])
         features_df = pd.DataFrame(feature_rows)
         # Add timestamp if available
         if "timestamp" in df.columns:
@@ -808,9 +808,11 @@ class FeatureEngineer:
         """
         Apply feature scaling.
         """
-        if not SKLEARN_AVAILABLE:
+        if not HAS_SKLEARN:
             msg = "sklearn is required for feature scaling but is not installed"
             raise ImportError(msg)
+        from sklearn.preprocessing import StandardScaler
+
         self.scaler = StandardScaler()
         # Convert to numpy for sklearn
         if POLARS_AVAILABLE and hasattr(features_df, "to_numpy"):
@@ -849,8 +851,6 @@ class FeatureEngineer:
             if "timestamp" in df.columns:
                 features_scaled = features_scaled.with_columns(df["timestamp"])
         else:
-            import pandas as pd
-
             features_scaled = pd.DataFrame(features_scaled_array, columns=features_df.columns)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:
@@ -2185,11 +2185,9 @@ class FeatureEngineer:
         """
         if not hasattr(features_df, "columns") or "polars" not in str(type(features_df)):
             try:
-                import pandas as pd
-
-                if isinstance(features_df, pd.DataFrame):
+                if pd is not None and isinstance(features_df, pd.DataFrame):
                     return pl.from_pandas(features_df)
-            except ImportError:
+            except Exception:
                 return None
         return features_df
 

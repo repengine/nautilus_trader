@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON
 from sqlalchemy import TIMESTAMP
@@ -31,6 +30,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+    from sqlalchemy.orm.session import sessionmaker as SessionMaker
 
 Base = declarative_base()
 
@@ -55,16 +58,16 @@ class ModelTable(Base):
     feature_schema = Column(JSON, nullable=False)
     feature_schema_hash = Column(String(64), nullable=False)
     parent_id = Column(String(255), index=True)
-    children_ids = Column(ARRAY(Text))
-    training_config = Column(JSON)
-    performance_metrics = Column(JSON)
-    deployment_constraints = Column(JSON)
-    deployment_status = Column(String(50), nullable=False)
-    deployed_to = Column(ARRAY(Text))
+    children_ids: Column[list[str]] = Column(ARRAY(Text))
+    training_config: Column[dict[str, Any]] = Column(JSON)
+    performance_metrics: Column[dict[str, Any]] = Column(JSON)
+    deployment_constraints: Column[dict[str, Any]] = Column(JSON)
+    deployment_status: Column[str] = Column(String(50), nullable=False)
+    deployed_to: Column[list[str]] = Column(ARRAY(Text))
     version = Column(String(50), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
     last_modified = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = Column(JSON)
+    extra_metadata = Column("metadata", JSON)
     model_path = Column(Text, nullable=False)
     performance_history = Column(JSON)
 
@@ -80,8 +83,8 @@ class FeatureTable(Base):
     version = Column(String(50), nullable=False)
     role = Column(String(50), nullable=False, index=True)
     data_requirements = Column(String(50), nullable=False)
-    feature_names = Column(ARRAY(Text))
-    feature_dtypes = Column(ARRAY(Text))
+    feature_names: Column[list[str]] = Column(ARRAY(Text))
+    feature_dtypes: Column[list[str]] = Column(ARRAY(Text))
     schema_hash = Column(String(64), nullable=False)
     pipeline_signature = Column(String(255))
     pipeline_version = Column(String(50))
@@ -94,7 +97,7 @@ class FeatureTable(Base):
     stage = Column(String(50), nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
     last_modified = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = Column(JSON)
+    extra_metadata = Column("metadata", JSON)
 
 
 class StrategyTable(Base):
@@ -106,10 +109,10 @@ class StrategyTable(Base):
     strategy_id = Column(String(255), unique=True, nullable=False, index=True)
     strategy_type = Column(String(50), nullable=False, index=True)
     version = Column(String(50), nullable=False)
-    required_models = Column(ARRAY(Text))
-    required_features = Column(ARRAY(Text))
-    suitable_regimes = Column(ARRAY(Text))
-    instrument_types = Column(ARRAY(Text))
+    required_models: Column[list[str]] = Column(ARRAY(Text))
+    required_features: Column[list[str]] = Column(ARRAY(Text))
+    suitable_regimes: Column[list[str]] = Column(ARRAY(Text))
+    instrument_types: Column[list[str]] = Column(ARRAY(Text))
     timeframe_range = Column(String(100))
     max_position_size = Column(Float)
     max_leverage = Column(Float)
@@ -119,7 +122,7 @@ class StrategyTable(Base):
     min_win_rate = Column(Float)
     max_correlation_with_portfolio = Column(Float)
     parent_strategy_id = Column(String(255))
-    incompatible_strategies = Column(ARRAY(Text))
+    incompatible_strategies: Column[list[str]] = Column(ARRAY(Text))
     config_schema = Column(JSON)
     default_config = Column(JSON)
     backtest_metrics = Column(JSON)
@@ -206,14 +209,16 @@ class PersistenceManager:
 
         """
         self.config = config
-        self._engine = None
-        self._session_factory = None
+        self._engine: Engine | None = None
+        self._session_factory: SessionMaker[Session] | None = None
 
         if config.backend == BackendType.POSTGRES:
             self._init_postgres()
 
     def _init_postgres(self) -> None:
         """Initialize PostgreSQL connection."""
+        if self.config.connection_string is None:
+            raise ValueError("Connection string is required for PostgreSQL backend")
         self._engine = create_engine(
             self.config.connection_string,
             pool_size=self.config.pool_size,
@@ -235,7 +240,7 @@ class PersistenceManager:
             Database session or None for JSON backend
 
         """
-        if self.config.backend == BackendType.POSTGRES:
+        if self.config.backend == BackendType.POSTGRES and self._session_factory is not None:
             return self._session_factory()
         return None
 
@@ -258,6 +263,9 @@ class PersistenceManager:
 
         """
         if self.config.backend != BackendType.JSON:
+            return
+
+        if self.config.json_path is None:
             return
 
         filepath = self.config.json_path / filename
@@ -284,12 +292,16 @@ class PersistenceManager:
         if self.config.backend != BackendType.JSON:
             return None
 
+        if self.config.json_path is None:
+            return None
+
         filepath = self.config.json_path / filename
         if not filepath.exists():
             return None
 
         with open(filepath) as f:
-            return json.load(f)
+            data: dict[str, Any] = json.load(f)
+            return data
 
     def log_audit(
         self,
@@ -318,22 +330,23 @@ class PersistenceManager:
         """
         if self.config.backend == BackendType.POSTGRES:
             session = self.get_session()
-            try:
-                audit_entry = AuditLogTable(
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    action=action,
-                    changes=changes,
-                    user_id=user_id,
-                )
-                session.add(audit_entry)
-                session.commit()
-            finally:
-                session.close()
-        elif self.config.backend == BackendType.JSON:
+            if session is not None:
+                try:
+                    audit_entry = AuditLogTable(
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        action=action,
+                        changes=changes,
+                        user_id=user_id,
+                    )
+                    session.add(audit_entry)
+                    session.commit()
+                finally:
+                    session.close()
+        elif self.config.backend == BackendType.JSON and self.config.json_path is not None:
             # Append to audit log file
             audit_file = self.config.json_path / "audit_log.jsonl"
-            audit_entry = {
+            audit_entry_dict = {
                 "entity_type": entity_type,
                 "entity_id": entity_id,
                 "action": action,
@@ -342,4 +355,4 @@ class PersistenceManager:
                 "timestamp": datetime.utcnow().isoformat(),
             }
             with open(audit_file, "a") as f:
-                f.write(json.dumps(audit_entry, default=str) + "\n")
+                f.write(json.dumps(audit_entry_dict, default=str) + "\n")

@@ -24,11 +24,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-
-try:
-    import lightgbm as lgb
-except Exception:
-    lgb = None
+from ml._imports import HAS_SKLEARN
+from ml._imports import lgb
+from ml._imports import onnx as _onnx_mod
 
 
 def schema_hash(feature_names: list[str], dtypes: list[str] | None = None) -> str:
@@ -152,13 +150,15 @@ class LightGBMStudentDistiller:
             fobj = self._obj_hybrid
         else:
             raise ValueError(f"Unknown objective: {self.objective}")
-        self.model = lgb.train(
-            params,
-            train_set,
-            valid_sets=[val_set],
-            fobj=fobj,
-            callbacks=[lgb.early_stopping(self.early_stopping), lgb.log_evaluation(0)],
-        )
+        train_args = {
+            "params": params,
+            "train_set": train_set,
+            "valid_sets": [val_set],
+            "callbacks": [lgb.early_stopping(self.early_stopping), lgb.log_evaluation(0)],
+        }
+        if fobj is not None:
+            train_args["fobj"] = fobj
+        self.model = lgb.train(**train_args)  # type: ignore[arg-type]
         self.best_iteration = getattr(self.model, "best_iteration", None)
         if y_val_true is not None:
             z_val = self._predict_raw(X_val)
@@ -171,6 +171,8 @@ class LightGBMStudentDistiller:
         y_true: npt.NDArray[np.float32],
     ) -> None:
         try:
+            if not HAS_SKLEARN:
+                raise ImportError("sklearn not available")
             from sklearn.linear_model import LogisticRegression
 
             lr = LogisticRegression(solver="lbfgs")
@@ -221,7 +223,7 @@ class LightGBMStudentDistiller:
     ) -> tuple[str, str]:
         if self.model is None:
             raise RuntimeError("Train the model before export.")
-        onnx_mod = globals().get("onnx")
+        onnx_mod = globals().get("onnx") or _onnx_mod
         onnx_helper = globals().get("onnx_helper")
         onnx_numpy_helper = globals().get("onnx_numpy_helper")
         convert_lgbm_booster = globals().get("convert_lgbm_booster")
@@ -237,13 +239,12 @@ class LightGBMStudentDistiller:
             )
         ):
             try:
-                import onnx as _onnx
                 from onnx import helper as _onnx_helper
                 from onnx import numpy_helper as _onnx_numpy_helper
                 from onnxmltools.convert.common.data_types import FloatTensorType as _FloatTensorType
                 from onnxmltools.convert.lightgbm.operator_converters.LightGbm import convert_lightgbm as _convert_lgbm_booster
 
-                onnx_mod = _onnx
+                onnx_mod = _onnx_mod
                 onnx_helper = _onnx_helper
                 onnx_numpy_helper = _onnx_numpy_helper
                 convert_lgbm_booster = _convert_lgbm_booster

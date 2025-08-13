@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     import polars as pl
 
 
-class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
+class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):  # type: ignore[misc]
     def __init__(self, config: LightGBMTrainingConfig) -> None:
         super().__init__(config)
         self._lgb_config: LightGBMTrainingConfig = config
@@ -209,14 +209,16 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
 
     def _convert_to_onnx(self, model: Any, path: Path) -> None:
         try:
-            from onnxmltools import convert_lightgbm
             from onnxmltools.convert.common.data_types import FloatTensorType
 
+            from ml._imports import onnxmltools
             from ml.config.names import ONNX_INPUT_NAME
             from ml.training.export import DEFAULT_ONNX_OPSET
 
             initial_type = [(ONNX_INPUT_NAME, FloatTensorType([None, len(self._feature_names)]))]
-            onnx_model = convert_lightgbm(
+            if onnxmltools is None:
+                raise ImportError("onnxmltools not installed")
+            onnx_model = onnxmltools.convert_lightgbm(
                 model,
                 initial_types=initial_type,
                 target_opset=DEFAULT_ONNX_OPSET,

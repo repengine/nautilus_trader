@@ -15,10 +15,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 import numpy as np
-import pandas as pd
 
+from ml._imports import HAS_PANDAS
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
+from ml._imports import pd
 from ml._imports import pl
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import QuoteTick
@@ -34,7 +35,9 @@ if TYPE_CHECKING:
 
 # Type alias that includes all timestamp types we accept in the ML loader
 # We convert these to formats that ParquetDataCatalog accepts (int | str | float | None)
-TimestampLike: TypeAlias = int | str | float | datetime | pd.Timestamp | None
+# For typing, make pandas timestamp optional without importing pandas at type-check time
+PandasTimestamp = Any
+TimestampLike: TypeAlias = int | str | float | datetime | PandasTimestamp | None
 
 
 class MLDataLoader:
@@ -109,6 +112,8 @@ class MLDataLoader:
         cache_size: int = 1000,
         enable_cache: bool = True,
         metrics_collector: DataQualityCollector | None = None,
+        *,
+        config: DataLoaderConfig | None = None,
     ) -> None:
         """
         Initialize the ML data loader.
@@ -135,8 +140,13 @@ class MLDataLoader:
             check_ml_dependencies(["polars"])
 
         self._catalog = catalog
-        self._enable_cache = enable_cache
-        self._cache_size = cache_size
+        # Optional config overrides
+        if config is not None:
+            self._enable_cache = bool(config.enable_cache)
+            self._cache_size = int(config.cache_size)
+        else:
+            self._enable_cache = enable_cache
+            self._cache_size = cache_size
         self._metrics = metrics_collector
 
         # Initialize cache storage
@@ -507,7 +517,7 @@ class MLDataLoader:
                 return timestamp.isoformat() + "Z"
             else:
                 return timestamp.isoformat()
-        elif isinstance(timestamp, pd.Timestamp):
+        elif HAS_PANDAS and pd is not None and isinstance(timestamp, pd.Timestamp):
             # Convert pandas Timestamp to ISO string format
             return timestamp.isoformat()
         else:

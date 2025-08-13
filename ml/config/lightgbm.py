@@ -501,25 +501,28 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         # Check GPU availability
         if self.gpu_config and self.gpu_config.enabled:
             try:
-                import lightgbm as lgb
+                from ml._imports import HAS_LIGHTGBM
+                from ml._imports import lgb as _lgb
 
-                # Try to create a simple GPU-based dataset to test GPU availability
+                if not HAS_LIGHTGBM or _lgb is None:
+                    raise ImportError("lightgbm not installed")
+
+                # Try to create a simple dataset to test availability
                 import numpy as np
 
                 rng = np.random.default_rng(42)
                 test_data = rng.standard_normal((10, 5))
                 test_labels = rng.integers(0, 2, 10)
-                test_dataset = lgb.Dataset(test_data, label=test_labels)
-                # If this doesn't raise, basic functionality should work
+                test_dataset = _lgb.Dataset(test_data, label=test_labels)
                 del test_dataset, test_data, test_labels
             except Exception as e:
                 warnings.append(f"GPU acceleration requested but may not be available: {e}")
 
         # Check Optuna availability
         if self.optuna_config and self.optuna_config.enabled:
-            try:
-                import optuna  # noqa: F401
-            except ImportError:
+            from ml._imports import HAS_OPTUNA
+
+            if not HAS_OPTUNA:
                 warnings.append(
                     "Optuna optimization requested but optuna not installed. "
                     "Install with: pip install 'nautilus-trader[ml]'",
@@ -527,10 +530,9 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
         # Check MLflow availability
         if self.mlflow_config and self.mlflow_config.enabled:
-            try:
-                import mlflow
-                import mlflow.lightgbm  # noqa: F401
-            except ImportError:
+            from ml._imports import HAS_MLFLOW
+
+            if not HAS_MLFLOW:
                 warnings.append(
                     "MLflow tracking requested but mlflow not installed. "
                     "Install with: pip install 'nautilus-trader[ml]'",
@@ -538,10 +540,9 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
         # Check ONNX availability
         if self.export_onnx:
-            try:
-                import onnxmltools  # noqa: F401
-                import skl2onnx  # noqa: F401
-            except ImportError:
+            from ml._imports import HAS_ONNX_EXPORT
+
+            if not HAS_ONNX_EXPORT:
                 warnings.append(
                     "ONNX export requested but onnx tools not installed. "
                     "Install with: pip install onnxmltools skl2onnx",

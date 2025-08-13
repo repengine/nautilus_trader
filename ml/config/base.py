@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from msgspec import ValidationError
 
+from ml.config.constants import Providers
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
@@ -194,11 +195,59 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     preserve_state_on_reload: bool = True
     circuit_breaker_config: CircuitBreakerConfig | None = None
     enable_health_monitoring: bool = True
+    health_config: HealthMonitorConfig | None = None
     max_feature_latency_ms: PositiveFloat = 0.5
     allow_pickle: bool = False
     component_id: ComponentId | None = None
     log_events: bool = True
     log_commands: bool = True
+
+
+class HealthMonitorConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration thresholds for the ML actor health monitor.
+
+    Parameters
+    ----------
+    critical_consecutive_failures : PositiveInt, default 10
+        Consecutive failures to mark actor as UNHEALTHY.
+    degraded_success_rate_threshold : NonNegativeFloat, default 0.9
+        Success rate threshold below which status is DEGRADED.
+    degraded_consecutive_failures : PositiveInt, default 3
+        Consecutive failures to mark status as DEGRADED.
+    degraded_latency_violations : PositiveInt, default 100
+        Total latency budget violations to mark status as DEGRADED.
+    """
+
+    critical_consecutive_failures: PositiveInt = 10
+    degraded_success_rate_threshold: NonNegativeFloat = 0.9
+    degraded_consecutive_failures: PositiveInt = 3
+    degraded_latency_violations: PositiveInt = 100
+
+
+class OnnxRuntimeConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    ONNX Runtime configuration used by inference loaders.
+
+    Parameters
+    ----------
+    graph_optimization_level : str, default "all"
+        One of: "disable", "basic", "extended", "all".
+    execution_mode : str, default "sequential"
+        One of: "sequential", "parallel".
+    providers : list[str], default [Providers.CPU]
+        Execution providers in priority order.
+    intra_threads : int | None, default None
+        Intra-op threads; None leaves the default.
+    inter_threads : int | None, default None
+        Inter-op threads; None leaves the default.
+    """
+
+    graph_optimization_level: str = "all"
+    execution_mode: str = "sequential"
+    providers: list[str] = [Providers.CPU]
+    intra_threads: int | None = None
+    inter_threads: int | None = None
 
 
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
@@ -396,3 +445,60 @@ class CanaryDeploymentConfig(NautilusConfig, kw_only=True, frozen=True):
                 raise ValidationError(
                     f"{field_name} must be between 0.0 and 100.0, got {value}"
                 )
+
+
+class DataLoaderConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML data loader cache and behavior.
+
+    Parameters
+    ----------
+    cache_size : PositiveInt, default 1000
+        Maximum number of cached DataFrames.
+    enable_cache : bool, default True
+        Whether to enable the internal cache.
+    """
+
+    cache_size: PositiveInt = 1000
+    enable_cache: bool = True
+
+
+class RegistryPolicyConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Policy settings for the model registry (SLOs, A/B defaults).
+
+    Parameters
+    ----------
+    max_inference_latency_ms : PositiveFloat, default 5.0
+        SLO for student inference latency.
+    ab_models_required : PositiveInt, default 2
+        Number of models required for A/B tests.
+    """
+
+    max_inference_latency_ms: PositiveFloat = 5.0
+    ab_models_required: PositiveInt = 2
+
+
+class StatsConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Statistical defaults for A/B testing and comparisons.
+
+    Parameters
+    ----------
+    significance_level : NonNegativeFloat, default 0.05
+        Alpha threshold for two-tailed tests.
+    power : NonNegativeFloat, default 0.8
+        Desired test power.
+    small_sample_df_threshold : PositiveInt, default 30
+        Degrees-of-freedom threshold to use conservative critical value.
+    conservative_critical_value : PositiveFloat, default 2.0
+        Critical value to use when df < threshold.
+    z_alpha_default : PositiveFloat, default 1.96
+        Default z critical for alpha=0.05 two-tailed.
+    """
+
+    significance_level: NonNegativeFloat = 0.05
+    power: NonNegativeFloat = 0.8
+    small_sample_df_threshold: PositiveInt = 30
+    conservative_critical_value: PositiveFloat = 2.0
+    z_alpha_default: PositiveFloat = 1.96

@@ -46,6 +46,18 @@ from ml.actors.base import MLSignal
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import MLActorConfig
+from ml.config.base import OnnxRuntimeConfig
+from ml.config.names import FEATURE_TIME_BUCKETS
+from ml.config.names import LABEL_ACTOR_ID
+from ml.config.names import LABEL_FEATURE_SET_ID
+from ml.config.names import METRIC_ADAPTIVE_THRESHOLD
+from ml.config.names import METRIC_CONFIDENCE_DISTRIBUTION
+from ml.config.names import METRIC_FEATURE_TIME_BY_SET_SECONDS
+from ml.config.names import METRIC_MARKET_REGIME_TOTAL
+from ml.config.names import METRIC_PREDICTION_DISTRIBUTION
+from ml.config.names import METRIC_SIGNAL_GENERATION_SECONDS
+from ml.config.names import METRIC_SIGNALS_GENERATED_TOTAL
+from ml.config.names import SIGNAL_LATENCY_BUCKETS
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -174,6 +186,7 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     feature_set_id: str | None = None
     registry_path: str | None = None
     use_registry_features: bool = False
+    onnx_runtime_config: OnnxRuntimeConfig | None = None
 
 
 # =================================================================================================
@@ -206,132 +219,132 @@ def _initialize_performance_metrics() -> None:
         return
 
     if HAS_PROMETHEUS:
-        from prometheus_client import REGISTRY
+        from ml._imports import REGISTRY
 
         existing_names = set(REGISTRY._names_to_collectors.keys())
 
-        if "nautilus_ml_prediction_distribution" not in existing_names:
+        if METRIC_PREDICTION_DISTRIBUTION not in existing_names:
             _prediction_distribution_metric = Histogram(
-                "nautilus_ml_prediction_distribution",
+                METRIC_PREDICTION_DISTRIBUTION,
                 "Distribution of model predictions",
-                ["actor_id"],
+                [LABEL_ACTOR_ID],
             )
         else:
             _prediction_distribution_metric = cast(
                 Histogram,
-                REGISTRY._names_to_collectors["nautilus_ml_prediction_distribution"],
+                REGISTRY._names_to_collectors[METRIC_PREDICTION_DISTRIBUTION],
             )
 
-        if "nautilus_ml_confidence_distribution" not in existing_names:
+        if METRIC_CONFIDENCE_DISTRIBUTION not in existing_names:
             _confidence_distribution_metric = Histogram(
-                "nautilus_ml_confidence_distribution",
+                METRIC_CONFIDENCE_DISTRIBUTION,
                 "Distribution of prediction confidence scores",
-                ["actor_id"],
+                [LABEL_ACTOR_ID],
             )
         else:
             _confidence_distribution_metric = cast(
                 Histogram,
-                REGISTRY._names_to_collectors["nautilus_ml_confidence_distribution"],
+                REGISTRY._names_to_collectors[METRIC_CONFIDENCE_DISTRIBUTION],
             )
 
-        if "nautilus_ml_signal_generation_seconds" not in existing_names:
+        if METRIC_SIGNAL_GENERATION_SECONDS not in existing_names:
             _signal_generation_time_metric = Histogram(
-                "nautilus_ml_signal_generation_seconds",
+                METRIC_SIGNAL_GENERATION_SECONDS,
                 "Signal generation latency in seconds",
-                ["actor_id", "strategy"],
-                buckets=[0.0001, 0.0005, 0.001, 0.002, 0.005],
+                [LABEL_ACTOR_ID, "strategy"],
+                buckets=SIGNAL_LATENCY_BUCKETS,
             )
         else:
             _signal_generation_time_metric = cast(
                 Histogram,
-                REGISTRY._names_to_collectors["nautilus_ml_signal_generation_seconds"],
+                REGISTRY._names_to_collectors[METRIC_SIGNAL_GENERATION_SECONDS],
             )
-        if "nautilus_ml_feature_time_by_feature_set_seconds" not in existing_names:
+        if METRIC_FEATURE_TIME_BY_SET_SECONDS not in existing_names:
             _feature_time_by_feature_set_metric = Histogram(
-                "nautilus_ml_feature_time_by_feature_set_seconds",
+                METRIC_FEATURE_TIME_BY_SET_SECONDS,
                 "Feature computation latency by feature_set_id",
-                ["actor_id", "feature_set_id"],
-                buckets=[0.00005, 0.0001, 0.0005, 0.001, 0.002],
+                [LABEL_ACTOR_ID, LABEL_FEATURE_SET_ID],
+                buckets=FEATURE_TIME_BUCKETS,
             )
         else:
             _feature_time_by_feature_set_metric = cast(
                 Histogram,
-                REGISTRY._names_to_collectors["nautilus_ml_feature_time_by_feature_set_seconds"],
+                REGISTRY._names_to_collectors[METRIC_FEATURE_TIME_BY_SET_SECONDS],
             )
 
-        if "nautilus_ml_signals_generated_total" not in existing_names:
+        if METRIC_SIGNALS_GENERATED_TOTAL not in existing_names:
             _signals_generated_metric = Counter(
-                "nautilus_ml_signals_generated_total",
+                METRIC_SIGNALS_GENERATED_TOTAL,
                 "Total number of signals generated",
-                ["actor_id", "strategy", "signal_type"],
+                [LABEL_ACTOR_ID, "strategy", "signal_type"],
             )
         else:
             _signals_generated_metric = cast(
                 Counter,
-                REGISTRY._names_to_collectors["nautilus_ml_signals_generated_total"],
+                REGISTRY._names_to_collectors[METRIC_SIGNALS_GENERATED_TOTAL],
             )
 
-        if "nautilus_ml_adaptive_threshold" not in existing_names:
+        if METRIC_ADAPTIVE_THRESHOLD not in existing_names:
             _adaptive_threshold_metric = Histogram(
-                "nautilus_ml_adaptive_threshold",
+                METRIC_ADAPTIVE_THRESHOLD,
                 "Adaptive threshold values",
-                ["actor_id"],
+                [LABEL_ACTOR_ID],
             )
         else:
             _adaptive_threshold_metric = cast(
                 Histogram,
-                REGISTRY._names_to_collectors["nautilus_ml_adaptive_threshold"],
+                REGISTRY._names_to_collectors[METRIC_ADAPTIVE_THRESHOLD],
             )
 
-        if "nautilus_ml_market_regime_total" not in existing_names:
+        if METRIC_MARKET_REGIME_TOTAL not in existing_names:
             _market_regime_metric = Counter(
-                "nautilus_ml_market_regime_total",
+                METRIC_MARKET_REGIME_TOTAL,
                 "Market regime detection counts",
-                ["actor_id", "regime"],
+                [LABEL_ACTOR_ID, "regime"],
             )
         else:
             _market_regime_metric = cast(
                 Counter,
-                REGISTRY._names_to_collectors["nautilus_ml_market_regime_total"],
+                REGISTRY._names_to_collectors[METRIC_MARKET_REGIME_TOTAL],
             )
     else:
         # Use dummy metrics when Prometheus is not available
         _prediction_distribution_metric = Histogram(
-            "nautilus_ml_prediction_distribution",
+            METRIC_PREDICTION_DISTRIBUTION,
             "Distribution of model predictions",
-            ["actor_id"],
+            [LABEL_ACTOR_ID],
         )
         _confidence_distribution_metric = Histogram(
-            "nautilus_ml_confidence_distribution",
+            METRIC_CONFIDENCE_DISTRIBUTION,
             "Distribution of prediction confidence scores",
-            ["actor_id"],
+            [LABEL_ACTOR_ID],
         )
         _signal_generation_time_metric = Histogram(
-            "nautilus_ml_signal_generation_seconds",
+            METRIC_SIGNAL_GENERATION_SECONDS,
             "Signal generation latency in seconds",
-            ["actor_id", "strategy"],
-            buckets=[0.0001, 0.0005, 0.001, 0.002, 0.005],
+            [LABEL_ACTOR_ID, "strategy"],
+            buckets=SIGNAL_LATENCY_BUCKETS,
         )
         _signals_generated_metric = Counter(
-            "nautilus_ml_signals_generated_total",
+            METRIC_SIGNALS_GENERATED_TOTAL,
             "Total number of signals generated",
-            ["actor_id", "strategy", "signal_type"],
+            [LABEL_ACTOR_ID, "strategy", "signal_type"],
         )
         _feature_time_by_feature_set_metric = Histogram(
-            "nautilus_ml_feature_time_by_feature_set_seconds",
+            METRIC_FEATURE_TIME_BY_SET_SECONDS,
             "Feature computation latency by feature_set_id",
-            ["actor_id", "feature_set_id"],
-            buckets=[0.00005, 0.0001, 0.0005, 0.001, 0.002],
+            [LABEL_ACTOR_ID, LABEL_FEATURE_SET_ID],
+            buckets=FEATURE_TIME_BUCKETS,
         )
         _adaptive_threshold_metric = Histogram(
-            "nautilus_ml_adaptive_threshold",
+            METRIC_ADAPTIVE_THRESHOLD,
             "Adaptive threshold values",
-            ["actor_id"],
+            [LABEL_ACTOR_ID],
         )
         _market_regime_metric = Counter(
-            "nautilus_ml_market_regime_total",
+            METRIC_MARKET_REGIME_TOTAL,
             "Market regime detection counts",
-            ["actor_id", "regime"],
+            [LABEL_ACTOR_ID, "regime"],
         )
 
     _metrics_initialized = True
@@ -1067,7 +1080,8 @@ class MLSignalActor(BaseMLInferenceActor):
         ):
             try:
                 freg = LocalFeatureRegistry(Path(config.registry_path))
-                manifest = freg.get_feature_set(config.feature_set_id)
+                feature_info = freg.get_feature_set(config.feature_set_id)
+                manifest = feature_info.manifest if feature_info else None
             except Exception as e:  # pragma: no cover - safety
                 manifest = None
                 self.log.warning(f"Feature registry load failed: {e}")
@@ -1223,22 +1237,62 @@ class MLSignalActor(BaseMLInferenceActor):
 
         # Create optimized session options
         session_options = ort.SessionOptions()
-        session_options.graph_optimization_level = getattr(
-            ort.GraphOptimizationLevel,
-            self._opt_config.onnx_graph_optimization,
-        )
-        session_options.execution_mode = getattr(
-            ort.ExecutionMode,
-            self._opt_config.onnx_execution_mode,
-        )
-        session_options.intra_op_num_threads = self._opt_config.onnx_intra_threads
-        session_options.inter_op_num_threads = self._opt_config.onnx_inter_threads
+        # Prefer global OnnxRuntimeConfig, fallback to local opt config
+        rt = getattr(self._config, "onnx_runtime_config", None)
+        if rt is None:
+            # Map legacy OptimizationConfig fields
+            opt_map = {
+                "ORT_DISABLE_ALL": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+                "ORT_ENABLE_BASIC": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
+                "ORT_ENABLE_EXTENDED": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+                "ORT_ENABLE_ALL": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+            }
+            exec_map = {
+                "ORT_SEQUENTIAL": ort.ExecutionMode.ORT_SEQUENTIAL,
+                "ORT_PARALLEL": ort.ExecutionMode.ORT_PARALLEL,
+            }
+            session_options.graph_optimization_level = opt_map.get(
+                self._opt_config.onnx_graph_optimization,
+                ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+            )
+            session_options.execution_mode = exec_map.get(
+                self._opt_config.onnx_execution_mode,
+                ort.ExecutionMode.ORT_SEQUENTIAL,
+            )
+            session_options.intra_op_num_threads = self._opt_config.onnx_intra_threads
+            session_options.inter_op_num_threads = self._opt_config.onnx_inter_threads
+            providers = [("CPUExecutionProvider", {})]
+        else:
+            # New config pathway
+            level_map = {
+                "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+                "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
+                "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+                "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+            }
+            exec_map2 = {
+                "sequential": ort.ExecutionMode.ORT_SEQUENTIAL,
+                "parallel": ort.ExecutionMode.ORT_PARALLEL,
+            }
+            session_options.graph_optimization_level = level_map.get(
+                rt.graph_optimization_level,
+                ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+            )
+            session_options.execution_mode = exec_map2.get(
+                rt.execution_mode,
+                ort.ExecutionMode.ORT_SEQUENTIAL,
+            )
+            if rt.intra_threads is not None:
+                session_options.intra_op_num_threads = int(rt.intra_threads)
+            if rt.inter_threads is not None:
+                session_options.inter_op_num_threads = int(rt.inter_threads)
+            providers = [(p, {}) if isinstance(p, str) else p for p in (rt.providers or ["CPUExecutionProvider"])]
 
         # Load model
         model = ort.InferenceSession(
             self._config.model_path,
             sess_options=session_options,
-            providers=[("CPUExecutionProvider", {})],
+            providers=providers,
         )
 
         # Extract metadata
@@ -1363,8 +1417,9 @@ class MLSignalActor(BaseMLInferenceActor):
                     actor_id=self.id.value,
                     feature_set_id=self._feature_set_id,
                 ).observe(feature_time / 1000.0)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Swallow metrics failures but keep visibility for debugging
+                self.log.debug("Feature time metric observe failed", exc_info=exc)
 
         return features
 
@@ -1380,7 +1435,7 @@ class MLSignalActor(BaseMLInferenceActor):
             from unittest.mock import MagicMock
             from unittest.mock import Mock
 
-            if isinstance(self._model, (Mock, MagicMock)):
+            if isinstance(self._model, Mock | MagicMock):
                 # Let the test mocks work as before
                 if hasattr(self._model, "run"):
                     # Mock ONNX model path

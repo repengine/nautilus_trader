@@ -27,4 +27,4 @@ def test_generate_and_register_manifest(tmp_path: Path) -> None:
     reg = LocalFeatureRegistry(tmp_path)
     fid = reg.register_feature_set(manifest)
     got = reg.get_feature_set(fid)
-    assert got is not None and got.schema_hash == manifest.schema_hash
+    assert got is not None and got.manifest.schema_hash == manifest.schema_hash

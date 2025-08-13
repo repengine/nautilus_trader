@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -14,10 +17,10 @@ from ml.registry.base import DataRequirements
 class _L2Only:
     name = "_prop_l2"
 
-    def feature_names(self, params):  # type: ignore[no-untyped-def]
+    def feature_names(self, params: Mapping[str, Any]) -> list[str]:
         return ["l2_prop"]
 
-    def requires(self):
+    def requires(self) -> DataRequirements:
         return DataRequirements.L1_L2
 
 

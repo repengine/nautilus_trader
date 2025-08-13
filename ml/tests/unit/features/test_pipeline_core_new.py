@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import pytest
 
 from ml.features.pipeline import PipelineRunner
@@ -32,10 +35,10 @@ def test_pipeline_gating_for_l2() -> None:
     class L2Only:
         name = "dummy_l2"
 
-        def feature_names(self, params):
+        def feature_names(self, params: Mapping[str, Any]) -> list[str]:
             return ["l2_feature"]
 
-        def requires(self):
+        def requires(self) -> DataRequirements:
             return DataRequirements.L1_L2
 
     register_transform(L2Only())

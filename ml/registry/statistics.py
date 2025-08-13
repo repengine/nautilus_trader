@@ -12,12 +12,13 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from ml.config.base import StatsConfig
 
 
 def welch_t_test(
     sample_a: np.ndarray[Any, np.dtype[np.float64]],
     sample_b: np.ndarray[Any, np.dtype[np.float64]],
-    significance_level: float = 0.05,
+    significance_level: float | None = None,
 ) -> dict[str, Any]:
     """
     Perform Welch's t-test for comparing two samples with unequal variances.
@@ -68,9 +69,11 @@ def welch_t_test(
     )
 
     # Determine critical value
-    critical_value = 1.96  # For alpha = 0.05, two-tailed
-    if df < 30:
-        critical_value = 2.0  # Conservative estimate for small samples
+    stats = StatsConfig()
+    alpha = significance_level if significance_level is not None else float(stats.significance_level)
+    critical_value = float(stats.z_alpha_default) if alpha == 0.05 else float(stats.z_alpha_default)
+    if df < stats.small_sample_df_threshold:
+        critical_value = float(stats.conservative_critical_value)
 
     # Approximate p-value
     p_value_approx = 2 * (1 - 0.5 * (1 + np.tanh(abs(t_stat) / np.sqrt(2))))
@@ -163,8 +166,8 @@ def compare_models(
 
 def calculate_sample_size(
     effect_size: float,
-    power: float = 0.8,
-    significance_level: float = 0.05,
+    power: float | None = None,
+    significance_level: float | None = None,
 ) -> int:
     """
     Calculate required sample size for A/B test.
@@ -186,14 +189,15 @@ def calculate_sample_size(
     if effect_size == 0:
         return 100000  # Very large number for zero effect
 
-    # Approximations for z-scores
-    # For significance_level = 0.05 (two-tailed), z_alpha ≈ 1.96
-    # For power levels:
+    # Approximations for z-scores with config defaults
+    stats = StatsConfig()
+    alpha = significance_level if significance_level is not None else float(stats.significance_level)
+    desired_power = power if power is not None else float(stats.power)
     z_alpha_map = {0.01: 2.576, 0.05: 1.96, 0.10: 1.645}
     z_beta_map = {0.80: 0.84, 0.85: 1.04, 0.90: 1.28, 0.95: 1.645, 0.99: 2.33}
 
-    z_alpha = z_alpha_map.get(significance_level, 1.96)
-    z_beta = z_beta_map.get(power, 0.84 + (power - 0.8) * 4)  # Linear interpolation
+    z_alpha = z_alpha_map.get(alpha, float(stats.z_alpha_default))
+    z_beta = z_beta_map.get(desired_power, 0.84 + (desired_power - 0.8) * 4)  # Linear interpolation
 
     n = 2 * ((z_alpha + z_beta) / effect_size) ** 2
     return max(int(np.ceil(n)), 30)  # Minimum 30 samples

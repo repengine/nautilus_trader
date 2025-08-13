@@ -29,9 +29,18 @@ from ml._imports import ort
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import CircuitBreakerConfig
+from ml.config.base import HealthMonitorConfig
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
+from ml.config.base import OnnxRuntimeConfig
+from ml.config.constants import Providers
+from ml.config.names import LABEL_ACTOR_ID
+from ml.config.names import LABEL_MODEL_NAME
+from ml.config.names import METRIC_PREDICTION_LATENCY_SECONDS
+from ml.config.names import METRIC_PREDICTIONS_TOTAL
+from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from nautilus_trader.common.actor import Actor
+from ml.config.constants import TimeConstants
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
@@ -68,10 +77,11 @@ class HealthMonitor:
 
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config: HealthMonitorConfig | None = None) -> None:
         """
         Initialize health monitor.
         """
+        self._config = config or HealthMonitorConfig()
         self.status = HealthStatus.HEALTHY
         self.start_time = time.time()
         self.model_loaded = False
@@ -126,16 +136,19 @@ class HealthMonitor:
         Update overall health status based on metrics.
         """
         # Check for critical failures
-        if not self.model_loaded or self.consecutive_failures > 10:
+        if (
+            not self.model_loaded
+            or self.consecutive_failures > self._config.critical_consecutive_failures
+        ):
             self.status = HealthStatus.UNHEALTHY
             return
 
         # Check for degraded performance
         success_rate = self.get_success_rate()
         if (
-            success_rate < 0.9
-            or self.consecutive_failures > 3
-            or self.total_latency_violations > 100
+            success_rate < self._config.degraded_success_rate_threshold
+            or self.consecutive_failures > self._config.degraded_consecutive_failures
+            or self.total_latency_violations > self._config.degraded_latency_violations
         ):
             self.status = HealthStatus.DEGRADED
             return
@@ -273,16 +286,16 @@ class CircuitBreaker:
 
 class SecurityError(Exception):
     """Raised when a security check fails during model loading."""
-    pass
+
 
 
 class ModelLoader:
     """Base class for model loaders (compatibility layer)."""
-    
+
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
         """Load a model and return it with metadata."""
         raise NotImplementedError
-        
+
     def get_model_version(self, path: str) -> str:
         """Get model version."""
         return "1.0.0"
@@ -290,10 +303,10 @@ class ModelLoader:
 
 class ProductionModelLoader(ModelLoader):
     """Production model loader (compatibility layer for legacy code)."""
-    
+
     def __init__(self, model_dir: str | None = None):
         self.model_dir = Path(model_dir) if model_dir else Path.cwd()
-    
+
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
         """Load model - this should use the registry in new code."""
         # For backward compatibility
@@ -305,11 +318,12 @@ class ONNXModelLoader(ModelLoader):
     Model loader for ONNX models with optimized runtime.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, runtime_config: OnnxRuntimeConfig | None = None) -> None:
         """
         Initialize ONNX model loader.
         """
         self._onnx_available = HAS_ONNX
+        self._runtime_config = runtime_config or OnnxRuntimeConfig()
 
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
         """
@@ -324,11 +338,32 @@ class ONNXModelLoader(ModelLoader):
 
         # Create optimized ONNX Runtime session
         session_options = ort.SessionOptions()
-        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        # Map config to ORT enums
+        opt_map = {
+            "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+            "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
+            "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+            "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+        }
+        exec_map = {
+            "sequential": ort.ExecutionMode.ORT_SEQUENTIAL,
+            "parallel": ort.ExecutionMode.ORT_PARALLEL,
+        }
+        session_options.graph_optimization_level = opt_map.get(
+            self._runtime_config.graph_optimization_level,
+            ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+        )
+        session_options.execution_mode = exec_map.get(
+            self._runtime_config.execution_mode,
+            ort.ExecutionMode.ORT_SEQUENTIAL,
+        )
+        if self._runtime_config.intra_threads is not None:
+            session_options.intra_op_num_threads = int(self._runtime_config.intra_threads)
+        if self._runtime_config.inter_threads is not None:
+            session_options.inter_op_num_threads = int(self._runtime_config.inter_threads)
 
-        # Use CPU provider for predictable latency
-        providers = ["CPUExecutionProvider"]
+        # Providers from config (default CPU)
+        providers = self._runtime_config.providers or [Providers.CPU]
 
         session = ort.InferenceSession(str(model_path), session_options, providers=providers)
 
@@ -448,19 +483,19 @@ class MLSignal(Data):  # type: ignore[misc]
 
 # Prometheus metrics for monitoring
 ml_predictions_total = Counter(
-    "nautilus_ml_predictions_total",
+    METRIC_PREDICTIONS_TOTAL,
     "Total number of ML predictions made",
-    ["actor_id", "model_name"],
+    [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
 ml_prediction_latency = Histogram(
-    "nautilus_ml_prediction_latency_seconds",
+    METRIC_PREDICTION_LATENCY_SECONDS,
     "Latency of ML predictions in seconds",
-    ["actor_id", "model_name"],
+    [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
 ml_signal_confidence = Histogram(
-    "nautilus_ml_signal_confidence",
+    METRIC_SIGNAL_CONFIDENCE,
     "Distribution of ML signal confidence scores",
-    ["actor_id", "model_name"],
+    [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
 
 
@@ -528,7 +563,9 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         )
 
         # Production features
-        self._health_monitor = HealthMonitor() if config.enable_health_monitoring else None
+        self._health_monitor = (
+            HealthMonitor(config.health_config) if config.enable_health_monitoring else None
+        )
         self._circuit_breaker = (
             CircuitBreaker(config.circuit_breaker_config) if config.circuit_breaker_config else None
         )
@@ -979,7 +1016,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             return
 
         # Use Nautilus timer for scheduling
-        interval_ns = self._config.model_check_interval * 1_000_000_000  # Convert to ns
+        interval_ns = self._config.model_check_interval * TimeConstants.NS_IN_SECOND  # Convert to ns
         self.clock.set_timer_ns(
             name="model_version_check",
             interval_ns=interval_ns,
@@ -1351,13 +1388,13 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
         # Time-based features from bar timestamp
         # Convert nanoseconds to seconds, then extract time components
-        timestamp_seconds = bar.ts_event // 1_000_000_000
+        timestamp_seconds = bar.ts_event // TimeConstants.NS_IN_SECOND
         # Calculate seconds since midnight for hour of day
-        seconds_in_day = timestamp_seconds % 86400  # 86400 seconds in a day
-        hour_of_day = seconds_in_day / 86400.0  # Normalized to [0, 1]
+        seconds_in_day = timestamp_seconds % TimeConstants.SECONDS_IN_DAY
+        hour_of_day = seconds_in_day / float(TimeConstants.SECONDS_IN_DAY)  # Normalized to [0, 1]
         # Calculate day of week (0=Thursday for Unix epoch)
-        days_since_epoch = timestamp_seconds // 86400
-        day_of_week = (days_since_epoch % 7) / 7.0  # Normalized to [0, 1]
+        days_since_epoch = timestamp_seconds // TimeConstants.SECONDS_IN_DAY
+        day_of_week = (days_since_epoch % TimeConstants.DAYS_PER_WEEK) / float(TimeConstants.DAYS_PER_WEEK)  # Normalized to [0, 1]
         self._feature_buffer[8] = hour_of_day
         self._feature_buffer[9] = day_of_week
 

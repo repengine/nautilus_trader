@@ -15,13 +15,14 @@ from typing import TYPE_CHECKING, Self
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml._imports import Gauge as _GaugeType
 from ml._imports import Histogram
 from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.base import BaseMetricsCollector
 
 
 if TYPE_CHECKING:
-    from prometheus_client import Gauge
+    from prometheus_client import Gauge  # pragma: no cover
 
 
 class MLMetricsCollector(BaseMetricsCollector):
@@ -64,8 +65,8 @@ class MLMetricsCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
-        # Import Gauge only when needed to avoid dependency issues
-        from prometheus_client import Gauge
+        # Gauge provided via centralized imports
+        Gauge = _GaugeType
 
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()

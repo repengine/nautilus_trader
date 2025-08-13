@@ -69,7 +69,7 @@ class MetricsHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            from prometheus_client import generate_latest
+            from ml._imports import generate_latest
 
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")

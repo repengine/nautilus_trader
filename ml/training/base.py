@@ -23,6 +23,7 @@ from ml._imports import HAS_MLFLOW
 from ml._imports import HAS_ONNX
 from ml._imports import HAS_OPTUNA
 from ml._imports import HAS_POLARS
+from ml._imports import HAS_SKLEARN
 from ml._imports import check_ml_dependencies
 from ml._imports import mlflow
 from ml._imports import optuna
@@ -690,6 +691,8 @@ class BaseMLTrainer(ABC):
 
         """
         try:
+            if not HAS_SKLEARN:
+                raise ImportError
             from sklearn.model_selection import KFold
 
             kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
@@ -1081,6 +1084,8 @@ class BaseMLTrainer(ABC):
         Calculate classification metrics.
         """
         try:
+            if not HAS_SKLEARN:
+                raise ImportError
             from sklearn.metrics import accuracy_score
             from sklearn.metrics import f1_score
             from sklearn.metrics import precision_score

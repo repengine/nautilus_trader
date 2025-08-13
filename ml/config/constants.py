@@ -69,6 +69,8 @@ class TimeConstants:
     NS_IN_MINUTE: Final[int] = 60 * NS_IN_SECOND
     NS_IN_HOUR: Final[int] = 3600 * NS_IN_SECOND
     NS_IN_DAY: Final[int] = 86400 * NS_IN_SECOND
+    SECONDS_IN_DAY: Final[int] = 86400
+    DAYS_PER_WEEK: Final[int] = 7
 
     # Trading calendar
     TRADING_DAYS_PER_YEAR: Final[int] = 252
@@ -165,6 +167,8 @@ class SystemConstants:
     # Memory limits for hot path
     MAX_FEATURE_BUFFER_SIZE: Final[int] = 1000
     MAX_INDICATOR_HISTORY: Final[int] = 252
+    # Safety pad for preallocated feature buffer (online path)
+    FEATURE_BUFFER_PAD: Final[int] = 20
 
 
 # ============================================================================

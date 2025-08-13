@@ -49,17 +49,17 @@ def test_registry_lifecycle(tmp_path: Path) -> None:
     fid = reg.register_feature_set(m, artifacts={"scaler": "scaler.npz"})
     got = reg.get_feature_set(fid)
     assert got is not None
-    assert got.stage == FeatureStage.CANDIDATE
+    assert got.manifest.stage == FeatureStage.CANDIDATE
     reg.promote(fid, FeatureStage.PROD)
     got2 = reg.get_feature_set(fid)
-    assert got2 is not None and got2.stage == FeatureStage.PROD
+    assert got2 is not None and got2.manifest.stage == FeatureStage.PROD
     reg.deprecate(fid, reason="replaced")
     got3 = reg.get_feature_set(fid)
-    assert got3 is not None and got3.stage == FeatureStage.DEPRECATED
+    assert got3 is not None and got3.manifest.stage == FeatureStage.DEPRECATED
     # scrapped should still be retrievable but marked
     reg.scrap(fid)
     got4 = reg.get_feature_set(fid)
-    assert got4 is not None and got4.stage == FeatureStage.SCRAPPED
+    assert got4 is not None and got4.manifest.stage == FeatureStage.SCRAPPED
 
 
 def test_resolve_by_schema_hash(tmp_path: Path) -> None:
@@ -71,4 +71,4 @@ def test_resolve_by_schema_hash(tmp_path: Path) -> None:
     id1 = reg.register_feature_set(m1)
     id2 = reg.register_feature_set(m2)
     matches = reg.resolve_by_schema_hash(m1.schema_hash)
-    assert {x.feature_set_id for x in matches} == {id1, id2}
+    assert {x.manifest.feature_set_id for x in matches} == {id1, id2}

@@ -49,9 +49,9 @@ def test_feature_registry_roundtrip(names: list[str]) -> None:
         fid = reg.register_feature_set(manifest)
         got = reg.get_feature_set(fid)
         assert got is not None
-        assert got.schema_hash == schema_hash
-        assert got.role == FeatureRole.STUDENT
-        assert got.stage == FeatureStage.CANDIDATE
+        assert got.manifest.schema_hash == schema_hash
+        assert got.manifest.role == FeatureRole.STUDENT
+        assert got.manifest.stage == FeatureStage.CANDIDATE
 
         # Promote with gates
         ok = reg.validate_and_promote(
@@ -62,7 +62,7 @@ def test_feature_registry_roundtrip(names: list[str]) -> None:
         assert ok is False
         feature_set = reg.get_feature_set(fid)
         assert feature_set is not None
-        assert feature_set.stage == FeatureStage.CANDIDATE
+        assert feature_set.manifest.stage == FeatureStage.CANDIDATE
 
         # Add perf and re-promote
         info = reg._features[fid]
@@ -72,4 +72,4 @@ def test_feature_registry_roundtrip(names: list[str]) -> None:
         )
         feature_set = reg.get_feature_set(fid)
         assert feature_set is not None
-        assert feature_set.stage == FeatureStage.PROD
+        assert feature_set.manifest.stage == FeatureStage.PROD

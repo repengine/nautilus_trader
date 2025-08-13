@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 CLI to calibrate a TFT teacher and emit soft labels for distillation, with registry integration.
 
@@ -26,7 +27,6 @@ import numpy as np
 import numpy.typing as npt
 
 from ml.config.names import ONNX_INPUT_NAME
-from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import LocalFeatureRegistry
 from ml.registry.model_registry import LocalModelRegistry
 from ml.training.teacher.base import BaseTeacher
@@ -70,9 +70,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Resolve feature manifest and enforce schema
     freg = LocalFeatureRegistry(Path(args.feature_registry_dir))
-    fman: FeatureManifest | None = freg.get_feature_set(args.feature_set_id)
-    if fman is None:
+    finfo = freg.get_feature_set(args.feature_set_id)
+    if finfo is None:
         raise SystemExit(f"Unknown feature_set_id: {args.feature_set_id}")
+    fman = finfo.manifest
     feature_names = list(fman.feature_names)
     n_features = len(feature_names)
 
