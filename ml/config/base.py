@@ -1,4 +1,3 @@
-
 """
 Base configuration classes for ML components using msgspec.
 
@@ -13,7 +12,6 @@ from typing import Any, Literal
 
 from msgspec import ValidationError
 
-from ml.config.constants import Providers
 from nautilus_trader.common.config import NautilusConfig
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import NonNegativeInt
@@ -96,7 +94,9 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
     use_manifest_features: bool = True
 
     def __post_init__(self) -> None:
-        """Validate configuration."""
+        """
+        Validate configuration.
+        """
         if not self.model_path and not self.model_id:
             raise ValidationError("Either model_path or model_id must be provided")
         if self.model_id and not self.registry_path:
@@ -217,6 +217,7 @@ class HealthMonitorConfig(NautilusConfig, kw_only=True, frozen=True):
         Consecutive failures to mark status as DEGRADED.
     degraded_latency_violations : PositiveInt, default 100
         Total latency budget violations to mark status as DEGRADED.
+
     """
 
     critical_consecutive_failures: PositiveInt = 10
@@ -226,28 +227,19 @@ class HealthMonitorConfig(NautilusConfig, kw_only=True, frozen=True):
 
 
 class OnnxRuntimeConfig(NautilusConfig, kw_only=True, frozen=True):
-    """
-    ONNX Runtime configuration used by inference loaders.
+    pass  # Moved to ml.config.runtime
 
-    Parameters
-    ----------
-    graph_optimization_level : str, default "all"
-        One of: "disable", "basic", "extended", "all".
-    execution_mode : str, default "sequential"
-        One of: "sequential", "parallel".
-    providers : list[str], default [Providers.CPU]
-        Execution providers in priority order.
-    intra_threads : int | None, default None
-        Intra-op threads; None leaves the default.
-    inter_threads : int | None, default None
-        Inter-op threads; None leaves the default.
-    """
 
-    graph_optimization_level: str = "all"
-    execution_mode: str = "sequential"
-    providers: list[str] = [Providers.CPU]
-    intra_threads: int | None = None
-    inter_threads: int | None = None
+class OptimizationConfig(NautilusConfig, kw_only=True, frozen=True):
+    pass  # Moved to ml.config.actors
+
+
+class StrategyConfig(NautilusConfig, kw_only=True, frozen=True):
+    pass  # Moved to ml.config.actors
+
+
+class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
+    pass  # Moved to ml.config.actors
 
 
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
@@ -318,32 +310,13 @@ class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
     early_stopping_rounds: PositiveInt = 50
     validation_metric: str = "accuracy"
     save_model_path: str | None = None
+    # FeatureStore integration
+    db_connection: str | None = None
+    pipeline_spec: Any | None = None
 
 
 class ModelRegistryConfig(NautilusConfig, kw_only=True, frozen=True):
-    """
-    Configuration for ML model registry.
-
-    Parameters
-    ----------
-    registry_path : str, default "ml/registry"
-        Base path for model registry storage.
-    enable_mlflow : bool, default False
-        Whether to enable MLflow integration for experiment tracking.
-    mlflow_tracking_uri : str, optional
-        MLflow tracking server URI. If None, uses local file storage.
-    auto_versioning : bool, default True
-        Whether to automatically version models on registration.
-    max_versions_per_model : PositiveInt, default 10
-        Maximum number of versions to keep per model.
-
-    """
-
-    registry_path: str = "ml/registry"
-    enable_mlflow: bool = False
-    mlflow_tracking_uri: str | None = None
-    auto_versioning: bool = True
-    max_versions_per_model: PositiveInt = 10
+    pass  # Moved to ml.config.registry
 
 
 class MultiModelStrategyConfig(MLStrategyConfig, kw_only=True, frozen=True):
@@ -396,10 +369,12 @@ class ModelDeploymentConfig(NautilusConfig, kw_only=True, frozen=True):
     auto_rollback_on_error: bool = True
 
     def __post_init__(self) -> None:
-        """Validate percentage is between 0 and 100."""
+        """
+        Validate percentage is between 0 and 100.
+        """
         if self.rollout_percentage > 100.0:
             raise ValidationError(
-                f"rollout_percentage must be between 0.0 and 100.0, got {self.rollout_percentage}"
+                f"rollout_percentage must be between 0.0 and 100.0, got {self.rollout_percentage}",
             )
 
 
@@ -435,7 +410,9 @@ class CanaryDeploymentConfig(NautilusConfig, kw_only=True, frozen=True):
     auto_rollback: bool = True
 
     def __post_init__(self) -> None:
-        """Validate all percentages are between 0 and 100."""
+        """
+        Validate all percentages are between 0 and 100.
+        """
         for field_name, value in [
             ("initial_traffic_percentage", self.initial_traffic_percentage),
             ("increment_percentage", self.increment_percentage),
@@ -443,7 +420,7 @@ class CanaryDeploymentConfig(NautilusConfig, kw_only=True, frozen=True):
         ]:
             if value > 100.0:
                 raise ValidationError(
-                    f"{field_name} must be between 0.0 and 100.0, got {value}"
+                    f"{field_name} must be between 0.0 and 100.0, got {value}",
                 )
 
 
@@ -457,6 +434,7 @@ class DataLoaderConfig(NautilusConfig, kw_only=True, frozen=True):
         Maximum number of cached DataFrames.
     enable_cache : bool, default True
         Whether to enable the internal cache.
+
     """
 
     cache_size: PositiveInt = 1000
@@ -464,19 +442,7 @@ class DataLoaderConfig(NautilusConfig, kw_only=True, frozen=True):
 
 
 class RegistryPolicyConfig(NautilusConfig, kw_only=True, frozen=True):
-    """
-    Policy settings for the model registry (SLOs, A/B defaults).
-
-    Parameters
-    ----------
-    max_inference_latency_ms : PositiveFloat, default 5.0
-        SLO for student inference latency.
-    ab_models_required : PositiveInt, default 2
-        Number of models required for A/B tests.
-    """
-
-    max_inference_latency_ms: PositiveFloat = 5.0
-    ab_models_required: PositiveInt = 2
+    pass  # Moved to ml.config.registry
 
 
 class StatsConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -495,6 +461,7 @@ class StatsConfig(NautilusConfig, kw_only=True, frozen=True):
         Critical value to use when df < threshold.
     z_alpha_default : PositiveFloat, default 1.96
         Default z critical for alpha=0.05 two-tailed.
+
     """
 
     significance_level: NonNegativeFloat = 0.05

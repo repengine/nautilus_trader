@@ -27,6 +27,7 @@ import numpy.typing as npt
 from ml._imports import HAS_SKLEARN
 from ml._imports import lgb
 from ml._imports import onnx as _onnx_mod
+from ml.config.constants import Versions
 
 
 def schema_hash(feature_names: list[str], dtypes: list[str] | None = None) -> str:
@@ -66,7 +67,7 @@ class LightGBMStudentDistiller:
 
                 opset = DEFAULT_ONNX_OPSET
             except Exception:
-                opset = 17
+                opset = Versions.ONNX_OPSET
         self.objective = objective
         self.kd_lambda = kd_lambda
         self.lgb_params = lgb_params or {
@@ -81,12 +82,7 @@ class LightGBMStudentDistiller:
         self.early_stopping = early_stopping
         self.opset = opset
         if trainer_version is None:
-            try:
-                from ml.config.constants import Versions
-
-                trainer_version = Versions.DEFAULT_TRAINER_VERSION
-            except Exception:
-                trainer_version = "0.1.0"
+            trainer_version = Versions.DEFAULT_TRAINER_VERSION
         self.trainer_version = trainer_version
 
         self.model: Any | None = None

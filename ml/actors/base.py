@@ -32,15 +32,15 @@ from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
-from ml.config.base import OnnxRuntimeConfig
-from ml.config.constants import Providers
+from ml.config.constants import TimeConstants
 from ml.config.names import LABEL_ACTOR_ID
 from ml.config.names import LABEL_MODEL_NAME
 from ml.config.names import METRIC_PREDICTION_LATENCY_SECONDS
 from ml.config.names import METRIC_PREDICTIONS_TOTAL
 from ml.config.names import METRIC_SIGNAL_CONFIDENCE
+from ml.config.runtime import OnnxRuntimeConfig
+from ml.config.runtime import to_session_options
 from nautilus_trader.common.actor import Actor
-from ml.config.constants import TimeConstants
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
@@ -285,24 +285,33 @@ class CircuitBreaker:
 
 
 class SecurityError(Exception):
-    """Raised when a security check fails during model loading."""
-
+    """
+    Raised when a security check fails during model loading.
+    """
 
 
 class ModelLoader:
-    """Base class for model loaders (compatibility layer)."""
+    """
+    Base class for model loaders (compatibility layer).
+    """
 
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
-        """Load a model and return it with metadata."""
+        """
+        Load a model and return it with metadata.
+        """
         raise NotImplementedError
 
     def get_model_version(self, path: str) -> str:
-        """Get model version."""
+        """
+        Get model version.
+        """
         return "1.0.0"
 
 
 class ProductionModelLoader(ModelLoader):
-    """Production model loader (compatibility layer for legacy code)."""
+    """
+    Production model loader (compatibility layer for legacy code).
+    """
 
     def __init__(self, model_dir: str | None = None):
         self.model_dir = Path(model_dir) if model_dir else Path.cwd()
@@ -337,34 +346,7 @@ class ONNXModelLoader(ModelLoader):
             raise FileNotFoundError(f"Model file not found: {path}")
 
         # Create optimized ONNX Runtime session
-        session_options = ort.SessionOptions()
-        # Map config to ORT enums
-        opt_map = {
-            "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
-            "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
-            "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
-            "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-        }
-        exec_map = {
-            "sequential": ort.ExecutionMode.ORT_SEQUENTIAL,
-            "parallel": ort.ExecutionMode.ORT_PARALLEL,
-        }
-        session_options.graph_optimization_level = opt_map.get(
-            self._runtime_config.graph_optimization_level,
-            ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-        )
-        session_options.execution_mode = exec_map.get(
-            self._runtime_config.execution_mode,
-            ort.ExecutionMode.ORT_SEQUENTIAL,
-        )
-        if self._runtime_config.intra_threads is not None:
-            session_options.intra_op_num_threads = int(self._runtime_config.intra_threads)
-        if self._runtime_config.inter_threads is not None:
-            session_options.inter_op_num_threads = int(self._runtime_config.inter_threads)
-
-        # Providers from config (default CPU)
-        providers = self._runtime_config.providers or [Providers.CPU]
-
+        session_options, providers = to_session_options(self._runtime_config)
         session = ort.InferenceSession(str(model_path), session_options, providers=providers)
 
         # Generate metadata
@@ -1016,7 +998,9 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             return
 
         # Use Nautilus timer for scheduling
-        interval_ns = self._config.model_check_interval * TimeConstants.NS_IN_SECOND  # Convert to ns
+        interval_ns = (
+            self._config.model_check_interval * TimeConstants.NS_IN_SECOND
+        )  # Convert to ns
         self.clock.set_timer_ns(
             name="model_version_check",
             interval_ns=interval_ns,
@@ -1394,7 +1378,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         hour_of_day = seconds_in_day / float(TimeConstants.SECONDS_IN_DAY)  # Normalized to [0, 1]
         # Calculate day of week (0=Thursday for Unix epoch)
         days_since_epoch = timestamp_seconds // TimeConstants.SECONDS_IN_DAY
-        day_of_week = (days_since_epoch % TimeConstants.DAYS_PER_WEEK) / float(TimeConstants.DAYS_PER_WEEK)  # Normalized to [0, 1]
+        day_of_week = (days_since_epoch % TimeConstants.DAYS_PER_WEEK) / float(
+            TimeConstants.DAYS_PER_WEEK
+        )  # Normalized to [0, 1]
         self._feature_buffer[8] = hour_of_day
         self._feature_buffer[9] = day_of_week
 

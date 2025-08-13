@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ml.config.constants import Versions
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
@@ -16,7 +17,7 @@ from ml.registry.feature_registry import LocalFeatureRegistry
 def cli_register_default(
     registry_path: str,
     name: str = "default",
-    version: str = "1.0.0",
+    version: str | None = None,
     role: str = "student",
     data_requirements: str = "l1_only",
 ) -> str:
@@ -31,7 +32,7 @@ def cli_register_default(
     eng = FeatureEngineer(FeatureConfig())
     manifest = eng.generate_feature_manifest(
         name=name,
-        version=version,
+        version=version or Versions.DEFAULT_MANIFEST_VERSION,
         role=role_enum,
         data_requirements=req_enum,
     )

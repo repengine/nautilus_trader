@@ -3,8 +3,8 @@
 """
 Local file-based model registry implementation with configurable persistence backends.
 
-This module provides a registry that can use either JSON files or PostgreSQL for persistence,
-making it suitable for both development and production environments.
+This module provides a registry that can use either JSON files or PostgreSQL for
+persistence, making it suitable for both development and production environments.
 
 """
 
@@ -35,6 +35,8 @@ from ml.registry.persistence import ModelTable
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
 from ml.registry.statistics import welch_t_test
+from ml.config.registry import RegistryPolicyConfig
+from ml.config.runtime import OnnxRuntimeConfig, to_session_options
 
 
 logger = logging.getLogger(__name__)
@@ -802,34 +804,9 @@ class LocalModelRegistry(ModelRegistry):
                     if not HAS_ONNX:
                         check_ml_dependencies(["onnxruntime"])
 
-                    # Create optimized session like in ONNXModelLoader
-                    session_options = ort.SessionOptions()
-                    # Map config to ORT
-                    level_map = {
-                        "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
-                        "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
-                        "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
-                        "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-                    }
-                    exec_map = {
-                        "sequential": ort.ExecutionMode.ORT_SEQUENTIAL,
-                        "parallel": ort.ExecutionMode.ORT_PARALLEL,
-                    }
-                    session_options.graph_optimization_level = level_map.get(
-                        self._onnx_rt.graph_optimization_level,
-                        ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-                    )
-                    session_options.execution_mode = exec_map.get(
-                        self._onnx_rt.execution_mode,
-                        ort.ExecutionMode.ORT_SEQUENTIAL,
-                    )
-                    if self._onnx_rt.intra_threads is not None:
-                        session_options.intra_op_num_threads = int(self._onnx_rt.intra_threads)
-                    if self._onnx_rt.inter_threads is not None:
-                        session_options.inter_op_num_threads = int(self._onnx_rt.inter_threads)
-
-                    # Providers from config
-                    providers = self._onnx_rt.providers or [Providers.CPU]
+                    # Create optimized session via helper
+                    from ml.config.runtime import to_session_options as _to_sess
+                    session_options, providers = _to_sess(self._onnx_rt)
 
                     model = ort.InferenceSession(
                         str(model_path),
@@ -1071,8 +1048,9 @@ class LocalModelRegistry(ModelRegistry):
 
         """
         with self._lock:
-            if len(models) != 2:
-                logger.error("A/B test requires exactly 2 models")
+            required = int(self._policy.ab_models_required)
+            if len(models) != required:
+                logger.error(f"A/B test requires exactly {required} models")
                 return None
 
             model_a_id, model_b_id = models

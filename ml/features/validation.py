@@ -1,4 +1,3 @@
-
 """
 Feature parity validation for ML components.
 
@@ -401,7 +400,11 @@ class FeatureParityValidator:
         volume_qty = Quantity.from_str(f"{volume_val:.8f}")
 
         # Create timestamps (use dummy values for validation)
-        ts_event = 1_000_000_000 + row_idx * 60_000_000_000  # 1 minute intervals
+        from ml.config.constants import TimeConstants
+
+        ts_event = (
+            TimeConstants.NS_IN_SECOND + row_idx * TimeConstants.NS_IN_MINUTE
+        )  # 1 minute intervals
         ts_init = ts_event
 
         return Bar(

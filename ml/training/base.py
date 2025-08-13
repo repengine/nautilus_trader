@@ -29,6 +29,7 @@ from ml._imports import mlflow
 from ml._imports import optuna
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLTrainingConfig
+from ml.stores.feature_store import FeatureStore
 
 
 if TYPE_CHECKING:
@@ -88,6 +89,15 @@ class BaseMLTrainer(ABC):
         self._mlflow_run_id: str | None = None
         self._optuna_study: optuna.Study | None = None
         self._cv_results: list[dict[str, float]] = []
+
+        # Initialize FeatureStore if database connection provided
+        self._feature_store: FeatureStore | None = None
+        if hasattr(config, "db_connection") and config.db_connection:
+            self._feature_store = FeatureStore(
+                connection_string=config.db_connection,
+                feature_config=self._feature_config,
+                pipeline_spec=getattr(config, "pipeline_spec", None),
+            )
 
     def train(
         self,
@@ -265,6 +275,81 @@ class BaseMLTrainer(ABC):
         Log error message.
         """
         logger.error(message)
+
+    def prepare_data_with_feature_store(
+        self,
+        instrument_id: str,
+        start: Any,  # datetime
+        end: Any,  # datetime
+        compute_if_missing: bool = True,
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], list[str]]:
+        """
+        Prepare training data using FeatureStore for guaranteed parity.
+
+        Parameters
+        ----------
+        instrument_id : str
+            Instrument to train on.
+        start : Any
+            Training period start.
+        end : Any
+            Training period end.
+        compute_if_missing : bool, default True
+            Whether to compute features if not already stored.
+
+        Returns
+        -------
+        tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], list[str]]
+            X (features), y (labels), feature_names
+
+        """
+        if self._feature_store is None:
+            raise ValueError("FeatureStore not configured. Provide db_connection in config.")
+
+        # Compute and store features if needed
+        if compute_if_missing:
+            rows_computed = self._feature_store.compute_and_store_historical(
+                instrument_id=instrument_id,
+                start=start,
+                end=end,
+                force_recompute=False,
+            )
+            if rows_computed > 0:
+                self._log_info(f"Computed {rows_computed} feature rows")
+
+        # Load features from store
+        features, timestamps, feature_names = self._feature_store.get_training_data(
+            instrument_id=instrument_id,
+            start=start,
+            end=end,
+            include_bars=True,
+        )
+
+        if len(features) == 0:
+            raise ValueError(f"No features found for {instrument_id} in specified period")
+
+        # Generate labels (simplified - override in subclass for specific logic)
+        labels = self._generate_labels(features, timestamps)
+
+        self._feature_names = feature_names
+        self._log_info(f"Loaded {len(features)} samples with {len(feature_names)} features")
+
+        return features, labels, feature_names
+
+    def _generate_labels(
+        self,
+        features: npt.NDArray[np.float64],
+        timestamps: npt.NDArray[np.int64],
+    ) -> npt.NDArray[np.float64]:
+        """
+        Generate labels for training (override in subclass for specific logic).
+        """
+        # Simple example: 1 if next return > 0, else 0
+        returns = np.diff(features[:, 0]) if features.shape[1] > 0 else np.array([])
+        labels = (returns > 0).astype(np.float64)
+        # Pad to match features length
+        labels = np.append(labels, 0) if len(labels) < len(features) else labels[: len(features)]
+        return labels
 
     @abstractmethod
     def prepare_data(

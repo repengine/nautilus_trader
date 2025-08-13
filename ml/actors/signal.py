@@ -46,7 +46,9 @@ from ml.actors.base import MLSignal
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import MLActorConfig
-from ml.config.base import OnnxRuntimeConfig
+from ml.config.actors import MLSignalActorConfig
+from ml.config.actors import OptimizationConfig
+from ml.config.actors import StrategyConfig
 from ml.config.names import FEATURE_TIME_BUCKETS
 from ml.config.names import LABEL_ACTOR_ID
 from ml.config.names import LABEL_FEATURE_SET_ID
@@ -62,6 +64,7 @@ from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.registry.feature_registry import LocalFeatureRegistry
+from ml.stores.feature_store import FeatureStore
 from nautilus_trader.common.config import NonNegativeFloat
 from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.model.data import Bar
@@ -106,86 +109,10 @@ class OptimizationLevel(Enum):
     OPTIMIZED = "optimized"  # Advanced optimizations enabled
 
 
-# =================================================================================================
-# Configuration Classes
-# =================================================================================================
-
-
-class OptimizationConfig(msgspec.Struct, frozen=True):
-    """
-    Configuration for performance optimizations.
-    """
-
-    level: OptimizationLevel = OptimizationLevel.STANDARD
-    enable_zero_copy: bool = False
-    enable_model_warm_up: bool = False
-    warm_up_iterations: int = 100
-    pre_allocate_buffers: bool = True
-    use_lock_free_buffers: bool = False
-    reservoir_sample_size: int = 1000
-    onnx_graph_optimization: str = "ORT_ENABLE_ALL"
-    onnx_execution_mode: str = "ORT_SEQUENTIAL"
-    onnx_intra_threads: int = 1
-    onnx_inter_threads: int = 1
-
-
-class StrategyConfig(msgspec.Struct, frozen=True):
-    """
-    Configuration for signal generation strategies.
-    """
-
-    extremes_top_pct: float = 0.1
-    momentum_lookback: int = 5
-    ensemble_weights: dict[str, float] | None = None
-    adaptive_volatility_factor: float = 2.0
-    min_threshold: float = 0.1
-    max_threshold: float = 0.95
-    update_frequency: int = 10
-
-
-class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
-    """
-    Unified configuration for ML Signal Actor with all features.
-
-    Parameters
-    ----------
-    signal_strategy : SignalStrategy, default SignalStrategy.THRESHOLD
-        The signal generation strategy to use.
-    adaptive_window : PositiveInt, default 20
-        Window size for adaptive threshold calculation.
-    min_signal_separation_bars : PositiveInt, default 3
-        Minimum bars between signals to prevent over-trading.
-    feature_importance_threshold : NonNegativeFloat, default 0.01
-        Minimum feature importance to include in signal generation.
-    enable_regime_detection : bool, default True
-        Whether to enable market regime detection for adaptive strategies.
-    optimization_config : OptimizationConfig, optional
-        Performance optimization configuration.
-    strategy_config : StrategyConfig, optional
-        Strategy-specific configuration.
-    enable_hot_reload : bool, default False
-        Whether to enable model hot reloading.
-    hot_reload_interval : PositiveInt, default 300
-        Hot reload check interval in seconds.
-    custom_strategy : SignalGenerationStrategy, optional
-        Custom signal generation strategy implementation.
-
-    """
-
-    signal_strategy: SignalStrategy = SignalStrategy.THRESHOLD
-    adaptive_window: PositiveInt = 20
-    min_signal_separation_bars: PositiveInt = 3
-    feature_importance_threshold: NonNegativeFloat = 0.01
-    enable_regime_detection: bool = True
-    optimization_config: OptimizationConfig | None = None
-    strategy_config: StrategyConfig | None = None
-    enable_hot_reload: bool = False
-    hot_reload_interval: PositiveInt = 300
-    custom_strategy: Any | None = None  # SignalGenerationStrategy
-    # Feature registry integration
-    feature_set_id: str | None = None
-    registry_path: str | None = None
-    use_registry_features: bool = False
+"""
+# Configuration classes moved to ml.config.base (OptimizationConfig, StrategyConfig,
+# MLSignalActorConfig). ONNX runtime options removed from OptimizationConfig.
+"""
     onnx_runtime_config: OnnxRuntimeConfig | None = None
 
 
@@ -1068,7 +995,21 @@ class MLSignalActor(BaseMLInferenceActor):
                 if isinstance(config.feature_config, FeatureConfig)
                 else FeatureConfig()
             )
-        self._feature_engineer = FeatureEngineer(self._feature_config)
+
+        # Initialize FeatureStore if configured
+        self._feature_store: FeatureStore | None = None
+        if config.use_feature_store:
+            self._feature_store = FeatureStore(
+                connection_string=config.db_connection,
+                feature_config=self._feature_config,
+                pipeline_spec=config.pipeline_spec,
+            )
+            self._feature_engineer = self._feature_store.feature_engineer
+            self._persist_features = config.persist_features
+        else:
+            self._feature_engineer = FeatureEngineer(self._feature_config)
+            self._persist_features = False
+
         self._feature_set_id: str | None = None
         # Optional: validate features against feature registry manifest
         if (
@@ -1235,58 +1176,10 @@ class MLSignalActor(BaseMLInferenceActor):
         if not HAS_ONNX:
             check_ml_dependencies(["onnx"])  # accept alias in checker
 
-        # Create optimized session options
-        session_options = ort.SessionOptions()
-        # Prefer global OnnxRuntimeConfig, fallback to local opt config
-        rt = getattr(self._config, "onnx_runtime_config", None)
-        if rt is None:
-            # Map legacy OptimizationConfig fields
-            opt_map = {
-                "ORT_DISABLE_ALL": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
-                "ORT_ENABLE_BASIC": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
-                "ORT_ENABLE_EXTENDED": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
-                "ORT_ENABLE_ALL": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-            }
-            exec_map = {
-                "ORT_SEQUENTIAL": ort.ExecutionMode.ORT_SEQUENTIAL,
-                "ORT_PARALLEL": ort.ExecutionMode.ORT_PARALLEL,
-            }
-            session_options.graph_optimization_level = opt_map.get(
-                self._opt_config.onnx_graph_optimization,
-                ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-            )
-            session_options.execution_mode = exec_map.get(
-                self._opt_config.onnx_execution_mode,
-                ort.ExecutionMode.ORT_SEQUENTIAL,
-            )
-            session_options.intra_op_num_threads = self._opt_config.onnx_intra_threads
-            session_options.inter_op_num_threads = self._opt_config.onnx_inter_threads
-            providers = [("CPUExecutionProvider", {})]
-        else:
-            # New config pathway
-            level_map = {
-                "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
-                "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
-                "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
-                "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-            }
-            exec_map2 = {
-                "sequential": ort.ExecutionMode.ORT_SEQUENTIAL,
-                "parallel": ort.ExecutionMode.ORT_PARALLEL,
-            }
-            session_options.graph_optimization_level = level_map.get(
-                rt.graph_optimization_level,
-                ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
-            )
-            session_options.execution_mode = exec_map2.get(
-                rt.execution_mode,
-                ort.ExecutionMode.ORT_SEQUENTIAL,
-            )
-            if rt.intra_threads is not None:
-                session_options.intra_op_num_threads = int(rt.intra_threads)
-            if rt.inter_threads is not None:
-                session_options.inter_op_num_threads = int(rt.inter_threads)
-            providers = [(p, {}) if isinstance(p, str) else p for p in (rt.providers or ["CPUExecutionProvider"])]
+        # Create optimized session options from OnnxRuntimeConfig only
+        from ml.config.runtime import OnnxRuntimeConfig as _OnnxRuntimeConfig, to_session_options
+        rt = getattr(self._config, "onnx_runtime_config", None) or _OnnxRuntimeConfig()
+        session_options, providers = to_session_options(rt)
 
         # Load model
         model = ort.InferenceSession(
@@ -1383,8 +1276,38 @@ class MLSignalActor(BaseMLInferenceActor):
 
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
-        Compute feature vector from bar.
+        Compute feature vector from bar using FeatureStore for guaranteed parity.
         """
+        if self._feature_store is not None:
+            # Use FeatureStore for computation (ensures parity)
+            try:
+                start_time = time.perf_counter()
+                features = self._feature_store.compute_realtime(
+                    bar=bar,
+                    store=self._persist_features,
+                )
+                feature_time = (time.perf_counter() - start_time) * 1000
+
+                if feature_time > self._config.max_feature_latency_ms:
+                    self.log.warning(f"Feature computation slow: {feature_time:.3f}ms")
+
+                # Record feature latency metrics
+                if _feature_time_by_feature_set_metric and self._feature_set_id:
+                    try:
+                        _feature_time_by_feature_set_metric.labels(
+                            actor_id=self.id.value,
+                            feature_set_id=self._feature_set_id,
+                        ).observe(feature_time / 1000.0)
+                    except Exception as exc:
+                        self.log.debug("Feature time metric observe failed", exc_info=exc)
+
+                return features
+
+            except Exception as e:
+                self.log.error(f"FeatureStore computation failed: {e}")
+                return None
+
+        # Fallback to original implementation when FeatureStore not configured
         if self._indicator_manager is None:
             return None
 
@@ -1410,6 +1333,7 @@ class MLSignalActor(BaseMLInferenceActor):
         feature_time = (time.perf_counter() - start_time) * 1000
         if feature_time > self._config.max_feature_latency_ms:
             self.log.warning(f"Feature computation slow: {feature_time:.3f}ms")
+
         # Record feature latency by feature set if available
         if _feature_time_by_feature_set_metric and self._feature_set_id:
             try:
@@ -1602,7 +1526,8 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         Record performance metrics.
         """
-        total_time_ns = int((time.perf_counter() - start_time) * 1_000_000_000)
+        from ml.config.constants import TimeConstants
+        total_time_ns = int((time.perf_counter() - start_time) * TimeConstants.NS_IN_SECOND)
         if self._performance_monitor:
             feature_time_ns = 500_000  # Placeholder, would need to track separately
             inference_time_ns = total_time_ns - feature_time_ns
