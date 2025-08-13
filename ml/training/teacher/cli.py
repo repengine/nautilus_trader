@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 """
-CLI scaffold to calibrate a teacher on a validation window and emit soft labels
-for student distillation. This is a cold-path utility.
+Teacher calibration CLI (compat shim) — forwards to tft_cli when registry args provided.
 
-Inputs
-------
-- --student_window_npz: .npz with z_val (raw logits) and y_val_true (0/1)
-- --out_dir:            directory to write outputs
-- --model_id:           teacher model id
+Two modes:
+1) Legacy simple mode (no registries):
+   - Inputs: --student_window_npz with keys {z_val, y_val_true}
+   - Action: Platt-calibrate and emit q_train + meta
 
-Outputs
--------
-- teacher_preds.npz with q_train (calibrated probabilities from z_val)
-- teacher_meta.json with minimal metadata
+2) Registry-integrated mode (preferred):
+   - Provide --feature_registry_dir, --feature_set_id, and optionally --model_registry_dir,
+     --teacher_model_id, --onnx_output_is_logits. Arguments are forwarded to tft_cli.
 """
 
 import argparse
@@ -22,8 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ml.models.teacher import BaseTeacher
-from ml.models.teacher import TeacherConfig
+from ml.training.teacher.base import BaseTeacher
+from ml.training.teacher.base import TeacherConfig
 
 
 class CalibratingTeacher(BaseTeacher):
@@ -82,26 +79,27 @@ class CalibratingTeacher(BaseTeacher):
 
 
 def main(argv: list[str] | None = None) -> int:
-    """
-    Run teacher calibration CLI.
-
-    Parameters
-    ----------
-    argv : list[str] | None
-        Command line arguments.
-
-    Returns
-    -------
-    int
-        Exit code.
-
-    """
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(add_help=False)
+    # Common
     ap.add_argument("--student_window_npz", required=True)
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--model_id", required=True)
-    args = ap.parse_args(argv)
+    # Registry (optional to forward to tft_cli)
+    ap.add_argument("--feature_registry_dir", required=False)
+    ap.add_argument("--feature_set_id", required=False)
+    ap.add_argument("--model_registry_dir", required=False)
+    ap.add_argument("--teacher_model_id", required=False)
+    ap.add_argument("--onnx_output_is_logits", action="store_true")
+    # Parse only known; allow tft_cli to reparse if forwarded
+    args, _ = ap.parse_known_args(argv)
 
+    # If feature registry args are present, forward to tft_cli for full flow
+    if args.feature_registry_dir and args.feature_set_id:
+        from ml.training.teacher.tft_cli import main as tft_main
+
+        return tft_main(argv)
+
+    # Legacy simple mode (no registry)
     npz = np.load(args.student_window_npz, allow_pickle=True)
     if "z_val" not in npz or "y_val_true" not in npz:
         raise ValueError("student_window_npz must contain z_val and y_val_true arrays")
@@ -110,8 +108,6 @@ def main(argv: list[str] | None = None) -> int:
 
     teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
     teacher.calibrate(z_val.reshape(-1, 1), y_val_true)
-
-    # Produce calibrated soft labels on the provided window
     q_cal = teacher.predict_proba(z_val.reshape(-1, 1)).astype(np.float32)
 
     out_dir = Path(args.out_dir)
@@ -122,7 +118,9 @@ def main(argv: list[str] | None = None) -> int:
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump({"model_id": args.model_id, "calibrator": True}, f, indent=2)
 
-    print(f"Saved: {preds_path}\nMeta: {meta_path}")
+    print(
+        f"[compat] Using legacy teacher CLI without registries\nSaved: {preds_path}\nMeta: {meta_path}"
+    )
     return 0
 
 
