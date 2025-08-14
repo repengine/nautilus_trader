@@ -1,5 +1,9 @@
 # Migration Guide: Mandatory Store Integration
 
+> **Important**: The mandatory store integration is now part of the main `ml/actors/base.py` file. 
+> The `BaseMLInferenceActor` class in this file provides all the automatic store integration features.
+> There is no separate `base_integrated.py` file needed.
+
 ## Overview
 
 We are migrating ALL ML actors to use **mandatory store integration**. This ensures:
@@ -27,7 +31,7 @@ class MyMLActor(Actor):
 
 ### After (GOOD ✅)
 ```python
-class MyMLActor(MLActorBase):  # Inherits integrated base
+class MyMLActor(BaseMLInferenceActor):  # Inherits integrated base
     def __init__(self, config):
         super().__init__(config)  # Stores auto-initialized!
         
@@ -49,9 +53,9 @@ class MyMLActor(Actor):
     ...
 
 # NEW
-from ml.actors.base_integrated import MLActorBase
+from ml.actors.base import BaseMLInferenceActor
 
-class MyMLActor(MLActorBase):
+class MyMLActor(BaseMLInferenceActor):
     ...
 ```
 
@@ -69,7 +73,7 @@ def __init__(self, config):
 
 #### Implement required methods:
 ```python
-class MyMLActor(MLActorBase):
+class MyMLActor(BaseMLInferenceActor):
     
     def compute_features(self, data: Data) -> np.ndarray:
         """Compute features from market data."""
@@ -92,8 +96,11 @@ class MyMLActor(MLActorBase):
 ### Step 2: Update Configuration
 
 Add database connection to your config:
-in config/actors.py:
-    db_connection: "postgresql://postgres:postgres@localhost:5432/nautilus"
+```python
+# In your actor config:
+config = MLActorConfig(
+    model_id="my_model",
+    db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",  # Optional - falls back to SQLite for testing
     feature_set_id: "my_features_v1"
     model_id: "xgboost_v2"
     strategy_id: "trend_following"
@@ -202,7 +209,7 @@ integration = MLIntegrationManager(auto_migrate=True)
 ```python
 # Stores batch writes automatically
 # No performance impact on hot path
-# Configurable batch size in config
+# Falls back to dummy stores in testing when DB unavailable
 ```
 
 ## Rollback Plan
@@ -210,12 +217,9 @@ integration = MLIntegrationManager(auto_migrate=True)
 If you need to temporarily disable stores (NOT RECOMMENDED):
 
 ```python
-class MyMLActor(MLActorBase):
-    def _init_stores(self):
-        # Override to create dummy stores
-        self._feature_store = DummyStore()
-        self._model_store = DummyStore()
-        self._strategy_store = DummyStore()
+# The system automatically falls back to DummyStore when PostgreSQL is unavailable
+# This happens automatically in testing environments
+# No code changes needed!
 ```
 
 **WARNING**: This defeats the entire purpose and should only be used for debugging!
@@ -230,7 +234,7 @@ class MyMLActor(MLActorBase):
 
 ## Checklist
 
-- [ ] Update actor inheritance to `MLActorBase`
+- [ ] Update actor inheritance to `BaseMLInferenceActor` from `ml.actors.base`
 - [ ] Remove optional store parameters
 - [ ] Implement required abstract methods
 - [ ] Add database connection to config

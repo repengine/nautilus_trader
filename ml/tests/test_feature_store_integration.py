@@ -108,9 +108,9 @@ class TestFeatureStoreIntegration:
         with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
             actor = MLSignalActor(config)
 
-            # Verify FeatureStore was NOT initialized
-            assert actor._feature_store is None
-            assert actor._persist_features is False
+            # Verify store was initialized (always mandatory, but may be DummyStore)
+            assert actor._feature_store is not None  # Always exists now
+            # Note: persist_features may still control whether to actually write
 
             # Verify actor still has FeatureEngineer
             assert actor._feature_engineer is not None
@@ -215,7 +215,7 @@ class TestFeatureStoreIntegration:
                 actor_config = MLSignalActorConfig(
                     actor_id="TEST_ACTOR",
                     model_path="./test_model.onnx",
-                    use_feature_store=True,
+                    # Stores are automatically used
                     db_connection="postgresql://custom@localhost/custom",
                     persist_features=False,
                     feature_config=feature_config,

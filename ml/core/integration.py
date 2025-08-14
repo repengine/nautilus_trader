@@ -328,20 +328,19 @@ class MLIntegrationManager:
         actor_class : type
             The actor class to instantiate
         config : Any
-            Actor configuration
+            Actor configuration (should include db_connection)
         
         Returns
         -------
         Any
-            Instantiated actor with all stores connected
+            Instantiated actor with all stores automatically connected
         """
-        # Create actor with integrated stores
-        actor = actor_class(
-            config=config,
-            feature_store=self.feature_store,
-            model_store=self.model_store,
-            strategy_store=self.strategy_store,
-        )
+        # Ensure config has the database connection
+        if not hasattr(config, 'db_connection'):
+            config.db_connection = self.db_connection
+        
+        # Create actor - stores are automatically initialized by the base class
+        actor = actor_class(config=config)
         
         return actor
     
@@ -360,9 +359,11 @@ class MLIntegrationManager:
 
 class AutoIntegratedActor:
     """
-    Base class for actors with automatic ML integration.
+    DEPRECATED: Use BaseMLInferenceActor from ml.actors.base instead.
     
-    Subclass this to get automatic store and registry connections.
+    This class is kept for backward compatibility only.
+    All new actors should inherit from BaseMLInferenceActor which has
+    automatic store integration built-in.
     """
     
     def __init__(self, config: Any, integration: MLIntegrationManager | None = None):
