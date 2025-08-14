@@ -1,4 +1,3 @@
-
 """
 ML data loading utilities for Nautilus Trader.
 
@@ -21,6 +20,7 @@ from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
 from ml._imports import pl
+from ml.config.base import DataLoaderConfig
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
@@ -128,6 +128,8 @@ class MLDataLoader:
             Whether to enable data caching.
         metrics_collector : DataQualityCollector, optional
             Optional metrics collector for monitoring data quality and loading performance.
+        config : DataLoaderConfig, optional
+            Optional configuration overriding cache behavior (size and enable flag).
 
         Raises
         ------

@@ -256,7 +256,7 @@ class TestFeatureStoreIntegration:
                         "low": [1.0990, 1.0995, 1.1000],
                         "volume": [1000000, 1100000, 1200000],
                         "ts_event": [1, 2, 3],
-                    }
+                    },
                 )
 
                 # Mock the load method

@@ -5,6 +5,8 @@ This file sets up profiles for different testing environments.
 
 """
 
+import os
+
 from hypothesis import settings
 
 
@@ -37,8 +39,5 @@ settings.register_profile(
 )
 
 # Load profile from environment
-import os
-
-
 profile = os.getenv("HYPOTHESIS_PROFILE", "default")
 settings.load_profile(profile)

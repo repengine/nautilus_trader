@@ -19,6 +19,8 @@ from typing import Any, cast
 
 from ml.config.constants import SUFFIX_ONNX
 from ml.config.constants import Versions
+from ml.config.registry import RegistryPolicyConfig
+from ml.config.runtime import OnnxRuntimeConfig
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelInfo
@@ -35,8 +37,6 @@ from ml.registry.persistence import ModelTable
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
 from ml.registry.statistics import welch_t_test
-from ml.config.registry import RegistryPolicyConfig
-from ml.config.runtime import OnnxRuntimeConfig, to_session_options
 
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,12 @@ class LocalModelRegistry(ModelRegistry):
         self._load_registry()
 
         logger.info(
-            f"Initialized LocalModelRegistry at {registry_path} with backend={self.backend.value}, cache_size={cache_size}, batch_save_interval={batch_save_interval}s",
+            "Initialized LocalModelRegistry at %s with backend=%s, cache_size=%s, "
+            "batch_save_interval=%ss",
+            registry_path,
+            self.backend.value,
+            cache_size,
+            batch_save_interval,
         )
 
     def _load_registry(self) -> None:
@@ -352,7 +357,9 @@ class LocalModelRegistry(ModelRegistry):
             deployment_constraints=cast(dict[str, Any], db_model.deployment_constraints) or {},
             version=cast(str, db_model.version),
             created_at=db_model.created_at.timestamp() if db_model.created_at else time.time(),
-            last_modified=db_model.last_modified.timestamp() if db_model.last_modified else time.time(),
+            last_modified=(
+                db_model.last_modified.timestamp() if db_model.last_modified else time.time()
+            ),
         )
 
         return ModelInfo(
@@ -379,9 +386,13 @@ class LocalModelRegistry(ModelRegistry):
             return
         try:
             # Check if model exists
-            existing = session.query(ModelTable).filter_by(
-                model_id=model_info.manifest.model_id
-            ).first()
+            existing = (
+                session.query(ModelTable)
+                .filter_by(
+                    model_id=model_info.manifest.model_id,
+                )
+                .first()
+            )
 
             if existing:
                 # Update existing model
@@ -596,9 +607,8 @@ class LocalModelRegistry(ModelRegistry):
                         errors.append("Student must have parent_id")
                     # Check latency constraint
                     if "inference_latency_ms" in manifest.performance_metrics:
-                        if (
-                            manifest.performance_metrics["inference_latency_ms"]
-                            > float(self._policy.max_inference_latency_ms)
+                        if manifest.performance_metrics["inference_latency_ms"] > float(
+                            self._policy.max_inference_latency_ms,
                         ):
                             is_valid = False
                             errors.append(
@@ -793,7 +803,6 @@ class LocalModelRegistry(ModelRegistry):
 
             # Only support ONNX format for security
             try:
-                from ml.config.constants import Providers
 
                 if model_path.suffix == SUFFIX_ONNX:
                     # Load ONNX model following signal actor pattern
@@ -806,6 +815,7 @@ class LocalModelRegistry(ModelRegistry):
 
                     # Create optimized session via helper
                     from ml.config.runtime import to_session_options as _to_sess
+
                     session_options, providers = _to_sess(self._onnx_rt)
 
                     model = ort.InferenceSession(
@@ -956,8 +966,8 @@ class LocalModelRegistry(ModelRegistry):
         """
         try:
             self.flush()
-        except Exception:
-            pass  # Best effort on cleanup
+        except Exception as exc:  # Best effort on cleanup
+            logger.debug("ModelRegistry cleanup flush failed", exc_info=exc)
 
     def _validate_model_path(self, path: Path) -> bool:
         """
@@ -1834,7 +1844,6 @@ class LocalModelRegistry(ModelRegistry):
                 "status": rollout.status,
             }
 
-from ml.config.base import RegistryPolicyConfig, OnnxRuntimeConfig
     def advance_rollout_stage(self, rollout_id: str) -> bool:
         """
         Advance to next rollout stage.

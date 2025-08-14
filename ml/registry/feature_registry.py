@@ -154,8 +154,8 @@ class LocalFeatureRegistry:
     """
     Feature registry with configurable persistence backend.
 
-    Supports both JSON files and PostgreSQL for persistence,
-    making it suitable for both development and production environments.
+    Supports both JSON files and PostgreSQL for persistence, making it suitable for both
+    development and production environments.
 
     Thread-safe for concurrent operations.
 
@@ -196,7 +196,9 @@ class LocalFeatureRegistry:
 
     # Persistence
     def _load(self) -> None:
-        """Load registry from persistence backend."""
+        """
+        Load registry from persistence backend.
+        """
         if self.backend == BackendType.JSON:
             if not self._file.exists():
                 self._save()
@@ -250,7 +252,9 @@ class LocalFeatureRegistry:
                 session.close()
 
     def _save(self) -> None:
-        """Save registry to persistence backend."""
+        """
+        Save registry to persistence backend.
+        """
         with self._lock:
             if self.backend == BackendType.JSON:
                 serial: dict[str, Any] = {
@@ -322,11 +326,15 @@ class LocalFeatureRegistry:
             parent_feature_set_id=db_feature.parent_feature_set_id,
             metadata=cast(dict[str, Any], db_feature.extra_metadata) or {},
             created_at=db_feature.created_at.timestamp() if db_feature.created_at else time.time(),
-            last_modified=db_feature.last_modified.timestamp() if db_feature.last_modified else time.time(),
+            last_modified=(
+                db_feature.last_modified.timestamp() if db_feature.last_modified else time.time()
+            ),
             stage=FeatureStage(cast(str, db_feature.stage)),
         )
         # Note: artifacts are stored as JSON in metadata for PostgreSQL
-        artifacts = db_feature.extra_metadata.get("artifacts", {}) if db_feature.extra_metadata else {}
+        artifacts = (
+            db_feature.extra_metadata.get("artifacts", {}) if db_feature.extra_metadata else {}
+        )
         return FeatureInfo(
             manifest=manifest,
             artifacts=artifacts,
@@ -348,9 +356,13 @@ class LocalFeatureRegistry:
 
         try:
             # Check if feature exists
-            existing = session.query(FeatureTable).filter_by(
-                feature_set_id=feature_info.manifest.feature_set_id
-            ).first()
+            existing = (
+                session.query(FeatureTable)
+                .filter_by(
+                    feature_set_id=feature_info.manifest.feature_set_id,
+                )
+                .first()
+            )
 
             # Store artifacts in metadata
             metadata = feature_info.manifest.metadata.copy()
@@ -465,26 +477,34 @@ class LocalFeatureRegistry:
                 self._save()
 
     def get_feature_set(self, feature_set_id: str) -> FeatureInfo | None:
-        """Get complete feature information including manifest and artifacts."""
+        """
+        Get complete feature information including manifest and artifacts.
+        """
         return self._features.get(feature_set_id)
 
     def get_feature_manifest(self, feature_set_id: str) -> FeatureManifest | None:
-        """Get only the feature manifest (backward compatibility)."""
+        """
+        Get only the feature manifest (backward compatibility).
+        """
         info = self._features.get(feature_set_id)
         return None if info is None else info.manifest
 
     def resolve_by_schema_hash(self, schema_hash: str) -> list[FeatureInfo]:
-        """Get all feature sets matching a schema hash."""
-        return [
-            fi for fi in self._features.values() if fi.manifest.schema_hash == schema_hash
-        ]
+        """
+        Get all feature sets matching a schema hash.
+        """
+        return [fi for fi in self._features.values() if fi.manifest.schema_hash == schema_hash]
 
     def list_by_role(self, role: FeatureRole) -> list[FeatureInfo]:
-        """List all feature sets with a specific role."""
+        """
+        List all feature sets with a specific role.
+        """
         return [fi for fi in self._features.values() if fi.manifest.role == role]
 
     def list_all(self) -> list[FeatureInfo]:
-        """List all feature sets in the registry."""
+        """
+        List all feature sets in the registry.
+        """
         return list(self._features.values())
 
     def get_lineage(self, feature_set_id: str) -> list[FeatureManifest]:
@@ -534,7 +554,7 @@ class LocalFeatureRegistry:
             ):
                 if name in src:
                     val = src[name]
-                    if isinstance(val, (int, float)):
+                    if isinstance(val, int | float):
                         return float(val)
             return None
 

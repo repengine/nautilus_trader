@@ -16,8 +16,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from ml.actors.signal_with_store import MLSignalActorConfigWithStore
-from ml.actors.signal_with_store import MLSignalActorWithStore
+from ml.actors.signal import MLSignalActorConfig
+from ml.actors.signal import MLSignalActor
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.stores.feature_store import FeatureStore
@@ -99,7 +99,7 @@ class TestFeatureParity:
                     "low": float(bar.low),
                     "volume": float(bar.volume),
                     "ts_event": bar.ts_event,
-                }
+                },
             )
         bars_df = pl.DataFrame(bars_data)
 
@@ -212,15 +212,15 @@ class TestFeatureParity:
         """
         Test that MLSignalActor computes features identically to training.
         """
-        with patch("ml.actors.signal_with_store.FeatureStore"):
-            config = MLSignalActorConfigWithStore(
+        with patch("ml.actors.signal.FeatureStore"):
+            config = MLSignalActorConfig(
                 actor_id="TEST_ACTOR",
                 model_path="./test_model.onnx",
                 db_connection="postgresql://test@localhost/test",
             )
 
             # Create actor
-            actor = MLSignalActorWithStore(config)
+            actor = MLSignalActor(config)
 
             # Mock the feature store
             mock_feature_store = MagicMock()
@@ -381,7 +381,8 @@ class TestParityFailureModes:
 
         # Features should be different due to different history
         assert not np.array_equal(
-            features1, features2
+            features1,
+            features2,
         ), "Features should differ when indicators have different history"
 
     def test_detect_numerical_precision_issues(self, feature_config):

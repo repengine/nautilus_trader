@@ -3,8 +3,9 @@
 """
 Statistical utilities for model comparison and A/B testing.
 
-This module provides statistical tests for model performance comparison,
-extracted from the legacy registry for use in the new architecture.
+This module provides statistical tests for model performance comparison, extracted from
+the legacy registry for use in the new architecture.
+
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+
 from ml.config.base import StatsConfig
 
 
@@ -36,6 +38,7 @@ def welch_t_test(
     -------
     dict[str, Any]
         Test results including t-statistic, p-value approximation, and significance
+
     """
     if len(sample_a) < 2 or len(sample_b) < 2:
         return {
@@ -70,7 +73,9 @@ def welch_t_test(
 
     # Determine critical value
     stats = StatsConfig()
-    alpha = significance_level if significance_level is not None else float(stats.significance_level)
+    alpha = (
+        significance_level if significance_level is not None else float(stats.significance_level)
+    )
     critical_value = float(stats.z_alpha_default) if alpha == 0.05 else float(stats.z_alpha_default)
     if df < stats.small_sample_df_threshold:
         critical_value = float(stats.conservative_critical_value)
@@ -112,6 +117,7 @@ def compare_models(
     -------
     dict[str, Any]
         Comparison results with rankings and relative improvements
+
     """
     if not models:
         return {"error": "No models provided"}
@@ -124,14 +130,19 @@ def compare_models(
     for model in models:
         metrics = model.get("metrics", {})
         value = metrics.get(metric_name)
-        model_metrics.append({
-            "model_id": model.get("model_id", "unknown"),
-            "value": value,
-            "metrics": metrics,
-        })
+        model_metrics.append(
+            {
+                "model_id": model.get("model_id", "unknown"),
+                "value": value,
+                "metrics": metrics,
+            },
+        )
 
     # Sort by metric value (descending)
-    model_metrics.sort(key=lambda x: x["value"] if x["value"] is not None else -float("inf"), reverse=True)
+    model_metrics.sort(
+        key=lambda x: x["value"] if x["value"] is not None else -float("inf"),
+        reverse=True,
+    )
 
     # Calculate relative improvements
     baseline_value = model_metrics[baseline_index]["value"]
@@ -151,7 +162,9 @@ def compare_models(
         }
 
         if model_metric["value"] is not None and baseline_value is not None and baseline_value != 0:
-            result["relative_improvement"] = (model_metric["value"] - baseline_value) / baseline_value * 100
+            result["relative_improvement"] = (
+                (model_metric["value"] - baseline_value) / baseline_value * 100
+            )
             result["improvement_from_baseline"] = model_metric["value"] - baseline_value
 
         comparison_results["models"].append(result)
@@ -185,13 +198,16 @@ def calculate_sample_size(
     -------
     int
         Required sample size per group
+
     """
     if effect_size == 0:
         return 100000  # Very large number for zero effect
 
     # Approximations for z-scores with config defaults
     stats = StatsConfig()
-    alpha = significance_level if significance_level is not None else float(stats.significance_level)
+    alpha = (
+        significance_level if significance_level is not None else float(stats.significance_level)
+    )
     desired_power = power if power is not None else float(stats.power)
     z_alpha_map = {0.01: 2.576, 0.05: 1.96, 0.10: 1.645}
     z_beta_map = {0.80: 0.84, 0.85: 1.04, 0.90: 1.28, 0.95: 1.645, 0.99: 2.33}

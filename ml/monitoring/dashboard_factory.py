@@ -1,4 +1,3 @@
-
 """
 Dashboard factory for generating Grafana dashboards programmatically.
 
@@ -637,9 +636,18 @@ def main() -> None:
     )
     dashboard["panels"].append(memory_panel)
 
-    # Save the dashboard
-    factory.save_dashboard(dashboard, "/tmp/sample-dashboard.json")
-    logger.info("Dashboard saved to /tmp/sample-dashboard.json")
+    # Save the dashboard to a safe temporary file
+    import tempfile
+    from pathlib import Path as _Path
+
+    with tempfile.NamedTemporaryFile(
+        prefix="sample-dashboard_",
+        suffix=".json",
+        delete=False,
+    ) as tmp:
+        tmp_path = _Path(tmp.name)
+    factory.save_dashboard(dashboard, str(tmp_path))
+    logger.info(f"Dashboard saved to {tmp_path}")
 
 
 if __name__ == "__main__":

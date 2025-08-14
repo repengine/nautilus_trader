@@ -24,7 +24,7 @@ from ml.training.base import BaseMLTrainer
 
 def example_live_inference_with_feature_store():
     """
-    Example of using MLSignalActor with FeatureStore for live inference.
+    Demonstrate using MLSignalActor with FeatureStore for live inference.
 
     This ensures that features computed during live trading are:
     1. Identical to training features (same FeatureEngineer)
@@ -63,7 +63,7 @@ def example_live_inference_with_feature_store():
 
 def example_training_with_feature_store():
     """
-    Example of training with FeatureStore for guaranteed parity.
+    Demonstrate training with FeatureStore for guaranteed parity.
 
     This ensures that training uses:
     1. The same FeatureEngineer as inference
@@ -149,7 +149,7 @@ def example_training_with_feature_store():
 
 def example_parity_validation():
     """
-    Example showing how to validate training/inference parity.
+    Validate training/inference parity.
     """
     # Create FeatureStore
     feature_store = FeatureStore(
@@ -168,7 +168,7 @@ def example_parity_validation():
             "low": [1.0990, 1.0995, 1.1000, 1.1005, 1.1010],
             "volume": [1000000, 1100000, 1200000, 1300000, 1400000],
             "ts_event": [1, 2, 3, 4, 5],
-        }
+        },
     )
 
     # Compute features using batch method (training)

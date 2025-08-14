@@ -31,7 +31,7 @@ def build_feature_schema(feature_names: list[str], dtypes: list[str]) -> dict[st
     """
     if len(feature_names) != len(dtypes):
         raise ValueError("feature_names and dtypes must be same length")
-    return {name: dt for name, dt in zip(feature_names, dtypes)}
+    return dict(zip(feature_names, dtypes))
 
 
 def build_student_manifest(

@@ -45,7 +45,6 @@ from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
-from ml.config.base import MLActorConfig
 from ml.config.actors import MLSignalActorConfig
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
@@ -65,8 +64,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.registry.feature_registry import LocalFeatureRegistry
 from ml.stores.feature_store import FeatureStore
-from nautilus_trader.common.config import NonNegativeFloat
-from nautilus_trader.common.config import PositiveInt
+from ml.stores.model_store import ModelStore
 from nautilus_trader.model.data import Bar
 
 
@@ -107,13 +105,6 @@ class OptimizationLevel(Enum):
 
     STANDARD = "standard"  # Standard performance (default)
     OPTIMIZED = "optimized"  # Advanced optimizations enabled
-
-
-"""
-# Configuration classes moved to ml.config.base (OptimizationConfig, StrategyConfig,
-# MLSignalActorConfig). ONNX runtime options removed from OptimizationConfig.
-"""
-    onnx_runtime_config: OnnxRuntimeConfig | None = None
 
 
 # =================================================================================================
@@ -950,12 +941,13 @@ class MLSignalActor(BaseMLInferenceActor):
 
     """
 
-    def __init__(self, config: MLSignalActorConfig) -> None:
+    def __init__(self, config: MLSignalActorConfig, model_store: ModelStore | None = None) -> None:
         """
         Initialize ML Signal Actor.
         """
         super().__init__(config)
         self._signal_config = config
+        self._model_store = model_store
 
         # Get configurations
         self._opt_config = config.optimization_config or OptimizationConfig()
@@ -1177,7 +1169,9 @@ class MLSignalActor(BaseMLInferenceActor):
             check_ml_dependencies(["onnx"])  # accept alias in checker
 
         # Create optimized session options from OnnxRuntimeConfig only
-        from ml.config.runtime import OnnxRuntimeConfig as _OnnxRuntimeConfig, to_session_options
+        from ml.config.runtime import OnnxRuntimeConfig as _OnnxRuntimeConfig
+        from ml.config.runtime import to_session_options
+
         rt = getattr(self._config, "onnx_runtime_config", None) or _OnnxRuntimeConfig()
         session_options, providers = to_session_options(rt)
 
@@ -1512,6 +1506,20 @@ class MLSignalActor(BaseMLInferenceActor):
             self._last_signal_bar = self._bars_processed
             self._publish_signal(signal)
 
+            # Persist prediction to ModelStore if available
+            if self._model_store:
+                feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
+                self._model_store.write_prediction(
+                    model_id=context.get("model_id", "unknown"),
+                    instrument_id=str(bar.bar_type.instrument_id),
+                    prediction=float(prediction),
+                    confidence=float(confidence),
+                    features=feature_dict,
+                    inference_time_ms=0.0,  # Would need to track this
+                    ts_event=bar.ts_event,
+                    is_live=True,
+                )
+
             if self._performance_monitor:
                 self._performance_monitor.record_signal()
 
@@ -1527,6 +1535,7 @@ class MLSignalActor(BaseMLInferenceActor):
         Record performance metrics.
         """
         from ml.config.constants import TimeConstants
+
         total_time_ns = int((time.perf_counter() - start_time) * TimeConstants.NS_IN_SECOND)
         if self._performance_monitor:
             feature_time_ns = 500_000  # Placeholder, would need to track separately

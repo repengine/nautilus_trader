@@ -227,19 +227,21 @@ class HealthMonitorConfig(NautilusConfig, kw_only=True, frozen=True):
 
 
 class OnnxRuntimeConfig(NautilusConfig, kw_only=True, frozen=True):
-    pass  # Moved to ml.config.runtime
+    """
+    ONNX Runtime configuration placeholder for backward-compat imports.
+    """
 
 
 class OptimizationConfig(NautilusConfig, kw_only=True, frozen=True):
-    pass  # Moved to ml.config.actors
-
-
-class StrategyConfig(NautilusConfig, kw_only=True, frozen=True):
-    pass  # Moved to ml.config.actors
+    """
+    Optimization configuration placeholder for backward-compat imports.
+    """
 
 
 class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
-    pass  # Moved to ml.config.actors
+    """
+    Signal actor configuration placeholder for backward-compat imports.
+    """
 
 
 class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):

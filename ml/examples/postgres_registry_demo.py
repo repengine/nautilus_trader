@@ -3,9 +3,9 @@
 """
 Demo of using PostgreSQL-backed registries for ML components.
 
-This example shows how to configure and use the PostgreSQL backend for
-storing model, feature, and strategy manifests with full versioning,
-audit logging, and metadata tracking.
+This example shows how to configure and use the PostgreSQL backend for storing model,
+feature, and strategy manifests with full versioning, audit logging, and metadata
+tracking.
 
 """
 
@@ -24,11 +24,13 @@ from ml.registry.persistence import PersistenceConfig
 
 
 def demo_json_backend() -> None:
-    """Demo using traditional JSON file backend."""
+    """
+    Demo using traditional JSON file backend.
+    """
     print("\n=== JSON Backend Demo ===")
 
     # Create registry with JSON backend (default)
-    registry_path = Path("/tmp/ml_registry_json")
+    registry_path = Path(".cache/ml_registry_json")
     registry = LocalModelRegistry(
         registry_path=registry_path,
         cache_size=10,
@@ -78,7 +80,9 @@ def demo_json_backend() -> None:
 
 
 def demo_postgres_backend() -> None:
-    """Demo using PostgreSQL backend for production."""
+    """
+    Demo using PostgreSQL backend for production.
+    """
     print("\n=== PostgreSQL Backend Demo ===")
 
     # Configure PostgreSQL persistence
@@ -91,7 +95,7 @@ def demo_postgres_backend() -> None:
     )
 
     # Create registry with PostgreSQL backend
-    registry_path = Path("/tmp/ml_registry_postgres")
+    registry_path = Path(".cache/ml_registry_postgres")
     registry = LocalModelRegistry(
         registry_path=registry_path,  # Still needed for model file storage
         cache_size=10,
@@ -208,12 +212,14 @@ def demo_postgres_backend() -> None:
 
 
 def demo_migration() -> None:
-    """Demo migrating from JSON to PostgreSQL backend."""
+    """
+    Demo migrating from JSON to PostgreSQL backend.
+    """
     print("\n=== Migration Demo ===")
 
     # Step 1: Load existing JSON registry
     json_registry = LocalModelRegistry(
-        registry_path=Path("/tmp/ml_registry_json"),
+        registry_path=Path(".cache/ml_registry_json"),
     )
 
     # Step 2: Create PostgreSQL registry
@@ -223,7 +229,7 @@ def demo_migration() -> None:
     )
 
     postgres_registry = LocalModelRegistry(
-        registry_path=Path("/tmp/ml_registry_postgres"),
+        registry_path=Path(".cache/ml_registry_postgres"),
         persistence_config=postgres_config,
     )
 

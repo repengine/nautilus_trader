@@ -9,6 +9,7 @@ The goal is to ensure actors:
 2. Include model identification in every signal
 3. Handle multiple instruments correctly
 4. Gracefully handle failures without crashing
+
 """
 
 from typing import Any
@@ -25,7 +26,9 @@ from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
 class TestActorContracts:
-    """Test suite for ML actor behavioral contracts."""
+    """
+    Test suite for ML actor behavioral contracts.
+    """
 
     def test_actor_publishes_ml_signal_on_bar(self) -> None:
         """
@@ -34,6 +37,7 @@ class TestActorContracts:
         Given: An actor with a loaded model
         When: A bar is received
         Then: An MLSignal is published with required fields
+
         """
         # Arrange
         mock_model = Mock()
@@ -44,7 +48,9 @@ class TestActorContracts:
         published_signals = []
 
         # Mock the publish_data method to capture signals
-        actor.publish_data = Mock(side_effect=lambda dtype, signal: published_signals.append(signal))
+        actor.publish_data = Mock(
+            side_effect=lambda dtype, signal: published_signals.append(signal),
+        )
 
         # Act
         actor.on_bar(bar)
@@ -54,7 +60,9 @@ class TestActorContracts:
 
         signal = published_signals[0]
         assert isinstance(signal, MLSignal), "Published data must be MLSignal type"
-        assert signal.instrument_id == bar.bar_type.instrument_id, "Signal must reference correct instrument"
+        assert (
+            signal.instrument_id == bar.bar_type.instrument_id
+        ), "Signal must reference correct instrument"
         assert 0.0 <= signal.confidence <= 1.0, "Confidence must be in [0, 1]"
         assert signal.prediction is not None, "Prediction must not be None"
 
@@ -65,6 +73,7 @@ class TestActorContracts:
         Given: An actor with model_id="xgb_eurusd_1h_v1"
         When: Signal is generated
         Then: Signal contains model_id in metadata
+
         """
         # Arrange
         model_id = "xgb_eurusd_1h_v1"
@@ -73,12 +82,14 @@ class TestActorContracts:
 
         actor = self._create_test_actor(
             model=mock_model,
-            model_id=model_id
+            model_id=model_id,
         )
         bar = TestDataStubs.bar_5decimal()
         published_signals = []
 
-        actor.publish_data = Mock(side_effect=lambda dtype, signal: published_signals.append(signal))
+        actor.publish_data = Mock(
+            side_effect=lambda dtype, signal: published_signals.append(signal),
+        )
 
         # Act
         actor.on_bar(bar)
@@ -88,8 +99,9 @@ class TestActorContracts:
         signal = published_signals[0]
 
         # Model ID must be accessible (either as attribute or in metadata)
-        assert hasattr(signal, "model_id") or "model_id" in signal.metadata, \
-            "Signal must contain model_id"
+        assert (
+            hasattr(signal, "model_id") or "model_id" in signal.metadata
+        ), "Signal must contain model_id"
 
         if hasattr(signal, "model_id"):
             assert signal.model_id == model_id
@@ -103,6 +115,7 @@ class TestActorContracts:
         Given: Actor configured for ["EURUSD", "GBPUSD"]
         When: Bars for multiple instruments arrive
         Then: Signals generated only for configured instruments
+
         """
         # Arrange
         configured_instruments = [
@@ -115,11 +128,13 @@ class TestActorContracts:
 
         actor = self._create_test_actor(
             model=mock_model,
-            instruments=configured_instruments
+            instruments=configured_instruments,
         )
 
         published_signals = []
-        actor.publish_data = Mock(side_effect=lambda dtype, signal: published_signals.append(signal))
+        actor.publish_data = Mock(
+            side_effect=lambda dtype, signal: published_signals.append(signal),
+        )
 
         # Create bars for configured and non-configured instruments
         eurusd_bar = self._create_bar_for_instrument("EURUSD.SIM")
@@ -146,6 +161,7 @@ class TestActorContracts:
         Given: A model that will fail on certain inputs
         When: Inference fails
         Then: Error logged, no signal published, actor continues
+
         """
         # Arrange
         mock_model = Mock()
@@ -157,7 +173,9 @@ class TestActorContracts:
 
         actor = self._create_test_actor(model=mock_model)
         published_signals = []
-        actor.publish_data = Mock(side_effect=lambda dtype, signal: published_signals.append(signal))
+        actor.publish_data = Mock(
+            side_effect=lambda dtype, signal: published_signals.append(signal),
+        )
 
         # Can't mock logger directly - will verify through behavior
 
@@ -198,11 +216,13 @@ class TestActorContracts:
 
         actor = self._create_test_actor(
             model=mock_model,
-            min_confidence=0.7
+            min_confidence=0.7,
         )
 
         published_signals = []
-        actor.publish_data = Mock(side_effect=lambda dtype, signal: published_signals.append(signal))
+        actor.publish_data = Mock(
+            side_effect=lambda dtype, signal: published_signals.append(signal),
+        )
 
         # Act
         for _ in range(4):
@@ -212,7 +232,9 @@ class TestActorContracts:
         # Assert
         assert len(published_signals) == 2, "Should only publish high-confidence signals"
         for signal in published_signals:
-            assert signal.confidence >= 0.7, f"Signal confidence {signal.confidence} below threshold"
+            assert (
+                signal.confidence >= 0.7
+            ), f"Signal confidence {signal.confidence} below threshold"
 
     # Helper methods
     def _create_test_actor(
@@ -222,7 +244,9 @@ class TestActorContracts:
         instruments: list[InstrumentId] | None = None,
         min_confidence: float = 0.0,
     ) -> Actor:
-        """Create a test actor with mocked dependencies."""
+        """
+        Create a test actor with mocked dependencies.
+        """
         # Create a simplified test actor that demonstrates the contracts
 
         class TestMLActor(Actor):  # type: ignore[misc]
@@ -240,7 +264,8 @@ class TestActorContracts:
 
                 try:
                     # Generate prediction
-                    features = np.random.randn(1, 10)  # Mock features
+                    rng = np.random.default_rng()
+                    features = rng.standard_normal((1, 10))  # Mock features
                     if self.model is not None:
                         prediction = self.model.predict(features)[0]
                         confidence = abs(float(prediction))
@@ -264,12 +289,15 @@ class TestActorContracts:
 
                     self.publish_data(None, signal)
 
-                except Exception:
-                    # Silently handle errors in test
-                    pass
+                except Exception as exc:
+                    # Silently handle errors in test but log for visibility
+                    import logging
+
+                    logging.getLogger(__name__).debug("Test actor error", exc_info=exc)
 
         # Create config
         from nautilus_trader.config import ActorConfig
+
         config = ActorConfig(component_id="TEST_ACTOR")
 
         # Create actor
@@ -278,7 +306,9 @@ class TestActorContracts:
         return actor
 
     def _create_bar_for_instrument(self, instrument_str: str) -> Bar:
-        """Create a test bar for a specific instrument."""
+        """
+        Create a test bar for a specific instrument.
+        """
         from nautilus_trader.model.data import BarSpecification
         from nautilus_trader.model.enums import AggregationSource
         from nautilus_trader.model.enums import BarAggregation

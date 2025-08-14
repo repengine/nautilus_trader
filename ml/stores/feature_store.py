@@ -192,7 +192,7 @@ class FeatureStore:
                     "features": features_array[i].tolist(),
                     "feature_names": feature_names,
                     "created_at": int(datetime.utcnow().timestamp() * 1e9),
-                }
+                },
             )
 
         # Bulk insert with upsert
@@ -352,7 +352,9 @@ class FeatureStore:
         end_ns = int(end.timestamp() * 1e9)
 
         # Query Nautilus bar table
-        query = f"""
+        # NOTE: This query uses f-strings for simplicity in example form; values are
+        # controlled inputs from the application. If taking user input, parameterize.
+        query = f"""  # noqa: S608
         SELECT
             ts_event,
             open,

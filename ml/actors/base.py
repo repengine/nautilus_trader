@@ -1379,7 +1379,7 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         # Calculate day of week (0=Thursday for Unix epoch)
         days_since_epoch = timestamp_seconds // TimeConstants.SECONDS_IN_DAY
         day_of_week = (days_since_epoch % TimeConstants.DAYS_PER_WEEK) / float(
-            TimeConstants.DAYS_PER_WEEK
+            TimeConstants.DAYS_PER_WEEK,
         )  # Normalized to [0, 1]
         self._feature_buffer[8] = hour_of_day
         self._feature_buffer[9] = day_of_week

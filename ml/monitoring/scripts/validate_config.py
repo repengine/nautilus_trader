@@ -390,7 +390,10 @@ class ConfigValidator:
             try:
                 # Test basic connectivity with timeout
                 timeout = int(self.config.get(f"{service_name.upper()}_TIMEOUT", "30"))
-                response = requests.get(f"{url}/api/health", timeout=timeout, verify=False)
+                # Avoid disabling SSL verification; allow override via config
+                verify_cfg = self.config.get("SSL_VERIFY", "true").lower()
+                verify = False if verify_cfg in {"0", "false", "no"} else True
+                response = requests.get(f"{url}/api/health", timeout=timeout, verify=verify)
 
                 if response.status_code == 200:
                     self.info.append(f" {service_name} connectivity OK ({url})")
