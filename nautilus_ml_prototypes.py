@@ -1,4 +1,5 @@
-"""Nautilus ML Prototypes
+"""
+Nautilus ML Prototypes
 ==========================
 
 This module contains prototype classes and functions for extending
@@ -46,10 +47,11 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-import math
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Callable
+from collections.abc import Iterable
+from dataclasses import field
+from typing import Any
 
 import numpy as np
 
@@ -122,7 +124,7 @@ class ModelRegistry:
 
     """
 
-    _models: Dict[str, Callable[..., BaseModel]] = {}
+    _models: dict[str, Callable[..., BaseModel]] = {}
 
     @classmethod
     def register_model(cls, name: str, model_cls: Callable[..., BaseModel]) -> None:
@@ -165,7 +167,7 @@ class ModelRegistry:
         return model_cls(*args, **kwargs)
 
     @classmethod
-    def list_models(cls) -> List[str]:
+    def list_models(cls) -> list[str]:
         """
         Return a list of all registered model names.
         """
@@ -178,7 +180,6 @@ def register_model(name: str) -> Callable[[Callable[..., BaseModel]], Callable[.
 
     Example
     -------
-
     >>> @register_model("my_model")
     ... class MyModel(BaseModel):
     ...     ...
@@ -202,7 +203,7 @@ class FeatureRegistry:
 
     """
 
-    _features: Dict[str, Callable[..., np.ndarray]] = {}
+    _features: dict[str, Callable[..., np.ndarray]] = {}
 
     @classmethod
     def register_feature(cls, name: str, func: Callable[..., np.ndarray]) -> None:
@@ -218,7 +219,7 @@ class FeatureRegistry:
         return func
 
     @classmethod
-    def list_features(cls) -> List[str]:
+    def list_features(cls) -> list[str]:
         return list(cls._features.keys())
 
 
@@ -236,8 +237,8 @@ class Signal:
     timestamp: int
     instrument_id: str
     value: float
-    probability: Optional[float] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    probability: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class MLStrategy(abc.ABC):
@@ -253,11 +254,11 @@ class MLStrategy(abc.ABC):
 
     """
 
-    def __init__(self, model_name: str, feature_names: List[str]):
+    def __init__(self, model_name: str, feature_names: list[str]):
         self.model = ModelRegistry.create(model_name)
         self.feature_names = feature_names
 
-    def on_bar(self, bar_data: Dict[str, Any]) -> List[Signal]:
+    def on_bar(self, bar_data: dict[str, Any]) -> list[Signal]:
         """
         Process a bar of market data and return a list of signals.
 
@@ -283,7 +284,7 @@ class MLStrategy(abc.ABC):
         # Convert predictions to signals.  Here we assume ``preds`` is an
         # array of floats representing expected returns; positive
         # values produce long signals, negatives produce short.
-        signals: List[Signal] = []
+        signals: list[Signal] = []
         ts = bar_data.get("timestamp")
         instrument = bar_data.get("instrument_id", "UNKNOWN")
         for value in np.atleast_1d(preds):
@@ -292,11 +293,13 @@ class MLStrategy(abc.ABC):
                 # Example: second column stores confidence or probability
                 prob = float(value[1])  # type: ignore[index]
                 value = float(value[0])  # type: ignore[assignment]
-            signals.append(Signal(timestamp=ts, instrument_id=instrument, value=float(value), probability=prob))
+            signals.append(
+                Signal(timestamp=ts, instrument_id=instrument, value=float(value), probability=prob)
+            )
         return signals
 
     @abc.abstractmethod
-    def train(self, historical_data: Iterable[Dict[str, Any]]) -> None:
+    def train(self, historical_data: Iterable[dict[str, Any]]) -> None:
         """
         Train the underlying model using historical data.
 
@@ -311,6 +314,7 @@ class MLStrategy(abc.ABC):
 #                             Advanced Model Prototypes                       #
 ###############################################################################
 
+
 @register_model("autoformer")
 class AutoformerModel(BaseModel):
     """
@@ -324,7 +328,9 @@ class AutoformerModel(BaseModel):
 
     """
 
-    def __init__(self, input_dim: int = 1, hidden_dim: int = 64, n_layers: int = 2, **kwargs: Any) -> None:
+    def __init__(
+        self, input_dim: int = 1, hidden_dim: int = 64, n_layers: int = 2, **kwargs: Any
+    ) -> None:
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
@@ -356,7 +362,9 @@ class InformerModel(BaseModel):
 
     """
 
-    def __init__(self, input_dim: int = 1, hidden_dim: int = 64, n_layers: int = 2, **kwargs: Any) -> None:
+    def __init__(
+        self, input_dim: int = 1, hidden_dim: int = 64, n_layers: int = 2, **kwargs: Any
+    ) -> None:
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
@@ -383,7 +391,9 @@ class CVMLOrderBookModel(BaseModel):
 
     """
 
-    def __init__(self, n_levels: int = 50, n_features: int = 4, hidden_dim: int = 64, **kwargs: Any) -> None:
+    def __init__(
+        self, n_levels: int = 50, n_features: int = 4, hidden_dim: int = 64, **kwargs: Any
+    ) -> None:
         self.n_levels = n_levels
         self.n_features = n_features
         self.hidden_dim = hidden_dim
@@ -412,12 +422,14 @@ class ReinforcementLearningAgent(BaseModel):
 
     """
 
-    def __init__(self, action_space: List[int] = [-1, 0, 1], state_dim: int = 10, **kwargs: Any) -> None:
+    def __init__(
+        self, action_space: list[int] = [-1, 0, 1], state_dim: int = 10, **kwargs: Any
+    ) -> None:
         self.action_space = action_space
         self.state_dim = state_dim
         # For the prototype we use a simple Q-table keyed by state
         # hashes.  Replace with a neural network for full DRL.
-        self.q_table: Dict[int, Dict[int, float]] = defaultdict(lambda: defaultdict(float))
+        self.q_table: dict[int, dict[int, float]] = defaultdict(lambda: defaultdict(float))
 
     def _state_to_key(self, state: np.ndarray) -> int:
         # Hash a continuous state into an integer key for tabular Q-learning
@@ -436,7 +448,7 @@ class ReinforcementLearningAgent(BaseModel):
             Array of tuples (state, action, reward, next_state).
 
         """
-        for (state, action, reward, next_state) in y:
+        for state, action, reward, next_state in y:
             key = self._state_to_key(state)
             next_key = self._state_to_key(next_state)
             # Q-learning update: Q(s,a) = Q(s,a) + α [r + γ max_a' Q(s',a') – Q(s,a)]
@@ -476,7 +488,9 @@ class GraphAttentionModel(BaseModel):
 
     """
 
-    def __init__(self, num_nodes: int = 100, input_dim: int = 10, hidden_dim: int = 32, **kwargs: Any) -> None:
+    def __init__(
+        self, num_nodes: int = 100, input_dim: int = 10, hidden_dim: int = 32, **kwargs: Any
+    ) -> None:
         self.num_nodes = num_nodes
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -526,7 +540,9 @@ class NBeatsModel(BaseModel):
 
     """
 
-    def __init__(self, input_dim: int = 1, hidden_dim: int = 128, n_stacks: int = 3, **kwargs: Any) -> None:
+    def __init__(
+        self, input_dim: int = 1, hidden_dim: int = 128, n_stacks: int = 3, **kwargs: Any
+    ) -> None:
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.n_stacks = n_stacks
@@ -571,6 +587,7 @@ class GenerativeModel(BaseModel):
 ###############################################################################
 #                        Data Preprocessing & Stationarity                    #
 ###############################################################################
+
 
 def fractional_weights(d: float, size: int) -> np.ndarray:
     """
@@ -682,7 +699,9 @@ def make_stationary(series: np.ndarray, method: str = "fractional", **kwargs: An
         raise ValueError(f"Unknown stationarity method {method!r}")
 
 
-def purged_walk_forward_cv(n_samples: int, n_splits: int = 5, test_size: float = 0.2, embargo_size: int = 0) -> List[Tuple[np.ndarray, np.ndarray]]:
+def purged_walk_forward_cv(
+    n_samples: int, n_splits: int = 5, test_size: float = 0.2, embargo_size: int = 0
+) -> list[tuple[np.ndarray, np.ndarray]]:
     """
     Generate purged walk-forward cross-validation splits.
 
@@ -709,7 +728,7 @@ def purged_walk_forward_cv(n_samples: int, n_splits: int = 5, test_size: float =
         List of (train_indices, test_indices) tuples.
 
     """
-    splits: List[Tuple[np.ndarray, np.ndarray]] = []
+    splits: list[tuple[np.ndarray, np.ndarray]] = []
     split_size = int(n_samples * test_size)
     for i in range(n_splits):
         test_start = i * split_size
@@ -718,7 +737,11 @@ def purged_walk_forward_cv(n_samples: int, n_splits: int = 5, test_size: float =
         # Apply embargo: drop the last ``embargo_size`` samples from the
         # training set if they overlap with the test window.
         if embargo_size > 0:
-            train_indices = train_indices[:-embargo_size] if len(train_indices) > embargo_size else np.array([], dtype=int)
+            train_indices = (
+                train_indices[:-embargo_size]
+                if len(train_indices) > embargo_size
+                else np.array([], dtype=int)
+            )
         test_indices = np.arange(test_start, min(test_end, n_samples))
         splits.append((train_indices, test_indices))
         if test_end >= n_samples:
@@ -745,7 +768,7 @@ def create_lagged_features(series: np.ndarray, lags: int = 5) -> np.ndarray:
     return lagged
 
 
-def standardise_features(X: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def standardise_features(X: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Standardise feature matrix to zero mean and unit variance.
 
@@ -759,7 +782,7 @@ def standardise_features(X: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndar
     return X_std, means, stds
 
 
-def normalise_series(series: np.ndarray) -> Tuple[np.ndarray, float, float]:
+def normalise_series(series: np.ndarray) -> tuple[np.ndarray, float, float]:
     """
     Normalise a 1-D series to zero mean and unit variance.
     """
@@ -772,8 +795,10 @@ def normalise_series(series: np.ndarray) -> Tuple[np.ndarray, float, float]:
 # Example Feature Registration                                                 #
 ###############################################################################
 
-def mid_price_feature(bar_data: Dict[str, Any]) -> np.ndarray:
-    """Example feature: compute the mid-price from bid/ask.
+
+def mid_price_feature(bar_data: dict[str, Any]) -> np.ndarray:
+    """
+    Example feature: compute the mid-price from bid/ask.
 
     Assumes ``bar_data`` contains keys ``"bid"`` and ``"ask"``
     representing the best bid and best ask prices.  Returns a 1-D
@@ -786,7 +811,7 @@ def mid_price_feature(bar_data: Dict[str, Any]) -> np.ndarray:
     return np.array([mid])
 
 
-def spread_feature(bar_data: Dict[str, Any]) -> np.ndarray:
+def spread_feature(bar_data: dict[str, Any]) -> np.ndarray:
     """Example feature: compute the bid–ask spread."""
     bid = float(bar_data.get("bid", 0.0))
     ask = float(bar_data.get("ask", 0.0))

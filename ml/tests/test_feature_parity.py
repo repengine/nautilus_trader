@@ -16,8 +16,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.stores.feature_store import FeatureStore
