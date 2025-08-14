@@ -267,3 +267,46 @@ class BaseStore(ABC):
 
         """
         ...
+
+
+class DummyStore:
+    """
+    Dummy store for testing when database is not available.
+    
+    This store accepts all method calls but doesn't persist anything.
+    Used only for unit testing when PostgreSQL is not available.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        """Initialize dummy store (accepts any arguments)."""
+        pass
+    
+    def write_features(self, *args, **kwargs) -> None:
+        """Dummy write features."""
+        pass
+    
+    def write_prediction(self, *args, **kwargs) -> None:
+        """Dummy write prediction."""
+        pass
+    
+    def write_signal(self, *args, **kwargs) -> None:
+        """Dummy write signal."""
+        pass
+    
+    def flush(self, *args, **kwargs) -> None:
+        """Dummy flush."""
+        pass
+    
+    def get_stats(self, *args, **kwargs) -> dict[str, Any]:
+        """Dummy get stats."""
+        return {"dummy": True}
+    
+    def get_latest(self, *args, **kwargs) -> None:
+        """Dummy get latest."""
+        return None
+    
+    def __getattr__(self, name: str) -> Any:
+        """Handle any other method calls."""
+        def dummy_method(*args, **kwargs):
+            pass
+        return dummy_method

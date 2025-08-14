@@ -941,13 +941,15 @@ class MLSignalActor(BaseMLInferenceActor):
 
     """
 
-    def __init__(self, config: MLSignalActorConfig, model_store: ModelStore | None = None) -> None:
+    def __init__(self, config: MLSignalActorConfig) -> None:
         """
-        Initialize ML Signal Actor.
+        Initialize ML Signal Actor with mandatory store integration.
+        
+        Note: Stores are automatically initialized by the base class.
+        No optional store parameters are needed or allowed.
         """
         super().__init__(config)
         self._signal_config = config
-        self._model_store = model_store
 
         # Get configurations
         self._opt_config = config.optimization_config or OptimizationConfig()
@@ -988,19 +990,10 @@ class MLSignalActor(BaseMLInferenceActor):
                 else FeatureConfig()
             )
 
-        # Initialize FeatureStore if configured
-        self._feature_store: FeatureStore | None = None
-        if config.use_feature_store:
-            self._feature_store = FeatureStore(
-                connection_string=config.db_connection,
-                feature_config=self._feature_config,
-                pipeline_spec=config.pipeline_spec,
-            )
-            self._feature_engineer = self._feature_store.feature_engineer
-            self._persist_features = config.persist_features
-        else:
-            self._feature_engineer = FeatureEngineer(self._feature_config)
-            self._persist_features = False
+        # Feature engineering setup
+        # Note: _feature_store is always available from base class
+        self._feature_engineer = FeatureEngineer(self._feature_config)
+        self._persist_features = config.persist_features if hasattr(config, 'persist_features') else True
 
         self._feature_set_id: str | None = None
         # Optional: validate features against feature registry manifest
@@ -1049,7 +1042,7 @@ class MLSignalActor(BaseMLInferenceActor):
         self._signal_strategy = self._create_strategy()
 
         # Performance monitoring
-        if self._opt_config.level == OptimizationLevel.OPTIMIZED:
+        if self._opt_config.level == "optimized" or self._opt_config.level == OptimizationLevel.OPTIMIZED.value:
             self._performance_monitor = PerformanceMonitor(self._opt_config.reservoir_sample_size)
         else:
             self._performance_monitor = PerformanceMonitor(100)  # Use default size
@@ -1067,9 +1060,14 @@ class MLSignalActor(BaseMLInferenceActor):
         # Optimized components (lazy initialized)
         self._optimized_buffers: dict[str, Any] = {}
 
+        # Handle both enum and string for logging
+        strategy_name = config.signal_strategy
+        if isinstance(strategy_name, SignalStrategy):
+            strategy_name = strategy_name.value
+        
         self.log.info(
-            f"Initialized MLSignalActor with strategy: {config.signal_strategy.value}, "
-            f"optimization: {self._opt_config.level.value}, "
+            f"Initialized MLSignalActor with strategy: {strategy_name}, "
+            f"optimization: {self._opt_config.level}, "
             f"features: {n_features}",
         )
 
@@ -1082,24 +1080,27 @@ class MLSignalActor(BaseMLInferenceActor):
             return cast(SignalGenerationStrategy, self._signal_config.custom_strategy)
 
         # Create built-in strategy
-        strategy = self._signal_config.signal_strategy
+        strategy_str = self._signal_config.signal_strategy
+        # Handle both enum and string
+        if isinstance(strategy_str, SignalStrategy):
+            strategy_str = strategy_str.value
         threshold = self._config.prediction_threshold
 
-        if strategy == SignalStrategy.THRESHOLD:
+        if strategy_str == "threshold" or strategy_str == SignalStrategy.THRESHOLD.value:
             return ThresholdSignalStrategy(threshold)
-        elif strategy == SignalStrategy.EXTREMES:
+        elif strategy_str == "extremes" or strategy_str == SignalStrategy.EXTREMES.value:
             return ExtremesStrategy(
                 self._strat_config.extremes_top_pct,
                 threshold,
                 self._signal_config.adaptive_window,
             )
-        elif strategy == SignalStrategy.MOMENTUM:
+        elif strategy_str == "momentum" or strategy_str == SignalStrategy.MOMENTUM.value:
             return MomentumStrategy(
                 self._strat_config.momentum_lookback,
                 threshold,
                 0.01,  # momentum threshold
             )
-        elif strategy == SignalStrategy.ENSEMBLE:
+        elif strategy_str == "ensemble" or strategy_str == SignalStrategy.ENSEMBLE.value:
             # Create sub-strategies for ensemble
             strategies = {
                 "threshold": ThresholdSignalStrategy(threshold),
@@ -1124,7 +1125,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 },
                 threshold,
             )
-        elif strategy == SignalStrategy.ADAPTIVE:
+        elif strategy_str == "adaptive" or strategy_str == SignalStrategy.ADAPTIVE.value:
             return AdaptiveStrategy(
                 threshold,
                 self._strat_config.adaptive_volatility_factor,
@@ -1132,7 +1133,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 self._strat_config.max_threshold,
             )
         else:
-            self.log.warning(f"Unknown strategy {strategy}, using threshold")
+            self.log.warning(f"Unknown strategy {strategy_str}, using threshold")
             return ThresholdSignalStrategy(threshold)
 
     def _load_model(self) -> None:
@@ -1145,14 +1146,13 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         # For OPTIMIZED level with ONNX, use specialized loading with performance options
         if (
-            self._opt_config.level == OptimizationLevel.OPTIMIZED
+            self._opt_config.level == "optimized" or self._opt_config.level == OptimizationLevel.OPTIMIZED.value
             and self._config.model_path.endswith(".onnx")
         ):
             self._load_optimized_onnx_model()
         else:
-            # SmartModelLoader handles all formats automatically
-            # No need to call abstract method - it's implemented in base class
-            pass
+            # Let the base class handle standard model loading
+            super()._load_model()
 
         # Model is loaded by base class in on_start via _load_model_with_metadata
         # which uses the SmartModelLoader
@@ -1236,7 +1236,7 @@ class MLSignalActor(BaseMLInferenceActor):
             self._feature_buffer = np.zeros(expected_features, dtype=np.float32)
 
         # Initialize optimized buffers if needed
-        if self._opt_config.level == OptimizationLevel.OPTIMIZED:
+        if self._opt_config.level == "optimized" or self._opt_config.level == OptimizationLevel.OPTIMIZED.value:
             self._initialize_optimized_buffers()
 
         self.log.info(f"Feature engineering initialized: {expected_features} features")
@@ -1270,38 +1270,11 @@ class MLSignalActor(BaseMLInferenceActor):
 
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
-        Compute feature vector from bar using FeatureStore for guaranteed parity.
+        Compute feature vector from bar.
+        
+        Features are automatically persisted by the base class implementation.
         """
-        if self._feature_store is not None:
-            # Use FeatureStore for computation (ensures parity)
-            try:
-                start_time = time.perf_counter()
-                features = self._feature_store.compute_realtime(
-                    bar=bar,
-                    store=self._persist_features,
-                )
-                feature_time = (time.perf_counter() - start_time) * 1000
-
-                if feature_time > self._config.max_feature_latency_ms:
-                    self.log.warning(f"Feature computation slow: {feature_time:.3f}ms")
-
-                # Record feature latency metrics
-                if _feature_time_by_feature_set_metric and self._feature_set_id:
-                    try:
-                        _feature_time_by_feature_set_metric.labels(
-                            actor_id=self.id.value,
-                            feature_set_id=self._feature_set_id,
-                        ).observe(feature_time / 1000.0)
-                    except Exception as exc:
-                        self.log.debug("Feature time metric observe failed", exc_info=exc)
-
-                return features
-
-            except Exception as e:
-                self.log.error(f"FeatureStore computation failed: {e}")
-                return None
-
-        # Fallback to original implementation when FeatureStore not configured
+        # Always use feature engineering (base class handles persistence)
         if self._indicator_manager is None:
             return None
 
@@ -1506,27 +1479,33 @@ class MLSignalActor(BaseMLInferenceActor):
             self._last_signal_bar = self._bars_processed
             self._publish_signal(signal)
 
-            # Persist prediction to ModelStore if available
-            if self._model_store:
-                feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
-                self._model_store.write_prediction(
-                    model_id=context.get("model_id", "unknown"),
+            # Prediction is automatically persisted by base class
+            # Just need to ensure we're recording strategy-specific metadata
+            if hasattr(self, '_strategy_store'):
+                # Strategy store is always available from base class
+                self._strategy_store.write_signal(
+                    strategy_id=self._signal_config.strategy_id or "ml_signal",
                     instrument_id=str(bar.bar_type.instrument_id),
-                    prediction=float(prediction),
-                    confidence=float(confidence),
-                    features=feature_dict,
-                    inference_time_ms=0.0,  # Would need to track this
+                    signal_type="buy" if signal.prediction > 0 else "sell",
+                    strength=abs(signal.prediction),
+                    model_predictions={context.get("model_id", "unknown"): prediction},
+                    risk_metrics={"confidence": confidence},
+                    execution_params={"threshold": self._adaptive_threshold},
                     ts_event=bar.ts_event,
-                    is_live=True,
                 )
 
             if self._performance_monitor:
                 self._performance_monitor.record_signal()
 
             if self._signals_generated_metric:
+                # Handle both enum and string for metrics
+                strategy_name = self._signal_config.signal_strategy
+                if isinstance(strategy_name, SignalStrategy):
+                    strategy_name = strategy_name.value
+                    
                 self._signals_generated_metric.labels(
                     actor_id=self.id.value,
-                    strategy=self._signal_config.signal_strategy.value,
+                    strategy=strategy_name,
                     signal_type="buy" if signal.prediction > 0 else "sell",
                 ).inc()
 
@@ -1594,7 +1573,10 @@ class MLSignalActor(BaseMLInferenceActor):
         self._window_index = (self._window_index + 1) % self._signal_config.adaptive_window
 
         # Update adaptive threshold
-        if self._signal_config.signal_strategy == SignalStrategy.ADAPTIVE:
+        strategy_val = self._signal_config.signal_strategy
+        if isinstance(strategy_val, SignalStrategy):
+            strategy_val = strategy_val.value
+        if strategy_val == "adaptive" or strategy_val == SignalStrategy.ADAPTIVE.value:
             self._update_adaptive_threshold()
 
     def _update_adaptive_threshold(self) -> None:
@@ -1726,9 +1708,14 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         base_stats = self.get_health_status()
 
+        # Handle both enum and string for stats
+        strategy_name = self._signal_config.signal_strategy
+        if isinstance(strategy_name, SignalStrategy):
+            strategy_name = strategy_name.value
+            
         signal_stats = {
-            "signal_strategy": self._signal_config.signal_strategy.value,
-            "optimization_level": self._opt_config.level.value,
+            "signal_strategy": strategy_name,
+            "optimization_level": self._opt_config.level,
             "adaptive_threshold": self._adaptive_threshold,
             "market_regime": self._market_regime,
             "last_signal_bar": self._last_signal_bar,

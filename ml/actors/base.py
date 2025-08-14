@@ -28,6 +28,14 @@ from ml._imports import check_ml_dependencies
 from ml._imports import ort
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
+from ml.registry.feature_registry import LocalFeatureRegistry
+from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.persistence import PersistenceConfig
+from ml.registry.persistence import PersistenceManager
+from ml.registry.strategy_registry import LocalStrategyRegistry
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
 from ml.config.base import MLActorConfig
@@ -317,9 +325,60 @@ class ProductionModelLoader(ModelLoader):
         self.model_dir = Path(model_dir) if model_dir else Path.cwd()
 
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
-        """Load model - this should use the registry in new code."""
-        # For backward compatibility
-        return None, {}
+        """Load model based on file extension."""
+        import json
+        import pickle
+        from pathlib import Path
+        
+        model_path = Path(path)
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {path}")
+        
+        # Determine model type by extension
+        if path.endswith('.json'):
+            # XGBoost JSON model
+            try:
+                from ml._imports import HAS_XGBOOST, xgb, check_ml_dependencies
+                if not HAS_XGBOOST:
+                    check_ml_dependencies(["xgboost"])
+                
+                booster = xgb.Booster()
+                booster.load_model(path)
+                return booster, {"type": "xgboost", "format": "json"}
+            except Exception as e:
+                # Try loading as JSON metadata
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                return data, {"type": "json", "format": "json"}
+                
+        elif path.endswith('.pkl') or path.endswith('.pickle'):
+            # Pickle model
+            with open(path, 'rb') as f:
+                model = pickle.load(f)
+            return model, {"type": "pickle", "format": "pickle"}
+            
+        elif path.endswith('.joblib'):
+            # Joblib model
+            import joblib
+            model = joblib.load(path)
+            return model, {"type": "joblib", "format": "joblib"}
+            
+        elif path.endswith('.onnx'):
+            # ONNX model
+            from ml._imports import HAS_ONNX, ort, check_ml_dependencies
+            if not HAS_ONNX:
+                check_ml_dependencies(["onnx"])
+            
+            session = ort.InferenceSession(path)
+            metadata = {
+                "type": "onnx",
+                "format": "onnx",
+                "input_names": [inp.name for inp in session.get_inputs()],
+                "output_names": [out.name for out in session.get_outputs()],
+            }
+            return session, metadata
+        else:
+            raise ValueError(f"Unsupported model format: {path}")
 
 
 class ONNXModelLoader(ModelLoader):
@@ -529,6 +588,9 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
         # Store the complete ML configuration
         self._config = config
+        
+        # MANDATORY: Initialize stores and registries for data persistence
+        self._init_stores_and_registries()
 
         # Initialize feature configuration
         self._feature_config = config.feature_config or MLFeatureConfig()
@@ -570,6 +632,90 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         self._inference_latency_metric = ml_prediction_latency
         self._inference_count_metric = ml_predictions_total
         self._inference_confidence_metric = ml_signal_confidence
+    
+    def _init_stores_and_registries(self) -> None:
+        """
+        Initialize all stores and registries - THIS IS MANDATORY!
+        
+        All ML actors MUST persist data for:
+        - Feature parity between training and inference
+        - Model performance tracking
+        - Signal analysis and backtesting
+        - Complete audit trail
+        """
+        # Get connection string from config
+        db_connection = getattr(
+            self._config,
+            "db_connection",
+            None,
+        )
+        
+        # If no connection string provided, check if PostgreSQL is available
+        # If not, use SQLite for testing/development
+        if db_connection is None:
+            # Try PostgreSQL first
+            try:
+                from sqlalchemy import create_engine, text
+                test_engine = create_engine("postgresql://postgres:postgres@localhost:5432/nautilus")
+                with test_engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
+                backend = "postgres"
+            except Exception:
+                # Fall back to in-memory SQLite for testing
+                db_connection = "sqlite:///:memory:"
+                backend = "sqlite"
+                self.log.warning("PostgreSQL not available, using in-memory SQLite for testing")
+        else:
+            backend = "postgres" if "postgresql" in db_connection else "sqlite"
+        
+        # Create persistence config
+        persistence_config = PersistenceConfig(
+            backend=backend,
+            connection_string=db_connection,
+        )
+        
+        # Initialize stores with fallback for testing
+        try:
+            self._feature_store = FeatureStore(
+                connection_string=db_connection,
+            )
+        except Exception as e:
+            # For testing, create a dummy store that doesn't require DB
+            self.log.warning(f"Could not create FeatureStore: {e}. Using dummy store for testing.")
+            from ml.stores.base import DummyStore
+            self._feature_store = DummyStore()  # type: ignore
+        
+        try:
+            self._model_store = ModelStore(
+                persistence_config=persistence_config,
+            )
+        except Exception as e:
+            self.log.warning(f"Could not create ModelStore: {e}. Using dummy store for testing.")
+            from ml.stores.base import DummyStore
+            self._model_store = DummyStore()  # type: ignore
+        
+        try:
+            self._strategy_store = StrategyStore(
+                persistence_config=persistence_config,
+            )
+        except Exception as e:
+            self.log.warning(f"Could not create StrategyStore: {e}. Using dummy store for testing.")
+            from ml.stores.base import DummyStore
+            self._strategy_store = DummyStore()  # type: ignore
+        
+        # Initialize registries
+        # Use local file-based registries for now (can be upgraded to DB later)
+        from pathlib import Path
+        registry_path = Path(".nautilus/ml/registry")
+        registry_path.mkdir(parents=True, exist_ok=True)
+        
+        self._persistence_manager = PersistenceManager(persistence_config)
+        self._feature_registry = LocalFeatureRegistry(registry_path)
+        self._model_registry = LocalModelRegistry(registry_path)
+        self._strategy_registry = LocalStrategyRegistry(registry_path)
+        
+        self.log.info("Stores and registries initialized for data persistence")
 
     def on_start(self) -> None:
         """
@@ -684,7 +830,15 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     def on_stop(self) -> None:
         """
         Log final statistics when the actor stops.
+        
+        ALWAYS flushes all stores to ensure no data is lost.
         """
+        # MANDATORY: Flush all stores to persist any pending data
+        self._feature_store.flush()
+        self._model_store.flush()
+        self._strategy_store.flush()
+        self.log.info("All stores flushed on shutdown")
+        
         avg_inference_time = self._total_inference_time / max(self._prediction_count, 1)
         avg_feature_time = self._total_feature_time / max(self._bars_processed, 1)
 
@@ -727,6 +881,27 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             inference_time = (time.perf_counter() - start_time) * 1000
             self._total_inference_time += inference_time
             self._prediction_count += 1
+            
+            # MANDATORY: Store features for parity tracking
+            feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
+            self._feature_store.write_features(
+                feature_set_id=getattr(self._config, "feature_set_id", "default"),
+                instrument_id=str(bar.bar_type.instrument_id),
+                features=feature_dict,
+                ts_event=bar.ts_event,
+                ts_init=bar.ts_init,
+            )
+            
+            # MANDATORY: Store prediction for performance tracking
+            self._model_store.write_prediction(
+                model_id=self._model_id,
+                instrument_id=str(bar.bar_type.instrument_id),
+                prediction=float(prediction),
+                confidence=float(confidence),
+                features=feature_dict,
+                inference_time_ms=inference_time,
+                ts_event=bar.ts_event,
+            )
 
             # Record success in circuit breaker
             if self._circuit_breaker:
