@@ -18,15 +18,14 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
-from sqlalchemy import ARRAY
 from sqlalchemy import BIGINT
+from sqlalchemy import BOOLEAN
 from sqlalchemy import JSON
 from sqlalchemy import Column
-from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import MetaData
 from sqlalchemy import String
@@ -38,6 +37,7 @@ from sqlalchemy.engine import Engine
 
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
+from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 
@@ -83,13 +83,15 @@ class FeatureStore:
         self.feature_config = feature_config or FeatureConfig()
         self.pipeline_spec = pipeline_spec
 
-        # Create engine and setup tables
+        # Create engine and setup tables (reflect partitioned table created by migrations)
         self.engine: Engine = create_engine(connection_string)
         self.metadata = MetaData()
         self._setup_tables()
 
         # Feature engineer for computation (ensures parity)
         self.feature_engineer = FeatureEngineer(self.feature_config)
+        # Internal indicator managers (fallback for online computation when actor does not pass one)
+        self._indicator_managers: dict[str, IndicatorManager] = {}
 
         # Pipeline runner for declarative features
         if self.pipeline_spec:
@@ -104,26 +106,51 @@ class FeatureStore:
             self.pipeline_runner = None
             self.pipeline_hash = self._compute_config_hash()
 
-    def _setup_tables(self):
+    def _setup_tables(self) -> None:
         """
-        Create feature_values table if it doesn't exist.
-        """
-        # Define feature_values table
-        self.feature_values_table = Table(
-            "ml_feature_values",
-            self.metadata,
-            Column("instrument_id", String(100), primary_key=True),
-            Column("ts_event", BIGINT, primary_key=True),  # Nautilus convention: nanoseconds
-            Column("feature_version", String(64), primary_key=True),  # Pipeline/config hash
-            Column("features", ARRAY(Float)),  # Feature array
-            Column("feature_names", JSON),  # Feature name mapping
-            Column("created_at", BIGINT),  # When computed (nanoseconds)
-            Index("idx_ml_features_instrument_time", "instrument_id", "ts_event"),
-            Index("idx_ml_features_version", "feature_version"),
-        )
+        Reflect (preferred) or create a compatible ml_feature_values table.
 
-        # Create tables
-        self.metadata.create_all(self.engine)
+        The canonical schema is created by migrations (partitioned by ts_event):
+        - feature_set_id VARCHAR(255)
+        - instrument_id VARCHAR(100)
+        - ts_event BIGINT
+        - ts_init BIGINT
+        - values JSONB
+        - is_live BOOLEAN
+        - source VARCHAR(50)
+        - created_at TIMESTAMPTZ
+        Primary key (id, ts_event) where id is BIGSERIAL.
+        """
+        try:
+            # Prefer reflecting the migrated table
+            self.feature_values_table = Table(
+                "ml_feature_values",
+                self.metadata,
+                autoload_with=self.engine,
+            )
+        except Exception:
+            # Fallback: create a non-partitioned compatible table for tests/dev
+            self.feature_values_table = Table(
+                "ml_feature_values",
+                self.metadata,
+                Column("id", BIGINT, primary_key=True, autoincrement=True),
+                Column("feature_set_id", String(255), nullable=False),
+                Column("instrument_id", String(100), nullable=False),
+                Column("ts_event", BIGINT, nullable=False),
+                Column("ts_init", BIGINT, nullable=False),
+                Column("values", JSON, nullable=False),
+                Column("is_live", BOOLEAN, default=False),
+                Column("source", String(50)),
+                Column("created_at", BIGINT),
+                Index(
+                    "idx_ml_feature_values_lookup",
+                    "feature_set_id",
+                    "instrument_id",
+                    "ts_event",
+                ),
+                Index("idx_ml_feature_values_live", "is_live"),
+            )
+            self.metadata.create_all(self.engine)
 
     def _compute_config_hash(self) -> str:
         """
@@ -173,34 +200,71 @@ class FeatureStore:
         if bars_df.is_empty():
             return 0
 
-        # Compute features using FeatureEngineer (ensures parity with live)
-        features_array, scaler = self.feature_engineer.calculate_features_batch(bars_df)
+        # Compute features (batch) ensuring parity with online
+        features_df, _ = self.feature_engineer.calculate_features_batch(bars_df)
 
-        # Get feature names
         feature_names = self._get_feature_names()
+        feature_set_id = self._get_feature_set_id()
 
-        # Prepare data for insertion
-        rows = []
+        # Prepare rows with JSONB values mapping
+        rows: list[dict[str, Any]] = []
         timestamps = bars_df["ts_event"].to_numpy()
+        created_at_ns = int(datetime.utcnow().timestamp() * 1e9)
 
-        for i, ts in enumerate(timestamps):
-            rows.append(
-                {
-                    "instrument_id": instrument_id,
-                    "ts_event": int(ts),
-                    "feature_version": self.pipeline_hash,
-                    "features": features_array[i].tolist(),
-                    "feature_names": feature_names,
-                    "created_at": int(datetime.utcnow().timestamp() * 1e9),
-                },
-            )
+        # Convert feature rows to dicts
+        # features_df is a DataFrame (polars or pandas). Use row-wise access safely.
+        if hasattr(features_df, "iter_rows"):
+            # Polars
+            for (i, row_vals) in enumerate(features_df.iter_rows()):
+                ts_event = int(timestamps[i])
+                values_map = {name: float(row_vals[idx]) for idx, name in enumerate(feature_names)}
+                rows.append(
+                    {
+                        "feature_set_id": feature_set_id,
+                        "instrument_id": instrument_id,
+                        "ts_event": ts_event,
+                        "ts_init": ts_event,
+                        "values": json.dumps(values_map),
+                        "is_live": False,
+                        "source": "historical",
+                        "created_at": created_at_ns,
+                    },
+                )
+        else:
+            # Pandas path
+            for i in range(len(features_df)):
+                ts_event = int(timestamps[i])
+                row = features_df.iloc[i]
+                values_map = {name: float(row[name]) for name in feature_names}
+                rows.append(
+                    {
+                        "feature_set_id": feature_set_id,
+                        "instrument_id": instrument_id,
+                        "ts_event": ts_event,
+                        "ts_init": ts_event,
+                        "values": json.dumps(values_map),
+                        "is_live": False,
+                        "source": "historical",
+                        "created_at": created_at_ns,
+                    },
+                )
 
-        # Bulk insert with upsert
+        # Bulk upsert into partitioned table
         with self.engine.begin() as conn:
             stmt = insert(self.feature_values_table)
+            # Upsert on (feature_set_id, instrument_id, ts_event)
             stmt = stmt.on_conflict_do_update(
-                index_elements=["instrument_id", "ts_event", "feature_version"],
-                set_={"features": stmt.excluded.features, "created_at": stmt.excluded.created_at},
+                index_elements=[
+                    "feature_set_id",
+                    "instrument_id",
+                    "ts_event",
+                ],
+                set_={
+                    "values": stmt.excluded.values,
+                    "ts_init": stmt.excluded.ts_init,
+                    "source": stmt.excluded.source,
+                    "created_at": stmt.excluded.created_at,
+                },
             )
             conn.execute(stmt, rows)
 
@@ -210,12 +274,13 @@ class FeatureStore:
         self,
         bar: Bar,
         store: bool = True,
+        indicator_manager: IndicatorManager | None = None,
     ) -> npt.NDArray[np.float32]:
         """
         Compute features for real-time inference.
 
-        Uses the SAME FeatureEngineer as historical computation,
-        ensuring perfect parity between training and inference.
+        Uses the SAME FeatureEngineer as historical computation to ensure
+        perfect parity between training and inference.
 
         Parameters
         ----------
@@ -230,29 +295,65 @@ class FeatureStore:
             Computed feature vector.
 
         """
-        # Compute features using same engine as historical
+        # Prepare indicator manager (prefer provided from actor for shared state)
+        instrument_key = str(getattr(bar, "instrument_id", getattr(bar, "bar_type", getattr(bar, "instrument_id", None))))
+        instrument_key = (
+            str(bar.bar_type.instrument_id)
+            if hasattr(bar, "bar_type") and hasattr(bar.bar_type, "instrument_id")
+            else str(getattr(bar, "instrument_id", "unknown"))
+        )
+
+        if indicator_manager is None:
+            indicator_manager = self._indicator_managers.get(instrument_key)
+            if indicator_manager is None:
+                indicator_manager = IndicatorManager(self.feature_engineer.config)
+                self._indicator_managers[instrument_key] = indicator_manager
+
+        # Update indicators from bar and compute online features
+        indicator_manager.update_from_bar(bar)
+        if not indicator_manager.all_initialized():
+            # Not enough history yet – return empty array to signal no prediction
+            return np.zeros(0, dtype=np.float32)
+
+        current_bar = {
+            "close": float(bar.close),
+            "volume": float(bar.volume),
+            "high": float(bar.high),
+            "low": float(bar.low),
+        }
+
         features = self.feature_engineer.calculate_features_online(
-            close_price=float(bar.close),
-            high_price=float(bar.high),
-            low_price=float(bar.low),
-            volume=float(bar.volume),
+            current_bar=current_bar,
+            indicator_manager=indicator_manager,
+            scaler=None,
         )
 
         # Optionally store for future training
-        if store:
+        if store and features.size > 0:
             feature_names = self._get_feature_names()
+            values_map = {name: float(features[idx]) for idx, name in enumerate(feature_names) if idx < features.size}
             row = {
-                "instrument_id": str(bar.instrument_id),
-                "ts_event": bar.ts_event,
-                "feature_version": self.pipeline_hash,
-                "features": features.tolist(),
-                "feature_names": feature_names,
+                "feature_set_id": self._get_feature_set_id(),
+                "instrument_id": str(bar.bar_type.instrument_id if hasattr(bar, "bar_type") else getattr(bar, "instrument_id", "unknown")),
+                "ts_event": int(bar.ts_event),
+                "ts_init": int(bar.ts_init),
+                "values": json.dumps(values_map),
+                "is_live": True,
+                "source": "live",
                 "created_at": int(datetime.utcnow().timestamp() * 1e9),
             }
 
             with self.engine.begin() as conn:
-                stmt = insert(self.feature_values_table)
-                stmt = stmt.on_conflict_do_nothing()
+                stmt = insert(self.feature_values_table).on_conflict_do_update(
+                    index_elements=["feature_set_id", "instrument_id", "ts_event"],
+                    set_={
+                        "values": stmt.excluded.values,
+                        "ts_init": stmt.excluded.ts_init,
+                        "is_live": stmt.excluded.is_live,
+                        "source": stmt.excluded.source,
+                        "created_at": stmt.excluded.created_at,
+                    },
+                )
                 conn.execute(stmt, row)
 
         return features
@@ -287,18 +388,18 @@ class FeatureStore:
         start_ns = int(start.timestamp() * 1e9)
         end_ns = int(end.timestamp() * 1e9)
 
-        # Query features
+        # Query features for feature_set_id and time range
+        feature_set_id = self._get_feature_set_id()
         query = (
             select(
                 self.feature_values_table.c.ts_event,
-                self.feature_values_table.c.features,
-                self.feature_values_table.c.feature_names,
+                self.feature_values_table.c.values,
             )
             .where(
-                (self.feature_values_table.c.instrument_id == instrument_id)
+                (self.feature_values_table.c.feature_set_id == feature_set_id)
+                & (self.feature_values_table.c.instrument_id == instrument_id)
                 & (self.feature_values_table.c.ts_event >= start_ns)
-                & (self.feature_values_table.c.ts_event <= end_ns)
-                & (self.feature_values_table.c.feature_version == self.pipeline_hash),
+                & (self.feature_values_table.c.ts_event <= end_ns),
             )
             .order_by(self.feature_values_table.c.ts_event)
         )
@@ -311,9 +412,19 @@ class FeatureStore:
             return np.array([]), np.array([]), []
 
         # Extract data
+        feature_names = self._get_feature_names()
         timestamps = np.array([row[0] for row in rows], dtype=np.int64)
-        features = np.array([row[1] for row in rows], dtype=np.float64)
-        feature_names = rows[0][2] if rows else []
+        # Rows contain JSON values map; reconstruct arrays in feature_names order
+        feature_arrays: list[list[float]] = []
+        for _, values_json in rows:
+            mapping = values_json
+            if isinstance(mapping, str):
+                try:
+                    mapping = json.loads(mapping)
+                except Exception:
+                    mapping = {}
+            feature_arrays.append([float(mapping.get(name, 0.0)) for name in feature_names])
+        features = np.array(feature_arrays, dtype=np.float64)
 
         return features, timestamps, feature_names
 
@@ -385,13 +496,14 @@ class FeatureStore:
         start_ns = int(start.timestamp() * 1e9)
         end_ns = int(end.timestamp() * 1e9)
 
+        feature_set_id = self._get_feature_set_id()
         query = (
             select(self.feature_values_table.c.ts_event)
             .where(
-                (self.feature_values_table.c.instrument_id == instrument_id)
+                (self.feature_values_table.c.feature_set_id == feature_set_id)
+                & (self.feature_values_table.c.instrument_id == instrument_id)
                 & (self.feature_values_table.c.ts_event >= start_ns)
-                & (self.feature_values_table.c.ts_event <= end_ns)
-                & (self.feature_values_table.c.feature_version == self.pipeline_hash),
+                & (self.feature_values_table.c.ts_event <= end_ns),
             )
             .limit(1)
         )
@@ -409,6 +521,16 @@ class FeatureStore:
         else:
             # Get from FeatureEngineer
             return self.feature_engineer.get_feature_names()
+
+    def _get_feature_set_id(self) -> str:
+        """
+        Derive a stable feature_set_id for storage.
+
+        Prefer pipeline signature; otherwise use config hash prefix.
+        """
+        if self.pipeline_hash:
+            return f"fs_{self.pipeline_hash[:12]}"
+        return f"fs_{self._compute_config_hash()[:12]}"
 
     def clear_features(
         self,
@@ -440,3 +562,91 @@ class FeatureStore:
                 )
 
             conn.execute(delete_stmt)
+
+    def write_features(
+        self,
+        feature_set_id: str,
+        instrument_id: str,
+        features: dict[str, float],
+        ts_event: int,
+        ts_init: int,
+    ) -> None:
+        """
+        Write computed features to storage.
+
+        This method stores features that have already been computed by an actor.
+        It ensures data persistence for training/inference parity tracking.
+
+        Parameters
+        ----------
+        feature_set_id : str
+            Feature set identifier
+        instrument_id : str
+            Instrument identifier
+        features : dict[str, float]
+            Feature name to value mapping
+        ts_event : int
+            Event timestamp in nanoseconds
+        ts_init : int
+            Initialization timestamp in nanoseconds
+
+        """
+        # Convert features dict to JSON for storage
+        features_json = json.dumps(features)
+
+        # Use feature set ID as version identifier
+        feature_version = self._get_feature_set_id() if hasattr(self, "pipeline_hash") else feature_set_id
+
+        # Prepare data for insertion
+        data = {
+            "feature_set_id": feature_set_id,
+            "feature_version": feature_version,
+            "instrument_id": instrument_id,
+            "ts_event": ts_event,
+            "ts_init": ts_init,
+            "features": features_json,
+            "computed_at": int(datetime.utcnow().timestamp() * 1e9),
+        }
+
+        # Insert with ON CONFLICT for idempotency
+        with self.engine.begin() as conn:
+            stmt = insert(self.feature_values_table).values(data)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["feature_set_id", "instrument_id", "ts_event"],
+                set_={
+                    "features": stmt.excluded.features,
+                    "ts_init": stmt.excluded.ts_init,
+                    "computed_at": stmt.excluded.computed_at,
+                },
+            )
+            conn.execute(stmt)
+
+    def flush(self) -> None:
+        """
+        Flush any pending writes to storage.
+
+        Note: FeatureStore currently writes synchronously, so this is a no-op.
+        Future versions may implement write buffering for performance.
+        """
+        # Currently a no-op as writes are synchronous
+        # Future: implement write buffering similar to ModelStore
+        pass
+
+    def is_healthy(self) -> bool:
+        """
+        Check if the feature store is healthy and accessible.
+
+        Returns
+        -------
+        bool
+            True if store is healthy, False otherwise
+
+        """
+        try:
+            # Try a simple query to verify connection
+            with self.engine.connect() as conn:
+                from sqlalchemy import text
+                result = conn.execute(text("SELECT 1"))
+                return result is not None
+        except Exception:
+            return False

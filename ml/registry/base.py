@@ -111,6 +111,9 @@ class ModelManifest:
     version: str = "1.0.0"
     created_at: float = 0.0
     last_modified: float = 0.0
+    # Serving and artifact details
+    serveable: bool = True  # True for hot-path models; False for cold-path reference models
+    artifact_format: str = "onnx"  # onnx|torchscript|pickle|none
 
 
 @dataclass

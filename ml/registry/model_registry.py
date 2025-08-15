@@ -270,6 +270,8 @@ class ModelRegistry:
             "version": model_info.manifest.version,
             "created_at": model_info.manifest.created_at,
             "last_modified": model_info.manifest.last_modified,
+            "serveable": getattr(model_info.manifest, "serveable", True),
+            "artifact_format": getattr(model_info.manifest, "artifact_format", "onnx"),
         }
 
         return {
@@ -303,6 +305,8 @@ class ModelRegistry:
                 version=manifest_data["version"],
                 created_at=manifest_data["created_at"],
                 last_modified=manifest_data["last_modified"],
+                serveable=manifest_data.get("serveable", True),
+                artifact_format=manifest_data.get("artifact_format", "onnx"),
             )
         else:
             # Legacy format - convert to manifest
@@ -484,11 +488,13 @@ class ModelRegistry:
             if not model_path.exists():
                 raise FileNotFoundError(f"Model file not found: {model_path}")
 
-            # Security: Validate model format (only ONNX allowed)
+            # Security: Validate model format for serving
             if model_path.suffix != SUFFIX_ONNX:
-                raise ValueError(
-                    f"Only ONNX models are supported for security reasons. Got: {model_path.suffix}. Please export your model to ONNX format.",
-                )
+                # Allow non-ONNX for non-serveable models (e.g., cold-path teachers)
+                if getattr(manifest, "serveable", True):
+                    raise ValueError(
+                        f"Only ONNX models are supported for serveable models. Got: {model_path.suffix}.",
+                    )
 
             # Security: Validate path is safe
             if not self._validate_model_path(model_path):
@@ -698,6 +704,21 @@ class ModelRegistry:
         with self._lock:
             return list(self._models.values())
 
+    def get_artifact_path(self, model_id: str) -> Path | None:
+        """
+        Return the model artifact path if present and within registry root.
+
+        Does not attempt to load or execute the artifact. Use for cold-path models.
+        """
+        with self._lock:
+            if model_id not in self._models:
+                return None
+            model_path = self._models[model_id].model_path
+            if not self._validate_model_path(model_path):
+                logger.error(f"Security: Invalid model path detected: {model_path}")
+                return None
+            return model_path if model_path.exists() else None
+
     def get_model(self, model_id: str) -> ModelInfo | None:
         """
         Get information about a specific model.
@@ -819,8 +840,9 @@ class ModelRegistry:
                         providers=providers,
                     )
                 else:
-                    logger.error(
-                        f"Unsupported model format: {model_path.suffix}. Only ONNX models are supported for security reasons.",
+                    # Non-serveable artifact format - do not load into process for security
+                    logger.info(
+                        "Non-ONNX artifact requested for load; returning None to avoid unsafe loads",
                     )
                     return None
 

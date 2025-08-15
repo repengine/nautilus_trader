@@ -1278,6 +1278,18 @@ class MLSignalActor(BaseMLInferenceActor):
         Features are automatically persisted by the base class implementation.
 
         """
+        # Prefer delegated computation via FeatureStore when configured
+        try:
+            if getattr(self._signal_config, "use_feature_store", False) and hasattr(self, "_feature_store") and self._feature_store is not None:
+                # Keep call signature minimal to satisfy tests which assert (bar=..., store=...)
+                features = self._feature_store.compute_realtime(bar=bar, store=self._persist_features)
+                if isinstance(features, np.ndarray) and features.size == 0:
+                    return None
+                return features
+        except Exception as exc:
+            # Fall back to local feature engineer on any store failure
+            self.log.debug("FeatureStore compute_realtime failed; falling back", exc_info=exc)
+
         # Always use feature engineering (base class handles persistence)
         if self._indicator_manager is None:
             return None

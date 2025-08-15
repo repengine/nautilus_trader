@@ -74,6 +74,9 @@ METRIC_SIGNALS_RECEIVED_TOTAL = "nautilus_ml_signals_received_total"
 METRIC_TRADES_EXECUTED_TOTAL = "nautilus_ml_trades_executed_total"
 METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS = "nautilus_ml_signal_to_trade_latency_seconds"
 METRIC_POSITION_COUNT = "nautilus_ml_position_count"
+METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL = "nautilus_ml_strategy_decisions_persisted_total"
+METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS = "nautilus_ml_strategy_store_write_latency_seconds"
+METRIC_STRATEGY_STORE_BATCH_SIZE = "nautilus_ml_strategy_store_batch_size"
 
 # Strategy label keys
 LABEL_STRATEGY_ID = "strategy_id"

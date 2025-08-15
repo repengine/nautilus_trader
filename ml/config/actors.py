@@ -69,6 +69,8 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     db_connection: str = "postgresql://postgres:postgres@localhost:5432/nautilus"
     persist_features: bool = True
     pipeline_spec: Any | None = None
+    # Test mode
+    use_dummy_stores: bool = False
 
 
 __all__ = [

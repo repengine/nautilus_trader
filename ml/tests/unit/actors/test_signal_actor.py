@@ -132,6 +132,7 @@ class TestMLSignalActor:
             adaptive_window=10,
             min_signal_separation_bars=2,
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
             log_predictions=True,
             enable_health_monitoring=True,
             circuit_breaker_config=CircuitBreakerConfig(
@@ -271,6 +272,7 @@ class TestMLSignalActor:
             warm_up_period=1,
             signal_strategy=SignalStrategy.THRESHOLD,
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -327,6 +329,7 @@ class TestMLSignalActor:
             adaptive_window=5,
             strategy_config=StrategyConfig(extremes_top_pct=0.2),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -374,6 +377,7 @@ class TestMLSignalActor:
             signal_strategy=SignalStrategy.MOMENTUM,
             strategy_config=StrategyConfig(momentum_lookback=3),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -408,6 +412,7 @@ class TestMLSignalActor:
                 ensemble_weights={"threshold": 0.5, "extremes": 0.3, "momentum": 0.2},
             ),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -441,6 +446,7 @@ class TestMLSignalActor:
             adaptive_window=5,
             strategy_config=StrategyConfig(adaptive_volatility_factor=1.0),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -486,6 +492,7 @@ class TestMLSignalActor:
             signal_strategy=SignalStrategy.ADAPTIVE,
             enable_regime_detection=True,
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -546,6 +553,7 @@ class TestMLSignalActor:
             signal_strategy=SignalStrategy.THRESHOLD,
             min_signal_separation_bars=5,
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -883,6 +891,7 @@ class TestMLSignalActor:
                 max_threshold=0.95,
             ),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -959,6 +968,7 @@ class TestMLSignalActor:
             adaptive_window=10,
             strategy_config=StrategyConfig(extremes_top_pct=0.1),  # Top/bottom 10%
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -1008,6 +1018,7 @@ class TestMLSignalActor:
             signal_strategy=SignalStrategy.ENSEMBLE,
             strategy_config=StrategyConfig(ensemble_weights=custom_weights),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -1023,6 +1034,7 @@ class TestMLSignalActor:
             signal_strategy=SignalStrategy.ENSEMBLE,
             strategy_config=StrategyConfig(ensemble_weights=None),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor_default = MLSignalActor(config_default)
@@ -1105,6 +1117,7 @@ class TestMLSignalActor:
                 instrument_id=self.instrument_id,
                 signal_strategy=strategy,
                 feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
             )
             test_actor = MLSignalActor(config)
             assert test_actor._signal_strategy is not None
@@ -1150,6 +1163,7 @@ class TestMLSignalActor:
             enable_hot_reload=True,
             model_check_interval=60,
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)
@@ -1311,6 +1325,7 @@ class TestMLSignalActor:
             instrument_id=self.instrument_id,
             signal_strategy=SignalStrategy.ADAPTIVE,
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         self.create_test_actor(config)  # Just to validate config
@@ -1422,6 +1437,7 @@ class TestMLSignalActor:
                 ensemble_weights={"threshold": 0.5, "extremes": 0.3, "momentum": 0.2},
             ),
             feature_config=self.feature_config,
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = self.create_test_actor(config)

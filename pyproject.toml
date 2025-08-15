@@ -51,6 +51,9 @@ dependencies = [
     "anyio (>=4.10.0,<5.0.0)",
     "sqlalchemy (>=2.0.43,<3.0.0)",
     "psycopg2-binary (>=2.9.10,<3.0.0)",
+    "pytorch-forecasting (>=1.4.0,<2.0.0)",
+    "pytorch-lightning (>=2.5.3,<3.0.0)",
+    "torchmetrics (>=1.8.1,<2.0.0)",
 ]
 
 [project.urls]
@@ -151,6 +154,12 @@ ml-forecasting = [
     # Advanced forecasting libraries from ML_GENERAL.md
     "statsforecast>=2.0.0,<3.0.0",
     "neuralforecast>=2.0.0,<3.0.0",
+]
+ml-tft = [
+    # Temporal Fusion Transformer training stack
+    "pytorch-lightning>=2.1,<3.0",
+    "torchmetrics>=1.2,<2.0",
+    # pytorch-forecasting is already added separately by the project setup
 ]
 ml-causal = [
     # Causal inference (mentioned in ML_GENERAL.md)
@@ -354,7 +363,7 @@ disable_error_code = [
 [[tool.mypy.overrides]]
 module = [
     "ml.registry.model_registry",
-    "ml.registry.feature_registry", 
+    "ml.registry.feature_registry",
     "ml.registry.strategy_registry",
 ]
 # SQLAlchemy Column to value conversion issues

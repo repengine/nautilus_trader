@@ -50,6 +50,7 @@ class MLTradingStrategy(BaseMLStrategy):
         2. Determines trade direction from signal
         3. Manages position changes
         4. Tracks model performance if enabled
+        5. Persists decisions to StrategyStore
 
         Parameters
         ----------
@@ -64,9 +65,11 @@ class MLTradingStrategy(BaseMLStrategy):
         if signal.prediction > 0.5:
             target_side = OrderSide.BUY
             signal_direction = "LONG"
+            decision_type = "BUY"
         else:
             target_side = OrderSide.SELL
             signal_direction = "SHORT"
+            decision_type = "SELL"
 
         # Log signal details
         model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
@@ -77,19 +80,65 @@ class MLTradingStrategy(BaseMLStrategy):
             f"direction={signal_direction}",
         )
 
+        # Calculate position size for persistence
+        position_size = self._calculate_position_size()
+
+        # Prepare risk metrics
+        risk_metrics = {
+            "confidence": float(signal.confidence),
+            "prediction": float(signal.prediction),
+            "active_positions": self._active_positions,
+            "signal_direction": signal_direction,
+            "has_position": current_position is not None,
+        }
+
+        # Prepare execution params
+        execution_params = {
+            "target_side": target_side.name,
+            "model_id": model_id,
+            "action": None,  # Will be set based on decision
+        }
+
         # Check if we need to change position
         if current_position is None:
             # No position, enter new one
+            execution_params["action"] = "enter"
+            self._persist_strategy_decision(
+                signal=signal,
+                decision_type=decision_type,
+                position_size=position_size,
+                risk_metrics=risk_metrics,
+                execution_params=execution_params,
+            )
             self._enter_position(target_side, signal)
 
         elif self._should_reverse_position(current_position, target_side):
             # Position exists but signal suggests opposite direction
+            execution_params["action"] = "reverse"
+            execution_params["current_side"] = current_position.side.name
+            self._persist_strategy_decision(
+                signal=signal,
+                decision_type=decision_type,
+                position_size=position_size,
+                risk_metrics=risk_metrics,
+                execution_params=execution_params,
+            )
             self._reverse_position(current_position, target_side, signal)
 
         else:
-            # Position aligns with signal
+            # Position aligns with signal - HOLD
+            execution_params["action"] = "hold"
             self.log.debug(
                 f"Position already {current_position.side.name}, aligns with signal direction {signal_direction}",
+            )
+
+            # Persist HOLD decision if configured
+            self._persist_strategy_decision(
+                signal=signal,
+                decision_type="HOLD",
+                position_size=None,
+                risk_metrics=risk_metrics,
+                execution_params=execution_params,
             )
 
             # Could add logic here to increase position size or adjust stops
@@ -126,6 +175,8 @@ class MLTradingStrategy(BaseMLStrategy):
         # Store signal info for performance tracking
         if self.track_performance:
             self._track_trade_entry(model_id, signal, order_id)
+
+        # Note: Decision already persisted in _process_ml_signal
 
     def _reverse_position(
         self,

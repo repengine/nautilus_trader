@@ -204,40 +204,59 @@ class MLIntegrationManager:
             return False
 
     def _start_postgres_container(self) -> None:
-        """
-        Start PostgreSQL Docker container.
-        """
-        print("Starting PostgreSQL container...")
+        """Start PostgreSQL using docker-compose if available, else docker run."""
+        print("Starting PostgreSQL (preferring docker-compose if available)...")
 
-        # Check if container exists
-        result = subprocess.run(
-            ["docker", "ps", "-a", "--filter", "name=nautilus-postgres", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-        )
+        compose_file = None
+        for candidate in (Path("ml/docker-compose.yml"), Path("docker-compose.yml")):
+            if candidate.exists():
+                compose_file = candidate
+                break
 
-        if "nautilus-postgres" in result.stdout:
-            # Container exists, just start it
-            subprocess.run(["docker", "start", "nautilus-postgres"], check=True)
-        else:
-            # Create new container
-            subprocess.run(
+        if compose_file is not None:
+            try:
+                subprocess.run(
+                    ["docker", "compose", "-f", str(compose_file), "up", "-d", "postgres"],
+                    check=True,
+                )
+            except Exception:
+                compose_file = None
+
+        if compose_file is None:
+            result = subprocess.run(
                 [
                     "docker",
-                    "run",
-                    "-d",
-                    "--name",
-                    "nautilus-postgres",
-                    "-e",
-                    "POSTGRES_PASSWORD=postgres",
-                    "-e",
-                    "POSTGRES_DB=nautilus",
-                    "-p",
-                    "5432:5432",
-                    "postgres:15",
+                    "ps",
+                    "-a",
+                    "--filter",
+                    "name=nautilus-postgres",
+                    "--format",
+                    "{{.Names}}",
                 ],
-                check=True,
+                capture_output=True,
+                text=True,
             )
+
+            if "nautilus-postgres" in result.stdout:
+                subprocess.run(["docker", "start", "nautilus-postgres"], check=True)
+            else:
+                subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "-d",
+                        "--name",
+                        "nautilus-postgres",
+                        "-e",
+                        "POSTGRES_PASSWORD=postgres",
+                        "-e",
+                        "POSTGRES_DB=nautilus",
+                        "-p",
+                        "5432:5432",
+                        "postgres:15",
+                    ],
+                    check=True,
+                )
 
         # Wait for PostgreSQL to be ready
         for _ in range(30):

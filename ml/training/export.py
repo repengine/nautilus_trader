@@ -276,12 +276,44 @@ def convert_to_onnx(
     return output_path
 
 
+def convert_to_torchscript(
+    model: Any,
+    sample_input: NDArray[np.float32] | None,
+    output_path: str | Path,
+) -> Path:
+    """
+    Trace or script a PyTorch module to TorchScript and save to .pt.
+
+    Notes
+    -----
+    - This is a generic helper; the caller is responsible for providing a model
+      that accepts the provided `sample_input`.
+    - For complex models that expect dict inputs (e.g., TFT), callers should
+      wrap the model in a small adapter module that accepts a tensor.
+    """
+    try:
+        import torch
+    except Exception as exc:  # pragma: no cover - dependency guard
+        raise ImportError("PyTorch is required for TorchScript export") from exc
+
+    output_path = Path(output_path).with_suffix(".pt")
+    model.eval()
+    with torch.inference_mode():
+        if sample_input is not None:
+            scripted = torch.jit.trace(model, torch.as_tensor(sample_input))
+        else:
+            scripted = torch.jit.script(model)
+        scripted.save(str(output_path))
+    return output_path
+
+
 __all__ = [
     "DEFAULT_ONNX_OPSET",
     "ModelExportMixin",
     "ModelType",
     "TrainingActorContract",
     "convert_to_onnx",
+    "convert_to_torchscript",
     "detect_model_type",
     "save_model_with_metadata",
 ]

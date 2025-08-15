@@ -688,37 +688,45 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             connection_string=db_connection,
         )
 
-        # Initialize stores with fallback for testing
-        try:
-            self._feature_store = FeatureStore(
-                connection_string=db_connection,
-            )
-        except Exception as e:
-            # For testing, create a dummy store that doesn't require DB
-            self.log.warning(f"Could not create FeatureStore: {e}. Using dummy store for testing.")
+        # Initialize stores - use DummyStore only in test mode
+        use_dummy_stores = getattr(self._config, "use_dummy_stores", False)
+
+        if use_dummy_stores:
+            # Explicitly requested dummy stores for testing
             from ml.stores.base import DummyStore
 
+            self.log.info("Using DummyStore for testing (no persistence)")
             self._feature_store = DummyStore()  # type: ignore
-
-        try:
-            self._model_store = ModelStore(
-                persistence_config=persistence_config,
-            )
-        except Exception as e:
-            self.log.warning(f"Could not create ModelStore: {e}. Using dummy store for testing.")
-            from ml.stores.base import DummyStore
-
             self._model_store = DummyStore()  # type: ignore
-
-        try:
-            self._strategy_store = StrategyStore(
-                persistence_config=persistence_config,
-            )
-        except Exception as e:
-            self.log.warning(f"Could not create StrategyStore: {e}. Using dummy store for testing.")
-            from ml.stores.base import DummyStore
-
             self._strategy_store = DummyStore()  # type: ignore
+        else:
+            # Production mode - stores MUST initialize successfully
+            try:
+                self._feature_store = FeatureStore(
+                    connection_string=db_connection,
+                )
+            except Exception as e:
+                error_msg = f"Failed to initialize FeatureStore: {e}"
+                self.log.error(error_msg)
+                raise RuntimeError(error_msg) from e
+
+            try:
+                self._model_store = ModelStore(
+                    persistence_config=persistence_config,
+                )
+            except Exception as e:
+                error_msg = f"Failed to initialize ModelStore: {e}"
+                self.log.error(error_msg)
+                raise RuntimeError(error_msg) from e
+
+            try:
+                self._strategy_store = StrategyStore(
+                    persistence_config=persistence_config,
+                )
+            except Exception as e:
+                error_msg = f"Failed to initialize StrategyStore: {e}"
+                self.log.error(error_msg)
+                raise RuntimeError(error_msg) from e
 
         # Initialize registries
         # Use local file-based registries for now (can be upgraded to DB later)

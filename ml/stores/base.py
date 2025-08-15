@@ -309,6 +309,12 @@ class DummyStore:
         """
         return {"dummy": True}
 
+    def is_healthy(self) -> bool:
+        """
+        Dummy health check - always returns True for testing.
+        """
+        return True
+
     def get_latest(self, *args, **kwargs) -> None:
         """
         Dummy get latest.

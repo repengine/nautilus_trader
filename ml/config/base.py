@@ -80,6 +80,9 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
     use_manifest_features : bool, default True
         If True and using model_id, use feature schema from model manifest.
         If False, use feature_config even with manifest-based models.
+    use_dummy_stores : bool, default False
+        If True, use DummyStore implementations that don't persist data (for testing).
+        If False, require real store initialization (production mode).
 
     """
 
@@ -92,6 +95,7 @@ class MLInferenceConfig(NautilusConfig, kw_only=True, frozen=True):
     batch_size: PositiveInt = 1
     warm_up_period: NonNegativeInt = 50
     use_manifest_features: bool = True
+    use_dummy_stores: bool = False
 
     def __post_init__(self) -> None:
         """
@@ -264,6 +268,12 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Stop loss as percentage of entry price (0.0 to disable).
     take_profit_pct : NonNegativeFloat, default 0.04
         Take profit as percentage of entry price (0.0 to disable).
+    use_strategy_store : bool, default True
+        Whether to persist strategy decisions to StrategyStore.
+    strategy_store_config : dict[str, Any] | None, default None
+        Configuration for StrategyStore (connection_string, batch_size, flush_interval_ms).
+    persist_all_signals : bool, default False
+        Whether to persist HOLD signals in addition to BUY/SELL.
 
     """
 
@@ -274,6 +284,9 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     max_positions: PositiveInt = 1
     stop_loss_pct: NonNegativeFloat = 0.02
     take_profit_pct: NonNegativeFloat = 0.04
+    use_strategy_store: bool = True
+    strategy_store_config: dict[str, Any] | None = None
+    persist_all_signals: bool = False
 
 
 class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):

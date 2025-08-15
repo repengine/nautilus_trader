@@ -30,7 +30,11 @@ from ml.config.names import LABEL_STRATEGY_ID
 from ml.config.names import METRIC_POSITION_COUNT
 from ml.config.names import METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS
 from ml.config.names import METRIC_SIGNALS_RECEIVED_TOTAL
+from ml.config.names import METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL
+from ml.config.names import METRIC_STRATEGY_STORE_BATCH_SIZE
+from ml.config.names import METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS
 from ml.config.names import METRIC_TRADES_EXECUTED_TOTAL
+from ml.stores.strategy_store import StrategyStore
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import DataType
@@ -54,6 +58,9 @@ ml_signals_received = None
 ml_trades_executed = None
 ml_signal_to_trade_latency = None
 ml_position_count = None
+ml_strategy_decisions_persisted = None
+ml_strategy_store_write_latency = None
+ml_strategy_store_batch_size = None
 
 
 def _initialize_metrics() -> None:
@@ -61,6 +68,7 @@ def _initialize_metrics() -> None:
     Initialize Prometheus metrics once.
     """
     global _metrics_initialized, ml_signals_received, ml_trades_executed, ml_signal_to_trade_latency, ml_position_count
+    global ml_strategy_decisions_persisted, ml_strategy_store_write_latency, ml_strategy_store_batch_size
 
     if _metrics_initialized:
         return
@@ -117,6 +125,45 @@ def _initialize_metrics() -> None:
                 Counter,
                 REGISTRY._names_to_collectors[METRIC_POSITION_COUNT],
             )
+
+        # Add new strategy store metrics
+        if METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL not in existing_names:
+            ml_strategy_decisions_persisted = Counter(
+                METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL,
+                "Total number of strategy decisions persisted to store",
+                [LABEL_STRATEGY_ID],
+            )
+        else:
+            ml_strategy_decisions_persisted = cast(
+                Counter,
+                REGISTRY._names_to_collectors[METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL],
+            )
+
+        if METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS not in existing_names:
+            ml_strategy_store_write_latency = Histogram(
+                METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS,
+                "Latency of writing to strategy store",
+                [LABEL_STRATEGY_ID],
+            )
+        else:
+            ml_strategy_store_write_latency = cast(
+                Histogram,
+                REGISTRY._names_to_collectors[METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS],
+            )
+
+        if METRIC_STRATEGY_STORE_BATCH_SIZE not in existing_names:
+            from ml._imports import Gauge
+            ml_strategy_store_batch_size = Gauge(
+                METRIC_STRATEGY_STORE_BATCH_SIZE,
+                "Current batch size in strategy store buffer",
+                [LABEL_STRATEGY_ID],
+            )
+        else:
+            from ml._imports import Gauge
+            ml_strategy_store_batch_size = cast(
+                Gauge,
+                REGISTRY._names_to_collectors[METRIC_STRATEGY_STORE_BATCH_SIZE],
+            )
     else:
         # Use dummy metrics when Prometheus is not available
         ml_signals_received = Counter(
@@ -138,6 +185,22 @@ def _initialize_metrics() -> None:
             METRIC_POSITION_COUNT,
             "Current number of open positions",
             [LABEL_STRATEGY_ID, LABEL_INSTRUMENT],
+        )
+        ml_strategy_decisions_persisted = Counter(
+            METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL,
+            "Total number of strategy decisions persisted to store",
+            [LABEL_STRATEGY_ID],
+        )
+        ml_strategy_store_write_latency = Histogram(
+            METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS,
+            "Latency of writing to strategy store",
+            [LABEL_STRATEGY_ID],
+        )
+        from ml._imports import Gauge
+        ml_strategy_store_batch_size = Gauge(
+            METRIC_STRATEGY_STORE_BATCH_SIZE,
+            "Current batch size in strategy store buffer",
+            [LABEL_STRATEGY_ID],
         )
 
     _metrics_initialized = True
@@ -212,6 +275,23 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         self._signals_received_metric = ml_signals_received
         self._orders_submitted_metric = ml_trades_executed
         self._position_count_metric = ml_position_count
+        self._strategy_decisions_persisted = ml_strategy_decisions_persisted
+        self._strategy_store_write_latency = ml_strategy_store_write_latency
+        self._strategy_store_batch_size = ml_strategy_store_batch_size
+
+        # Initialize StrategyStore if configured
+        self.strategy_store: StrategyStore | None = None
+        if self._config.use_strategy_store:
+            store_config = self._config.strategy_store_config or {}
+            self.strategy_store = StrategyStore(
+                connection_string=store_config.get(
+                    "connection_string",
+                    "postgresql://postgres:postgres@localhost:5432/nautilus"
+                ),
+                batch_size=store_config.get("batch_size", 100),
+                flush_interval_ms=store_config.get("flush_interval_ms", 1000),
+                clock=self.clock,
+            )
 
     def on_start(self) -> None:
         """
@@ -285,10 +365,123 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 # Process single signal
                 self._handle_ml_signal(data)
 
+    def _persist_strategy_decision(
+        self,
+        signal: MLSignal,
+        decision_type: str,  # "BUY", "SELL", "HOLD"
+        position_size: Quantity | None = None,
+        risk_metrics: dict[str, float] | None = None,
+        execution_params: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Persist strategy decision to StrategyStore.
+
+        Parameters
+        ----------
+        signal : MLSignal
+            The ML signal that triggered the decision.
+        decision_type : str
+            The decision type (BUY, SELL, or HOLD).
+        position_size : Quantity, optional
+            The position size for the trade.
+        risk_metrics : dict[str, float], optional
+            Risk metrics calculated for this decision.
+        execution_params : dict[str, Any], optional
+            Execution parameters for the trade.
+
+        """
+        if not self.strategy_store:
+            return
+
+        # Skip HOLD signals unless configured to persist them
+        if decision_type == "HOLD" and not self._config.persist_all_signals:
+            return
+
+        # Calculate risk metrics if not provided
+        if risk_metrics is None:
+            risk_metrics = {
+                "confidence": float(signal.confidence),
+                "prediction": float(signal.prediction),
+                "active_positions": self._active_positions,
+                "pending_orders": self._pending_orders,
+            }
+
+            # Add account balance if available
+            try:
+                base_currency = self.cache.account_for_venue(
+                    self.cache.venues()[0] if self.cache.venues() else None
+                ).base_currency
+                if base_currency:
+                    balance = self.portfolio.balances_total().get(base_currency)
+                    if balance:
+                        risk_metrics["account_balance"] = float(balance)
+            except (IndexError, AttributeError):
+                pass  # Skip if account info not available
+
+        # Build execution params if not provided
+        if execution_params is None:
+            execution_params = {
+                "stop_loss_pct": float(self._config.stop_loss_pct),
+                "take_profit_pct": float(self._config.take_profit_pct),
+                "position_size": str(position_size) if position_size else None,
+                "max_positions": self._config.max_positions,
+                "current_positions": self._active_positions,
+            }
+
+        # Extract model predictions
+        model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
+        model_predictions = {
+            model_id: float(signal.prediction)
+        }
+
+        # Add any aggregated model predictions if available
+        if hasattr(signal, "metadata") and "aggregated_from" in signal.metadata:
+            for mid in signal.metadata["aggregated_from"]:
+                if mid in self._model_signals:
+                    model_predictions[mid] = float(self._model_signals[mid].prediction)
+
+        # Write to store with timing
+        import time
+        start_time = time.time()
+
+        try:
+            self.strategy_store.write_signal(
+                strategy_id=str(self.id),
+                instrument_id=str(signal.instrument_id),
+                signal_type=decision_type,
+                strength=float(signal.confidence),
+                model_predictions=model_predictions,
+                risk_metrics=risk_metrics,
+                execution_params=execution_params,
+                ts_event=signal.ts_event,
+                is_live=not self.cache.is_backtesting if hasattr(self.cache, "is_backtesting") else True,
+            )
+
+            # Update metrics
+            write_latency = time.time() - start_time
+            if self._strategy_decisions_persisted:
+                self._strategy_decisions_persisted.labels(strategy_id=str(self.id)).inc()
+            if self._strategy_store_write_latency:
+                self._strategy_store_write_latency.labels(strategy_id=str(self.id)).observe(write_latency)
+            if self._strategy_store_batch_size and hasattr(self.strategy_store, "_write_buffer"):
+                self._strategy_store_batch_size.labels(strategy_id=str(self.id)).set(
+                    len(self.strategy_store._write_buffer)
+                )
+
+        except Exception as e:
+            self.log.error(f"Failed to persist strategy decision: {e}")
+
     def on_stop(self) -> None:
         """
         Log final statistics when the strategy stops.
         """
+        # Flush any pending writes to StrategyStore
+        if self.strategy_store:
+            try:
+                self.strategy_store.flush()
+            except Exception as e:
+                self.log.error(f"Failed to flush strategy store on stop: {e}")
+
         win_rate = self._winning_trades / max(self._trades_executed, 1) * 100
 
         self.log.info(

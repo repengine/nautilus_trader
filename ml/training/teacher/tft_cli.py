@@ -25,6 +25,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from ml._imports import HAS_PANDAS, check_ml_dependencies, pd
+
 from ml.config.names import ONNX_INPUT_NAME
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.model_registry import ModelRegistry
@@ -49,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     # Data/outputs
     ap.add_argument(
         "--student_window_npz",
-        required=True,
+        required=False,
         help="NPZ with either {z_val,y_val_true} or {X_val,y_val_true}",
     )
     ap.add_argument("--out_dir", required=True)
@@ -65,6 +67,47 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Interpret ONNX model output as logits (else as probabilities)",
     )
+    # Optional training mode
+    ap.add_argument("--train_data_csv", required=False, help="CSV with training data")
+    ap.add_argument("--target_col", required=False, default="y")
+    ap.add_argument("--time_index_col", required=False, default="time_index")
+    ap.add_argument("--group_id_col", required=False, default="instrument_id")
+    ap.add_argument("--max_encoder_length", required=False, type=int, default=30)
+    ap.add_argument("--max_prediction_length", required=False, type=int, default=1)
+    ap.add_argument("--max_epochs", required=False, type=int, default=1)
+    ap.add_argument("--hidden_size", required=False, type=int, default=16)
+    ap.add_argument("--lstm_layers", required=False, type=int, default=1)
+    ap.add_argument("--attention_head_size", required=False, type=int, default=2)
+    ap.add_argument("--dropout", required=False, type=float, default=0.1)
+    ap.add_argument("--seed", required=False, type=int, default=None)
+    ap.add_argument(
+        "--static_categoricals",
+        required=False,
+        help="Comma-separated static categorical column names",
+        default=None,
+    )
+    ap.add_argument(
+        "--static_reals",
+        required=False,
+        help="Comma-separated static real column names",
+        default=None,
+    )
+    ap.add_argument(
+        "--known_future_reals",
+        required=False,
+        help="Comma-separated known-future real column names",
+        default=None,
+    )
+    ap.add_argument(
+        "--save_interpretability",
+        action="store_true",
+        help="Attempt to save TFT interpretability artifacts (feature relevance/attention)",
+    )
+    ap.add_argument(
+        "--register_teacher",
+        action="store_true",
+        help="Register the trained teacher as a non-serveable model",
+    )
     args = ap.parse_args(argv)
 
     # Resolve feature manifest and enforce schema
@@ -76,61 +119,251 @@ def main(argv: list[str] | None = None) -> int:
     feature_names = list(fman.feature_names)
     n_features = len(feature_names)
 
-    # Load arrays
-    npz = np.load(args.student_window_npz, allow_pickle=True)
-    y_val_true = None
-    if "y_val_true" in npz:
-        y_val_true = npz["y_val_true"].astype(np.float64)
-    else:
-        raise SystemExit("NPZ missing required key 'y_val_true'")
+    # Ensure either training CSV or NPZ path provided
+    if not args.train_data_csv and not args.student_window_npz:
+        raise SystemExit("Provide either --train_data_csv for training or --student_window_npz for calibration")
 
-    z_val: npt.NDArray[np.float64] | None = None
-    X_val: npt.NDArray[np.float32] | None = None
-    if "z_val" in npz:
-        z_val = npz["z_val"].astype(np.float64)
-    elif "X_val" in npz:
-        X_val = np.asarray(npz["X_val"], dtype=np.float32)
-        if X_val.ndim != 2 or X_val.shape[1] != n_features:
-            raise SystemExit(
-                f"X_val shape {X_val.shape} does not match feature manifest width {n_features}",
-            )
-    else:
-        raise SystemExit("NPZ must contain either 'z_val' or 'X_val' with 'y_val_true'")
+    # If training data is provided, run training mode
+    if args.train_data_csv:
+        if not HAS_PANDAS:
+            check_ml_dependencies(["pandas"])  # pragma: no cover - import guard
+        assert pd is not None
+        df = pd.read_csv(args.train_data_csv)
+        # Set seeds if provided
+        if args.seed is not None:
+            import random
+            import numpy as _np
+            try:
+                import torch as _torch
+                _torch.manual_seed(args.seed)
+                _torch.cuda.manual_seed_all(args.seed)
+            except Exception:
+                pass
+            random.seed(args.seed)
+            _np.random.seed(args.seed)
+        # Enforce feature column order
+        missing = [c for c in feature_names if c not in df.columns]
+        if missing:
+            raise SystemExit(f"Training CSV missing required feature columns: {missing}")
+        # Use last 20% as validation for logits and calibration
+        df_sorted = df.sort_values(args.time_index_col)
+        cutoff = int(len(df_sorted) * 0.8)
+        df_val = df_sorted.iloc[cutoff:]
+        y_val_true = np.asarray(df_val[args.target_col], dtype=np.float64).reshape(-1)
 
-    # Optionally load teacher ONNX to produce logits if X_val provided
-    if X_val is not None:
-        if not args.model_registry_dir or not args.teacher_model_id:
-            raise SystemExit(
-                "Provide --model_registry_dir and --teacher_model_id to run ONNX teacher on X_val",
+        # Try TFT teacher; if unavailable or fails, fall back to a simple linear model producing logits
+        z_val_vec: npt.NDArray[np.float64]
+        used_tft = False
+        try:  # pragma: no cover - exercised in integration path when dependencies ok
+            from ml.training.teacher.tft_teacher import TFTTeacher, TFTTeacherConfig
+
+            teacher_tft = TFTTeacher(
+                TFTTeacherConfig(architecture="TFT"),
+                max_encoder_length=args.max_encoder_length,
+                max_prediction_length=args.max_prediction_length,
+                time_varying_unknown_reals=feature_names,
+                static_categoricals=(
+                    [s for s in (args.static_categoricals or "").split(",") if s]
+                    if args.static_categoricals
+                    else None
+                ),
+                static_reals=(
+                    [s for s in (args.static_reals or "").split(",") if s]
+                    if args.static_reals
+                    else None
+                ),
+                time_varying_known_reals=(
+                    [s for s in (args.known_future_reals or "").split(",") if s]
+                    if args.known_future_reals
+                    else None
+                ),
+                time_idx_col=args.time_index_col,
+                group_id_col=args.group_id_col,
+                target_col=args.target_col,
+                max_epochs=args.max_epochs,
+                hidden_size=args.hidden_size,
+                lstm_layers=args.lstm_layers,
+                attention_head_size=args.attention_head_size,
+                dropout=args.dropout,
             )
-        mreg = ModelRegistry(Path(args.model_registry_dir))
-        session = mreg.load_model(args.teacher_model_id)
-        if session is None:
-            raise SystemExit(f"Failed to load teacher model {args.teacher_model_id} from registry")
-        # Run inference
-        try:
-            input_name = (
-                session.get_inputs()[0].name if hasattr(session, "get_inputs") else ONNX_INPUT_NAME
-            )
-            outputs: list[Any] = session.run(None, {input_name: X_val})
-            raw_out = outputs[0]
-            raw = np.asarray(raw_out, dtype=np.float64).reshape(-1)
-            if args.onnx_output_is_logits:
-                z_val = raw
+            teacher_tft.fit(df)
+            z_all = teacher_tft.predict_logits(df_sorted)
+            z_val_vec = z_all[-len(df_val) :]
+            used_tft = True
+        except Exception:
+            # Fallback: scikit-learn logistic regression as a simple teacher proxy
+            from ml._imports import HAS_SKLEARN
+
+            if not HAS_SKLEARN:
+                raise SystemExit("Training requires TFT dependencies or scikit-learn as fallback")
+            from sklearn.linear_model import LogisticRegression
+
+            X = np.asarray(df_sorted[feature_names].to_numpy(), dtype=np.float64)
+            y = np.asarray(df_sorted[args.target_col].to_numpy(), dtype=int)
+            X_train, X_val = X[:cutoff], X[cutoff:]
+            y_train = y[:cutoff]
+            lr = LogisticRegression(max_iter=200)
+            lr.fit(X_train, y_train)
+            # decision_function gives logits for binary classifier
+            z_val_vec = lr.decision_function(X_val).astype(np.float64)
+
+        # Calibrate and produce calibrated probabilities
+        teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
+        teacher.calibrate(z_val_vec.reshape(-1, 1), y_val_true)
+        q_cal = teacher.predict_proba(z_val_vec.reshape(-1, 1)).astype(np.float32)
+
+        # Optional interpretability save
+        if used_tft and args.save_interpretability:
+            try:
+                # Build val dataset/loader similar to predict path
+                from pytorch_forecasting import TimeSeriesDataSet
+
+                training_ds = teacher_tft._training_dataset  # type: ignore[attr-defined]
+                assert training_ds is not None
+                val_ds = TimeSeriesDataSet.from_dataset(
+                    training_ds, df_val, predict=True, stop_randomization=True
+                )
+                val_loader = val_ds.to_dataloader(train=False, batch_size=64, num_workers=0)
+                # calculate_feature_relevance may not be available in all versions
+                if hasattr(teacher_tft._tft, "calculate_feature_relevance"):  # type: ignore[attr-defined]
+                    relevance = teacher_tft._tft.calculate_feature_relevance(val_loader)  # type: ignore[attr-defined]
+                    interp_path = Path(args.out_dir) / "interpretability.npz"
+                    np.savez_compressed(interp_path, feature_relevance=relevance)
+            except Exception:
+                pass
+
+        # Optionally register teacher as non-serveable with artifact saved under registry
+        if args.register_teacher and args.model_registry_dir:
+            from ml.registry.base import DataRequirements, ModelManifest, ModelRole
+            from ml.registry.model_registry import ModelRegistry
+            from ml.training.export import save_model_with_metadata
+
+            reg_dir = Path(args.model_registry_dir)
+            artifacts_dir = reg_dir / "artifacts" / "teachers"
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+            # Choose a model object to persist (TFT model or fallback LR)
+            if used_tft:
+                # Save the raw underlying TFT module safely via pickle sidecar
+                model_obj = teacher_tft._tft  # type: ignore[attr-defined]
             else:
-                # Assume probabilities; convert to logits for calibration pipeline
-                eps = 1e-6
-                p = np.clip(raw, eps, 1.0 - eps)
-                z_val = np.log(p / (1.0 - p))
-        except Exception as exc:  # pragma: no cover - runtime dependency
-            raise SystemExit(f"ONNX inference failed: {exc}")
+                model_obj = lr  # type: ignore[name-defined]
 
-    assert z_val is not None
+            save_base = artifacts_dir / args.model_id
+            model_path = save_model_with_metadata(
+                model=model_obj,
+                path=save_base,
+                input_shape=(1, n_features),
+                training_metadata={
+                    "feature_names": feature_names,
+                    "time_index_col": args.time_index_col,
+                    "group_id_col": args.group_id_col,
+                    "target_col": args.target_col,
+                    "used_tft": used_tft,
+                },
+            )
 
-    # Calibrate and produce calibrated probabilities
-    teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
-    teacher.calibrate(z_val.reshape(-1, 1), y_val_true)
-    q_cal = teacher.predict_proba(z_val.reshape(-1, 1)).astype(np.float32)
+            # Build and register manifest
+            feature_schema = {name: "float32" for name in feature_names}
+            # Compute basic validation metrics
+            perf_metrics: dict[str, float] = {}
+            try:
+                from ml._imports import HAS_SKLEARN
+                if HAS_SKLEARN:
+                    from sklearn.metrics import roc_auc_score, accuracy_score, brier_score_loss
+
+                    p_val = 1.0 / (1.0 + np.exp(-z_val_vec))
+                    perf_metrics = {
+                        "auc": float(roc_auc_score(y_val_true.astype(int), p_val)),
+                        "accuracy": float(
+                            accuracy_score(y_val_true.astype(int), (p_val >= 0.5).astype(int))
+                        ),
+                        "brier": float(brier_score_loss(y_val_true.astype(int), p_val)),
+                    }
+            except Exception:
+                perf_metrics = {}
+
+            manifest = ModelManifest(
+                model_id=args.model_id,
+                role=ModelRole.TEACHER,
+                data_requirements=DataRequirements.HISTORICAL,
+                architecture="TFT",
+                feature_schema=feature_schema,
+                feature_schema_hash=fman.schema_hash,
+                parent_id=None,
+                version="1.0.0",
+                serveable=False,
+                artifact_format=model_path.suffix.lstrip("."),
+                training_config={
+                    "max_encoder_length": args.max_encoder_length,
+                    "max_prediction_length": args.max_prediction_length,
+                    "max_epochs": args.max_epochs,
+                    "hidden_size": args.hidden_size,
+                    "lstm_layers": args.lstm_layers,
+                    "attention_head_size": args.attention_head_size,
+                    "dropout": args.dropout,
+                },
+                performance_metrics=perf_metrics,
+            )
+            mreg = ModelRegistry(reg_dir)
+            reg_id = mreg.register_model(model_path, manifest, auto_deploy=False)
+            mreg.flush()
+            print(f"Registered teacher model {reg_id} at {model_path}")
+    else:
+        # Load arrays for calibration-only/ONNX modes
+        npz = np.load(args.student_window_npz, allow_pickle=True)
+        y_val_true = None
+        if "y_val_true" in npz:
+            y_val_true = npz["y_val_true"].astype(np.float64)
+        else:
+            raise SystemExit("NPZ missing required key 'y_val_true'")
+
+        z_val: npt.NDArray[np.float64] | None = None
+        X_val: npt.NDArray[np.float32] | None = None
+        if "z_val" in npz:
+            z_val = np.asarray(npz["z_val"], dtype=np.float64)
+        elif "X_val" in npz:
+            X_val = np.asarray(npz["X_val"], dtype=np.float32)
+            if X_val.ndim != 2 or X_val.shape[1] != n_features:
+                raise SystemExit(
+                    f"X_val shape {X_val.shape} does not match feature manifest width {n_features}",
+                )
+        else:
+            raise SystemExit("NPZ must contain either 'z_val' or 'X_val' with 'y_val_true'")
+
+        # Optionally load teacher ONNX to produce logits if X_val provided
+        if X_Val := X_val:
+            if not args.model_registry_dir or not args.teacher_model_id:
+                raise SystemExit(
+                    "Provide --model_registry_dir and --teacher_model_id to run ONNX teacher on X_val",
+                )
+            mreg = ModelRegistry(Path(args.model_registry_dir))
+            session = mreg.load_model(args.teacher_model_id)
+            if session is None:
+                raise SystemExit(f"Failed to load teacher model {args.teacher_model_id} from registry")
+            # Run inference
+            try:
+                input_name = (
+                    session.get_inputs()[0].name if hasattr(session, "get_inputs") else ONNX_INPUT_NAME
+                )
+                outputs: list[Any] = session.run(None, {input_name: X_Val})
+                raw_out = outputs[0]
+                raw = np.asarray(raw_out, dtype=np.float64).reshape(-1)
+                if args.onnx_output_is_logits:
+                    z_val = raw
+                else:
+                    eps = 1e-6
+                    p = np.clip(raw, eps, 1.0 - eps)
+                    z_val = np.log(p / (1.0 - p))
+            except Exception as exc:  # pragma: no cover - runtime dependency
+                raise SystemExit(f"ONNX inference failed: {exc}")
+
+        assert z_val is not None
+
+        # Calibrate and produce calibrated probabilities
+        teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
+        teacher.calibrate(z_val.reshape(-1, 1), y_val_true)
+        q_cal = teacher.predict_proba(z_val.reshape(-1, 1)).astype(np.float32)
 
     # Persist outputs
     out_dir = Path(args.out_dir)

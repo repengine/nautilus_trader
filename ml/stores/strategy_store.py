@@ -529,6 +529,27 @@ class StrategyStore(BaseStore):
         elapsed_ms = (self.clock.timestamp_ns() - self._last_flush_ns) / 1e6
         return elapsed_ms >= self.flush_interval_ms
 
+    def is_healthy(self) -> bool:
+        """
+        Check if the strategy store is healthy and accessible.
+
+        Returns
+        -------
+        bool
+            True if store is healthy, False otherwise
+
+        """
+        try:
+            # Try a simple query to verify connection
+            if self.engine:
+                with self.engine.connect() as conn:
+                    from sqlalchemy import text
+                    result = conn.execute(text("SELECT 1"))
+                    return result is not None
+            return True  # If no engine, assume healthy (in-memory mode)
+        except Exception:
+            return False
+
     def clear_signals(
         self,
         strategy_id: str | None = None,
