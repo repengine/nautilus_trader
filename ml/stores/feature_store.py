@@ -156,7 +156,15 @@ class FeatureStore:
         """
         Compute hash of feature configuration for versioning.
         """
-        config_str = json.dumps(self.feature_config.__dict__, sort_keys=True)
+        # Handle both dict-like and dataclass objects
+        if hasattr(self.feature_config, '__dict__'):
+            config_dict = self.feature_config.__dict__
+        else:
+            # For frozen dataclasses, convert to dict
+            import msgspec
+            config_dict = msgspec.to_builtins(self.feature_config)
+        
+        config_str = json.dumps(config_dict, sort_keys=True)
         return hashlib.sha256(config_str.encode()).hexdigest()[:16]
 
     def compute_and_store_historical(

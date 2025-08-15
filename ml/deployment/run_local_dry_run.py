@@ -106,18 +106,19 @@ class LocalDryRunSystem:
         import pickle
         import numpy as np
         
-        class DummyModel:
-            def __init__(self):
-                self.feature_names = [f"feature_{i}" for i in range(10)]
-                
-            def predict(self, X):
-                # Generate slightly bullish predictions
-                base = 0.55 + np.random.randn(len(X) if len(X.shape) > 1 else 1) * 0.1
-                return np.clip(base, 0, 1)
-        
+        # Define at module level to avoid pickle issues
         Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # Use the existing dummy model from create_dummy_model.py
+        import sys
+        sys.path.append(str(Path(__file__).parent.parent / "examples"))
+        from create_dummy_model import DummyModel
+        
+        model = DummyModel(n_features=10)
+        model.bias = 0.55  # Slightly bullish
+        
         with open(model_path, "wb") as f:
-            pickle.dump(DummyModel(), f)
+            pickle.dump(model, f)
     
     async def setup_and_run(self):
         """
@@ -127,9 +128,10 @@ class LocalDryRunSystem:
         print("ML TRADING SYSTEM - LOCAL DRY RUN WITH REAL DATA")
         print("=" * 80)
         
-        # Configuration
-        instrument_id = InstrumentId.from_str("ES-USD-FUT.CME")  # E-mini S&P 500
-        bar_type = BarType.from_str("ES-USD-FUT.CME-1-MINUTE")
+        # Configuration for US equities
+        # Using SPY (S&P 500 ETF) as our test instrument
+        instrument_id = InstrumentId.from_str("SPY.XNAS")  # SPY on NASDAQ
+        bar_type = BarType.from_str("SPY.XNAS-1-MINUTE-LAST-EXTERNAL")  # 1-minute bars with EXTERNAL suffix
         
         # Use SQLite if PostgreSQL not available
         use_dummy_stores = "sqlite" in self.db_connection
@@ -187,12 +189,12 @@ class LocalDryRunSystem:
         print(f"Mode: DRY RUN (execute_trades=False)")
         print("=" * 80)
         
-        # Databento configuration
+        # Databento configuration for US equities
         data_config = DatabentoDataClientConfig(
             api_key=self.databento_key,
             http_gateway="https://hist.databento.com",
-            streaming_gateway="wss://stream.databento.com",
-            dataset="GLBX.MDP3",  # CME dataset
+            live_gateway="wss://stream.databento.com",
+            venue_dataset_map={"XNAS": "EQUS.MINI"},  # Use EQUS.MINI for live data
         )
         
         # Trading node configuration
@@ -202,21 +204,23 @@ class LocalDryRunSystem:
                 "DATABENTO": data_config,
             },
             exec_clients={},  # No execution for dry run
-            default_data_client="DATABENTO",
-            logging={
-                "level": "INFO",
-            },
         )
         
         # Create trading node
         self.node = TradingNode(config=node_config)
         
+        # Register Databento factory
+        self.node.add_data_client_factory("DATABENTO", DatabentoLiveDataClientFactory)
+        
+        # Build the node first
+        self.node.build()
+        
         # Add components
         actor = MLSignalActor(config=actor_config)
         strategy = MLTradingStrategy(config=strategy_config)
         
-        self.node.add_actor(actor)
-        self.node.add_strategy(strategy)
+        self.node.trader.add_actor(actor)
+        self.node.trader.add_strategy(strategy)
         
         # Subscribe to market data
         actor.subscribe_bars(bar_type)

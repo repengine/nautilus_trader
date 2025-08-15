@@ -1022,6 +1022,9 @@ class MLSignalActor(BaseMLInferenceActor):
                         f"Feature schema mismatch with manifest: expected {len(expected)} names (hash={manifest.schema_hash}), got {len(actual)}",
                     )
                 # else, features are validated
+                self.log.info(
+                    f"Feature parity validated (registry): features={len(expected)}, hash={manifest.schema_hash}",
+                )
                 self._feature_set_id = manifest.feature_set_id
         # Validate against model manifest feature schema if available (loaded via registry)
         # Validate feature order/dtypes against model manifest if available
@@ -1045,6 +1048,9 @@ class MLSignalActor(BaseMLInferenceActor):
             # Hot path dtypes are float32 by design
             actual_dtypes = ["float32"] * len(actual_names)
             assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
+            self.log.info(
+                f"Feature parity validated (model): features={len(actual_names)}, hash={tmp_manifest.feature_schema_hash}",
+            )
         self._indicator_manager: IndicatorManager | None = None
 
         # Signal generation state
@@ -1182,6 +1188,34 @@ class MLSignalActor(BaseMLInferenceActor):
         # Warm up if configured
         if self._opt_config.enable_model_warm_up and self._model is not None:
             self._warm_up_model()
+
+        # Validate manifest-based feature parity after model is loaded
+        try:
+            # Re-use the same logic as in __init__ if metadata is present
+            model_names = getattr(self, "_manifest_feature_names", [])
+            if model_names:
+                actual_names = self._feature_engineer.config.get_feature_names()
+                manifest_schema = None
+                if isinstance(getattr(self, "_model_metadata", None), dict):
+                    manifest_schema = self._model_metadata.get("feature_schema")
+                if not manifest_schema:
+                    manifest_schema = {name: "float32" for name in model_names}
+                tmp_manifest = ModelManifest(
+                    model_id="__validation__",
+                    role=ModelRole.STUDENT,
+                    data_requirements=DataRequirements.L1_ONLY,
+                    architecture="unknown",
+                    feature_schema=manifest_schema,
+                    feature_schema_hash=getattr(self, "_manifest_feature_schema_hash", ""),
+                )
+                actual_dtypes = ["float32"] * len(actual_names)
+                assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
+                self.log.info(
+                    f"Feature parity validated (model): features={len(actual_names)}, hash={tmp_manifest.feature_schema_hash}",
+                )
+        except Exception:
+            # Bubble up to fail fast during startup if mismatch
+            raise
 
     def _load_optimized_onnx_model(self) -> None:
         """
