@@ -630,7 +630,6 @@ class FeatureStore:
         """
         # Currently a no-op as writes are synchronous
         # Future: implement write buffering similar to ModelStore
-        pass
 
     def is_healthy(self) -> bool:
         """

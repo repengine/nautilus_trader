@@ -5,15 +5,16 @@ This script shows how MLTradingStrategy now persists all trading decisions
 to StrategyStore for audit trails and compliance.
 """
 
-from datetime import datetime
 from unittest.mock import MagicMock
 
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
-from nautilus_trader.common.component import MessageBus, TestClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.identifiers import InstrumentId, TraderId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
@@ -47,16 +48,17 @@ def demonstrate_strategy_store_integration():
         persist_all_signals=True,  # Persist even HOLD decisions
     )
 
-    print(f"\n✓ Created configuration with StrategyStore enabled")
+    print("\n✓ Created configuration with StrategyStore enabled")
     print(f"  - Strategy ID: {config.strategy_id}")
     print(f"  - Instrument: {config.instrument_id}")
     print(f"  - Persist all signals: {config.persist_all_signals}")
 
     # Create strategy (we'll mock the store to avoid real DB connection)
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch
+
     from ml.stores.strategy_store import StrategyStore
 
-    with patch('ml.strategies.base.StrategyStore') as MockStore:
+    with patch("ml.strategies.base.StrategyStore") as MockStore:
         mock_store = MagicMock(spec=StrategyStore)
         MockStore.return_value = mock_store
 
@@ -68,10 +70,10 @@ def demonstrate_strategy_store_integration():
             clock=clock,
         )
 
-        print(f"\n✓ Created MLTradingStrategy with mocked StrategyStore")
+        print("\n✓ Created MLTradingStrategy with mocked StrategyStore")
 
         # Simulate various signals and show what gets persisted
-        print(f"\n📊 Processing ML Signals and Persisting Decisions:")
+        print("\n📊 Processing ML Signals and Persisting Decisions:")
         print("-" * 50)
 
         # Signal 1: BUY signal (prediction > 0.5)
@@ -89,7 +91,7 @@ def demonstrate_strategy_store_integration():
 
         if mock_store.write_signal.called:
             call_args = mock_store.write_signal.call_args.kwargs
-            print(f"\n📝 Decision 1 (BUY) persisted:")
+            print("\n📝 Decision 1 (BUY) persisted:")
             print(f"   - Signal Type: {call_args['signal_type']}")
             print(f"   - Strength: {call_args['strength']:.2f}")
             print(f"   - Model: {list(call_args['model_predictions'].keys())[0]}")
@@ -112,7 +114,7 @@ def demonstrate_strategy_store_integration():
 
         if mock_store.write_signal.call_count >= 2:
             call_args = mock_store.write_signal.call_args.kwargs
-            print(f"\n📝 Decision 2 (SELL) persisted:")
+            print("\n📝 Decision 2 (SELL) persisted:")
             print(f"   - Signal Type: {call_args['signal_type']}")
             print(f"   - Strength: {call_args['strength']:.2f}")
             print(f"   - Model: {list(call_args['model_predictions'].keys())[0]}")
@@ -136,25 +138,25 @@ def demonstrate_strategy_store_integration():
 
         if mock_store.write_signal.call_count >= 3:
             call_args = mock_store.write_signal.call_args.kwargs
-            print(f"\n📝 Decision 3 (HOLD/REVERSE) persisted:")
+            print("\n📝 Decision 3 (HOLD/REVERSE) persisted:")
             print(f"   - Signal Type: {call_args['signal_type']}")
             print(f"   - Strength: {call_args['strength']:.2f}")
             print(f"   - Action: {call_args.get('execution_params', {}).get('action', 'N/A')}")
 
         # Simulate strategy stop to show flush
-        print(f"\n🛑 Stopping strategy...")
+        print("\n🛑 Stopping strategy...")
         strategy.on_stop()
 
         if mock_store.flush.called:
-            print(f"✓ StrategyStore flushed on stop")
+            print("✓ StrategyStore flushed on stop")
 
         # Summary statistics
-        print(f"\n📈 Summary Statistics:")
+        print("\n📈 Summary Statistics:")
         print(f"   - Total decisions persisted: {mock_store.write_signal.call_count}")
         print(f"   - Flush operations: {mock_store.flush.call_count}")
 
         # Show what would be in the database
-        print(f"\n💾 What would be in PostgreSQL ml_strategy_signals table:")
+        print("\n💾 What would be in PostgreSQL ml_strategy_signals table:")
         print("   - strategy_id: DEMO-STRATEGY")
         print("   - instrument_id: BTC/USDT.BINANCE")
         print("   - signal_type: BUY/SELL/HOLD")
@@ -165,7 +167,7 @@ def demonstrate_strategy_store_integration():
         print("   - ts_event: nanosecond timestamps")
         print("   - is_live: true/false")
 
-        print(f"\n✅ Complete Integration Features:")
+        print("\n✅ Complete Integration Features:")
         print("   1. ✓ All trading decisions are persisted")
         print("   2. ✓ Risk metrics are calculated and stored")
         print("   3. ✓ Model predictions are tracked")

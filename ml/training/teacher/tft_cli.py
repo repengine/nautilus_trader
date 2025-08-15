@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 CLI to calibrate a TFT teacher and emit soft labels for distillation, with registry integration.
 
@@ -25,11 +26,11 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from ml._imports import HAS_PANDAS, check_ml_dependencies, pd
-
+from ml._imports import HAS_PANDAS
+from ml._imports import check_ml_dependencies
+from ml._imports import pd
 from ml.config.names import ONNX_INPUT_NAME
 from ml.registry.feature_registry import FeatureRegistry
-from ml.registry.model_registry import ModelRegistry
 from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
 
@@ -104,6 +105,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Attempt to save TFT interpretability artifacts (feature relevance/attention)",
     )
     ap.add_argument(
+        "--export_torchscript",
+        action="store_true",
+        help="Export a TorchScript artifact (.pt) for the teacher if available",
+    )
+    ap.add_argument(
+        "--export_safetensors",
+        action="store_true",
+        help="Export teacher weights as .safetensors with sidecar metadata",
+    )
+    ap.add_argument(
         "--register_teacher",
         action="store_true",
         help="Register the trained teacher as a non-serveable model",
@@ -132,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         # Set seeds if provided
         if args.seed is not None:
             import random
+
             import numpy as _np
             try:
                 import torch as _torch
@@ -155,7 +167,8 @@ def main(argv: list[str] | None = None) -> int:
         z_val_vec: npt.NDArray[np.float64]
         used_tft = False
         try:  # pragma: no cover - exercised in integration path when dependencies ok
-            from ml.training.teacher.tft_teacher import TFTTeacher, TFTTeacherConfig
+            from ml.training.teacher.tft_teacher import TFTTeacher
+            from ml.training.teacher.tft_teacher import TFTTeacherConfig
 
             teacher_tft = TFTTeacher(
                 TFTTeacherConfig(architecture="TFT"),
@@ -234,7 +247,9 @@ def main(argv: list[str] | None = None) -> int:
 
         # Optionally register teacher as non-serveable with artifact saved under registry
         if args.register_teacher and args.model_registry_dir:
-            from ml.registry.base import DataRequirements, ModelManifest, ModelRole
+            from ml.registry.base import DataRequirements
+            from ml.registry.base import ModelManifest
+            from ml.registry.base import ModelRole
             from ml.registry.model_registry import ModelRegistry
             from ml.training.export import save_model_with_metadata
 
@@ -242,35 +257,95 @@ def main(argv: list[str] | None = None) -> int:
             artifacts_dir = reg_dir / "artifacts" / "teachers"
             artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-            # Choose a model object to persist (TFT model or fallback LR)
-            if used_tft:
-                # Save the raw underlying TFT module safely via pickle sidecar
-                model_obj = teacher_tft._tft  # type: ignore[attr-defined]
-            else:
-                model_obj = lr  # type: ignore[name-defined]
+            # Choose an artifact format and persist (TorchScript > safetensors > pickle)
+            artifact_format = "pkl"
+            if used_tft and getattr(args, "export_torchscript", False):
+                try:
+                    from ml.training.teacher.tft_torchscript import export_tft_to_torchscript_from_batch
+                    from pytorch_forecasting import TimeSeriesDataSet
 
-            save_base = artifacts_dir / args.model_id
-            model_path = save_model_with_metadata(
-                model=model_obj,
-                path=save_base,
-                input_shape=(1, n_features),
-                training_metadata={
-                    "feature_names": feature_names,
-                    "time_index_col": args.time_index_col,
-                    "group_id_col": args.group_id_col,
-                    "target_col": args.target_col,
-                    "used_tft": used_tft,
-                },
-            )
+                    training_ds = teacher_tft._training_dataset  # type: ignore[attr-defined]
+                    assert training_ds is not None
+                    val_ds = TimeSeriesDataSet.from_dataset(
+                        training_ds, df_val, predict=True, stop_randomization=True
+                    )
+                    val_loader = val_ds.to_dataloader(train=False, batch_size=64, num_workers=0)
+                    batch = next(iter(val_loader))
+                    x = batch[0] if isinstance(batch, (list, tuple)) else batch
+                    ts_path = export_tft_to_torchscript_from_batch(
+                        teacher_tft._tft,  # type: ignore[attr-defined]
+                        x,
+                        artifacts_dir / args.model_id,
+                    )
+                    model_path = ts_path
+                    artifact_format = "pt"
+                except Exception as exc:
+                    print(f"TorchScript export failed: {exc}. Falling back to pickle.")
+                    model_obj = teacher_tft._tft if used_tft else lr  # type: ignore[name-defined,attr-defined]
+                    model_path = save_model_with_metadata(
+                        model=model_obj,
+                        path=artifacts_dir / args.model_id,
+                        input_shape=(1, n_features),
+                        training_metadata={"used_tft": used_tft},
+                    )
+                    artifact_format = model_path.suffix.lstrip(".")
+            elif used_tft and getattr(args, "export_safetensors", False):
+                try:
+                    import json as _json
+                    from safetensors.torch import save_file as _save_safetensors
+
+                    tft = teacher_tft._tft  # type: ignore[attr-defined]
+                    state = {k: v.detach().cpu() for k, v in tft.state_dict().items()}  # type: ignore[attr-defined]
+                    st_path = (artifacts_dir / args.model_id).with_suffix(".safetensors")
+                    _save_safetensors(state, str(st_path))
+                    meta = {
+                        "feature_names": feature_names,
+                        "time_index_col": args.time_index_col,
+                        "group_id_col": args.group_id_col,
+                        "target_col": args.target_col,
+                        "used_tft": used_tft,
+                        "format": "safetensors",
+                    }
+                    with open(st_path.with_suffix(".safetensors.meta.json"), "w", encoding="utf-8") as f:
+                        _json.dump(meta, f, indent=2)
+                    model_path = st_path
+                    artifact_format = "safetensors"
+                except Exception as exc:
+                    print(f"Safetensors export failed: {exc}. Falling back to pickle.")
+                    model_obj = teacher_tft._tft if used_tft else lr  # type: ignore[name-defined,attr-defined]
+                    model_path = save_model_with_metadata(
+                        model=model_obj,
+                        path=artifacts_dir / args.model_id,
+                        input_shape=(1, n_features),
+                        training_metadata={"used_tft": used_tft},
+                    )
+                    artifact_format = model_path.suffix.lstrip(".")
+            else:
+                model_obj = teacher_tft._tft if used_tft else lr  # type: ignore[name-defined,attr-defined]
+                model_path = save_model_with_metadata(
+                    model=model_obj,
+                    path=artifacts_dir / args.model_id,
+                    input_shape=(1, n_features),
+                    training_metadata={
+                        "feature_names": feature_names,
+                        "time_index_col": args.time_index_col,
+                        "group_id_col": args.group_id_col,
+                        "target_col": args.target_col,
+                        "used_tft": used_tft,
+                    },
+                )
+                artifact_format = model_path.suffix.lstrip(".")
 
             # Build and register manifest
-            feature_schema = {name: "float32" for name in feature_names}
+            feature_schema = dict.fromkeys(feature_names, "float32")
             # Compute basic validation metrics
             perf_metrics: dict[str, float] = {}
             try:
                 from ml._imports import HAS_SKLEARN
                 if HAS_SKLEARN:
-                    from sklearn.metrics import roc_auc_score, accuracy_score, brier_score_loss
+                    from sklearn.metrics import accuracy_score
+                    from sklearn.metrics import brier_score_loss
+                    from sklearn.metrics import roc_auc_score
 
                     p_val = 1.0 / (1.0 + np.exp(-z_val_vec))
                     perf_metrics = {
@@ -293,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
                 parent_id=None,
                 version="1.0.0",
                 serveable=False,
-                artifact_format=model_path.suffix.lstrip("."),
+                artifact_format=artifact_format,
                 training_config={
                     "max_encoder_length": args.max_encoder_length,
                     "max_prediction_length": args.max_prediction_length,
@@ -304,6 +379,9 @@ def main(argv: list[str] | None = None) -> int:
                     "dropout": args.dropout,
                 },
                 performance_metrics=perf_metrics,
+                feature_set_id=args.feature_set_id,
+                pipeline_signature=fman.pipeline_signature,
+                pipeline_version=fman.pipeline_version,
             )
             mreg = ModelRegistry(reg_dir)
             reg_id = mreg.register_model(model_path, manifest, auto_deploy=False)
@@ -332,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("NPZ must contain either 'z_val' or 'X_val' with 'y_val_true'")
 
         # Optionally load teacher ONNX to produce logits if X_val provided
-        if X_Val := X_val:
+        if X_val is not None:
             if not args.model_registry_dir or not args.teacher_model_id:
                 raise SystemExit(
                     "Provide --model_registry_dir and --teacher_model_id to run ONNX teacher on X_val",
@@ -346,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
                 input_name = (
                     session.get_inputs()[0].name if hasattr(session, "get_inputs") else ONNX_INPUT_NAME
                 )
-                outputs: list[Any] = session.run(None, {input_name: X_Val})
+                outputs: list[Any] = session.run(None, {input_name: X_val})
                 raw_out = outputs[0]
                 raw = np.asarray(raw_out, dtype=np.float64).reshape(-1)
                 if args.onnx_output_is_logits:

@@ -7,21 +7,21 @@ including configuration, error handling, and metrics.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from ml.actors.base import MLSignal
-from ml.config.actors import MLSignalActorConfig
 from ml.config.base import MLStrategyConfig
-from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.stores.strategy_store import StrategyStore
+from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.tests.fixtures.model_factory import TestModelFactory
-from nautilus_trader.common.component import MessageBus, TestClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId, TraderId
-from nautilus_trader.model.objects import Quantity
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
@@ -70,7 +70,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Create strategy with mocked store
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             strategy = MLTradingStrategy(config)
             strategy.register_base(
                 portfolio=self.portfolio,
@@ -119,7 +119,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Mock StrategyStore to prevent real connection
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock(spec=StrategyStore)
             MockStore.return_value = mock_store_instance
 
@@ -167,7 +167,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Mock StrategyStore to prevent real connection
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock(spec=StrategyStore)
             MockStore.return_value = mock_store_instance
 
@@ -215,7 +215,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Mock StrategyStore to prevent real connection
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock(spec=StrategyStore)
             MockStore.return_value = mock_store_instance
 
@@ -265,7 +265,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Mock StrategyStore to prevent real connection
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock(spec=StrategyStore)
             MockStore.return_value = mock_store_instance
 
@@ -310,7 +310,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Mock StrategyStore to prevent real connection
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock(spec=StrategyStore)
             mock_store_instance.write_signal.side_effect = Exception("Database connection lost")
             MockStore.return_value = mock_store_instance
@@ -353,7 +353,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Mock StrategyStore to prevent real connection
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock(spec=StrategyStore)
             MockStore.return_value = mock_store_instance
 
@@ -387,7 +387,7 @@ class TestStrategyStoreIntegration:
         )
 
         # Mock StrategyStore to prevent real connection
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock(spec=StrategyStore)
             MockStore.return_value = mock_store_instance
 

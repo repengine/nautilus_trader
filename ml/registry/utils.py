@@ -44,6 +44,9 @@ def build_student_manifest(
     performance_metrics: dict[str, float] | None = None,
     deployment_constraints: dict[str, Any] | None = None,
     version: str = "1.0.0",
+    feature_set_id: str | None = None,
+    pipeline_signature: str | None = None,
+    pipeline_version: str | None = None,
 ) -> ModelManifest:
     """
     Build a student model manifest.
@@ -85,4 +88,32 @@ def build_student_manifest(
         performance_metrics=performance_metrics or {},
         deployment_constraints=deployment_constraints or {},
         version=version,
+        feature_set_id=feature_set_id,
+        pipeline_signature=pipeline_signature,
+        pipeline_version=pipeline_version,
     )
+
+
+def assert_features_compatible(
+    manifest: ModelManifest,
+    feature_names: list[str],
+    feature_dtypes: list[str] | None = None,
+) -> None:
+    """
+    Validate that the provided feature order (and optional dtypes) match the model manifest.
+
+    Raises ValueError on mismatch.
+    """
+    expected_names = list(manifest.feature_schema.keys())
+    if feature_names != expected_names:
+        raise ValueError(
+            "Feature names/order mismatch with model manifest: "
+            f"expected={expected_names}, got={feature_names}",
+        )
+    if feature_dtypes is not None:
+        expected_types = [manifest.feature_schema[n] for n in expected_names]
+        if feature_dtypes != expected_types:
+            raise ValueError(
+                "Feature dtypes mismatch with model manifest: "
+                f"expected={expected_types}, got={feature_dtypes}",
+            )

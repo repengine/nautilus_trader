@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 CLI to train and register a LightGBM student from teacher outputs.
 """
@@ -24,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model_id", required=True)
     ap.add_argument("--parent_id", required=True)
     ap.add_argument("--registry_dir", required=True)
+    ap.add_argument("--feature_registry_dir", required=True)
+    ap.add_argument("--feature_set_id", required=True)
     ap.add_argument("--objective", default="logit_mse", choices=["logit_mse", "soft_ce", "hybrid"])
     ap.add_argument("--kd_lambda", type=float, default=0.5)
     ap.add_argument("--early_stopping", type=int, default=200)
@@ -57,13 +60,28 @@ def main(argv: list[str] | None = None) -> int:
     registry = ModelRegistry(Path(args.registry_dir))
     dtypes = ["float32"] * len(feature_names)
     fschema = build_feature_schema(feature_names, dtypes)
+    # Mandatory FeatureRegistry parity
+    from ml.registry.feature_registry import FeatureRegistry
+
+    freg = FeatureRegistry(Path(args.feature_registry_dir))
+    finfo = freg.get_feature_set(args.feature_set_id)
+    if finfo is None:
+        raise SystemExit(f"Unknown feature_set_id: {args.feature_set_id}")
+    feature_schema_hash = finfo.manifest.schema_hash
+    feature_set_id = finfo.manifest.feature_set_id
+    pipeline_signature = finfo.manifest.pipeline_signature
+    pipeline_version = finfo.manifest.pipeline_version
+
     manifest = build_student_manifest(
         model_id=args.model_id,
         architecture="LightGBM",
         feature_schema=fschema,
-        feature_schema_hash=schema_hash(feature_names, dtypes),
+        feature_schema_hash=feature_schema_hash,
         parent_id=args.parent_id,
         performance_metrics={"inference_latency_ms": 1.0},
+        feature_set_id=feature_set_id,
+        pipeline_signature=pipeline_signature,
+        pipeline_version=pipeline_version,
     )
     registry.register_model(Path(onnx_path), manifest, auto_deploy=True)
 

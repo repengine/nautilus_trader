@@ -349,6 +349,7 @@ class TestOptimizationLevels:
             bar_type=self.bar_type,
             instrument_id=self.instrument_id,
             optimization_config=OptimizationConfig(level=OptimizationLevel.STANDARD),
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = MLSignalActor(config)
@@ -371,6 +372,7 @@ class TestOptimizationLevels:
                 level=OptimizationLevel.OPTIMIZED,
                 reservoir_sample_size=1500,
             ),
+            use_dummy_stores=True,  # Use dummy stores for testing
         )
 
         actor = MLSignalActor(config)

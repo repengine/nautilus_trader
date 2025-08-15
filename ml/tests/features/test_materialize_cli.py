@@ -4,9 +4,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from ml.registry.base import DataRequirements
-from ml.registry.feature_registry import FeatureManifest, FeatureRegistry, FeatureRole, compute_schema_hash
 from ml.features.materialize_cli import main as materialize_main
+from ml.registry.base import DataRequirements
+from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.feature_registry import FeatureRole
+from ml.registry.feature_registry import compute_schema_hash
 
 
 def _register_feature_manifest(tmp_path: Path, feature_names: list[str]) -> tuple[Path, str]:

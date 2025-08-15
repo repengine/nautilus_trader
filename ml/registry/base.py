@@ -114,6 +114,10 @@ class ModelManifest:
     # Serving and artifact details
     serveable: bool = True  # True for hot-path models; False for cold-path reference models
     artifact_format: str = "onnx"  # onnx|torchscript|pickle|none
+    # Linkage to feature registry and pipeline identity
+    feature_set_id: str | None = None
+    pipeline_signature: str | None = None
+    pipeline_version: str | None = None
 
 
 @dataclass

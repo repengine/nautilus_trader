@@ -110,7 +110,13 @@ class MLTradingStrategy(BaseMLStrategy):
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
             )
-            self._enter_position(target_side, signal)
+            if self._config.execute_trades:
+                self._enter_position(target_side, signal)
+            else:
+                self._dry_run_trades += 1
+                self.log.info(
+                    f"[DRY RUN] Would enter {target_side.name} position (execute_trades=False) - Total dry run trades: {self._dry_run_trades}"
+                )
 
         elif self._should_reverse_position(current_position, target_side):
             # Position exists but signal suggests opposite direction
@@ -123,7 +129,13 @@ class MLTradingStrategy(BaseMLStrategy):
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
             )
-            self._reverse_position(current_position, target_side, signal)
+            if self._config.execute_trades:
+                self._reverse_position(current_position, target_side, signal)
+            else:
+                self._dry_run_trades += 1
+                self.log.info(
+                    f"[DRY RUN] Would reverse position from {current_position.side.name} to {target_side.name} (execute_trades=False) - Total dry run trades: {self._dry_run_trades}"
+                )
 
         else:
             # Position aligns with signal - HOLD
@@ -160,6 +172,15 @@ class MLTradingStrategy(BaseMLStrategy):
             self.log.warning(
                 f"Cannot enter position due to sizing failure for {signal.instrument_id}",
             )
+            return
+
+        # Check if trading is enabled
+        if not self._config.execute_trades:
+            self.log.info(
+                f"[DRY RUN] Would place {side.name} order for {quantity} units (execute_trades=False)"
+            )
+            # Still update position counter for tracking purposes
+            self._active_positions += 1
             return
 
         # Place the order
@@ -201,6 +222,14 @@ class MLTradingStrategy(BaseMLStrategy):
         close_side = OrderSide.SELL if current_position.side.name == "LONG" else OrderSide.BUY
 
         self.log.info(f"Reversing position from {current_position.side.name} to {target_side.name}")
+
+        # Check if trading is enabled
+        if not self._config.execute_trades:
+            quantity = self._calculate_position_size()
+            self.log.info(
+                f"[DRY RUN] Would close {current_position.side.name} position and open {target_side.name} for {quantity} units (execute_trades=False)"
+            )
+            return
 
         # Close existing position
         self._place_market_order(

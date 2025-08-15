@@ -7,7 +7,10 @@ import numpy as np
 import pandas as pd
 
 from ml.registry.base import DataRequirements
-from ml.registry.feature_registry import FeatureManifest, FeatureRegistry, FeatureRole, compute_schema_hash
+from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.feature_registry import FeatureRole
+from ml.registry.feature_registry import compute_schema_hash
 from ml.training.teacher.tft_cli import main as tft_main
 
 

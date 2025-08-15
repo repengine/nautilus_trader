@@ -70,6 +70,12 @@ class ModelTable(Base):
     extra_metadata = Column("metadata", JSON)
     model_path = Column(Text, nullable=False)
     performance_history = Column(JSON)
+    # Cold-path and feature linkage fields
+    serveable = Column(String(5))  # store as 'true'/'false' for portability
+    artifact_format = Column(Text)
+    feature_set_id = Column(Text)
+    pipeline_signature = Column(Text)
+    pipeline_version = Column(Text)
 
 
 class FeatureTable(Base):

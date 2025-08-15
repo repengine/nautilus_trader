@@ -8,6 +8,7 @@ import pytest
 def test_torchscript_export_parity(tmp_path):
     import torch
     import torch.nn as nn
+
     from ml.training.export import convert_to_torchscript
 
     class Simple(nn.Module):

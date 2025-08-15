@@ -272,6 +272,9 @@ class ModelRegistry:
             "last_modified": model_info.manifest.last_modified,
             "serveable": getattr(model_info.manifest, "serveable", True),
             "artifact_format": getattr(model_info.manifest, "artifact_format", "onnx"),
+            "feature_set_id": getattr(model_info.manifest, "feature_set_id", None),
+            "pipeline_signature": getattr(model_info.manifest, "pipeline_signature", None),
+            "pipeline_version": getattr(model_info.manifest, "pipeline_version", None),
         }
 
         return {
@@ -307,6 +310,9 @@ class ModelRegistry:
                 last_modified=manifest_data["last_modified"],
                 serveable=manifest_data.get("serveable", True),
                 artifact_format=manifest_data.get("artifact_format", "onnx"),
+                feature_set_id=manifest_data.get("feature_set_id"),
+                pipeline_signature=manifest_data.get("pipeline_signature"),
+                pipeline_version=manifest_data.get("pipeline_version"),
             )
         else:
             # Legacy format - convert to manifest
@@ -499,6 +505,39 @@ class ModelRegistry:
             # Security: Validate path is safe
             if not self._validate_model_path(model_path):
                 raise ValueError(f"Security: Invalid model path: {model_path}")
+
+            # Validate feature schema linkage
+            if not manifest.feature_schema_hash:
+                raise ValueError("feature_schema_hash is required for all models")
+
+            # Strong enforcement for serveable models: feature registry parity is mandatory
+            if getattr(manifest, "serveable", True):
+                if not manifest.feature_set_id:
+                    raise ValueError(
+                        "feature_set_id is required for serveable models to ensure feature parity",
+                    )
+                feature_registry_file = self.registry_path / "feature_registry.json"
+                if not feature_registry_file.exists():
+                    raise ValueError(
+                        "FeatureRegistry not found alongside ModelRegistry; cannot validate feature parity",
+                    )
+                from ml.registry.feature_registry import FeatureRegistry
+
+                freg = FeatureRegistry(self.registry_path)
+                finfo = freg.get_feature_set(manifest.feature_set_id)
+                if finfo is None:
+                    raise ValueError(
+                        f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry",
+                    )
+                if finfo.manifest.schema_hash != manifest.feature_schema_hash:
+                    raise ValueError(
+                        "feature_schema_hash mismatch between model manifest and feature manifest",
+                    )
+                # Backfill pipeline identity
+                if not manifest.pipeline_signature:
+                    manifest.pipeline_signature = finfo.manifest.pipeline_signature
+                if not manifest.pipeline_version:
+                    manifest.pipeline_version = finfo.manifest.pipeline_version
 
             # Use manifest's model_id or generate new one
             if not manifest.model_id:
@@ -703,6 +742,43 @@ class ModelRegistry:
         """
         with self._lock:
             return list(self._models.values())
+
+    # -------- Compatibility helpers --------
+    def list_compatible(
+        self,
+        schema_hash: str,
+        role: ModelRole | None = None,
+        architecture: str | None = None,
+    ) -> list[ModelInfo]:
+        """
+        List models compatible with a given feature schema hash.
+        Optionally filter by role and architecture.
+        """
+        with self._lock:
+            result = [
+                m
+                for m in self._models.values()
+                if m.manifest.feature_schema_hash == schema_hash
+                and (role is None or m.manifest.role == role)
+                and (architecture is None or m.manifest.architecture == architecture)
+            ]
+            return result
+
+    def resolve_latest(
+        self,
+        role: ModelRole,
+        architecture: str,
+        schema_hash: str,
+    ) -> ModelInfo | None:
+        """
+        Resolve the latest model by version matching role, architecture, and schema hash.
+        Uses lexical comparison of version strings.
+        """
+        candidates = self.list_compatible(schema_hash=schema_hash, role=role, architecture=architecture)
+        if not candidates:
+            return None
+        latest = max(candidates, key=lambda m: m.manifest.version)
+        return latest
 
     def get_artifact_path(self, model_id: str) -> Path | None:
         """

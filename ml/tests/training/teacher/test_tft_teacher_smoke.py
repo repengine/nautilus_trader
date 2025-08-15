@@ -16,7 +16,8 @@ def test_tft_teacher_fit_predict_smoke() -> None:
     except Exception:
         pytest.skip("Unable to validate TFT class inheritance; skipping smoke test")
 
-    from ml.training.teacher.tft_teacher import TFTTeacher, TFTTeacherConfig
+    from ml.training.teacher.tft_teacher import TFTTeacher
+    from ml.training.teacher.tft_teacher import TFTTeacherConfig
 
     n = 40
     rng = np.random.default_rng(0)

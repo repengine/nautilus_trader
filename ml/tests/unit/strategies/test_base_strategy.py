@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -47,7 +47,7 @@ class MockMLStrategy(BaseMLStrategy):
     """
 
     def __init__(self, config: MLStrategyConfig) -> None:
-        super().__init__(config)
+        # Set up mocked attributes BEFORE calling super().__init__
         self.ml_signals_processed: list[MLSignal] = []
         self._mocked_submit_order = Mock()
         self._mocked_log = Mock()
@@ -56,6 +56,11 @@ class MockMLStrategy(BaseMLStrategy):
         # Mock Strategy properties
         self._trader_id = TraderId("TESTER-001")
         self._id = StrategyId("MockMLStrategy-001")
+        
+        # Mock the StrategyStore to avoid database connection
+        with patch('ml.strategies.base.StrategyStore'):
+            # Now call parent init which will use the mocked clock
+            super().__init__(config)
 
     def _process_ml_signal(self, signal: MLSignal) -> None:
         """
@@ -666,12 +671,16 @@ class TestSimpleMLStrategy:
         # Create a mock that inherits from SimpleMLStrategy
         class TestableSimpleMLStrategy(SimpleMLStrategy):
             def __init__(self, config: MLStrategyConfig) -> None:
-                super().__init__(config)
+                # Set up mocks before calling super
                 self._mocked_submit_order = Mock()
                 self._mocked_log = Mock()
                 self._mocked_cache = Mock()
                 self._trader_id = TraderId("TESTER-001")
                 self._id = StrategyId("SimpleMLStrategy-001")
+                
+                # Mock the StrategyStore to avoid database connection
+                with patch('ml.strategies.base.StrategyStore'):
+                    super().__init__(config)
 
             def submit_order(self, order: Any) -> None:
                 self._mocked_submit_order(order)

@@ -253,6 +253,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         self._trades_executed = 0
         self._winning_trades = 0
         self._total_pnl = Decimal("0.0")
+        self._dry_run_trades = 0  # Track trades that would have been executed
 
         # Signal management
         self._signal_history: deque[MLSignal] = deque(
@@ -484,13 +485,22 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
 
         win_rate = self._winning_trades / max(self._trades_executed, 1) * 100
 
-        self.log.info(
-            f"Stopping {self.__class__.__name__} - "
-            f"Signals: {self._signals_received}, "
-            f"Trades: {self._trades_executed}, "
-            f"Win rate: {win_rate:.1f}%, "
-            f"Total PnL: {self._total_pnl}",
-        )
+        # Log summary based on execution mode
+        if self._config.execute_trades:
+            self.log.info(
+                f"Stopping {self.__class__.__name__} - "
+                f"Signals: {self._signals_received}, "
+                f"Trades: {self._trades_executed}, "
+                f"Win rate: {win_rate:.1f}%, "
+                f"Total PnL: {self._total_pnl}",
+            )
+        else:
+            self.log.info(
+                f"Stopping {self.__class__.__name__} [DRY RUN MODE] - "
+                f"Signals: {self._signals_received}, "
+                f"Dry Run Trades: {self._dry_run_trades}, "
+                f"(execute_trades=False - no actual trades executed)",
+            )
 
     def _handle_ml_signal(self, signal: MLSignal) -> None:
         """

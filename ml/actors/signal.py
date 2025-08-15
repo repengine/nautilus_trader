@@ -63,6 +63,8 @@ from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.utils import assert_features_compatible
+from ml.registry.base import ModelManifest, ModelRole, DataRequirements
 from nautilus_trader.model.data import Bar
 
 
@@ -1021,6 +1023,28 @@ class MLSignalActor(BaseMLInferenceActor):
                     )
                 # else, features are validated
                 self._feature_set_id = manifest.feature_set_id
+        # Validate against model manifest feature schema if available (loaded via registry)
+        # Validate feature order/dtypes against model manifest if available
+        model_names = getattr(self, "_manifest_feature_names", [])
+        if model_names:
+            actual_names = self._feature_engineer.config.get_feature_names()
+            # Use real manifest schema if present in metadata
+            manifest_schema = None
+            if isinstance(getattr(self, "_model_metadata", None), dict):
+                manifest_schema = self._model_metadata.get("feature_schema")
+            if not manifest_schema:
+                manifest_schema = {name: "float32" for name in model_names}
+            tmp_manifest = ModelManifest(
+                model_id="__validation__",
+                role=ModelRole.STUDENT,
+                data_requirements=DataRequirements.L1_ONLY,
+                architecture="unknown",
+                feature_schema=manifest_schema,
+                feature_schema_hash=getattr(self, "_manifest_feature_schema_hash", ""),
+            )
+            # Hot path dtypes are float32 by design
+            actual_dtypes = ["float32"] * len(actual_names)
+            assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
         self._indicator_manager: IndicatorManager | None = None
 
         # Signal generation state
@@ -1042,10 +1066,7 @@ class MLSignalActor(BaseMLInferenceActor):
         self._signal_strategy = self._create_strategy()
 
         # Performance monitoring
-        if (
-            self._opt_config.level == "optimized"
-            or self._opt_config.level == OptimizationLevel.OPTIMIZED.value
-        ):
+        if self._opt_config.level == OptimizationLevel.OPTIMIZED:
             self._performance_monitor = PerformanceMonitor(self._opt_config.reservoir_sample_size)
         else:
             self._performance_monitor = PerformanceMonitor(100)  # Use default size

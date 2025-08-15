@@ -15,8 +15,8 @@ from unittest.mock import patch
 import numpy as np
 
 from ml.actors.signal import MLSignalActor
-from ml.config.actors import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
+from ml.config.actors import MLSignalActorConfig
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue

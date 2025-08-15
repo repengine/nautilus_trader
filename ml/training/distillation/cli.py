@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 CLI to train and register a LightGBM student from teacher outputs.
 
@@ -26,8 +27,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ml.distillation.lightgbm_student import LightGBMStudentDistiller
-from ml.distillation.lightgbm_student import schema_hash
+from ml.training.student.lightgbm import LightGBMStudentDistiller
+from ml.training.student.lightgbm import schema_hash
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
@@ -59,6 +60,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kd_lambda", type=float, default=0.5)
     ap.add_argument("--early_stopping", type=int, default=200)
     ap.add_argument("--opset", type=int, default=17)
+    # Mandatory FeatureRegistry integration for parity/backfill
+    ap.add_argument("--feature_registry_dir", required=True)
+    ap.add_argument("--feature_set_id", required=True)
     args = ap.parse_args(argv)
 
     X = np.load(args.features_npz, allow_pickle=True)
@@ -88,13 +92,29 @@ def main(argv: list[str] | None = None) -> int:
     registry = ModelRegistry(Path(args.registry_dir))
     dtypes = ["float32"] * len(feature_names)
     fschema = build_feature_schema(feature_names, dtypes)
+
+    # Mandatory FeatureRegistry schema hash and pipeline identity
+    from ml.registry.feature_registry import FeatureRegistry
+
+    freg = FeatureRegistry(Path(args.feature_registry_dir))
+    finfo = freg.get_feature_set(args.feature_set_id)
+    if finfo is None:
+        raise SystemExit(f"Unknown feature_set_id: {args.feature_set_id}")
+    feature_schema_hash = finfo.manifest.schema_hash
+    feature_set_id = finfo.manifest.feature_set_id
+    pipeline_signature = finfo.manifest.pipeline_signature
+    pipeline_version = finfo.manifest.pipeline_version
+
     manifest = build_student_manifest(
         model_id=args.model_id,
         architecture="LightGBM",
         feature_schema=fschema,
-        feature_schema_hash=schema_hash(feature_names, dtypes),
+        feature_schema_hash=feature_schema_hash,
         parent_id=args.parent_id,
         performance_metrics={"inference_latency_ms": 1.0},  # Placeholder; measure in prod
+        feature_set_id=feature_set_id,
+        pipeline_signature=pipeline_signature,
+        pipeline_version=pipeline_version,
     )
     registry.register_model(Path(onnx_path), manifest, auto_deploy=True)
 

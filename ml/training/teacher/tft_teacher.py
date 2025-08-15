@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
-from ml._imports import HAS_PANDAS, check_ml_dependencies, pd
-from ml.training.teacher.base import BaseTeacher, TeacherConfig
+from ml._imports import HAS_PANDAS
+from ml._imports import check_ml_dependencies
+from ml._imports import pd
+from ml.training.teacher.base import BaseTeacher
+from ml.training.teacher.base import TeacherConfig
 
 
 @dataclass
@@ -72,9 +76,10 @@ class TFTTeacher(BaseTeacher):
 
         # Local imports to avoid heavy deps at import time
         try:  # pragma: no cover - exercised in integration test
-            import torch
             import pytorch_lightning as pl
-            from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
+            import torch
+            from pytorch_forecasting import TemporalFusionTransformer
+            from pytorch_forecasting import TimeSeriesDataSet
             from pytorch_forecasting.metrics import TorchLoss
         except Exception as exc:  # pragma: no cover
             raise ImportError(
@@ -201,4 +206,4 @@ class TFTTeacher(BaseTeacher):
         return arr.astype(np.float64)
 
     def feature_schema(self) -> dict[str, str]:
-        return {name: "float32" for name in self.time_varying_unknown_reals}
+        return dict.fromkeys(self.time_varying_unknown_reals, "float32")

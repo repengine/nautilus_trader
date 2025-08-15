@@ -6,23 +6,22 @@ persistence to the PostgreSQL database.
 """
 
 import os
-import tempfile
 import time
-from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
+from sqlalchemy import text
 
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
-from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.stores.strategy_store import StrategyStore
-from ml.tests.fixtures.model_factory import TestModelFactory
-from nautilus_trader.common.component import MessageBus, TestClock
+from ml.strategies.ml_strategy import MLTradingStrategy
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.identifiers import InstrumentId, TraderId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 

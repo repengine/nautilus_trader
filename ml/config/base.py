@@ -274,6 +274,10 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
         Configuration for StrategyStore (connection_string, batch_size, flush_interval_ms).
     persist_all_signals : bool, default False
         Whether to persist HOLD signals in addition to BUY/SELL.
+    execute_trades : bool, default True
+        Whether to execute actual trades. If False, the strategy will process signals,
+        calculate decisions, persist to stores, and update metrics, but will not submit
+        orders to the broker. Useful for testing in production without financial risk.
 
     """
 
@@ -287,6 +291,7 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     use_strategy_store: bool = True
     strategy_store_config: dict[str, Any] | None = None
     persist_all_signals: bool = False
+    execute_trades: bool = False
 
 
 class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):

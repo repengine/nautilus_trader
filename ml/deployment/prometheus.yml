@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # ML Signal Actor metrics
+  - job_name: 'ml_signal_actor'
+    static_configs:
+      - targets: ['ml_signal_actor:8000']
+    metrics_path: /metrics
+    
+  # ML Strategy metrics  
+  - job_name: 'ml_strategy'
+    static_configs:
+      - targets: ['ml_strategy:8001']
+    metrics_path: /metrics
+    
+  # PostgreSQL exporter (optional)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres_exporter:9187']
+      
+  # Node exporter for system metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node_exporter:9100']

@@ -88,6 +88,10 @@ include = [
     { path = "nautilus_trader/**/*.pyi", format = "wheel" },
 ]
 
+[tool.poetry.scripts]
+ml-teacher-tft = "ml.training.teacher.tft_cli:main"
+ml-student-lightgbm = "ml.training.student.lightgbm_cli:main"
+
 [tool.poetry.build]
 script = "build.py"
 generate-setup-file = false

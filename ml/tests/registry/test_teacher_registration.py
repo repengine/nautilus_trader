@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
-
-from ml.registry.base import DataRequirements, ModelManifest, ModelRole
+from ml.registry.base import DataRequirements
+from ml.registry.base import ModelManifest
+from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 
 

@@ -6,16 +6,14 @@ data through feature computation, model inference, and strategy execution,
 with verbose failure reporting at each step.
 """
 
-import asyncio
 import contextlib
 import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, Mock
+from typing import Any
+from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 from ml.actors.signal import MLSignalActor
@@ -25,13 +23,18 @@ from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.fixtures.model_factory import TestModelFactory
-from nautilus_trader.common.component import MessageBus, TestClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.data.engine import DataEngine
-from nautilus_trader.model.data import Bar, BarSpecification, BarType
-from nautilus_trader.model.enums import AggressorSide, BarAggregation, PriceType
-from nautilus_trader.model.identifiers import InstrumentId, TraderId
-from nautilus_trader.model.objects import Price, Quantity
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.enums import BarAggregation
+from nautilus_trader.model.enums import PriceType
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
@@ -42,9 +45,9 @@ class DataEventTracer:
 
     def __init__(self, verbose: bool = True):
         self.verbose = verbose
-        self.trace_log: List[Dict[str, Any]] = []
-        self.checkpoints: Dict[str, bool] = {}
-        self.errors: List[Dict[str, Any]] = []
+        self.trace_log: list[dict[str, Any]] = []
+        self.checkpoints: dict[str, bool] = {}
+        self.errors: list[dict[str, Any]] = []
 
     def checkpoint(self, name: str, success: bool = True, data: Any = None, error: Exception = None):
         """Record a checkpoint in the data flow."""
@@ -93,7 +96,7 @@ class DataEventTracer:
                 report_lines.append(f"\n✗ {error['name']}")
                 report_lines.append(f"  Time: {error['timestamp']}")
                 report_lines.append(f"  Error: {error['error']}")
-                if error['traceback'] and "NoneType" not in error['traceback']:
+                if error["traceback"] and "NoneType" not in error["traceback"]:
                     report_lines.append(f"  Traceback:\n{error['traceback']}")
 
         # Full trace
@@ -101,9 +104,9 @@ class DataEventTracer:
         report_lines.append("-" * 40)
 
         for i, checkpoint in enumerate(self.trace_log, 1):
-            status = "✓" if checkpoint['success'] else "✗"
+            status = "✓" if checkpoint["success"] else "✗"
             report_lines.append(f"{i:3d}. [{status}] {checkpoint['name']}")
-            if checkpoint['data']:
+            if checkpoint["data"]:
                 report_lines.append(f"      Data: {checkpoint['data']}")
 
         # Pipeline flow diagram
@@ -154,6 +157,7 @@ class TestDataEventTracing:
         # Clear Prometheus metrics registry
         try:
             import gc
+
             from prometheus_client import REGISTRY
             collectors = list(REGISTRY._collector_to_names.keys())
             for collector in collectors:
@@ -317,7 +321,7 @@ class TestDataEventTracing:
                 )
                 actor.on_bar(historical_bar)
 
-            tracer.checkpoint("bar_history_built", success=True, data=f"10 bars processed")
+            tracer.checkpoint("bar_history_built", success=True, data="10 bars processed")
 
             # Process the final bar
             tracer.checkpoint("processing_final_bar", success=True)
@@ -325,11 +329,11 @@ class TestDataEventTracing:
             tracer.checkpoint("bar_processed", success=True)
 
             # Check internal state to trace feature computation and inference
-            if hasattr(actor, '_bars_buffer') and len(actor._bars_buffer) > 0:
+            if hasattr(actor, "_bars_buffer") and len(actor._bars_buffer) > 0:
                 tracer.checkpoint("feature_computation_start", success=True, data=f"{len(actor._bars_buffer)} bars buffered")
                 tracer.checkpoint("feature_computation_end", success=True, data="Features computed internally")
 
-            if hasattr(actor, '_prediction_history') and len(actor._prediction_history) > 0:
+            if hasattr(actor, "_prediction_history") and len(actor._prediction_history) > 0:
                 tracer.checkpoint("model_inference_start", success=True, data="Model inference triggered")
                 tracer.checkpoint("model_inference_end", success=True, data=f"Predictions: {len(actor._prediction_history)}")
             else:

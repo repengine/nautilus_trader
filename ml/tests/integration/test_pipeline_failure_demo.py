@@ -15,13 +15,17 @@ from ml.config.actors import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.tests.fixtures.model_factory import TestModelFactory
 from ml.tests.integration.test_data_event_tracing import DataEventTracer
-from nautilus_trader.common.component import MessageBus, TestClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.data.engine import DataEngine
-from nautilus_trader.model.data import Bar, BarSpecification, BarType
-from nautilus_trader.model.enums import BarAggregation, PriceType
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.enums import BarAggregation
+from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.objects import Price, Quantity
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs

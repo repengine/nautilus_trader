@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 Materialize feature set CSV in manifest order.
 
@@ -14,11 +15,10 @@ Two modes:
 
 import argparse
 from pathlib import Path
-from typing import Any
 
-import numpy as np
-
-from ml._imports import HAS_PANDAS, check_ml_dependencies, pd
+from ml._imports import HAS_PANDAS
+from ml._imports import check_ml_dependencies
+from ml._imports import pd
 from ml.registry.feature_registry import FeatureRegistry
 
 
@@ -52,7 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.from_ohlcv:
         # Best-effort compute via FeatureEngineer
         try:  # pragma: no cover - heavy path not covered by unit tests
-            from ml.features.engineering import FeatureConfig, FeatureEngineer
+            from ml.features.engineering import FeatureConfig
+            from ml.features.engineering import FeatureEngineer
 
             fe = FeatureEngineer(FeatureConfig())
             # Expect OHLCV and time_index columns

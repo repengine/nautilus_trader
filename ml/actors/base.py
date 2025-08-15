@@ -1124,6 +1124,17 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                     "performance_metrics": manifest.performance_metrics,
                     "deployment_constraints": manifest.deployment_constraints,
                 }
+                # Stash manifest feature names/dtypes and hash for downstream compatibility checks
+                try:
+                    self._manifest_feature_names = list(manifest.feature_schema.keys())
+                    self._manifest_feature_schema_hash = manifest.feature_schema_hash
+                    self._manifest_feature_dtypes = [
+                        manifest.feature_schema[name] for name in self._manifest_feature_names
+                    ]
+                except Exception:
+                    self._manifest_feature_names = []
+                    self._manifest_feature_schema_hash = None
+                    self._manifest_feature_dtypes = []
 
                 # Use manifest features if configured
                 if (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 Teacher calibration CLI (compat shim) — forwards to tft_cli when registry args provided.
 
