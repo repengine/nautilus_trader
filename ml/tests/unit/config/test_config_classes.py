@@ -2,7 +2,6 @@
 Tests for ML configuration classes.
 """
 
-
 import pytest
 from msgspec import ValidationError
 
@@ -16,10 +15,14 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 
 class TestModelRegistryConfig:
-    """Tests for ModelRegistryConfig."""
+    """
+    Tests for ModelRegistryConfig.
+    """
 
     def test_default_values(self) -> None:
-        """Test ModelRegistryConfig default values."""
+        """
+        Test ModelRegistryConfig default values.
+        """
         config = ModelRegistryConfig()
 
         assert config.registry_path == "ml/registry"
@@ -29,7 +32,9 @@ class TestModelRegistryConfig:
         assert config.max_versions_per_model == 10
 
     def test_custom_values(self) -> None:
-        """Test ModelRegistryConfig with custom values."""
+        """
+        Test ModelRegistryConfig with custom values.
+        """
         config = ModelRegistryConfig(
             registry_path="/custom/path",
             enable_mlflow=True,
@@ -46,10 +51,14 @@ class TestModelRegistryConfig:
 
 
 class TestMLActorConfig:
-    """Tests for MLActorConfig with model_id field."""
+    """
+    Tests for MLActorConfig with model_id field.
+    """
 
     def test_model_id_required(self) -> None:
-        """Test that model_id is required in MLActorConfig."""
+        """
+        Test that model_id is required in MLActorConfig.
+        """
         config = MLActorConfig(
             model_path="/path/to/model.onnx",
             model_id="test_model_v1",  # NEW required field
@@ -62,10 +71,14 @@ class TestMLActorConfig:
 
 
 class TestMultiModelStrategyConfig:
-    """Tests for MultiModelStrategyConfig."""
+    """
+    Tests for MultiModelStrategyConfig.
+    """
 
     def test_multi_model_config(self) -> None:
-        """Test MultiModelStrategyConfig creation."""
+        """
+        Test MultiModelStrategyConfig creation.
+        """
         config = MultiModelStrategyConfig(
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
             ml_signal_source="ML_ACTOR",
@@ -82,7 +95,9 @@ class TestMultiModelStrategyConfig:
         assert config.required_models == 2
 
     def test_voting_aggregation(self) -> None:
-        """Test voting aggregation mode."""
+        """
+        Test voting aggregation mode.
+        """
         config = MultiModelStrategyConfig(
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
             ml_signal_source="ML_ACTOR",
@@ -97,10 +112,14 @@ class TestMultiModelStrategyConfig:
 
 
 class TestModelDeploymentConfig:
-    """Tests for ModelDeploymentConfig."""
+    """
+    Tests for ModelDeploymentConfig.
+    """
 
     def test_immediate_deployment(self) -> None:
-        """Test immediate deployment configuration."""
+        """
+        Test immediate deployment configuration.
+        """
         config = ModelDeploymentConfig(
             deployment_target="actor",
             rollout_strategy="immediate",
@@ -113,7 +132,9 @@ class TestModelDeploymentConfig:
         assert config.auto_rollback_on_error is True
 
     def test_gradual_deployment(self) -> None:
-        """Test gradual deployment configuration."""
+        """
+        Test gradual deployment configuration.
+        """
         config = ModelDeploymentConfig(
             deployment_target="strategy",
             rollout_strategy="gradual",
@@ -126,7 +147,9 @@ class TestModelDeploymentConfig:
         assert config.health_check_interval == 30
 
     def test_invalid_rollout_percentage(self) -> None:
-        """Test that rollout_percentage must be <= 100."""
+        """
+        Test that rollout_percentage must be <= 100.
+        """
         with pytest.raises(ValidationError, match="rollout_percentage must be between"):
             ModelDeploymentConfig(
                 deployment_target="both",
@@ -136,10 +159,14 @@ class TestModelDeploymentConfig:
 
 
 class TestCanaryDeploymentConfig:
-    """Tests for CanaryDeploymentConfig."""
+    """
+    Tests for CanaryDeploymentConfig.
+    """
 
     def test_default_canary_config(self) -> None:
-        """Test CanaryDeploymentConfig default values."""
+        """
+        Test CanaryDeploymentConfig default values.
+        """
         config = CanaryDeploymentConfig()
 
         assert config.initial_traffic_percentage == 10.0
@@ -151,7 +178,9 @@ class TestCanaryDeploymentConfig:
         assert config.auto_rollback is True
 
     def test_custom_canary_config(self) -> None:
-        """Test CanaryDeploymentConfig with custom values."""
+        """
+        Test CanaryDeploymentConfig with custom values.
+        """
         config = CanaryDeploymentConfig(
             initial_traffic_percentage=5.0,
             increment_percentage=5.0,
@@ -171,7 +200,9 @@ class TestCanaryDeploymentConfig:
         assert config.auto_rollback is False
 
     def test_invalid_percentage_values(self) -> None:
-        """Test validation of percentage values."""
+        """
+        Test validation of percentage values.
+        """
         with pytest.raises(ValidationError):
             CanaryDeploymentConfig(
                 initial_traffic_percentage=150.0,  # Invalid > 100
@@ -179,10 +210,14 @@ class TestCanaryDeploymentConfig:
 
 
 class TestConfigIntegration:
-    """Test integration between different config classes."""
+    """
+    Test integration between different config classes.
+    """
 
     def test_registry_with_deployment(self) -> None:
-        """Test using registry config with deployment config."""
+        """
+        Test using registry config with deployment config.
+        """
         registry_config = ModelRegistryConfig(
             registry_path="/models/registry",
             enable_mlflow=True,
@@ -199,7 +234,9 @@ class TestConfigIntegration:
         assert deployment_config.rollout_strategy == "canary"
 
     def test_multi_model_with_actor_configs(self) -> None:
-        """Test multi-model strategy with multiple actor configs."""
+        """
+        Test multi-model strategy with multiple actor configs.
+        """
         # Create configs for multiple actors
         actor1_config = MLActorConfig(
             model_path="/models/xgb_v1.json",

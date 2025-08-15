@@ -3,8 +3,9 @@
 """
 Test model factory for creating minimal but valid ML models.
 
-This factory provides consistent, lightweight models for testing without
-relying on pickle or creating invalid/empty files.
+This factory provides consistent, lightweight models for testing without relying on
+pickle or creating invalid/empty files.
+
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ class TestModelFactory:
     - Valid for their respective frameworks
     - Saved in production-safe formats (no pickle)
     - Include proper metadata
+
     """
 
     @staticmethod
@@ -61,6 +63,7 @@ class TestModelFactory:
         -------
         Path
             Path to the saved model file
+
         """
         if not HAS_XGBOOST:
             check_ml_dependencies(["xgboost"])
@@ -73,7 +76,7 @@ class TestModelFactory:
             y = rng.integers(0, 2, n_samples)
             model = xgb.XGBClassifier(
                 n_estimators=2,  # Minimal trees
-                max_depth=2,     # Shallow trees
+                max_depth=2,  # Shallow trees
                 random_state=42,
                 verbosity=0,
             )
@@ -151,6 +154,7 @@ class TestModelFactory:
         -------
         Path
             Path to the saved model file
+
         """
         if not HAS_LIGHTGBM:
             check_ml_dependencies(["lightgbm"])
@@ -234,6 +238,7 @@ class TestModelFactory:
         -------
         Path
             Path to the saved model file
+
         """
         if not HAS_ONNX:
             check_ml_dependencies(["onnxruntime"])
@@ -302,27 +307,26 @@ class TestModelFactory:
 
             # Create ONNX graph
             input_tensor = helper.make_tensor_value_info(
-                "input", TensorProto.FLOAT, [None, n_features]
+                "input",
+                TensorProto.FLOAT,
+                [None, n_features],
             )
             output_tensor = helper.make_tensor_value_info(
-                "output", TensorProto.FLOAT, [None, n_outputs]
+                "output",
+                TensorProto.FLOAT,
+                [None, n_outputs],
             )
 
             weights_tensor = helper.make_tensor(
-                "weights", TensorProto.FLOAT,
-                [n_features, n_outputs], weights.flatten()
+                "weights",
+                TensorProto.FLOAT,
+                [n_features, n_outputs],
+                weights.flatten(),
             )
-            bias_tensor = helper.make_tensor(
-                "bias", TensorProto.FLOAT,
-                [n_outputs], bias
-            )
+            bias_tensor = helper.make_tensor("bias", TensorProto.FLOAT, [n_outputs], bias)
 
-            matmul_node = helper.make_node(
-                "MatMul", ["input", "weights"], ["matmul_output"]
-            )
-            add_node = helper.make_node(
-                "Add", ["matmul_output", "bias"], ["output"]
-            )
+            matmul_node = helper.make_node("MatMul", ["input", "weights"], ["matmul_output"])
+            add_node = helper.make_node("Add", ["matmul_output", "bias"], ["output"])
 
             graph = helper.make_graph(
                 [matmul_node, add_node],
@@ -384,6 +388,7 @@ class TestModelFactory:
         -------
         Path
             Path to the saved model file
+
         """
         import joblib
         from sklearn.ensemble import RandomForestClassifier
@@ -458,6 +463,7 @@ class TestModelFactory:
         -------
         dict[str, Any]
             Validation results including model info and any issues
+
         """
         results: dict[str, Any] = {
             "valid": False,
@@ -516,14 +522,19 @@ class TestModelFactory:
                 except Exception as e:
                     cast(list[str], results["issues"]).append(f"Invalid ONNX model: {e}")
             else:
-                cast(list[str], results["issues"]).append("ONNX runtime not available for validation")
+                cast(list[str], results["issues"]).append(
+                    "ONNX runtime not available for validation",
+                )
 
         elif suffix in [".pkl", ".pickle"]:
-            cast(list[str], results["issues"]).append("Pickle format not allowed for security reasons")
+            cast(list[str], results["issues"]).append(
+                "Pickle format not allowed for security reasons",
+            )
 
         elif suffix == ".joblib":
             try:
                 import joblib
+
                 model = joblib.load(model_path)
                 if model is not None:
                     results["valid"] = True
@@ -538,7 +549,9 @@ class TestModelFactory:
 
 
 class TestDataFactory:
-    """Factory for creating test data."""
+    """
+    Factory for creating test data.
+    """
 
     @staticmethod
     def create_feature_data(
@@ -562,6 +575,7 @@ class TestDataFactory:
         -------
         np.ndarray
             Feature matrix of shape (n_samples, n_features)
+
         """
         rng = np.random.default_rng(seed)
 
@@ -608,6 +622,7 @@ class TestDataFactory:
         -------
         np.ndarray
             Target array
+
         """
         rng = np.random.default_rng(seed)
 

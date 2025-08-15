@@ -1,4 +1,3 @@
-
 """
 Unit tests for Signal Generation Strategies and Plugin Architecture.
 
@@ -71,7 +70,11 @@ class CustomSignalStrategy(SignalGenerationStrategy):
                 model_id="test_model",
                 prediction=prediction,
                 confidence=min(adjusted_confidence, 1.0),
-                features=features.astype(np.float32) if context.get("log_predictions", False) and features is not None else None,
+                features=(
+                    features.astype(np.float32)
+                    if context.get("log_predictions", False) and features is not None
+                    else None
+                ),
                 ts_event=bar.ts_event,
                 ts_init=context["timestamp_ns"],
             )

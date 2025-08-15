@@ -5,8 +5,8 @@ from pathlib import Path
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
-from ml.registry.feature_registry import LocalFeatureRegistry
 
 
 def test_generate_and_register_manifest(tmp_path: Path) -> None:
@@ -24,7 +24,7 @@ def test_generate_and_register_manifest(tmp_path: Path) -> None:
     # Dtypes match float32 length
     assert manifest.feature_dtypes == ["float32"] * len(manifest.feature_names)
     # Register
-    reg = LocalFeatureRegistry(tmp_path)
+    reg = FeatureRegistry(tmp_path)
     fid = reg.register_feature_set(manifest)
     got = reg.get_feature_set(fid)
     assert got is not None and got.manifest.schema_hash == manifest.schema_hash

@@ -1,4 +1,3 @@
-
 """
 Integration examples for extended ML monitoring.
 
@@ -448,7 +447,12 @@ class MonitoredModelTrainer:
         # In reality, train actual model
         return {"model": "dummy", "trained": True}
 
-    def _validate_model(self, model: Any, X: npt.NDArray[np.float64], y: npt.NDArray[np.float64]) -> float:
+    def _validate_model(
+        self,
+        model: Any,
+        X: npt.NDArray[np.float64],
+        y: npt.NDArray[np.float64],
+    ) -> float:
         """
         Validate model performance.
         """

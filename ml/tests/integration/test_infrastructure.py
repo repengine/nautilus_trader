@@ -1,4 +1,3 @@
-
 """
 Test the integration test infrastructure itself.
 

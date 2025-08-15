@@ -1,4 +1,3 @@
-
 """
 Centralized import management for ML optional dependencies.
 
@@ -324,7 +323,9 @@ except ImportError as e:
             return self
 
     class _DummyRegistry:
-        """Minimal dummy of prometheus_client.REGISTRY used for name lookups."""
+        """
+        Minimal dummy of prometheus_client.REGISTRY used for name lookups.
+        """
 
         def __init__(self) -> None:
             self._names_to_collectors: dict[str, Any] = {}
@@ -344,9 +345,11 @@ else:
     _PROM_REGISTRY = _REAL_REGISTRY
     _GENERATE_LATEST = _REAL_GENERATE_LATEST
 
+
 # Public, unified names with stable signatures
 def generate_latest(registry: Any = None) -> bytes:
     return _GENERATE_LATEST(registry)
+
 
 REGISTRY: Any = _PROM_REGISTRY
 
@@ -371,51 +374,37 @@ def check_ml_dependencies(required: list[str]) -> None:
 
     if "onnx" in required and not HAS_ONNX:
         errors.append(
-            f"ONNX Runtime required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {ONNX_IMPORT_ERROR}",
+            f"ONNX Runtime required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {ONNX_IMPORT_ERROR}",
         )
 
     if "polars" in required and not HAS_POLARS:
         errors.append(
-            f"Polars required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {POLARS_IMPORT_ERROR}",
+            f"Polars required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {POLARS_IMPORT_ERROR}",
         )
 
     if "xgboost" in required and not HAS_XGBOOST:
         errors.append(
-            f"XGBoost required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {XGBOOST_IMPORT_ERROR}",
+            f"XGBoost required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {XGBOOST_IMPORT_ERROR}",
         )
 
     if "lightgbm" in required and not HAS_LIGHTGBM:
         errors.append(
-            f"LightGBM required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {LIGHTGBM_IMPORT_ERROR}",
+            f"LightGBM required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {LIGHTGBM_IMPORT_ERROR}",
         )
 
     if "optuna" in required and not HAS_OPTUNA:
         errors.append(
-            f"Optuna required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {OPTUNA_IMPORT_ERROR}",
+            f"Optuna required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {OPTUNA_IMPORT_ERROR}",
         )
 
     if "mlflow" in required and not HAS_MLFLOW:
         errors.append(
-            f"MLflow required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {MLFLOW_IMPORT_ERROR}",
+            f"MLflow required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {MLFLOW_IMPORT_ERROR}",
         )
 
     if "sklearn" in required and not HAS_SKLEARN:
         errors.append(
-            f"Scikit-learn required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {SKLEARN_IMPORT_ERROR}",
+            f"Scikit-learn required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {SKLEARN_IMPORT_ERROR}",
         )
 
     if "prometheus" in required and not HAS_PROMETHEUS:
@@ -434,9 +423,7 @@ def check_ml_dependencies(required: list[str]) -> None:
 
     if "pandas" in required and not HAS_PANDAS:
         errors.append(
-            f"Pandas required but not installed. "
-            f"Install with: pip install pandas\n"
-            f"Original error: {PANDAS_IMPORT_ERROR}",
+            f"Pandas required but not installed. Install with: pip install pandas\nOriginal error: {PANDAS_IMPORT_ERROR}",
         )
 
     if errors:

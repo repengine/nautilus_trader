@@ -45,9 +45,9 @@ class ModelRegistry:
     """
     Model registry with configurable persistence backend.
 
-    This registry can use either JSON files or PostgreSQL for persistence, providing
-    a flexible solution for model lifecycle management in both development and
-    production environments.
+    This registry can use either JSON files or PostgreSQL for persistence, providing a
+    flexible solution for model lifecycle management in both development and production
+    environments.
 
     Thread-safe for concurrent operations.
 
@@ -111,8 +111,7 @@ class ModelRegistry:
         self._load_registry()
 
         logger.info(
-            "Initialized ModelRegistry at %s with backend=%s, cache_size=%s, "
-            "batch_save_interval=%ss",
+            "Initialized ModelRegistry at %s with backend=%s, cache_size=%s, batch_save_interval=%ss",
             registry_path,
             self.backend.value,
             cache_size,
@@ -488,8 +487,7 @@ class ModelRegistry:
             # Security: Validate model format (only ONNX allowed)
             if model_path.suffix != SUFFIX_ONNX:
                 raise ValueError(
-                    f"Only ONNX models are supported for security reasons. "
-                    f"Got: {model_path.suffix}. Please export your model to ONNX format.",
+                    f"Only ONNX models are supported for security reasons. Got: {model_path.suffix}. Please export your model to ONNX format.",
                 )
 
             # Security: Validate path is safe
@@ -534,8 +532,7 @@ class ModelRegistry:
                         if not result["passed"] and result["required"]
                     ]
                     raise ValueError(
-                        f"Quality gates not met for model {manifest.model_id}. "
-                        f"Failed gates: {failed_gates}",
+                        f"Quality gates not met for model {manifest.model_id}. Failed gates: {failed_gates}",
                     )
 
             # Create model info
@@ -582,8 +579,7 @@ class ModelRegistry:
             )
 
             logger.info(
-                f"Registered {manifest.role.value} model {manifest.model_id} "
-                f"(version {manifest.version}) at {model_path}",
+                f"Registered {manifest.role.value} model {manifest.model_id} (version {manifest.version}) at {model_path}",
             )
 
             # Auto-deploy if requested and validation passes
@@ -803,7 +799,6 @@ class ModelRegistry:
 
             # Only support ONNX format for security
             try:
-
                 if model_path.suffix == SUFFIX_ONNX:
                     # Load ONNX model following signal actor pattern
                     from ml._imports import HAS_ONNX
@@ -825,8 +820,7 @@ class ModelRegistry:
                     )
                 else:
                     logger.error(
-                        f"Unsupported model format: {model_path.suffix}. "
-                        f"Only ONNX models are supported for security reasons.",
+                        f"Unsupported model format: {model_path.suffix}. Only ONNX models are supported for security reasons.",
                     )
                     return None
 

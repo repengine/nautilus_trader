@@ -1,4 +1,3 @@
-
 """
 Optimized feature caching and ring buffer implementations for hot path performance.
 

@@ -1,4 +1,3 @@
-
 """
 Prometheus metrics server for ML monitoring.
 
@@ -173,8 +172,7 @@ class MetricsServer:
             self._running = False
             if e.errno == 98:  # Address already in use
                 raise RuntimeError(
-                    f"Port {self._config.metrics_port} is already in use. "
-                    f"Choose a different port or stop the conflicting service.",
+                    f"Port {self._config.metrics_port} is already in use. Choose a different port or stop the conflicting service.",
                 ) from e
             else:
                 raise RuntimeError(f"Failed to start metrics server: {e}") from e

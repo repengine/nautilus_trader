@@ -1,4 +1,3 @@
-
 """
 Tests for Grafana API client.
 

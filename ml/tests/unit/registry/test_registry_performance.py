@@ -19,7 +19,7 @@ from pathlib import Path
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
 class TestRegistryPerformance:
@@ -33,7 +33,7 @@ class TestRegistryPerformance:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             start_time = time.time()
 
@@ -78,7 +78,7 @@ class TestRegistryPerformance:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Register 10 models
             model_ids = []
@@ -142,7 +142,7 @@ class TestRegistryPerformance:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Create valid model path
             model_path = registry_path / "model.onnx"
@@ -168,7 +168,7 @@ class TestRegistryPerformance:
             validation_time = time.time() - start_time
 
             # Path validation for 100 checks should be under 10ms
-            assert validation_time < 0.01, f"Validation took {validation_time*1000:.2f}ms"
+            assert validation_time < 0.01, f"Validation took {validation_time * 1000:.2f}ms"
 
     def test_registry_security_rejection_performance(self) -> None:
         """
@@ -176,7 +176,7 @@ class TestRegistryPerformance:
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Test path traversal attempts are rejected quickly
             malicious_paths = [
@@ -194,7 +194,7 @@ class TestRegistryPerformance:
             rejection_time = time.time() - start_time
 
             # Security checks should be near-instant (< 1ms)
-            assert rejection_time < 0.001, f"Rejection took {rejection_time*1000:.2f}ms"
+            assert rejection_time < 0.001, f"Rejection took {rejection_time * 1000:.2f}ms"
 
     def test_registry_persistence_performance(self) -> None:
         """
@@ -204,7 +204,7 @@ class TestRegistryPerformance:
             registry_path = Path(tmp_dir)
 
             # Create registry with 50 models
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             for i in range(50):
                 model_path = registry_path / f"model_{i}.onnx"
@@ -233,16 +233,16 @@ class TestRegistryPerformance:
             save_time = time.time() - start_time
 
             # Save should be under 100ms for 50 models
-            assert save_time < 0.1, f"Save took {save_time*1000:.2f}ms"
+            assert save_time < 0.1, f"Save took {save_time * 1000:.2f}ms"
 
             # Measure load time
             del registry
             start_time = time.time()
-            registry2 = LocalModelRegistry(registry_path)
+            registry2 = ModelRegistry(registry_path)
             load_time = time.time() - start_time
 
             # Load should be under 100ms
-            assert load_time < 0.1, f"Load took {load_time*1000:.2f}ms"
+            assert load_time < 0.1, f"Load took {load_time * 1000:.2f}ms"
 
             # Verify all models loaded
             assert len(registry2.get_all_models()) == 50
@@ -255,7 +255,7 @@ class TestRegistryPerformance:
             registry_path = Path(tmp_dir)
 
             # Create registry with 50ms batch interval
-            registry = LocalModelRegistry(
+            registry = ModelRegistry(
                 registry_path,
                 batch_save_interval=0.05,  # 50ms
             )

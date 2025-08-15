@@ -1,4 +1,3 @@
-
 """
 Resource utilization metrics collector for ML monitoring.
 

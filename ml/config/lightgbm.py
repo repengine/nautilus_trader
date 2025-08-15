@@ -1,4 +1,3 @@
-
 """
 Configuration for LightGBM model training.
 
@@ -362,10 +361,7 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
         # Check num_leaves vs max_depth relationship
         if self.max_depth > 0 and self.num_leaves >= 2**self.max_depth:
-            msg = (
-                f"num_leaves ({self.num_leaves}) should be less than 2^max_depth "
-                f"({2**self.max_depth}) to avoid overfitting"
-            )
+            msg = f"num_leaves ({self.num_leaves}) should be less than 2^max_depth ({2**self.max_depth}) to avoid overfitting"
             raise ValueError(msg)
 
         # Validate boosting type
@@ -524,8 +520,7 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
             if not HAS_OPTUNA:
                 warnings.append(
-                    "Optuna optimization requested but optuna not installed. "
-                    "Install with: pip install 'nautilus-trader[ml]'",
+                    "Optuna optimization requested but optuna not installed. Install with: pip install 'nautilus-trader[ml]'",
                 )
 
         # Check MLflow availability
@@ -534,8 +529,7 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
             if not HAS_MLFLOW:
                 warnings.append(
-                    "MLflow tracking requested but mlflow not installed. "
-                    "Install with: pip install 'nautilus-trader[ml]'",
+                    "MLflow tracking requested but mlflow not installed. Install with: pip install 'nautilus-trader[ml]'",
                 )
 
         # Check ONNX availability
@@ -544,8 +538,7 @@ class LightGBMTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
             if not HAS_ONNX_EXPORT:
                 warnings.append(
-                    "ONNX export requested but onnx tools not installed. "
-                    "Install with: pip install onnxmltools skl2onnx",
+                    "ONNX export requested but onnx tools not installed. Install with: pip install onnxmltools skl2onnx",
                 )
 
         return warnings

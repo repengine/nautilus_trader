@@ -18,7 +18,7 @@ from hypothesis import strategies as st
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
 class TestRegistryProperties:
@@ -59,7 +59,7 @@ class TestRegistryProperties:
             )
 
             # Register model
-            registry1 = LocalModelRegistry(registry_path)
+            registry1 = ModelRegistry(registry_path)
             model_id = registry1.register_model(model_path, manifest)
 
             # Track additional performance
@@ -69,7 +69,7 @@ class TestRegistryProperties:
             registry1.flush()
 
             # Reload registry
-            registry2 = LocalModelRegistry(registry_path)
+            registry2 = ModelRegistry(registry_path)
             model_info = registry2.get_model(model_id)
 
             # Original metrics should be in manifest
@@ -91,7 +91,7 @@ class TestRegistryProperties:
         rollback(X) ∘ rollback(X) = rollback(X)
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalModelRegistry(Path(tmpdir))
+            registry = ModelRegistry(Path(tmpdir))
 
             # Create multiple models
             model_ids = []
@@ -144,7 +144,7 @@ class TestRegistryProperties:
         This tests that registry maintains proper isolation between models.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalModelRegistry(Path(tmpdir))
+            registry = ModelRegistry(Path(tmpdir))
 
             # Register all models
             model_ids = {}

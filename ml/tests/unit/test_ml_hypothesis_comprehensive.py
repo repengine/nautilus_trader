@@ -25,7 +25,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
 class TestEndToEndProperties:
@@ -136,7 +136,7 @@ class TestEndToEndProperties:
         The same metrics should always select the same model.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalModelRegistry(Path(tmpdir))
+            registry = ModelRegistry(Path(tmpdir))
 
             # Register models with different metrics
             model_metrics = {}

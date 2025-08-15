@@ -616,6 +616,7 @@ class FeatureEngineer:
         self.n_features = len(feature_names)
         # Add some extra space for potential additional features in online calculation
         from ml.config.constants import SystemConstants
+
         buffer_size = self.n_features + SystemConstants.FEATURE_BUFFER_PAD
 
         # Cache statistics for metrics

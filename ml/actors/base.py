@@ -28,14 +28,6 @@ from ml._imports import check_ml_dependencies
 from ml._imports import ort
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
-from ml.registry.feature_registry import LocalFeatureRegistry
-from ml.registry.model_registry import LocalModelRegistry
-from ml.registry.persistence import PersistenceConfig
-from ml.registry.persistence import PersistenceManager
-from ml.registry.strategy_registry import LocalStrategyRegistry
-from ml.stores.feature_store import FeatureStore
-from ml.stores.model_store import ModelStore
-from ml.stores.strategy_store import StrategyStore
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
 from ml.config.base import MLActorConfig
@@ -48,6 +40,14 @@ from ml.config.names import METRIC_PREDICTIONS_TOTAL
 from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
+from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.model_registry import ModelRegistry
+from ml.registry.persistence import PersistenceConfig
+from ml.registry.persistence import PersistenceManager
+from ml.registry.strategy_registry import StrategyRegistry
+from ml.stores.feature_store import FeatureStore
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategyStore
 from nautilus_trader.common.actor import Actor
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.core.data import Data
@@ -289,7 +289,7 @@ class CircuitBreaker:
 
 
 # Model loading now uses the registry system
-# Legacy imports removed - use LocalModelRegistry instead
+# Legacy imports removed - use ModelRegistry instead
 
 
 class SecurityError(Exception):
@@ -325,50 +325,59 @@ class ProductionModelLoader(ModelLoader):
         self.model_dir = Path(model_dir) if model_dir else Path.cwd()
 
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
-        """Load model based on file extension."""
+        """
+        Load model based on file extension.
+        """
         import json
         import pickle
         from pathlib import Path
-        
+
         model_path = Path(path)
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {path}")
-        
+
         # Determine model type by extension
-        if path.endswith('.json'):
+        if path.endswith(".json"):
             # XGBoost JSON model
             try:
-                from ml._imports import HAS_XGBOOST, xgb, check_ml_dependencies
+                from ml._imports import HAS_XGBOOST
+                from ml._imports import check_ml_dependencies
+                from ml._imports import xgb
+
                 if not HAS_XGBOOST:
                     check_ml_dependencies(["xgboost"])
-                
+
                 booster = xgb.Booster()
                 booster.load_model(path)
                 return booster, {"type": "xgboost", "format": "json"}
-            except Exception as e:
+            except Exception:
                 # Try loading as JSON metadata
-                with open(path, 'r') as f:
+                with open(path) as f:
                     data = json.load(f)
                 return data, {"type": "json", "format": "json"}
-                
-        elif path.endswith('.pkl') or path.endswith('.pickle'):
+
+        elif path.endswith(".pkl") or path.endswith(".pickle"):
             # Pickle model
-            with open(path, 'rb') as f:
+            with open(path, "rb") as f:
                 model = pickle.load(f)
             return model, {"type": "pickle", "format": "pickle"}
-            
-        elif path.endswith('.joblib'):
+
+        elif path.endswith(".joblib"):
             # Joblib model
             import joblib
+
             model = joblib.load(path)
             return model, {"type": "joblib", "format": "joblib"}
-            
-        elif path.endswith('.onnx'):
+
+        elif path.endswith(".onnx"):
             # ONNX model
-            from ml._imports import HAS_ONNX, ort, check_ml_dependencies
+            from ml._imports import HAS_ONNX
+            from ml._imports import check_ml_dependencies
+            from ml._imports import ort
+
             if not HAS_ONNX:
                 check_ml_dependencies(["onnx"])
-            
+
             session = ort.InferenceSession(path)
             metadata = {
                 "type": "onnx",
@@ -588,7 +597,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
         # Store the complete ML configuration
         self._config = config
-        
+
         # MANDATORY: Initialize stores and registries for data persistence
         self._init_stores_and_registries()
 
@@ -632,11 +641,11 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         self._inference_latency_metric = ml_prediction_latency
         self._inference_count_metric = ml_predictions_total
         self._inference_confidence_metric = ml_signal_confidence
-    
+
     def _init_stores_and_registries(self) -> None:
         """
         Initialize all stores and registries - THIS IS MANDATORY!
-        
+
         All ML actors MUST persist data for:
         - Feature parity between training and inference
         - Model performance tracking
@@ -649,14 +658,18 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             "db_connection",
             None,
         )
-        
+
         # If no connection string provided, check if PostgreSQL is available
         # If not, use SQLite for testing/development
         if db_connection is None:
             # Try PostgreSQL first
             try:
-                from sqlalchemy import create_engine, text
-                test_engine = create_engine("postgresql://postgres:postgres@localhost:5432/nautilus")
+                from sqlalchemy import create_engine
+                from sqlalchemy import text
+
+                test_engine = create_engine(
+                    "postgresql://postgres:postgres@localhost:5432/nautilus",
+                )
                 with test_engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
                 db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
@@ -668,13 +681,13 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 self.log.warning("PostgreSQL not available, using in-memory SQLite for testing")
         else:
             backend = "postgres" if "postgresql" in db_connection else "sqlite"
-        
+
         # Create persistence config
         persistence_config = PersistenceConfig(
             backend=backend,
             connection_string=db_connection,
         )
-        
+
         # Initialize stores with fallback for testing
         try:
             self._feature_store = FeatureStore(
@@ -684,8 +697,9 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             # For testing, create a dummy store that doesn't require DB
             self.log.warning(f"Could not create FeatureStore: {e}. Using dummy store for testing.")
             from ml.stores.base import DummyStore
+
             self._feature_store = DummyStore()  # type: ignore
-        
+
         try:
             self._model_store = ModelStore(
                 persistence_config=persistence_config,
@@ -693,8 +707,9 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         except Exception as e:
             self.log.warning(f"Could not create ModelStore: {e}. Using dummy store for testing.")
             from ml.stores.base import DummyStore
+
             self._model_store = DummyStore()  # type: ignore
-        
+
         try:
             self._strategy_store = StrategyStore(
                 persistence_config=persistence_config,
@@ -702,19 +717,21 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         except Exception as e:
             self.log.warning(f"Could not create StrategyStore: {e}. Using dummy store for testing.")
             from ml.stores.base import DummyStore
+
             self._strategy_store = DummyStore()  # type: ignore
-        
+
         # Initialize registries
         # Use local file-based registries for now (can be upgraded to DB later)
         from pathlib import Path
+
         registry_path = Path(".nautilus/ml/registry")
         registry_path.mkdir(parents=True, exist_ok=True)
-        
+
         self._persistence_manager = PersistenceManager(persistence_config)
-        self._feature_registry = LocalFeatureRegistry(registry_path)
-        self._model_registry = LocalModelRegistry(registry_path)
-        self._strategy_registry = LocalStrategyRegistry(registry_path)
-        
+        self._feature_registry = FeatureRegistry(registry_path)
+        self._model_registry = ModelRegistry(registry_path)
+        self._strategy_registry = StrategyRegistry(registry_path)
+
         self.log.info("Stores and registries initialized for data persistence")
 
     def on_start(self) -> None:
@@ -808,8 +825,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         if feature_latency > self._config.max_feature_latency_ms:
             if hasattr(self, "log"):
                 self.log.warning(
-                    f"Feature computation exceeded {self._config.max_feature_latency_ms}ms: "
-                    f"{feature_latency:.3f}ms",
+                    f"Feature computation exceeded {self._config.max_feature_latency_ms}ms: {feature_latency:.3f}ms",
                 )
             if self._health_monitor:
                 self._health_monitor.update_latency_violation()
@@ -830,15 +846,16 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     def on_stop(self) -> None:
         """
         Log final statistics when the actor stops.
-        
+
         ALWAYS flushes all stores to ensure no data is lost.
+
         """
         # MANDATORY: Flush all stores to persist any pending data
         self._feature_store.flush()
         self._model_store.flush()
         self._strategy_store.flush()
         self.log.info("All stores flushed on shutdown")
-        
+
         avg_inference_time = self._total_inference_time / max(self._prediction_count, 1)
         avg_feature_time = self._total_feature_time / max(self._bars_processed, 1)
 
@@ -881,7 +898,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             inference_time = (time.perf_counter() - start_time) * 1000
             self._total_inference_time += inference_time
             self._prediction_count += 1
-            
+
             # MANDATORY: Store features for parity tracking
             feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
             self._feature_store.write_features(
@@ -891,7 +908,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 ts_event=bar.ts_event,
                 ts_init=bar.ts_init,
             )
-            
+
             # MANDATORY: Store prediction for performance tracking
             self._model_store.write_prediction(
                 model_id=self._model_id,
@@ -914,8 +931,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             # Check latency requirement
             if inference_time > self._config.max_inference_latency_ms:
                 self.log.warning(
-                    f"Inference latency exceeded: {inference_time:.3f}ms > "
-                    f"{self._config.max_inference_latency_ms}ms",
+                    f"Inference latency exceeded: {inference_time:.3f}ms > {self._config.max_inference_latency_ms}ms",
                 )
                 if self._health_monitor:
                     self._health_monitor.update_latency_violation()
@@ -937,8 +953,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             # Log prediction if configured
             if self._config.log_predictions:
                 self.log.debug(
-                    f"Prediction: {prediction:.4f}, confidence: {confidence:.4f}, "
-                    f"latency: {inference_time:.3f}ms",
+                    f"Prediction: {prediction:.4f}, confidence: {confidence:.4f}, latency: {inference_time:.3f}ms",
                 )
 
             # Publish signal if confidence meets threshold
@@ -1070,14 +1085,14 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 # Load from unified registry
                 from pathlib import Path
 
-                from ml.registry.model_registry import LocalModelRegistry
+                from ml.registry.model_registry import ModelRegistry
 
                 registry_path = (
                     Path(self._config.registry_path)
                     if hasattr(self._config, "registry_path")
                     else Path("ml/models")
                 )
-                registry = LocalModelRegistry(registry_path)
+                registry = ModelRegistry(registry_path)
 
                 # Get model info from registry
                 model_info = registry.get_model(self._config.model_id)
@@ -1117,8 +1132,7 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                     if hasattr(self._config, "max_inference_latency_ms"):
                         if self._config.max_inference_latency_ms > max_latency:
                             self.log.warning(
-                                f"Config latency {self._config.max_inference_latency_ms}ms "
-                                f"exceeds model constraint {max_latency}ms",
+                                f"Config latency {self._config.max_inference_latency_ms}ms exceeds model constraint {max_latency}ms",
                             )
 
             else:
@@ -1408,9 +1422,7 @@ class ONNXMLInferenceActor(BaseMLInferenceActor):
             self._output_names = self._model_metadata["output_names"]
 
             self.log.info(
-                f"ONNX model loaded: input={self._input_name}, "
-                f"outputs={self._output_names}, "
-                f"providers={self._model_metadata.get('providers', [])}",
+                f"ONNX model loaded: input={self._input_name}, outputs={self._output_names}, providers={self._model_metadata.get('providers', [])}",
             )
 
     def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:

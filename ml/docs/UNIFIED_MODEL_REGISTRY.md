@@ -8,6 +8,7 @@ The Unified Model Registry provides a single, self-describing model management s
 
 ### 1. Self-Describing Models
 Every model carries a `ModelManifest` that completely describes:
+
 - **Role**: Teacher, Student, Inference, Ensemble, Feature
 - **Data Requirements**: L1-only, L1+L2, L1+L2+L3, Historical, Streaming
 - **Architecture**: XGBoost, LightGBM, TFT, ONNX, etc.
@@ -18,6 +19,7 @@ Every model carries a `ModelManifest` that completely describes:
 
 ### 2. Simple Method Names
 Following the user's preference for simplicity:
+
 - `MLInferenceActor` (not UnifiedMLInferenceActor)
 - `register_model()` (not register_model_with_manifest)
 - `get_model()` (not retrieve_model_info)
@@ -63,11 +65,11 @@ class ModelManifest:
     last_modified: float
 ```
 
-### LocalModelRegistry
+### ModelRegistry
 Enhanced registry with caching and manifest support:
 
 ```python
-class LocalModelRegistry:
+class ModelRegistry:
     def register_model(
         model_path: Path,
         manifest: ModelManifest,
@@ -138,7 +140,7 @@ teacher_manifest = ModelManifest(
 )
 
 # Register
-registry = LocalModelRegistry(Path("ml/models"))
+registry = ModelRegistry(Path("ml/models"))
 teacher_id = registry.register_model(
     model_path=Path("models/tft_teacher.pkl"),
     manifest=teacher_manifest,
@@ -259,16 +261,19 @@ registry.register_model(
 ## Performance Features
 
 ### 1. In-Memory Caching
+
 - LRU cache with configurable size
 - Automatic eviction of least recently used
 - Significant performance boost for frequently accessed models
 
 ### 2. Lazy Loading
+
 - Models loaded only when needed
 - Manifests always in memory for fast queries
 - Feature initialization deferred until first use
 
 ### 3. Performance Tracking
+
 ```python
 registry.track_performance(model_id, {
     "predictions": 10000,
@@ -327,6 +332,7 @@ actor = MLSignalActor(config)  # Same actor, manifest-aware
 ## Summary
 
 The Unified Model Registry simplifies ML model management in Nautilus Trader by:
+
 - Using self-describing manifests for ALL model types
 - Providing a single registry with role-aware capabilities
 - Implementing test contracts for validation

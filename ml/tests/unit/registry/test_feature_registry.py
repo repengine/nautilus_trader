@@ -11,9 +11,9 @@ from hypothesis import strategies as st
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
 from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
-from ml.registry.feature_registry import LocalFeatureRegistry
 from ml.registry.feature_registry import compute_schema_hash
 
 
@@ -31,7 +31,7 @@ def test_feature_registry_roundtrip(names: list[str]) -> None:
     schema_hash = compute_schema_hash(names, dtypes, signature)
 
     with tempfile.TemporaryDirectory() as td:
-        reg = LocalFeatureRegistry(Path(td))
+        reg = FeatureRegistry(Path(td))
 
         manifest = FeatureManifest(
             feature_set_id="",

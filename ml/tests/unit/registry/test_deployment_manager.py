@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
 """
-Tests for LocalModelRegistry deployment functionality.
+Tests for ModelRegistry deployment functionality.
 
-These tests verify the registry correctly handles model deployment,
-hot reload, and lifecycle management.
+These tests verify the registry correctly handles model deployment, hot reload, and
+lifecycle management.
+
 """
 
 from __future__ import annotations
@@ -17,20 +18,24 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
 class TestRegistryDeployment:
-    """Test LocalModelRegistry deployment functionality."""
+    """
+    Test ModelRegistry deployment functionality.
+    """
 
     def test_registry_basic_deploy(self) -> None:
-        """Test LocalModelRegistry deployment functionality."""
+        """
+        Test ModelRegistry deployment functionality.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
             model_path = registry_path / "model.onnx"
             model_path.write_bytes(b"ONNX_MODEL")
 
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Create manifest
             manifest = ModelManifest(
@@ -60,7 +65,7 @@ class TestRegistryDeployment:
             success = registry.deploy_model(
                 model_id=model_id,
                 target="ml_signal_actor",
-                config=deployment_config
+                config=deployment_config,
             )
 
             assert success is True
@@ -73,7 +78,9 @@ class TestRegistryDeployment:
             assert model_info.metadata.get("deployment_config") == deployment_config
 
     def test_registry_hot_reload(self) -> None:
-        """Test hot reload updates model without downtime."""
+        """
+        Test hot reload updates model without downtime.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
             model_v1_path = registry_path / "model_v1.onnx"
@@ -81,7 +88,7 @@ class TestRegistryDeployment:
             model_v1_path.write_bytes(b"ONNX_V1")
             model_v2_path.write_bytes(b"ONNX_V2")
 
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Deploy v1
             manifest_v1 = ModelManifest(
@@ -102,10 +109,7 @@ class TestRegistryDeployment:
             )
 
             # Deploy v1
-            success = registry.deploy_model(
-                model_id=model_v1,
-                target="ml_signal_actor"
-            )
+            success = registry.deploy_model(model_id=model_v1, target="ml_signal_actor")
             assert success is True
 
             # Register v2
@@ -127,10 +131,7 @@ class TestRegistryDeployment:
             )
 
             # Hot reload to v2
-            success = registry.hot_reload_model(
-                target="ml_signal_actor",
-                new_model_id=model_v2
-            )
+            success = registry.hot_reload_model(target="ml_signal_actor", new_model_id=model_v2)
 
             assert success is True
 
@@ -145,7 +146,9 @@ class TestRegistryDeployment:
             assert model_v1_info.deployment_status == DeploymentStatus.RETIRED
 
     def test_registry_gradual_rollout(self) -> None:
-        """Test gradual rollout functionality."""
+        """
+        Test gradual rollout functionality.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
             model_current_path = registry_path / "model_current.onnx"
@@ -153,7 +156,7 @@ class TestRegistryDeployment:
             model_current_path.write_bytes(b"ONNX_CURRENT")
             model_new_path.write_bytes(b"ONNX_NEW")
 
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Register and deploy current model
             manifest_current = ModelManifest(

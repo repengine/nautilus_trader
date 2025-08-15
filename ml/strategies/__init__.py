@@ -1,4 +1,3 @@
-
 """
 ML-driven trading strategies for Nautilus Trader.
 """

@@ -26,7 +26,7 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.tests.unit.registry.test_model_contracts import ModelContractValidator
 from ml.tests.unit.registry.test_model_contracts import create_valid_student_manifest
 from ml.tests.unit.registry.test_model_contracts import create_valid_teacher_manifest
@@ -58,7 +58,7 @@ class TestUnifiedRegistry:
         """
         self.temp_dir = tempfile.mkdtemp()
         self.registry_path = Path(self.temp_dir) / "registry"
-        self.registry = LocalModelRegistry(self.registry_path, cache_size=5)
+        self.registry = ModelRegistry(self.registry_path, cache_size=5)
         self.validator = ModelContractValidator()
 
     def teardown_method(self) -> None:

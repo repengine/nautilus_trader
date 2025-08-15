@@ -1,4 +1,3 @@
-
 """
 Base class for ML-driven trading strategies.
 
@@ -193,7 +192,9 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         self._total_pnl = Decimal("0.0")
 
         # Signal management
-        self._signal_history: deque[MLSignal] = deque(maxlen=config.history_size if hasattr(config, "history_size") else 100)
+        self._signal_history: deque[MLSignal] = deque(
+            maxlen=config.history_size if hasattr(config, "history_size") else 100,
+        )
         self._signal_buffer: dict[str, MLSignal] = {}  # For aggregation by model_id
         self._model_signals: dict[str, MLSignal] = {}  # Current signals per model
         self._model_performance: dict[str, dict[str, Any]] = {}  # Performance tracking per model
@@ -267,16 +268,13 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             # Filter by model_id if configured
             if self.target_model_ids is not None:
                 if model_id not in self.target_model_ids:
-                    self.log.debug(
-                        f"Ignoring signal from model {model_id} (not in target list)"
-                    )
+                    self.log.debug(f"Ignoring signal from model {model_id} (not in target list)")
                     return
 
             # Check confidence threshold
             if data.confidence < self._config.min_confidence:
                 self.log.debug(
-                    f"Signal below confidence threshold: {data.confidence:.3f} < "
-                    f"{self._config.min_confidence:.3f}"
+                    f"Signal below confidence threshold: {data.confidence:.3f} < {self._config.min_confidence:.3f}",
                 )
                 return
 
@@ -351,8 +349,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         account = self.cache.account_for_venue(instrument.venue)
         if account is None:
             self.log.error(
-                f"Cannot calculate position size: No account found for venue {instrument.venue}. "
-                "Position sizing requires account information.",
+                f"Cannot calculate position size: No account found for venue {instrument.venue}. Position sizing requires account information.",
             )
             return None
 
@@ -435,7 +432,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         self._trades_executed += 1
 
         self.log.info(
-            f"Placed {side.name} market order: {quantity} @ market " f"(reduce_only={reduce_only})",
+            f"Placed {side.name} market order: {quantity} @ market (reduce_only={reduce_only})",
         )
 
         return order.client_order_id
@@ -539,7 +536,9 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
 
                     if total_weight > 0:
                         weighted_pred = weighted_sum / total_weight
-                        avg_confidence = float(np.mean([s.confidence for s in self._model_signals.values()]))
+                        avg_confidence = float(
+                            np.mean([s.confidence for s in self._model_signals.values()]),
+                        )
 
                         # Create aggregated signal
                         aggregated_signal = MLSignal(
@@ -552,7 +551,9 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                             ts_init=self.clock.timestamp_ns(),
                         )
 
-                        self._make_decision({"weighted_prediction": weighted_pred, "confidence": avg_confidence})
+                        self._make_decision(
+                            {"weighted_prediction": weighted_pred, "confidence": avg_confidence},
+                        )
                         self._process_ml_signal(aggregated_signal)
                 else:
                     # Simple voting
@@ -569,20 +570,28 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                         model_id="aggregated",
                         prediction=prediction,
                         confidence=confidence,
-                        metadata={"action": action, "aggregated_from": list(self._model_signals.keys())},
+                        metadata={
+                            "action": action,
+                            "aggregated_from": list(self._model_signals.keys()),
+                        },
                         ts_event=latest_time,
                         ts_init=self.clock.timestamp_ns(),
                     )
 
-                    self._execute_trade({"action": action, "confidence": confidence, "signal": aggregated_signal})
+                    self._execute_trade(
+                        {"action": action, "confidence": confidence, "signal": aggregated_signal},
+                    )
                     self._process_ml_signal(aggregated_signal)
 
                 # Clear buffer after decision
                 self._model_signals.clear()
             else:
                 # Signals too far apart, clear old ones
-                self._model_signals = {mid: sig for mid, sig in self._model_signals.items()
-                                       if (latest_time - sig.ts_event) / 1_000_000 <= self.time_window_ms}
+                self._model_signals = {
+                    mid: sig
+                    for mid, sig in self._model_signals.items()
+                    if (latest_time - sig.ts_event) / 1_000_000 <= self.time_window_ms
+                }
 
     def _process_signal(self, signal: MLSignal) -> None:
         """
@@ -751,6 +760,5 @@ class SimpleMLStrategy(BaseMLStrategy):
             self._active_positions = 1  # Simple strategy only holds one position
 
         self.log.info(
-            f"Order filled: {event.order_side.name} {event.last_qty} @ {event.last_px}, "
-            f"Active positions: {self._active_positions}",
+            f"Order filled: {event.order_side.name} {event.last_qty} @ {event.last_px}, Active positions: {self._active_positions}",
         )

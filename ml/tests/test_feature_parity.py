@@ -295,11 +295,9 @@ class TestFeatureParity:
             )
 
             # Features should be finite and not NaN
-            assert np.all(np.isfinite(features)), (
-                f"Non-finite features for inputs: close={close}, high={high}, "
-                f"low={low}, volume={volume}\n"
-                f"Features: {features}"
-            )
+            assert np.all(
+                np.isfinite(features),
+            ), f"Non-finite features for inputs: close={close}, high={high}, low={low}, volume={volume}\nFeatures: {features}"
 
     @pytest.mark.parametrize("n_bars", [10, 50, 100, 500])
     def test_parity_at_different_sequence_lengths(self, feature_config, n_bars):

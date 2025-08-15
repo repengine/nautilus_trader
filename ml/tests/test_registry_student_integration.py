@@ -9,7 +9,7 @@ import pytest
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
 
@@ -38,7 +38,7 @@ def test_registry_registers_teacher_and_student_and_loads_onnx(
 ) -> None:
     # Prepare registry
     reg_dir = tmp_path / "registry"
-    registry = LocalModelRegistry(reg_dir)
+    registry = ModelRegistry(reg_dir)
 
     # Prepare dummy ONNX files
     teacher_path = reg_dir / "teacher.onnx"
@@ -46,7 +46,7 @@ def test_registry_registers_teacher_and_student_and_loads_onnx(
     teacher_path.write_bytes(b"dummy")
     student_path.write_bytes(b"dummy")
 
-    # Monkeypatch onnxruntime in ml._imports used by LocalModelRegistry.load_model
+    # Monkeypatch onnxruntime in ml._imports used by ModelRegistry.load_model
     import ml._imports as imports
 
     class DummyOrtModule:

@@ -316,10 +316,7 @@ class FeatureParityValidator:
 
         # Validate shapes match
         if online_features_array.shape != batch_features_array.shape:
-            msg = (
-                f"Shape mismatch: online {online_features_array.shape} "
-                f"vs batch {batch_features_array.shape}"
-            )
+            msg = f"Shape mismatch: online {online_features_array.shape} vs batch {batch_features_array.shape}"
             raise ValueError(msg)
 
         # Calculate differences

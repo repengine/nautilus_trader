@@ -3,8 +3,9 @@
 """
 Behavioral tests for model registry.
 
-These tests verify BEHAVIORS, not implementation details.
-They use the new ModelManifest API directly without helper functions.
+These tests verify BEHAVIORS, not implementation details. They use the new ModelManifest
+API directly without helper functions.
+
 """
 
 from __future__ import annotations
@@ -21,11 +22,13 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
 class TestRegistryBehaviors:
-    """Test that the registry behaves correctly in real-world scenarios."""
+    """
+    Test that the registry behaves correctly in real-world scenarios.
+    """
 
     def test_thread_safety_concurrent_operations(self) -> None:
         """
@@ -33,16 +36,19 @@ class TestRegistryBehaviors:
 
         This is a critical BEHAVIOR - the registry must handle concurrent
         access correctly in production.
+
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             results: dict[str, list[Any]] = {"registered": [], "errors": [], "deployed": []}
             lock = threading.Lock()
 
             def register_and_deploy(index: int) -> None:
-                """Register and deploy a model concurrently."""
+                """
+                Register and deploy a model concurrently.
+                """
                 try:
                     # Create model file
                     model_path = registry_path / f"model_{index}.onnx"
@@ -116,10 +122,11 @@ class TestRegistryBehaviors:
         Test that rollback correctly restores a previous model version.
 
         This is a critical production BEHAVIOR for handling bad deployments.
+
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Create v1 - good model
             model_v1_path = registry_path / "model_v1.onnx"
@@ -142,11 +149,14 @@ class TestRegistryBehaviors:
             registry.deploy_model(model_id_v1, "production")
 
             # Track good performance for v1
-            registry.track_performance(model_id_v1, {
-                "live_accuracy": 0.91,
-                "pnl": 5000.0,
-                "trades": 100,
-            })
+            registry.track_performance(
+                model_id_v1,
+                {
+                    "live_accuracy": 0.91,
+                    "pnl": 5000.0,
+                    "trades": 100,
+                },
+            )
 
             # Create v2 - problematic model
             time.sleep(0.1)  # Ensure different timestamp
@@ -170,17 +180,17 @@ class TestRegistryBehaviors:
             registry.deploy_model(model_id_v2, "production")
 
             # Track bad performance for v2
-            registry.track_performance(model_id_v2, {
-                "live_accuracy": 0.85,  # Worse than expected!
-                "pnl": -1000.0,  # Losing money!
-                "trades": 50,
-            })
+            registry.track_performance(
+                model_id_v2,
+                {
+                    "live_accuracy": 0.85,  # Worse than expected!
+                    "pnl": -1000.0,  # Losing money!
+                    "trades": 50,
+                },
+            )
 
             # ROLLBACK to v1
-            success = registry.rollback(
-                target="production",
-                to_model_id=model_id_v1
-            )
+            success = registry.rollback(target="production", to_model_id=model_id_v1)
 
             assert success is True
 
@@ -205,10 +215,11 @@ class TestRegistryBehaviors:
         Test A/B testing configuration for comparing models.
 
         This is a production BEHAVIOR for safe model rollouts.
+
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Create control model (current production)
             control_path = registry_path / "control_model.onnx"
@@ -265,28 +276,33 @@ class TestRegistryBehaviors:
             # Both models should be in TESTING status
             all_models = registry.get_all_models()
             testing_models = [
-                m for m in all_models
-                if m.deployment_status == DeploymentStatus.TESTING
+                m for m in all_models if m.deployment_status == DeploymentStatus.TESTING
             ]
             assert len(testing_models) == 2
 
             # Track performance for both during A/B test
-            registry.track_performance(control_id, {
-                "ab_test_accuracy": 0.87,
-                "ab_test_pnl": 3000.0,
-                "ab_test_trades": 300,  # 30% of traffic
-            })
+            registry.track_performance(
+                control_id,
+                {
+                    "ab_test_accuracy": 0.87,
+                    "ab_test_pnl": 3000.0,
+                    "ab_test_trades": 300,  # 30% of traffic
+                },
+            )
 
-            registry.track_performance(treatment_id, {
-                "ab_test_accuracy": 0.91,  # Better!
-                "ab_test_pnl": 8000.0,  # Much better!
-                "ab_test_trades": 700,  # 70% of traffic
-            })
+            registry.track_performance(
+                treatment_id,
+                {
+                    "ab_test_accuracy": 0.91,  # Better!
+                    "ab_test_pnl": 8000.0,  # Much better!
+                    "ab_test_trades": 700,  # 70% of traffic
+                },
+            )
 
             # Compare models
             comparison = registry.compare_models(
                 model_ids=[control_id, treatment_id],
-                metric="ab_test_pnl"
+                metric="ab_test_pnl",
             )
 
             assert comparison is not None
@@ -298,10 +314,11 @@ class TestRegistryBehaviors:
         Test hot reload capability for zero-downtime model updates.
 
         This is a critical production BEHAVIOR.
+
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Deploy initial model
             model_v1_path = registry_path / "model_v1.onnx"
@@ -372,10 +389,11 @@ class TestRegistryBehaviors:
         Test that deployment validates model constraints.
 
         This ensures models meet production requirements before deployment.
+
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             registry_path = Path(tmp_dir)
-            registry = LocalModelRegistry(registry_path)
+            registry = ModelRegistry(registry_path)
 
             # Create model with strict constraints
             model_path = registry_path / "constrained_model.onnx"

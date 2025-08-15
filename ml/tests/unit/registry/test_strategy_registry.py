@@ -5,10 +5,10 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from ml.registry.strategy_registry import LocalStrategyRegistry
 from ml.registry.strategy_registry import MarketRegime
 from ml.registry.strategy_registry import StrategyInfo
 from ml.registry.strategy_registry import StrategyManifest
+from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.strategy_registry import StrategyType
 
 
@@ -24,7 +24,7 @@ def run():
 def test_strategy_registry_register_and_query() -> None:
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
-        reg = LocalStrategyRegistry(base)
+        reg = StrategyRegistry(base)
 
         strategy_file = base / "my_strategy.py"
         _write_dummy_strategy(strategy_file)

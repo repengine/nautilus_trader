@@ -10,7 +10,7 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
 @given(
@@ -27,7 +27,7 @@ def test_auto_deploy_gates(
     has_parent: bool,
 ) -> None:
     reg_dir = tmp_path / "reg"
-    registry = LocalModelRegistry(reg_dir)
+    registry = ModelRegistry(reg_dir)
     # Ensure model files exist and are ONNX
     model_path = reg_dir / "model.onnx"
     model_path.write_bytes(b"dummy")

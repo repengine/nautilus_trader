@@ -23,28 +23,32 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
-from ml.registry.feature_registry import LocalFeatureRegistry
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.registry.strategy_registry import LocalStrategyRegistry
 from ml.registry.strategy_registry import MarketRegime
 from ml.registry.strategy_registry import StrategyManifest
+from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.strategy_registry import StrategyType
 
 
 @pytest.fixture
 def temp_dir() -> Generator[Path, None, None]:
-    """Create a temporary directory for testing."""
+    """
+    Create a temporary directory for testing.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
 @pytest.fixture
 def json_persistence_config(temp_dir: Path) -> PersistenceConfig:
-    """Create JSON backend persistence configuration."""
+    """
+    Create JSON backend persistence configuration.
+    """
     return PersistenceConfig(
         backend=BackendType.JSON,
         json_path=temp_dir,
@@ -53,7 +57,9 @@ def json_persistence_config(temp_dir: Path) -> PersistenceConfig:
 
 @pytest.fixture
 def postgres_persistence_config() -> PersistenceConfig | None:
-    """Create PostgreSQL backend persistence configuration."""
+    """
+    Create PostgreSQL backend persistence configuration.
+    """
     try:
         # Try to connect to local PostgreSQL
         config = PersistenceConfig(
@@ -63,6 +69,7 @@ def postgres_persistence_config() -> PersistenceConfig | None:
         )
         # Test connection
         from ml.registry.persistence import PersistenceManager
+
         manager = PersistenceManager(config)
         session = manager.get_session()
         if session:
@@ -75,16 +82,20 @@ def postgres_persistence_config() -> PersistenceConfig | None:
 
 
 class TestModelRegistryBackends:
-    """Test model registry with different backends."""
+    """
+    Test model registry with different backends.
+    """
 
     def test_json_backend_register_and_retrieve(
         self,
         temp_dir: Path,
         json_persistence_config: PersistenceConfig,
     ) -> None:
-        """Test registering and retrieving models with JSON backend."""
+        """
+        Test registering and retrieving models with JSON backend.
+        """
         # Create registry
-        registry = LocalModelRegistry(
+        registry = ModelRegistry(
             registry_path=temp_dir,
             persistence_config=json_persistence_config,
         )
@@ -121,12 +132,14 @@ class TestModelRegistryBackends:
         temp_dir: Path,
         postgres_persistence_config: PersistenceConfig | None,
     ) -> None:
-        """Test registering and retrieving models with PostgreSQL backend."""
+        """
+        Test registering and retrieving models with PostgreSQL backend.
+        """
         if postgres_persistence_config is None:
             pytest.skip("PostgreSQL not available")
 
         # Create registry
-        registry = LocalModelRegistry(
+        registry = ModelRegistry(
             registry_path=temp_dir,
             persistence_config=postgres_persistence_config,
         )
@@ -159,7 +172,7 @@ class TestModelRegistryBackends:
         assert model_info.manifest.architecture == "LightGBM"
 
         # Test persistence - create new registry instance
-        registry2 = LocalModelRegistry(
+        registry2 = ModelRegistry(
             registry_path=temp_dir,
             persistence_config=postgres_persistence_config,
         )
@@ -170,16 +183,20 @@ class TestModelRegistryBackends:
 
 
 class TestFeatureRegistryBackends:
-    """Test feature registry with different backends."""
+    """
+    Test feature registry with different backends.
+    """
 
     def test_json_backend_register_and_retrieve(
         self,
         temp_dir: Path,
         json_persistence_config: PersistenceConfig,
     ) -> None:
-        """Test registering and retrieving features with JSON backend."""
+        """
+        Test registering and retrieving features with JSON backend.
+        """
         # Create registry
-        registry = LocalFeatureRegistry(
+        registry = FeatureRegistry(
             registry_path=temp_dir,
             persistence_config=json_persistence_config,
         )
@@ -216,12 +233,14 @@ class TestFeatureRegistryBackends:
         temp_dir: Path,
         postgres_persistence_config: PersistenceConfig | None,
     ) -> None:
-        """Test feature lifecycle with PostgreSQL backend."""
+        """
+        Test feature lifecycle with PostgreSQL backend.
+        """
         if postgres_persistence_config is None:
             pytest.skip("PostgreSQL not available")
 
         # Create registry
-        registry = LocalFeatureRegistry(
+        registry = FeatureRegistry(
             registry_path=temp_dir,
             persistence_config=postgres_persistence_config,
         )
@@ -259,16 +278,20 @@ class TestFeatureRegistryBackends:
 
 
 class TestStrategyRegistryBackends:
-    """Test strategy registry with different backends."""
+    """
+    Test strategy registry with different backends.
+    """
 
     def test_json_backend_register_and_retrieve(
         self,
         temp_dir: Path,
         json_persistence_config: PersistenceConfig,
     ) -> None:
-        """Test registering and retrieving strategies with JSON backend."""
+        """
+        Test registering and retrieving strategies with JSON backend.
+        """
         # Create registry
-        registry = LocalStrategyRegistry(
+        registry = StrategyRegistry(
             base_path=temp_dir,
             persistence_config=json_persistence_config,
         )
@@ -321,12 +344,14 @@ class TestStrategyRegistryBackends:
         temp_dir: Path,
         postgres_persistence_config: PersistenceConfig | None,
     ) -> None:
-        """Test strategy compatibility checking with PostgreSQL backend."""
+        """
+        Test strategy compatibility checking with PostgreSQL backend.
+        """
         if postgres_persistence_config is None:
             pytest.skip("PostgreSQL not available")
 
         # Create registry
-        registry = LocalStrategyRegistry(
+        registry = StrategyRegistry(
             base_path=temp_dir,
             persistence_config=postgres_persistence_config,
         )
@@ -373,14 +398,16 @@ class TestStrategyRegistryBackends:
 
 
 def test_backend_switching(temp_dir: Path) -> None:
-    """Test switching between JSON and PostgreSQL backends."""
+    """
+    Test switching between JSON and PostgreSQL backends.
+    """
     # Start with JSON backend
     json_config = PersistenceConfig(
         backend=BackendType.JSON,
         json_path=temp_dir,
     )
 
-    json_registry = LocalModelRegistry(
+    json_registry = ModelRegistry(
         registry_path=temp_dir,
         persistence_config=json_config,
     )
@@ -414,7 +441,7 @@ def test_backend_switching(temp_dir: Path) -> None:
             connection_string="postgresql://postgres:postgres@localhost:5432/test_nautilus",
         )
 
-        postgres_registry = LocalModelRegistry(
+        postgres_registry = ModelRegistry(
             registry_path=temp_dir,
             persistence_config=postgres_config,
         )

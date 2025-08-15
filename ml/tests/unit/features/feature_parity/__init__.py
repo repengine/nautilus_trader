@@ -1,4 +1,3 @@
-
 """
 Feature parity validation tests.
 

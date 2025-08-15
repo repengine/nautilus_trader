@@ -8,6 +8,7 @@ These tests define the contracts for ML strategies:
 2. Filter signals by model_id
 3. Aggregate signals from multiple models
 4. Execute trades based on signals
+
 """
 
 import time
@@ -24,7 +25,9 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 
 class TestStrategyContracts:
-    """Test suite for strategy signal handling contracts."""
+    """
+    Test suite for strategy signal handling contracts.
+    """
 
     def test_strategy_receives_ml_signals(self) -> None:
         """
@@ -33,6 +36,7 @@ class TestStrategyContracts:
         Given: Strategy subscribed to MLSignal
         When: MLSignal is published
         Then: Strategy's on_data() is called with signal
+
         """
         # Create test strategy
         strategy = self._create_test_strategy()
@@ -77,11 +81,10 @@ class TestStrategyContracts:
         Given: Strategy configured for specific model_id
         When: Multiple signals with different model_ids
         Then: Only configured model signals are processed
+
         """
         # Create strategy configured for specific model
-        strategy = self._create_test_strategy(
-            target_model_ids=["xgb_eurusd_1h_v2"]
-        )
+        strategy = self._create_test_strategy(target_model_ids=["xgb_eurusd_1h_v2"])
 
         # Track processed signals
         processed_signals = []
@@ -133,6 +136,7 @@ class TestStrategyContracts:
         Given: Signals from 3 different models
         When: All signals arrive within time window
         Then: Strategy aggregates and makes decision
+
         """
         # Create strategy with aggregation capability
         strategy = self._create_test_strategy(
@@ -187,7 +191,9 @@ class TestStrategyContracts:
         # Check aggregated decision
         decision = trading_decisions[0]
         assert decision["action"] in ["BUY", "SELL"], "Should have clear action"
-        assert decision["confidence"] > 0.7, "Aggregated confidence should be high with 3 bullish signals"
+        assert (
+            decision["confidence"] > 0.7
+        ), "Aggregated confidence should be high with 3 bullish signals"
 
     def test_strategy_respects_signal_confidence_threshold(self) -> None:
         """
@@ -196,11 +202,10 @@ class TestStrategyContracts:
         Given: Strategy with min_confidence=0.8
         When: Signals with varying confidence
         Then: Only high-confidence signals trigger trades
+
         """
         # Create strategy with confidence threshold
-        strategy = self._create_test_strategy(
-            min_confidence=0.8
-        )
+        strategy = self._create_test_strategy(min_confidence=0.8)
 
         # Track trade executions
         executed_trades = []
@@ -252,6 +257,7 @@ class TestStrategyContracts:
         Given: Conflicting signals (buy vs sell)
         When: Signals arrive close in time
         Then: Strategy resolves conflict appropriately
+
         """
         # Create strategy with conflict resolution
         strategy = self._create_test_strategy(
@@ -307,11 +313,10 @@ class TestStrategyContracts:
         Given: Stream of signals
         When: Signals are received
         Then: Recent history is maintained with size limit
+
         """
         # Create strategy with history tracking
-        strategy = self._create_test_strategy(
-            history_size=10
-        )
+        strategy = self._create_test_strategy(history_size=10)
 
         # Send 15 signals
         for i in range(15):
@@ -341,11 +346,10 @@ class TestStrategyContracts:
         Given: Signals and resulting trades
         When: Trades complete with P&L
         Then: Model performance metrics are updated
+
         """
         # Create strategy with performance tracking
-        strategy = self._create_test_strategy(
-            track_performance=True
-        )
+        strategy = self._create_test_strategy(track_performance=True)
 
         # Initialize performance tracking
         if not hasattr(strategy, "_model_performance"):
@@ -375,7 +379,9 @@ class TestStrategyContracts:
 
     # Helper methods
     def _create_test_strategy(self, **kwargs: Any) -> Any:
-        """Create a test strategy with configurable behavior."""
+        """
+        Create a test strategy with configurable behavior.
+        """
 
         class TestMLStrategy(BaseMLStrategy):
             def __init__(self, config: Any) -> None:
@@ -431,15 +437,20 @@ class TestStrategyContracts:
                         weighted_pred = sum(
                             self.model_weights.get(mid, 1.0) * s.prediction
                             for mid, s in self._model_signals.items()
-                        ) / sum(self.model_weights.get(mid, 1.0)
-                               for mid in self._model_signals.keys())
+                        ) / sum(
+                            self.model_weights.get(mid, 1.0) for mid in self._model_signals.keys()
+                        )
 
-                        avg_confidence = np.mean([s.confidence for s in self._model_signals.values()])
+                        avg_confidence = np.mean(
+                            [s.confidence for s in self._model_signals.values()],
+                        )
 
-                        self._make_decision({
-                            "weighted_prediction": weighted_pred,
-                            "confidence": avg_confidence,
-                        })
+                        self._make_decision(
+                            {
+                                "weighted_prediction": weighted_pred,
+                                "confidence": avg_confidence,
+                            },
+                        )
                     else:
                         # Simple voting
                         bullish = sum(1 for s in self._model_signals.values() if s.prediction > 0.5)
@@ -448,29 +459,39 @@ class TestStrategyContracts:
                         action = "BUY" if bullish > bearish else "SELL"
                         confidence = max(s.confidence for s in self._model_signals.values())
 
-                        self._execute_trade({
-                            "action": action,
-                            "confidence": confidence,
-                            "signal": signal,
-                        })
+                        self._execute_trade(
+                            {
+                                "action": action,
+                                "confidence": confidence,
+                                "signal": signal,
+                            },
+                        )
 
                     # Clear buffer after decision
                     self._model_signals.clear()
 
             def _process_signal(self, signal: MLSignal) -> None:
-                """Process individual signal."""
+                """
+                Process individual signal.
+                """
                 # For testing: execute trade if confidence is sufficient
                 if signal.confidence >= self.min_confidence:
                     self._execute_trade({"signal": signal})
 
             def _make_decision(self, decision: dict[str, Any]) -> None:
-                """Make trading decision."""
+                """
+                Make trading decision.
+                """
 
             def _execute_trade(self, trade: dict[str, Any]) -> None:
-                """Execute trade based on signal."""
+                """
+                Execute trade based on signal.
+                """
 
             def _update_model_performance(self, model_id: str, profit: float) -> None:
-                """Update model performance metrics."""
+                """
+                Update model performance metrics.
+                """
                 if model_id not in self._model_performance:
                     self._model_performance[model_id] = {
                         "total_trades": 0,
@@ -481,7 +502,9 @@ class TestStrategyContracts:
                 self._model_performance[model_id]["total_profit"] += profit
 
             def _process_ml_signal(self, signal: MLSignal) -> None:
-                """Abstract method implementation for testing."""
+                """
+                Abstract method implementation for testing.
+                """
 
         # Create config
         from ml.config.base import MLStrategyConfig

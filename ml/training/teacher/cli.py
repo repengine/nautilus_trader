@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 """
 Teacher calibration CLI (compat shim) — forwards to tft_cli when registry args provided.
 
@@ -121,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dump({"model_id": args.model_id, "calibrator": True}, f, indent=2)
 
     print(
-        f"[compat] Using legacy teacher CLI without registries\nSaved: {preds_path}\nMeta: {meta_path}"
+        f"[compat] Using legacy teacher CLI without registries\nSaved: {preds_path}\nMeta: {meta_path}",
     )
     return 0
 

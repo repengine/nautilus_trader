@@ -61,7 +61,7 @@ This layer targets:
   - `ml-student-lightgbm` → `ml.training.student.lightgbm_cli:main`
 
 - Registry integration (student CLI):
-  - Uses `ml.registry.model_registry.LocalModelRegistry`.
+  - Uses `ml.registry.model_registry.ModelRegistry`.
   - Uses `ml.registry.utils.build_feature_schema` and `build_student_manifest`.
   - Students should be registered with role `STUDENT`, `data_requirements=L1_ONLY`, and `parent_id=<teacher_id>`.
 

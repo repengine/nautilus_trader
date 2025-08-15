@@ -1,4 +1,3 @@
-
 """
 Grafana API client for dashboard management.
 

@@ -9,8 +9,8 @@ from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
-from ml.registry.feature_registry import LocalFeatureRegistry
 
 
 def register_feature_set_from_engineer(
@@ -47,6 +47,6 @@ def register_feature_set_from_engineer(
         parity_digest=parity_report or {},
         perf_digest=perf_report or {},
     )
-    registry = LocalFeatureRegistry(registry_path)
+    registry = FeatureRegistry(registry_path)
     feature_set_id = registry.register_feature_set(manifest)
     return feature_set_id

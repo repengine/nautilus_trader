@@ -1,4 +1,3 @@
-
 """
 Central registry for all ML metrics collectors.
 
@@ -161,8 +160,7 @@ class MLMetricsRegistry:
         if collector_type not in self._collectors:
             available_types = list(self._collectors.keys())
             raise ValueError(
-                f"Unknown collector type '{collector_type}'. "
-                f"Available types: {available_types}",
+                f"Unknown collector type '{collector_type}'. Available types: {available_types}",
             )
 
         return self._collectors[collector_type]
@@ -335,8 +333,7 @@ class MLMetricsRegistry:
         # For now, most collectors don't support runtime reconfiguration
         # This could be extended in the future for dynamic configuration
         raise NotImplementedError(
-            f"Runtime configuration not supported for {collector_type} collector. "
-            "Configuration must be set at initialization time.",
+            f"Runtime configuration not supported for {collector_type} collector. Configuration must be set at initialization time.",
         )
 
     def get_prometheus_registry(self) -> Any:

@@ -9,17 +9,20 @@ This document provides a comprehensive analysis of FreqAI's model versioning and
 ### 1. Model Versioning Architecture
 
 **FreqAI Pattern:**
+
 - **Timestamp-based versioning**: `sub-train-{pair}_{timestamp}`
 - **Unique identifiers**: Config-based identifiers for experiment tracking
 - **Automatic purging**: Configurable retention (default: 2 most recent models)
 - **Crash resilience**: Same identifier allows recovery from failures
 
 **Current Nautilus Implementation:**
+
 - Already has `ModelInfo` with versioning support
 - Uses `DeploymentStatus` enum for lifecycle tracking
 - Local registry implementation with JSON persistence
 
 **Enhancement Opportunities:**
+
 - Add timestamp-hash combination for unique versioning (like FreqAI)
 - Implement automatic model purging based on retention policy
 - Add crash recovery mechanisms using persistent identifiers
@@ -27,6 +30,7 @@ This document provides a comprehensive analysis of FreqAI's model versioning and
 ### 2. Data Management and Storage
 
 **FreqAI's DataDrawer Pattern:**
+
 ```python
 class FreqaiDataDrawer:
     def __init__(self):
@@ -36,12 +40,14 @@ class FreqaiDataDrawer:
 ```
 
 **Key Features:**
+
 - **Memory-first loading**: Checks cache before disk
 - **Multi-format support**: joblib, keras, stable_baselines, pytorch
 - **Comprehensive metadata**: Features, labels, pipelines, timestamps
 
 **Nautilus Enhancement:**
-The existing `LocalModelRegistry` could benefit from:
+The existing `ModelRegistry` could benefit from:
+
 - In-memory model caching for frequently accessed models
 - Support for multiple serialization formats (ONNX, XGBoost, LightGBM)
 - Enhanced metadata tracking for teacher-student relationships
@@ -49,15 +55,17 @@ The existing `LocalModelRegistry` could benefit from:
 ### 3. Automatic Retraining and Deployment
 
 **FreqAI's Lifecycle Management:**
+
 - **Time-based triggers**: `live_retrain_hours`, `expired_hours`
 - **Background retraining**: Separate thread for training
 - **Continual learning**: New models start from previous state
 - **Queue management**: Ensures all models stay equally updated
 
 **Integration with Nautilus:**
+
 ```python
 # Proposed enhancement to existing registry
-class EnhancedModelRegistry(LocalModelRegistry):
+class EnhancedModelRegistry(ModelRegistry):
     def check_model_expiration(self, model_id: str) -> bool:
         """Check if model needs retraining based on age."""
         model = self.get_model(model_id)
@@ -73,17 +81,20 @@ class EnhancedModelRegistry(LocalModelRegistry):
 ### 4. Model Validation and Acceptance
 
 **FreqAI's Validation Approach:**
+
 - **Confidence scoring**: `do_predict` column (-2 to 2)
 - **Outlier detection**: Multiple methods (DI, SVM, DBSCAN)
 - **Statistical thresholds**: Dynamic z-score based thresholds
 - **Historical tracking**: Performance over time
 
 **Nautilus Implementation Status:**
+
 - Basic performance tracking exists in `ModelInfo`
 - No automated validation thresholds
 - Missing confidence scoring mechanisms
 
 **Recommended Additions:**
+
 ```python
 class ValidationCriteria:
     """Acceptance criteria for model deployment."""
@@ -98,6 +109,7 @@ class ValidationCriteria:
 **Leveraging FreqAI Patterns for Distillation:**
 
 #### A. Lineage Tracking
+
 ```python
 # Extension to existing ModelInfo
 @dataclass
@@ -110,6 +122,7 @@ class DistillationModelInfo(ModelInfo):
 ```
 
 #### B. Automated Distillation Pipeline
+
 ```python
 class DistillationPipeline:
     """Automated teacher-student distillation."""
@@ -140,24 +153,28 @@ class DistillationPipeline:
 ## Integration Roadmap
 
 ### Phase 1: Enhanced Versioning (Week 1)
+
 1. ✅ Existing: Basic model registry with versioning
 2. 🔄 Add: Timestamp-hash versioning scheme
 3. 🔄 Add: Automatic model purging
 4. 🔄 Add: In-memory caching layer
 
 ### Phase 2: Distillation Support (Week 2)
+
 1. 🔄 Extend `ModelInfo` for teacher-student relationships
 2. 🔄 Add distillation-specific metadata tracking
 3. 🔄 Implement lineage tracking
 4. 🔄 Add feature parity validation
 
 ### Phase 3: Automated Lifecycle (Week 3)
+
 1. 🔄 Implement expiration checking
 2. 🔄 Add automatic retraining triggers
 3. 🔄 Create background distillation pipeline
 4. 🔄 Add continual learning support
 
 ### Phase 4: Advanced Validation (Week 4)
+
 1. 🔄 Implement confidence scoring
 2. 🔄 Add statistical validation thresholds
 3. 🔄 Create shadow deployment mechanism
@@ -166,6 +183,7 @@ class DistillationPipeline:
 ## Existing Nautilus Registry Analysis
 
 ### Current Strengths
+
 - ✅ Clean abstract base class (`ModelRegistry`)
 - ✅ Comprehensive deployment management
 - ✅ A/B testing support built-in
@@ -187,6 +205,7 @@ class DistillationPipeline:
 ## Recommended Implementation Updates
 
 ### 1. Update `ModelInfo` for Distillation
+
 ```python
 # In ml/registry/base.py
 @dataclass
@@ -201,10 +220,11 @@ class ModelInfo:
     feature_signature: str | None = None  # Hash of feature list
 ```
 
-### 2. Add Caching to LocalModelRegistry
+### 2. Add Caching to ModelRegistry
+
 ```python
 # In ml/registry/local_registry.py
-class LocalModelRegistry(ModelRegistry):
+class ModelRegistry(ModelRegistry):
     def __init__(self, registry_path: Path, cache_size: int = 10):
         # ... existing init ...
         self._model_cache = {}  # In-memory cache
@@ -228,6 +248,7 @@ class LocalModelRegistry(ModelRegistry):
 ```
 
 ### 3. Implement Distillation Registry Actor
+
 ```python
 # New file: ml/registry/distillation_actor.py
 from nautilus_trader.common.actor import Actor
@@ -237,7 +258,7 @@ class DistillationRegistryActor(Actor):
 
     def __init__(self, config):
         super().__init__(config)
-        self.registry = LocalModelRegistry(config.registry_path)
+        self.registry = ModelRegistry(config.registry_path)
         self.validation_criteria = config.validation_criteria
 
     def on_start(self):
@@ -273,6 +294,7 @@ class DistillationRegistryActor(Actor):
 ## Performance Monitoring Integration
 
 ### Prometheus Metrics
+
 ```python
 # ml/registry/metrics.py
 from prometheus_client import Counter, Histogram, Gauge
@@ -294,7 +316,7 @@ The Nautilus ML module has a solid foundation with its existing registry impleme
 
 ### Key Takeaways
 
-1. **Leverage Existing Infrastructure**: The current `ModelRegistry` and `LocalModelRegistry` provide a good foundation
+1. **Leverage Existing Infrastructure**: The current `ModelRegistry` and `ModelRegistry` provide a good foundation
 2. **Add FreqAI-Inspired Features**: In-memory caching, auto-purging, and confidence scoring
 3. **Extend for Distillation**: Add teacher-student lineage tracking and feature parity validation
 4. **Maintain Nautilus Patterns**: Use Actor system for event-driven updates

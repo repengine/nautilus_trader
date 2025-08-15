@@ -164,8 +164,9 @@ class StrategyRegistry:
     """
     Strategy registry with configurable persistence backend.
 
-    Supports both JSON files and PostgreSQL for persistence,
-    making it suitable for both development and production environments.
+    Supports both JSON files and PostgreSQL for persistence, making it suitable for both
+    development and production environments.
+
     """
 
     def __init__(
@@ -301,9 +302,7 @@ class StrategyRegistry:
                 return None
 
             try:
-                strategy = session.query(StrategyTable).filter_by(
-                    strategy_id=strategy_id
-                ).first()
+                strategy = session.query(StrategyTable).filter_by(strategy_id=strategy_id).first()
 
                 if strategy is None:
                     return None
@@ -338,9 +337,10 @@ class StrategyRegistry:
                 return False
 
             try:
-                exists = session.query(StrategyTable).filter_by(
-                    strategy_id=strategy_id
-                ).first() is not None
+                exists = (
+                    session.query(StrategyTable).filter_by(strategy_id=strategy_id).first()
+                    is not None
+                )
                 return exists
             finally:
                 session.close()
@@ -620,7 +620,9 @@ class StrategyRegistry:
             version=cast(str, db_strategy.version),
             required_models=cast(list[str] | None, db_strategy.required_models),
             required_features=cast(list[str], db_strategy.required_features) or [],
-            suitable_regimes=[MarketRegime(r) for r in (cast(list[str], db_strategy.suitable_regimes) or [])],
+            suitable_regimes=[
+                MarketRegime(r) for r in (cast(list[str], db_strategy.suitable_regimes) or [])
+            ],
             instrument_types=cast(list[str], db_strategy.instrument_types) or [],
             timeframe_range=timeframe_range,
             max_position_size=cast(float, db_strategy.max_position_size) or 0.0,
@@ -629,15 +631,20 @@ class StrategyRegistry:
             stop_loss_type=cast(str, db_strategy.stop_loss_type) or "",
             min_sharpe_ratio=cast(float, db_strategy.min_sharpe_ratio) or 0.0,
             min_win_rate=cast(float, db_strategy.min_win_rate) or 0.0,
-            max_correlation_with_portfolio=cast(float, db_strategy.max_correlation_with_portfolio) or 0.0,
+            max_correlation_with_portfolio=cast(float, db_strategy.max_correlation_with_portfolio)
+            or 0.0,
             parent_strategy_id=db_strategy.parent_strategy_id,
             incompatible_strategies=cast(list[str], db_strategy.incompatible_strategies) or [],
             config_schema=cast(dict[str, str], db_strategy.config_schema) or {},
             default_config=cast(dict[str, Any], db_strategy.default_config) or {},
             backtest_metrics=cast(dict[str, float], db_strategy.backtest_metrics) or {},
             live_metrics=cast(dict[str, float] | None, db_strategy.live_metrics),
-            created_at=db_strategy.created_at.timestamp() if db_strategy.created_at else time.time(),
-            last_modified=db_strategy.last_modified.timestamp() if db_strategy.last_modified else time.time(),
+            created_at=(
+                db_strategy.created_at.timestamp() if db_strategy.created_at else time.time()
+            ),
+            last_modified=(
+                db_strategy.last_modified.timestamp() if db_strategy.last_modified else time.time()
+            ),
             author=cast(str, db_strategy.author) or "",
             description=cast(str, db_strategy.description) or "",
         )
@@ -666,12 +673,14 @@ class StrategyRegistry:
 
         try:
             # Check if strategy exists
-            existing = session.query(StrategyTable).filter_by(
-                strategy_id=manifest.strategy_id
-            ).first()
+            existing = (
+                session.query(StrategyTable).filter_by(strategy_id=manifest.strategy_id).first()
+            )
 
             # Convert timeframe_range tuple to string
-            timeframe_range_str = ",".join(manifest.timeframe_range) if manifest.timeframe_range else ""
+            timeframe_range_str = (
+                ",".join(manifest.timeframe_range) if manifest.timeframe_range else ""
+            )
 
             # Store file path in metadata
             metadata = {"file_path": str(file_path)}

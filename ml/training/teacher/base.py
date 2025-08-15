@@ -69,6 +69,7 @@ class BaseTeacher(ABC):
         """
         try:
             from ml._imports import HAS_SKLEARN
+
             if not HAS_SKLEARN:
                 raise ImportError
             from sklearn.linear_model import LogisticRegression

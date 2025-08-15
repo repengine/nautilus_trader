@@ -173,7 +173,7 @@ class TestHotPathFixes:
             assert not np.array_equal(
                 results[i],
                 results[i - 1],
-            ), f"Features {i} should differ from features {i-1}"
+            ), f"Features {i} should differ from features {i - 1}"
 
         # Verify all results are valid
         for i, features in enumerate(results):

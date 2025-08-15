@@ -7,8 +7,8 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
-from ml.registry.feature_registry import LocalFeatureRegistry
 from ml.registry.feature_registry import compute_schema_hash
 from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
@@ -37,7 +37,7 @@ def test_actor_validates_feature_manifest(tmp_path: Path) -> None:
         pipeline_signature=sig,
         pipeline_version="0.1.0",
     )
-    reg = LocalFeatureRegistry(tmp_path)
+    reg = FeatureRegistry(tmp_path)
     fid = reg.register_feature_set(manifest)
     # Actor config using registry-based features
     instrument_id = InstrumentId.from_str("TEST.XY")

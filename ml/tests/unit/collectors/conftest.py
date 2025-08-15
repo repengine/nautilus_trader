@@ -1,4 +1,3 @@
-
 """
 Test configuration and fixtures for metrics collectors tests.
 
@@ -76,7 +75,6 @@ def mock_prometheus_when_unavailable() -> Any:
                 patch("ml._imports.Gauge") as mock_gauge,
                 patch("ml._imports.Histogram") as mock_histogram,
             ):
-
                 # Create mock metric classes that behave like Prometheus metrics
                 mock_counter.return_value = MagicMock()
                 mock_gauge.return_value = MagicMock()

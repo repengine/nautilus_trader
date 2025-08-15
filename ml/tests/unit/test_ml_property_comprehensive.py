@@ -26,7 +26,7 @@ from ml.features.engineering import IndicatorManager
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
@@ -279,7 +279,7 @@ class TestModelRegistryProperties:
         Property: Versions should be ordered and retrievable.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalModelRegistry(Path(tmpdir))
+            registry = ModelRegistry(Path(tmpdir))
 
             # Register models
             versions = []
@@ -327,7 +327,7 @@ class TestModelRegistryProperties:
         Property: Different models should be isolated.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalModelRegistry(Path(tmpdir))
+            registry = ModelRegistry(Path(tmpdir))
 
             model_versions = {}
 

@@ -14,9 +14,9 @@ import time
 from pathlib import Path
 
 from ml.config.constants import Versions
-from ml.registry.strategy_registry import LocalStrategyRegistry
 from ml.registry.strategy_registry import MarketRegime
 from ml.registry.strategy_registry import StrategyManifest
+from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.strategy_registry import StrategyType
 
 
@@ -26,7 +26,7 @@ def main() -> None:
     """
     # Create a temporary directory for this demo
     with tempfile.TemporaryDirectory() as tmpdir:
-        registry = LocalStrategyRegistry(Path(tmpdir))
+        registry = StrategyRegistry(Path(tmpdir))
         print(f"Created strategy registry at: {tmpdir}")
 
         # =============================================================================

@@ -1,4 +1,3 @@
-
 """
 Comprehensive data pipeline integration tests for ML module.
 
@@ -720,7 +719,11 @@ class TestNautilusDataPipeline:
 
         return rsi_with_first
 
-    def _calculate_rsi_streaming(self, bars: list[Bar], period: int = 14) -> npt.NDArray[np.float64]:
+    def _calculate_rsi_streaming(
+        self,
+        bars: list[Bar],
+        period: int = 14,
+    ) -> npt.NDArray[np.float64]:
         """
         Calculate RSI in streaming mode.
         """

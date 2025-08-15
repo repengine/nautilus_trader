@@ -1,4 +1,3 @@
-
 """
 Base metrics collector for ML monitoring infrastructure.
 
@@ -280,8 +279,4 @@ class BaseMetricsCollector(ABC):
         """
         Return string representation of the collector.
         """
-        return (
-            f"{self.__class__.__name__}("
-            f"enabled={self._enabled}, "
-            f"metrics_count={len(self._metrics)})"
-        )
+        return f"{self.__class__.__name__}(enabled={self._enabled}, metrics_count={len(self._metrics)})"

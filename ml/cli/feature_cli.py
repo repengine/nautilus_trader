@@ -10,8 +10,8 @@ from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
-from ml.registry.feature_registry import LocalFeatureRegistry
 
 
 def cli_register_default(
@@ -36,7 +36,7 @@ def cli_register_default(
         role=role_enum,
         data_requirements=req_enum,
     )
-    reg = LocalFeatureRegistry(Path(registry_path))
+    reg = FeatureRegistry(Path(registry_path))
     return reg.register_feature_set(manifest)
 
 
@@ -51,7 +51,7 @@ def cli_promote_with_gates(
     Each gate dict should include: {"metric_name": str, "threshold": float, "comparison": str}
 
     """
-    reg = LocalFeatureRegistry(Path(registry_path))
+    reg = FeatureRegistry(Path(registry_path))
     gate_objs = [
         QualityGate(
             metric_name=g["metric_name"],
@@ -82,5 +82,5 @@ def cli_deprecate(
         Optional reason for deprecation.
 
     """
-    reg = LocalFeatureRegistry(Path(registry_path))
+    reg = FeatureRegistry(Path(registry_path))
     reg.deprecate(feature_set_id, reason=reason)

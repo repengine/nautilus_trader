@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 """
 CLI to calibrate a TFT teacher and emit soft labels for distillation, with registry integration.
 
@@ -27,8 +26,8 @@ import numpy as np
 import numpy.typing as npt
 
 from ml.config.names import ONNX_INPUT_NAME
-from ml.registry.feature_registry import LocalFeatureRegistry
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
 
@@ -69,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     # Resolve feature manifest and enforce schema
-    freg = LocalFeatureRegistry(Path(args.feature_registry_dir))
+    freg = FeatureRegistry(Path(args.feature_registry_dir))
     finfo = freg.get_feature_set(args.feature_set_id)
     if finfo is None:
         raise SystemExit(f"Unknown feature_set_id: {args.feature_set_id}")
@@ -104,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Provide --model_registry_dir and --teacher_model_id to run ONNX teacher on X_val",
             )
-        mreg = LocalModelRegistry(Path(args.model_registry_dir))
+        mreg = ModelRegistry(Path(args.model_registry_dir))
         session = mreg.load_model(args.teacher_model_id)
         if session is None:
             raise SystemExit(f"Failed to load teacher model {args.teacher_model_id} from registry")

@@ -1,4 +1,3 @@
-
 """
 Tests for MLSignalActor with comprehensive coverage of all signal strategies.
 
@@ -101,7 +100,7 @@ class TestMLSignalActor:
         self.temp_model_file_path = TestModelFactory.create_minimal_xgboost_model(
             n_features=23,  # Match the actual feature count produced by FeatureConfig
             model_type="classification",
-            output_path=self.temp_dir / "test_model.json"
+            output_path=self.temp_dir / "test_model.json",
         )
 
         # Create basic test configuration
@@ -196,6 +195,7 @@ class TestMLSignalActor:
         """
         # Remove temporary model files and directory
         import shutil
+
         if hasattr(self, "temp_dir") and self.temp_dir.exists():
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
@@ -307,7 +307,9 @@ class TestMLSignalActor:
 
         # Test behavior: verify signals were published by checking statistics
         signal_stats = actor.get_signal_statistics()
-        assert signal_stats.get("predictions_made", 0) > 0, "No predictions were made during processing"
+        assert (
+            signal_stats.get("predictions_made", 0) > 0
+        ), "No predictions were made during processing"
 
     def test_extremes_signal_generation(self) -> None:
         """
@@ -1201,7 +1203,9 @@ class TestMLSignalActor:
             expected_features = len(feature_config.feature_names)
         else:
             expected_features = 10  # Default feature count when not specified
-        assert expected_features >= 3, f"Configuration should enable at least 3 features, got {expected_features}"
+        assert (
+            expected_features >= 3
+        ), f"Configuration should enable at least 3 features, got {expected_features}"
 
     def test_ensemble_signal_with_no_component_signals(self) -> None:
         """
@@ -1550,7 +1554,9 @@ class TestMLSignalActor:
         # Check that predictions were made after warm-up - test behavior
         if actor._is_warmed_up:
             signal_stats = actor.get_signal_statistics()
-            assert signal_stats.get("predictions_made", 0) > 0, "No predictions were made after warm-up"
+            assert (
+                signal_stats.get("predictions_made", 0) > 0
+            ), "No predictions were made after warm-up"
             if actor._health_monitor:
                 assert actor._health_monitor.consecutive_failures == 0
         else:

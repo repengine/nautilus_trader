@@ -7,9 +7,11 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
 ## Core Testing Principles
 
 ### 1. Test Behavior, Not Implementation
+
 - **DO**: Test observable outcomes and public contracts
 - **DON'T**: Test private attributes or internal state
 - **Example**:
+
   ```python
   # ❌ BAD: Testing implementation details
   assert actor._bars_processed == 10
@@ -22,9 +24,11 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
   ```
 
 ### 2. Use Real Components Where Possible
+
 - **DO**: Use minimal but real models for integration tests
 - **DON'T**: Over-mock to the point tests become meaningless
 - **Example**:
+
   ```python
   # ❌ BAD: Mock that doesn't represent real behavior
   mock_model = Mock(return_value=0.5)
@@ -34,6 +38,7 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
   ```
 
 ### 3. Test the Full Stack
+
 - Unit tests for individual components
 - Integration tests for component interactions
 - End-to-end tests for complete workflows
@@ -44,12 +49,14 @@ This document defines the comprehensive testing protocol for the Nautilus Trader
 **Purpose**: Define behavioral contracts all implementations must follow
 
 **Requirements**:
+
 - Test public interfaces only
 - Focus on invariants and guarantees
 - Implementation-agnostic
 - Use Hypothesis for property-based testing
 
 **Example Structure**:
+
 ```python
 from hypothesis import given, strategies as st, assume
 import numpy as np
@@ -88,12 +95,14 @@ class TestActorContracts:
 **Purpose**: Test individual components in isolation
 
 **Requirements**:
+
 - Fast execution (<100ms per test)
 - Minimal dependencies
 - Mock external services
 - Test edge cases
 
 **Example Structure**:
+
 ```python
 class TestFeatureEngineer:
     """Unit tests for FeatureEngineer."""
@@ -112,12 +121,14 @@ class TestFeatureEngineer:
 **Purpose**: Test component interactions and data flow
 
 **Requirements**:
+
 - Test realistic workflows
 - Use real components (not mocks)
 - Verify data consistency across components
 - May be slower than unit tests
 
 **Example Structure**:
+
 ```python
 class TestMLPipeline:
     """Integration tests for ML pipeline."""
@@ -133,12 +144,14 @@ class TestMLPipeline:
 **Purpose**: Validate latency and throughput requirements
 
 **Requirements**:
+
 - Measure actual timings
 - Test under realistic load
 - Verify hot path performance
 - Check memory usage
 
 **Latency Requirements**:
+
 ```python
 PERFORMANCE_REQUIREMENTS = {
     "feature_computation": 500,  # microseconds
@@ -206,6 +219,7 @@ def validate_test_data(data: Any) -> None:
 ### Core Properties for ML Systems
 
 #### 1. Numerical Stability Properties
+
 ```python
 from hypothesis import given, strategies as st, assume
 import numpy as np
@@ -265,6 +279,7 @@ class NumericalStabilityProperties:
 ```
 
 #### 2. Temporal Consistency Properties
+
 ```python
 class TemporalConsistencyProperties:
     """Properties ensuring temporal consistency in trading systems."""
@@ -304,6 +319,7 @@ class TemporalConsistencyProperties:
 ```
 
 #### 3. Concurrency and Atomicity Properties
+
 ```python
 class ConcurrencyProperties:
     """Properties ensuring thread-safety and atomicity."""
@@ -371,6 +387,7 @@ class ConcurrencyProperties:
 ```
 
 #### 4. Performance Invariant Properties
+
 ```python
 class PerformanceInvariantProperties:
     """Properties ensuring performance requirements are maintained."""
@@ -448,6 +465,7 @@ class PerformanceInvariantProperties:
 ### Hypothesis Strategies for ML Testing
 
 #### Custom Strategies for Trading Data
+
 ```python
 # ml/tests/strategies.py
 from hypothesis import strategies as st
@@ -495,10 +513,11 @@ model_config_strategy = st.builds(
 ### Hypothesis Testing Patterns
 
 #### Pattern 1: Stateful Testing
+
 ```python
 from hypothesis.stateful import RuleBasedStateMachine, rule, invariant
 from ml.actors.signal import MLSignalActor
-from ml.registry.local_registry import LocalModelRegistry
+from ml.registry.local_registry import ModelRegistry
 from pathlib import Path
 
 class MLPipelineStateMachine(RuleBasedStateMachine):
@@ -513,7 +532,7 @@ class MLPipelineStateMachine(RuleBasedStateMachine):
             warm_up_period=10
         )
         self.actor = MLSignalActor(config)
-        self.registry = LocalModelRegistry(Path("/tmp/test_registry"))
+        self.registry = ModelRegistry(Path("/tmp/test_registry"))
         self.n_bars_processed = 0
         self.model_versions = []
 
@@ -554,6 +573,7 @@ TestMLPipeline = MLPipelineStateMachine.TestCase
 ```
 
 #### Pattern 2: Compositional Testing
+
 ```python
 @composite
 def feature_pipeline_strategy(draw):
@@ -583,18 +603,21 @@ def feature_pipeline_strategy(draw):
 ## Mock Guidelines
 
 ### When to Mock
+
 - External services (APIs, databases)
 - File I/O in unit tests
 - Time-dependent operations
 - Heavy computations in unit tests
 
 ### When NOT to Mock
+
 - Core business logic
 - Data transformations
 - Critical calculations
 - Integration test components
 
 ### Mock Implementation Standards
+
 ```python
 class MockMLActor(Actor):
     """Mock actor for testing."""
@@ -620,6 +643,7 @@ class MockMLActor(Actor):
 ## Security Testing
 
 ### Model Loading Security
+
 ```python
 def test_reject_pickle_models():
     """MUST reject pickle files for security."""
@@ -633,6 +657,7 @@ def test_accept_safe_formats():
 ```
 
 ### Input Validation
+
 ```python
 def test_validate_untrusted_input():
     """MUST validate all external inputs."""
@@ -644,6 +669,7 @@ def test_validate_untrusted_input():
 ## Performance Testing Protocol
 
 ### 1. Latency Tests
+
 ```python
 def test_inference_latency():
     """Test inference meets latency requirements."""
@@ -659,6 +685,7 @@ def test_inference_latency():
 ```
 
 ### 2. Memory Tests
+
 ```python
 def test_no_memory_leaks():
     """Test for memory leaks in hot path."""
@@ -680,6 +707,7 @@ def test_no_memory_leaks():
 ```
 
 ### 3. Zero-Allocation Tests
+
 ```python
 def test_hot_path_zero_allocation():
     """Verify hot path has zero allocations."""
@@ -691,12 +719,14 @@ def test_hot_path_zero_allocation():
 ## Test Coverage Requirements
 
 ### Minimum Coverage Targets
+
 - **Overall ML module**: ≥ 90%
 - **Critical paths** (actors, strategies): ≥ 95%
 - **Utility functions**: ≥ 80%
 - **Experimental features**: ≥ 70%
 
 ### Coverage Enforcement
+
 ```yaml
 # .coveragerc
 [run]
@@ -714,6 +744,7 @@ skip_covered = False
 ## Test Execution Guidelines
 
 ### 1. Test Organization
+
 ```bash
 ml/tests/
 ├── unit/                 # Fast, isolated tests
@@ -735,6 +766,7 @@ ml/tests/
 ```
 
 ### 2. Test Execution Order
+
 ```bash
 # 1. Run unit tests first (fast feedback)
 pytest ml/tests/unit/ -v
@@ -753,6 +785,7 @@ pytest ml/tests/ -v --cov=ml --cov-report=html
 ```
 
 ### 3. Continuous Integration
+
 ```yaml
 # .github/workflows/ml-tests.yml
 - name: Run ML Tests
@@ -770,6 +803,7 @@ pytest ml/tests/ -v --cov=ml --cov-report=html
 ## Test Maintenance
 
 ### 1. Test Review Checklist
+
 - [ ] Tests focus on behavior, not implementation
 - [ ] No hardcoded test data in test files
 - [ ] Uses appropriate fixtures
@@ -781,6 +815,7 @@ pytest ml/tests/ -v --cov=ml --cov-report=html
 
 ### 2. Test Refactoring Guidelines
 When refactoring tests:
+
 1. Preserve behavioral coverage
 2. Improve readability
 3. Reduce duplication via fixtures
@@ -788,6 +823,7 @@ When refactoring tests:
 5. Verify performance unchanged
 
 ### 3. Test Debugging Protocol
+
 ```python
 # Enable detailed logging for debugging
 @pytest.mark.debug
@@ -805,6 +841,7 @@ def test_complex_scenario(caplog):
 ## Common Pitfalls to Avoid
 
 ### 1. Testing Implementation Details
+
 ```python
 # ❌ BAD: Brittle test tied to implementation
 assert actor._internal_buffer.size == 100
@@ -816,6 +853,7 @@ assert len(actor.get_buffered_data()) == 100
 ```
 
 ### 2. Inadequate Test Isolation
+
 ```python
 # ❌ BAD: Tests depend on execution order
 class TestActor:
@@ -840,6 +878,7 @@ class TestActor:
 ```
 
 ### 3. Overmocking
+
 ```python
 # ❌ BAD: Mock everything, test nothing
 @patch('ml.actors.signal.MLSignalActor.on_bar')
@@ -859,12 +898,14 @@ def test_actor():
 ## Test Quality Metrics
 
 ### 1. Test Effectiveness Metrics
+
 - **Mutation Score**: >80% (using mutmut)
 - **Defect Detection Rate**: Track bugs found by tests
 - **False Positive Rate**: <5% flaky tests
 - **Execution Time**: Unit tests <10s, Integration <60s
 
 ### 2. Test Maintainability Metrics
+
 - **Test Code Ratio**: 1:1 with production code
 - **Fixture Reuse**: >50% tests use shared fixtures
 - **Documentation Coverage**: 100% of test classes documented
@@ -873,6 +914,7 @@ def test_actor():
 ## Appendix: Test Templates
 
 ### Unit Test Template
+
 ```python
 """Unit tests for [Component Name]."""
 
@@ -906,6 +948,7 @@ class TestComponent:
 ```
 
 ### Integration Test Template
+
 ```python
 """Integration tests for [Feature Name]."""
 
@@ -934,6 +977,7 @@ class TestFeatureIntegration:
 ```
 
 ### Performance Test Template
+
 ```python
 """Performance tests for [Component Name]."""
 

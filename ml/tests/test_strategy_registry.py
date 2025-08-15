@@ -19,10 +19,11 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-# Import the modules we'll build
-from ml.registry.strategy_registry import LocalStrategyRegistry
 from ml.registry.strategy_registry import MarketRegime
 from ml.registry.strategy_registry import StrategyManifest
+
+# Import the modules we'll build
+from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.strategy_registry import StrategyType
 
 
@@ -149,13 +150,13 @@ def strategy_manifest_strategy(draw: st.DrawFn) -> StrategyManifest:
 
 
 # =================================================================================================
-# Test LocalStrategyRegistry
+# Test StrategyRegistry
 # =================================================================================================
 
 
-class TestLocalStrategyRegistry:
+class TestStrategyRegistry:
     """
-    Test suite for LocalStrategyRegistry.
+    Test suite for StrategyRegistry.
     """
 
     def test_registry_initialization(self) -> None:
@@ -163,7 +164,7 @@ class TestLocalStrategyRegistry:
         Test that registry initializes correctly.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
             assert registry.base_path == Path(tmpdir)
             assert (Path(tmpdir) / "strategies").exists()
             assert (Path(tmpdir) / "strategies" / "registry.json").exists()
@@ -174,7 +175,7 @@ class TestLocalStrategyRegistry:
         Test strategy registration with various manifests.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Create a dummy strategy file
             strategy_path = Path(tmpdir) / f"{manifest.strategy_id}.py"
@@ -199,7 +200,7 @@ class TestLocalStrategyRegistry:
         Test retrieving registered strategies.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Register strategy
             strategy_path = Path(tmpdir) / f"{manifest.strategy_id}.py"
@@ -225,7 +226,7 @@ class TestLocalStrategyRegistry:
         Test filtering strategies by market regime.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Register all strategies
             for manifest in manifests:
@@ -258,7 +259,7 @@ class TestLocalStrategyRegistry:
         Test filtering strategies by instrument type.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Register all strategies
             for manifest in manifests:
@@ -280,7 +281,7 @@ class TestLocalStrategyRegistry:
         Test updating strategy performance metrics.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Register strategy
             strategy_path = Path(tmpdir) / f"{manifest.strategy_id}.py"
@@ -319,7 +320,7 @@ class TestLocalStrategyRegistry:
         Test ranking strategies by performance.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Register strategies with varying performance
             for i, manifest in enumerate(manifests):
@@ -347,7 +348,7 @@ class TestLocalStrategyRegistry:
         Test strategy requirement validation.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Create manifest with specific requirements
             manifest = StrategyManifest(
@@ -425,7 +426,7 @@ class TestLocalStrategyRegistry:
         Test checking strategy compatibility.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Set up incompatibilities based on matrix
             for i, manifest in enumerate(manifests):
@@ -466,7 +467,7 @@ class TestLocalStrategyRegistry:
         Test retrieving strategy lineage (parent-child relationships).
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = LocalStrategyRegistry(Path(tmpdir))
+            registry = StrategyRegistry(Path(tmpdir))
 
             # Create a lineage: parent -> child -> grandchild
             parent = StrategyManifest(

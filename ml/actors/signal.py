@@ -63,8 +63,6 @@ from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.registry.feature_registry import FeatureRegistry
-from ml.stores.feature_store import FeatureStore
-from ml.stores.model_store import ModelStore
 from nautilus_trader.model.data import Bar
 
 
@@ -944,9 +942,10 @@ class MLSignalActor(BaseMLInferenceActor):
     def __init__(self, config: MLSignalActorConfig) -> None:
         """
         Initialize ML Signal Actor with mandatory store integration.
-        
+
         Note: Stores are automatically initialized by the base class.
         No optional store parameters are needed or allowed.
+
         """
         super().__init__(config)
         self._signal_config = config
@@ -993,7 +992,9 @@ class MLSignalActor(BaseMLInferenceActor):
         # Feature engineering setup
         # Note: _feature_store is always available from base class
         self._feature_engineer = FeatureEngineer(self._feature_config)
-        self._persist_features = config.persist_features if hasattr(config, 'persist_features') else True
+        self._persist_features = (
+            config.persist_features if hasattr(config, "persist_features") else True
+        )
 
         self._feature_set_id: str | None = None
         # Optional: validate features against feature registry manifest
@@ -1016,8 +1017,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 actual = self._feature_engineer.config.get_feature_names()
                 if expected != actual:
                     raise ValueError(
-                        "Feature schema mismatch with manifest: "
-                        f"expected {len(expected)} names (hash={manifest.schema_hash}), got {len(actual)}",
+                        f"Feature schema mismatch with manifest: expected {len(expected)} names (hash={manifest.schema_hash}), got {len(actual)}",
                     )
                 # else, features are validated
                 self._feature_set_id = manifest.feature_set_id
@@ -1042,7 +1042,10 @@ class MLSignalActor(BaseMLInferenceActor):
         self._signal_strategy = self._create_strategy()
 
         # Performance monitoring
-        if self._opt_config.level == "optimized" or self._opt_config.level == OptimizationLevel.OPTIMIZED.value:
+        if (
+            self._opt_config.level == "optimized"
+            or self._opt_config.level == OptimizationLevel.OPTIMIZED.value
+        ):
             self._performance_monitor = PerformanceMonitor(self._opt_config.reservoir_sample_size)
         else:
             self._performance_monitor = PerformanceMonitor(100)  # Use default size
@@ -1064,11 +1067,9 @@ class MLSignalActor(BaseMLInferenceActor):
         strategy_name = config.signal_strategy
         if isinstance(strategy_name, SignalStrategy):
             strategy_name = strategy_name.value
-        
+
         self.log.info(
-            f"Initialized MLSignalActor with strategy: {strategy_name}, "
-            f"optimization: {self._opt_config.level}, "
-            f"features: {n_features}",
+            f"Initialized MLSignalActor with strategy: {strategy_name}, optimization: {self._opt_config.level}, features: {n_features}",
         )
 
     def _create_strategy(self) -> SignalGenerationStrategy:
@@ -1145,8 +1146,8 @@ class MLSignalActor(BaseMLInferenceActor):
 
         """
         # For OPTIMIZED level with ONNX, use specialized loading with performance options
-        if (
-            self._opt_config.level == "optimized" or self._opt_config.level == OptimizationLevel.OPTIMIZED.value
+        if self._opt_config.level == "optimized" or (
+            self._opt_config.level == OptimizationLevel.OPTIMIZED.value
             and self._config.model_path.endswith(".onnx")
         ):
             self._load_optimized_onnx_model()
@@ -1214,8 +1215,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
         if warm_up_times:
             self.log.info(
-                f"Model warm-up completed: avg={np.mean(warm_up_times):.3f}ms, "
-                f"P99={np.percentile(warm_up_times, 99):.3f}ms",
+                f"Model warm-up completed: avg={np.mean(warm_up_times):.3f}ms, P99={np.percentile(warm_up_times, 99):.3f}ms",
             )
 
     def _initialize_features(self) -> None:
@@ -1236,7 +1236,10 @@ class MLSignalActor(BaseMLInferenceActor):
             self._feature_buffer = np.zeros(expected_features, dtype=np.float32)
 
         # Initialize optimized buffers if needed
-        if self._opt_config.level == "optimized" or self._opt_config.level == OptimizationLevel.OPTIMIZED.value:
+        if (
+            self._opt_config.level == "optimized"
+            or self._opt_config.level == OptimizationLevel.OPTIMIZED.value
+        ):
             self._initialize_optimized_buffers()
 
         self.log.info(f"Feature engineering initialized: {expected_features} features")
@@ -1271,8 +1274,9 @@ class MLSignalActor(BaseMLInferenceActor):
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """
         Compute feature vector from bar.
-        
+
         Features are automatically persisted by the base class implementation.
+
         """
         # Always use feature engineering (base class handles persistence)
         if self._indicator_manager is None:
@@ -1481,7 +1485,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
             # Prediction is automatically persisted by base class
             # Just need to ensure we're recording strategy-specific metadata
-            if hasattr(self, '_strategy_store'):
+            if hasattr(self, "_strategy_store"):
                 # Strategy store is always available from base class
                 self._strategy_store.write_signal(
                     strategy_id=self._signal_config.strategy_id or "ml_signal",
@@ -1502,7 +1506,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 strategy_name = self._signal_config.signal_strategy
                 if isinstance(strategy_name, SignalStrategy):
                     strategy_name = strategy_name.value
-                    
+
                 self._signals_generated_metric.labels(
                     actor_id=self.id.value,
                     strategy=strategy_name,
@@ -1712,7 +1716,7 @@ class MLSignalActor(BaseMLInferenceActor):
         strategy_name = self._signal_config.signal_strategy
         if isinstance(strategy_name, SignalStrategy):
             strategy_name = strategy_name.value
-            
+
         signal_stats = {
             "signal_strategy": strategy_name,
             "optimization_level": self._opt_config.level,

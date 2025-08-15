@@ -1,4 +1,3 @@
-
 """
 Tests for the BaseMetricsCollector abstract class.
 """

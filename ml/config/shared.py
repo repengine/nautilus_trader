@@ -1,4 +1,3 @@
-
 """
 Shared configuration classes for ML model training.
 
@@ -134,10 +133,7 @@ class MLflowConfig(msgspec.Struct, kw_only=True, frozen=True):
             self.tracking_uri.startswith(("http://", "https://", "file://"))
             or self.tracking_uri.startswith("sqlite://")
         ):
-            msg = (
-                f"tracking_uri must start with http://, https://, file://, or sqlite://, "
-                f"got {self.tracking_uri}"
-            )
+            msg = f"tracking_uri must start with http://, https://, file://, or sqlite://, got {self.tracking_uri}"
             raise ValueError(msg)
 
 

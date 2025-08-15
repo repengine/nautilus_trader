@@ -26,8 +26,7 @@ def test_databento_setup() -> None:
 
     if not api_key:
         pytest.skip(
-            "DATABENTO_API_KEY environment variable not set - "
-            "this is expected for ML-only development",
+            "DATABENTO_API_KEY environment variable not set - this is expected for ML-only development",
         )
 
     # Mask the key for display

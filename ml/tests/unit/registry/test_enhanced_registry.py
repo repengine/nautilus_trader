@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Comprehensive tests for enhanced LocalModelRegistry with integrated features.
+Comprehensive tests for enhanced ModelRegistry with integrated features.
 
 This test file uses TDD to define all expected behavior for:
 - Quality validation on registration
@@ -29,12 +29,12 @@ from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import ValidationResult
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
-class TestEnhancedLocalModelRegistry:
+class TestEnhancedModelRegistry:
     """
-    Test enhanced LocalModelRegistry with all integrated features.
+    Test enhanced ModelRegistry with all integrated features.
     """
 
     @pytest.fixture
@@ -46,11 +46,11 @@ class TestEnhancedLocalModelRegistry:
             yield Path(tmpdir)
 
     @pytest.fixture
-    def registry(self, temp_dir: Path) -> LocalModelRegistry:
+    def registry(self, temp_dir: Path) -> ModelRegistry:
         """
         Create registry instance.
         """
-        return LocalModelRegistry(temp_dir)
+        return ModelRegistry(temp_dir)
 
     @pytest.fixture
     def sample_manifest(self) -> ModelManifest:
@@ -82,7 +82,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_register_with_quality_gates_pass(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
@@ -109,7 +109,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_register_with_quality_gates_fail(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
@@ -132,7 +132,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_validate_model_quality(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
@@ -162,7 +162,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_start_canary_deployment(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
@@ -205,7 +205,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_update_canary_metrics(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
@@ -244,7 +244,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_evaluate_canary_for_promotion(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
@@ -294,7 +294,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_evaluate_canary_for_rollback(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         sample_manifest: ModelManifest,
         model_path: Path,
     ) -> None:
@@ -338,7 +338,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_compare_models_statistically(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         temp_dir: Path,
     ) -> None:
         """
@@ -392,7 +392,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_run_ab_test_analysis(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         temp_dir: Path,
     ) -> None:
         """
@@ -466,7 +466,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_hot_reload_model(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         temp_dir: Path,
     ) -> None:
         """
@@ -521,7 +521,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_gradual_rollout(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         temp_dir: Path,
     ) -> None:
         """
@@ -586,7 +586,7 @@ class TestEnhancedLocalModelRegistry:
 
     def test_full_deployment_pipeline(
         self,
-        registry: LocalModelRegistry,
+        registry: ModelRegistry,
         temp_dir: Path,
     ) -> None:
         """
@@ -671,7 +671,7 @@ class TestEnhancedLocalModelRegistry:
         Ensure all methods have proper type hints for mypy --strict.
         """
         # This test doesn't run but ensures we think about types
-        registry: LocalModelRegistry
+        registry: ModelRegistry
         model_id: str
         gates: list[QualityGate]
         result: ValidationResult

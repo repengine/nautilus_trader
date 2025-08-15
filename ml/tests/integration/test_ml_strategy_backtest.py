@@ -1,4 +1,3 @@
-
 """
 Comprehensive integration tests for ML strategy backtest execution.
 
@@ -841,7 +840,7 @@ class TestMLStrategyBacktest:
                     # Ensure we have the right number of features
                     if features_2d.shape[1] == 10:  # Match test model
                         xgboost_test_model.predict_proba(
-                            features_2d
+                            features_2d,
                         )  # Run inference without storing result
                         inference_time_ns = time.perf_counter_ns() - inference_start
                         inference_times.append(inference_time_ns / 1_000_000)  # Convert to ms

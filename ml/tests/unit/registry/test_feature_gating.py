@@ -5,8 +5,8 @@ from pathlib import Path
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
 from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
-from ml.registry.feature_registry import LocalFeatureRegistry
 from ml.registry.feature_registry import compute_schema_hash
 
 
@@ -29,7 +29,7 @@ def _manifest_with_digests(names: list[str], dtypes: list[str]) -> FeatureManife
 
 
 def test_validate_and_promote(tmp_path: Path) -> None:
-    reg = LocalFeatureRegistry(tmp_path)
+    reg = FeatureRegistry(tmp_path)
     names = ["a", "b"]
     dtypes = ["float32", "float32"]
     m = _manifest_with_digests(names, dtypes)

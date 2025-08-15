@@ -30,16 +30,16 @@ Schema hash is computed deterministically from `(names, dtypes, pipeline_signatu
 
 ## Local Registry
 
-Use `LocalFeatureRegistry` for file-based storage:
+Use `FeatureRegistry` for file-based storage:
 
 ```python
 from pathlib import Path
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import (
-    FeatureManifest, FeatureRole, LocalFeatureRegistry, compute_schema_hash
+    FeatureManifest, FeatureRole, FeatureRegistry, compute_schema_hash
 )
 
-reg = LocalFeatureRegistry(Path("ml/features"))
+reg = FeatureRegistry(Path("ml/features"))
 manifest = FeatureManifest(...)
 fid = reg.register_feature_set(manifest)
 reg.promote(fid, FeatureStage.PROD)

@@ -1,4 +1,3 @@
-
 """
 Core utilities for feature parity validation tests.
 
@@ -76,10 +75,7 @@ class ParityTestUtils:
 
         # Check shapes match
         if batch_features.shape != online_features.shape:
-            msg = (
-                f"Feature shapes do not match: "
-                f"batch={batch_features.shape}, online={online_features.shape}"
-            )
+            msg = f"Feature shapes do not match: batch={batch_features.shape}, online={online_features.shape}"
             raise AssertionError(msg)
 
         # Handle empty arrays
@@ -213,10 +209,7 @@ class ParityTestUtils:
 
         """
         if online_time > max_latency_ms:
-            msg = (
-                f"Performance requirement violated: "
-                f"{online_time:.2f}ms > {max_latency_ms:.2f}ms"
-            )
+            msg = f"Performance requirement violated: {online_time:.2f}ms > {max_latency_ms:.2f}ms"
             raise AssertionError(msg)
 
 
@@ -735,10 +728,7 @@ class PerformanceProfiler:
         p99_latency = metrics.get("p99_latency_ms", float("inf"))
 
         if p99_latency > max_p99_latency:
-            msg = (
-                f"P99 latency requirement violated: "
-                f"{p99_latency:.2f}ms > {max_p99_latency:.2f}ms"
-            )
+            msg = f"P99 latency requirement violated: {p99_latency:.2f}ms > {max_p99_latency:.2f}ms"
             raise AssertionError(msg)
 
     def get_performance_summary(self) -> dict[str, Any]:

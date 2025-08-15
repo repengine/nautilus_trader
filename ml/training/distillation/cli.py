@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 """
 CLI to train and register a LightGBM student from teacher outputs.
 
@@ -19,7 +18,7 @@ Outputs
 -------
 - student.onnx
 - student.meta.json
-- registry entry (LocalModelRegistry)
+- registry entry (ModelRegistry)
 """
 
 import argparse
@@ -29,7 +28,7 @@ import numpy as np
 
 from ml.distillation.lightgbm_student import LightGBMStudentDistiller
 from ml.distillation.lightgbm_student import schema_hash
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
 
@@ -86,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Register in local registry
-    registry = LocalModelRegistry(Path(args.registry_dir))
+    registry = ModelRegistry(Path(args.registry_dir))
     dtypes = ["float32"] * len(feature_names)
     fschema = build_feature_schema(feature_names, dtypes)
     manifest = build_student_manifest(

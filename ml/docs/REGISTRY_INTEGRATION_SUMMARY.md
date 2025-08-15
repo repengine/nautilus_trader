@@ -7,6 +7,7 @@ A unified, self-describing model registry that integrates seamlessly with the ex
 ## Key Changes
 
 ### 1. Extended MLInferenceConfig
+
 ```python
 class MLInferenceConfig:
     # Existing (backward compatible)
@@ -20,13 +21,15 @@ class MLInferenceConfig:
 
 ### 2. Self-Describing Models
 Every model carries a `ModelManifest` with:
+
 - **Role**: Teacher, Student, Inference
 - **Data Requirements**: L1-only, L1+L2, L1+L2+L3
 - **Feature Schema**: Exact features with validation hash
 - **Constraints**: Latency, memory requirements
 - **Lineage**: Parent-child relationships
 
-### 3. Enhanced LocalModelRegistry
+### 3. Enhanced ModelRegistry
+
 - Manifest-based registration
 - Role and data requirement queries
 - Lineage tracking
@@ -35,6 +38,7 @@ Every model carries a `ModelManifest` with:
 
 ### 4. MLSignalActor Integration
 The existing `MLSignalActor` now:
+
 - Loads models from registry when `model_id` provided
 - Uses manifest features automatically
 - Validates deployment constraints
@@ -43,6 +47,7 @@ The existing `MLSignalActor` now:
 ## Usage Examples
 
 ### Register Models
+
 ```python
 # Teacher (offline, L2/L3 data)
 teacher_manifest = ModelManifest(
@@ -68,6 +73,7 @@ registry.register_model(path, manifest, auto_deploy=True)
 ```
 
 ### Use in MLSignalActor
+
 ```python
 # Direct path (existing)
 config = MLSignalActorConfig(
@@ -99,11 +105,13 @@ actor = MLSignalActor(config)  # Same actor, now manifest-aware
 Each model type has enforced contracts:
 
 **Teachers**:
+
 - Must use L2/L3 data
 - 20+ features minimum
 - Can have higher latency
 
 **Students**:
+
 - Must use L1-only data
 - Must reference teacher
 - Must have <5ms latency

@@ -1,4 +1,3 @@
-
 """
 Unit tests for ML feature validation module.
 
@@ -488,7 +487,8 @@ class TestUnifiedFeatureCalculation:
 
     def test_unified_method_batch_mode(self) -> None:
         """
-        Test unified method in batch mode produces same results as calculate_features_batch.
+        Test unified method in batch mode produces same results as
+        calculate_features_batch.
         """
         config = FeatureConfig()
         engineer = FeatureEngineer(config)
@@ -512,6 +512,7 @@ class TestUnifiedFeatureCalculation:
 
         # Should produce identical results
         import numpy as np
+
         if hasattr(features_unified, "to_numpy"):
             unified_array = features_unified.to_numpy()
             direct_array = features_direct.to_numpy()
@@ -523,7 +524,8 @@ class TestUnifiedFeatureCalculation:
 
     def test_unified_method_online_mode(self) -> None:
         """
-        Test unified method in online mode produces same results as calculate_features_online.
+        Test unified method in online mode produces same results as
+        calculate_features_online.
         """
         config = FeatureConfig()
         engineer = FeatureEngineer(config)
@@ -539,10 +541,12 @@ class TestUnifiedFeatureCalculation:
 
         # Create indicator manager
         from ml.features.engineering import IndicatorManager
+
         indicator_mgr = IndicatorManager(config)
 
         # Warm up indicators with some data
         from nautilus_trader.test_kit.stubs.data import TestDataStubs
+
         for i in range(50):
             # Create a simple bar for warmup
             bar = TestDataStubs.bar_5decimal(ts_event=i, ts_init=i)
@@ -563,6 +567,7 @@ class TestUnifiedFeatureCalculation:
 
         # Should produce identical results
         import numpy as np
+
         np.testing.assert_allclose(features_unified, features_direct, rtol=1e-10)
 
     def test_unified_method_invalid_mode(self) -> None:

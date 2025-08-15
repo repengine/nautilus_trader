@@ -1,4 +1,3 @@
-
 """
 Configuration for XGBoost model training.
 
@@ -349,8 +348,7 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
             if not HAS_OPTUNA:
                 warnings.append(
-                    "Optuna optimization requested but optuna not installed. "
-                    "Install with: pip install 'nautilus-trader[ml]'",
+                    "Optuna optimization requested but optuna not installed. Install with: pip install 'nautilus-trader[ml]'",
                 )
 
         # Check MLflow availability
@@ -359,8 +357,7 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
             if not HAS_MLFLOW:
                 warnings.append(
-                    "MLflow tracking requested but mlflow not installed. "
-                    "Install with: pip install 'nautilus-trader[ml]'",
+                    "MLflow tracking requested but mlflow not installed. Install with: pip install 'nautilus-trader[ml]'",
                 )
 
         # Check ONNX availability
@@ -369,8 +366,7 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
 
             if not HAS_ONNX_EXPORT:
                 warnings.append(
-                    "ONNX export requested but onnx tools not installed. "
-                    "Install with: pip install onnxmltools skl2onnx",
+                    "ONNX export requested but onnx tools not installed. Install with: pip install onnxmltools skl2onnx",
                 )
 
         return warnings

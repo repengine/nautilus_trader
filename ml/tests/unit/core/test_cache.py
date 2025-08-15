@@ -1,8 +1,9 @@
 """
 Unit tests for ML core cache functionality.
 
-Tests focus on observable cache behavior rather than implementation details,
-following the testing protocol principles.
+Tests focus on observable cache behavior rather than implementation details, following
+the testing protocol principles.
+
 """
 
 import numpy as np
@@ -14,17 +15,23 @@ from ml.core.cache import ReservoirSampler
 
 
 class TestLockFreeRingBuffer:
-    """Test suite for LockFreeRingBuffer behavior."""
+    """
+    Test suite for LockFreeRingBuffer behavior.
+    """
 
     def test_init_with_valid_size(self) -> None:
-        """Test buffer initialization with valid size."""
+        """
+        Test buffer initialization with valid size.
+        """
         buffer = LockFreeRingBuffer(size=10)
         assert buffer.size == 10
         assert buffer.count == 0
         assert not buffer.is_full
 
     def test_init_with_invalid_size_raises(self) -> None:
-        """Test buffer initialization with invalid size raises error."""
+        """
+        Test buffer initialization with invalid size raises error.
+        """
         with pytest.raises(ValueError, match="Buffer size must be positive"):
             LockFreeRingBuffer(size=0)
 
@@ -32,7 +39,9 @@ class TestLockFreeRingBuffer:
             LockFreeRingBuffer(size=-1)
 
     def test_append_single_value(self) -> None:
-        """Test appending single values to buffer."""
+        """
+        Test appending single values to buffer.
+        """
         buffer = LockFreeRingBuffer(size=5)
 
         buffer.append(1.0)
@@ -43,7 +52,9 @@ class TestLockFreeRingBuffer:
         assert buffer.count == 2
 
     def test_append_fills_buffer(self) -> None:
-        """Test buffer correctly reports when full."""
+        """
+        Test buffer correctly reports when full.
+        """
         buffer = LockFreeRingBuffer(size=3)
 
         buffer.append(1.0)
@@ -55,7 +66,9 @@ class TestLockFreeRingBuffer:
         assert buffer.count == 3
 
     def test_append_overwrites_oldest(self) -> None:
-        """Test ring buffer overwrites oldest values when full."""
+        """
+        Test ring buffer overwrites oldest values when full.
+        """
         buffer = LockFreeRingBuffer(size=3)
 
         # Fill buffer
@@ -71,7 +84,9 @@ class TestLockFreeRingBuffer:
         np.testing.assert_array_equal(last_values, [1.0, 2.0, 3.0])
 
     def test_append_array(self) -> None:
-        """Test appending multiple values at once."""
+        """
+        Test appending multiple values at once.
+        """
         buffer = LockFreeRingBuffer(size=5)
         values = np.array([1.0, 2.0, 3.0])
 
@@ -82,7 +97,9 @@ class TestLockFreeRingBuffer:
         np.testing.assert_array_equal(result, values)
 
     def test_get_last_with_various_sizes(self) -> None:
-        """Test retrieving last n values with different scenarios."""
+        """
+        Test retrieving last n values with different scenarios.
+        """
         buffer = LockFreeRingBuffer(size=5)
 
         # Empty buffer
@@ -100,7 +117,9 @@ class TestLockFreeRingBuffer:
         np.testing.assert_array_equal(result, [1.0, 2.0])
 
     def test_get_last_with_wraparound(self) -> None:
-        """Test retrieving values when buffer has wrapped around."""
+        """
+        Test retrieving values when buffer has wrapped around.
+        """
         buffer = LockFreeRingBuffer(size=3)
 
         # Fill and wrap buffer
@@ -112,7 +131,9 @@ class TestLockFreeRingBuffer:
         np.testing.assert_array_equal(result, [2.0, 3.0, 4.0])
 
     def test_get_window(self) -> None:
-        """Test retrieving windowed data from buffer."""
+        """
+        Test retrieving windowed data from buffer.
+        """
         buffer = LockFreeRingBuffer(size=10)
 
         # Add values
@@ -132,7 +153,9 @@ class TestLockFreeRingBuffer:
         np.testing.assert_array_equal(result, [4.0, 5.0])
 
     def test_get_window_edge_cases(self) -> None:
-        """Test window retrieval edge cases."""
+        """
+        Test window retrieval edge cases.
+        """
         buffer = LockFreeRingBuffer(size=5)
 
         # Empty buffer
@@ -156,7 +179,9 @@ class TestLockFreeRingBuffer:
         assert len(result) == 0
 
     def test_get_all_and_reset(self) -> None:
-        """Test getting all values and resetting buffer."""
+        """
+        Test getting all values and resetting buffer.
+        """
         buffer = LockFreeRingBuffer(size=5)
 
         # Add values
@@ -173,7 +198,9 @@ class TestLockFreeRingBuffer:
         assert not buffer.is_full
 
     def test_percentile_calculation(self) -> None:
-        """Test percentile calculations on buffer data."""
+        """
+        Test percentile calculations on buffer data.
+        """
         buffer = LockFreeRingBuffer(size=100)
 
         # Add values
@@ -194,7 +221,9 @@ class TestLockFreeRingBuffer:
         np.testing.assert_allclose(p95, expected_p95, rtol=1e-7)
 
     def test_mean_and_std(self) -> None:
-        """Test mean and standard deviation calculations."""
+        """
+        Test mean and standard deviation calculations.
+        """
         buffer = LockFreeRingBuffer(size=10)
 
         # Add known values
@@ -211,21 +240,29 @@ class TestLockFreeRingBuffer:
 
 
 class TestReservoirSampler:
-    """Test suite for ReservoirSampler behavior."""
+    """
+    Test suite for ReservoirSampler behavior.
+    """
 
     def test_init_with_valid_size(self) -> None:
-        """Test sampler initialization."""
+        """
+        Test sampler initialization.
+        """
         sampler = ReservoirSampler(reservoir_size=10)
         assert sampler.reservoir_size == 10
         assert sampler.count == 0
 
     def test_init_with_invalid_size_raises(self) -> None:
-        """Test sampler initialization with invalid size."""
+        """
+        Test sampler initialization with invalid size.
+        """
         with pytest.raises(ValueError, match="Reservoir size must be positive"):
             ReservoirSampler(reservoir_size=0)
 
     def test_add_samples_up_to_size(self) -> None:
-        """Test adding samples up to reservoir size."""
+        """
+        Test adding samples up to reservoir size.
+        """
         sampler = ReservoirSampler(reservoir_size=5)
 
         for i in range(5):
@@ -240,7 +277,9 @@ class TestReservoirSampler:
         assert set(samples) == {0.0, 1.0, 2.0, 3.0, 4.0}
 
     def test_reservoir_sampling_maintains_size(self) -> None:
-        """Test reservoir maintains fixed size after filling."""
+        """
+        Test reservoir maintains fixed size after filling.
+        """
         np.random.seed(42)  # Set seed for reproducibility
         sampler = ReservoirSampler(reservoir_size=5)
 
@@ -255,7 +294,9 @@ class TestReservoirSampler:
         assert len(samples) == 5  # But only keeps reservoir size
 
     def test_add_multiple_samples(self) -> None:
-        """Test adding multiple samples at once."""
+        """
+        Test adding multiple samples at once.
+        """
         np.random.seed(42)
         sampler = ReservoirSampler(reservoir_size=10)
 
@@ -266,7 +307,9 @@ class TestReservoirSampler:
         assert sampler.total_seen == 5
 
     def test_get_percentile(self) -> None:
-        """Test percentile calculation from reservoir."""
+        """
+        Test percentile calculation from reservoir.
+        """
         np.random.seed(42)
         sampler = ReservoirSampler(reservoir_size=100)
 
@@ -282,7 +325,9 @@ class TestReservoirSampler:
         np.testing.assert_allclose(p90, 89.1, rtol=0.1)
 
     def test_get_multiple_percentiles(self) -> None:
-        """Test getting multiple percentiles at once."""
+        """
+        Test getting multiple percentiles at once.
+        """
         np.random.seed(42)
         sampler = ReservoirSampler(reservoir_size=100)
 
@@ -297,7 +342,9 @@ class TestReservoirSampler:
         assert percentiles[25] < percentiles[50] < percentiles[75]
 
     def test_reset_sampler(self) -> None:
-        """Test resetting the reservoir."""
+        """
+        Test resetting the reservoir.
+        """
         sampler = ReservoirSampler(reservoir_size=5)
 
         # Add values
@@ -312,7 +359,9 @@ class TestReservoirSampler:
         assert sampler.total_seen == 0
 
     def test_edge_cases(self) -> None:
-        """Test edge cases for reservoir sampler."""
+        """
+        Test edge cases for reservoir sampler.
+        """
         sampler = ReservoirSampler(reservoir_size=5)
 
         # Get sample from empty sampler
@@ -325,16 +374,22 @@ class TestReservoirSampler:
 
 
 class TestPreAllocatedFeatureCache:
-    """Test suite for PreAllocatedFeatureCache behavior."""
+    """
+    Test suite for PreAllocatedFeatureCache behavior.
+    """
 
     def test_init_cache(self) -> None:
-        """Test cache initialization."""
+        """
+        Test cache initialization.
+        """
         cache = PreAllocatedFeatureCache(n_features=10, history_size=100)
         assert cache.n_features == 10
         assert cache.history_size == 100
 
     def test_init_with_invalid_params_raises(self) -> None:
-        """Test cache initialization with invalid parameters."""
+        """
+        Test cache initialization with invalid parameters.
+        """
         with pytest.raises(ValueError, match="features must be positive"):
             PreAllocatedFeatureCache(n_features=0, history_size=100)
 
@@ -342,7 +397,9 @@ class TestPreAllocatedFeatureCache:
             PreAllocatedFeatureCache(n_features=10, history_size=0)
 
     def test_store_and_retrieve_features(self) -> None:
-        """Test storing and retrieving features."""
+        """
+        Test storing and retrieving features.
+        """
         cache = PreAllocatedFeatureCache(n_features=5, history_size=10)
 
         # Create feature array
@@ -358,7 +415,9 @@ class TestPreAllocatedFeatureCache:
         np.testing.assert_array_equal(current, features)
 
     def test_get_feature_history(self) -> None:
-        """Test retrieving historical features."""
+        """
+        Test retrieving historical features.
+        """
         cache = PreAllocatedFeatureCache(n_features=3, history_size=5)
 
         # Add multiple feature sets
@@ -375,21 +434,25 @@ class TestPreAllocatedFeatureCache:
         np.testing.assert_array_equal(history[-1], [3.0, 3.0, 3.0])
 
     def test_buffer_wraparound(self) -> None:
-        """Test cache handles buffer wraparound correctly."""
+        """
+        Test cache handles buffer wraparound correctly.
+        """
         cache = PreAllocatedFeatureCache(n_features=2, history_size=3)
 
         # Fill beyond buffer size
         for i in range(5):
             buffer = cache.get_current_buffer()
             buffer[0] = float(i)
-            buffer[1] = float(i+1)
+            buffer[1] = float(i + 1)
             cache.store_current_features()
 
         # Check history count
         assert cache.history_count == 3  # Max is history_size
 
     def test_get_normalized_view(self) -> None:
-        """Test getting normalized feature view."""
+        """
+        Test getting normalized feature view.
+        """
         cache = PreAllocatedFeatureCache(n_features=3, history_size=10)
 
         # Store features
@@ -407,7 +470,9 @@ class TestPreAllocatedFeatureCache:
         assert normalized is not None
 
     def test_prepare_onnx_input(self) -> None:
-        """Test preparing features for ONNX inference."""
+        """
+        Test preparing features for ONNX inference.
+        """
         cache = PreAllocatedFeatureCache(n_features=5, history_size=10)
 
         # Store features
@@ -424,7 +489,9 @@ class TestPreAllocatedFeatureCache:
         assert onnx_ready.dtype == np.float32
 
     def test_get_onnx_input_buffer(self) -> None:
-        """Test getting pre-allocated ONNX input buffer."""
+        """
+        Test getting pre-allocated ONNX input buffer.
+        """
         cache = PreAllocatedFeatureCache(n_features=4, history_size=10)
 
         # Get ONNX buffer
@@ -435,7 +502,9 @@ class TestPreAllocatedFeatureCache:
         assert buffer.dtype == np.float32
 
     def test_cache_reset(self) -> None:
-        """Test resetting cache to initial state."""
+        """
+        Test resetting cache to initial state.
+        """
         cache = PreAllocatedFeatureCache(n_features=3, history_size=5)
 
         # Add some features
@@ -454,10 +523,14 @@ class TestPreAllocatedFeatureCache:
 
 
 class TestCacheIntegration:
-    """Integration tests for cache components working together."""
+    """
+    Integration tests for cache components working together.
+    """
 
     def test_ring_buffer_and_percentile_tracking(self) -> None:
-        """Test using ring buffer for percentile tracking."""
+        """
+        Test using ring buffer for percentile tracking.
+        """
         # Simulate tracking prediction confidence
         confidence_buffer = LockFreeRingBuffer(size=100)
 
@@ -479,7 +552,9 @@ class TestCacheIntegration:
         assert p50 < p95 <= 1
 
     def test_feature_cache_with_ring_buffer_history(self) -> None:
-        """Test combining feature cache with ring buffer for metrics."""
+        """
+        Test combining feature cache with ring buffer for metrics.
+        """
         feature_cache = PreAllocatedFeatureCache(n_features=5, history_size=50)
         metric_buffer = LockFreeRingBuffer(size=50)
 
@@ -505,7 +580,9 @@ class TestCacheIntegration:
         np.testing.assert_allclose(last_metric, expected_metric, rtol=1e-5)
 
     def test_reservoir_sampler_for_outlier_detection(self) -> None:
-        """Test using reservoir sampler for outlier detection."""
+        """
+        Test using reservoir sampler for outlier detection.
+        """
         np.random.seed(42)
         sampler = ReservoirSampler(reservoir_size=100)
         outlier_buffer = LockFreeRingBuffer(size=10)

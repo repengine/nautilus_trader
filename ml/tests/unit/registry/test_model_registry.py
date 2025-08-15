@@ -13,7 +13,7 @@ from ml._imports import HAS_ONNX
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 
 
 @pytest.mark.skipif(not HAS_ONNX, reason="ONNX not installed")
@@ -41,7 +41,7 @@ def test_model_registry_register_load_deploy_lineage() -> None:
         onnx_path = base / "model.onnx"
         onnx.save(model, str(onnx_path))
 
-        registry = LocalModelRegistry(base)
+        registry = ModelRegistry(base)
 
         manifest = ModelManifest(
             model_id="",

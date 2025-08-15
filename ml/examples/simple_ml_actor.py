@@ -1,4 +1,3 @@
-
 """
 Example of a simple ML actor using the configuration adapter pattern.
 

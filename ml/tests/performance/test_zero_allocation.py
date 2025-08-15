@@ -1,4 +1,3 @@
-
 """
 Tests for verifying zero-allocation hot path in ML infrastructure.
 
@@ -296,10 +295,9 @@ class TestZeroAllocationHotPath:
         total_allocated = sum(stat.size_diff for stat in ml_allocations)
 
         # Allow small allocation for Python overhead, but should be minimal
-        assert total_allocated < 10000, (
-            f"Hot path allocated {total_allocated} bytes, expected near zero. "
-            f"Allocations: {ml_allocations[:5]}"
-        )
+        assert (
+            total_allocated < 10000
+        ), f"Hot path allocated {total_allocated} bytes, expected near zero. Allocations: {ml_allocations[:5]}"
 
     def test_feature_parity_with_views(self, setup_bar_data: tuple[BarType, list[Bar]]) -> None:
         """

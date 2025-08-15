@@ -184,8 +184,7 @@ def main():
             results = manager.run_maintenance()
 
             logger.info(
-                f"Maintenance complete - Created: {results['created']}, "
-                f"Removed: {results['removed']}",
+                f"Maintenance complete - Created: {results['created']}, Removed: {results['removed']}",
             )
 
             # Log statistics

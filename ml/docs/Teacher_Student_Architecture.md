@@ -9,6 +9,7 @@ The approach ensures train↔serve parity, tight latency budgets (<5 ms p99), an
 clean deployment/rollback via the model registries.
 
 ## Architecture Overview
+
 - Teacher (offline): Temporal Fusion Transformer (TFT) or other heavy model trained with rich features (L2/L3 allowed). Outputs calibrated probabilities on a st
 udent window.
 - Student (online): LightGBM distilled on L1-only features to mimic teacher prob
@@ -24,6 +25,7 @@ ma, computes L1 features online, infers probability, and publishes `MLSignal`.
 dence), applies thresholds and risk rules, and places orders.
 
 ## Data and Feature Parity
+
 - Offline features (teacher): May include L2/L3 microstructure and order‑flow; u
 sed to generate high‑quality targets.
 - Online features (student): Must be strictly L1‑derivable; defined by `FeatureC
@@ -36,6 +38,7 @@ ithin tolerance.
 _schema_hash` to assert online parity at load time.
 
 ## End‑to‑End Flow
+
 1) Train Teacher (offline)
 2) Calibrate Teacher outputs (Platt/Isotonic)
 3) Distill Student on L1‑only features using soft labels
@@ -46,6 +49,7 @@ _schema_hash` to assert online parity at load time.
 8) Actor loads active model and serves signals; strategy trades
 
 ## Pseudocode — Teacher Training + Calibration
+
 ```python
 # Build rich dataset (omitted): L1/L2/L3 features, target.
 from TFT_teacher_model import TFTTeacher, TFTTeacherConfig
@@ -64,6 +68,7 @@ np.savez('teacher_preds.npz', q_train=q_val, y_val_true=y_val_true)
 ```
 
 ## Pseudocode — Student Distillation + Export
+
 ```python
 from lightgbm_student_model import LightGBMStudentDistiller
 
@@ -92,6 +97,7 @@ assert acc['skipped'] or acc['pass']
 ```
 
 ## Pseudocode — Distillation Registry (Training‑Side)
+
 ```python
 from ml.registry.model_registry import DistillationRegistry, ModelVersion
 
@@ -130,9 +136,10 @@ assert ok
 ```
 
 ## Pseudocode — Production Manifest + Local Deployment
+
 ```python
 from ml.registry.base import ModelManifest, ModelRole, DataRequirements
-from ml.registry.local_registry import LocalModelRegistry
+from ml.registry.local_registry import ModelRegistry
 
 # Build manifest from sidecar metadata
 meta = json.load(open('distilled_model/student.meta.json'))
@@ -151,12 +158,13 @@ manifest = ModelManifest(
     deployment_constraints={'max_latency_ms': 5.0},
 )
 
-local = LocalModelRegistry(Path('prod_registry'))
+local = ModelRegistry(Path('prod_registry'))
 model_id = local.register_model(Path(onnx_path), manifest, auto_deploy=True)
 print('Deployed model:', model_id)
 ```
 
 ## Pseudocode — Actor Inference (ONNXMLInferenceActor)
+
 ```python
 # On start:
 model, metadata = model_loader.load_model(config.model_path)      # ONNX + merge
@@ -174,6 +182,7 @@ publish(MLSignal(instrument_id, model_id, prediction=p, confidence=confidence))
 ```
 
 ## Pseudocode — Strategy Consumption (MLTradingStrategy)
+
 ```python
 # on_data(MLSignal):
 if signal.confidence >= cfg.min_confidence:

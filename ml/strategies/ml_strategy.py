@@ -1,4 +1,3 @@
-
 """
 ML Trading Strategy implementation with multi-model support.
 
@@ -7,6 +6,7 @@ This module provides a production-ready ML strategy that can:
 - Filter signals by model_id
 - Aggregate signals for consensus trading
 - Track model performance over time
+
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ class MLTradingStrategy(BaseMLStrategy):
     - conflict_resolution: How to handle conflicting signals
     - model_weights: Dict of model_id -> weight for weighted averaging
     - track_performance: Whether to track per-model performance
+
     """
 
     def _process_ml_signal(self, signal: MLSignal) -> None:
@@ -54,6 +55,7 @@ class MLTradingStrategy(BaseMLStrategy):
         ----------
         signal : MLSignal
             The ML signal to process (may be aggregated).
+
         """
         current_position = self._get_current_position()
 
@@ -72,7 +74,7 @@ class MLTradingStrategy(BaseMLStrategy):
             f"Processing ML signal from {model_id}: "
             f"prediction={signal.prediction:.3f}, "
             f"confidence={signal.confidence:.3f}, "
-            f"direction={signal_direction}"
+            f"direction={signal_direction}",
         )
 
         # Check if we need to change position
@@ -87,8 +89,7 @@ class MLTradingStrategy(BaseMLStrategy):
         else:
             # Position aligns with signal
             self.log.debug(
-                f"Position already {current_position.side.name}, "
-                f"aligns with signal direction {signal_direction}"
+                f"Position already {current_position.side.name}, aligns with signal direction {signal_direction}",
             )
 
             # Could add logic here to increase position size or adjust stops
@@ -103,11 +104,12 @@ class MLTradingStrategy(BaseMLStrategy):
             The side to enter (BUY or SELL).
         signal : MLSignal
             The signal triggering the entry.
+
         """
         quantity = self._calculate_position_size()
         if quantity is None:
             self.log.warning(
-                f"Cannot enter position due to sizing failure for {signal.instrument_id}"
+                f"Cannot enter position due to sizing failure for {signal.instrument_id}",
             )
             return
 
@@ -118,7 +120,7 @@ class MLTradingStrategy(BaseMLStrategy):
         # Track the signal that triggered this trade
         model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
         self.log.info(
-            f"Entering {side.name} position: {quantity} units based on signal from {model_id}"
+            f"Entering {side.name} position: {quantity} units based on signal from {model_id}",
         )
 
         # Store signal info for performance tracking
@@ -142,13 +144,12 @@ class MLTradingStrategy(BaseMLStrategy):
             The new target side.
         signal : MLSignal
             The signal triggering the reversal.
+
         """
         # Close current position first
         close_side = OrderSide.SELL if current_position.side.name == "LONG" else OrderSide.BUY
 
-        self.log.info(
-            f"Reversing position from {current_position.side.name} to {target_side.name}"
-        )
+        self.log.info(f"Reversing position from {current_position.side.name} to {target_side.name}")
 
         # Close existing position
         self._place_market_order(
@@ -160,9 +161,7 @@ class MLTradingStrategy(BaseMLStrategy):
         # Open new position in opposite direction
         quantity = self._calculate_position_size()
         if quantity is None:
-            self.log.warning(
-                "Closed position but cannot open new one due to sizing failure"
-            )
+            self.log.warning("Closed position but cannot open new one due to sizing failure")
             return
 
         order_id = self._place_market_order(target_side, quantity)
@@ -191,10 +190,11 @@ class MLTradingStrategy(BaseMLStrategy):
         -------
         bool
             True if position should be reversed.
+
         """
         return bool(
             (current_position.side.name == "LONG" and target_side == OrderSide.SELL)
-            or (current_position.side.name == "SHORT" and target_side == OrderSide.BUY)
+            or (current_position.side.name == "SHORT" and target_side == OrderSide.BUY),
         )
 
     def _track_trade_entry(
@@ -214,6 +214,7 @@ class MLTradingStrategy(BaseMLStrategy):
             The signal that triggered the trade.
         order_id : ClientOrderId
             The order ID for tracking.
+
         """
         # Store mapping of order_id to model_id for later performance tracking
         if not hasattr(self, "_order_to_model"):
@@ -233,6 +234,7 @@ class MLTradingStrategy(BaseMLStrategy):
         ----------
         event : OrderFilled
             The order filled event.
+
         """
         super().on_order_filled(event)
 
@@ -257,9 +259,7 @@ class MLTradingStrategy(BaseMLStrategy):
                 # Update model performance
                 self._update_model_performance(model_id, pnl)
 
-                self.log.info(
-                    f"Trade completed for model {model_id}: P&L = {pnl:.2f}"
-                )
+                self.log.info(f"Trade completed for model {model_id}: P&L = {pnl:.2f}")
 
                 # Clean up tracking
                 del self._order_to_model[order_id]
@@ -274,6 +274,7 @@ class MultiModelMLStrategy(MLTradingStrategy):
     - Weighted consensus decisions
     - Model performance-based dynamic weighting
     - Conflict resolution strategies
+
     """
 
     def __init__(self, config: Any) -> None:
@@ -284,6 +285,7 @@ class MultiModelMLStrategy(MLTradingStrategy):
         ----------
         config : MLStrategyConfig
             The strategy configuration.
+
         """
         super().__init__(config)
 
@@ -299,6 +301,7 @@ class MultiModelMLStrategy(MLTradingStrategy):
         -------
         dict[str, float]
             Model weights based on historical performance.
+
         """
         if not self._model_performance:
             # No performance data yet, use equal weights
@@ -333,6 +336,7 @@ class MultiModelMLStrategy(MLTradingStrategy):
         ----------
         signal : MLSignal
             The signal to aggregate.
+
         """
         # Update model weights if using dynamic weighting
         if self.use_dynamic_weights:

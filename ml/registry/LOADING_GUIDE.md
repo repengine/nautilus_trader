@@ -16,10 +16,10 @@ This guide provides comprehensive documentation on how to load and query items f
 
 ```python
 from pathlib import Path
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.registry.base import ModelRole, DataRequirements, DeploymentStatus
 
-registry = LocalModelRegistry(Path("registry"))
+registry = ModelRegistry(Path("registry"))
 
 # 1. Load by model_id (returns ONNX InferenceSession)
 model_session = registry.load_model("lgb_student_v1")
@@ -84,10 +84,10 @@ model_info.file_path                   # Path("models/lgb_student_v1.onnx")
 ### Primary Loading Methods
 
 ```python
-from ml.registry.feature_registry import LocalFeatureRegistry
+from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole, FeatureStage
 
-feature_registry = LocalFeatureRegistry(Path("registry"))
+feature_registry = FeatureRegistry(Path("registry"))
 
 # 1. Load by feature_set_id
 manifest = feature_registry.get_feature_set("student_features_v1")
@@ -157,10 +157,10 @@ manifest.constraints          # {"max_latency_ms": 0.5, "min_bars_warmup": 20}
 ### Primary Loading Methods
 
 ```python
-from ml.registry.strategy_registry import LocalStrategyRegistry
+from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.strategy_registry import StrategyType, MarketRegime
 
-strategy_registry = LocalStrategyRegistry(Path("registry"))
+strategy_registry = StrategyRegistry(Path("registry"))
 
 # 1. Load by strategy_id
 strategy_info = strategy_registry.get_strategy("ml_momentum_v1")
@@ -269,9 +269,9 @@ manifest.description         # "Momentum strategy using ML signals"
 ```python
 from pathlib import Path
 from ml.registry import (
-    LocalModelRegistry,
-    LocalFeatureRegistry,
-    LocalStrategyRegistry,
+    ModelRegistry,
+    FeatureRegistry,
+    StrategyRegistry,
     FeatureStage,
     DeploymentStatus
 )
@@ -280,9 +280,9 @@ def setup_trading_session(strategy_id: str, base_path: Path):
     """Load and validate all components for a trading session."""
 
     # Initialize registries
-    model_registry = LocalModelRegistry(base_path / "models")
-    feature_registry = LocalFeatureRegistry(base_path / "features")
-    strategy_registry = LocalStrategyRegistry(base_path / "strategies")
+    model_registry = ModelRegistry(base_path / "models")
+    feature_registry = FeatureRegistry(base_path / "features")
+    strategy_registry = StrategyRegistry(base_path / "strategies")
 
     # 1. Load strategy
     strategy = strategy_registry.get_strategy(strategy_id)
@@ -359,7 +359,7 @@ def find_best_model(
 ) -> str | None:
     """Find the best performing model matching constraints."""
 
-    registry = LocalModelRegistry(Path("registry"))
+    registry = ModelRegistry(Path("registry"))
 
     # Get all candidates
     candidates = registry.get_models_by_role(role)
@@ -398,7 +398,7 @@ def setup_ab_test(
 ):
     """Setup A/B test between two models."""
 
-    registry = LocalModelRegistry(Path("registry"))
+    registry = ModelRegistry(Path("registry"))
 
     # Verify both models exist and are compatible
     control = registry.get_model(control_model_id)
@@ -437,7 +437,7 @@ def setup_ab_test(
 def safe_model_load(model_id: str) -> Any:
     """Load model with comprehensive error handling."""
 
-    registry = LocalModelRegistry(Path("registry"))
+    registry = ModelRegistry(Path("registry"))
 
     try:
         # Check if registered
@@ -474,8 +474,8 @@ def validate_feature_model_compatibility(
 ) -> bool:
     """Validate that features and model are compatible."""
 
-    feature_registry = LocalFeatureRegistry(Path("registry/features"))
-    model_registry = LocalModelRegistry(Path("registry/models"))
+    feature_registry = FeatureRegistry(Path("registry/features"))
+    model_registry = ModelRegistry(Path("registry/models"))
 
     feature = feature_registry.get_feature_set(feature_id)
     model = model_registry.get_model(model_id)

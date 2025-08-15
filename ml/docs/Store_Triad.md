@@ -7,17 +7,17 @@
 
   Nautilus Conventions:
 
-  - Timestamps: Always use ts_event (when data occurred) and ts_init (when object created) as BIGINT nanoseconds
-  - Data inheritance: All data extends from nautilus_trader.core.data.Data base class
-  - Tables: Use BIGSERIAL for auto-incrementing IDs, TEXT for strings/IDs
-  - Persistence: Unified through PersistenceManager with JSON/PostgreSQL backends
+- Timestamps: Always use ts_event (when data occurred) and ts_init (when object created) as BIGINT nanoseconds
+- Data inheritance: All data extends from nautilus_trader.core.data.Data base class
+- Tables: Use BIGSERIAL for auto-incrementing IDs, TEXT for strings/IDs
+- Persistence: Unified through PersistenceManager with JSON/PostgreSQL backends
 
   ML Patterns:
 
-  - Hot/Cold separation: Actors for real-time, batch processing for historical
-  - Pre-allocated buffers: numpy arrays for zero-allocation hot path
-  - Registry pattern: Metadata in registries, data values need separate stores
-  - Monitoring: Prometheus metrics integrated throughout
+- Hot/Cold separation: Actors for real-time, batch processing for historical
+- Pre-allocated buffers: numpy arrays for zero-allocation hot path
+- Registry pattern: Metadata in registries, data values need separate stores
+- Monitoring: Prometheus metrics integrated throughout
 
   🏗️ Implementation Architecture
 
@@ -142,7 +142,7 @@
   class FeatureStore(BaseStore):
       """
       Store for computed feature values with PostgreSQL backend.
-      
+
       Handles both historical and live feature persistence with
       efficient batching and partitioning.
       """
@@ -211,7 +211,7 @@
 
               session.execute(
                   text("""
-                      INSERT INTO feature_values 
+                      INSERT INTO feature_values
                       (feature_set_id, instrument_id, ts_event, ts_init, values, is_live)
                       VALUES (:feature_set_id, :instrument_id, :ts_event, :ts_init, :values, :is_live)
                   """),
@@ -279,7 +279,7 @@
   class FeaturePersistenceActor(Actor):
       """
       Actor for persisting computed features to FeatureStore.
-      
+
       Subscribes to feature computations and persists them
       efficiently with batching.
       """
@@ -320,7 +320,7 @@
           data_loader: DatabentoDataLoader,
           feature_engineer: FeatureEngineer,
           feature_store: FeatureStore,
-          feature_registry: LocalFeatureRegistry,
+          feature_registry: FeatureRegistry,
       ):
           self.data_loader = data_loader
           self.feature_engineer = feature_engineer
@@ -442,8 +442,8 @@
           self.strategy_store = StrategyStore(self.persistence_config)
 
           # Registries
-          self.feature_registry = LocalFeatureRegistry(...)
-          self.model_registry = LocalModelRegistry(...)
+          self.feature_registry = FeatureRegistry(...)
+          self.model_registry = ModelRegistry(...)
 
           # Data components
           self.databento_client = DatabentoLiveDataClient(...)
@@ -476,37 +476,37 @@
 
   Week 1: Core FeatureStore
 
-  - Create database schemas and migrations
-  - Implement FeatureStore with PostgreSQL backend
-  - Add batching and partitioning logic
-  - Write comprehensive tests
+- Create database schemas and migrations
+- Implement FeatureStore with PostgreSQL backend
+- Add batching and partitioning logic
+- Write comprehensive tests
 
   Week 2: Integration Layer
 
-  - Build FeaturePersistenceActor
-  - Implement backfill orchestrator
-  - Connect to Databento for historical data
-  - Test end-to-end data flow
+- Build FeaturePersistenceActor
+- Implement backfill orchestrator
+- Connect to Databento for historical data
+- Test end-to-end data flow
 
   Week 3: Additional Stores
 
-  - Implement ModelStore
-  - Implement StrategyStore
-  - Add monitoring and metrics
-  - Performance optimization
+- Implement ModelStore
+- Implement StrategyStore
+- Add monitoring and metrics
+- Performance optimization
 
   Week 4: Production Readiness
 
-  - Complete integration testing
-  - Performance benchmarking
-  - Documentation
-  - Deployment scripts
+- Complete integration testing
+- Performance benchmarking
+- Documentation
+- Deployment scripts
 
   🎯 Success Metrics
 
-  - Performance: < 10ms write latency, < 100ms query latency
-  - Scalability: Handle 1M+ features/day
-  - Reliability: 99.9% uptime, automatic recovery
-  - Consistency: Perfect feature parity between training/inference
+- Performance: < 10ms write latency, < 100ms query latency
+- Scalability: Handle 1M+ features/day
+- Reliability: 99.9% uptime, automatic recovery
+- Consistency: Perfect feature parity between training/inference
 
   This plan provides a production-ready FeatureStore that integrates seamlessly with your existing Nautilus Trader and ML infrastructure.
