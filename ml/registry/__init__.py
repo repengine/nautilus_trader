@@ -19,18 +19,17 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
-from ml.registry.base import ModelRegistry
 from ml.registry.base import ModelRole
 from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import RolloutPlan
 from ml.registry.dataclasses import ValidationResult
-from ml.registry.feature_registry import LocalFeatureRegistry
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.registry.statistics import calculate_sample_size
 from ml.registry.statistics import welch_t_test
-from ml.registry.strategy_registry import LocalStrategyRegistry
+from ml.registry.strategy_registry import StrategyRegistry
 
 
 __all__ = [
@@ -38,15 +37,14 @@ __all__ = [
     "CanaryDeployment",
     "DataRequirements",
     "DeploymentStatus",
-    "LocalFeatureRegistry",
-    "LocalModelRegistry",
-    "LocalStrategyRegistry",
+    "FeatureRegistry",
     "ModelInfo",
     "ModelManifest",
     "ModelRegistry",
     "ModelRole",
     "QualityGate",
     "RolloutPlan",
+    "StrategyRegistry",
     "ValidationResult",
     "calculate_sample_size",
     "welch_t_test",

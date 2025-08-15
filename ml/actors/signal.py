@@ -62,7 +62,7 @@ from ml.config.names import SIGNAL_LATENCY_BUCKETS
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
-from ml.registry.feature_registry import LocalFeatureRegistry
+from ml.registry.feature_registry import FeatureRegistry
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from nautilus_trader.model.data import Bar
@@ -1005,7 +1005,7 @@ class MLSignalActor(BaseMLInferenceActor):
             and config.registry_path is not None
         ):
             try:
-                freg = LocalFeatureRegistry(Path(config.registry_path))
+                freg = FeatureRegistry(Path(config.registry_path))
                 feature_info = freg.get_feature_set(config.feature_set_id)
                 manifest = feature_info.manifest if feature_info else None
             except Exception as e:  # pragma: no cover - safety

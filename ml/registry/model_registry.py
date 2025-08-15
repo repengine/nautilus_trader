@@ -25,7 +25,6 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
-from ml.registry.base import ModelRegistry
 from ml.registry.base import ModelRole
 from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
@@ -42,12 +41,13 @@ from ml.registry.statistics import welch_t_test
 logger = logging.getLogger(__name__)
 
 
-class LocalModelRegistry(ModelRegistry):
+class ModelRegistry:
     """
-    Local file-based model registry using JSON for persistence.
+    Model registry with configurable persistence backend.
 
-    This registry stores all model information in a local JSON file, providing a
-    lightweight solution for model lifecycle management without external dependencies.
+    This registry can use either JSON files or PostgreSQL for persistence, providing
+    a flexible solution for model lifecycle management in both development and
+    production environments.
 
     Thread-safe for concurrent operations.
 
@@ -111,7 +111,7 @@ class LocalModelRegistry(ModelRegistry):
         self._load_registry()
 
         logger.info(
-            "Initialized LocalModelRegistry at %s with backend=%s, cache_size=%s, "
+            "Initialized ModelRegistry at %s with backend=%s, cache_size=%s, "
             "batch_save_interval=%ss",
             registry_path,
             self.backend.value,

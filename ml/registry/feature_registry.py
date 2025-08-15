@@ -150,7 +150,7 @@ class FeatureInfo:
     artifacts: dict[str, str] = field(default_factory=dict)
 
 
-class LocalFeatureRegistry:
+class FeatureRegistry:
     """
     Feature registry with configurable persistence backend.
 

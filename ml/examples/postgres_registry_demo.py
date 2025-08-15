@@ -18,7 +18,7 @@ from ml.config.constants import SUFFIX_ONNX
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import LocalModelRegistry
+from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 
@@ -31,7 +31,7 @@ def demo_json_backend() -> None:
 
     # Create registry with JSON backend (default)
     registry_path = Path(".cache/ml_registry_json")
-    registry = LocalModelRegistry(
+    registry = ModelRegistry(
         registry_path=registry_path,
         cache_size=10,
         batch_save_interval=0.1,
@@ -96,7 +96,7 @@ def demo_postgres_backend() -> None:
 
     # Create registry with PostgreSQL backend
     registry_path = Path(".cache/ml_registry_postgres")
-    registry = LocalModelRegistry(
+    registry = ModelRegistry(
         registry_path=registry_path,  # Still needed for model file storage
         cache_size=10,
         batch_save_interval=0.1,
@@ -218,7 +218,7 @@ def demo_migration() -> None:
     print("\n=== Migration Demo ===")
 
     # Step 1: Load existing JSON registry
-    json_registry = LocalModelRegistry(
+    json_registry = ModelRegistry(
         registry_path=Path(".cache/ml_registry_json"),
     )
 
@@ -228,7 +228,7 @@ def demo_migration() -> None:
         connection_string="postgresql://postgres:postgres@localhost:5432/nautilus",
     )
 
-    postgres_registry = LocalModelRegistry(
+    postgres_registry = ModelRegistry(
         registry_path=Path(".cache/ml_registry_postgres"),
         persistence_config=postgres_config,
     )

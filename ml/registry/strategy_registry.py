@@ -160,7 +160,7 @@ class StrategyInfo:
 # =================================================================================================
 
 
-class LocalStrategyRegistry:
+class StrategyRegistry:
     """
     Strategy registry with configurable persistence backend.
 

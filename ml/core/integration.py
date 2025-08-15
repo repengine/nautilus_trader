@@ -17,10 +17,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
-from ml.registry.feature_registry import FeatureRegistry
-from ml.registry.model_registry import ModelRegistry
+from ml.registry import FeatureRegistry, ModelRegistry, StrategyRegistry
 from ml.registry.persistence import PersistenceConfig, PersistenceManager
-from ml.registry.strategy_registry import StrategyRegistry
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.partition_manager import PartitionManager
@@ -145,17 +143,29 @@ class MLIntegrationManager:
     
     def _init_registries(self) -> None:
         """Initialize all registry components."""
-        # Create persistence manager for registries
+        # Create persistence config for registries
         persistence_config = PersistenceConfig(
             backend="postgres",
             connection_string=self.db_connection,
         )
-        self.persistence_manager = PersistenceManager(persistence_config)
         
-        # Initialize registries with database backend
-        self.feature_registry = FeatureRegistry(self.persistence_manager)
-        self.model_registry = ModelRegistry(self.persistence_manager)
-        self.strategy_registry = StrategyRegistry(self.persistence_manager)
+        # Create a registry path (for file storage)
+        registry_path = Path("./ml_registry")
+        registry_path.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize registries with PostgreSQL backend
+        self.feature_registry = FeatureRegistry(
+            registry_path=registry_path / "features",
+            persistence_config=persistence_config,
+        )
+        self.model_registry = ModelRegistry(
+            registry_path=registry_path / "models",
+            persistence_config=persistence_config,
+        )
+        self.strategy_registry = StrategyRegistry(
+            base_path=registry_path / "strategies",
+            persistence_config=persistence_config,
+        )
     
     def _init_partition_manager(self) -> None:
         """Initialize partition management."""
