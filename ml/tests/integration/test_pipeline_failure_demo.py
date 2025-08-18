@@ -8,10 +8,11 @@ in the ML pipeline by providing detailed failure information.
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from ml.actors.signal import MLSignalActor
-from ml.config.actors import MLSignalActorConfig
+from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.tests.fixtures.model_factory import TestModelFactory
 from ml.tests.integration.test_data_event_tracing import DataEventTracer
@@ -31,7 +32,7 @@ from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
-def simulate_feature_computation_failure():
+def simulate_feature_computation_failure() -> None:
     """Simulate a failure during feature computation."""
     tracer = DataEventTracer(verbose=True)
 
@@ -104,8 +105,8 @@ def simulate_feature_computation_failure():
                 low=Price.from_str(f"{99 + i * 0.1:.2f}"),
                 close=Price.from_str(f"{100.5 + i * 0.1:.2f}"),
                 volume=Quantity.from_int(1000 + i * 100),
-                ts_event=dt_to_unix_nanos(datetime.utcnow()) + i * 60_000_000_000,
-                ts_init=dt_to_unix_nanos(datetime.utcnow()) + i * 60_000_000_000,
+                ts_event=dt_to_unix_nanos(cast(Any, datetime.utcnow())) + i * 60_000_000_000,
+                ts_init=dt_to_unix_nanos(cast(Any, datetime.utcnow())) + i * 60_000_000_000,
             )
             actor.on_bar(bar)
 
@@ -118,7 +119,7 @@ def simulate_feature_computation_failure():
     print("\n" + tracer.get_failure_report())
 
 
-def simulate_model_inference_failure():
+def simulate_model_inference_failure() -> None:
     """Simulate a failure during model inference."""
     tracer = DataEventTracer(verbose=True)
 
@@ -176,7 +177,7 @@ def simulate_model_inference_failure():
     print("\n" + tracer.get_failure_report())
 
 
-def simulate_store_persistence_failure():
+def simulate_store_persistence_failure() -> None:
     """Simulate a failure when persisting to stores."""
     tracer = DataEventTracer(verbose=True)
 

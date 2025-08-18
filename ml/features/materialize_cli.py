@@ -15,6 +15,7 @@ Two modes:
 
 import argparse
 from pathlib import Path
+from typing import Any, cast
 
 from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies
@@ -85,10 +86,12 @@ def main(argv: list[str] | None = None) -> int:
     # Prepend index/group columns if present in input
     columns_out: list[str] = []
     if "time_index" in df.columns:
-        out_df.insert(0, "time_index", df["time_index"])  # type: ignore[index]
+        out_df_typed = cast(Any, out_df)
+        out_df_typed.insert(0, "time_index", df["time_index"])  # pandas indexing
         columns_out.append("time_index")
     if "instrument_id" in df.columns:
-        out_df.insert(len(columns_out), "instrument_id", df["instrument_id"])  # type: ignore[index]
+        out_df_typed = cast(Any, out_df)
+        out_df_typed.insert(len(columns_out), "instrument_id", df["instrument_id"])  # pandas indexing
         columns_out.append("instrument_id")
     # Append target if requested and present
     if args.target_col and args.target_col in df.columns:

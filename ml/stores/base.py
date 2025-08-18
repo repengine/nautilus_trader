@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class FeatureData(Data):
+class FeatureData(Data):  # type: ignore[misc]
     """
     Nautilus-compatible feature data class.
 
@@ -62,7 +62,7 @@ class FeatureData(Data):
 
 
 @dataclass
-class ModelPrediction(Data):
+class ModelPrediction(Data):  # type: ignore[misc]
     """
     Store model predictions and inference metadata.
 
@@ -112,7 +112,7 @@ class ModelPrediction(Data):
 
 
 @dataclass
-class StrategySignal(Data):
+class StrategySignal(Data):  # type: ignore[misc]
     """
     Store strategy decisions and execution signals.
 
@@ -278,32 +278,32 @@ class DummyStore:
 
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """
         Initialize dummy store (accepts any arguments).
         """
 
-    def write_features(self, *args, **kwargs) -> None:
+    def write_features(self, *args: Any, **kwargs: Any) -> None:
         """
         Dummy write features.
         """
 
-    def write_prediction(self, *args, **kwargs) -> None:
+    def write_prediction(self, *args: Any, **kwargs: Any) -> None:
         """
         Dummy write prediction.
         """
 
-    def write_signal(self, *args, **kwargs) -> None:
+    def write_signal(self, *args: Any, **kwargs: Any) -> None:
         """
         Dummy write signal.
         """
 
-    def flush(self, *args, **kwargs) -> None:
+    def flush(self, *args: Any, **kwargs: Any) -> None:
         """
         Dummy flush.
         """
 
-    def get_stats(self, *args, **kwargs) -> dict[str, Any]:
+    def get_stats(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
         Dummy get stats.
         """
@@ -315,7 +315,7 @@ class DummyStore:
         """
         return True
 
-    def get_latest(self, *args, **kwargs) -> None:
+    def get_latest(self, *args: Any, **kwargs: Any) -> None:
         """
         Dummy get latest.
         """
@@ -326,7 +326,7 @@ class DummyStore:
         Handle any other method calls.
         """
 
-        def dummy_method(*args, **kwargs):
-            pass
+        def dummy_method(*args: Any, **kwargs: Any) -> None:
+            return None
 
         return dummy_method

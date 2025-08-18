@@ -45,8 +45,10 @@ def test_model_manifest_feature_dtype_mismatch_raises() -> None:
         # We indirectly trigger via the public method path; tests are allowed to use internals here
         actual_names = actor._feature_engineer.config.get_feature_names()
         actual_dtypes = ["float32"] * len(actual_names)
+        from ml.registry.base import DataRequirements
+        from ml.registry.base import ModelManifest
+        from ml.registry.base import ModelRole
         from ml.registry.utils import assert_features_compatible
-        from ml.registry.base import DataRequirements, ModelManifest, ModelRole
 
         tmp_manifest = ModelManifest(
             model_id="__validation__",
@@ -64,14 +66,16 @@ def test_model_manifest_feature_dtype_match_passes() -> None:
     names = actor._feature_engineer.config.get_feature_names()
     actor._manifest_feature_names = list(names)
     actor._manifest_feature_schema_hash = "abc123"
-    manifest_schema = {n: "float32" for n in names}
+    manifest_schema = dict.fromkeys(names, "float32")
     actor._model_metadata = {"feature_schema": manifest_schema}
 
     # Should not raise
     actual_names = actor._feature_engineer.config.get_feature_names()
     actual_dtypes = ["float32"] * len(actual_names)
+    from ml.registry.base import DataRequirements
+    from ml.registry.base import ModelManifest
+    from ml.registry.base import ModelRole
     from ml.registry.utils import assert_features_compatible
-    from ml.registry.base import DataRequirements, ModelManifest, ModelRole
 
     tmp_manifest = ModelManifest(
         model_id="__validation__",
@@ -82,4 +86,3 @@ def test_model_manifest_feature_dtype_match_passes() -> None:
         feature_schema_hash=actor._manifest_feature_schema_hash,
     )
     assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
-

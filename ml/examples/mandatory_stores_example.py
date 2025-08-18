@@ -7,8 +7,10 @@ configuration required from the user.
 
 """
 
+from typing import cast
 
 import numpy as np
+import numpy.typing as npt
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
@@ -51,7 +53,7 @@ class ProductionMLActor(BaseMLInferenceActor):
         print(f"  - Model store: {type(self._model_store).__name__}")
         print(f"  - Strategy store: {type(self._strategy_store).__name__}")
 
-    def on_start(self):
+    def on_start(self) -> None:
         """
         Called when actor starts.
 
@@ -64,7 +66,7 @@ class ProductionMLActor(BaseMLInferenceActor):
         super().on_start()
         print("Actor started with automatic data persistence enabled")
 
-    def _compute_features(self, bar: Bar) -> np.ndarray:
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32]:
         """
         Compute features from market data.
 
@@ -73,14 +75,14 @@ class ProductionMLActor(BaseMLInferenceActor):
 
         """
         # Example feature computation
-        features = np.random.randn(len(self.feature_names)).astype(np.float32)
+        features: npt.NDArray[np.float32] = np.random.randn(len(self.feature_names)).astype(np.float32)
 
         # The base class will automatically store these features
         # No need to call self._feature_store.write_features()
 
         return features
 
-    def _predict(self, features: np.ndarray) -> tuple[float, float]:
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
         """
         Generate prediction from features.
 
@@ -90,14 +92,14 @@ class ProductionMLActor(BaseMLInferenceActor):
         """
         # Example prediction (replace with your model inference)
         prediction = float(np.sum(features) > 0)
-        confidence = abs(np.mean(features))
+        confidence = float(abs(np.mean(features)))
 
         # The base class will automatically store this prediction
         # No need to call self._model_store.write_prediction()
 
         return prediction, confidence
 
-    def on_stop(self):
+    def on_stop(self) -> None:
         """
         Called when actor stops.
 
@@ -111,18 +113,22 @@ class ProductionMLActor(BaseMLInferenceActor):
         super().on_stop()
 
 
-def main():
+def main() -> None:
     """
     Demonstrate the mandatory store integration.
     """
     # Example 1: Production deployment with PostgreSQL
     print("\n=== Example 1: Production with PostgreSQL ===")
 
+    # For typing-only correctness in this example, use cast() for required types
+    from nautilus_trader.model.data import BarType
+    from nautilus_trader.model.identifiers import InstrumentId
+
     production_config = MLActorConfig(
         model_id="production_model_v1",
         model_path="/path/to/model.onnx",
-        # Stores will use this connection automatically
-        db_connection="postgresql://postgres:postgres@localhost:5432/nautilus",
+        bar_type=cast(BarType, object()),
+        instrument_id=cast(InstrumentId, object()),
     )
 
     # Create actor - stores are automatically initialized
@@ -135,10 +141,8 @@ def main():
     test_config = MLActorConfig(
         model_id="test_model",
         model_path="./test_model.pkl",
-        # No db_connection provided - will automatically use:
-        # 1. PostgreSQL if available
-        # 2. SQLite if PostgreSQL not available
-        # 3. DummyStore if no database available (for unit tests)
+        bar_type=cast(BarType, object()),
+        instrument_id=cast(InstrumentId, object()),
     )
 
     test_actor = ProductionMLActor(test_config)

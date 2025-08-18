@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List
 
 import torch
 import torch.nn as nn
@@ -13,24 +13,25 @@ class TFTScriptAdapter(nn.Module):
     that accepts a positional list/tuple of tensors in a fixed key order.
     """
 
-    def __init__(self, model: nn.Module, input_keys: List[str]) -> None:
+    def __init__(self, model: nn.Module, input_keys: list[str]) -> None:
         super().__init__()
         self.model = model
         self.input_keys = list(input_keys)
 
-    def forward(self, *args: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        inputs: Dict[str, torch.Tensor] = {k: v for k, v in zip(self.input_keys, args)}
-        out = self.model(**inputs)
-        if isinstance(out, torch.Tensor):
-            return out
+    def forward(self, *args: torch.Tensor) -> torch.Tensor:
+        inputs: dict[str, torch.Tensor] = {k: v for k, v in zip(self.input_keys, args)}
+        out_obj: object = self.model(**inputs)
+        if isinstance(out_obj, torch.Tensor):
+            return out_obj
         # Fallback if model returns a mapping
-        if isinstance(out, dict):
+        if isinstance(out_obj, dict):
             # Prefer common key names
+            from typing import cast
             for key in ("pred", "prediction", "logits"):
-                if key in out and isinstance(out[key], torch.Tensor):
-                    return out[key]
+                if key in out_obj and isinstance(out_obj[key], torch.Tensor):
+                    return cast(torch.Tensor, out_obj[key])
             # Else take first tensor value
-            for v in out.values():
+            for v in out_obj.values():
                 if isinstance(v, torch.Tensor):
                     return v
         raise RuntimeError("Unexpected TFT output type; cannot adapt to TorchScript")
@@ -38,7 +39,7 @@ class TFTScriptAdapter(nn.Module):
 
 def export_tft_to_torchscript_from_batch(
     tft_module: nn.Module,
-    batch_x: Dict[str, torch.Tensor],
+    batch_x: dict[str, torch.Tensor],
     out_path: str | Path,
     key_filter: Iterable[str] | None = None,
 ) -> Path:
@@ -76,9 +77,8 @@ def export_tft_to_torchscript_from_batch(
     example_args = tuple(tensor_items[k] for k in input_keys)
     adapter = TFTScriptAdapter(tft_module, input_keys)
     with torch.inference_mode():
-        scripted = torch.jit.trace(adapter, example_args)
+        scripted = torch.jit.trace(adapter, example_args)  # type: ignore[no-untyped-call]
     out_path = Path(out_path).with_suffix(".pt")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     scripted.save(str(out_path))
     return out_path
-

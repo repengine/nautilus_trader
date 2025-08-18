@@ -1,23 +1,28 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 
 @pytest.mark.skipif(pytest.importorskip("torch", reason="torch not installed") is None, reason="no torch")
-def test_torchscript_export_parity(tmp_path):
+def test_torchscript_export_parity(tmp_path: Path) -> None:
     import torch
     import torch.nn as nn
 
     from ml.training.export import convert_to_torchscript
 
     class Simple(nn.Module):
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__()
             self.net = nn.Sequential(nn.Linear(4, 3), nn.SiLU(), nn.Linear(3, 1))
 
-        def forward(self, x):
-            return self.net(x)
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            from typing import cast
+
+            import torch as _torch
+            return cast("_torch.Tensor", self.net(x))
 
     model = Simple().eval()
     x = np.random.randn(5, 4).astype(np.float32)
@@ -28,7 +33,7 @@ def test_torchscript_export_parity(tmp_path):
     ts_path = convert_to_torchscript(model, x[:1], out_path)
     assert ts_path.exists()
 
-    ts = torch.jit.load(str(ts_path))
+    ts = torch.jit.load(str(ts_path))  # type: ignore[no-untyped-call]
     with torch.no_grad():
         out = ts(torch.from_numpy(x)).numpy()
     assert np.allclose(out, ref, atol=1e-5)

@@ -144,9 +144,7 @@ class TFTTeacher(BaseTeacher):
             log_interval=100,
         )
 
-        callbacks = [
-            pl.callbacks.EarlyStopping(monitor="val_loss", patience=1),
-        ]
+        callbacks = pl.callbacks.EarlyStopping(monitor="val_loss", patience=1)
         self._trainer = pl.Trainer(
             max_epochs=self.max_epochs,
             gradient_clip_val=1.0,
@@ -197,7 +195,7 @@ class TFTTeacher(BaseTeacher):
         if preds is None:
             raise RuntimeError("Unexpected TFT prediction output format")
 
-        arr = _np.asarray(preds).reshape(-1)
+        arr: npt.NDArray[_np.float64] = _np.asarray(preds, dtype=_np.float64).reshape(-1)
         # Heuristic: if values look like probabilities in (0,1), convert to logits
         if _np.all(arr >= 0.0) and _np.all(arr <= 1.0):
             eps = 1e-6

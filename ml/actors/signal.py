@@ -45,7 +45,7 @@ from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
-from ml.config.actors import MLSignalActorConfig
+from ml.config.actors import MLSignalActorConfig as _BaseMLSignalActorConfig
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
 from ml.config.names import FEATURE_TIME_BUCKETS
@@ -62,14 +62,34 @@ from ml.config.names import SIGNAL_LATENCY_BUCKETS
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
+from ml.registry.base import DataRequirements
+from ml.registry.base import ModelManifest
+from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.utils import assert_features_compatible
-from ml.registry.base import ModelManifest, ModelRole, DataRequirements
 from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
     pass
+
+# Explicit re-exports for strict mypy (implicit_reexport disabled)
+# NOTE: We provide a local subclass to add optional test-friendly fields while keeping
+# compatibility with the base config used by the platform.
+class MLSignalActorConfig(_BaseMLSignalActorConfig, kw_only=True, frozen=True):
+    actor_id: str | None = None
+
+
+__all__ = [
+    "AdaptiveSignal",
+    "MLSignalActor",
+    "MLSignalActorConfig",
+    "OptimizationConfig",
+    "OptimizationLevel",
+    "SignalStrategy",
+    "StrategyConfig",
+    "ThresholdStrategy",
+]
 
 # =================================================================================================
 # Enums
@@ -941,7 +961,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
     """
 
-    def __init__(self, config: MLSignalActorConfig) -> None:
+    def __init__(self, config: _BaseMLSignalActorConfig) -> None:
         """
         Initialize ML Signal Actor with mandatory store integration.
 
@@ -1036,7 +1056,7 @@ class MLSignalActor(BaseMLInferenceActor):
             if isinstance(getattr(self, "_model_metadata", None), dict):
                 manifest_schema = self._model_metadata.get("feature_schema")
             if not manifest_schema:
-                manifest_schema = {name: "float32" for name in model_names}
+                manifest_schema = dict.fromkeys(model_names, "float32")
             tmp_manifest = ModelManifest(
                 model_id="__validation__",
                 role=ModelRole.STUDENT,
@@ -1072,7 +1092,8 @@ class MLSignalActor(BaseMLInferenceActor):
         self._signal_strategy = self._create_strategy()
 
         # Performance monitoring
-        if self._opt_config.level == OptimizationLevel.OPTIMIZED:
+        self._performance_monitor: PerformanceMonitor
+        if str(self._opt_config.level) == "optimized":
             self._performance_monitor = PerformanceMonitor(self._opt_config.reservoir_sample_size)
         else:
             self._performance_monitor = PerformanceMonitor(100)  # Use default size
@@ -1107,11 +1128,8 @@ class MLSignalActor(BaseMLInferenceActor):
         if self._signal_config.custom_strategy is not None:
             return cast(SignalGenerationStrategy, self._signal_config.custom_strategy)
 
-        # Create built-in strategy
-        strategy_str = self._signal_config.signal_strategy
-        # Handle both enum and string
-        if isinstance(strategy_str, SignalStrategy):
-            strategy_str = strategy_str.value
+        # Create built-in strategy; widen type to runtime string
+        strategy_str = str(self._signal_config.signal_strategy)
         threshold = self._config.prediction_threshold
 
         if strategy_str == "threshold" or strategy_str == SignalStrategy.THRESHOLD.value:
@@ -1173,14 +1191,16 @@ class MLSignalActor(BaseMLInferenceActor):
 
         """
         # For OPTIMIZED level with ONNX, use specialized loading with performance options
-        if self._opt_config.level == "optimized" or (
-            self._opt_config.level == OptimizationLevel.OPTIMIZED.value
-            and self._config.model_path.endswith(".onnx")
-        ):
+        opt_level = str(self._opt_config.level)
+        if opt_level == "optimized" and self._config.model_path.endswith(".onnx"):
             self._load_optimized_onnx_model()
         else:
-            # Let the base class handle standard model loading
-            super()._load_model()
+            # Standard path: use model loader directly
+            self._model, self._model_metadata = self._model_loader.load_model(
+                self._config.model_path,
+            )
+            if self._model_swapper:
+                self._model_swapper.set_current(self._model, self._model_metadata)
 
         # Model is loaded by base class in on_start via _load_model_with_metadata
         # which uses the SmartModelLoader
@@ -1191,7 +1211,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
         # Validate manifest-based feature parity after model is loaded
         try:
-            # Re-use the same logic as in __init__ if metadata is present
+            # Reuse the same logic as in __init__ if metadata is present
             model_names = getattr(self, "_manifest_feature_names", [])
             if model_names:
                 actual_names = self._feature_engineer.config.get_feature_names()
@@ -1199,7 +1219,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 if isinstance(getattr(self, "_model_metadata", None), dict):
                     manifest_schema = self._model_metadata.get("feature_schema")
                 if not manifest_schema:
-                    manifest_schema = {name: "float32" for name in model_names}
+                    manifest_schema = dict.fromkeys(model_names, "float32")
                 tmp_manifest = ModelManifest(
                     model_id="__validation__",
                     role=ModelRole.STUDENT,
@@ -1291,10 +1311,8 @@ class MLSignalActor(BaseMLInferenceActor):
             self._feature_buffer = np.zeros(expected_features, dtype=np.float32)
 
         # Initialize optimized buffers if needed
-        if (
-            self._opt_config.level == "optimized"
-            or self._opt_config.level == OptimizationLevel.OPTIMIZED.value
-        ):
+        opt_level2 = str(self._opt_config.level)
+        if opt_level2 == "optimized":
             self._initialize_optimized_buffers()
 
         self.log.info(f"Feature engineering initialized: {expected_features} features")
@@ -1337,7 +1355,10 @@ class MLSignalActor(BaseMLInferenceActor):
         try:
             if getattr(self._signal_config, "use_feature_store", False) and hasattr(self, "_feature_store") and self._feature_store is not None:
                 # Keep call signature minimal to satisfy tests which assert (bar=..., store=...)
-                features = self._feature_store.compute_realtime(bar=bar, store=self._persist_features)
+                features = cast(
+                    npt.NDArray[np.float32],
+                    self._feature_store.compute_realtime(bar=bar, store=self._persist_features),
+                )
                 if isinstance(features, np.ndarray) and features.size == 0:
                     return None
                 return features
@@ -1555,7 +1576,7 @@ class MLSignalActor(BaseMLInferenceActor):
             if hasattr(self, "_strategy_store"):
                 # Strategy store is always available from base class
                 self._strategy_store.write_signal(
-                    strategy_id=self._signal_config.strategy_id or "ml_signal",
+                    strategy_id=(self.id.value if getattr(self, "id", None) else "ml_signal"),
                     instrument_id=str(bar.bar_type.instrument_id),
                     signal_type="buy" if signal.prediction > 0 else "sell",
                     strength=abs(signal.prediction),
@@ -1644,10 +1665,8 @@ class MLSignalActor(BaseMLInferenceActor):
         self._window_index = (self._window_index + 1) % self._signal_config.adaptive_window
 
         # Update adaptive threshold
-        strategy_val = self._signal_config.signal_strategy
-        if isinstance(strategy_val, SignalStrategy):
-            strategy_val = strategy_val.value
-        if strategy_val == "adaptive" or strategy_val == SignalStrategy.ADAPTIVE.value:
+        strategy_val = str(self._signal_config.signal_strategy)
+        if strategy_val == "adaptive":
             self._update_adaptive_threshold()
 
     def _update_adaptive_threshold(self) -> None:

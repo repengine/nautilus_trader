@@ -22,7 +22,7 @@ class TestDataProcessor:
     Test DataProcessor functionality.
     """
 
-    def test_process_market_data(self):
+    def test_process_market_data(self) -> None:
         """
         Test processing market data.
         """
@@ -55,7 +55,7 @@ class TestDataProcessor:
             assert processed["quality_score"] >= 0.0
             assert metrics.records_processed == 1
 
-    def test_process_market_data_with_crossed_market(self):
+    def test_process_market_data_with_crossed_market(self) -> None:
         """
         Test processing crossed market.
         """
@@ -85,7 +85,7 @@ class TestDataProcessor:
             assert processed["bid"] < processed["ask"]
             assert processed["quality_flags"] & QualityFlags.INVALID_RANGE
 
-    def test_process_features_with_nan(self):
+    def test_process_features_with_nan(self) -> None:
         """
         Test processing features with NaN values.
         """
@@ -115,7 +115,7 @@ class TestDataProcessor:
             assert feature_data.values["rsi_14"] == 0.0
             assert metrics.missing_imputed == 1
 
-    def test_process_prediction(self):
+    def test_process_prediction(self) -> None:
         """
         Test processing model predictions.
         """
@@ -142,7 +142,7 @@ class TestDataProcessor:
             assert pred_data.confidence <= 0.85  # May be adjusted
             assert metrics.records_processed == 1
 
-    def test_process_signal_with_risk_limits(self):
+    def test_process_signal_with_risk_limits(self) -> None:
         """
         Test processing signals with risk limits.
         """
@@ -168,7 +168,7 @@ class TestDataProcessor:
             assert "order_size" in signal_data.execution_params
             assert metrics.records_processed == 1
 
-    def test_quality_score_calculation(self):
+    def test_quality_score_calculation(self) -> None:
         """
         Test quality score calculation.
         """
@@ -193,7 +193,7 @@ class TestDataProcessor:
             score = processor._calculate_quality_score(flags)
             assert score < 0.5
 
-    def test_batch_processing(self):
+    def test_batch_processing(self) -> None:
         """
         Test batch processing.
         """
@@ -225,7 +225,7 @@ class TestDataProcessor:
             assert len(processed) == 2
             assert metrics.records_processed == 2
 
-    def test_invalid_prediction_handling(self):
+    def test_invalid_prediction_handling(self) -> None:
         """
         Test handling of invalid predictions.
         """
@@ -254,7 +254,7 @@ class TestDataProcessor:
             assert pred_data.confidence == 0.0
             assert metrics.records_failed == 1
 
-    def test_feature_drift_calculation(self):
+    def test_feature_drift_calculation(self) -> None:
         """
         Test feature drift calculation.
         """
@@ -266,7 +266,7 @@ class TestDataProcessor:
             )
 
             # Mock feature statistics
-            processor._get_feature_statistics = lambda x: {
+            processor._get_feature_statistics = lambda x: {  # type: ignore[method-assign, assignment]
                 "sma_20": {"mean": 150.0, "std": 10.0},
                 "rsi_14": {"mean": 50.0, "std": 20.0},
             }
@@ -287,7 +287,7 @@ class TestDataTypes:
     Test data type classes.
     """
 
-    def test_feature_data_creation(self):
+    def test_feature_data_creation(self) -> None:
         """
         Test FeatureData creation.
         """
@@ -308,7 +308,7 @@ class TestDataTypes:
         assert data._ts_event == ts_event
         assert data._ts_init == ts_init
 
-    def test_model_prediction_creation(self):
+    def test_model_prediction_creation(self) -> None:
         """
         Test ModelPrediction creation.
         """
@@ -331,7 +331,7 @@ class TestDataTypes:
         assert data.confidence == 0.85
         assert data.inference_time_ms == 2.5
 
-    def test_strategy_signal_creation(self):
+    def test_strategy_signal_creation(self) -> None:
         """
         Test StrategySignal creation.
         """

@@ -8,6 +8,7 @@ persistence to the PostgreSQL database.
 import os
 import time
 from unittest.mock import MagicMock
+from typing import Any
 
 import pytest
 from sqlalchemy import create_engine
@@ -38,8 +39,11 @@ POSTGRES_URL = os.environ.get(
 class TestStrategyStoreE2E:
     """End-to-end tests for StrategyStore with real PostgreSQL."""
 
+    engine: Any
+
     @classmethod
-    def setup_class(cls):
+
+    def setup_class(cls) -> None:
         """Set up database connection and ensure tables exist."""
         try:
             cls.engine = create_engine(POSTGRES_URL)
@@ -66,7 +70,7 @@ class TestStrategyStoreE2E:
         except Exception as e:
             pytest.skip(f"Cannot connect to PostgreSQL: {e}")
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         """Set up test fixtures."""
         self.clock = TestClock()
         self.trader_id = TraderId("E2E-TESTER")
@@ -90,11 +94,11 @@ class TestStrategyStoreE2E:
         # Clean up any existing test data
         self._cleanup_test_data()
 
-    def teardown_method(self):
+    def teardown_method(self) -> None:
         """Clean up test data after each test."""
         self._cleanup_test_data()
 
-    def _cleanup_test_data(self):
+    def _cleanup_test_data(self) -> None:
         """Remove test data from database."""
         try:
             with self.engine.connect() as conn:
@@ -106,7 +110,7 @@ class TestStrategyStoreE2E:
         except Exception:
             pass  # Ignore cleanup errors
 
-    def test_full_pipeline_with_real_database(self):
+    def test_full_pipeline_with_real_database(self) -> None:
         """Test complete flow from signal to database persistence."""
         # Create strategy with real database connection
         config = MLStrategyConfig(
@@ -193,7 +197,7 @@ class TestStrategyStoreE2E:
                 # Verify model predictions
                 assert f"model_{i}" in row[4]  # model_predictions JSON
 
-    def test_batch_persistence(self):
+    def test_batch_persistence(self) -> None:
         """Test that batching works correctly with real database."""
         # Create store with small batch size
         store = StrategyStore(
@@ -256,7 +260,7 @@ class TestStrategyStoreE2E:
             )
             conn.commit()
 
-    def test_error_recovery(self):
+    def test_error_recovery(self) -> None:
         """Test that the system recovers from database errors."""
         config = MLStrategyConfig(
             strategy_id=self.strategy_id,
@@ -332,7 +336,7 @@ class TestStrategyStoreE2E:
             # At least the recovery signal should be there
             assert count >= 1
 
-    def test_concurrent_strategies(self):
+    def test_concurrent_strategies(self) -> None:
         """Test multiple strategies writing to the same database."""
         strategies = []
 

@@ -11,13 +11,13 @@ import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from ml.actors.signal import MLSignalActor
-from ml.config.actors import MLSignalActorConfig
+from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
@@ -49,7 +49,7 @@ class DataEventTracer:
         self.checkpoints: dict[str, bool] = {}
         self.errors: list[dict[str, Any]] = []
 
-    def checkpoint(self, name: str, success: bool = True, data: Any = None, error: Exception = None):
+    def checkpoint(self, name: str, success: bool = True, data: Any = None, error: Exception | None = None) -> None:
         """Record a checkpoint in the data flow."""
         checkpoint_data = {
             "timestamp": datetime.utcnow(),
@@ -147,12 +147,12 @@ class TestDataEventTracing:
     """Test suite for tracing data events through the ML pipeline."""
 
     @pytest.fixture
-    def tracer(self):
+    def tracer(self) -> DataEventTracer:
         """Create a data event tracer."""
         return DataEventTracer(verbose=True)
 
     @pytest.fixture
-    def setup_components(self, tracer):
+    def setup_components(self, tracer: DataEventTracer) -> dict[str, Any]:
         """Set up all necessary components for testing."""
         # Clear Prometheus metrics registry
         try:
@@ -227,7 +227,7 @@ class TestDataEventTracing:
             "temp_dir": temp_dir,
         }
 
-    def test_full_pipeline_data_flow(self, setup_components, tracer):
+    def test_full_pipeline_data_flow(self, setup_components: dict[str, Any], tracer: DataEventTracer) -> None:
         """Test data flow through the entire pipeline with detailed tracing."""
         components = setup_components
 
@@ -246,8 +246,8 @@ class TestDataEventTracing:
             low=Price.from_str("99.00"),
             close=Price.from_str("100.50"),
             volume=Quantity.from_int(1000),
-            ts_event=dt_to_unix_nanos(datetime.utcnow()),
-            ts_init=dt_to_unix_nanos(datetime.utcnow()),
+            ts_event=dt_to_unix_nanos(cast(Any, datetime.utcnow())),
+            ts_init=dt_to_unix_nanos(cast(Any, datetime.utcnow())),
         )
 
         tracer.checkpoint("market_data_created", success=True, data=bar)
@@ -316,8 +316,8 @@ class TestDataEventTracing:
                     low=Price.from_str(f"{99 + i * 0.1:.2f}"),
                     close=Price.from_str(f"{100.5 + i * 0.1:.2f}"),
                     volume=Quantity.from_int(1000 + i * 100),
-                    ts_event=dt_to_unix_nanos(datetime.utcnow()) + i * 60_000_000_000,
-                    ts_init=dt_to_unix_nanos(datetime.utcnow()) + i * 60_000_000_000,
+                    ts_event=dt_to_unix_nanos(cast(Any, datetime.utcnow())) + i * 60_000_000_000,
+                    ts_init=dt_to_unix_nanos(cast(Any, datetime.utcnow())) + i * 60_000_000_000,
                 )
                 actor.on_bar(historical_bar)
 
@@ -388,7 +388,7 @@ class TestDataEventTracing:
             assert tracer.checkpoints.get(checkpoint, False), \
                 f"Critical checkpoint '{checkpoint}' failed. See report above."
 
-    def test_pipeline_with_deliberate_failures(self, setup_components, tracer):
+    def test_pipeline_with_deliberate_failures(self, setup_components: dict[str, Any], tracer: DataEventTracer) -> None:
         """Test pipeline behavior with deliberate failures at various stages."""
         components = setup_components
 
@@ -408,8 +408,8 @@ class TestDataEventTracing:
                 low=Price.from_str("101.00"),
                 close=Price.from_str("100.50"),
                 volume=Quantity.from_int(1000),
-                ts_event=dt_to_unix_nanos(datetime.utcnow()),
-                ts_init=dt_to_unix_nanos(datetime.utcnow()),
+                ts_event=dt_to_unix_nanos(cast(Any, datetime.utcnow())),
+                ts_init=dt_to_unix_nanos(cast(Any, datetime.utcnow())),
             )
             tracer.checkpoint("invalid_bar_created", success=True, data=invalid_bar)
         except Exception as e:
@@ -437,7 +437,7 @@ class TestDataEventTracing:
         assert tracer.checkpoints["store_write_error_caught"] == True
 
 
-def test_isolated_component_failures():
+def test_isolated_component_failures() -> None:
     """Test individual component failures in isolation."""
     tracer = DataEventTracer(verbose=True)
 

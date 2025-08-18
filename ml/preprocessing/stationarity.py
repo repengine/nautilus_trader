@@ -1,18 +1,40 @@
 """
-Advanced preprocessing for time series stationarity.
+Advanced preprocessing for time series stationarity and cross-validation.
 
-Implements fractional differencing and other techniques from "Advances in Financial
-Machine Learning" by López de Prado.
+Implements fractional differencing, purged cross-validation, and other techniques from
+"Advances in Financial Machine Learning" by López de Prado.
 
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
-from numba import jit
+
+
+try:
+    from numba import jit as _numba_jit
+except Exception:  # pragma: no cover - numba optional
+    _numba_jit = None
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+def jit_typed(*jit_args: Any, **jit_kwargs: Any) -> Callable[[F], F]:
+    """
+    Typed wrapper around numba.jit that degrades to identity when unavailable.
+
+    This preserves function type for type checkers while applying JIT at runtime.
+    """
+    def decorator(func: F) -> F:
+        if _numba_jit is None:
+            return func
+        # Apply numba.jit with the provided args/kwargs
+        compiled = _numba_jit(*jit_args, **jit_kwargs)(func)
+        return cast(F, compiled)
+    return decorator
 
 
 if TYPE_CHECKING:
@@ -62,7 +84,7 @@ class StationarityTransformer:
         self._optimal_d: float | None = None
 
     @staticmethod
-    @jit(nopython=True)
+    @jit_typed(nopython=True)
     def _compute_weights_numba(d: float, size: int) -> npt.NDArray[np.float64]:
         """
         Compute fractional differencing weights (JIT compiled).
@@ -182,20 +204,22 @@ class StationarityTransformer:
 
         # Search for optimal d
         for d in np.arange(min_d, max_d + step, step):
-            diff_series = self.fractional_difference(series, d)
+            d_value: float = float(d)
+            diff_series = self.fractional_difference(series, d_value)
 
             # Remove initial zeros
-            diff_series = diff_series[len(self._weights) :]
+            weights = self._weights if self._weights is not None else np.array([], dtype=np.float64)
+            diff_series = diff_series[len(weights) :]
 
             if len(diff_series) > 10:  # Need enough data for test
                 adf_result = adfuller(diff_series, autolag="AIC")
                 if adf_result[1] < adf_threshold:
-                    self._optimal_d = d
-                    return d
+                    self._optimal_d = d_value
+                    return d_value
 
         # If no d achieves stationarity, return max_d
-        self._optimal_d = max_d
-        return max_d
+        self._optimal_d = float(max_d)
+        return float(max_d)
 
     def fit_transform(
         self,
@@ -219,8 +243,8 @@ class StationarityTransformer:
 
         """
         # Store original statistics for inverse transform
-        self._mean = np.mean(series)
-        self._std = np.std(series) + 1e-8
+        self._mean = float(np.mean(series))
+        self._std = float(np.std(series) + 1e-8)
 
         if auto_d or self.method == "auto":
             self.d = self.find_optimal_d(series)
@@ -301,7 +325,7 @@ class MarketMicrostructureFeatures:
         else:
             spread = 0.0
 
-        return spread
+        return float(spread)
 
     @staticmethod
     def kyle_lambda(
@@ -330,7 +354,7 @@ class MarketMicrostructureFeatures:
         # Regression of returns on signed volumes
         if len(returns) > 1 and np.std(signed_volumes) > 0:
             coef = np.polyfit(signed_volumes, np.abs(returns), 1)[0]
-            return coef
+            return float(coef)
         return 0.0
 
     @staticmethod
@@ -358,7 +382,7 @@ class MarketMicrostructureFeatures:
         volumes = np.where(volumes > 0, volumes, 1.0)
 
         illiquidity = np.mean(np.abs(returns) / volumes)
-        return illiquidity
+        return float(illiquidity)
 
     @staticmethod
     def vpin(
@@ -408,100 +432,10 @@ class MarketMicrostructureFeatures:
                 vpin = abs(buy_vol - sell_vol) / total_vol
                 vpin_values.append(vpin)
 
-        return np.mean(vpin_values) if vpin_values else 0.0
+        return float(np.mean(vpin_values)) if vpin_values else 0.0
 
 
-class PurgedCrossValidator:
-    """
-    Purged walk-forward cross-validation for time series.
 
-    Implements purged and embargoed cross-validation to prevent lookahead bias in
-    financial ML, as described in López de Prado.
-
-    """
-
-    def __init__(
-        self,
-        n_splits: int = 5,
-        test_size: float = 0.2,
-        purge_size: int = 0,
-        embargo_size: int = 0,
-    ):
-        """
-        Initialize cross-validator.
-
-        Parameters
-        ----------
-        n_splits : int
-            Number of CV splits
-        test_size : float
-            Fraction of data for test set
-        purge_size : int
-            Number of observations to purge before test
-        embargo_size : int
-            Number of observations to embargo after test
-
-        """
-        self.n_splits = n_splits
-        self.test_size = test_size
-        self.purge_size = purge_size
-        self.embargo_size = embargo_size
-
-    def split(
-        self,
-        X: npt.NDArray[np.float64],
-        y: npt.NDArray[np.float64] | None = None,
-    ) -> list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]]:
-        """
-        Generate train/test indices for cross-validation.
-
-        Parameters
-        ----------
-        X : np.ndarray
-            Feature matrix
-        y : np.ndarray | None
-            Target array (optional)
-
-        Returns
-        -------
-        list[tuple[np.ndarray, np.ndarray]]
-            List of (train_indices, test_indices) tuples
-
-        """
-        n_samples = len(X)
-        test_size = int(n_samples * self.test_size)
-
-        # Calculate fold size
-        fold_size = (n_samples - test_size) // (self.n_splits - 1)
-
-        splits = []
-        for i in range(self.n_splits):
-            # Test indices
-            test_start = i * fold_size
-            test_end = min(test_start + test_size, n_samples)
-            test_indices = np.arange(test_start, test_end)
-
-            # Train indices (before test, with purge)
-            train_end = test_start - self.purge_size
-            if train_end > 0:
-                train_before = np.arange(0, train_end)
-            else:
-                train_before = np.array([], dtype=np.int64)
-
-            # Train indices (after test, with embargo)
-            train_start = test_end + self.embargo_size
-            if train_start < n_samples:
-                train_after = np.arange(train_start, n_samples)
-            else:
-                train_after = np.array([], dtype=np.int64)
-
-            # Combine train indices
-            train_indices = np.concatenate([train_before, train_after])
-
-            if len(train_indices) > 0 and len(test_indices) > 0:
-                splits.append((train_indices, test_indices))
-
-        return splits
 
 
 class FeatureLagGenerator:
@@ -580,7 +514,7 @@ class FeatureLagGenerator:
                         series,
                         np.ones(window) / window,
                         mode="same",
-                    )
+                    ).astype(np.float64)
                     features[f"rolling_mean_{window}"] = rolling_mean
 
                     # Rolling std
@@ -657,7 +591,7 @@ class DataNormalizer:
             self._params["median"] = median
             self._params["mad"] = mad if mad > 0 else 1.0
 
-            return (data - median) / self._params["mad"]
+            return cast(npt.NDArray[np.float64], (data - median) / self._params["mad"])
 
         elif self.method == "rank":
             # Rank transformation
@@ -672,7 +606,7 @@ class DataNormalizer:
             # Map to normal distribution
             from scipy.stats import norm
 
-            return norm.ppf(uniform)
+            return cast(npt.NDArray[np.float64], norm.ppf(uniform))
 
         elif self.method == "boxcox":
             # Box-Cox transformation
@@ -690,7 +624,7 @@ class DataNormalizer:
             transformed, lambda_param = boxcox(data)
             self._params["lambda"] = lambda_param
 
-            return transformed
+            return cast(npt.NDArray[np.float64], transformed)
 
         else:
             # Standard normalization
@@ -700,7 +634,7 @@ class DataNormalizer:
             self._params["mean"] = mean
             self._params["std"] = std
 
-            return (data - mean) / std
+            return cast(npt.NDArray[np.float64], (data - mean) / std)
 
     def inverse_transform(
         self,
@@ -723,14 +657,14 @@ class DataNormalizer:
         if self.method == "robust":
             median = self._params.get("median", 0)
             mad = self._params.get("mad", 1)
-            return data * mad + median
+            return cast(npt.NDArray[np.float64], data * mad + median)
 
         elif self.method == "rank":
             # Approximate inverse using percentiles
             from scipy.stats import norm
 
             # Map from normal to uniform
-            uniform = norm.cdf(data)
+            uniform = cast(npt.NDArray[np.float64], norm.cdf(data))
             # This is approximate - exact inverse requires original data
             return uniform
 
@@ -741,9 +675,154 @@ class DataNormalizer:
             shift = self._params.get("shift", 0)
 
             inverse = inv_boxcox(data, lambda_param)
-            return inverse - shift
+            return cast(npt.NDArray[np.float64], inverse - shift)
 
         else:
             mean = self._params.get("mean", 0)
             std = self._params.get("std", 1)
-            return data * std + mean
+            return cast(npt.NDArray[np.float64], data * std + mean)
+
+
+class PurgedCrossValidator:
+    """
+    Purged walk-forward cross-validation for financial time series.
+
+    Implements purged and embargoed cross-validation to prevent information leakage
+    in financial ML models, as described in López de Prado (2018).
+
+    Parameters
+    ----------
+    n_splits : int, default 5
+        Number of cross-validation splits
+    purge_gap : int, default 0
+        Number of samples to exclude between train and test sets to prevent leakage
+    embargo_pct : float, default 0.0
+        Percentage of total samples to embargo after each test set
+
+    """
+
+    def __init__(
+        self,
+        n_splits: int = 5,
+        purge_gap: int = 0,
+        embargo_pct: float = 0.0,
+    ) -> None:
+        """
+        Initialize purged cross-validator.
+
+        Parameters
+        ----------
+        n_splits : int
+            Number of splits for cross-validation
+        purge_gap : int
+            Gap between train and test to prevent leakage
+        embargo_pct : float
+            Percentage of data to embargo after test set
+
+        Raises
+        ------
+        ValueError
+            If parameters are invalid
+
+        """
+        if n_splits < 2:
+            msg = f"n_splits must be at least 2, got {n_splits}"
+            raise ValueError(msg)
+        if purge_gap < 0:
+            msg = f"purge_gap must be non-negative, got {purge_gap}"
+            raise ValueError(msg)
+        if not 0 <= embargo_pct < 1:
+            msg = f"embargo_pct must be in [0, 1), got {embargo_pct}"
+            raise ValueError(msg)
+
+        self.n_splits = n_splits
+        self.purge_gap = purge_gap
+        self.embargo_pct = embargo_pct
+
+    def split(
+        self,
+        X: npt.NDArray[np.float64] | Any,
+        y: npt.NDArray[np.float64] | None = None,
+        groups: npt.NDArray[np.int64] | None = None,
+    ) -> list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]]:
+        """
+        Generate indices for train/test splits with purging and embargo.
+
+        Parameters
+        ----------
+        X : array-like
+            Features array of shape (n_samples, n_features)
+        y : array-like, optional
+            Target array (not used, for sklearn compatibility)
+        groups : array-like, optional
+            Group labels for samples (not used)
+
+        Returns
+        -------
+        list[tuple[np.ndarray, np.ndarray]]
+            List of (train_indices, test_indices) tuples
+
+        """
+        n_samples = len(X) if hasattr(X, "__len__") else X.shape[0]
+        indices = np.arange(n_samples)
+
+        # Calculate embargo size
+        embargo_size = int(n_samples * self.embargo_pct)
+
+        # Calculate test size for each fold
+        test_size = n_samples // self.n_splits
+
+        splits: list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]] = []
+
+        for i in range(self.n_splits):
+            # Define test set boundaries
+            test_start = i * test_size
+            test_end = (i + 1) * test_size if i < self.n_splits - 1 else n_samples
+
+            # Test indices
+            test_indices = indices[test_start:test_end]
+
+            # Train indices with purging
+            train_indices_before = indices[:max(0, test_start - self.purge_gap)]
+            train_indices_after = indices[min(n_samples, test_end + self.purge_gap):]
+
+            # Apply embargo - remove samples after test set
+            if embargo_size > 0 and i < self.n_splits - 1:
+                embargo_end = min(n_samples, test_end + embargo_size)
+                train_indices_after = train_indices_after[
+                    train_indices_after >= embargo_end
+                ]
+
+            # Combine train indices
+            train_indices = np.concatenate([train_indices_before, train_indices_after])
+
+            if len(train_indices) > 0 and len(test_indices) > 0:
+                splits.append((train_indices, test_indices))
+
+        return splits
+
+    def get_n_splits(
+        self,
+        X: Any | None = None,
+        y: Any | None = None,
+        groups: Any | None = None,
+    ) -> int:
+        """
+        Get number of splits.
+
+        Parameters
+        ----------
+        X : array-like, optional
+            Features (not used)
+        y : array-like, optional
+            Targets (not used)
+        groups : array-like, optional
+            Groups (not used)
+
+        Returns
+        -------
+        int
+            Number of splits
+
+        """
+        return self.n_splits

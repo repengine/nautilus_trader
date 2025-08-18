@@ -15,8 +15,8 @@ from unittest.mock import patch
 import numpy as np
 
 from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
-from ml.config.actors import MLSignalActorConfig
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
@@ -37,7 +37,7 @@ class _FakeBar:
         self.ts_init = int(datetime.utcnow().timestamp() * 1e9)
 
 
-def _make_bar():
+def _make_bar() -> _FakeBar:
     instrument_id = InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO"))
     return _FakeBar(instrument_id)
 
@@ -67,7 +67,7 @@ class TestE2EActorFeatureStore:
 
                 # Stub FeatureStore.compute_realtime to return deterministic features
                 expected = np.arange(10, dtype=np.float32)
-                actor._feature_store.compute_realtime = MagicMock(return_value=expected)  # type: ignore[attr-defined]
+                actor._feature_store.compute_realtime = MagicMock(return_value=expected)
 
                 bar = _make_bar()
                 features = actor._compute_features(bar)

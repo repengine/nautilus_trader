@@ -361,8 +361,8 @@ def check_ml_dependencies(required: list[str]) -> None:
     Parameters
     ----------
     required : list[str]
-        List of required dependencies: ['onnx', 'polars', 'xgboost', 'lightgbm', 'sklearn',
-        'optuna', 'mlflow', 'prometheus', 'onnx_export', 'pandas']
+        Supported keys: onnx, polars, xgboost, lightgbm, sklearn,
+        optuna, mlflow, prometheus, onnx_export, pandas
 
     Raises
     ------
@@ -370,61 +370,34 @@ def check_ml_dependencies(required: list[str]) -> None:
         If any required dependency is not available.
 
     """
-    errors = []
+    checks: dict[str, tuple[bool, str]] = {
+        "onnx": (HAS_ONNX, f"ONNX Runtime required. Original error: {ONNX_IMPORT_ERROR}"),
+        "polars": (HAS_POLARS, f"Polars required. Original error: {POLARS_IMPORT_ERROR}"),
+        "xgboost": (HAS_XGBOOST, f"XGBoost required. Original error: {XGBOOST_IMPORT_ERROR}"),
+        "lightgbm": (
+            HAS_LIGHTGBM,
+            f"LightGBM required. Original error: {LIGHTGBM_IMPORT_ERROR}",
+        ),
+        "optuna": (HAS_OPTUNA, f"Optuna required. Original error: {OPTUNA_IMPORT_ERROR}"),
+        "mlflow": (HAS_MLFLOW, f"MLflow required. Original error: {MLFLOW_IMPORT_ERROR}"),
+        "sklearn": (HAS_SKLEARN, f"Scikit-learn required. Original error: {SKLEARN_IMPORT_ERROR}"),
+        "prometheus": (
+            HAS_PROMETHEUS,
+            f"Prometheus Client required. Original error: {PROMETHEUS_IMPORT_ERROR}",
+        ),
+        "onnx_export": (
+            HAS_ONNX_EXPORT,
+            f"ONNX export tools (onnxmltools, skl2onnx) required. Original error: {ONNX_EXPORT_IMPORT_ERROR}",
+        ),
+        "pandas": (HAS_PANDAS, f"Pandas required. Original error: {PANDAS_IMPORT_ERROR}"),
+    }
 
-    if "onnx" in required and not HAS_ONNX:
-        errors.append(
-            f"ONNX Runtime required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {ONNX_IMPORT_ERROR}",
-        )
-
-    if "polars" in required and not HAS_POLARS:
-        errors.append(
-            f"Polars required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {POLARS_IMPORT_ERROR}",
-        )
-
-    if "xgboost" in required and not HAS_XGBOOST:
-        errors.append(
-            f"XGBoost required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {XGBOOST_IMPORT_ERROR}",
-        )
-
-    if "lightgbm" in required and not HAS_LIGHTGBM:
-        errors.append(
-            f"LightGBM required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {LIGHTGBM_IMPORT_ERROR}",
-        )
-
-    if "optuna" in required and not HAS_OPTUNA:
-        errors.append(
-            f"Optuna required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {OPTUNA_IMPORT_ERROR}",
-        )
-
-    if "mlflow" in required and not HAS_MLFLOW:
-        errors.append(
-            f"MLflow required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {MLFLOW_IMPORT_ERROR}",
-        )
-
-    if "sklearn" in required and not HAS_SKLEARN:
-        errors.append(
-            f"Scikit-learn required but not installed. Install with: pip install 'nautilus-trader[ml]'\nOriginal error: {SKLEARN_IMPORT_ERROR}",
-        )
-
-    if "prometheus" in required and not HAS_PROMETHEUS:
-        errors.append(
-            f"Prometheus Client required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {PROMETHEUS_IMPORT_ERROR}",
-        )
-
-    if "onnx_export" in required and not HAS_ONNX_EXPORT:
-        errors.append(
-            f"ONNX export tools (onnxmltools, skl2onnx) required but not installed. "
-            f"Install with: pip install 'nautilus-trader[ml]'\n"
-            f"Original error: {ONNX_EXPORT_IMPORT_ERROR}",
-        )
-
-    if "pandas" in required and not HAS_PANDAS:
-        errors.append(
-            f"Pandas required but not installed. Install with: pip install pandas\nOriginal error: {PANDAS_IMPORT_ERROR}",
-        )
+    errors: list[str] = []
+    for key in required:
+        ok, msg = checks.get(key, (True, ""))
+        if not ok:
+            hint = "Install with: pip install 'nautilus-trader[ml]'" if key != "pandas" else "Install with: pip install pandas"
+            errors.append(f"{msg}\n{hint}")
 
     if errors:
         raise ImportError("\n\n".join(errors))

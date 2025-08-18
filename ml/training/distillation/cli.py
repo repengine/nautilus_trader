@@ -27,11 +27,10 @@ from pathlib import Path
 
 import numpy as np
 
-from ml.training.student.lightgbm import LightGBMStudentDistiller
-from ml.training.student.lightgbm import schema_hash
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
+from ml.training.student.lightgbm import LightGBMStudentDistiller
 
 
 def main(argv: list[str] | None = None) -> int:

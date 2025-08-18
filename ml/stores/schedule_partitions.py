@@ -52,7 +52,7 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     return logging.getLogger("partition_scheduler")
 
 
-def main():
+def main() -> None:
     """
     Main entry point for partition scheduler.
     """
@@ -140,7 +140,7 @@ def main():
             if not partitions:
                 print("  No partitions found")
             else:
-                total_size = sum(p["size_bytes"] for p in partitions)
+                total_size = sum(int(p["size_bytes"]) for p in partitions if "size_bytes" in p)
                 print(f"  Total partitions: {len(partitions)}")
                 print(f"  Total size: {total_size / (1024**3):.2f} GB")
                 print("\n  Partitions:")
@@ -175,7 +175,7 @@ def main():
         return
 
     # Run maintenance
-    def run_maintenance():
+    def run_maintenance() -> bool:
         """
         Run partition maintenance cycle.
         """

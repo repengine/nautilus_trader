@@ -242,3 +242,4 @@ class TestStorePersistence:
         # Stats should return dummy indicator
         stats = store.get_stats()
         assert stats["dummy"] is True
+# mypy: ignore-errors

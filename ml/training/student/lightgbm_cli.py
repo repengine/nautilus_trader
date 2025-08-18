@@ -14,7 +14,6 @@ from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
 from ml.training.student.lightgbm import LightGBMStudentDistiller
-from ml.training.student.lightgbm import schema_hash
 
 
 def main(argv: list[str] | None = None) -> int:

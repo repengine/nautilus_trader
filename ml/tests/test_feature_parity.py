@@ -10,10 +10,12 @@ PARITY REQUIREMENT: 1e-10 tolerance (no fidelity sacrifices).
 
 from datetime import datetime
 from datetime import timedelta
+from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from ml.actors.signal import MLSignalActor
@@ -35,14 +37,14 @@ class TestFeatureParity:
     """
 
     @pytest.fixture
-    def feature_config(self):
+    def feature_config(self) -> FeatureConfig:
         """
         Standard feature configuration.
         """
         return FeatureConfig()
 
     @pytest.fixture
-    def mock_bars(self):
+    def mock_bars(self) -> list[Bar]:
         """
         Generate mock bar data for testing.
         """
@@ -76,7 +78,7 @@ class TestFeatureParity:
 
         return bars
 
-    def test_feature_engineer_batch_vs_online_parity(self, feature_config, mock_bars):
+    def test_feature_engineer_batch_vs_online_parity(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
         """
         Test that FeatureEngineer computes identical features in batch vs online.
 
@@ -129,7 +131,7 @@ class TestFeatureParity:
             f"First 5 online features: {online_features_array[0][:5]}"
         )
 
-    def test_feature_store_computation_consistency(self, feature_config, mock_bars):
+    def test_feature_store_computation_consistency(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
         """
         Test that FeatureStore produces consistent features.
         """
@@ -140,8 +142,8 @@ class TestFeatureParity:
             )
 
             # Mock the database operations
-            store._setup_tables = MagicMock()
-            store._store_to_postgres = MagicMock()
+            cast(Any, store)._setup_tables = MagicMock()
+            cast(Any, store)._store_to_postgres = MagicMock()
 
             # Compute features for same bar multiple times
             bar = mock_bars[50]  # Middle bar with stable indicators
@@ -163,7 +165,7 @@ class TestFeatureParity:
             # Features should be identical for same input
             assert np.array_equal(features_1, features_2), "Same input produced different features!"
 
-    def test_indicator_state_consistency(self, feature_config, mock_bars):
+    def test_indicator_state_consistency(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
         """
         Test that indicator state remains consistent between batch and online.
 
@@ -208,13 +210,17 @@ class TestFeatureParity:
         assert engineer.indicators.ema_fast.value != ema_fast_value
         assert engineer.indicators.ema_slow.value != ema_slow_value
 
-    def test_ml_signal_actor_uses_same_features(self, feature_config, mock_bars):
+    def test_ml_signal_actor_uses_same_features(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
         """
         Test that MLSignalActor computes features identically to training.
         """
         with patch("ml.actors.signal.FeatureStore"):
+            # Provide required fields for strict typing
             config = MLSignalActorConfig(
                 actor_id="TEST_ACTOR",
+                model_id="test_model",
+                bar_type=MagicMock(),
+                instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
                 model_path="./test_model.onnx",
                 db_connection="postgresql://test@localhost/test",
             )
@@ -239,9 +245,9 @@ class TestFeatureParity:
             )
 
             # Verify returned features match
-            assert np.array_equal(features, expected_features)
+            assert np.array_equal(cast(npt.NDArray[np.float32], features), expected_features)
 
-    def test_feature_versioning(self, feature_config):
+    def test_feature_versioning(self, feature_config: FeatureConfig) -> None:
         """
         Test that feature versions change when pipeline changes.
         """
@@ -251,26 +257,25 @@ class TestFeatureParity:
                 connection_string="postgresql://test@localhost/test",
                 feature_config=feature_config,
             )
-            store1._setup_tables = MagicMock()
+            cast(Any, store1)._setup_tables = MagicMock()
 
             version1 = store1.pipeline_hash
 
             # Create store with modified config
-            modified_config = FeatureConfig()
-            modified_config.rsi_period = 20  # Changed from default
+            modified_config = FeatureConfig(rsi_period=20)
 
             store2 = FeatureStore(
                 connection_string="postgresql://test@localhost/test",
                 feature_config=modified_config,
             )
-            store2._setup_tables = MagicMock()
+            cast(Any, store2)._setup_tables = MagicMock()
 
             version2 = store2.pipeline_hash
 
             # Versions should differ when config changes
             assert version1 != version2, "Feature versions must change when configuration changes"
 
-    def test_parity_across_feature_ranges(self, feature_config, mock_bars):
+    def test_parity_across_feature_ranges(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
         """
         Test parity across different feature value ranges.
 
@@ -300,7 +305,7 @@ class TestFeatureParity:
             ), f"Non-finite features for inputs: close={close}, high={high}, low={low}, volume={volume}\nFeatures: {features}"
 
     @pytest.mark.parametrize("n_bars", [10, 50, 100, 500])
-    def test_parity_at_different_sequence_lengths(self, feature_config, n_bars):
+    def test_parity_at_different_sequence_lengths(self, feature_config: FeatureConfig, n_bars: int) -> None:
         """
         Test that parity holds for different sequence lengths.
         """
@@ -346,7 +351,7 @@ class TestParityFailureModes:
     Test cases that should FAIL if parity is broken.
     """
 
-    def test_detect_indicator_initialization_mismatch(self, feature_config):
+    def test_detect_indicator_initialization_mismatch(self, feature_config: FeatureConfig) -> None:
         """
         Test that we detect when indicators are initialized differently.
         """
@@ -383,7 +388,7 @@ class TestParityFailureModes:
             features2,
         ), "Features should differ when indicators have different history"
 
-    def test_detect_numerical_precision_issues(self, feature_config):
+    def test_detect_numerical_precision_issues(self, feature_config: FeatureConfig) -> None:
         """
         Test that we maintain numerical precision.
         """

@@ -87,9 +87,8 @@ class MLTradingStrategy(BaseMLStrategy):
         risk_metrics = {
             "confidence": float(signal.confidence),
             "prediction": float(signal.prediction),
-            "active_positions": self._active_positions,
-            "signal_direction": signal_direction,
-            "has_position": current_position is not None,
+            "active_positions": float(self._active_positions),
+            "has_position": 1.0 if current_position is not None else 0.0,
         }
 
         # Prepare execution params

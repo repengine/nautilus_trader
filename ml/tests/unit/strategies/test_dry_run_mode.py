@@ -5,24 +5,28 @@ Tests the execute_trades flag that allows running the strategy
 without actually submitting orders to the broker.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+from unittest.mock import patch
+from typing import Any, cast
 
 import pytest
 
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
-from nautilus_trader.common.component import MessageBus, TestClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.identifiers import InstrumentId, TraderId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
 class TestDryRunMode:
     """Test cases for dry run mode in MLTradingStrategy."""
-    
-    def setup_method(self):
+
+    def setup_method(self) -> None:
         """Set up test fixtures."""
         self.clock = TestClock()
         self.trader_id = TraderId("DRY-RUN-TESTER")
@@ -36,11 +40,11 @@ class TestDryRunMode:
             cache=self.cache,
             clock=self.clock,
         )
-        
+
         # Create test instrument
         self.instrument_id = InstrumentId.from_str("BTC/USDT.BINANCE")
-    
-    def test_dry_run_mode_enabled(self):
+
+    def test_dry_run_mode_enabled(self) -> None:
         """Test that strategy does not execute trades when execute_trades=False."""
         config = MLStrategyConfig(
             strategy_id="DRY-RUN-TEST",
@@ -49,12 +53,12 @@ class TestDryRunMode:
             execute_trades=False,  # Dry run mode enabled
             use_strategy_store=True,
         )
-        
+
         # Create strategy with mocked store
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock()
             MockStore.return_value = mock_store_instance
-            
+
             strategy = MLTradingStrategy(config)
             strategy.register_base(
                 portfolio=self.portfolio,
@@ -62,11 +66,11 @@ class TestDryRunMode:
                 cache=self.cache,
                 clock=self.clock,
             )
-            
+
             # Mock the order submission methods
-            strategy._place_market_order = MagicMock()
-            strategy._calculate_position_size = MagicMock(return_value=100)
-            
+            cast(Any, strategy)._place_market_order = MagicMock()
+            cast(Any, strategy)._calculate_position_size = MagicMock(return_value=100)
+
             # Create BUY signal
             signal = MLSignal(
                 instrument_id=self.instrument_id,
@@ -77,20 +81,21 @@ class TestDryRunMode:
                 ts_event=dt_to_unix_nanos(self.clock.utc_now()),
                 ts_init=dt_to_unix_nanos(self.clock.utc_now()),
             )
-            
+
             # Process signal
             strategy._handle_ml_signal(signal)
-            
+
             # Verify no actual orders were placed
-            strategy._place_market_order.assert_not_called()
-            
+            _mock_place = cast(Any, strategy)._place_market_order
+            _mock_place.assert_not_called()
+
             # Verify dry run counter incremented
             assert strategy._dry_run_trades == 1
-            
+
             # Verify decision was still persisted
             mock_store_instance.write_signal.assert_called()
-    
-    def test_normal_execution_mode(self):
+
+    def test_normal_execution_mode(self) -> None:
         """Test that strategy executes trades normally when execute_trades=True."""
         config = MLStrategyConfig(
             strategy_id="NORMAL-TEST",
@@ -99,12 +104,12 @@ class TestDryRunMode:
             execute_trades=True,  # Normal execution mode
             use_strategy_store=True,
         )
-        
+
         # Create strategy with mocked store
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock()
             MockStore.return_value = mock_store_instance
-            
+
             strategy = MLTradingStrategy(config)
             strategy.register_base(
                 portfolio=self.portfolio,
@@ -112,11 +117,12 @@ class TestDryRunMode:
                 cache=self.cache,
                 clock=self.clock,
             )
-            
+
             # Mock the order submission methods
-            strategy._place_market_order = MagicMock(return_value="ORDER-123")
-            strategy._calculate_position_size = MagicMock(return_value=100)
-            
+            _mock_place = MagicMock(return_value="ORDER-123")
+            cast(Any, strategy)._place_market_order = _mock_place
+            cast(Any, strategy)._calculate_position_size = MagicMock(return_value=100)
+
             # Create BUY signal
             signal = MLSignal(
                 instrument_id=self.instrument_id,
@@ -127,20 +133,20 @@ class TestDryRunMode:
                 ts_event=dt_to_unix_nanos(self.clock.utc_now()),
                 ts_init=dt_to_unix_nanos(self.clock.utc_now()),
             )
-            
+
             # Process signal
             strategy._handle_ml_signal(signal)
-            
+
             # Verify order was placed
-            strategy._place_market_order.assert_called_once()
-            
+            _mock_place.assert_called_once()
+
             # Verify dry run counter not incremented
             assert strategy._dry_run_trades == 0
-            
+
             # Verify decision was persisted
             mock_store_instance.write_signal.assert_called()
-    
-    def test_dry_run_persistence_and_metrics(self):
+
+    def test_dry_run_persistence_and_metrics(self) -> None:
         """Test that persistence and metrics work correctly in dry run mode."""
         config = MLStrategyConfig(
             strategy_id="METRICS-TEST",
@@ -150,12 +156,12 @@ class TestDryRunMode:
             use_strategy_store=True,
             persist_all_signals=True,
         )
-        
+
         # Create strategy with mocked store
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock()
             MockStore.return_value = mock_store_instance
-            
+
             strategy = MLTradingStrategy(config)
             strategy.register_base(
                 portfolio=self.portfolio,
@@ -163,10 +169,10 @@ class TestDryRunMode:
                 cache=self.cache,
                 clock=self.clock,
             )
-            
+
             # Mock position sizing
-            strategy._calculate_position_size = MagicMock(return_value=100)
-            
+            cast(Any, strategy)._calculate_position_size = MagicMock(return_value=100)
+
             # Process multiple signals
             for i in range(3):
                 signal = MLSignal(
@@ -181,23 +187,23 @@ class TestDryRunMode:
                 # Call the handler which increments counters
                 strategy._handle_ml_signal(signal)
                 self.clock.advance_time(1000000000)  # 1 second
-            
+
             # Verify dry run trades counted
             assert strategy._dry_run_trades == 3
-            
+
             # Verify all decisions were persisted
             assert mock_store_instance.write_signal.call_count == 3
-            
+
             # Verify signals were tracked
             assert strategy._signals_received == 3
-            
+
             # Stop the strategy and check final log
             strategy.on_stop()
-            
+
             # Verify flush was called
             mock_store_instance.flush.assert_called_once()
-    
-    def test_dry_run_with_position_reversal(self):
+
+    def test_dry_run_with_position_reversal(self) -> None:
         """Test dry run mode handles position reversals correctly."""
         config = MLStrategyConfig(
             strategy_id="REVERSAL-TEST",
@@ -206,12 +212,12 @@ class TestDryRunMode:
             execute_trades=False,  # Dry run mode
             use_strategy_store=True,
         )
-        
+
         # Create strategy with mocked store
-        with patch('ml.strategies.base.StrategyStore') as MockStore:
+        with patch("ml.strategies.base.StrategyStore") as MockStore:
             mock_store_instance = MagicMock()
             MockStore.return_value = mock_store_instance
-            
+
             strategy = MLTradingStrategy(config)
             strategy.register_base(
                 portfolio=self.portfolio,
@@ -219,13 +225,13 @@ class TestDryRunMode:
                 cache=self.cache,
                 clock=self.clock,
             )
-            
+
             # Mock position sizing and existing position
-            strategy._calculate_position_size = MagicMock(return_value=100)
+            cast(Any, strategy)._calculate_position_size = MagicMock(return_value=100)
             mock_position = MagicMock()
             mock_position.side.name = "LONG"
             mock_position.quantity = 100
-            
+
             # First signal - enter position
             signal1 = MLSignal(
                 instrument_id=self.instrument_id,
@@ -236,13 +242,13 @@ class TestDryRunMode:
                 ts_event=dt_to_unix_nanos(self.clock.utc_now()),
                 ts_init=dt_to_unix_nanos(self.clock.utc_now()),
             )
-            
+
             strategy._handle_ml_signal(signal1)
             assert strategy._dry_run_trades == 1
-            
+
             # Mock existing position for reversal
-            strategy._get_current_position = MagicMock(return_value=mock_position)
-            
+            cast(Any, strategy)._get_current_position = MagicMock(return_value=mock_position)
+
             # Second signal - reverse position
             signal2 = MLSignal(
                 instrument_id=self.instrument_id,
@@ -253,19 +259,19 @@ class TestDryRunMode:
                 ts_event=dt_to_unix_nanos(self.clock.utc_now()) + 1000000000,
                 ts_init=dt_to_unix_nanos(self.clock.utc_now()) + 1000000000,
             )
-            
+
             strategy._handle_ml_signal(signal2)
             assert strategy._dry_run_trades == 2
-            
+
             # Verify both decisions were persisted
             assert mock_store_instance.write_signal.call_count == 2
-            
+
             # Check the persisted decisions
             calls = mock_store_instance.write_signal.call_args_list
-            
+
             # First call should be BUY
             assert calls[0].kwargs["signal_type"] == "BUY"
-            
+
             # Second call should be SELL (reversal)
             assert calls[1].kwargs["signal_type"] == "SELL"
 

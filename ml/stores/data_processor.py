@@ -666,7 +666,8 @@ class DataProcessor:
         cache_key = f"instrument:{instrument_id}"
 
         if self.enable_caching and cache_key in self._metadata_cache:
-            return self._metadata_cache[cache_key]
+            from typing import cast
+            return cast(dict[str, Any], self._metadata_cache[cache_key])
 
         with self.engine.connect() as conn:
             result = conn.execute(
@@ -721,7 +722,8 @@ class DataProcessor:
 
         if self.enable_caching and cache_key in self._statistics_cache:
             if time.time() - self._cache_timestamp < 300:  # 5 minute cache
-                return self._statistics_cache[cache_key]
+                from typing import cast
+                return cast(dict[str, float], self._statistics_cache[cache_key])
 
         with self.engine.connect() as conn:
             result = conn.execute(

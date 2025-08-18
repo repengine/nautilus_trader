@@ -266,7 +266,7 @@ class ModelLifecycleCollector(BaseMetricsCollector):
         load_duration: float,
         model_size_bytes: int | None = None,
         location: str = "disk",
-        format_type: str = "pickle",
+        format_type: str = "onnx",
         success: bool = True,
         error_type: str | None = None,
     ) -> None:
@@ -283,8 +283,8 @@ class ModelLifecycleCollector(BaseMetricsCollector):
             Size of the model file in bytes.
         location : str, default "disk"
             Location where model was loaded from (e.g., "disk", "memory", "remote").
-        format_type : str, default "pickle"
-            Format of the model file (e.g., "pickle", "onnx", "joblib").
+        format_type : str, default "onnx"
+            Format of the model file (e.g., "onnx", "joblib").
         success : bool, default True
             Whether the loading was successful.
         error_type : str, optional

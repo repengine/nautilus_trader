@@ -1,0 +1,271 @@
+{
+  "total_symbols": 106,
+  "symbols": [
+    "A",
+    "AAPL",
+    "ABBV",
+    "ABNB",
+    "ABT",
+    "ADBE",
+    "AGG",
+    "AMAT",
+    "AMD",
+    "AMZN",
+    "AVGO",
+    "AXP",
+    "BAC",
+    "BLK",
+    "BND",
+    "BRK.B",
+    "C",
+    "CAT",
+    "CRM",
+    "CRWD",
+    "CSCO",
+    "CVX",
+    "DBA",
+    "DDOG",
+    "DIA",
+    "DIS",
+    "EEM",
+    "EFA",
+    "EWJ",
+    "FXI",
+    "GDX",
+    "GLD",
+    "GOOGL",
+    "GS",
+    "HD",
+    "HYG",
+    "IEF",
+    "IJH",
+    "IJR",
+    "INTC",
+    "IWM",
+    "JNJ",
+    "JPM",
+    "KO",
+    "LLY",
+    "LQD",
+    "MCD",
+    "MDY",
+    "META",
+    "MRK",
+    "MS",
+    "MSFT",
+    "NET",
+    "NFLX",
+    "NKE",
+    "NVDA",
+    "ORCL",
+    "PEP",
+    "PFE",
+    "PG",
+    "PLTR",
+    "QCOM",
+    "QQQ",
+    "QQQE",
+    "ROKU",
+    "RSP",
+    "SCHW",
+    "SHOP",
+    "SHY",
+    "SLV",
+    "SNOW",
+    "SPY",
+    "SQ",
+    "SVXY",
+    "TIP",
+    "TLT",
+    "TMO",
+    "TSLA",
+    "TXN",
+    "UNG",
+    "UNH",
+    "USO",
+    "UVXY",
+    "V",
+    "VEA",
+    "VIXM",
+    "VIXY",
+    "VOO",
+    "VTI",
+    "VWO",
+    "VXX",
+    "VXZ",
+    "WFC",
+    "WMT",
+    "XLB",
+    "XLC",
+    "XLE",
+    "XLF",
+    "XLI",
+    "XLK",
+    "XLP",
+    "XLRE",
+    "XLU",
+    "XLV",
+    "XLY",
+    "XOM"
+  ],
+  "coverage": {
+    "Core Market": {
+      "found": 6,
+      "total": 7,
+      "percentage": 85.71428571428571,
+      "symbols": [
+        "SPY",
+        "QQQ",
+        "IWM",
+        "DIA",
+        "VTI",
+        "VOO"
+      ]
+    },
+    "Volatility": {
+      "found": 4,
+      "total": 5,
+      "percentage": 80.0,
+      "symbols": [
+        "VXX",
+        "UVXY",
+        "SVXY",
+        "VIXY"
+      ]
+    },
+    "Sectors": {
+      "found": 11,
+      "total": 11,
+      "percentage": 100.0,
+      "symbols": [
+        "XLB",
+        "XLC",
+        "XLE",
+        "XLF",
+        "XLI",
+        "XLK",
+        "XLP",
+        "XLRE",
+        "XLU",
+        "XLV",
+        "XLY"
+      ]
+    },
+    "Bonds": {
+      "found": 7,
+      "total": 8,
+      "percentage": 87.5,
+      "symbols": [
+        "TLT",
+        "IEF",
+        "SHY",
+        "HYG",
+        "LQD",
+        "AGG",
+        "BND"
+      ]
+    },
+    "Commodities": {
+      "found": 6,
+      "total": 6,
+      "percentage": 100.0,
+      "symbols": [
+        "GLD",
+        "SLV",
+        "USO",
+        "UNG",
+        "DBA",
+        "GDX"
+      ]
+    },
+    "International": {
+      "found": 6,
+      "total": 6,
+      "percentage": 100.0,
+      "symbols": [
+        "EFA",
+        "EEM",
+        "VEA",
+        "VWO",
+        "FXI",
+        "EWJ"
+      ]
+    },
+    "Mega Caps": {
+      "found": 7,
+      "total": 7,
+      "percentage": 100.0,
+      "symbols": [
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "AMZN",
+        "META",
+        "GOOGL",
+        "TSLA"
+      ]
+    },
+    "Financials": {
+      "found": 8,
+      "total": 8,
+      "percentage": 100.0,
+      "symbols": [
+        "JPM",
+        "BAC",
+        "GS",
+        "MS",
+        "C",
+        "WFC",
+        "BLK",
+        "SCHW"
+      ]
+    },
+    "Tech Leaders": {
+      "found": 7,
+      "total": 7,
+      "percentage": 100.0,
+      "symbols": [
+        "AMD",
+        "INTC",
+        "QCOM",
+        "CRM",
+        "ORCL",
+        "ADBE",
+        "NFLX"
+      ]
+    },
+    "Meme Stocks": {
+      "found": 0,
+      "total": 7,
+      "percentage": 0.0,
+      "symbols": []
+    }
+  },
+  "ml_capabilities": {
+    "Market Regime Detection": {
+      "ready": true,
+      "status": "\u2705 Ready"
+    },
+    "Sector Rotation": {
+      "ready": true,
+      "status": "\u2705 Ready"
+    },
+    "Cross-Asset Correlation": {
+      "ready": true,
+      "status": "\u2705 Ready"
+    },
+    "Global Macro": {
+      "ready": true,
+      "status": "\u2705 Ready"
+    },
+    "Liquidity Analysis": {
+      "ready": true,
+      "status": "\u2705 Ready"
+    },
+    "Sentiment Analysis": {
+      "ready": false,
+      "status": "\u26a0\ufe0f Optional"
+    }
+  },
+  "ready_capabilities": 5
+}

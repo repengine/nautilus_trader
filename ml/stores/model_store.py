@@ -54,7 +54,10 @@ class ModelStore(BaseStore):
         batch_size: int = 1000,
         flush_interval_ms: int = 100,
         clock: Clock | None = None,
-    ):
+        persistence_manager: Any | None = None,
+        flush_interval_seconds: float | None = None,
+        **_: Any,
+    ) -> None:
         """
         Initialize model store.
 
@@ -95,7 +98,9 @@ class ModelStore(BaseStore):
             )
 
         self.batch_size = batch_size
-        self.flush_interval_ms = flush_interval_ms
+        self.flush_interval_ms = int(flush_interval_ms)
+        if flush_interval_seconds is not None:
+            self.flush_interval_ms = int(flush_interval_seconds * 1000)
         self.clock = clock
 
         # Write buffer for batching
@@ -108,7 +113,7 @@ class ModelStore(BaseStore):
             self.metadata = MetaData()
             self._setup_tables()
 
-    def _setup_tables(self):
+    def _setup_tables(self) -> None:
         """
         Create model_predictions table if it doesn't exist.
         """
@@ -490,7 +495,7 @@ class ModelStore(BaseStore):
             return False
 
         elapsed_ms = (self.clock.timestamp_ns() - self._last_flush_ns) / 1e6
-        return elapsed_ms >= self.flush_interval_ms
+        return bool(elapsed_ms >= float(self.flush_interval_ms))
 
     def is_healthy(self) -> bool:
         """

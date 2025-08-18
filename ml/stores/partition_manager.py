@@ -9,7 +9,9 @@ in the ML pipeline.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from datetime import datetime
+from datetime import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -131,15 +133,17 @@ class PartitionManager:
                     )
 
                     if not exists_result.scalar():
-                        # Calculate nanosecond timestamps
-                        start_ns = int(last_date.replace(day=1).timestamp() * 1e9)
+                        # Calculate nanosecond timestamps (date -> datetime at midnight)
+                        start_dt = datetime.combine(last_date.replace(day=1), time.min)
+                        start_ns = int(start_dt.timestamp() * 1e9)
 
                         # Calculate end of month
                         if last_date.month == 12:
-                            end_date = last_date.replace(year=last_date.year + 1, month=1, day=1)
+                            end_date_d: date = last_date.replace(year=last_date.year + 1, month=1, day=1)
                         else:
-                            end_date = last_date.replace(month=last_date.month + 1, day=1)
-                        end_ns = int(end_date.timestamp() * 1e9)
+                            end_date_d = last_date.replace(month=last_date.month + 1, day=1)
+                        end_dt = datetime.combine(end_date_d, time.min)
+                        end_ns = int(end_dt.timestamp() * 1e9)
 
                         # Create partition
                         conn.execute(
@@ -216,7 +220,7 @@ class PartitionManager:
 
         return removed_count
 
-    def get_partition_stats(self) -> dict[str, list[dict[str, str]]]:
+    def get_partition_stats(self) -> dict[str, list[dict[str, str | int]]]:
         """
         Get statistics about existing partitions.
 
@@ -246,7 +250,7 @@ class PartitionManager:
                     {"pattern": f"{table_name}_%"},
                 )
 
-                partitions = []
+                partitions: list[dict[str, str | int]] = []
                 for row in result:
                     partitions.append(
                         {
@@ -295,14 +299,16 @@ class PartitionManager:
 
             if not result.scalar():
                 # Create partition for current month
-                start_ns = int(current_date.replace(day=1).timestamp() * 1e9)
+                start_dt = datetime.combine(current_date.replace(day=1), time.min)
+                start_ns = int(start_dt.timestamp() * 1e9)
 
                 # Calculate end of month
                 if current_date.month == 12:
-                    end_date = current_date.replace(year=current_date.year + 1, month=1, day=1)
+                    end_date_d = current_date.replace(year=current_date.year + 1, month=1, day=1)
                 else:
-                    end_date = current_date.replace(month=current_date.month + 1, day=1)
-                end_ns = int(end_date.timestamp() * 1e9)
+                    end_date_d = current_date.replace(month=current_date.month + 1, day=1)
+                end_dt = datetime.combine(end_date_d, time.min)
+                end_ns = int(end_dt.timestamp() * 1e9)
 
                 conn.execute(
                     text(
@@ -320,7 +326,7 @@ class PartitionManager:
 
         return False
 
-    def run_maintenance(self) -> dict[str, int]:
+    def run_maintenance(self) -> dict[str, int | str]:
         """
         Run full partition maintenance.
 

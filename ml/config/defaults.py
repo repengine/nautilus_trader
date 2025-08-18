@@ -11,7 +11,7 @@ from ml.config.runtime import OnnxRuntimeConfig
 
 
 def default_signal_actor_config() -> MLSignalActorConfig:
-    return MLSignalActorConfig(
+    return MLSignalActorConfig(  # type: ignore[call-arg]
         optimization_config=OptimizationConfig(),
         strategy_config=StrategyConfig(),
         onnx_runtime_config=OnnxRuntimeConfig(),

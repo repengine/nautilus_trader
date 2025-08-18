@@ -10,7 +10,6 @@ Nautilus Trader's hot path.
 from __future__ import annotations
 
 import hashlib
-import pickle
 import time
 from abc import ABC
 from abc import abstractmethod
@@ -42,6 +41,7 @@ from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.model_registry import ModelRegistry
+from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
 from ml.registry.strategy_registry import StrategyRegistry
@@ -329,7 +329,6 @@ class ProductionModelLoader(ModelLoader):
         Load model based on file extension.
         """
         import json
-        import pickle
         from pathlib import Path
 
         model_path = Path(path)
@@ -356,11 +355,12 @@ class ProductionModelLoader(ModelLoader):
                     data = json.load(f)
                 return data, {"type": "json", "format": "json"}
 
-        elif path.endswith(".pkl") or path.endswith(".pickle"):
-            # Pickle model
-            with open(path, "rb") as f:
-                model = pickle.load(f)
-            return model, {"type": "pickle", "format": "pickle"}
+        elif path.endswith((".pkl", ".pickle")):
+            # Pickle models are disallowed for security; require safe formats
+            raise ValueError(
+                "Pickle model formats (.pkl, .pickle) are not supported. "
+                "Export models to ONNX, joblib, or native framework formats."
+            )
 
         elif path.endswith(".joblib"):
             # Joblib model
@@ -575,6 +575,11 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
     """
 
+    # Store attributes are initialized in _init_stores_and_registries
+    _feature_store: Any
+    _model_store: Any
+    _strategy_store: Any
+
     def __init__(self, config: MLActorConfig) -> None:
         """
         Initialize the enhanced ML inference actor.
@@ -641,6 +646,10 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         self._inference_latency_metric = ml_prediction_latency
         self._inference_count_metric = ml_predictions_total
         self._inference_confidence_metric = ml_signal_confidence
+        # Manifest-driven feature schema (populated when loading from registry)
+        self._manifest_feature_names: list[str] = []
+        self._manifest_feature_dtypes: list[str] = []
+        self._manifest_feature_schema_hash: str | None = None
 
     def _init_stores_and_registries(self) -> None:
         """
@@ -673,18 +682,19 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
                 with test_engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
                 db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
-                backend = "postgres"
+                backend_type = BackendType.POSTGRES
             except Exception:
                 # Fall back to in-memory SQLite for testing
                 db_connection = "sqlite:///:memory:"
-                backend = "sqlite"
+                # Use POSTGRES backend type for unified handling; engine will still use SQLite
+                backend_type = BackendType.POSTGRES
                 self.log.warning("PostgreSQL not available, using in-memory SQLite for testing")
         else:
-            backend = "postgres" if "postgresql" in db_connection else "sqlite"
+            backend_type = BackendType.POSTGRES
 
         # Create persistence config
         persistence_config = PersistenceConfig(
-            backend=backend,
+            backend=backend_type,
             connection_string=db_connection,
         )
 
@@ -696,9 +706,9 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
             from ml.stores.base import DummyStore
 
             self.log.info("Using DummyStore for testing (no persistence)")
-            self._feature_store = DummyStore()  # type: ignore
-            self._model_store = DummyStore()  # type: ignore
-            self._strategy_store = DummyStore()  # type: ignore
+            self._feature_store = DummyStore()
+            self._model_store = DummyStore()
+            self._strategy_store = DummyStore()
         else:
             # Production mode - stores MUST initialize successfully
             try:
@@ -1084,105 +1094,16 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
         """
         try:
-            # Check if we should load from registry (only if model_id is set WITHOUT model_path)
-            if (
-                hasattr(self._config, "model_id")
-                and self._config.model_id
-                and (not hasattr(self._config, "model_path") or not self._config.model_path)
-            ):
-                # Load from unified registry
-                from pathlib import Path
-
-                from ml.registry.model_registry import ModelRegistry
-
-                registry_path = (
-                    Path(self._config.registry_path)
-                    if hasattr(self._config, "registry_path")
-                    else Path("ml/models")
-                )
-                registry = ModelRegistry(registry_path)
-
-                # Get model info from registry
-                model_info = registry.get_model(self._config.model_id)
-                if not model_info:
-                    raise ValueError(f"Model {self._config.model_id} not found in registry")
-
-                # Load the actual model
-                self._model = registry.load_model(self._config.model_id)
-
-                # Extract metadata from manifest
-                manifest = model_info.manifest
-                self._model_metadata = {
-                    "model_id": manifest.model_id,
-                    "version": manifest.version,
-                    "type": manifest.architecture,
-                    "role": manifest.role.value,
-                    "data_requirements": manifest.data_requirements.value,
-                    "feature_schema": manifest.feature_schema,
-                    "feature_schema_hash": manifest.feature_schema_hash,
-                    "parent_id": manifest.parent_id,
-                    "performance_metrics": manifest.performance_metrics,
-                    "deployment_constraints": manifest.deployment_constraints,
-                }
-                # Stash manifest feature names/dtypes and hash for downstream compatibility checks
-                try:
-                    self._manifest_feature_names = list(manifest.feature_schema.keys())
-                    self._manifest_feature_schema_hash = manifest.feature_schema_hash
-                    self._manifest_feature_dtypes = [
-                        manifest.feature_schema[name] for name in self._manifest_feature_names
-                    ]
-                except Exception:
-                    self._manifest_feature_names = []
-                    self._manifest_feature_schema_hash = None
-                    self._manifest_feature_dtypes = []
-
-                # Use manifest features if configured
-                if (
-                    hasattr(self._config, "use_manifest_features")
-                    and self._config.use_manifest_features
-                ):
-                    # Override feature config with manifest schema
-                    self._feature_names = list(manifest.feature_schema.keys())
-                    self.log.info(f"Using {len(self._feature_names)} features from manifest")
-
-                # Check deployment constraints
-                if "max_latency_ms" in manifest.deployment_constraints:
-                    max_latency = manifest.deployment_constraints["max_latency_ms"]
-                    if hasattr(self._config, "max_inference_latency_ms"):
-                        if self._config.max_inference_latency_ms > max_latency:
-                            self.log.warning(
-                                f"Config latency {self._config.max_inference_latency_ms}ms exceeds model constraint {max_latency}ms",
-                            )
-
-            else:
+            loaded_from_registry = self._try_load_from_registry()
+            if not loaded_from_registry:
                 # Load from direct path (existing behavior)
                 self._model, self._model_metadata = self._model_loader.load_model(
                     self._config.model_path,
                 )
             self._model_version = self._model_metadata.get("version")
 
-            # Extract model_id from metadata or generate from path
-            if "model_id" in self._model_metadata:
-                self._model_id = self._model_metadata["model_id"]
-            elif "training_metadata" in self._model_metadata:
-                training_meta = self._model_metadata["training_metadata"]
-                if "model_id" in training_meta:
-                    self._model_id = training_meta["model_id"]
-                else:
-                    # Generate from path and version
-                    from pathlib import Path
-
-                    model_name = Path(self._config.model_path).stem
-                    version_str = self._model_version[:8] if self._model_version else "v1"
-                    self._model_id = f"{model_name}_{version_str}"
-            else:
-                # Fallback: use filename and version
-                from pathlib import Path
-
-                model_name = Path(self._config.model_path).stem
-                self._model_id = (
-                    f"{model_name}_{self._model_version[:8] if self._model_version else 'v1'}"
-                )
+            # Determine model_id
+            self._determine_model_id()
 
             # Call the original abstract method for backward compatibility
             self._load_model()
@@ -1197,6 +1118,94 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         except Exception as e:
             self.log.error(f"Failed to load model: {e}")
             raise
+
+    def _try_load_from_registry(self) -> bool:
+        """Attempt to load model and metadata from registry; return True if loaded."""
+        if (
+            hasattr(self._config, "model_id")
+            and self._config.model_id
+            and (not hasattr(self._config, "model_path") or not self._config.model_path)
+        ):
+            from pathlib import Path
+
+            from ml.registry.model_registry import ModelRegistry
+
+            registry_path = (
+                Path(self._config.registry_path)
+                if hasattr(self._config, "registry_path")
+                else Path("ml/models")
+            )
+            registry = ModelRegistry(registry_path)
+
+            model_info = registry.get_model(self._config.model_id)
+            if not model_info:
+                raise ValueError(f"Model {self._config.model_id} not found in registry")
+
+            # Load the actual model
+            self._model = registry.load_model(self._config.model_id)
+
+            # Extract metadata from manifest
+            manifest = model_info.manifest
+            self._model_metadata = {
+                "model_id": manifest.model_id,
+                "version": manifest.version,
+                "type": manifest.architecture,
+                "role": manifest.role.value,
+                "data_requirements": manifest.data_requirements.value,
+                "feature_schema": manifest.feature_schema,
+                "feature_schema_hash": manifest.feature_schema_hash,
+                "parent_id": manifest.parent_id,
+                "performance_metrics": manifest.performance_metrics,
+                "deployment_constraints": manifest.deployment_constraints,
+            }
+            # Stash manifest feature names/dtypes and hash
+            try:
+                self._manifest_feature_names = list(manifest.feature_schema.keys())
+                self._manifest_feature_schema_hash = manifest.feature_schema_hash
+                self._manifest_feature_dtypes = [
+                    manifest.feature_schema[name] for name in self._manifest_feature_names
+                ]
+            except Exception:
+                self._manifest_feature_names = []
+                self._manifest_feature_schema_hash = None
+                self._manifest_feature_dtypes = []
+
+            # Use manifest features if configured
+            if hasattr(self._config, "use_manifest_features") and self._config.use_manifest_features:
+                self._feature_names = list(manifest.feature_schema.keys())
+                self.log.info(f"Using {len(self._feature_names)} features from manifest")
+
+            # Check deployment constraints
+            if "max_latency_ms" in manifest.deployment_constraints:
+                max_latency = manifest.deployment_constraints["max_latency_ms"]
+                if hasattr(self._config, "max_inference_latency_ms") and (
+                    self._config.max_inference_latency_ms > max_latency
+                ):
+                    self.log.warning(
+                        f"Config latency {self._config.max_inference_latency_ms}ms exceeds model constraint {max_latency}ms",
+                    )
+
+            return True
+
+        return False
+
+    def _determine_model_id(self) -> None:
+        """Populate `_model_id` from metadata, training metadata, or path fallback."""
+        if "model_id" in self._model_metadata:
+            self._model_id = self._model_metadata["model_id"]
+            return
+
+        if "training_metadata" in self._model_metadata:
+            training_meta = self._model_metadata["training_metadata"]
+            if "model_id" in training_meta:
+                self._model_id = training_meta["model_id"]
+                return
+
+        from pathlib import Path
+
+        model_name = Path(self._config.model_path).stem
+        version_str = self._model_version[:8] if self._model_version else "v1"
+        self._model_id = f"{model_name}_{version_str}"
 
     def _schedule_model_checks(self) -> None:
         """
@@ -1351,64 +1360,18 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
 class PickleMLInferenceActor(BaseMLInferenceActor):
     """
-    ML inference actor for scikit-learn and pickle-compatible models.
+    Deprecated: pickle-based inference is unsupported.
 
-    This implementation handles models saved with pickle/joblib, which is common for
-    scikit-learn, XGBoost, and LightGBM models.
-
+    This class is retained as a stub to provide a clear error if instantiated.
     """
 
-    def _load_model(self) -> None:
-        """
-        Load pickle/joblib model from disk.
-        """
-        model_path = Path(self._config.model_path)
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
+    def _load_model(self) -> None:  # pragma: no cover - stub
+        raise SecurityError(
+            "Pickle models are deprecated and not supported. Use ONNX or framework-native formats."
+        )
 
-        # Security check for pickle loading
-        if not self._config.allow_pickle:
-            raise SecurityError(
-                "Pickle loading is disabled for security. "
-                "Set allow_pickle=True to enable (not recommended for production) "
-                "or use ONNX/native model formats instead.",
-            )
-
-        with open(model_path, "rb") as f:
-            self._model = pickle.load(f)  # noqa: S301
-
-        self.log.info(f"Loaded model from {model_path}")
-
-    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
-        """
-        Generate prediction using the loaded model.
-
-        Parameters
-        ----------
-        features : npt.NDArray[np.float32]
-            The feature vector for prediction.
-
-        Returns
-        -------
-        tuple[float, float]
-            A tuple of (prediction, confidence) values.
-
-        """
-        # Reshape features for sklearn models (expects 2D array)
-        features_2d = features.reshape(1, -1)
-
-        # Get prediction
-        if hasattr(self._model, "predict_proba"):
-            # Classification model with probability output
-            probabilities = self._model.predict_proba(features_2d)[0]
-            prediction = np.argmax(probabilities)
-            confidence = np.max(probabilities)
-        else:
-            # Regression model or classifier without probabilities
-            prediction = self._model.predict(features_2d)[0]
-            confidence = 1.0  # Assume full confidence for regression
-
-        return float(prediction), float(confidence)
+    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:  # pragma: no cover - stub
+        raise SecurityError("Pickle models are deprecated and not supported.")
 
 
 class ONNXMLInferenceActor(BaseMLInferenceActor):

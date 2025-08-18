@@ -1055,18 +1055,11 @@ class BaseMLTrainer(ABC):
             raise FileNotFoundError(f"Model file not found: {load_path}")
 
         # TODO: Use registry for loading
-        # For now, just load the model file directly
-        import pickle
+        # For now, use ProductionModelLoader with supported formats (no pickle)
+        from ml.actors.base import ProductionModelLoader
 
-        with open(load_path, "rb") as f:
-            loaded_data = pickle.load(f)
-
-        if isinstance(loaded_data, dict):
-            model = loaded_data.get("model")
-            metadata = loaded_data.get("metadata", {})
-        else:
-            model = loaded_data
-            metadata = {}
+        loader = ProductionModelLoader()
+        model, metadata = loader.load_model(str(load_path))
 
         self._model = model
         self._feature_names = metadata.get("feature_names", [])

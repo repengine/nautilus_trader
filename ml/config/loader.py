@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import msgspec
 
@@ -28,7 +28,7 @@ def load_from_file(path: str | None, t: type[T], default: T) -> T:
         with open(path) as f:
             raw = f.read()
         data = json.loads(raw)
-        return msgspec.json.decode(msgspec.json.encode(data), type=t)  # type: ignore[arg-type]
+        return msgspec.json.decode(msgspec.json.encode(data), type=t)
     except Exception:
         return default
 
@@ -41,9 +41,9 @@ def merge_env(prefix: str, t: type[T], base: T) -> T:
         return base
     try:
         data = json.loads(blob)
-        partial = msgspec.json.decode(msgspec.json.encode(data), type=t)  # type: ignore[arg-type]
+        partial = msgspec.json.decode(msgspec.json.encode(data), type=t)
         # Shallow merge: prefer env fields when not None
-        return _merge_structs(base, partial)
+        return cast(T, _merge_structs(base, partial))
     except Exception:
         return base
 

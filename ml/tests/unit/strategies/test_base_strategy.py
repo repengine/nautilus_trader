@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+from unittest.mock import patch
 
 import pytest
 
@@ -56,9 +57,9 @@ class MockMLStrategy(BaseMLStrategy):
         # Mock Strategy properties
         self._trader_id = TraderId("TESTER-001")
         self._id = StrategyId("MockMLStrategy-001")
-        
+
         # Mock the StrategyStore to avoid database connection
-        with patch('ml.strategies.base.StrategyStore'):
+        with patch("ml.strategies.base.StrategyStore"):
             # Now call parent init which will use the mocked clock
             super().__init__(config)
 
@@ -677,9 +678,9 @@ class TestSimpleMLStrategy:
                 self._mocked_cache = Mock()
                 self._trader_id = TraderId("TESTER-001")
                 self._id = StrategyId("SimpleMLStrategy-001")
-                
+
                 # Mock the StrategyStore to avoid database connection
-                with patch('ml.strategies.base.StrategyStore'):
+                with patch("ml.strategies.base.StrategyStore"):
                     super().__init__(config)
 
             def submit_order(self, order: Any) -> None:

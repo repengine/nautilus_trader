@@ -21,7 +21,7 @@ Outputs
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -213,12 +213,12 @@ def main(argv: list[str] | None = None) -> int:
 
             X = np.asarray(df_sorted[feature_names].to_numpy(), dtype=np.float64)
             y = np.asarray(df_sorted[args.target_col].to_numpy(), dtype=int)
-            X_train, X_val = X[:cutoff], X[cutoff:]
+            X_train, X_val_arr = X[:cutoff], X[cutoff:]
             y_train = y[:cutoff]
             lr = LogisticRegression(max_iter=200)
             lr.fit(X_train, y_train)
             # decision_function gives logits for binary classifier
-            z_val_vec = lr.decision_function(X_val).astype(np.float64)
+            z_val_vec = lr.decision_function(X_val_arr).astype(np.float64)
 
         # Calibrate and produce calibrated probabilities
         teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
@@ -231,15 +231,16 @@ def main(argv: list[str] | None = None) -> int:
                 # Build val dataset/loader similar to predict path
                 from pytorch_forecasting import TimeSeriesDataSet
 
-                training_ds = teacher_tft._training_dataset  # type: ignore[attr-defined]
+                training_ds = getattr(teacher_tft, "_training_dataset", None)
                 assert training_ds is not None
                 val_ds = TimeSeriesDataSet.from_dataset(
                     training_ds, df_val, predict=True, stop_randomization=True
                 )
                 val_loader = val_ds.to_dataloader(train=False, batch_size=64, num_workers=0)
                 # calculate_feature_relevance may not be available in all versions
-                if hasattr(teacher_tft._tft, "calculate_feature_relevance"):  # type: ignore[attr-defined]
-                    relevance = teacher_tft._tft.calculate_feature_relevance(val_loader)  # type: ignore[attr-defined]
+                tft_model = getattr(teacher_tft, "_tft", None)
+                if tft_model is not None and hasattr(tft_model, "calculate_feature_relevance"):
+                    relevance = tft_model.calculate_feature_relevance(val_loader)
                     interp_path = Path(args.out_dir) / "interpretability.npz"
                     np.savez_compressed(interp_path, feature_relevance=relevance)
             except Exception:
@@ -261,10 +262,11 @@ def main(argv: list[str] | None = None) -> int:
             artifact_format = "pkl"
             if used_tft and getattr(args, "export_torchscript", False):
                 try:
-                    from ml.training.teacher.tft_torchscript import export_tft_to_torchscript_from_batch
                     from pytorch_forecasting import TimeSeriesDataSet
 
-                    training_ds = teacher_tft._training_dataset  # type: ignore[attr-defined]
+                    from ml.training.teacher.tft_torchscript import export_tft_to_torchscript_from_batch
+
+                    training_ds = getattr(teacher_tft, "_training_dataset", None)
                     assert training_ds is not None
                     val_ds = TimeSeriesDataSet.from_dataset(
                         training_ds, df_val, predict=True, stop_randomization=True
@@ -272,30 +274,31 @@ def main(argv: list[str] | None = None) -> int:
                     val_loader = val_ds.to_dataloader(train=False, batch_size=64, num_workers=0)
                     batch = next(iter(val_loader))
                     x = batch[0] if isinstance(batch, (list, tuple)) else batch
+                    import torch.nn as nn
+                    tft_model = getattr(teacher_tft, "_tft", None)
+                    if tft_model is None:
+                        raise RuntimeError("No TFT model available for TorchScript export")
                     ts_path = export_tft_to_torchscript_from_batch(
-                        teacher_tft._tft,  # type: ignore[attr-defined]
+                        cast(nn.Module, tft_model),
                         x,
                         artifacts_dir / args.model_id,
                     )
                     model_path = ts_path
                     artifact_format = "pt"
                 except Exception as exc:
-                    print(f"TorchScript export failed: {exc}. Falling back to pickle.")
-                    model_obj = teacher_tft._tft if used_tft else lr  # type: ignore[name-defined,attr-defined]
-                    model_path = save_model_with_metadata(
-                        model=model_obj,
-                        path=artifacts_dir / args.model_id,
-                        input_shape=(1, n_features),
-                        training_metadata={"used_tft": used_tft},
+                    raise RuntimeError(
+                        f"TorchScript export failed and pickle is unsupported: {exc}"
                     )
-                    artifact_format = model_path.suffix.lstrip(".")
             elif used_tft and getattr(args, "export_safetensors", False):
                 try:
                     import json as _json
+
                     from safetensors.torch import save_file as _save_safetensors
 
-                    tft = teacher_tft._tft  # type: ignore[attr-defined]
-                    state = {k: v.detach().cpu() for k, v in tft.state_dict().items()}  # type: ignore[attr-defined]
+                    tft = getattr(teacher_tft, "_tft", None)
+                    if tft is None:
+                        raise RuntimeError("No TFT model available for safetensors export")
+                    state = {k: v.detach().cpu() for k, v in tft.state_dict().items()}
                     st_path = (artifacts_dir / args.model_id).with_suffix(".safetensors")
                     _save_safetensors(state, str(st_path))
                     meta = {
@@ -311,17 +314,11 @@ def main(argv: list[str] | None = None) -> int:
                     model_path = st_path
                     artifact_format = "safetensors"
                 except Exception as exc:
-                    print(f"Safetensors export failed: {exc}. Falling back to pickle.")
-                    model_obj = teacher_tft._tft if used_tft else lr  # type: ignore[name-defined,attr-defined]
-                    model_path = save_model_with_metadata(
-                        model=model_obj,
-                        path=artifacts_dir / args.model_id,
-                        input_shape=(1, n_features),
-                        training_metadata={"used_tft": used_tft},
+                    raise RuntimeError(
+                        f"Safetensors export failed and pickle is unsupported: {exc}"
                     )
-                    artifact_format = model_path.suffix.lstrip(".")
             else:
-                model_obj = teacher_tft._tft if used_tft else lr  # type: ignore[name-defined,attr-defined]
+                model_obj = getattr(teacher_tft, "_tft", None) if used_tft else lr
                 model_path = save_model_with_metadata(
                     model=model_obj,
                     path=artifacts_dir / args.model_id,
@@ -358,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 perf_metrics = {}
 
+            assert y_val_true is not None
             manifest = ModelManifest(
                 model_id=args.model_id,
                 role=ModelRole.TEACHER,
@@ -415,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit(
                     "Provide --model_registry_dir and --teacher_model_id to run ONNX teacher on X_val",
                 )
+            from ml.registry.model_registry import ModelRegistry
             mreg = ModelRegistry(Path(args.model_registry_dir))
             session = mreg.load_model(args.teacher_model_id)
             if session is None:
@@ -448,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     preds_path = out_dir / "teacher_preds.npz"
     # Save both q_train and y_val_true for student calibration convenience
+    assert y_val_true is not None
     np.savez_compressed(
         preds_path,
         q_train=q_cal.squeeze(),

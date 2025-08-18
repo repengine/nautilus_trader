@@ -5,15 +5,17 @@ Test the integrated FeatureStore with MLSignalActor and training pipeline.
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
-from ml.config.base import MLSignalActorConfig
 from ml.config.base import MLTrainingConfig
 from ml.features.engineering import FeatureConfig
 from ml.stores.feature_store import FeatureStore
@@ -32,7 +34,7 @@ class TestFeatureStoreIntegration:
     """
 
     @pytest.fixture
-    def mock_bar(self):
+    def mock_bar(self) -> Bar:
         """
         Create a mock bar for testing.
         """
@@ -48,20 +50,26 @@ class TestFeatureStoreIntegration:
             ts_init=int(datetime.utcnow().timestamp() * 1e9),
         )
 
-    def test_ml_signal_actor_with_feature_store(self, mock_bar):
+    def test_ml_signal_actor_with_feature_store(self, mock_bar: Bar) -> None:
         """
         Test that MLSignalActor uses FeatureStore when configured.
         """
         with patch("ml.stores.feature_store.create_engine"):
             with patch("ml.stores.feature_store.FeatureStore._setup_tables"):
                 # Create config with FeatureStore enabled
+                # Provide required typed args via casts to satisfy mypy
+                from nautilus_trader.model.data import BarType
+                from nautilus_trader.model.identifiers import InstrumentId
+
                 config = MLSignalActorConfig(
-                    actor_id="TEST_ACTOR",
+                    component_id="TEST_ACTOR",
+                    model_id="model-1",
                     model_path="./test_model.onnx",
+                    bar_type=cast(BarType, object()),
+                    instrument_id=cast(InstrumentId, object()),
                     use_feature_store=True,
                     db_connection="postgresql://test@localhost/test",
                     persist_features=True,
-                    signal_strategy=SignalStrategy.THRESHOLD,
                     prediction_threshold=0.7,
                 )
 
@@ -89,18 +97,23 @@ class TestFeatureStoreIntegration:
                     )
 
                     # Verify returned features match
-                    assert np.array_equal(features, expected_features)
+                    assert np.array_equal(cast(npt.NDArray[np.float32], features), expected_features)
 
-    def test_ml_signal_actor_without_feature_store(self, mock_bar):
+    def test_ml_signal_actor_without_feature_store(self, mock_bar: Bar) -> None:
         """
         Test that MLSignalActor works without FeatureStore (backward compatibility).
         """
         # Create config without FeatureStore
+        from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
+
         config = MLSignalActorConfig(
-            actor_id="TEST_ACTOR",
+            component_id="TEST_ACTOR",
+            model_id="model-2",
             model_path="./test_model.onnx",
+            bar_type=cast(BarType, object()),
+            instrument_id=cast(InstrumentId, object()),
             use_feature_store=False,  # Explicitly disabled
-            signal_strategy=SignalStrategy.THRESHOLD,
             prediction_threshold=0.7,
         )
 
@@ -115,7 +128,7 @@ class TestFeatureStoreIntegration:
             # Verify actor still has FeatureEngineer
             assert actor._feature_engineer is not None
 
-    def test_training_with_feature_store(self):
+    def test_training_with_feature_store(self) -> None:
         """
         Test training pipeline with FeatureStore integration.
         """
@@ -125,37 +138,52 @@ class TestFeatureStoreIntegration:
             Test trainer implementation.
             """
 
-            def prepare_data(self, data, target_col="target"):
+            def prepare_data(self, data: Any, target_col: str = "target") -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
                 """
                 Simple implementation for testing.
                 """
-                return np.random.rand(100, 10), np.random.randint(0, 2, 100), {}
+                return np.random.rand(100, 10), np.random.randint(0, 2, 100).astype(np.float64), {}
 
-            def train_model(self, X_train, y_train, X_val=None, y_val=None, **kwargs):
-                """
-                Simple implementation for testing.
-                """
+            def _train_model(
+                self,
+                X_train: npt.NDArray[np.float64],
+                y_train: npt.NDArray[np.float64],
+                X_val: npt.NDArray[np.float64],
+                y_val: npt.NDArray[np.float64],
+                **kwargs: Any,
+            ) -> dict[str, Any]:
                 return {"model": MagicMock(), "metrics": {"accuracy": 0.85}}
 
-            def predict(self, model, X):
-                """
-                Simple implementation for testing.
-                """
-                return np.random.randint(0, 2, len(X))
+            def predict(self, model: Any, X: npt.NDArray[np.float64], **_: Any) -> npt.NDArray[np.float32]:
+                return np.random.randint(0, 2, len(X)).astype(np.float32)
 
-            def evaluate(self, y_true, y_pred):
-                """
-                Simple implementation for testing.
-                """
+            def evaluate(
+                self,
+                model: Any,
+                X: npt.NDArray[np.float64],
+                y: npt.NDArray[np.float64],
+            ) -> dict[str, float]:
                 return {"accuracy": 0.85}
 
-            def save_model(self, path):
+            def _create_model(self, params: dict[str, Any]) -> Any:
+                return MagicMock()
+
+            def _get_model_params(self) -> dict[str, Any]:
+                return {}
+
+            def _convert_to_onnx(self, model: Any, path: Any) -> None:
+                return None
+
+            def _suggest_hyperparameters(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+                return {}
+
+            def save_model(self, path: Any) -> None:
                 """
                 Simple implementation for testing.
                 """
                 Path(path).touch()
 
-            def load_model(self, path):
+            def load_model(self, path: Any) -> Any:
                 """
                 Simple implementation for testing.
                 """
@@ -176,10 +204,10 @@ class TestFeatureStoreIntegration:
                 assert trainer._feature_store is not None
 
                 # Mock FeatureStore methods
-                trainer._feature_store.compute_and_store_historical = MagicMock(
+                cast(Any, trainer._feature_store).compute_and_store_historical = MagicMock(
                     return_value=100,
                 )
-                trainer._feature_store.get_training_data = MagicMock(
+                cast(Any, trainer._feature_store).get_training_data = MagicMock(
                     return_value=(
                         np.random.rand(100, 10),
                         np.arange(100),
@@ -195,15 +223,15 @@ class TestFeatureStoreIntegration:
                 )
 
                 # Verify FeatureStore methods were called
-                trainer._feature_store.compute_and_store_historical.assert_called_once()
-                trainer._feature_store.get_training_data.assert_called_once()
+                cast(Any, trainer._feature_store).compute_and_store_historical.assert_called_once()
+                cast(Any, trainer._feature_store).get_training_data.assert_called_once()
 
                 # Verify data was returned correctly
                 assert X.shape == (100, 10)
                 assert y.shape == (100,)
                 assert len(feature_names) == 10
 
-    def test_feature_store_config_propagation(self):
+    def test_feature_store_config_propagation(self) -> None:
         """
         Test that FeatureStore configuration is properly propagated.
         """
@@ -212,14 +240,18 @@ class TestFeatureStoreIntegration:
         with patch("ml.stores.feature_store.create_engine"):
             with patch("ml.stores.feature_store.FeatureStore._setup_tables"):
                 # Test with MLSignalActor
+                from nautilus_trader.model.data import BarType
+                from nautilus_trader.model.identifiers import InstrumentId
+
                 actor_config = MLSignalActorConfig(
-                    actor_id="TEST_ACTOR",
+                    component_id="TEST_ACTOR",
+                    model_id="model-3",
                     model_path="./test_model.onnx",
-                    # Stores are automatically used
+                    bar_type=cast(BarType, object()),
+                    instrument_id=cast(InstrumentId, object()),
                     db_connection="postgresql://custom@localhost/custom",
                     persist_features=False,
                     feature_config=feature_config,
-                    signal_strategy=SignalStrategy.THRESHOLD,
                 )
 
                 with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
@@ -234,7 +266,7 @@ class TestFeatureStoreIntegration:
                     )
                     assert actor._feature_store.feature_config == feature_config
 
-    def test_parity_validation_in_training(self):
+    def test_parity_validation_in_training(self) -> None:
         """
         Test that training pipeline can validate parity.
         """
@@ -260,7 +292,7 @@ class TestFeatureStoreIntegration:
                 )
 
                 # Mock the load method
-                feature_store._load_bars_from_nautilus = MagicMock(
+                cast(Any, feature_store)._load_bars_from_nautilus = MagicMock(
                     return_value=bars_df,
                 )
 
@@ -272,10 +304,10 @@ class TestFeatureStoreIntegration:
                 for i in range(len(bars_df)):
                     row = bars_df[i]
                     features = feature_store.feature_engineer.calculate_features_online(
-                        close_price=float(row["close"]),
-                        high_price=float(row["high"]),
-                        low_price=float(row["low"]),
-                        volume=float(row["volume"]),
+                        close_price=float(cast(Any, row)["close"]),
+                        high_price=float(cast(Any, row)["high"]),
+                        low_price=float(cast(Any, row)["low"]),
+                        volume=float(cast(Any, row)["volume"]),
                     )
                     online_features.append(features)
 
@@ -291,14 +323,20 @@ class TestBackwardCompatibility:
     Test that existing code continues to work without FeatureStore.
     """
 
-    def test_ml_signal_actor_backward_compatibility(self):
+    def test_ml_signal_actor_backward_compatibility(self) -> None:
         """
         Test that MLSignalActor works with old config (no FeatureStore fields).
         """
         # Old-style config without FeatureStore fields
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.identifiers import Symbol
+        from nautilus_trader.model.identifiers import Venue
         config = MLSignalActorConfig(
             actor_id="TEST_ACTOR",
+            model_id="model-legacy",
             model_path="./test_model.onnx",
+            bar_type=MagicMock(),
+            instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
             signal_strategy=SignalStrategy.THRESHOLD,
             prediction_threshold=0.7,
         )
@@ -312,7 +350,7 @@ class TestBackwardCompatibility:
             assert actor._persist_features is False
             assert actor._feature_engineer is not None
 
-    def test_training_backward_compatibility(self):
+    def test_training_backward_compatibility(self) -> None:
         """
         Test that training works with old config (no db_connection).
         """
@@ -322,23 +360,46 @@ class TestBackwardCompatibility:
             Test trainer implementation.
             """
 
-            def prepare_data(self, data, target_col="target"):
-                return np.random.rand(100, 10), np.random.randint(0, 2, 100), {}
+            def prepare_data(self, data: Any, target_col: str = "target") -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
+                return (
+                    np.random.rand(100, 10).astype(np.float64),
+                    np.random.randint(0, 2, 100).astype(np.float64),
+                    {},
+                )
 
-            def train_model(self, X_train, y_train, X_val=None, y_val=None, **kwargs):
+            def _train_model(
+                self,
+                X_train: npt.NDArray[np.float64],
+                y_train: npt.NDArray[np.float64],
+                X_val: npt.NDArray[np.float64],
+                y_val: npt.NDArray[np.float64],
+                **kwargs: Any,
+            ) -> dict[str, Any]:
                 return {"model": MagicMock(), "metrics": {"accuracy": 0.85}}
 
-            def predict(self, model, X):
-                return np.random.randint(0, 2, len(X))
+            def predict(self, model: Any, X: npt.NDArray[np.float64], **_: Any) -> npt.NDArray[np.float32]:
+                return np.random.randint(0, 2, len(X)).astype(np.float32)
 
-            def evaluate(self, y_true, y_pred):
+            def evaluate(self, model: Any, X: npt.NDArray[np.float64], y: npt.NDArray[np.float64]) -> dict[str, float]:
                 return {"accuracy": 0.85}
 
-            def save_model(self, path):
+            def _create_model(self, params: dict[str, Any]) -> Any:
+                return MagicMock()
+
+            def _get_model_params(self) -> dict[str, Any]:
+                return {}
+
+            def _convert_to_onnx(self, model: Any, path: Any) -> None:
+                return None
+
+            def save_model(self, path: Any) -> None:
                 Path(path).touch()
 
-            def load_model(self, path):
+            def load_model(self, path: Any) -> Any:
                 return MagicMock()
+
+            def _suggest_hyperparameters(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+                return {}
 
         # Old-style config without db_connection
         config = MLTrainingConfig(

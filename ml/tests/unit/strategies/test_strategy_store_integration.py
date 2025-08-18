@@ -7,6 +7,7 @@ including configuration, error handling, and metrics.
 
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -29,7 +30,7 @@ from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 class TestStrategyStoreIntegration:
     """Test cases for StrategyStore integration."""
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         """Set up test fixtures."""
         self.clock = TestClock()
         self.trader_id = TraderId("TESTER-001")
@@ -54,7 +55,7 @@ class TestStrategyStoreIntegration:
             output_path=self.temp_dir / "test_model.pkl"
         )
 
-    def test_strategy_store_initialization_with_config(self):
+    def test_strategy_store_initialization_with_config(self) -> None:
         """Test that StrategyStore is initialized when configured."""
         # Create config with StrategyStore enabled
         config = MLStrategyConfig(
@@ -90,7 +91,7 @@ class TestStrategyStoreIntegration:
 
             assert strategy.strategy_store is not None
 
-    def test_strategy_store_disabled_by_config(self):
+    def test_strategy_store_disabled_by_config(self) -> None:
         """Test that StrategyStore is not initialized when disabled."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -109,7 +110,7 @@ class TestStrategyStoreIntegration:
 
         assert strategy.strategy_store is None
 
-    def test_persist_buy_decision(self):
+    def test_persist_buy_decision(self) -> None:
         """Test persisting a BUY decision to StrategyStore."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -132,7 +133,7 @@ class TestStrategyStoreIntegration:
             )
 
             # Store should be the mocked instance
-            mock_store = strategy.strategy_store
+            mock_store = cast(Any, strategy.strategy_store)
 
         # Create test signal
         signal = MLSignal(
@@ -157,7 +158,7 @@ class TestStrategyStoreIntegration:
         assert call_args.kwargs["model_predictions"] == {"test_model": 0.8}
         assert call_args.kwargs["instrument_id"] == str(self.instrument_id)
 
-    def test_persist_sell_decision(self):
+    def test_persist_sell_decision(self) -> None:
         """Test persisting a SELL decision to StrategyStore."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -180,7 +181,7 @@ class TestStrategyStoreIntegration:
             )
 
             # Store should be the mocked instance
-            mock_store = strategy.strategy_store
+            mock_store = cast(Any, strategy.strategy_store)
 
         # Create test signal
         signal = MLSignal(
@@ -204,7 +205,7 @@ class TestStrategyStoreIntegration:
         assert call_args.kwargs["strength"] == 0.85
         assert call_args.kwargs["model_predictions"] == {"test_model": 0.2}
 
-    def test_persist_hold_decision_with_config(self):
+    def test_persist_hold_decision_with_config(self) -> None:
         """Test that HOLD decisions are persisted when configured."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -228,12 +229,13 @@ class TestStrategyStoreIntegration:
             )
 
             # Store should be the mocked instance
-            mock_store = strategy.strategy_store
+            mock_store = cast(Any, strategy.strategy_store)
 
         # Mock existing position that aligns with signal
         mock_position = MagicMock()
         mock_position.side.name = "LONG"
-        strategy._get_current_position = MagicMock(return_value=mock_position)
+        from typing import Any as _Any
+        cast(_Any, strategy)._get_current_position = MagicMock(return_value=mock_position)
 
         # Create BUY signal (aligns with LONG position = HOLD)
         signal = MLSignal(
@@ -254,7 +256,7 @@ class TestStrategyStoreIntegration:
         call_args = mock_store.write_signal.call_args
         assert call_args.kwargs["signal_type"] == "HOLD"
 
-    def test_skip_hold_decision_when_not_configured(self):
+    def test_skip_hold_decision_when_not_configured(self) -> None:
         """Test that HOLD decisions are not persisted when not configured."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -291,16 +293,18 @@ class TestStrategyStoreIntegration:
             ts_init=dt_to_unix_nanos(self.clock.utc_now()),
         )
 
-        strategy._persist_strategy_decision(
+        from typing import Any as _Any
+        cast(_Any, strategy)._persist_strategy_decision(
             signal=signal,
             decision_type="HOLD",
             position_size=None,
         )
 
         # Verify write_signal was NOT called for HOLD
-        mock_store.write_signal.assert_not_called()
+        from typing import Any as _Any
+        cast(_Any, mock_store).write_signal.assert_not_called()
 
-    def test_error_handling_in_persistence(self):
+    def test_error_handling_in_persistence(self) -> None:
         """Test that errors in persistence are handled gracefully."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -324,7 +328,7 @@ class TestStrategyStoreIntegration:
             )
 
             # Store should be the mocked instance
-            mock_store = strategy.strategy_store
+            mock_store = cast(Any, strategy.strategy_store)
 
         # Create test signal
         signal = MLSignal(
@@ -343,7 +347,7 @@ class TestStrategyStoreIntegration:
         # Verify error was handled
         mock_store.write_signal.assert_called()
 
-    def test_flush_on_stop(self):
+    def test_flush_on_stop(self) -> None:
         """Test that StrategyStore is flushed when strategy stops."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -366,7 +370,7 @@ class TestStrategyStoreIntegration:
             )
 
             # Store should be the mocked instance
-            mock_store = strategy.strategy_store
+            mock_store = cast(Any, strategy.strategy_store)
 
         # Stop the strategy
         strategy.on_stop()
@@ -374,7 +378,7 @@ class TestStrategyStoreIntegration:
         # Verify flush was called
         mock_store.flush.assert_called_once()
 
-    def test_risk_metrics_calculation(self):
+    def test_risk_metrics_calculation(self) -> None:
         """Test that risk metrics are properly calculated and persisted."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -400,7 +404,7 @@ class TestStrategyStoreIntegration:
             )
 
             # Store should be the mocked instance
-            mock_store = strategy.strategy_store
+            mock_store = cast(Any, strategy.strategy_store)
             strategy._active_positions = 2
 
         # Create test signal

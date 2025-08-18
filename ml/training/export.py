@@ -12,7 +12,6 @@ metadata (NOT the registry manifest).
 from __future__ import annotations
 
 import json
-import pickle
 from abc import ABC
 from abc import abstractmethod
 from enum import Enum
@@ -119,7 +118,10 @@ def save_model_with_metadata(
     elif model_type == ModelType.ONNX:
         model_path = _save_onnx_model(model, path)
     else:
-        model_path = _save_pickle_model(model, path)
+        raise ValueError(
+            f"Unsupported model type '{model_type.value}' for direct save. "
+            "Export to ONNX or use a framework-native saver before calling this."
+        )
 
     metadata_dict = {
         "model_type": model_type.value,
@@ -145,18 +147,18 @@ def _save_xgboost_model(model: Any, path: Path) -> Path:
         model.save_model(str(model_path))
         return model_path
     else:
-        return _save_pickle_model(model, path)
+        raise ImportError("XGBoost not installed; cannot save XGBoost model")
 
 
 def _save_lightgbm_model(model: Any, path: Path) -> Path:
     if not HAS_LIGHTGBM:
-        return _save_pickle_model(model, path)
+        raise ImportError("LightGBM not installed; cannot save LightGBM model")
 
     # Support both sklearn wrapper (has booster_) and raw Booster
     try:
         assert lgb is not None
-    except Exception:  # pragma: no cover - fallback to pickle
-        return _save_pickle_model(model, path)
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(f"Failed to access LightGBM Booster: {exc}")
 
     booster = getattr(model, "booster_", model)
     model_path = path.with_suffix(".lgb")
@@ -170,8 +172,8 @@ def _save_lightgbm_model(model: Any, path: Path) -> Path:
     try:
         booster.save_model(str(model_path))
         return model_path
-    except Exception:
-        return _save_pickle_model(model, path)
+    except Exception as exc:
+        raise RuntimeError(f"LightGBM save_model failed: {exc}")
 
 
 def _save_onnx_model(model: Any, path: Path) -> Path:
@@ -183,11 +185,7 @@ def _save_onnx_model(model: Any, path: Path) -> Path:
         raise ValueError("Cannot save ONNX model without 'onnx' installed")
 
 
-def _save_pickle_model(model: Any, path: Path) -> Path:
-    model_path = path.with_suffix(".pkl")
-    with open(model_path, "wb") as f:
-        pickle.dump(model, f)
-    return model_path
+# Removed: pickle saving is deprecated and unsupported.
 
 
 def _generate_version(model: Any) -> str:
@@ -300,7 +298,7 @@ def convert_to_torchscript(
     model.eval()
     with torch.inference_mode():
         if sample_input is not None:
-            scripted = torch.jit.trace(model, torch.as_tensor(sample_input))
+            scripted = torch.jit.trace(model, torch.as_tensor(sample_input))  # type: ignore[no-untyped-call]
         else:
             scripted = torch.jit.script(model)
         scripted.save(str(output_path))

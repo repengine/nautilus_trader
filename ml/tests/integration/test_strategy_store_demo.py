@@ -6,6 +6,7 @@ to StrategyStore for audit trails and compliance.
 """
 
 from unittest.mock import MagicMock
+from typing import Any, cast
 
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
@@ -19,7 +20,7 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
-def demonstrate_strategy_store_integration():
+def demonstrate_strategy_store_integration() -> None:
     """Demonstrate the complete StrategyStore integration."""
     print("\n" + "=" * 80)
     print("MLTradingStrategy with StrategyStore Integration Demo")
@@ -133,7 +134,7 @@ def demonstrate_strategy_store_integration():
         )
 
         # Mock existing position to trigger HOLD
-        strategy._get_current_position = MagicMock(return_value=MagicMock(side=MagicMock(name="SHORT")))
+        cast(Any, strategy)._get_current_position = MagicMock(return_value=MagicMock(side=MagicMock(name="SHORT")))
         strategy._process_ml_signal(signal3)
 
         if mock_store.write_signal.call_count >= 3:

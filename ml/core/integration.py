@@ -12,7 +12,7 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 from sqlalchemy import create_engine
 from sqlalchemy import text
@@ -21,6 +21,7 @@ from sqlalchemy.exc import OperationalError
 from ml.registry import FeatureRegistry
 from ml.registry import ModelRegistry
 from ml.registry import StrategyRegistry
+from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
@@ -28,9 +29,10 @@ from ml.stores.partition_manager import PartitionManager
 from ml.stores.strategy_store import StrategyStore
 
 
-if TYPE_CHECKING:
+class HasDBConnection(Protocol):
+    """Protocol for configs carrying an optional DB connection string."""
 
-    from ml.config.base import MLConfig
+    db_connection: str | None
 
 
 class MLIntegrationManager:
@@ -60,7 +62,7 @@ class MLIntegrationManager:
 
     def __init__(
         self,
-        config: MLConfig | None = None,
+        config: HasDBConnection | None = None,
         db_connection: str | None = None,
         auto_start_postgres: bool = True,
         auto_migrate: bool = True,
@@ -71,7 +73,7 @@ class MLIntegrationManager:
 
         Parameters
         ----------
-        config : MLConfig, optional
+        config : HasDBConnection, optional
             ML system configuration
         db_connection : str, optional
             Database connection string (overrides config)
@@ -126,7 +128,7 @@ class MLIntegrationManager:
         """
         # Create persistence config
         persistence_config = PersistenceConfig(
-            backend="postgres",
+            backend=BackendType.POSTGRES,
             connection_string=self.db_connection,
         )
 
@@ -140,13 +142,11 @@ class MLIntegrationManager:
         self.model_store = ModelStore(
             persistence_config=persistence_config,
             batch_size=1000,
-            enable_batching=True,
         )
 
         self.strategy_store = StrategyStore(
             persistence_config=persistence_config,
             batch_size=1000,
-            enable_batching=True,
         )
 
     def _init_registries(self) -> None:
@@ -155,7 +155,7 @@ class MLIntegrationManager:
         """
         # Create persistence config for registries
         persistence_config = PersistenceConfig(
-            backend="postgres",
+            backend=BackendType.POSTGRES,
             connection_string=self.db_connection,
         )
 
@@ -207,7 +207,11 @@ class MLIntegrationManager:
         """Start PostgreSQL using docker-compose if available, else docker run."""
         print("Starting PostgreSQL (preferring docker-compose if available)...")
 
+        import shutil
         compose_file = None
+        docker_path = shutil.which("docker")
+        if docker_path is None:
+            raise RuntimeError("docker executable not found in PATH")
         for candidate in (Path("ml/docker-compose.yml"), Path("docker-compose.yml")):
             if candidate.exists():
                 compose_file = candidate
@@ -216,7 +220,7 @@ class MLIntegrationManager:
         if compose_file is not None:
             try:
                 subprocess.run(
-                    ["docker", "compose", "-f", str(compose_file), "up", "-d", "postgres"],
+                    [docker_path, "compose", "-f", str(compose_file), "up", "-d", "postgres"],
                     check=True,
                 )
             except Exception:
@@ -225,7 +229,7 @@ class MLIntegrationManager:
         if compose_file is None:
             result = subprocess.run(
                 [
-                    "docker",
+                    docker_path,
                     "ps",
                     "-a",
                     "--filter",
@@ -238,11 +242,11 @@ class MLIntegrationManager:
             )
 
             if "nautilus-postgres" in result.stdout:
-                subprocess.run(["docker", "start", "nautilus-postgres"], check=True)
+                subprocess.run([docker_path, "start", "nautilus-postgres"], check=True)
             else:
                 subprocess.run(
                     [
-                        "docker",
+                        docker_path,
                         "run",
                         "-d",
                         "--name",
@@ -330,39 +334,46 @@ class MLIntegrationManager:
 
         # Check stores
         try:
-            self.feature_store.get_stats()
-            health["feature_store"] = True
+            # FeatureStore exposes is_healthy()
+            health["feature_store"] = bool(getattr(self.feature_store, "is_healthy", lambda: False)())
         except Exception:
             health["feature_store"] = False
 
         try:
-            self.model_store.get_stats()
-            health["model_store"] = True
+            # Prefer get_statistics() if available, else try is_healthy()
+            if hasattr(self.model_store, "get_statistics") and callable(self.model_store.get_statistics):
+                self.model_store.get_statistics()
+                health["model_store"] = True
+            else:
+                health["model_store"] = bool(getattr(self.model_store, "is_healthy", lambda: False)())
         except Exception:
             health["model_store"] = False
 
         try:
-            self.strategy_store.get_stats()
-            health["strategy_store"] = True
+            if hasattr(self.strategy_store, "get_statistics") and callable(self.strategy_store.get_statistics):
+                self.strategy_store.get_statistics()
+                health["strategy_store"] = True
+            else:
+                health["strategy_store"] = bool(getattr(self.strategy_store, "is_healthy", lambda: False)())
         except Exception:
             health["strategy_store"] = False
 
         # Check registries
         try:
-            self.feature_registry.list_features()
-            health["feature_registry"] = True
+            lf = getattr(self.feature_registry, "list_features", None)
+            health["feature_registry"] = bool(lf and callable(lf) and lf())
         except Exception:
             health["feature_registry"] = False
 
         try:
-            self.model_registry.list_models()
-            health["model_registry"] = True
+            lm = getattr(self.model_registry, "list_models", None)
+            health["model_registry"] = bool(lm and callable(lm) and lm())
         except Exception:
             health["model_registry"] = False
 
         try:
-            self.strategy_registry.list_strategies()
-            health["strategy_registry"] = True
+            ls = getattr(self.strategy_registry, "list_strategies", None)
+            health["strategy_registry"] = bool(ls and callable(ls) and ls())
         except Exception:
             health["strategy_registry"] = False
 
@@ -375,7 +386,7 @@ class MLIntegrationManager:
 
         return health
 
-    def create_integrated_actor(self, actor_class: type, config: Any) -> Any:
+    def create_integrated_actor(self, actor_class: type[Any], config: Any) -> Any:
         """
         Create an actor with automatic integration.
 
@@ -394,7 +405,12 @@ class MLIntegrationManager:
         """
         # Ensure config has the database connection
         if not hasattr(config, "db_connection"):
-            config.db_connection = self.db_connection
+            # Best-effort attach db_connection for consumers expecting it
+            import logging
+            try:
+                setattr(config, "db_connection", self.db_connection)
+            except Exception:
+                logging.exception("Failed to attach db_connection to config")
 
         # Create actor - stores are automatically initialized by the base class
         actor = actor_class(config=config)
@@ -450,7 +466,7 @@ class AutoIntegratedActor:
         self.model_registry = self.integration.model_registry
         self.strategy_registry = self.integration.strategy_registry
 
-    def write_features(self, features: dict[str, float], **kwargs) -> None:
+    def write_features(self, features: dict[str, float], **kwargs: Any) -> None:
         """
         Automatically write features to store.
         """
@@ -466,7 +482,7 @@ class AutoIntegratedActor:
         prediction: float,
         confidence: float,
         features: dict[str, float],
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """
         Automatically write prediction to store.
@@ -485,7 +501,7 @@ class AutoIntegratedActor:
         signal_type: str,
         strength: float,
         model_predictions: dict[str, float],
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """
         Automatically write signal to store.
@@ -504,13 +520,13 @@ class AutoIntegratedActor:
 _integration_manager: MLIntegrationManager | None = None
 
 
-def get_integration_manager(config: MLConfig | None = None) -> MLIntegrationManager:
+def get_integration_manager(config: HasDBConnection | None = None) -> MLIntegrationManager:
     """
     Get or create the global integration manager.
 
     Parameters
     ----------
-    config : MLConfig, optional
+    config : HasDBConnection, optional
         Configuration (only used on first call)
 
     Returns
