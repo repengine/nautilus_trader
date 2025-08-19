@@ -1,18 +1,19 @@
 """
-ML data loading utilities for Nautilus Trader.
+ML data utilities for Nautilus Trader.
 
-This package provides high-level data loading utilities specifically designed for ML
-workflows in the cold path (training and research). All loaders integrate seamlessly
-with Nautilus Trader's data infrastructure and return Polars DataFrames for efficient ML
-processing.
+This package provides utilities for working with Nautilus Trader's data infrastructure
+for ML workflows. It uses ParquetDataCatalog directly instead of custom loaders,
+following the principle of using Nautilus native components.
 
 """
 
-from ml.data.loader import MLDataLoader
-from ml.data.loader import load_ml_data
+from ml.data.catalog_utils import bars_to_dataframe
+from ml.data.catalog_utils import quotes_to_dataframe
+from ml.data.catalog_utils import trades_to_dataframe
 
 
 __all__ = [
-    "MLDataLoader",
-    "load_ml_data",
+    "bars_to_dataframe",
+    "quotes_to_dataframe",
+    "trades_to_dataframe",
 ]

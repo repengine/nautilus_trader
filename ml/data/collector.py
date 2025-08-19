@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Enhanced Data Collector for Nautilus Trader ML.
+Data Collector for Nautilus Trader ML.
 
 Maximizes Databento subscription value by collecting:
 - L2 market depth (30 days) for all symbols
@@ -42,9 +42,9 @@ class CollectorStats(TypedDict):
     total_size_gb: float
 
 
-class EnhancedDataCollector:
+class DataCollector:
     """
-    Enhanced collector for rich market microstructure data.
+    Collector for rich market microstructure data from Databento.
 
     Collects:
     1. L2 depth (mbp-1) - 30 days for all symbols

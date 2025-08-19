@@ -19,7 +19,8 @@ from hypothesis import strategies as st
 
 from ml.config.base import MLActorConfig
 from ml.core.cache import PreAllocatedFeatureCache
-from ml.data.loader import MLDataLoader
+from ml.data.catalog_utils import bars_to_dataframe
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -30,44 +31,43 @@ from ml.registry.model_registry import ModelRegistry
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
-class TestDataLoaderProperties:
+class TestCatalogUtilsProperties:
     """
-    Property tests for DataLoader class (91% coverage).
+    Property tests for catalog utilities (replacing DataLoader tests).
     """
 
     @given(
         n_samples=st.integers(min_value=100, max_value=1000),
-        cache_size=st.integers(min_value=100, max_value=500),
+        instrument_ids=st.lists(
+            st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=3, max_size=6).map(
+                lambda s: f"{s}.SIM"
+            ),
+            min_size=1,
+            max_size=5,
+        ),
     )
     @settings(max_examples=10, deadline=5000)
-    def test_data_loader_chunking(self, n_samples: int, cache_size: int) -> None:
+    def test_catalog_utils_data_loading(self, n_samples: int, instrument_ids: list[str]) -> None:
         """
-        Property: DataLoader should correctly handle caching.
+        Property: Catalog utilities should correctly load data.
         """
         # Create mock catalog
         from unittest.mock import MagicMock
 
-        catalog = MagicMock()
+        catalog = MagicMock(spec=ParquetDataCatalog)
+        catalog.bars.return_value = []  # Return empty list for simplicity
 
-        # Create test data
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=n_samples, freq="1min"),
-                "open": np.random.randn(n_samples) * 0.01 + 100,
-                "high": np.random.randn(n_samples) * 0.01 + 101,
-                "low": np.random.randn(n_samples) * 0.01 + 99,
-                "close": np.random.randn(n_samples) * 0.01 + 100,
-                "volume": np.random.uniform(900000, 1100000, n_samples),
-            },
-        )
-
-        loader = MLDataLoader(catalog=catalog, cache_size=cache_size)
-
-        # Property: Cache size should be respected
-        assert loader._cache_size == cache_size
-
-        # Property: Catalog should be stored
-        assert loader._catalog is catalog
+        # Load bars using catalog utilities
+        from ml._imports import HAS_POLARS
+        if HAS_POLARS:
+            df = bars_to_dataframe(catalog, instrument_ids)
+            
+            # Property: Result should be a DataFrame
+            assert df is not None
+            
+            # Property: DataFrame should have expected columns
+            expected_columns = {"instrument_id", "timestamp", "open", "high", "low", "close", "volume"}
+            assert set(df.columns) == expected_columns
 
     @given(
         train_ratio=st.floats(min_value=0.5, max_value=0.9),
@@ -85,11 +85,7 @@ class TestDataLoaderProperties:
             },
         )
 
-        # Create mock catalog
-        catalog = MagicMock()
-        loader = MLDataLoader(catalog=catalog)
-
-        # Manual train/test split since MLDataLoader doesn't have this method
+        # Manual train/test split (not specific to catalog utils)
         train_size = int(n_samples * train_ratio)
         train_df = df.iloc[:train_size]
         test_df = df.iloc[train_size:]

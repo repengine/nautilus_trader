@@ -19,7 +19,7 @@ import pandas as pd
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
-from ml.data.loader import MLDataLoader
+from ml.data.catalog_utils import bars_to_dataframe
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -62,7 +62,6 @@ class TestNautilusDataPipeline:
 
         """
         # Setup
-        loader = MLDataLoader(mock_parquet_catalog)
         config = FeatureConfig(
             return_periods=[1, 5, 10],
             rsi_period=14,
@@ -72,8 +71,8 @@ class TestNautilusDataPipeline:
         )
         feature_engineer = FeatureEngineer(config)
 
-        # Load bars from catalog
-        bars_df = loader.load_bars("EURUSD.SIM")
+        # Load bars from catalog using catalog utilities
+        bars_df = bars_to_dataframe(mock_parquet_catalog, ["EURUSD.SIM"])
 
         # Ensure we have data
         assert not bars_df.is_empty(), "No data loaded from catalog"
