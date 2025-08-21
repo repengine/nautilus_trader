@@ -1,12 +1,13 @@
 """
 Demonstration of the complete StrategyStore integration.
 
-This script shows how MLTradingStrategy now persists all trading decisions
-to StrategyStore for audit trails and compliance.
+This script shows how MLTradingStrategy now persists all trading decisions to
+StrategyStore for audit trails and compliance.
+
 """
 
-from unittest.mock import MagicMock
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
@@ -21,7 +22,9 @@ from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
 def demonstrate_strategy_store_integration() -> None:
-    """Demonstrate the complete StrategyStore integration."""
+    """
+    Demonstrate the complete StrategyStore integration.
+    """
     print("\n" + "=" * 80)
     print("MLTradingStrategy with StrategyStore Integration Demo")
     print("=" * 80)
@@ -134,7 +137,9 @@ def demonstrate_strategy_store_integration() -> None:
         )
 
         # Mock existing position to trigger HOLD
-        cast(Any, strategy)._get_current_position = MagicMock(return_value=MagicMock(side=MagicMock(name="SHORT")))
+        cast(Any, strategy)._get_current_position = MagicMock(
+            return_value=MagicMock(side=MagicMock(name="SHORT")),
+        )
         strategy._process_ml_signal(signal3)
 
         if mock_store.write_signal.call_count >= 3:

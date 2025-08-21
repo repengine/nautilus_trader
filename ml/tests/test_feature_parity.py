@@ -55,12 +55,15 @@ class TestFeatureParity:
         base_price = 1.1000
         base_volume = 1000000
 
+        from numpy.random import default_rng
+
+        _rng = default_rng(0)
         for i in range(100):
-            price_variation = np.random.uniform(-0.001, 0.001)
+            price_variation = float(_rng.uniform(-0.001, 0.001))
             open_price = base_price + price_variation
-            high_price = open_price + abs(np.random.uniform(0, 0.002))
-            low_price = open_price - abs(np.random.uniform(0, 0.002))
-            close_price = open_price + np.random.uniform(-0.001, 0.001)
+            high_price = open_price + abs(float(_rng.uniform(0, 0.002)))
+            low_price = open_price - abs(float(_rng.uniform(0, 0.002)))
+            close_price = open_price + float(_rng.uniform(-0.001, 0.001))
 
             bar = Bar(
                 bar_type=MagicMock(),
@@ -68,7 +71,7 @@ class TestFeatureParity:
                 high=Price.from_str(str(high_price)),
                 low=Price.from_str(str(low_price)),
                 close=Price.from_str(str(close_price)),
-                volume=Quantity.from_int(base_volume + np.random.randint(-100000, 100000)),
+                volume=Quantity.from_int(base_volume + int(_rng.integers(-100000, 100000))),
                 ts_event=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),
                 ts_init=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),
             )
@@ -78,7 +81,11 @@ class TestFeatureParity:
 
         return bars
 
-    def test_feature_engineer_batch_vs_online_parity(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
+    def test_feature_engineer_batch_vs_online_parity(
+        self,
+        feature_config: FeatureConfig,
+        mock_bars: list[Bar],
+    ) -> None:
         """
         Test that FeatureEngineer computes identical features in batch vs online.
 
@@ -131,7 +138,11 @@ class TestFeatureParity:
             f"First 5 online features: {online_features_array[0][:5]}"
         )
 
-    def test_feature_store_computation_consistency(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
+    def test_feature_store_computation_consistency(
+        self,
+        feature_config: FeatureConfig,
+        mock_bars: list[Bar],
+    ) -> None:
         """
         Test that FeatureStore produces consistent features.
         """
@@ -165,7 +176,11 @@ class TestFeatureParity:
             # Features should be identical for same input
             assert np.array_equal(features_1, features_2), "Same input produced different features!"
 
-    def test_indicator_state_consistency(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
+    def test_indicator_state_consistency(
+        self,
+        feature_config: FeatureConfig,
+        mock_bars: list[Bar],
+    ) -> None:
         """
         Test that indicator state remains consistent between batch and online.
 
@@ -210,7 +225,11 @@ class TestFeatureParity:
         assert engineer.indicators.ema_fast.value != ema_fast_value
         assert engineer.indicators.ema_slow.value != ema_slow_value
 
-    def test_ml_signal_actor_uses_same_features(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
+    def test_ml_signal_actor_uses_same_features(
+        self,
+        feature_config: FeatureConfig,
+        mock_bars: list[Bar],
+    ) -> None:
         """
         Test that MLSignalActor computes features identically to training.
         """
@@ -230,7 +249,7 @@ class TestFeatureParity:
 
             # Mock the feature store
             mock_feature_store = MagicMock()
-            expected_features = np.random.rand(50).astype(np.float32)
+            expected_features = default_rng(0).random(50).astype(np.float32)
             mock_feature_store.compute_realtime.return_value = expected_features
             actor.feature_store = mock_feature_store
 
@@ -275,7 +294,11 @@ class TestFeatureParity:
             # Versions should differ when config changes
             assert version1 != version2, "Feature versions must change when configuration changes"
 
-    def test_parity_across_feature_ranges(self, feature_config: FeatureConfig, mock_bars: list[Bar]) -> None:
+    def test_parity_across_feature_ranges(
+        self,
+        feature_config: FeatureConfig,
+        mock_bars: list[Bar],
+    ) -> None:
         """
         Test parity across different feature value ranges.
 
@@ -305,7 +328,11 @@ class TestFeatureParity:
             ), f"Non-finite features for inputs: close={close}, high={high}, low={low}, volume={volume}\nFeatures: {features}"
 
     @pytest.mark.parametrize("n_bars", [10, 50, 100, 500])
-    def test_parity_at_different_sequence_lengths(self, feature_config: FeatureConfig, n_bars: int) -> None:
+    def test_parity_at_different_sequence_lengths(
+        self,
+        feature_config: FeatureConfig,
+        n_bars: int,
+    ) -> None:
         """
         Test that parity holds for different sequence lengths.
         """

@@ -9,6 +9,7 @@ Maximizes Databento subscription value by collecting:
 - Optimized for TFT teacher model training
 
 Storage limit: 500GB
+
 """
 
 import json
@@ -53,6 +54,7 @@ class DataCollector:
     4. Minute bars - 1 year for all symbols
 
     Storage budget: 500GB
+
     """
 
     def __init__(self, storage_limit_gb: float = 500.0):
@@ -63,6 +65,7 @@ class DataCollector:
         ----------
         storage_limit_gb : float
             Maximum storage to use in GB
+
         """
         self.api_key = os.getenv("DATABENTO_API_KEY")
         if not self.api_key:
@@ -88,15 +91,30 @@ class DataCollector:
         # Priority symbols for deep historical data
         self.PRIORITY_SYMBOLS = [
             # Core indices (essential)
-            "SPY", "QQQ", "IWM", "DIA", "VTI",
+            "SPY",
+            "QQQ",
+            "IWM",
+            "DIA",
+            "VTI",
             # Mega caps (high liquidity)
-            "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA",
+            "AAPL",
+            "MSFT",
+            "NVDA",
+            "AMZN",
+            "META",
+            "GOOGL",
+            "TSLA",
             # Key sectors
-            "XLF", "XLK", "XLE", "XLV",
+            "XLF",
+            "XLK",
+            "XLE",
+            "XLV",
             # Volatility
-            "VXX", "UVXY",
+            "VXX",
+            "UVXY",
             # Bonds/Commodities
-            "TLT", "GLD",
+            "TLT",
+            "GLD",
         ]
 
         # Track collection stats with precise typing
@@ -110,7 +128,9 @@ class DataCollector:
         }
 
     def _load_existing_symbols(self) -> list[str]:
-        """Load list of symbols we already have basic data for."""
+        """
+        Load list of symbols we already have basic data for.
+        """
         universe_dir = Path("/home/nate/projects/nautilus_trader/data/universe")
         symbols = []
         for symbol_dir in universe_dir.iterdir():
@@ -120,7 +140,9 @@ class DataCollector:
         return sorted(symbols)
 
     def _get_current_storage_gb(self) -> float:
-        """Get current storage usage in GB."""
+        """
+        Get current storage usage in GB.
+        """
         total_size = 0
         for dirpath, dirnames, filenames in os.walk(self.data_dir):
             for filename in filenames:
@@ -145,13 +167,14 @@ class DataCollector:
         -------
         float
             Estimated size in GB
+
         """
         # Rough estimates based on schema and liquidity
         estimates_per_symbol_per_day_mb = {
-            "trades": 50.0,      # ~50MB per day for liquid stocks
-            "mbp-1": 200.0,      # ~200MB per day for L2 depth
-            "tbbo": 30.0,        # ~30MB per day for quotes
-            "ohlcv-1m": 0.5,     # ~0.5MB per day for minute bars
+            "trades": 50.0,  # ~50MB per day for liquid stocks
+            "mbp-1": 200.0,  # ~200MB per day for L2 depth
+            "tbbo": 30.0,  # ~30MB per day for quotes
+            "ohlcv-1m": 0.5,  # ~0.5MB per day for minute bars
         }
 
         mb_per_day = estimates_per_symbol_per_day_mb.get(schema, 10.0)
@@ -175,6 +198,7 @@ class DataCollector:
             Symbols to collect. If None, uses all existing symbols.
         days : int
             Number of days to collect (max 30)
+
         """
         if symbols is None:
             symbols = self.existing_symbols
@@ -200,7 +224,9 @@ class DataCollector:
             # Check storage before each symbol
             current_storage = self._get_current_storage_gb()
             if current_storage >= self.storage_limit_gb * 0.95:  # 95% full
-                print(f"\n⚠️  Storage limit approaching ({current_storage:.1f}/{self.storage_limit_gb} GB)")
+                print(
+                    f"\n⚠️  Storage limit approaching ({current_storage:.1f}/{self.storage_limit_gb} GB)",
+                )
                 break
 
             print(f"\n[{i}/{len(symbols)}] {symbol}:")
@@ -225,7 +251,7 @@ class DataCollector:
                     start=start_date,
                     end=self.end_date,
                     schema="mbp-1",
-                    limit=1000000  # 1M rows max per symbol
+                    limit=1000000,  # 1M rows max per symbol
                 )
 
                 df = data.to_df()
@@ -274,6 +300,7 @@ class DataCollector:
             Symbols to collect. If None, uses priority symbols.
         years : int
             Number of years to collect (1-7)
+
         """
         if symbols is None:
             symbols = self.PRIORITY_SYMBOLS
@@ -332,7 +359,7 @@ class DataCollector:
                         start=year_start,
                         end=year_end,
                         schema="trades",
-                        limit=10000000  # 10M rows max per year
+                        limit=10000000,  # 10M rows max per year
                     )
 
                     df = data.to_df()
@@ -378,6 +405,7 @@ class DataCollector:
             Symbols to collect
         days : int
             Number of days
+
         """
         if symbols is None:
             symbols = self.existing_symbols
@@ -417,7 +445,7 @@ class DataCollector:
                     start=start_date,
                     end=self.end_date,
                     schema="tbbo",
-                    limit=1000000
+                    limit=1000000,
                 )
 
                 df = data.to_df()
@@ -460,6 +488,7 @@ class DataCollector:
             Symbols to collect
         days : int
             Number of days (max 365)
+
         """
         if symbols is None:
             symbols = self.existing_symbols
@@ -497,7 +526,7 @@ class DataCollector:
                     start=start_date,
                     end=self.end_date,
                     schema="ohlcv-1m",
-                    limit=500000
+                    limit=500000,
                 )
 
                 df = data.to_df()
@@ -533,6 +562,7 @@ class DataCollector:
         3. TBBO quotes for ALL symbols (30 days) - ~20-30GB
         4. Minute bars for ALL symbols (1 year) - ~10-20GB
         5. Extended L1 trades for more symbols if space permits
+
         """
         print(f"\n{'='*80}")
         print("ENHANCED DATA COLLECTION PIPELINE")
@@ -546,7 +576,9 @@ class DataCollector:
         print("\n📊 PHASE 1: L2 MARKET DEPTH")
         print("-" * 40)
         # L2 depth for TOP 50 most liquid symbols only (quality over quantity)
-        top_liquid = self.PRIORITY_SYMBOLS + [s for s in self.existing_symbols if s not in self.PRIORITY_SYMBOLS]
+        top_liquid = self.PRIORITY_SYMBOLS + [
+            s for s in self.existing_symbols if s not in self.PRIORITY_SYMBOLS
+        ]
         self.collect_l2_depth(symbols=top_liquid[:50], days=30)
 
         # Check storage
@@ -587,28 +619,68 @@ class DataCollector:
             print("\n📊 PHASE 5: EXTENDED L1 TRADES")
             print("-" * 40)
             # Get next 30 most liquid symbols
-            extended_symbols = ["HD", "PFE", "CVX", "MRK", "ABBV", "DIS", "PEP", "KO",
-                              "NKE", "MCD", "TMO", "LLY", "CAT", "BA", "HON", "UNP",
-                              "AMD", "INTC", "QCOM", "CRM", "ADBE", "NFLX", "AVGO",
-                              "BAC", "WFC", "GS", "MS", "C", "BLK", "SCHW"][:20]
+            extended_symbols = [
+                "HD",
+                "PFE",
+                "CVX",
+                "MRK",
+                "ABBV",
+                "DIS",
+                "PEP",
+                "KO",
+                "NKE",
+                "MCD",
+                "TMO",
+                "LLY",
+                "CAT",
+                "BA",
+                "HON",
+                "UNP",
+                "AMD",
+                "INTC",
+                "QCOM",
+                "CRM",
+                "ADBE",
+                "NFLX",
+                "AVGO",
+                "BAC",
+                "WFC",
+                "GS",
+                "MS",
+                "C",
+                "BLK",
+                "SCHW",
+            ][:20]
             self.collect_l1_trades(symbols=extended_symbols, years=1)
 
         # Final summary
         self._print_final_summary()
 
     def _print_final_summary(self) -> None:
-        """Print comprehensive collection summary."""
+        """
+        Print comprehensive collection summary.
+        """
         current_gb = self._get_current_storage_gb()
 
         print(f"\n{'='*80}")
         print("ENHANCED COLLECTION COMPLETE")
         print(f"{'='*80}")
         print("\nData Collected:")
-        print(f"  • L2 Depth (mbp-1):  {self.stats['l2_depth']['count']} symbols, {self.stats['l2_depth']['size_gb']:.2f} GB")
-        print(f"  • L1 Trades:         {self.stats['l1_trades']['count']} symbol-years, {self.stats['l1_trades']['size_gb']:.2f} GB")
-        print(f"  • TBBO Quotes:       {self.stats['tbbo_quotes']['count']} symbols, {self.stats['tbbo_quotes']['size_gb']:.2f} GB")
-        print(f"  • Minute Bars:       {self.stats['minute_bars']['count']} symbols, {self.stats['minute_bars']['size_gb']:.2f} GB")
-        print(f"\nTotal Storage Used: {current_gb:.2f}/{self.storage_limit_gb} GB ({current_gb/self.storage_limit_gb*100:.1f}%)")
+        print(
+            f"  • L2 Depth (mbp-1):  {self.stats['l2_depth']['count']} symbols, {self.stats['l2_depth']['size_gb']:.2f} GB",
+        )
+        print(
+            f"  • L1 Trades:         {self.stats['l1_trades']['count']} symbol-years, {self.stats['l1_trades']['size_gb']:.2f} GB",
+        )
+        print(
+            f"  • TBBO Quotes:       {self.stats['tbbo_quotes']['count']} symbols, {self.stats['tbbo_quotes']['size_gb']:.2f} GB",
+        )
+        print(
+            f"  • Minute Bars:       {self.stats['minute_bars']['count']} symbols, {self.stats['minute_bars']['size_gb']:.2f} GB",
+        )
+        print(
+            f"\nTotal Storage Used: {current_gb:.2f}/{self.storage_limit_gb} GB ({current_gb/self.storage_limit_gb*100:.1f}%)",
+        )
 
         # Save metadata
         metadata = {
@@ -617,7 +689,7 @@ class DataCollector:
             "storage_used_gb": current_gb,
             "stats": self.stats,
             "symbols": self.existing_symbols,
-            "priority_symbols": self.PRIORITY_SYMBOLS
+            "priority_symbols": self.PRIORITY_SYMBOLS,
         }
 
         metadata_file = self.data_dir / "collection_metadata.json"
@@ -632,7 +704,9 @@ class DataCollector:
 
 
 def main() -> None:
-    """Run enhanced data collection entry point."""
+    """
+    Run enhanced data collection entry point.
+    """
     print("ENHANCED DATA COLLECTION (1TB)")
     print("=" * 50)
     print("\nOptimized collection strategy:")
@@ -653,6 +727,7 @@ def main() -> None:
 
     # Auto-proceed in background mode
     import sys
+
     if not sys.stdin.isatty():
         print("Auto-proceeding in background mode...")
     else:
@@ -661,7 +736,7 @@ def main() -> None:
             print("Cancelled")
             return
 
-    collector = EnhancedDataCollector(storage_limit_gb=1000.0)
+    collector = DataCollector(storage_limit_gb=1000.0)
     collector.run_collection()
 
     print("\n🎉 Enhanced collection complete!")

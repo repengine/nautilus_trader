@@ -1,0 +1,40 @@
+# Docker Compose Override for Development
+# Copy this file to docker-compose.override.yml for local development
+
+services:
+  # Override ML Pipeline for development
+  ml_pipeline:
+    # Mount source code for live reloading
+    volumes:
+      - ../../ml:/app/ml:ro
+      - ../../nautilus_trader:/app/nautilus_trader:ro
+    environment:
+      # Development settings
+      LOG_LEVEL: DEBUG
+      PIPELINE_MODE: daily
+      # Use smaller batch sizes for testing
+      BATCH_SIZE: 100
+      MAX_WORKERS: 2
+    # Run with Python debugger support
+    command: python -u /app/entrypoint.py
+
+  # Override PostgreSQL for development
+  postgres:
+    ports:
+      - "5432:5432"  # Expose for local debugging
+    environment:
+      POSTGRES_PASSWORD: postgres  # Simple password for dev
+
+  # Add pgAdmin for database inspection
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: nautilus_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@nautilus.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    networks:
+      - nautilus_network
+    depends_on:
+      - postgres

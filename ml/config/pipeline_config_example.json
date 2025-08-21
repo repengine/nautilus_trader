@@ -1,0 +1,18 @@
+{
+  "catalog_path": "./data",
+  "universe_mode": "conservative",
+  "symbols": [
+    "SPY.XNAS",
+    "QQQ.XNAS",
+    "IWM.XNAS"
+  ],
+  "databento_dataset": "GLBX.MDP3",
+  "databento_schema": "ohlcv-1m",
+  "enable_features": true,
+  "enable_technical_features": true,
+  "enable_microstructure_features": false,
+  "retention_days": 30,
+  "collection_time": "04:00",
+  "max_retries": 3,
+  "retry_delay": 5.0
+}

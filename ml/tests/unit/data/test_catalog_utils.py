@@ -1,8 +1,9 @@
 """
 Tests for catalog utilities using property-based testing.
 
-This module tests the catalog utility functions that replace MLDataLoader
-with direct ParquetDataCatalog usage.
+This module tests the catalog utility functions that replace MLDataLoader with direct
+ParquetDataCatalog usage.
+
 """
 
 from __future__ import annotations
@@ -52,10 +53,14 @@ volume_strategy = st.integers(min_value=1, max_value=1000000)
 
 
 class TestCatalogUtils:
-    """Test catalog utility functions."""
+    """
+    Test catalog utility functions.
+    """
 
     def setup_method(self) -> None:
-        """Set up test fixtures."""
+        """
+        Set up test fixtures.
+        """
         self.mock_catalog = MagicMock(spec=ParquetDataCatalog)
 
     def _create_mock_bar(
@@ -68,7 +73,9 @@ class TestCatalogUtils:
         close_price: float,
         volume: int,
     ) -> Mock:
-        """Create a mock Bar object."""
+        """
+        Create a mock Bar object.
+        """
         bar = Mock(spec=Bar)
         bar_type = Mock(spec=BarType)
         bar_type.instrument_id = InstrumentId.from_str(instrument_id)
@@ -90,7 +97,9 @@ class TestCatalogUtils:
         bid_size: int,
         ask_size: int,
     ) -> Mock:
-        """Create a mock QuoteTick object."""
+        """
+        Create a mock QuoteTick object.
+        """
         quote = Mock(spec=QuoteTick)
         quote.instrument_id = InstrumentId.from_str(instrument_id)
         quote.ts_event = timestamp
@@ -108,7 +117,9 @@ class TestCatalogUtils:
         size: int,
         aggressor_side: str,
     ) -> Mock:
-        """Create a mock TradeTick object."""
+        """
+        Create a mock TradeTick object.
+        """
         trade = Mock(spec=TradeTick)
         trade.instrument_id = InstrumentId.from_str(instrument_id)
         trade.ts_event = timestamp
@@ -122,7 +133,9 @@ class TestCatalogUtils:
     # ============================================================================
 
     def test_bars_to_dataframe_empty(self) -> None:
-        """Test bars_to_dataframe with no data."""
+        """
+        Test bars_to_dataframe with no data.
+        """
         self.mock_catalog.bars.return_value = []
 
         result = bars_to_dataframe(
@@ -133,7 +146,13 @@ class TestCatalogUtils:
         assert isinstance(result, pl.DataFrame)
         assert len(result) == 0
         assert set(result.columns) == {
-            "instrument_id", "timestamp", "open", "high", "low", "close", "volume"
+            "instrument_id",
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
         }
 
     @given(
@@ -145,7 +164,9 @@ class TestCatalogUtils:
         instrument_ids: list[str],
         num_bars: int,
     ) -> None:
-        """Test bars_to_dataframe with data using property-based testing."""
+        """
+        Test bars_to_dataframe with data using property-based testing.
+        """
         # Create mock bars
         bars = []
         base_timestamp = 1672531200000000000  # 2023-01-01 in nanoseconds
@@ -192,7 +213,9 @@ class TestCatalogUtils:
     # ============================================================================
 
     def test_quotes_to_dataframe_empty(self) -> None:
-        """Test quotes_to_dataframe with no data."""
+        """
+        Test quotes_to_dataframe with no data.
+        """
         self.mock_catalog.quote_ticks.return_value = []
 
         result = quotes_to_dataframe(
@@ -203,7 +226,12 @@ class TestCatalogUtils:
         assert isinstance(result, pl.DataFrame)
         assert len(result) == 0
         assert set(result.columns) == {
-            "instrument_id", "timestamp", "bid", "ask", "bid_size", "ask_size"
+            "instrument_id",
+            "timestamp",
+            "bid",
+            "ask",
+            "bid_size",
+            "ask_size",
         }
 
     @given(
@@ -215,7 +243,9 @@ class TestCatalogUtils:
         instrument_ids: list[str],
         num_quotes: int,
     ) -> None:
-        """Test quotes_to_dataframe with data using property-based testing."""
+        """
+        Test quotes_to_dataframe with data using property-based testing.
+        """
         # Create mock quotes
         quotes = []
         base_timestamp = 1672531200000000000
@@ -258,7 +288,9 @@ class TestCatalogUtils:
     # ============================================================================
 
     def test_trades_to_dataframe_empty(self) -> None:
-        """Test trades_to_dataframe with no data."""
+        """
+        Test trades_to_dataframe with no data.
+        """
         self.mock_catalog.trade_ticks.return_value = []
 
         result = trades_to_dataframe(
@@ -269,7 +301,11 @@ class TestCatalogUtils:
         assert isinstance(result, pl.DataFrame)
         assert len(result) == 0
         assert set(result.columns) == {
-            "instrument_id", "timestamp", "price", "size", "aggressor_side"
+            "instrument_id",
+            "timestamp",
+            "price",
+            "size",
+            "aggressor_side",
         }
 
     @given(
@@ -281,7 +317,9 @@ class TestCatalogUtils:
         instrument_ids: list[str],
         num_trades: int,
     ) -> None:
-        """Test trades_to_dataframe with data using property-based testing."""
+        """
+        Test trades_to_dataframe with data using property-based testing.
+        """
         # Create mock trades
         trades = []
         base_timestamp = 1672531200000000000
@@ -327,7 +365,9 @@ class TestCatalogUtils:
         start_date: datetime,
         end_date: datetime,
     ) -> None:
-        """Test that date range is passed correctly to catalog."""
+        """
+        Test that date range is passed correctly to catalog.
+        """
         # Reset mock for each hypothesis example
         self.mock_catalog.reset_mock()
 
@@ -355,7 +395,9 @@ class TestCatalogUtils:
     # ============================================================================
 
     def test_invalid_instrument_id_format(self) -> None:
-        """Test handling of invalid instrument ID format."""
+        """
+        Test handling of invalid instrument ID format.
+        """
         with pytest.raises(ValueError):
             bars_to_dataframe(
                 self.mock_catalog,

@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 """
 Run ML Trading System in dry run mode using historical data replay.
+
 This simulates live trading using recent historical data.
+
 """
 
 import os
@@ -52,7 +54,7 @@ def run_backtest_dry_run() -> None:
     # Check database connection
     db_connection = os.getenv(
         "DB_CONNECTION",
-        "postgresql://postgres:postgres@localhost:5432/nautilus"
+        "postgresql://postgres:postgres@localhost:5432/nautilus",
     )
 
     # Feature configuration
@@ -132,7 +134,7 @@ def run_backtest_dry_run() -> None:
 
     # Load recent historical data
     print("\nLoading historical data...")
-    loader = DatabentoDataLoader()
+    DatabentoDataLoader()
 
     # Try to load data from Databento
     try:
@@ -143,7 +145,7 @@ def run_backtest_dry_run() -> None:
         print(f"Attempting to load data from {start_date.date()} to {end_date.date()}")
 
         # Generate synthetic bars for testing
-        import random
+        from numpy.random import default_rng
 
         from nautilus_trader.core.datetime import dt_to_unix_nanos
         from nautilus_trader.model.data import Bar
@@ -152,16 +154,17 @@ def run_backtest_dry_run() -> None:
 
         bars = []
         base_price = 400.0
+        rng = default_rng(0)
 
         for i in range(1000):
             ts = start_date + timedelta(minutes=i)
             ts_ns = dt_to_unix_nanos(pd.Timestamp(ts))
 
             # Generate realistic price movement
-            open_price = base_price + random.uniform(-2, 2)
-            high = open_price + random.uniform(0, 1)
-            low = open_price - random.uniform(0, 1)
-            close = random.uniform(low, high)
+            open_price = base_price + float(rng.uniform(-2, 2))
+            high = open_price + float(rng.uniform(0, 1))
+            low = open_price - float(rng.uniform(0, 1))
+            close = float(rng.uniform(low, high))
             base_price = close  # Carry forward for continuity
 
             bar = Bar(
@@ -170,7 +173,7 @@ def run_backtest_dry_run() -> None:
                 high=Price.from_str(f"{high:.2f}"),
                 low=Price.from_str(f"{low:.2f}"),
                 close=Price.from_str(f"{close:.2f}"),
-                volume=Quantity.from_int(random.randint(100000, 1000000)),
+                volume=Quantity.from_int(int(rng.integers(100000, 1000000))),
                 ts_event=ts_ns,
                 ts_init=ts_ns,
             )
@@ -182,6 +185,7 @@ def run_backtest_dry_run() -> None:
     except Exception as e:
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         raise
 
@@ -230,5 +234,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nError: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

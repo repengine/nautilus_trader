@@ -298,12 +298,15 @@ class TestModelFactory:
         except ImportError:
             # Fallback: Create a simple ONNX model using numpy operations
             import onnx
+
+            # Create a simple linear model: output = input @ weights + bias
+            from numpy.random import default_rng
             from onnx import TensorProto
             from onnx import helper
 
-            # Create a simple linear model: output = input @ weights + bias
-            weights = np.random.randn(n_features, n_outputs).astype(np.float32)
-            bias = np.random.randn(n_outputs).astype(np.float32)
+            _rng = default_rng(0)
+            weights = _rng.standard_normal((n_features, n_outputs)).astype(np.float32)
+            bias = _rng.standard_normal(n_outputs).astype(np.float32)
 
             # Create ONNX graph
             input_tensor = helper.make_tensor_value_info(

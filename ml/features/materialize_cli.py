@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 """
 Materialize feature set CSV in manifest order.
 
@@ -11,7 +8,10 @@ Two modes:
 - From-OHLCV mode (best-effort): compute features from OHLCV bars using the
   FeatureEngineer, then select manifest columns if present. This path depends on
   Nautilus indicators and is optional; tests cover reorder mode only.
+
 """
+
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
@@ -91,7 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         columns_out.append("time_index")
     if "instrument_id" in df.columns:
         out_df_typed = cast(Any, out_df)
-        out_df_typed.insert(len(columns_out), "instrument_id", df["instrument_id"])  # pandas indexing
+        out_df_typed.insert(
+            len(columns_out),
+            "instrument_id",
+            df["instrument_id"],
+        )  # pandas indexing
         columns_out.append("instrument_id")
     # Append target if requested and present
     if args.target_col and args.target_col in df.columns:

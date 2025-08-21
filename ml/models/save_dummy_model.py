@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt
+from numpy.random import default_rng
 
 
 class DummyModel:
@@ -18,11 +19,13 @@ class DummyModel:
     def __init__(self, n_features: int = 10) -> None:
         self.n_features: int = n_features
         self.bias: float = 0.5  # Default neutral
-        self.weights: npt.NDArray[np.float64] = (
-            np.random.randn(n_features).astype(np.float64) * 0.1
-        )
+        rng = default_rng(42)
+        self.weights = rng.standard_normal(n_features).astype(np.float64) * 0.1
 
-    def predict(self, features: npt.NDArray[np.float64] | Sequence[float]) -> npt.NDArray[np.float64]:
+    def predict(
+        self,
+        features: npt.NDArray[np.float64] | Sequence[float],
+    ) -> npt.NDArray[np.float64]:
         """
         Generate predictions based on simple linear combination.
         """
@@ -35,10 +38,12 @@ class DummyModel:
 
         # Apply sigmoid to get probability
         from typing import cast
+
         return cast(npt.NDArray[np.float64], 1 / (1 + np.exp(-predictions)))
 
     def predict_proba(
-        self, features: npt.NDArray[np.float64] | Sequence[float]
+        self,
+        features: npt.NDArray[np.float64] | Sequence[float],
     ) -> npt.NDArray[np.float64]:
         """
         Return probability estimates.

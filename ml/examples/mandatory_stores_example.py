@@ -11,6 +11,7 @@ from typing import cast
 
 import numpy as np
 import numpy.typing as npt
+from numpy.random import default_rng
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
@@ -55,7 +56,7 @@ class ProductionMLActor(BaseMLInferenceActor):
 
     def on_start(self) -> None:
         """
-        Called when actor starts.
+        Start actor.
 
         The base class handles:
         - Model loading
@@ -75,7 +76,10 @@ class ProductionMLActor(BaseMLInferenceActor):
 
         """
         # Example feature computation
-        features: npt.NDArray[np.float32] = np.random.randn(len(self.feature_names)).astype(np.float32)
+        rng = default_rng(0)
+        features: npt.NDArray[np.float32] = rng.standard_normal(len(self.feature_names)).astype(
+            np.float32,
+        )
 
         # The base class will automatically store these features
         # No need to call self._feature_store.write_features()
@@ -101,7 +105,7 @@ class ProductionMLActor(BaseMLInferenceActor):
 
     def on_stop(self) -> None:
         """
-        Called when actor stops.
+        Stop actor.
 
         The base class automatically:
         - Flushes all pending writes to stores

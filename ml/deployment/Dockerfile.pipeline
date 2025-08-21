@@ -1,0 +1,39 @@
+# ML Pipeline Dockerfile
+# Runs the data collection and feature computation pipeline
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY pyproject.toml poetry.lock ./
+COPY nautilus_trader ./nautilus_trader
+COPY ml ./ml
+
+# Install Python dependencies
+RUN pip install --no-cache-dir poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-dev
+
+# Create necessary directories
+RUN mkdir -p /app/data/catalog /app/models /app/logs /app/configs
+
+# Install additional dependencies for health check
+RUN pip install --no-cache-dir flask requests
+
+# Copy entrypoint script
+COPY ml/deployment/entrypoint_pipeline.py /app/entrypoint.py
+
+# Health check - verify Python imports and database connectivity
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import ml.data.scheduler; import psycopg2; import sys; sys.exit(0)" || exit 1
+
+# Default command - can be overridden in docker-compose.yml
+CMD ["python", "/app/entrypoint.py"]

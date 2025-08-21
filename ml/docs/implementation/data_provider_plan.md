@@ -35,6 +35,7 @@ The implementation follows a layered architecture with clear separation of conce
 ## Design Principles
 
 ### SOLID Principles
+
 - **Single Responsibility**: Each provider has one clear responsibility
 - **Open/Closed**: New data sources can be added without modifying existing providers
 - **Liskov Substitution**: All providers are substitutable via protocols
@@ -42,16 +43,19 @@ The implementation follows a layered architecture with clear separation of conce
 - **Dependency Inversion**: Depend on protocols, not concrete implementations
 
 ### DRY (Don't Repeat Yourself)
+
 - Base classes contain common logic
 - Utility functions for shared calculations
 - Single source of truth for data schemas
 
 ### TDD (Test-Driven Development)
+
 - Write tests before implementation
 - Use hypothesis for property-based testing
 - Mock external dependencies
 
 ### Separation of Concerns
+
 - Data loading separate from transformation
 - Caching logic isolated in base classes
 - External API access isolated in source classes

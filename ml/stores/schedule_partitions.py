@@ -54,7 +54,7 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
 
 def main() -> None:
     """
-    Main entry point for partition scheduler.
+    Run partition scheduler entry point.
     """
     parser = argparse.ArgumentParser(
         description="Automatic partition management for ML stores",

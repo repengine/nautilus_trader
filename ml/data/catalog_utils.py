@@ -1,8 +1,9 @@
 """
 Utilities for working directly with Nautilus ParquetDataCatalog.
 
-This module provides helper functions to work with ParquetDataCatalog
-for ML workflows, replacing the need for custom loaders.
+This module provides helper functions to work with ParquetDataCatalog for ML workflows,
+replacing the need for custom loaders.
+
 """
 
 from __future__ import annotations
@@ -62,28 +63,32 @@ def bars_to_dataframe(
 
     if not bars:
         # Return empty DataFrame with expected schema
-        return pl.DataFrame({
-            "instrument_id": [],
-            "timestamp": [],
-            "open": [],
-            "high": [],
-            "low": [],
-            "close": [],
-            "volume": [],
-        })
+        return pl.DataFrame(
+            {
+                "instrument_id": [],
+                "timestamp": [],
+                "open": [],
+                "high": [],
+                "low": [],
+                "close": [],
+                "volume": [],
+            },
+        )
 
     # Convert to DataFrame
     data = []
     for bar in bars:
-        data.append({
-            "instrument_id": str(bar.bar_type.instrument_id),
-            "timestamp": bar.ts_event,
-            "open": float(bar.open),
-            "high": float(bar.high),
-            "low": float(bar.low),
-            "close": float(bar.close),
-            "volume": float(bar.volume),
-        })
+        data.append(
+            {
+                "instrument_id": str(bar.bar_type.instrument_id),
+                "timestamp": bar.ts_event,
+                "open": float(bar.open),
+                "high": float(bar.high),
+                "low": float(bar.low),
+                "close": float(bar.close),
+                "volume": float(bar.volume),
+            },
+        )
 
     return pl.DataFrame(data)
 
@@ -128,26 +133,30 @@ def quotes_to_dataframe(
     )
 
     if not quotes:
-        return pl.DataFrame({
-            "instrument_id": [],
-            "timestamp": [],
-            "bid": [],
-            "ask": [],
-            "bid_size": [],
-            "ask_size": [],
-        })
+        return pl.DataFrame(
+            {
+                "instrument_id": [],
+                "timestamp": [],
+                "bid": [],
+                "ask": [],
+                "bid_size": [],
+                "ask_size": [],
+            },
+        )
 
     # Convert to DataFrame
     data = []
     for quote in quotes:
-        data.append({
-            "instrument_id": str(quote.instrument_id),
-            "timestamp": quote.ts_event,
-            "bid": float(quote.bid_price),
-            "ask": float(quote.ask_price),
-            "bid_size": float(quote.bid_size),
-            "ask_size": float(quote.ask_size),
-        })
+        data.append(
+            {
+                "instrument_id": str(quote.instrument_id),
+                "timestamp": quote.ts_event,
+                "bid": float(quote.bid_price),
+                "ask": float(quote.ask_price),
+                "bid_size": float(quote.bid_size),
+                "ask_size": float(quote.ask_size),
+            },
+        )
 
     return pl.DataFrame(data)
 
@@ -192,23 +201,27 @@ def trades_to_dataframe(
     )
 
     if not trades:
-        return pl.DataFrame({
-            "instrument_id": [],
-            "timestamp": [],
-            "price": [],
-            "size": [],
-            "aggressor_side": [],
-        })
+        return pl.DataFrame(
+            {
+                "instrument_id": [],
+                "timestamp": [],
+                "price": [],
+                "size": [],
+                "aggressor_side": [],
+            },
+        )
 
     # Convert to DataFrame
     data = []
     for trade in trades:
-        data.append({
-            "instrument_id": str(trade.instrument_id),
-            "timestamp": trade.ts_event,
-            "price": float(trade.price),
-            "size": float(trade.size),
-            "aggressor_side": str(trade.aggressor_side),
-        })
+        data.append(
+            {
+                "instrument_id": str(trade.instrument_id),
+                "timestamp": trade.ts_event,
+                "price": float(trade.price),
+                "size": float(trade.size),
+                "aggressor_side": str(trade.aggressor_side),
+            },
+        )
 
     return pl.DataFrame(data)

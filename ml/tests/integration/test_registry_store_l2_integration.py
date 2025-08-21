@@ -2,6 +2,7 @@
 Integration test for FeatureRegistry, FeatureStore, and L2/L3 microstructure features.
 
 Validates that the new L2/L3 features integrate seamlessly with the registry and store.
+
 """
 
 from __future__ import annotations
@@ -9,20 +10,19 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from ml._imports import HAS_PANDAS, HAS_POLARS, pl
+from ml._imports import HAS_PANDAS
+from ml._imports import HAS_POLARS
+from ml._imports import pl
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.microstructure import L2MicrostructureFeatures
-from ml.features.microstructure import L3TradeFlowFeatures
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.features.pipeline import TransformSpec
@@ -42,10 +42,14 @@ pytestmark = pytest.mark.skipif(
 
 
 class TestL2L3RegistryStoreIntegration:
-    """Test that L2/L3 features integrate properly with registry and store."""
+    """
+    Test that L2/L3 features integrate properly with registry and store.
+    """
 
     def test_feature_config_includes_microstructure(self) -> None:
-        """Test that FeatureConfig properly includes microstructure features."""
+        """
+        Test that FeatureConfig properly includes microstructure features.
+        """
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
@@ -69,25 +73,29 @@ class TestL2L3RegistryStoreIntegration:
         assert "avg_price_impact" in feature_names
 
     def test_feature_engineer_delegates_to_l2_calculator(self) -> None:
-        """Test that FeatureEngineer properly delegates to L2MicrostructureFeatures."""
+        """
+        Test that FeatureEngineer properly delegates to L2MicrostructureFeatures.
+        """
         config = FeatureConfig(include_microstructure=True)
         engineer = FeatureEngineer(config)
 
         # Create mock data with L2 depth
-        df = pl.DataFrame({
-            "open": [100.0, 101.0],
-            "high": [102.0, 103.0],
-            "low": [99.0, 100.0],
-            "close": [101.0, 102.0],
-            "volume": [1000, 2000],
-            "ts_event": [1000, 2000],
-            "ts_init": [1000, 2000],
-            # L2 depth data
-            "bid_price_0": [100.5, 101.5],
-            "ask_price_0": [101.5, 102.5],
-            "bid_size_0": [100, 200],
-            "ask_size_0": [150, 250],
-        })
+        df = pl.DataFrame(
+            {
+                "open": [100.0, 101.0],
+                "high": [102.0, 103.0],
+                "low": [99.0, 100.0],
+                "close": [101.0, 102.0],
+                "volume": [1000, 2000],
+                "ts_event": [1000, 2000],
+                "ts_init": [1000, 2000],
+                # L2 depth data
+                "bid_price_0": [100.5, 101.5],
+                "ask_price_0": [101.5, 102.5],
+                "bid_size_0": [100, 200],
+                "ask_size_0": [150, 250],
+            },
+        )
 
         # Patch L2MicrostructureFeatures to verify delegation
         with patch("ml.features.microstructure.L2MicrostructureFeatures") as mock_l2:
@@ -105,7 +113,9 @@ class TestL2L3RegistryStoreIntegration:
             mock_instance.compute_all_features.assert_called_once()
 
     def test_feature_registry_manifest_with_l2_features(self) -> None:
-        """Test creating feature manifest with L2/L3 capabilities."""
+        """
+        Test creating feature manifest with L2/L3 capabilities.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             registry = FeatureRegistry(Path(tmpdir))
 
@@ -123,13 +133,15 @@ class TestL2L3RegistryStoreIntegration:
                     TransformSpec(name="returns"),
                     TransformSpec(name="microstructure"),
                     TransformSpec(name="trade_flow"),
-                ]
+                ],
             )
             pipeline_runner = PipelineRunner(pipeline_spec, DataRequirements.L1_L2)
             pipeline_signature = pipeline_runner.compute_signature()
 
             schema_hash = compute_schema_hash(
-                feature_names, feature_dtypes, pipeline_signature
+                feature_names,
+                feature_dtypes,
+                pipeline_signature,
             )
 
             manifest = FeatureManifest(
@@ -174,7 +186,9 @@ class TestL2L3RegistryStoreIntegration:
         mock_setup: MagicMock,
         mock_engine: MagicMock,
     ) -> None:
-        """Test that FeatureStore properly computes L2/L3 features."""
+        """
+        Test that FeatureStore properly computes L2/L3 features.
+        """
         # Create store with L2/L3 features enabled
         config = FeatureConfig(
             include_microstructure=True,
@@ -202,17 +216,19 @@ class TestL2L3RegistryStoreIntegration:
         assert n_features > 30  # At least 30 features with all enabled
 
     def test_pipeline_integration_with_l2_transforms(self) -> None:
-        """Test that pipeline properly includes L2/L3 transforms."""
+        """
+        Test that pipeline properly includes L2/L3 transforms.
+        """
         # Create pipeline with L2/L3 transforms
         pipeline_spec = PipelineSpec(
             transforms=[
                 TransformSpec(name="returns", params={"periods": [1, 5, 10]}),
                 TransformSpec(name="volatility"),
                 TransformSpec(name="microstructure"),  # L2 features
-                TransformSpec(name="trade_flow"),      # L3 features
-                TransformSpec(name="calendar"),        # Known-future
-                TransformSpec(name="macro_indicators"), # Known-future
-            ]
+                TransformSpec(name="trade_flow"),  # L3 features
+                TransformSpec(name="calendar"),  # Known-future
+                TransformSpec(name="macro_indicators"),  # Known-future
+            ],
         )
 
         # Create runner with L1_L2 data requirements
@@ -236,7 +252,9 @@ class TestL2L3RegistryStoreIntegration:
         assert len(signature) == 64  # SHA256 hex digest
 
     def test_l2_feature_computation_with_real_data(self) -> None:
-        """Test L2 feature computation with realistic order book data."""
+        """
+        Test L2 feature computation with realistic order book data.
+        """
         calculator = L2MicrostructureFeatures(n_levels=5, lookback_window=10)
 
         # Create realistic L2 order book data
@@ -254,25 +272,39 @@ class TestL2L3RegistryStoreIntegration:
 
         for i in range(n_samples):
             # Add some price movement
-            mid_price += np.random.randn() * 0.005
+            from numpy.random import default_rng
+
+            _rng = default_rng(0)
+            mid_price += float(_rng.standard_normal()) * 0.005
 
             for level in range(n_levels):
                 # Bid prices decrease with level
-                bid_prices[i, level] = mid_price - spread/2 - level * 0.001
+                bid_prices[i, level] = mid_price - spread / 2 - level * 0.001
                 # Ask prices increase with level
-                ask_prices[i, level] = mid_price + spread/2 + level * 0.001
+                ask_prices[i, level] = mid_price + spread / 2 + level * 0.001
 
                 # Sizes typically decrease with level (more volume at best prices)
-                bid_sizes[i, level] = 1000 * (1.0 - level * 0.15) + np.random.randn() * 50
-                ask_sizes[i, level] = 1000 * (1.0 - level * 0.15) + np.random.randn() * 50
+                from numpy.random import default_rng
+
+                _rng = default_rng(0)
+                bid_sizes[i, level] = (
+                    1000 * (1.0 - level * 0.15) + float(_rng.standard_normal()) * 50
+                )
+                ask_sizes[i, level] = (
+                    1000 * (1.0 - level * 0.15) + float(_rng.standard_normal()) * 50
+                )
 
         # Compute features
         spread_features = calculator.compute_spread_features(
-            bid_prices, ask_prices, bid_sizes, ask_sizes
+            bid_prices,
+            ask_prices,
+            bid_sizes,
+            ask_sizes,
         )
 
         imbalance_features = calculator.compute_imbalance_features(
-            bid_sizes, ask_sizes
+            bid_sizes,
+            ask_sizes,
         )
 
         # Validate computed features
@@ -286,7 +318,10 @@ class TestL2L3RegistryStoreIntegration:
 
         # Test shape features
         shape_features = calculator.compute_shape_features(
-            bid_prices, ask_prices, bid_sizes, ask_sizes
+            bid_prices,
+            ask_prices,
+            bid_sizes,
+            ask_sizes,
         )
 
         # Check that we get shape features (actual names may vary)
@@ -295,7 +330,9 @@ class TestL2L3RegistryStoreIntegration:
         assert any("ask" in k for k in shape_features.keys())
 
     def test_end_to_end_l2_feature_persistence(self) -> None:
-        """Test end-to-end flow from L2 data to persisted features."""
+        """
+        Test end-to-end flow from L2 data to persisted features.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Setup registry
             registry = FeatureRegistry(Path(tmpdir))
@@ -317,7 +354,7 @@ class TestL2L3RegistryStoreIntegration:
                 feature_names=feature_names,
                 feature_dtypes=["float32"] * len(feature_names),
                 schema_hash=hashlib.sha256(
-                    json.dumps(feature_names).encode()
+                    json.dumps(feature_names).encode(),
                 ).hexdigest(),
                 pipeline_signature="test_sig",
                 pipeline_version="1.0.0",

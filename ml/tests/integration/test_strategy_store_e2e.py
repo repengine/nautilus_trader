@@ -1,14 +1,15 @@
 """
 End-to-end integration test for StrategyStore with PostgreSQL.
 
-Tests the complete flow from ML signal generation through strategy decision
-persistence to the PostgreSQL database.
+Tests the complete flow from ML signal generation through strategy decision persistence
+to the PostgreSQL database.
+
 """
 
 import os
 import time
-from unittest.mock import MagicMock
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine
@@ -31,26 +32,31 @@ from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 POSTGRES_AVAILABLE = os.environ.get("POSTGRES_TEST_URL") is not None
 POSTGRES_URL = os.environ.get(
     "POSTGRES_TEST_URL",
-    "postgresql://postgres:postgres@localhost:5432/nautilus"
+    "postgresql://postgres:postgres@localhost:5432/nautilus",
 )
 
 
 @pytest.mark.skipif(not POSTGRES_AVAILABLE, reason="PostgreSQL not available")
 class TestStrategyStoreE2E:
-    """End-to-end tests for StrategyStore with real PostgreSQL."""
+    """
+    End-to-end tests for StrategyStore with real PostgreSQL.
+    """
 
     engine: Any
 
     @classmethod
-
     def setup_class(cls) -> None:
-        """Set up database connection and ensure tables exist."""
+        """
+        Set up database connection and ensure tables exist.
+        """
         try:
             cls.engine = create_engine(POSTGRES_URL)
 
             # Ensure tables exist (simplified schema for testing)
             with cls.engine.connect() as conn:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS ml_strategy_signals (
                         strategy_id VARCHAR(255) NOT NULL,
                         instrument_id VARCHAR(100) NOT NULL,
@@ -65,13 +71,17 @@ class TestStrategyStoreE2E:
                         created_at BIGINT,
                         PRIMARY KEY (strategy_id, instrument_id, ts_event)
                     )
-                """))
+                """,
+                    ),
+                )
                 conn.commit()
         except Exception as e:
             pytest.skip(f"Cannot connect to PostgreSQL: {e}")
 
     def setup_method(self) -> None:
-        """Set up test fixtures."""
+        """
+        Set up test fixtures.
+        """
         self.clock = TestClock()
         self.trader_id = TraderId("E2E-TESTER")
         self.msgbus = MessageBus(
@@ -95,23 +105,29 @@ class TestStrategyStoreE2E:
         self._cleanup_test_data()
 
     def teardown_method(self) -> None:
-        """Clean up test data after each test."""
+        """
+        Clean up test data after each test.
+        """
         self._cleanup_test_data()
 
     def _cleanup_test_data(self) -> None:
-        """Remove test data from database."""
+        """
+        Remove test data from database.
+        """
         try:
             with self.engine.connect() as conn:
                 conn.execute(
                     text("DELETE FROM ml_strategy_signals WHERE strategy_id = :sid"),
-                    {"sid": self.strategy_id}
+                    {"sid": self.strategy_id},
                 )
                 conn.commit()
         except Exception:
             pass  # Ignore cleanup errors
 
     def test_full_pipeline_with_real_database(self) -> None:
-        """Test complete flow from signal to database persistence."""
+        """
+        Test complete flow from signal to database persistence.
+        """
         # Create strategy with real database connection
         config = MLStrategyConfig(
             strategy_id=self.strategy_id,
@@ -161,14 +177,16 @@ class TestStrategyStoreE2E:
         # Verify data in database
         with self.engine.connect() as conn:
             result = conn.execute(
-                text("""
+                text(
+                    """
                     SELECT strategy_id, instrument_id, signal_type, strength,
                            model_predictions, risk_metrics, execution_params
                     FROM ml_strategy_signals
                     WHERE strategy_id = :sid
                     ORDER BY ts_event
-                """),
-                {"sid": self.strategy_id}
+                """,
+                ),
+                {"sid": self.strategy_id},
             )
 
             rows = result.fetchall()
@@ -198,7 +216,9 @@ class TestStrategyStoreE2E:
                 assert f"model_{i}" in row[4]  # model_predictions JSON
 
     def test_batch_persistence(self) -> None:
-        """Test that batching works correctly with real database."""
+        """
+        Test that batching works correctly with real database.
+        """
         # Create store with small batch size
         store = StrategyStore(
             connection_string=POSTGRES_URL,
@@ -228,11 +248,13 @@ class TestStrategyStoreE2E:
         # Verify first batch (3 items) was written
         with self.engine.connect() as conn:
             result = conn.execute(
-                text("""
+                text(
+                    """
                     SELECT COUNT(*) FROM ml_strategy_signals
                     WHERE strategy_id = :sid
-                """),
-                {"sid": f"BATCH-{self.strategy_id}"}
+                """,
+                ),
+                {"sid": f"BATCH-{self.strategy_id}"},
             )
             count_before_flush = result.scalar()
             assert count_before_flush == 3  # First batch auto-flushed
@@ -243,11 +265,13 @@ class TestStrategyStoreE2E:
         # Verify all 5 items are now in database
         with self.engine.connect() as conn:
             result = conn.execute(
-                text("""
+                text(
+                    """
                     SELECT COUNT(*) FROM ml_strategy_signals
                     WHERE strategy_id = :sid
-                """),
-                {"sid": f"BATCH-{self.strategy_id}"}
+                """,
+                ),
+                {"sid": f"BATCH-{self.strategy_id}"},
             )
             count_after_flush = result.scalar()
             assert count_after_flush == 5
@@ -256,12 +280,14 @@ class TestStrategyStoreE2E:
         with self.engine.connect() as conn:
             conn.execute(
                 text("DELETE FROM ml_strategy_signals WHERE strategy_id = :sid"),
-                {"sid": f"BATCH-{self.strategy_id}"}
+                {"sid": f"BATCH-{self.strategy_id}"},
             )
             conn.commit()
 
     def test_error_recovery(self) -> None:
-        """Test that the system recovers from database errors."""
+        """
+        Test that the system recovers from database errors.
+        """
         config = MLStrategyConfig(
             strategy_id=self.strategy_id,
             instrument_id=self.instrument_id,
@@ -326,18 +352,22 @@ class TestStrategyStoreE2E:
         # Verify second signal was persisted
         with self.engine.connect() as conn:
             result = conn.execute(
-                text("""
+                text(
+                    """
                     SELECT COUNT(*) FROM ml_strategy_signals
                     WHERE strategy_id = :sid
-                """),
-                {"sid": self.strategy_id}
+                """,
+                ),
+                {"sid": self.strategy_id},
             )
             count = result.scalar()
             # At least the recovery signal should be there
             assert count >= 1
 
     def test_concurrent_strategies(self) -> None:
-        """Test multiple strategies writing to the same database."""
+        """
+        Test multiple strategies writing to the same database.
+        """
         strategies = []
 
         # Create multiple strategies
@@ -385,11 +415,13 @@ class TestStrategyStoreE2E:
         with self.engine.connect() as conn:
             for i in range(3):
                 result = conn.execute(
-                    text("""
+                    text(
+                        """
                         SELECT COUNT(*) FROM ml_strategy_signals
                         WHERE strategy_id = :sid
-                    """),
-                    {"sid": f"{self.strategy_id}-{i}"}
+                    """,
+                    ),
+                    {"sid": f"{self.strategy_id}-{i}"},
                 )
                 count = result.scalar()
                 assert count >= 1  # Each strategy should have at least 1 decision
@@ -399,7 +431,7 @@ class TestStrategyStoreE2E:
             with self.engine.connect() as conn:
                 conn.execute(
                     text("DELETE FROM ml_strategy_signals WHERE strategy_id = :sid"),
-                    {"sid": f"{self.strategy_id}-{i}"}
+                    {"sid": f"{self.strategy_id}-{i}"},
                 )
                 conn.commit()
 
@@ -410,4 +442,6 @@ if __name__ == "__main__":
         pytest.main([__file__, "-xvs"])
     else:
         print("PostgreSQL not available. Set POSTGRES_TEST_URL environment variable to run tests.")
-        print("Example: export POSTGRES_TEST_URL='postgresql://postgres:postgres@localhost:5432/nautilus'")
+        print(
+            "Example: export POSTGRES_TEST_URL='postgresql://postgres:postgres@localhost:5432/nautilus'",
+        )

@@ -11,7 +11,6 @@ This module provides fixtures for:
 
 from __future__ import annotations
 
-import random
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -103,7 +102,10 @@ def generate_test_bars(test_bar_type: BarType, test_instrument: CurrencyPair) ->
         volatility = 0.0001  # Realistic FX volatility
 
         # Generate price movement
-        returns = np.random.normal(drift, volatility, 4)
+        from numpy.random import default_rng
+
+        _rng = default_rng(0)
+        returns = _rng.normal(drift, volatility, 4)
 
         # Calculate OHLC with realistic constraints
         open_price = current_price
@@ -116,7 +118,10 @@ def generate_test_bars(test_bar_type: BarType, test_instrument: CurrencyPair) ->
         low_price = min(low_price, open_price, close_price)
 
         # Generate volume with some correlation to price movement
-        volume = random.uniform(1000, 5000) * (1 + abs(returns[3]) * 10)
+        from numpy.random import default_rng
+
+        _rng_vol = default_rng(7)
+        volume = float(_rng_vol.uniform(1000, 5000)) * (1 + abs(returns[3]) * 10)
 
         bar = Bar(
             bar_type=test_bar_type,
@@ -374,8 +379,11 @@ def create_onnx_model_for_features(
     import xgboost as xgb
 
     # Generate dummy training data with correct feature count
-    X_train = np.random.randn(100, n_features).astype(np.float32)
-    y_train = np.random.randint(0, 2, 100)
+    from numpy.random import default_rng
+
+    _rng = default_rng(123)
+    X_train = _rng.standard_normal((100, n_features)).astype(np.float32)
+    y_train = _rng.integers(0, 2, 100)
 
     # Train a simple model
     model = xgb.XGBClassifier(
@@ -430,7 +438,10 @@ def multi_instrument_bars() -> dict[InstrumentId, list[Bar]]:
 
     # Generate correlated returns
     n_bars = 100
-    common_factor = np.random.normal(0, 0.0001, n_bars)  # Market factor
+    from numpy.random import default_rng
+
+    _rng2 = default_rng(42)
+    common_factor = _rng2.normal(0, 0.0001, n_bars)  # Market factor
 
     for symbol_str, base_price in instruments.items():
         instrument_id = InstrumentId(Symbol(symbol_str), TEST_VENUE)
@@ -442,13 +453,13 @@ def multi_instrument_bars() -> dict[InstrumentId, list[Bar]]:
 
         for i in range(n_bars):
             # Combine common market factor with idiosyncratic noise
-            idio_return = np.random.normal(0, 0.00005)
+            idio_return = _rng2.normal(0, 0.00005)
             total_return = common_factor[i] + idio_return
 
             open_price = current_price
             close_price = open_price * (1 + total_return)
-            high_price = max(open_price, close_price) * (1 + abs(np.random.normal(0, 0.00002)))
-            low_price = min(open_price, close_price) * (1 - abs(np.random.normal(0, 0.00002)))
+            high_price = max(open_price, close_price) * (1 + abs(_rng2.normal(0, 0.00002)))
+            low_price = min(open_price, close_price) * (1 - abs(_rng2.normal(0, 0.00002)))
 
             # Adjust precision based on instrument
             precision = 5 if symbol_str != "USDJPY" else 3
@@ -459,7 +470,7 @@ def multi_instrument_bars() -> dict[InstrumentId, list[Bar]]:
                 high=Price(high_price, precision=precision),
                 low=Price(low_price, precision=precision),
                 close=Price(close_price, precision=precision),
-                volume=Quantity(random.uniform(1000, 5000), precision=0),
+                volume=Quantity(float(_rng2.uniform(1000, 5000)), precision=0),
                 ts_event=base_timestamp + i * interval_ns,
                 ts_init=base_timestamp + i * interval_ns + 1000,
             )

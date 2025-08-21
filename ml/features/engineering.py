@@ -396,8 +396,9 @@ class IndicatorManager:
         """
         Update all indicators from raw OHLCV values.
 
-        This mirrors update_from_bar but avoids constructing Bar objects, and
-        is used by the FeatureEngineer hot path convenience API.
+        This mirrors update_from_bar but avoids constructing Bar objects, and is used by
+        the FeatureEngineer hot path convenience API.
+
         """
         # Update price history with memory management
         self.price_history["closes"].append(float(close))
@@ -1277,8 +1278,7 @@ class FeatureEngineer:
         low_price: float,
         volume: float,
         scaler: Any | None = None,
-    ) -> npt.NDArray[np.float32]:
-        ...
+    ) -> npt.NDArray[np.float32]: ...
 
     @overload
     def calculate_features_online(
@@ -1286,8 +1286,7 @@ class FeatureEngineer:
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
         scaler: Any | None = None,
-    ) -> npt.NDArray[np.float32]:
-        ...
+    ) -> npt.NDArray[np.float32]: ...
 
     def calculate_features_online(
         self,
@@ -1314,6 +1313,14 @@ class FeatureEngineer:
             Indicator manager with all state.
         scaler : StandardScaler, optional
             Pre-fitted scaler from training.
+        close_price : float | None
+            Current close price if `current_bar` is not provided.
+        high_price : float | None
+            Current high price if `current_bar` is not provided.
+        low_price : float | None
+            Current low price if `current_bar` is not provided.
+        volume : float | None
+            Current trade volume if `current_bar` is not provided.
 
         Returns
         -------
@@ -1872,7 +1879,11 @@ class FeatureEngineer:
 
             # Get subset of data for this window
             start_idx = max(0, idx - window + 1)
-            df_window = df[start_idx:idx + 1] if hasattr(df, "__getitem__") else df.iloc[start_idx:idx + 1]
+            df_window = (
+                df[start_idx : idx + 1]
+                if hasattr(df, "__getitem__")
+                else df.iloc[start_idx : idx + 1]
+            )
 
             # Compute all L2 features
             all_features = calculator.compute_all_features(df_window)
@@ -2156,6 +2167,7 @@ class FeatureEngineer:
             # Hot path with L2 data - use cached calculator
             if not hasattr(self, "_l2_calculator"):
                 from ml.features.microstructure import L2MicrostructureFeatures
+
                 self._l2_calculator = L2MicrostructureFeatures(n_levels=5, lookback_window=20)
 
             # For hot path, compute only essential features

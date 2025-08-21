@@ -75,7 +75,7 @@ model_info.manifest.deployment_constraints # {"max_latency_ms": 5}
 
 # Access deployment info
 model_info.deployment_status           # DeploymentStatus.ACTIVE
-model_info.deployment_targets          # ["ml_signal_actor"]
+model_info.deployed_to                 # ["ml_signal_actor"]
 model_info.file_path                   # Path("models/lgb_student_v1.onnx")
 ```
 

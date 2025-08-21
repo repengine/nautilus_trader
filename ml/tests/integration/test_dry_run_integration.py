@@ -1,13 +1,14 @@
 """
 Integration test demonstrating dry run mode in a realistic scenario.
 
-This test shows how the strategy processes signals, makes decisions,
-persists to stores, and updates metrics without executing actual trades.
+This test shows how the strategy processes signals, makes decisions, persists to stores,
+and updates metrics without executing actual trades.
+
 """
 
+from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
-from typing import Any, cast
 
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
@@ -31,6 +32,7 @@ def test_dry_run_production_scenario() -> None:
     3. Persistence to StrategyStore
     4. Metrics being updated
     5. No actual orders being placed
+
     """
     # Setup
     clock = TestClock()
@@ -74,8 +76,10 @@ def test_dry_run_production_scenario() -> None:
 
         # Mock position tracking for reversal logic
         mock_position = None
+
         def get_position_mock() -> Any:
             return mock_position
+
         cast(Any, strategy)._get_current_position = get_position_mock
 
         # Simulate production signals coming in

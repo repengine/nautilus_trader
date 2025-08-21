@@ -285,39 +285,39 @@ class DummyStore:
 
     def write_features(self, *args: Any, **kwargs: Any) -> None:
         """
-        Dummy write features.
+        Write features (dummy).
         """
 
     def write_prediction(self, *args: Any, **kwargs: Any) -> None:
         """
-        Dummy write prediction.
+        Write prediction (dummy).
         """
 
     def write_signal(self, *args: Any, **kwargs: Any) -> None:
         """
-        Dummy write signal.
+        Write signal (dummy).
         """
 
     def flush(self, *args: Any, **kwargs: Any) -> None:
         """
-        Dummy flush.
+        Flush buffered state (dummy).
         """
 
     def get_stats(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
-        Dummy get stats.
+        Get stats (dummy).
         """
         return {"dummy": True}
 
     def is_healthy(self) -> bool:
         """
-        Dummy health check - always returns True for testing.
+        Perform health check (always True in dummy).
         """
         return True
 
     def get_latest(self, *args: Any, **kwargs: Any) -> None:
         """
-        Dummy get latest.
+        Get latest item (dummy).
         """
         return None
 

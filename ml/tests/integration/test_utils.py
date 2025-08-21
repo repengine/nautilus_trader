@@ -11,7 +11,6 @@ This module provides utilities for:
 
 from __future__ import annotations
 
-import random
 from datetime import datetime
 from typing import Any
 
@@ -174,11 +173,14 @@ def create_correlated_multi_instrument_data(
     if correlation_matrix is None:
         # Create a realistic correlation matrix
         correlation_matrix = np.eye(n_instruments)
-        for i in range(n_instruments):
-            for j in range(i + 1, n_instruments):
-                corr = 0.3 + random.random() * 0.4  # Correlations between 0.3 and 0.7
-                correlation_matrix[i, j] = corr
-                correlation_matrix[j, i] = corr
+    from numpy.random import default_rng
+
+    _rng = default_rng(0)
+    for i in range(n_instruments):
+        for j in range(i + 1, n_instruments):
+            corr = 0.3 + float(_rng.random()) * 0.4  # Correlations between 0.3 and 0.7
+            correlation_matrix[i, j] = corr
+            correlation_matrix[j, i] = corr
 
     # Generate correlated returns using Cholesky decomposition
     L = np.linalg.cholesky(correlation_matrix)
@@ -529,7 +531,7 @@ def generate_mock_ml_signals(
 
     for i, bar in enumerate(bars[1:], 1):
         # Randomly decide whether to generate a signal
-        if random.random() > signal_frequency:
+        if float(_rng.random()) > signal_frequency:
             continue
 
         prev_bar = bars[i - 1]

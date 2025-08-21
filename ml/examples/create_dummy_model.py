@@ -1,8 +1,9 @@
 """
 Create a dummy model for dry run testing.
 
-This script creates a simple model that can be used for testing
-the ML pipeline without requiring actual training.
+This script creates a simple model that can be used for testing the ML pipeline without
+requiring actual training.
+
 """
 
 import pickle
@@ -11,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
+from numpy.random import default_rng
 
 
 class DummyModel:
@@ -18,15 +20,15 @@ class DummyModel:
     Simple dummy model for testing.
 
     Generates random predictions with slight bias based on feature values.
+
     """
 
     def __init__(self, n_features: int = 10) -> None:
         self.n_features: int = n_features
         self.feature_names: list[str] = [f"feature_{i}" for i in range(n_features)]
-        # Random weights for linear combination
-        self.weights: npt.NDArray[np.float64] = (
-            np.random.randn(n_features).astype(np.float64) * 0.1
-        )
+        # Random weights for linear combination (deterministic RNG)
+        rng = default_rng(42)
+        self.weights = rng.standard_normal(n_features).astype(np.float64) * 0.1
         self.bias: float = 0.5
 
     def predict(self, X: npt.NDArray[np.float64] | Sequence[float]) -> npt.NDArray[np.float64]:
@@ -34,6 +36,7 @@ class DummyModel:
         Generate predictions.
 
         Returns values between 0 and 1 (for binary classification).
+
         """
         X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
@@ -43,14 +46,19 @@ class DummyModel:
         logits = np.dot(X_arr, self.weights) + self.bias
         predictions = 1 / (1 + np.exp(-logits))
 
-        # Add some noise for variety
-        noise = np.random.randn(len(predictions)).astype(np.float64) * 0.05
+        # Add some noise for variety (deterministic RNG)
+        rng = default_rng(123)
+        noise = rng.standard_normal(len(predictions)).astype(np.float64) * 0.05
         predictions = np.clip(predictions + noise, 0, 1)
 
         from typing import cast
+
         return cast(npt.NDArray[np.float64], predictions)
 
-    def predict_proba(self, X: npt.NDArray[np.float64] | Sequence[float]) -> npt.NDArray[np.float64]:
+    def predict_proba(
+        self,
+        X: npt.NDArray[np.float64] | Sequence[float],
+    ) -> npt.NDArray[np.float64]:
         """
         Generate probability predictions (for compatibility).
         """
@@ -59,6 +67,7 @@ class DummyModel:
             preds = preds.reshape(-1, 1)
         # Return probabilities for binary classification
         from typing import cast
+
         return cast(npt.NDArray[np.float64], np.column_stack([1 - preds, preds]))
 
 

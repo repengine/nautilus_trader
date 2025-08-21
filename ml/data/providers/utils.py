@@ -3,6 +3,7 @@ Utility functions for data providers.
 
 Pure functions for common calculations used across providers.
 Following functional programming principles - no side effects.
+
 """
 
 from __future__ import annotations
@@ -59,6 +60,7 @@ def cyclic_encode(value: float, period: float) -> tuple[float, float]:
     - value=period/4 maps to angle=π/2 (right of circle)
     - value=period/2 maps to angle=π (bottom of circle)
     - value=3*period/4 maps to angle=3π/2 (left of circle)
+
     """
     # Convert value to angle in radians
     angle = 2 * np.pi * value / period
@@ -107,6 +109,7 @@ def time_to_event(
     ------
     ValueError
         If unit is not one of "hours", "days", "minutes"
+
     """
     # Calculate time difference
     delta = event - current
@@ -152,6 +155,7 @@ def validate_timestamps(series: pl.Series) -> bool:
     >>> invalid_ts = pl.Series([300, 100, 200])  # Not sorted
     >>> validate_timestamps(invalid_ts)
     False
+
     """
     if not HAS_POLARS:
         check_ml_dependencies(["polars"])
@@ -174,7 +178,7 @@ def validate_timestamps(series: pl.Series) -> bool:
         return False
 
     # Cast to int for comparison (polars timestamps are ints)
-    if isinstance(min_ts, (int, float)):
+    if isinstance(min_ts, int | float):
         if min_ts < 0:
             return False
     else:
@@ -182,7 +186,7 @@ def validate_timestamps(series: pl.Series) -> bool:
 
     # Year 2100 in nanoseconds since epoch
     max_reasonable = 4102444800000000000
-    if isinstance(max_ts, (int, float)):
+    if isinstance(max_ts, int | float):
         if max_ts > max_reasonable:
             return False
     else:
@@ -230,6 +234,7 @@ def align_timeseries(
     [200, 300]
     >>> aligned2["timestamp"].to_list()
     [200, 300]
+
     """
     if not HAS_POLARS:
         check_ml_dependencies(["polars"])

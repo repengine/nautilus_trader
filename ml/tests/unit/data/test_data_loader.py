@@ -1,9 +1,9 @@
 """
 Tests for the catalog utility functions.
 
-This test module ensures comprehensive coverage of the catalog utilities
-that replaced MLDataLoader, including data loading, error handling, and
-integration with Nautilus components.
+This test module ensures comprehensive coverage of the catalog utilities that replaced
+MLDataLoader, including data loading, error handling, and integration with Nautilus
+components.
 
 """
 
@@ -56,7 +56,9 @@ class TestCatalogUtils:
         instrument_id: InstrumentId,
         timestamp: int,
     ) -> Mock:
-        """Create a mock Bar object."""
+        """
+        Create a mock Bar object.
+        """
         bar = Mock(spec=Bar)
         bar_type = Mock(spec=BarType)
         bar_type.instrument_id = instrument_id
@@ -74,7 +76,9 @@ class TestCatalogUtils:
         instrument_id: InstrumentId,
         timestamp: int,
     ) -> Mock:
-        """Create a mock QuoteTick object."""
+        """
+        Create a mock QuoteTick object.
+        """
         quote = Mock(spec=QuoteTick)
         quote.instrument_id = instrument_id
         quote.ts_event = timestamp
@@ -89,7 +93,9 @@ class TestCatalogUtils:
         instrument_id: InstrumentId,
         timestamp: int,
     ) -> Mock:
-        """Create a mock TradeTick object."""
+        """
+        Create a mock TradeTick object.
+        """
         trade = Mock(spec=TradeTick)
         trade.instrument_id = instrument_id
         trade.ts_event = timestamp
@@ -120,7 +126,15 @@ class TestCatalogUtils:
         # Assertions
         assert isinstance(df, pl.DataFrame)
         assert len(df) == 10
-        assert set(df.columns) == {"instrument_id", "timestamp", "open", "high", "low", "close", "volume"}
+        assert set(df.columns) == {
+            "instrument_id",
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        }
         assert df["instrument_id"][0] == "EURUSD.SIM"
 
         # Verify catalog was called correctly
@@ -139,7 +153,15 @@ class TestCatalogUtils:
 
         assert isinstance(df, pl.DataFrame)
         assert len(df) == 0
-        assert set(df.columns) == {"instrument_id", "timestamp", "open", "high", "low", "close", "volume"}
+        assert set(df.columns) == {
+            "instrument_id",
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        }
 
     def test_quotes_to_dataframe_basic(self) -> None:
         """
@@ -163,7 +185,14 @@ class TestCatalogUtils:
         # Assertions
         assert isinstance(df, pl.DataFrame)
         assert len(df) == 10
-        assert set(df.columns) == {"instrument_id", "timestamp", "bid", "ask", "bid_size", "ask_size"}
+        assert set(df.columns) == {
+            "instrument_id",
+            "timestamp",
+            "bid",
+            "ask",
+            "bid_size",
+            "ask_size",
+        }
         assert df["instrument_id"][0] == "EURUSD.SIM"
 
     def test_quotes_to_dataframe_empty(self) -> None:
@@ -176,7 +205,14 @@ class TestCatalogUtils:
 
         assert isinstance(df, pl.DataFrame)
         assert len(df) == 0
-        assert set(df.columns) == {"instrument_id", "timestamp", "bid", "ask", "bid_size", "ask_size"}
+        assert set(df.columns) == {
+            "instrument_id",
+            "timestamp",
+            "bid",
+            "ask",
+            "bid_size",
+            "ask_size",
+        }
 
     def test_trades_to_dataframe_basic(self) -> None:
         """

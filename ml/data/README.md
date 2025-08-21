@@ -24,18 +24,21 @@ FeatureStore / ML Models
 
 ### catalog_utils.py
 Helper functions for working directly with ParquetDataCatalog:
+
 - `bars_to_dataframe()` - Convert bars to Polars DataFrame
-- `quotes_to_dataframe()` - Convert quotes to Polars DataFrame  
+- `quotes_to_dataframe()` - Convert quotes to Polars DataFrame
 - `trades_to_dataframe()` - Convert trades to Polars DataFrame
 
 ### collector.py
 `DataCollector` class for fetching data from Databento API:
+
 - Collects L2 depth, L1 trades, TBBO quotes, and minute bars
 - Outputs native Nautilus types (Bar, QuoteTick, TradeTick)
 - No caching or DataFrame conversion (separation of concerns)
 
 ### scheduler.py
 `DataScheduler` class for automated daily updates:
+
 - Daily collection from Databento
 - Feature computation triggers
 - Configurable retention policies
@@ -43,12 +46,14 @@ Helper functions for working directly with ParquetDataCatalog:
 
 ### tft_dataset_builder.py
 `TFTDatasetBuilder` for creating TFT-compatible datasets:
+
 - Uses ParquetDataCatalog directly
 - Builds training datasets with configurable horizons
 - Supports multiple symbols
 
 ### providers/
 Data providers for static and known covariates:
+
 - Calendar data (trading days, holidays)
 - Economic events (FOMC, earnings)
 - Symbol metadata
@@ -106,6 +111,7 @@ scheduler.schedule_updates("0 4 * * *")  # 4 AM UTC daily
 ## Code Quality Standards
 
 This module adheres to strict quality standards:
+
 - ✅ **Type Safety**: Full mypy strict compliance (0 errors)
 - ✅ **Linting**: Ruff compliant (0 violations)
 - ✅ **Testing**: Property-based tests with Hypothesis
@@ -115,6 +121,7 @@ This module adheres to strict quality standards:
 ## Testing
 
 Run tests:
+
 ```bash
 # Unit tests
 pytest ml/tests/unit/data/ -xvs
@@ -124,6 +131,7 @@ pytest ml/tests/unit/data/ --cov=ml/data --cov-report=term-missing
 ```
 
 Quality checks:
+
 ```bash
 # Type checking
 mypy --strict ml/data/
@@ -137,6 +145,7 @@ ruff check ml/data/
 If upgrading from the old MLDataLoader:
 
 **Before:**
+
 ```python
 from ml.data.loader import MLDataLoader
 loader = MLDataLoader(catalog)
@@ -144,6 +153,7 @@ bars_df = loader.load_bars("EURUSD.SIM")
 ```
 
 **After:**
+
 ```python
 from ml.data.catalog_utils import bars_to_dataframe
 bars_df = bars_to_dataframe(catalog, ["EURUSD.SIM"])

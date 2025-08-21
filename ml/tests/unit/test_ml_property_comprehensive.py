@@ -20,7 +20,6 @@ from hypothesis import strategies as st
 from ml.config.base import MLActorConfig
 from ml.core.cache import PreAllocatedFeatureCache
 from ml.data.catalog_utils import bars_to_dataframe
-from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -28,6 +27,7 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
@@ -40,7 +40,7 @@ class TestCatalogUtilsProperties:
         n_samples=st.integers(min_value=100, max_value=1000),
         instrument_ids=st.lists(
             st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=3, max_size=6).map(
-                lambda s: f"{s}.SIM"
+                lambda s: f"{s}.SIM",
             ),
             min_size=1,
             max_size=5,
@@ -59,14 +59,23 @@ class TestCatalogUtilsProperties:
 
         # Load bars using catalog utilities
         from ml._imports import HAS_POLARS
+
         if HAS_POLARS:
             df = bars_to_dataframe(catalog, instrument_ids)
-            
+
             # Property: Result should be a DataFrame
             assert df is not None
-            
+
             # Property: DataFrame should have expected columns
-            expected_columns = {"instrument_id", "timestamp", "open", "high", "low", "close", "volume"}
+            expected_columns = {
+                "instrument_id",
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            }
             assert set(df.columns) == expected_columns
 
     @given(

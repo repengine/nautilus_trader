@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     import onnxruntime as ort
     import optuna
     import pandas as pd
+    import pandas_market_calendars as mcal
     import polars as pl
     import skl2onnx
     import sklearn
@@ -151,6 +152,30 @@ except ImportError as e:
     HAS_PANDAS = False
     PANDAS_IMPORT_ERROR = e
     pd = None  # type: ignore[assignment,unused-ignore]
+
+
+# Databento (data collection)
+try:
+    import databento as db
+
+    HAS_DATABENTO = True
+    DATABENTO_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_DATABENTO = False
+    DATABENTO_IMPORT_ERROR = e
+    db = None  # type: ignore[assignment,unused-ignore]
+
+
+# Pandas Market Calendars (market schedules)
+try:
+    import pandas_market_calendars as mcal
+
+    HAS_PANDAS_MARKET_CALENDARS = True
+    PANDAS_MARKET_CALENDARS_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_PANDAS_MARKET_CALENDARS = False
+    PANDAS_MARKET_CALENDARS_IMPORT_ERROR = e
+    mcal = None  # type: ignore[assignment,unused-ignore]
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
@@ -348,6 +373,8 @@ else:
 
 # Public, unified names with stable signatures
 def generate_latest(registry: Any = None) -> bytes:
+    if registry is None:
+        registry = _PROM_REGISTRY
     return _GENERATE_LATEST(registry)
 
 
@@ -362,7 +389,8 @@ def check_ml_dependencies(required: list[str]) -> None:
     ----------
     required : list[str]
         Supported keys: onnx, polars, xgboost, lightgbm, sklearn,
-        optuna, mlflow, prometheus, onnx_export, pandas
+        optuna, mlflow, prometheus, onnx_export, pandas, databento,
+        pandas_market_calendars
 
     Raises
     ------
@@ -390,13 +418,25 @@ def check_ml_dependencies(required: list[str]) -> None:
             f"ONNX export tools (onnxmltools, skl2onnx) required. Original error: {ONNX_EXPORT_IMPORT_ERROR}",
         ),
         "pandas": (HAS_PANDAS, f"Pandas required. Original error: {PANDAS_IMPORT_ERROR}"),
+        "databento": (
+            HAS_DATABENTO,
+            f"Databento required. Original error: {DATABENTO_IMPORT_ERROR}",
+        ),
+        "pandas_market_calendars": (
+            HAS_PANDAS_MARKET_CALENDARS,
+            f"pandas_market_calendars required. Original error: {PANDAS_MARKET_CALENDARS_IMPORT_ERROR}",
+        ),
     }
 
     errors: list[str] = []
     for key in required:
         ok, msg = checks.get(key, (True, ""))
         if not ok:
-            hint = "Install with: pip install 'nautilus-trader[ml]'" if key != "pandas" else "Install with: pip install pandas"
+            hint = (
+                "Install with: pip install 'nautilus-trader[ml]'"
+                if key != "pandas"
+                else "Install with: pip install pandas"
+            )
             errors.append(f"{msg}\n{hint}")
 
     if errors:
@@ -404,6 +444,8 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 
 __all__ = [
+    "DATABENTO_IMPORT_ERROR",
+    "HAS_DATABENTO",
     "HAS_LIGHTGBM",
     "HAS_MLFLOW",
     "HAS_ONNX",
@@ -411,6 +453,7 @@ __all__ = [
     "HAS_ONNX_EXPORT",
     "HAS_OPTUNA",
     "HAS_PANDAS",
+    "HAS_PANDAS_MARKET_CALENDARS",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
     "HAS_SKLEARN",
@@ -422,6 +465,7 @@ __all__ = [
     "ONNX_IMPORT_ERROR",
     "OPTUNA_IMPORT_ERROR",
     "PANDAS_IMPORT_ERROR",
+    "PANDAS_MARKET_CALENDARS_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
     "REGISTRY",
@@ -431,8 +475,10 @@ __all__ = [
     "Gauge",
     "Histogram",
     "check_ml_dependencies",
+    "db",
     "generate_latest",
     "lgb",
+    "mcal",
     "mlflow",
     "onnx",
     "onnxmltools",

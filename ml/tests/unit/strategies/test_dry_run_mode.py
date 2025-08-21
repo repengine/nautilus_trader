@@ -1,13 +1,14 @@
 """
 Unit tests for dry run mode in MLTradingStrategy.
 
-Tests the execute_trades flag that allows running the strategy
-without actually submitting orders to the broker.
+Tests the execute_trades flag that allows running the strategy without actually
+submitting orders to the broker.
+
 """
 
+from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
-from typing import Any, cast
 
 import pytest
 
@@ -24,10 +25,14 @@ from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
 class TestDryRunMode:
-    """Test cases for dry run mode in MLTradingStrategy."""
+    """
+    Test cases for dry run mode in MLTradingStrategy.
+    """
 
     def setup_method(self) -> None:
-        """Set up test fixtures."""
+        """
+        Set up test fixtures.
+        """
         self.clock = TestClock()
         self.trader_id = TraderId("DRY-RUN-TESTER")
         self.msgbus = MessageBus(
@@ -45,7 +50,9 @@ class TestDryRunMode:
         self.instrument_id = InstrumentId.from_str("BTC/USDT.BINANCE")
 
     def test_dry_run_mode_enabled(self) -> None:
-        """Test that strategy does not execute trades when execute_trades=False."""
+        """
+        Test that strategy does not execute trades when execute_trades=False.
+        """
         config = MLStrategyConfig(
             strategy_id="DRY-RUN-TEST",
             instrument_id=self.instrument_id,
@@ -96,7 +103,9 @@ class TestDryRunMode:
             mock_store_instance.write_signal.assert_called()
 
     def test_normal_execution_mode(self) -> None:
-        """Test that strategy executes trades normally when execute_trades=True."""
+        """
+        Test that strategy executes trades normally when execute_trades=True.
+        """
         config = MLStrategyConfig(
             strategy_id="NORMAL-TEST",
             instrument_id=self.instrument_id,
@@ -147,7 +156,9 @@ class TestDryRunMode:
             mock_store_instance.write_signal.assert_called()
 
     def test_dry_run_persistence_and_metrics(self) -> None:
-        """Test that persistence and metrics work correctly in dry run mode."""
+        """
+        Test that persistence and metrics work correctly in dry run mode.
+        """
         config = MLStrategyConfig(
             strategy_id="METRICS-TEST",
             instrument_id=self.instrument_id,
@@ -204,7 +215,9 @@ class TestDryRunMode:
             mock_store_instance.flush.assert_called_once()
 
     def test_dry_run_with_position_reversal(self) -> None:
-        """Test dry run mode handles position reversals correctly."""
+        """
+        Test dry run mode handles position reversals correctly.
+        """
         config = MLStrategyConfig(
             strategy_id="REVERSAL-TEST",
             instrument_id=self.instrument_id,

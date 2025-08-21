@@ -1,9 +1,9 @@
 """
 Enhanced microstructure feature engineering for L2/L3 data.
 
-This module provides advanced microstructure features computed from order book depth
-and trade flow data collected from Databento. Implements features from academic
-literature on market microstructure.
+This module provides advanced microstructure features computed from order book depth and
+trade flow data collected from Databento. Implements features from academic literature
+on market microstructure.
 
 """
 
@@ -96,8 +96,8 @@ class L2MicrostructureFeatures:
 
         features["spread"] = float(spread[-1])
         features["spread_bps"] = float(spread[-1] / midpoint[-1] * 10000)
-        features["spread_mean"] = float(np.mean(spread[-self.lookback_window:]))
-        features["spread_std"] = float(np.std(spread[-self.lookback_window:]))
+        features["spread_mean"] = float(np.mean(spread[-self.lookback_window :]))
+        features["spread_std"] = float(np.std(spread[-self.lookback_window :]))
 
         # Weighted spread (by size)
         total_size = bid_sizes[:, 0] + ask_sizes[:, 0]
@@ -106,9 +106,12 @@ class L2MicrostructureFeatures:
 
         # Effective spread (using actual trades if available)
         features["effective_spread_proxy"] = float(
-            2 * np.abs(midpoint[-1] - (best_bid[-1] * bid_sizes[-1, 0] +
-                                       best_ask[-1] * ask_sizes[-1, 0]) /
-                      (bid_sizes[-1, 0] + ask_sizes[-1, 0]))
+            2
+            * np.abs(
+                midpoint[-1]
+                - (best_bid[-1] * bid_sizes[-1, 0] + best_ask[-1] * ask_sizes[-1, 0])
+                / (bid_sizes[-1, 0] + ask_sizes[-1, 0]),
+            ),
         )
 
         # Spread volatility
@@ -155,8 +158,8 @@ class L2MicrostructureFeatures:
         imbalance_l1 = (bid_size_l1 - ask_size_l1) / (bid_size_l1 + ask_size_l1 + 1e-10)
 
         features["imbalance_l1"] = float(imbalance_l1[-1])
-        features["imbalance_l1_mean"] = float(np.mean(imbalance_l1[-self.lookback_window:]))
-        features["imbalance_l1_std"] = float(np.std(imbalance_l1[-self.lookback_window:]))
+        features["imbalance_l1_mean"] = float(np.mean(imbalance_l1[-self.lookback_window :]))
+        features["imbalance_l1_std"] = float(np.std(imbalance_l1[-self.lookback_window :]))
 
         # Multi-level imbalance (top 5 levels)
         top_levels = min(5, self.n_levels)
@@ -165,12 +168,14 @@ class L2MicrostructureFeatures:
         imbalance_top = (bid_size_top - ask_size_top) / (bid_size_top + ask_size_top + 1e-10)
 
         features["imbalance_top5"] = float(imbalance_top[-1])
-        features["imbalance_top5_mean"] = float(np.mean(imbalance_top[-self.lookback_window:]))
+        features["imbalance_top5_mean"] = float(np.mean(imbalance_top[-self.lookback_window :]))
 
         # Full book imbalance
         bid_size_total = np.sum(bid_sizes, axis=1)
         ask_size_total = np.sum(ask_sizes, axis=1)
-        imbalance_total = (bid_size_total - ask_size_total) / (bid_size_total + ask_size_total + 1e-10)
+        imbalance_total = (bid_size_total - ask_size_total) / (
+            bid_size_total + ask_size_total + 1e-10
+        )
 
         features["imbalance_total"] = float(imbalance_total[-1])
 
@@ -185,8 +190,9 @@ class L2MicrostructureFeatures:
             weighted_bid_size = np.sum(bid_sizes * bid_weights, axis=1)
             weighted_ask_size = np.sum(ask_sizes * ask_weights, axis=1)
 
-            weighted_imbalance = (weighted_bid_size - weighted_ask_size) / \
-                               (weighted_bid_size + weighted_ask_size + 1e-10)
+            weighted_imbalance = (weighted_bid_size - weighted_ask_size) / (
+                weighted_bid_size + weighted_ask_size + 1e-10
+            )
 
             features["imbalance_weighted"] = float(weighted_imbalance[-1])
 
@@ -317,7 +323,6 @@ class L2MicrostructureFeatures:
         features["ask_price_range"] = float(ask_range)
 
         # Liquidity concentration zones
-        midpoint = (bid_prices[-1, 0] + ask_prices[-1, 0]) / 2.0
 
         # Find levels with high liquidity (>20% of average level size)
         avg_bid_size = np.mean(bid_sizes[-1, :])
@@ -577,8 +582,12 @@ class L3TradeFlowFeatures:
         cumulative_signed_volume = np.cumsum(signed_volume)
         features["cumulative_flow"] = float(cumulative_signed_volume[-1])
         features["flow_acceleration"] = float(
-            cumulative_signed_volume[-1] - cumulative_signed_volume[len(cumulative_signed_volume)//2]
-            if len(cumulative_signed_volume) > 1 else 0
+            (
+                cumulative_signed_volume[-1]
+                - cumulative_signed_volume[len(cumulative_signed_volume) // 2]
+                if len(cumulative_signed_volume) > 1
+                else 0
+            ),
         )
 
         return features
@@ -718,7 +727,8 @@ class L3TradeFlowFeatures:
             # Clustering coefficient (low inter-trade time variance = high clustering)
             if features["avg_inter_trade_time"] > 0:
                 features["trade_clustering"] = float(
-                    1.0 / (1.0 + features["inter_trade_time_std"] / features["avg_inter_trade_time"])
+                    1.0
+                    / (1.0 + features["inter_trade_time_std"] / features["avg_inter_trade_time"]),
                 )
             else:
                 features["trade_clustering"] = 1.0
@@ -803,7 +813,7 @@ class L3TradeFlowFeatures:
 
             # Temporary impact = immediate - permanent
             features["temporary_impact"] = float(
-                features["immediate_impact"] - features["permanent_impact"]
+                features["immediate_impact"] - features["permanent_impact"],
             )
         else:
             features["immediate_impact"] = features["avg_price_impact"]

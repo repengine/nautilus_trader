@@ -89,6 +89,7 @@ class FeatureStore:
         elif isinstance(feature_config, MLFeatureConfig):
             try:
                 import msgspec as _msgspec
+
                 self.feature_config = FeatureConfig(**_msgspec.to_builtins(feature_config))
             except Exception:
                 self.feature_config = FeatureConfig(**getattr(feature_config, "__dict__", {}))
@@ -135,6 +136,7 @@ class FeatureStore:
         - source VARCHAR(50)
         - created_at TIMESTAMPTZ
         Primary key (id, ts_event) where id is BIGSERIAL.
+
         """
         try:
             # Prefer reflecting the migrated table
@@ -170,10 +172,11 @@ class FeatureStore:
     # Present for test monkeypatching and future extension; no-op here.
     def _store_to_postgres(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
         """
-        Placeholder hook to store computed features.
+        Store computed features (placeholder).
 
-        Tests may monkeypatch this method. In production, storage is handled directly
-        in compute_realtime/compute_and_store_historical.
+        Tests may monkeypatch this method. In production, storage is handled directly in
+        compute_realtime/compute_and_store_historical.
+
         """
         return None
 
@@ -187,6 +190,7 @@ class FeatureStore:
         else:
             # For frozen dataclasses, convert to dict
             import msgspec
+
             config_dict = msgspec.to_builtins(self.feature_config)
 
         config_str = json.dumps(config_dict, sort_keys=True)
@@ -248,7 +252,7 @@ class FeatureStore:
         # features_df is a DataFrame (polars or pandas). Use row-wise access safely.
         if hasattr(features_df, "iter_rows"):
             # Polars
-            for (i, row_vals) in enumerate(features_df.iter_rows()):
+            for i, row_vals in enumerate(features_df.iter_rows()):
                 ts_event = int(timestamps[i])
                 values_map = {name: float(row_vals[idx]) for idx, name in enumerate(feature_names)}
                 rows.append(
@@ -285,6 +289,7 @@ class FeatureStore:
         # Bulk upsert into partitioned table
         with self.engine.begin() as conn:
             from typing import Any as _Any
+
             stmt: _Any = insert(self.feature_values_table)
             # Upsert on (feature_set_id, instrument_id, ts_event)
             stmt = stmt.on_conflict_do_update(
@@ -330,7 +335,13 @@ class FeatureStore:
 
         """
         # Prepare indicator manager (prefer provided from actor for shared state)
-        instrument_key = str(getattr(bar, "instrument_id", getattr(bar, "bar_type", getattr(bar, "instrument_id", None))))
+        instrument_key = str(
+            getattr(
+                bar,
+                "instrument_id",
+                getattr(bar, "bar_type", getattr(bar, "instrument_id", None)),
+            ),
+        )
         instrument_key = (
             str(bar.bar_type.instrument_id)
             if hasattr(bar, "bar_type") and hasattr(bar.bar_type, "instrument_id")
@@ -365,10 +376,20 @@ class FeatureStore:
         # Optionally store for future training
         if store and features.size > 0:
             feature_names = self._get_feature_names()
-            values_map = {name: float(features[idx]) for idx, name in enumerate(feature_names) if idx < features.size}
+            values_map = {
+                name: float(features[idx])
+                for idx, name in enumerate(feature_names)
+                if idx < features.size
+            }
             row = {
                 "feature_set_id": self._get_feature_set_id(),
-                "instrument_id": str(bar.bar_type.instrument_id if hasattr(bar, "bar_type") else getattr(bar, "instrument_id", "unknown")),
+                "instrument_id": str(
+                    (
+                        bar.bar_type.instrument_id
+                        if hasattr(bar, "bar_type")
+                        else getattr(bar, "instrument_id", "unknown")
+                    ),
+                ),
                 "ts_event": int(bar.ts_event),
                 "ts_init": int(bar.ts_init),
                 "values": json.dumps(values_map),
@@ -379,6 +400,7 @@ class FeatureStore:
 
             with self.engine.begin() as conn:
                 from typing import Any as _Any
+
                 stmt: _Any = insert(self.feature_values_table).on_conflict_do_update(
                     index_elements=["feature_set_id", "instrument_id", "ts_event"],
                     set_={
@@ -562,6 +584,7 @@ class FeatureStore:
         Derive a stable feature_set_id for storage.
 
         Prefer pipeline signature; otherwise use config hash prefix.
+
         """
         if self.pipeline_hash:
             return f"fs_{self.pipeline_hash[:12]}"
@@ -630,7 +653,9 @@ class FeatureStore:
         features_json = json.dumps(features)
 
         # Use feature set ID as version identifier
-        feature_version = self._get_feature_set_id() if hasattr(self, "pipeline_hash") else feature_set_id
+        feature_version = (
+            self._get_feature_set_id() if hasattr(self, "pipeline_hash") else feature_set_id
+        )
 
         # Prepare data for insertion
         data = {
@@ -646,6 +671,7 @@ class FeatureStore:
         # Insert with ON CONFLICT for idempotency
         with self.engine.begin() as conn:
             from typing import Any as _Any
+
             stmt: _Any = insert(self.feature_values_table).values(data)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["feature_set_id", "instrument_id", "ts_event"],
@@ -663,6 +689,7 @@ class FeatureStore:
 
         Note: FeatureStore currently writes synchronously, so this is a no-op.
         Future versions may implement write buffering for performance.
+
         """
         # Currently a no-op as writes are synchronous
         # Future: implement write buffering similar to ModelStore
@@ -681,6 +708,7 @@ class FeatureStore:
             # Try a simple query to verify connection
             with self.engine.connect() as conn:
                 from sqlalchemy import text
+
                 result = conn.execute(text("SELECT 1"))
                 return result is not None
         except Exception:

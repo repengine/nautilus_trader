@@ -82,7 +82,9 @@ class TestFeatureStoreIntegration:
                     assert actor._persist_features is True
 
                     # Mock the FeatureStore compute_realtime method
-                    expected_features = np.random.rand(50).astype(np.float32)
+                    from numpy.random import default_rng
+
+                    expected_features = default_rng(0).random(50).astype(np.float32)
                     actor._feature_store.compute_realtime = MagicMock(
                         return_value=expected_features,
                     )
@@ -97,7 +99,10 @@ class TestFeatureStoreIntegration:
                     )
 
                     # Verify returned features match
-                    assert np.array_equal(cast(npt.NDArray[np.float32], features), expected_features)
+                    assert np.array_equal(
+                        cast(npt.NDArray[np.float32], features),
+                        expected_features,
+                    )
 
     def test_ml_signal_actor_without_feature_store(self, mock_bar: Bar) -> None:
         """
@@ -138,11 +143,18 @@ class TestFeatureStoreIntegration:
             Test trainer implementation.
             """
 
-            def prepare_data(self, data: Any, target_col: str = "target") -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
+            def prepare_data(
+                self,
+                data: Any,
+                target_col: str = "target",
+            ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
                 """
                 Simple implementation for testing.
                 """
-                return np.random.rand(100, 10), np.random.randint(0, 2, 100).astype(np.float64), {}
+                from numpy.random import default_rng
+
+                _rng = default_rng(0)
+                return _rng.random((100, 10)), _rng.integers(0, 2, 100).astype(np.float64), {}
 
             def _train_model(
                 self,
@@ -154,8 +166,15 @@ class TestFeatureStoreIntegration:
             ) -> dict[str, Any]:
                 return {"model": MagicMock(), "metrics": {"accuracy": 0.85}}
 
-            def predict(self, model: Any, X: npt.NDArray[np.float64], **_: Any) -> npt.NDArray[np.float32]:
-                return np.random.randint(0, 2, len(X)).astype(np.float32)
+            def predict(
+                self,
+                model: Any,
+                X: npt.NDArray[np.float64],
+                **_: Any,
+            ) -> npt.NDArray[np.float32]:
+                from numpy.random import default_rng
+
+                return default_rng(1).integers(0, 2, len(X)).astype(np.float32)
 
             def evaluate(
                 self,
@@ -331,6 +350,7 @@ class TestBackwardCompatibility:
         from nautilus_trader.model.identifiers import InstrumentId
         from nautilus_trader.model.identifiers import Symbol
         from nautilus_trader.model.identifiers import Venue
+
         config = MLSignalActorConfig(
             actor_id="TEST_ACTOR",
             model_id="model-legacy",
@@ -360,7 +380,11 @@ class TestBackwardCompatibility:
             Test trainer implementation.
             """
 
-            def prepare_data(self, data: Any, target_col: str = "target") -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
+            def prepare_data(
+                self,
+                data: Any,
+                target_col: str = "target",
+            ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
                 return (
                     np.random.rand(100, 10).astype(np.float64),
                     np.random.randint(0, 2, 100).astype(np.float64),
@@ -377,10 +401,22 @@ class TestBackwardCompatibility:
             ) -> dict[str, Any]:
                 return {"model": MagicMock(), "metrics": {"accuracy": 0.85}}
 
-            def predict(self, model: Any, X: npt.NDArray[np.float64], **_: Any) -> npt.NDArray[np.float32]:
-                return np.random.randint(0, 2, len(X)).astype(np.float32)
+            def predict(
+                self,
+                model: Any,
+                X: npt.NDArray[np.float64],
+                **_: Any,
+            ) -> npt.NDArray[np.float32]:
+                from numpy.random import default_rng
 
-            def evaluate(self, model: Any, X: npt.NDArray[np.float64], y: npt.NDArray[np.float64]) -> dict[str, float]:
+                return default_rng(2).integers(0, 2, len(X)).astype(np.float32)
+
+            def evaluate(
+                self,
+                model: Any,
+                X: npt.NDArray[np.float64],
+                y: npt.NDArray[np.float64],
+            ) -> dict[str, float]:
                 return {"accuracy": 0.85}
 
             def _create_model(self, params: dict[str, Any]) -> Any:
