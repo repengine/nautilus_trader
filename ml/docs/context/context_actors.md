@@ -6,8 +6,10 @@ The ML actors framework provides a production-ready foundation for real-time mac
 
 **Key Components:**
 
-- **BaseMLInferenceActor**: Foundation class with mandatory store integration and production features
-- **MLSignalActor**: Specialized actor for signal generation with configurable strategies
+- **BaseMLInferenceActor**: Abstract foundation class with mandatory store integration and production features
+- **MLSignalActor**: Production signal generation actor with multiple built-in strategies
+- **ONNXMLInferenceActor**: ONNX-optimized inference actor for lowest latency
+- **EnhancedMLInferenceActor**: Complete implementation showcasing all production features
 - **Hot Path Optimization**: Zero-allocation inference with <5ms end-to-end latency targets
 - **Mandatory Store Triad**: FeatureStore, ModelStore, and StrategyStore for complete data persistence
 
@@ -30,12 +32,15 @@ BaseMLInferenceActor (Abstract)
 │   ├── _compute_features(bar) -> features | None
 │   └── _predict(features) -> (prediction, confidence)
 │
-├── Concrete Implementation:
-│   └── MLSignalActor (extends BaseMLInferenceActor; production signal actor with ONNX-optimized loading)
+├── Concrete Implementations:
+│   ├── MLSignalActor: Production signal generation with configurable strategies
+│   ├── ONNXMLInferenceActor: ONNX-optimized inference for sub-millisecond latency
+│   ├── EnhancedMLInferenceActor: Complete feature demonstration with technical indicators
+│   └── PickleMLInferenceActor: DEPRECATED - raises SecurityError (security risk)
 │
 └── Notes:
     └── Pickle formats are intentionally disallowed for production actors (security)
-        — export ONNX or framework-native formats instead
+        — export ONNX, joblib, or framework-native formats instead
 ```
 
 ### Signal Generation Architecture
@@ -44,16 +49,24 @@ The `MLSignalActor` provides a sophisticated signal generation system with plugg
 
 **Built-in Strategies:**
 
-- **ThresholdSignalStrategy**: Simple confidence-based filtering
-- **ExtremesStrategy**: Percentile-based signal generation
-- **MomentumStrategy**: Trend-based signal enhancement
+- **ThresholdSignalStrategy**: Simple confidence-based filtering with static threshold
+- **ExtremesStrategy**: Percentile-based signal generation using prediction extremes
+- **MomentumStrategy**: Trend-based signal enhancement using prediction momentum
 - **EnsembleStrategy**: Weighted voting across multiple strategies
-- **AdaptiveStrategy**: Dynamic threshold adjustment based on market volatility
+- **AdaptiveStrategy**: Dynamic threshold adjustment based on market volatility and prediction variance
 
-**Signal Types:**
+**Signal Data Classes:**
 
-- **MLSignal**: Unified signal data class with instrument_id, model_id, prediction, confidence, and optional features
-- **AdaptiveSignal**: Alias for MLSignal (backward compatibility)
+- **MLSignal**: Unified signal data class containing:
+  - `instrument_id`: The instrument identifier
+  - `model_id`: Unique model identifier for tracking
+  - `prediction`: Model prediction value
+  - `confidence`: Confidence score (0.0 to 1.0)
+  - `features`: Optional feature array for debugging
+  - `metadata`: Optional additional metadata
+  - `ts_event`: Event timestamp in nanoseconds
+  - `ts_init`: Initialization timestamp in nanoseconds
+- **AdaptiveSignal**: Type alias for MLSignal (backward compatibility)
 
 ## Hot Path Performance Requirements
 
@@ -214,6 +227,14 @@ if config.use_registry_features and config.feature_set_id:
 ```python
 class HealthMonitor:
     """Tracks prediction success rates, latency violations, system status."""
+    
+    status: HealthStatus  # HEALTHY, DEGRADED, or UNHEALTHY
+    model_loaded: bool
+    indicators_initialized: bool
+    consecutive_failures: int
+    total_predictions: int
+    failed_predictions: int
+    total_latency_violations: int
 
     def update_prediction_success(self) -> None:
         self.consecutive_failures = 0
@@ -223,6 +244,9 @@ class HealthMonitor:
         self.consecutive_failures += 1
         self.failed_predictions += 1
         self._update_health_status()
+        
+    def get_success_rate(self) -> float:
+        """Calculate overall prediction success rate."""
 ```
 
 ### Circuit Breaker Protection
@@ -230,6 +254,11 @@ class HealthMonitor:
 ```python
 class CircuitBreaker:
     """Prevents cascade failures with configurable thresholds."""
+    
+    _state: CircuitBreakerState  # CLOSED, OPEN, or HALF_OPEN
+    _failure_count: int
+    _success_count: int
+    _recovery_timeout: float
 
     def can_execute(self) -> bool:
         if self._state == CircuitBreakerState.OPEN:
@@ -238,6 +267,12 @@ class CircuitBreaker:
                 return True
             return False
         return True
+        
+    def record_success(self) -> None:
+        """Record successful operation and potentially close circuit."""
+        
+    def record_failure(self) -> None:
+        """Record failure and potentially open circuit."""
 ```
 
 ### Model Hot-Reloading
@@ -266,8 +301,17 @@ def _check_model_updates(self, event: Any) -> None:
 ```python
 class OptimizationLevel(Enum):
     STANDARD = "standard"     # Default performance
-    OPTIMIZED = "optimized"   # Advanced optimizations
+    OPTIMIZED = "optimized"   # Advanced optimizations with lock-free buffers
 ```
+
+### Model Loading Support
+
+The framework supports multiple model formats through automatic detection:
+
+- **ONNX** (.onnx): Optimized runtime with CPU providers
+- **XGBoost** (.json): Native XGBoost JSON format  
+- **Joblib** (.joblib): Scikit-learn and general Python models
+- **Pickle** (.pkl, .pickle): DEPRECATED - raises SecurityError for security
 
 ### ONNX Runtime Optimization
 
@@ -287,6 +331,14 @@ def _load_optimized_onnx_model(self) -> None:
 ```python
 class PerformanceMonitor:
     """Non-blocking performance tracking with reservoir sampling."""
+    
+    feature_times: list[float]
+    inference_times: list[float]
+    total_times: list[float]
+    reservoir_size: int
+    prediction_count: int
+    signal_count: int
+    error_count: int
 
     def record_timing(self, feature_time_ns, inference_time_ns, total_time_ns):
         # Bounded memory with reservoir sampling
@@ -300,6 +352,26 @@ class PerformanceMonitor:
             "inference": {p: np.percentile(self.inference_times, p) for p in percentiles},
             "total": {p: np.percentile(self.total_times, p) for p in percentiles}
         }
+        
+    def get_current_stats(self) -> dict[str, Any]:
+        """Get comprehensive performance statistics."""
+```
+
+### Model Swapper
+
+```python
+class ModelSwapper:
+    """Atomic model swapping for hot reload without disrupting inference."""
+    
+    _current_model: Any
+    _current_metadata: dict[str, Any]
+    _swap_pending: bool
+    
+    def prepare_swap(self, model: Any, metadata: dict[str, Any]) -> None:
+        """Prepare new model for atomic swap."""
+        
+    def execute_swap(self) -> bool:
+        """Execute atomic model swap."""
 ```
 
 ## Metrics and Observability
@@ -307,7 +379,7 @@ class PerformanceMonitor:
 ### Prometheus Metrics
 
 ```python
-# Canonical metric names (via ml.config.names)
+# Core metrics (from base.py)
 ml_predictions_total = Counter(
     "nautilus_ml_predictions_total",
     "Total number of ML predictions made",
@@ -324,6 +396,49 @@ ml_signal_confidence = Histogram(
     "nautilus_ml_signal_confidence",
     "Distribution of ML signal confidence scores",
     ["actor_id", "model_name"],
+)
+
+# Additional signal actor metrics (from signal.py)
+prediction_distribution = Histogram(
+    "nautilus_ml_prediction_distribution",
+    "Distribution of model predictions",
+    ["actor_id"],
+)
+
+confidence_distribution = Histogram(
+    "nautilus_ml_confidence_distribution",
+    "Distribution of prediction confidence scores",
+    ["actor_id"],
+)
+
+signal_generation_time = Histogram(
+    "nautilus_ml_signal_generation_seconds",
+    "Signal generation latency in seconds",
+    ["actor_id", "strategy"],
+)
+
+feature_time_by_set = Histogram(
+    "nautilus_ml_feature_time_by_set_seconds",
+    "Feature computation latency by feature_set_id",
+    ["actor_id", "feature_set_id"],
+)
+
+signals_generated = Counter(
+    "nautilus_ml_signals_generated_total",
+    "Total number of signals generated",
+    ["actor_id", "strategy", "signal_type"],
+)
+
+adaptive_threshold = Histogram(
+    "nautilus_ml_adaptive_threshold",
+    "Adaptive threshold values",
+    ["actor_id"],
+)
+
+market_regime = Counter(
+    "nautilus_ml_market_regime_total",
+    "Market regime detection counts",
+    ["actor_id", "regime"],
 )
 ```
 
@@ -344,67 +459,181 @@ self._inference_count_metric.labels(
 
 ## Configuration Architecture
 
-### Base Configuration (key fields)
+### Base Configuration (MLActorConfig)
 
 ```python
 class MLActorConfig(NautilusConfig):
-    model_path: str
-    model_id: str                     # required for tracking
+    """Base configuration for all ML actors."""
+    
+    # Model configuration
+    model_path: str                   # Path to model file
+    model_id: str | None = None       # Model identifier for registry
+    
+    # Market data configuration
     bar_type: BarType
-    instrument_id: InstrumentId
+    instrument_id: InstrumentId | None = None
+    
+    # Prediction configuration
     prediction_threshold: float = 0.5
     max_inference_latency_ms: float = 5.0
+    max_feature_latency_ms: float = 0.5
+    
+    # Feature configuration
     feature_config: MLFeatureConfig | None = None
+    
+    # Warm-up and batching
     batch_size: int = 1
-    warm_up_period: int = 50          # indicator warmup
+    warm_up_period: int = 50          # Bars before predictions start
+    
+    # Signal publishing
     publish_signals: bool = True
     log_predictions: bool = False
+    
+    # Hot reload configuration
     enable_hot_reload: bool = False
-    model_check_interval: int = 300
+    model_check_interval: int = 300   # Seconds between checks
     preserve_state_on_reload: bool = True
+    
+    # Health and resilience
     circuit_breaker_config: CircuitBreakerConfig | None = None
     enable_health_monitoring: bool = True
     health_config: HealthMonitorConfig | None = None
-    max_feature_latency_ms: float = 0.5
+    
+    # Actor configuration
     component_id: ComponentId | None = None
     log_events: bool = True
     log_commands: bool = True
 ```
 
-### Signal Actor Configuration
+### Signal Actor Configuration (MLSignalActorConfig)
 
 ```python
 class MLSignalActorConfig(MLActorConfig):
-    signal_strategy: SignalStrategy = SignalStrategy.THRESHOLD
+    """Extended configuration for signal generation actors."""
+    
+    # Signal generation
+    signal_strategy: Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] = "threshold"
     adaptive_window: int = 20
     min_signal_separation_bars: int = 3
+    feature_importance_threshold: float = 0.01
+    enable_regime_detection: bool = True
+    
+    # Performance optimization
     optimization_config: OptimizationConfig | None = None
     strategy_config: StrategyConfig | None = None
+    onnx_runtime_config: OnnxRuntimeConfig | None = None
+    
+    # Hot reload
+    enable_hot_reload: bool = False
+    hot_reload_interval: int = 300
+    
+    # Custom strategy
+    custom_strategy: Any | None = None  # Custom SignalGenerationStrategy
+    
+    # Registry integration
     feature_set_id: str | None = None
+    registry_path: str | None = None
     use_registry_features: bool = False
+    
+    # Store integration
     use_feature_store: bool = False
+    db_connection: str = "postgresql://postgres:postgres@localhost:5432/nautilus"
+    persist_features: bool = True
+    pipeline_spec: Any | None = None
+    
+    # Test mode
+    use_dummy_stores: bool = False
+    actor_id: str | None = None  # For test identification
+```
+
+### Optimization Configuration
+
+```python
+class OptimizationConfig(NautilusConfig):
+    """Performance optimization settings."""
+    
+    level: Literal["standard", "optimized"] = "standard"
+    enable_zero_copy: bool = False
+    enable_model_warm_up: bool = False
+    warm_up_iterations: int = 100
+    pre_allocate_buffers: bool = True
+    use_lock_free_buffers: bool = False
+    reservoir_sample_size: int = 1000
+```
+
+### Strategy Configuration
+
+```python
+class StrategyConfig(NautilusConfig):
+    """Strategy-specific parameters."""
+    
+    # Extremes strategy
+    extremes_top_pct: float = 0.1
+    
+    # Momentum strategy
+    momentum_lookback: int = 5
+    
+    # Ensemble strategy
+    ensemble_weights: dict[str, float] | None = None
+    
+    # Adaptive strategy
+    adaptive_volatility_factor: float = 2.0
+    min_threshold: float = 0.1
+    max_threshold: float = 0.95
+    update_frequency: int = 10
 ```
 
 ## Current Implementation Status
 
 ### Completed Features ✅
 
-- **Base Actor Framework**: Complete with mandatory stores and health monitoring
-- **Signal Generation**: All 5 strategies implemented (threshold, extremes, momentum, ensemble, adaptive)
-- **Hot Path Optimization**: Zero-allocation feature computation with pre-allocated buffers
-- **ONNX Integration**: Optimized runtime with CPU providers
-- **Registry Integration**: Model and feature manifest validation
-- **Store Integration**: Mandatory FeatureStore, ModelStore, StrategyStore persistence
-- **Performance Monitoring**: Comprehensive metrics with reservoir sampling
-- **Circuit Breaker**: Fault tolerance with configurable thresholds
-- **Model Hot-Reloading**: Atomic swapping with state preservation
+- **Base Actor Framework**: Abstract base class with mandatory store integration
+- **Multiple Actor Implementations**:
+  - MLSignalActor: Production signal generation with configurable strategies
+  - ONNXMLInferenceActor: ONNX-optimized inference actor
+  - EnhancedMLInferenceActor: Complete demonstration with technical indicators
+- **Signal Generation Strategies**: All 5 strategies implemented:
+  - ThresholdSignalStrategy: Static threshold filtering
+  - ExtremesStrategy: Percentile-based extremes detection
+  - MomentumStrategy: Trend-based momentum signals
+  - EnsembleStrategy: Weighted voting ensemble
+  - AdaptiveStrategy: Dynamic threshold with volatility adjustment
+- **Model Format Support**:
+  - ONNX (.onnx) with optimized runtime
+  - XGBoost (.json) native format
+  - Joblib (.joblib) for scikit-learn
+  - Pickle (.pkl) DEPRECATED with SecurityError
+- **Hot Path Optimization**: 
+  - Zero-allocation feature computation
+  - Pre-allocated numpy buffers
+  - Lock-free buffer support (optional)
+  - Model warm-up capability
+- **Registry Integration**: 
+  - Model manifest validation
+  - Feature schema compatibility checks
+  - Automatic model/feature loading from registry
+- **Store Integration**: 
+  - Mandatory FeatureStore persistence
+  - ModelStore for predictions and metrics
+  - StrategyStore for signals and decisions
+  - Automatic store initialization with fallback to SQLite
+- **Performance Monitoring**:
+  - PerformanceMonitor with reservoir sampling
+  - Comprehensive latency tracking
+  - Signal generation metrics
+  - Market regime detection
+- **Resilience Features**:
+  - Circuit breaker with configurable thresholds
+  - Health monitoring with status tracking
+  - Model hot-reloading with state preservation
+  - ModelSwapper for atomic model updates
 
 ### Testing Coverage ✅
 
 - **Unit Tests**: Comprehensive coverage for all strategies and edge cases
 - **Integration Tests**: E2E testing with real Nautilus components
-- **Property-Based Tests**: Hypothesis testing for signal consistency
-- **Performance Tests**: Hot path latency validation and memory leak detection
+- **Mock Support**: Full support for testing with mock models
+- **Dummy Stores**: Test mode with DummyStore for isolated testing
 
 ### Security & Safety ✅
 
@@ -412,6 +641,7 @@ class MLSignalActorConfig(MLActorConfig):
 - **Model Format Validation**: Strict format checking with safe loading
 - **Input Validation**: Aggressive validation with descriptive exceptions
 - **Memory Safety**: Bounded buffers and controlled allocations
+- **Thread Safety**: Atomic model swapping and store operations
 
 ## Critical Implementation Details
 
@@ -420,18 +650,25 @@ class MLSignalActorConfig(MLActorConfig):
 ```python
 class MLSignalActor(BaseMLInferenceActor):
     def __init__(self, config):
-        # Feature engineering with validation
+        # Feature engineering setup
         self._feature_engineer = FeatureEngineer(self._feature_config)
-
+        self._indicator_manager = IndicatorManager(self._feature_config)
+        
         # Validate against model manifest if available
+        model_names = getattr(self, "_manifest_feature_names", [])
         if model_names:
+            actual_names = self._feature_engineer.config.get_feature_names()
             assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
-
+        
         # Validate against feature registry if configured
-        if config.use_registry_features:
+        if config.use_registry_features and config.feature_set_id:
             freg = FeatureRegistry(Path(config.registry_path))
             feature_info = freg.get_feature_set(config.feature_set_id)
-            # Schema validation logic...
+            manifest = feature_info.manifest
+            expected = list(manifest.feature_names)
+            actual = self._feature_engineer.config.get_feature_names()
+            if expected != actual:
+                raise ValueError(f"Feature schema mismatch")
 ```
 
 ### Thread Safety
@@ -470,50 +707,115 @@ def _generate_prediction_protected(self, bar, features):
 ### Basic Signal Actor
 
 ```python
+from nautilus_trader.model.data import BarType
+from ml.actors import MLSignalActor, MLSignalActorConfig
+
 config = MLSignalActorConfig(
     component_id="ml_signal",
     model_path="models/my_model.onnx",
-    signal_strategy=SignalStrategy.THRESHOLD,
+    signal_strategy="threshold",  # Can use string or enum
     prediction_threshold=0.75,
     bar_type=BarType.from_str("EUR/USD.SIM-1-MINUTE-BID-EXTERNAL"),
+    warm_up_period=50,  # Bars before predictions start
 )
 
 actor = MLSignalActor(config)
 ```
 
-### Advanced Configuration
+### Advanced Configuration with Optimization
 
 ```python
+from ml.actors import OptimizationConfig, StrategyConfig
+
 config = MLSignalActorConfig(
     component_id="advanced_ml_signal",
     model_path="models/ensemble_model.onnx",
-    signal_strategy=SignalStrategy.ENSEMBLE,
+    signal_strategy="ensemble",
     optimization_config=OptimizationConfig(
-        level=OptimizationLevel.OPTIMIZED,
+        level="optimized",
         enable_model_warm_up=True,
+        warm_up_iterations=100,
         use_lock_free_buffers=True,
+        reservoir_sample_size=1000,
     ),
     strategy_config=StrategyConfig(
-        ensemble_weights={"threshold": 0.4, "extremes": 0.3, "momentum": 0.3},
+        ensemble_weights={
+            "threshold": 0.4,
+            "extremes": 0.3,
+            "momentum": 0.3,
+        },
+        extremes_top_pct=0.1,
+        momentum_lookback=5,
     ),
     enable_hot_reload=True,
     enable_regime_detection=True,
+    adaptive_window=20,
+    min_signal_separation_bars=3,
 )
+
+actor = MLSignalActor(config)
 ```
 
-### Custom Strategy
+### Custom Strategy Implementation
 
 ```python
+from ml.actors.signal import SignalGenerationStrategy
+
 class CustomStrategy(SignalGenerationStrategy):
     def generate_signal(self, bar, prediction, confidence, features, context):
-        # Custom logic...
-        return MLSignal(...) if meets_criteria else None
+        # Access context data
+        adaptive_threshold = context.get("adaptive_threshold", 0.7)
+        market_regime = context.get("market_regime", "unknown")
+        
+        # Custom signal logic
+        if confidence >= adaptive_threshold:
+            return MLSignal(
+                instrument_id=bar.bar_type.instrument_id,
+                model_id=context.get("model_id", "custom"),
+                prediction=prediction,
+                confidence=confidence,
+                features=features if context.get("log_predictions") else None,
+                metadata={"regime": market_regime},
+                ts_event=bar.ts_event,
+                ts_init=context["timestamp_ns"],
+            )
+        return None
 
 config = MLSignalActorConfig(
     component_id="custom_signal",
     model_path="models/custom_model.onnx",
     custom_strategy=CustomStrategy(),
 )
+```
+
+### Registry Integration
+
+```python
+config = MLSignalActorConfig(
+    component_id="registry_signal",
+    model_id="xgboost_v2.1.0",  # Load from registry instead of path
+    registry_path="ml/models",
+    feature_set_id="microstructure_features_v1",
+    use_registry_features=True,
+    bar_type=BarType.from_str("SPY.XNAS-1-MINUTE-BID-EXTERNAL"),
+)
+
+actor = MLSignalActor(config)
+```
+
+### Test Configuration with Dummy Stores
+
+```python
+config = MLSignalActorConfig(
+    component_id="test_signal",
+    model_path="tests/fixtures/test_model.onnx",
+    signal_strategy="threshold",
+    prediction_threshold=0.5,
+    use_dummy_stores=True,  # Use DummyStore for testing
+    bar_type=BarType.from_str("TEST.SIM-1-MINUTE-BID-EXTERNAL"),
+)
+
+actor = MLSignalActor(config)
 ```
 
 This ML actors framework provides a production-ready foundation for real-time machine learning in trading systems, with strict performance requirements, comprehensive observability, and robust fault tolerance.

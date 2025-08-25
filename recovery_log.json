@@ -1,0 +1,145 @@
+{
+  "timestamp": "2025-08-21T22:55:31.231814",
+  "config": {
+    "failed_symbols": [
+      "AMZN",
+      "GOOGL",
+      "META",
+      "MSFT",
+      "NVDA",
+      "QQQ",
+      "TSLA"
+    ],
+    "dataset": "EQUS.MINI",
+    "years_tried": [
+      7.0,
+      5.0,
+      3.0,
+      2.0,
+      1.5,
+      1.0,
+      0.5,
+      0.25
+    ]
+  },
+  "results": [
+    {
+      "symbol": "AMZN",
+      "success": true,
+      "years_available": 1.0,
+      "start_date": "2023-08-17T00:00:00",
+      "end_date": "2024-08-16T00:00:00",
+      "files_created": [
+        "/home/nate/projects/nautilus_trader/data/tier1/AMZN/daily_1y.parquet",
+        "/home/nate/projects/nautilus_trader/data/tier1/AMZN/hourly_1y.parquet"
+      ],
+      "total_size_mb": 0.14238739013671875,
+      "api_calls": 0,
+      "error_message": "",
+      "recovery_strategy": "1.0_years_adaptive",
+      "timestamp": "2025-08-21T22:55:31.231825"
+    },
+    {
+      "symbol": "GOOGL",
+      "success": true,
+      "years_available": 1.0,
+      "start_date": "2023-08-17T00:00:00",
+      "end_date": "2024-08-16T00:00:00",
+      "files_created": [
+        "/home/nate/projects/nautilus_trader/data/tier1/GOOGL/daily_1y.parquet",
+        "/home/nate/projects/nautilus_trader/data/tier1/GOOGL/hourly_1y.parquet"
+      ],
+      "total_size_mb": 0.11541366577148438,
+      "api_calls": 2,
+      "error_message": "",
+      "recovery_strategy": "1.0_years_adaptive",
+      "timestamp": "2025-08-21T22:55:31.231830"
+    },
+    {
+      "symbol": "META",
+      "success": true,
+      "years_available": 1.0,
+      "start_date": "2023-08-17T00:00:00",
+      "end_date": "2024-08-16T00:00:00",
+      "files_created": [
+        "/home/nate/projects/nautilus_trader/data/tier1/META/daily_1y.parquet",
+        "/home/nate/projects/nautilus_trader/data/tier1/META/hourly_1y.parquet"
+      ],
+      "total_size_mb": 0.12247943878173828,
+      "api_calls": 2,
+      "error_message": "",
+      "recovery_strategy": "1.0_years_adaptive",
+      "timestamp": "2025-08-21T22:55:31.231833"
+    },
+    {
+      "symbol": "MSFT",
+      "success": true,
+      "years_available": 1.0,
+      "start_date": "2023-08-17T00:00:00",
+      "end_date": "2024-08-16T00:00:00",
+      "files_created": [
+        "/home/nate/projects/nautilus_trader/data/tier1/MSFT/daily_1y.parquet",
+        "/home/nate/projects/nautilus_trader/data/tier1/MSFT/hourly_1y.parquet"
+      ],
+      "total_size_mb": 0.1233358383178711,
+      "api_calls": 2,
+      "error_message": "",
+      "recovery_strategy": "1.0_years_adaptive",
+      "timestamp": "2025-08-21T22:55:31.231836"
+    },
+    {
+      "symbol": "NVDA",
+      "success": true,
+      "years_available": 1.0,
+      "start_date": "2023-08-17T00:00:00",
+      "end_date": "2024-08-16T00:00:00",
+      "files_created": [
+        "/home/nate/projects/nautilus_trader/data/tier1/NVDA/daily_1y.parquet",
+        "/home/nate/projects/nautilus_trader/data/tier1/NVDA/hourly_1y.parquet"
+      ],
+      "total_size_mb": 0.13364219665527344,
+      "api_calls": 2,
+      "error_message": "",
+      "recovery_strategy": "1.0_years_adaptive",
+      "timestamp": "2025-08-21T22:55:31.231839"
+    },
+    {
+      "symbol": "QQQ",
+      "success": true,
+      "years_available": 1.0,
+      "start_date": "2023-08-17T00:00:00",
+      "end_date": "2024-08-16T00:00:00",
+      "files_created": [
+        "/home/nate/projects/nautilus_trader/data/tier1/QQQ/daily_1y.parquet",
+        "/home/nate/projects/nautilus_trader/data/tier1/QQQ/hourly_1y.parquet"
+      ],
+      "total_size_mb": 0.12674903869628906,
+      "api_calls": 2,
+      "error_message": "",
+      "recovery_strategy": "1.0_years_adaptive",
+      "timestamp": "2025-08-21T22:55:31.231842"
+    },
+    {
+      "symbol": "TSLA",
+      "success": true,
+      "years_available": 1.0,
+      "start_date": "2023-08-17T00:00:00",
+      "end_date": "2024-08-16T00:00:00",
+      "files_created": [
+        "/home/nate/projects/nautilus_trader/data/tier1/TSLA/daily_1y.parquet",
+        "/home/nate/projects/nautilus_trader/data/tier1/TSLA/hourly_1y.parquet"
+      ],
+      "total_size_mb": 0.12908172607421875,
+      "api_calls": 2,
+      "error_message": "",
+      "recovery_strategy": "1.0_years_adaptive",
+      "timestamp": "2025-08-21T22:55:31.231845"
+    }
+  ],
+  "summary": {
+    "total_symbols": 7,
+    "recovered": 7,
+    "failed": 0,
+    "total_api_calls": 19
+  }
+}

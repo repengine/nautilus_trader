@@ -1,0 +1,86 @@
+{
+  "created": "2025-08-22T13:53:53.388430",
+  "symbols": {
+    "indices": [
+      "^GSPC",
+      "^DJI",
+      "^IXIC",
+      "^RUT"
+    ],
+    "sectors": [
+      "XLK",
+      "XLF",
+      "XLV",
+      "XLE",
+      "XLI",
+      "XLY",
+      "XLP",
+      "XLB",
+      "XLRE",
+      "XLU",
+      "XLC"
+    ],
+    "factors": [
+      "IWF",
+      "IWD",
+      "IWM",
+      "IWB",
+      "MTUM",
+      "QUAL",
+      "USMV"
+    ],
+    "international": [
+      "EWJ",
+      "EWG",
+      "EWU",
+      "FXI",
+      "EWZ",
+      "EWA",
+      "EWC",
+      "INDA",
+      "EEM",
+      "EFA"
+    ],
+    "commodities": [
+      "GLD",
+      "SLV",
+      "USO",
+      "UNG",
+      "DBA",
+      "DBB",
+      "DBC"
+    ],
+    "bonds": [
+      "SHY",
+      "IEF",
+      "TLT",
+      "TIP",
+      "LQD",
+      "HYG",
+      "EMB",
+      "AGG"
+    ],
+    "currencies": [
+      "UUP",
+      "FXE",
+      "FXY",
+      "FXB",
+      "FXC",
+      "FXA",
+      "FXF"
+    ],
+    "volatility": [
+      "VXX",
+      "VIXY",
+      "VXZ",
+      "SVXY",
+      "UVXY"
+    ]
+  },
+  "total_symbols": 59,
+  "date_range": {
+    "start": "2023-08-23 13:53:52.995390",
+    "end": "2025-08-22 13:53:52.995390"
+  },
+  "record_count": 43129
+}

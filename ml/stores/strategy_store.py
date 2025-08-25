@@ -9,8 +9,10 @@ writes, risk tracking, and execution parameters.
 from __future__ import annotations
 
 import json
+import logging
 import time
-from datetime import datetime
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import BIGINT
@@ -34,8 +36,22 @@ from ml.stores.base import StrategySignal
 if TYPE_CHECKING:
     import pandas as pd
 
+    from ml.registry.data_registry import DataRegistry
     from ml.registry.persistence import PersistenceConfig
     from nautilus_trader.common.clock import Clock
+
+
+logger = logging.getLogger(__name__)
+
+from typing import Any as _AnyForMetrics
+
+
+# Prometheus metrics are optional; type as Any for strict typing compatibility
+data_events_total: _AnyForMetrics
+try:
+    from ml.common.metrics import data_events_total as data_events_total
+except Exception:
+    data_events_total = None
 
 
 class StrategyStore(BaseStore):
@@ -107,11 +123,58 @@ class StrategyStore(BaseStore):
         self._write_buffer: list[StrategySignal] = []
         self._last_flush_ns = 0
 
+        # DataRegistry for event emission (lazy initialization)
+        self._data_registry: DataRegistry | None = None
+
         # Create engine and setup tables
         if self.connection_string:
             self.engine: Engine = create_engine(self.connection_string)
             self.metadata = MetaData()
             self._setup_tables()
+
+    def _get_data_registry(self) -> DataRegistry | None:
+        """
+        Lazily initialize and return the DataRegistry instance.
+
+        Returns
+        -------
+        DataRegistry | None
+            The data registry instance or None if initialization fails.
+
+        """
+        if self._data_registry is None:
+            try:
+                from ml.registry.data_registry import DataRegistry
+                from ml.registry.persistence import BackendType
+                from ml.registry.persistence import PersistenceConfig
+
+                # Initialize DataRegistry with appropriate backend
+                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+
+                # Determine backend based on connection string
+                if self.connection_string and ("postgresql://" in self.connection_string or "postgres://" in self.connection_string):
+                    # Use PostgreSQL backend for production
+                    persistence_config = PersistenceConfig(
+                        backend=BackendType.POSTGRES,
+                        connection_string=self.connection_string,
+                    )
+                else:
+                    # Use JSON backend for development/testing
+                    persistence_config = PersistenceConfig(
+                        backend=BackendType.JSON,
+                        json_path=registry_path,
+                    )
+
+                self._data_registry = DataRegistry(
+                    registry_path=registry_path,
+                    persistence_config=persistence_config,
+                )
+                logger.debug("Initialized DataRegistry for event emission")
+            except Exception as e:
+                logger.warning(f"Failed to initialize DataRegistry: {e}")
+                self._data_registry = None
+
+        return self._data_registry
 
     def _setup_tables(self) -> None:
         """
@@ -131,7 +194,7 @@ class StrategyStore(BaseStore):
             Column("risk_metrics", JSON),  # Risk calculations
             Column("execution_params", JSON),  # Stop loss, take profit, etc.
             Column("is_live", BOOLEAN, default=False),
-            Column("created_at", BIGINT),  # When stored (nanoseconds)
+            Column("created_at", BIGINT),  # Dev table; DB default used in prod
             Index("idx_ml_strategy_signals_lookup", "strategy_id", "instrument_id", "ts_event"),
             Index("idx_ml_strategy_signals_type", "signal_type"),
             Index("idx_ml_strategy_signals_live", "is_live"),
@@ -260,7 +323,7 @@ class StrategyStore(BaseStore):
                             json.dumps(item.execution_params) if item.execution_params else None
                         ),
                         "is_live": getattr(item, "is_live", False),
-                        "created_at": int(datetime.utcnow().timestamp() * 1e9),
+                        # created_at omitted: DB default will be used
                     },
                 )
 
@@ -274,7 +337,7 @@ class StrategyStore(BaseStore):
                     "model_predictions": stmt.excluded.model_predictions,
                     "risk_metrics": stmt.excluded.risk_metrics,
                     "execution_params": stmt.excluded.execution_params,
-                    "created_at": stmt.excluded.created_at,
+                    # created_at kept as existing/default
                 },
             )
 
@@ -328,7 +391,7 @@ class StrategyStore(BaseStore):
             model_predictions,
             risk_metrics,
             execution_params
-        FROM ml_strategy_signals
+        FROM public.ml_strategy_signals
         WHERE strategy_id = '{strategy_id}'
         AND instrument_id = '{instrument_id}'
         AND ts_event >= {start_ns}
@@ -386,7 +449,7 @@ class StrategyStore(BaseStore):
             strength,
             model_predictions,
             risk_metrics
-        FROM ml_strategy_signals
+        FROM public.ml_strategy_signals
         {where_clause}
         ORDER BY ts_event
         """  # noqa: S608
@@ -429,7 +492,7 @@ class StrategyStore(BaseStore):
             signal_type,
             strength,
             risk_metrics
-        FROM ml_strategy_signals
+        FROM public.ml_strategy_signals
         WHERE instrument_id = '{instrument_id}'
         ORDER BY ts_event DESC
         LIMIT {limit}
@@ -482,7 +545,7 @@ class StrategyStore(BaseStore):
                     AVG(strength) as avg_strength,
                     MIN(ts_event) as min_ts,
                     MAX(ts_event) as max_ts
-                FROM ml_strategy_signals
+                FROM public.ml_strategy_signals
                 {where_clause}
             """,
             )
@@ -516,13 +579,115 @@ class StrategyStore(BaseStore):
 
     def flush(self) -> None:
         """
-        Flush pending signals to storage.
+        Flush pending signals to storage and emit events.
         """
         if self._write_buffer:
-            self.write_batch(self._write_buffer)
+            # Store the buffer data before clearing for event emission
+            buffer_copy = list(self._write_buffer)
+
+            # Write to storage
+            self.write_batch(buffer_copy)
+
+            # Emit SIGNAL_EMITTED events after successful storage
+            self._emit_signal_events(buffer_copy)
+
+            # Clear buffer and update flush time
             self._write_buffer.clear()
             if self.clock:
                 self._last_flush_ns = self.clock.timestamp_ns()
+
+    def _emit_signal_events(self, signals: list[StrategySignal]) -> None:
+        """
+        Emit SIGNAL_EMITTED events for the flushed signals.
+
+        Parameters
+        ----------
+        signals : list[StrategySignal]
+            List of signals that were successfully written
+
+        """
+        try:
+            registry = self._get_data_registry()
+            if registry is None:
+                return
+
+            # Group signals by strategy_id and instrument_id for efficient event emission
+            from collections import defaultdict
+            grouped: dict[tuple[str, str], list[StrategySignal]] = defaultdict(list)
+
+            for signal in signals:
+                key = (signal.strategy_id, signal.instrument_id)
+                grouped[key].append(signal)
+
+            # Emit events for each group
+            for (strategy_id, instrument_id), group_signals in grouped.items():
+                if not group_signals:
+                    continue
+
+                # Generate unique run ID for this batch
+                run_id = f"signal_{strategy_id}_{uuid.uuid4().hex[:8]}_{int(time.time())}"
+
+                # Get timestamp range from the group
+                ts_values = [s.ts_event for s in group_signals]
+                ts_min = min(ts_values)
+                ts_max = max(ts_values)
+
+                # Format dataset_id following convention
+                dataset_id = f"signals_{strategy_id}"
+
+                # Signals are typically realtime but check if is_live flag exists
+                source = "realtime"
+                if hasattr(group_signals[0], "is_live"):
+                    source = "realtime" if group_signals[0].is_live else "historical"
+
+                # Emit the event
+                registry.emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    stage="SIGNAL_EMITTED",
+                    source=source,
+                    run_id=run_id,
+                    ts_min=ts_min,
+                    ts_max=ts_max,
+                    count=len(group_signals),
+                    status="success",
+                )
+
+                # Update watermark for tracking progress
+                registry.update_watermark(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    source=source,
+                    last_success_ns=ts_max,
+                    count=len(group_signals),
+                    completeness_pct=100.0,  # Signals are complete once written
+                )
+
+                # Update Prometheus metrics if available
+                if data_events_total:
+                    data_events_total.labels(
+                        dataset_type="signals",
+                        component=strategy_id,
+                        stage="SIGNAL_EMITTED",
+                        source=source,
+                        status="success",
+                    ).inc()
+
+                logger.debug(
+                    "Emitted SIGNAL_EMITTED event: dataset=%s, instrument=%s, "
+                    "strategy=%s, count=%d, ts_range=[%d, %d], source=%s",
+                    dataset_id,
+                    instrument_id,
+                    strategy_id,
+                    len(group_signals),
+                    ts_min,
+                    ts_max,
+                    source,
+                )
+
+        except Exception as e:
+            # Non-blocking: log but don't fail the signal storage
+            logger.warning(f"Failed to emit signal event: {e}")
 
     def _should_flush_by_time(self) -> bool:
         """
@@ -630,7 +795,7 @@ class StrategyStore(BaseStore):
                     STDDEV(strength) as std_strength,
                     MIN(strength) as min_strength,
                     MAX(strength) as max_strength
-                FROM ml_strategy_signals
+                FROM public.ml_strategy_signals
                 {where_clause}
             """,
             )
@@ -698,7 +863,7 @@ class StrategyStore(BaseStore):
             query = text(
                 f"""
                 SELECT signal_type, COUNT(*) as count
-                FROM ml_strategy_signals
+                FROM public.ml_strategy_signals
                 {where_clause}
                 GROUP BY signal_type
             """,
@@ -742,7 +907,7 @@ class StrategyStore(BaseStore):
                     SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
                     AVG(strength) as avg_strength,
                     AVG((risk_metrics->>'risk_score')::float) as avg_risk_score
-                FROM ml_strategy_signals
+                FROM public.ml_strategy_signals
                 WHERE strategy_id = :strategy_id
                 AND ts_event >= :period_start
                 AND ts_event < :period_end
@@ -771,7 +936,7 @@ class StrategyStore(BaseStore):
                         "hold_count": result[3],
                         "avg_strength": result[4],
                         "avg_risk_score": result[5],
-                        "created_at": int(datetime.utcnow().timestamp() * 1e9),
+                        # created_at omitted: DB default
                     },
                 )
 
@@ -787,6 +952,6 @@ class StrategyStore(BaseStore):
                         "hold_count": result[3],
                         "avg_strength": result[4],
                         "avg_risk_score": result[5],
-                        "created_at": int(datetime.utcnow().timestamp() * 1e9),
+                        # created_at omitted: DB default
                     },
                 )

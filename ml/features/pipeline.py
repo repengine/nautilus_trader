@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any, Protocol, cast
 
+from ml.config.constants import IndicatorNames
 from ml.registry.base import DataRequirements
 
 
@@ -63,10 +64,10 @@ class _VolatilityTransform:
     name = "volatility"
 
     def feature_names(self, params: Mapping[str, Any]) -> list[str]:
-        # Fixed names used in engineering.py
+        # Fixed names aligned with engineering.py
         return [
-            "volatility_5",
-            "volatility_20",
+            IndicatorNames.VOLATILITY_5,
+            IndicatorNames.VOLATILITY_20,
         ]
 
     def requires(self) -> DataRequirements:
@@ -88,20 +89,20 @@ class _CoreIndicatorsTransform:
     name = "core_indicators"
 
     def feature_names(self, params: Mapping[str, Any]) -> list[str]:
-        # Mirrors engineering.py core indicator outputs
+        # Mirrors engineering.py core indicator outputs using shared constants
         return [
-            "rsi",
-            "rsi_overbought",
-            "rsi_oversold",
-            "bb_width",
-            "bb_position",
+            IndicatorNames.RSI,
+            IndicatorNames.RSI_OVERBOUGHT,
+            IndicatorNames.RSI_OVERSOLD,
+            IndicatorNames.BB_WIDTH,
+            IndicatorNames.BB_POSITION,
             "atr_normalized",
             "ema_fast_dist",
             "ema_slow_dist",
             "ema_cross",
-            "macd_line",
-            "macd_signal",
-            "macd_diff",
+            IndicatorNames.MACD_LINE,
+            IndicatorNames.MACD_SIGNAL,
+            IndicatorNames.MACD_DIFF,
             "price_position_20",
             "hl_spread",
         ]

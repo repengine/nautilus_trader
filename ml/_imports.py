@@ -8,6 +8,8 @@ provides flags for feature availability.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 
@@ -155,14 +157,26 @@ except ImportError as e:
 
 
 # Databento (data collection)
-try:
-    import databento as db
+# To keep tests and sandboxed runs stable (no sockets/network), only attempt to
+# import Databento when explicitly enabled via environment or when an API key is
+# present. Otherwise, mark as unavailable and defer actual use to callers.
 
-    HAS_DATABENTO = True
-    DATABENTO_IMPORT_ERROR = None
-except ImportError as e:
+_ENABLE_DATABENTO = os.environ.get("ML_ENABLE_DATABENTO", "").lower() in {"1", "true", "yes"}
+_HAS_API_KEY = bool(os.environ.get("DATABENTO_API_KEY"))
+
+if _ENABLE_DATABENTO or _HAS_API_KEY:
+    try:
+        import databento as db
+
+        HAS_DATABENTO = True
+        DATABENTO_IMPORT_ERROR = None
+    except ImportError as e:  # pragma: no cover - env dependent
+        HAS_DATABENTO = False
+        DATABENTO_IMPORT_ERROR = e
+        db = None  # type: ignore[assignment,unused-ignore]
+else:
     HAS_DATABENTO = False
-    DATABENTO_IMPORT_ERROR = e
+    DATABENTO_IMPORT_ERROR = None
     db = None  # type: ignore[assignment,unused-ignore]
 
 
@@ -179,7 +193,6 @@ except ImportError as e:
 
 
 # Prometheus Client (already handled in metrics.py, included for completeness)
-from collections.abc import Callable
 
 
 _PROM_REGISTRY: Any

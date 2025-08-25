@@ -18,6 +18,7 @@ import polars as pl
 
 from ml.config.base import MLFeatureConfig
 from ml.data.catalog_utils import bars_to_dataframe
+from ml.data.providers.utils import cyclic_encode
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -862,13 +863,17 @@ class TFTDatasetBuilder:
 
         # Time of day features (cyclical encoding)
         time_in_minutes = df["hour"] * 60 + df["minute"]
-        df["tod_sin"] = np.sin(2 * np.pi * time_in_minutes / (24 * 60))
-        df["tod_cos"] = np.cos(2 * np.pi * time_in_minutes / (24 * 60))
+        # Use centralized cyclic_encode for clarity and DRY
+        sincos = time_in_minutes.apply(lambda v: cyclic_encode(float(v), 24 * 60))
+        df["tod_sin"] = sincos.apply(lambda t: t[0])
+        df["tod_cos"] = sincos.apply(lambda t: t[1])
 
         # Day of week (simplified - assuming continuous trading for now)
         df["dow"] = (df["time_index"] // (24 * 60)) % 7
-        df["dow_sin"] = np.sin(2 * np.pi * df["dow"] / 7)
-        df["dow_cos"] = np.cos(2 * np.pi * df["dow"] / 7)
+        # Day-of-week cyclic encoding via centralized helper
+        dowsc = df["dow"].apply(lambda d: cyclic_encode(float(d), 7))
+        df["dow_sin"] = dowsc.apply(lambda t: t[0])
+        df["dow_cos"] = dowsc.apply(lambda t: t[1])
 
         # Market session flags
         df["is_market_open"] = ((df["hour"] >= 9) & (df["hour"] < 16)).astype(int)

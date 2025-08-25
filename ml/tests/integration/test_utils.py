@@ -531,7 +531,7 @@ def generate_mock_ml_signals(
 
     for i, bar in enumerate(bars[1:], 1):
         # Randomly decide whether to generate a signal
-        if float(_rng.random()) > signal_frequency:
+        if float(rng.random()) > signal_frequency:
             continue
 
         prev_bar = bars[i - 1]

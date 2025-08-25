@@ -1,5 +1,8 @@
--- Initialize ML database schemas
--- This file is auto-executed when PostgreSQL container starts
+-- DEV-ONLY: Initialize ML database schemas
+-- WARNING: Do NOT run this file in production environments. Database creation
+-- and schema bootstrap are handled by infra provisioning and application
+-- migrations under ml/stores/migrations/*. This script is retained for local
+-- development convenience only.
 
 -- Create database if not exists (run as superuser)
 SELECT 'CREATE DATABASE nautilus'

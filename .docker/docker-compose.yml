@@ -5,9 +5,9 @@ services:
     container_name: nautilus-database
     image: postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-nautilus}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
-      POSTGRES_DATABASE: nautilus
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-nautilus}
       PGDATA: /data/postgres
     volumes:
       - nautilus-database:/data/postgres

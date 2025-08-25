@@ -17,9 +17,9 @@ from typing import Any, cast
 
 import numpy as np
 
+from ml._imports import HAS_PROMETHEUS
 from ml._imports import REGISTRY
 from ml.actors.base import MLSignal
-from ml.common.metrics import HAS_PROMETHEUS
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
 from ml.config.base import MLStrategyConfig

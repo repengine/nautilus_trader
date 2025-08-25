@@ -6,8 +6,11 @@ from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureManifest as _FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.feature_registry import FeatureRegistry as _FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
+from ml.registry.feature_registry import FeatureRole as _FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
 from ml.registry.model_registry import ModelRegistry
 
@@ -37,6 +40,23 @@ def test_register_serveable_requires_onnx_and_schema(tmp_path: Path) -> None:
     model_reg_dir = tmp_path / "models"
     mreg = ModelRegistry(model_reg_dir)
 
+    # Prepare a minimal FeatureRegistry entry for parity validation
+    freg = _FeatureRegistry(model_reg_dir)
+    f_schema = {"f1": "float32"}
+    f_manifest = _FeatureManifest(
+        feature_set_id="fs_dummy",
+        name="dummy",
+        version="1.0.0",
+        role=_FeatureRole.STUDENT,
+        data_requirements=DataRequirements.L1_ONLY,
+        feature_names=list(f_schema.keys()),
+        feature_dtypes=list(f_schema.values()),
+        schema_hash="abc",
+        pipeline_signature="sig",
+        pipeline_version="1.0.0",
+    )
+    freg.register_feature_set(f_manifest)
+
     # Good path: ONNX suffix and schema hash
     onnx_path = model_reg_dir / "student.onnx"
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +70,7 @@ def test_register_serveable_requires_onnx_and_schema(tmp_path: Path) -> None:
         feature_schema_hash="abc",
         serveable=True,
         artifact_format="onnx",
+        feature_set_id="fs_dummy",
     )
     _ = mreg.register_model(onnx_path, manifest_ok)
 
@@ -127,6 +148,24 @@ def test_resolve_latest_and_list_compatible(tmp_path: Path) -> None:
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
     onnx_path.write_bytes(b"ONNX")
 
+    # Prepare FeatureRegistry for this model schema/hash
+    freg = _FeatureRegistry(reg_dir)
+    f_schema = {"f": "float32"}
+    freg.register_feature_set(
+        _FeatureManifest(
+            feature_set_id="fs_dummy",
+            name="dummy",
+            version="1.0.0",
+            role=_FeatureRole.STUDENT,
+            data_requirements=DataRequirements.L1_ONLY,
+            feature_names=list(f_schema.keys()),
+            feature_dtypes=list(f_schema.values()),
+            schema_hash="hash1",
+            pipeline_signature="sig",
+            pipeline_version="1.0.0",
+        ),
+    )
+
     manifest_v1 = ModelManifest(
         model_id="",
         role=ModelRole.STUDENT,
@@ -137,6 +176,7 @@ def test_resolve_latest_and_list_compatible(tmp_path: Path) -> None:
         serveable=True,
         artifact_format="onnx",
         version="1.0.0",
+        feature_set_id="fs_dummy",
     )
     manifest_v2 = ModelManifest(
         model_id="",
@@ -148,6 +188,7 @@ def test_resolve_latest_and_list_compatible(tmp_path: Path) -> None:
         serveable=True,
         artifact_format="onnx",
         version="1.0.1",
+        feature_set_id="fs_dummy",
     )
     mreg.register_model(onnx_path, manifest_v1)
     mreg.register_model(onnx_path, manifest_v2)
@@ -157,4 +198,3 @@ def test_resolve_latest_and_list_compatible(tmp_path: Path) -> None:
     latest = mreg.resolve_latest(ModelRole.STUDENT, "LightGBM", "hash1")
     assert latest is not None
     assert latest.manifest.version == "1.0.1"
-

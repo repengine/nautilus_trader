@@ -367,8 +367,11 @@ class TransformProviderAdapter:
         """
         Load data from time series provider.
         """
-        if timestamps is None or timestamps.is_empty():
+        if timestamps is None:
             logger.warning(f"No timestamps provided for time series transform {transform.name}")
+            return pl.DataFrame()
+        if timestamps.is_empty():
+            logger.warning(f"Empty timestamps for time series transform {transform.name}")
             return pl.DataFrame()
 
         if not hasattr(provider, "compute_features"):
@@ -379,13 +382,11 @@ class TransformProviderAdapter:
 
         # Different providers have different methods
         if transform.name == "calendar":
-            df = provider.compute_features(timestamps)
+            return cast(pl.DataFrame, provider.compute_features(timestamps))
         elif transform.name == "event_schedule":
-            df = provider.compute_features(timestamps, instruments=instruments)
+            return cast(pl.DataFrame, provider.compute_features(timestamps, instruments=instruments))
         else:
-            df = provider.load_timeseries(instruments, timestamps)
-
-        return cast(pl.DataFrame, df)
+            return provider.load_timeseries(instruments, timestamps)
 
     def _load_custom_provider_data(
         self,
@@ -397,14 +398,14 @@ class TransformProviderAdapter:
         Load data from custom/mock providers.
         """
         if hasattr(provider, "compute_features"):
-            df = provider.compute_features(timestamps, instruments=instruments)
-            return cast(pl.DataFrame, df)
+            return cast(pl.DataFrame, provider.compute_features(timestamps, instruments=instruments))
         elif hasattr(provider, "load_timeseries"):
-            df = provider.load_timeseries(instruments, timestamps)
-            return cast(pl.DataFrame, df)
+            if timestamps is None:
+                logger.warning("No timestamps provided for time series provider; returning empty DataFrame")
+                return pl.DataFrame()
+            return provider.load_timeseries(instruments, timestamps)
         elif hasattr(provider, "load_metadata"):
-            df = provider.load_metadata(instruments)
-            return cast(pl.DataFrame, df)
+            return provider.load_metadata(instruments)
         else:
             logger.warning(f"Unknown provider type: {type(provider).__name__}")
             return pl.DataFrame()

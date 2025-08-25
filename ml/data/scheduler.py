@@ -25,6 +25,9 @@ from ml._imports import Histogram
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
+from ml.registry.data_registry import DataRegistry
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -40,47 +43,45 @@ logger = logging.getLogger(__name__)
 # PROMETHEUS METRICS DEFINITIONS
 # =============================================================================
 
-# Data Collection Metrics
+try:
+    from ml.common.metrics import catalog_write_operations_total as catalog_write_operations_total
+    from ml.common.metrics import data_collection_duration as data_collection_latency
+    from ml.common.metrics import data_collection_errors_total
+
+    # data_events_total is imported/defined later with a safe fallback
+    from ml.common.metrics import feature_computation_duration as feature_computation_latency
+    from ml.common.metrics import feature_store_operations_total as feature_store_operations_total
+except Exception:
+    # Fallback: define minimal local metrics if central import fails
+    data_collection_latency = Histogram(
+        "nautilus_ml_data_collection_latency_seconds",
+        "Data collection latency in seconds",
+        ["source", "instrument"],
+        buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+    )
+    data_collection_errors_total = Counter(
+        "nautilus_ml_data_collection_errors_total",
+        "Total errors during data collection",
+        ["source", "instrument", "error_type"],
+    )
+    catalog_write_operations_total = Counter(
+        "nautilus_ml_catalog_write_operations_total",
+        "Total catalog write operations",
+        ["status"],
+    )
+    feature_store_operations_total = Counter(
+        "nautilus_ml_feature_store_operations_total",
+        "Total feature store operations",
+        ["operation", "status"],
+    )
+
+# Define pipeline-level and additional metrics (not centralized)
+# Exported for tests/docs
 data_collected_total = Counter(
     "nautilus_ml_data_collected_total",
-    "Total data points collected from external sources",
+    "Total data records collected",
     ["source", "instrument", "data_type"],
 )
-
-data_collection_errors_total = Counter(
-    "nautilus_ml_data_collection_errors_total",
-    "Total errors during data collection",
-    ["source", "instrument", "error_type"],
-)
-
-data_collection_latency = Histogram(
-    "nautilus_ml_data_collection_latency_seconds",
-    "Data collection latency in seconds",
-    ["source", "instrument"],
-    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
-)
-
-# Feature Computation Metrics
-features_computed_total = Counter(
-    "nautilus_ml_features_computed_total",
-    "Total features computed",
-    ["instrument", "feature_type"],
-)
-
-feature_computation_errors_total = Counter(
-    "nautilus_ml_feature_computation_errors_total",
-    "Total errors during feature computation",
-    ["instrument", "error_type"],
-)
-
-feature_computation_latency = Histogram(
-    "nautilus_ml_feature_computation_latency_seconds",
-    "Feature computation latency in seconds",
-    ["instrument", "stage"],
-    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
-)
-
-# Pipeline Stage Metrics
 pipeline_stage_latency = Histogram(
     "nautilus_ml_pipeline_stage_latency_seconds",
     "Pipeline stage execution latency in seconds",
@@ -91,10 +92,9 @@ pipeline_stage_latency = Histogram(
 pipeline_runs_total = Counter(
     "nautilus_ml_pipeline_runs_total",
     "Total pipeline runs",
-    ["status"],  # success, failure, partial
+    ["status"],
 )
 
-# Resource Usage Metrics
 active_collection_tasks = Gauge(
     "nautilus_ml_active_collection_tasks",
     "Number of active data collection tasks",
@@ -111,7 +111,6 @@ data_retention_cleanup_total = Counter(
     ["status"],
 )
 
-# Data Quality Metrics
 data_missing_ratio = Gauge(
     "nautilus_ml_data_missing_ratio",
     "Ratio of missing data points",
@@ -124,7 +123,6 @@ data_staleness_seconds = Gauge(
     ["instrument"],
 )
 
-# API Metrics
 api_request_total = Counter(
     "nautilus_ml_api_request_total",
     "Total API requests made",
@@ -137,24 +135,10 @@ api_rate_limit_hits = Counter(
     ["endpoint"],
 )
 
-# Catalog Metrics
-catalog_write_operations_total = Counter(
-    "nautilus_ml_catalog_write_operations_total",
-    "Total catalog write operations",
-    ["status"],
-)
-
 catalog_write_latency = Histogram(
     "nautilus_ml_catalog_write_latency_seconds",
     "Catalog write operation latency",
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
-)
-
-# Feature Store Metrics
-feature_store_operations_total = Counter(
-    "nautilus_ml_feature_store_operations_total",
-    "Total feature store operations",
-    ["operation", "status"],
 )
 
 feature_store_latency = Histogram(
@@ -163,6 +147,27 @@ feature_store_latency = Histogram(
     ["operation"],
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
 )
+
+# Application-specific counters not in common metrics
+features_computed_total = Counter(
+    "nautilus_ml_features_computed_total",
+    "Total features computed",
+    ["instrument", "feature_type"],
+)
+
+feature_computation_errors_total = Counter(
+    "nautilus_ml_feature_computation_errors_total",
+    "Total errors during feature computation",
+    ["instrument", "error_type"],
+)
+
+# Data Registry Event Metrics (centralized)
+data_events_total: Counter | None = None
+try:
+    from ml.common.metrics import data_events_total as _central_data_events_total
+    data_events_total = _central_data_events_total
+except Exception:
+    data_events_total = None
 
 
 @contextmanager
@@ -232,6 +237,11 @@ class DataScheduler:
         # Scheduling state
         self.enabled = True
         self._databento_loader = DatabentoDataLoader()
+        self._current_run_id: str = ""  # Will be set during collection runs
+
+        # Initialize DataRegistry for event tracking
+        self._data_registry: DataRegistry | None = None
+        self._init_data_registry()
 
         # Initialize feature store if configured
         self._feature_store: Any | None = None
@@ -249,6 +259,45 @@ class DataScheduler:
             f"feature_store={'enabled' if self.config.feature_store_enabled else 'disabled'}"
             f"{f', metrics_port={metrics_port or 8000}' if start_metrics_server else ''}",
         )
+
+    def _init_data_registry(self) -> None:
+        """
+        Initialize the DataRegistry for event tracking.
+        
+        This method sets up the DataRegistry for emitting data processing events
+        and tracking watermarks throughout the pipeline.
+        """
+        try:
+            # Check for PostgreSQL connection string for production backend
+            db_connection = os.getenv("NAUTILUS_DB_CONNECTION")
+
+            if db_connection:
+                # Use PostgreSQL backend in production
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.POSTGRES,
+                    connection_string=db_connection,
+                )
+                registry_path = Path("/tmp/ml_registry")  # Path for JSON fallback
+            else:
+                # Use JSON backend for development
+                registry_path = Path("./data/registry")
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.JSON,
+                    json_path=registry_path,
+                )
+
+            self._data_registry = DataRegistry(
+                registry_path=registry_path,
+                persistence_config=persistence_config,
+            )
+
+            logger.info(
+                "Initialized DataRegistry with backend=%s",
+                persistence_config.backend.value,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize DataRegistry: {e}. Events will not be tracked.")
+            self._data_registry = None
 
     def _initialize_feature_store(self) -> None:
         """
@@ -384,6 +433,9 @@ class DataScheduler:
         target_date = self._get_previous_trading_day()
         start_date = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        # Generate run_id for this collection run
+        self._current_run_id = f"scheduler_{target_date.strftime('%Y%m%d')}_{time.time_ns()}"
 
         logger.info(f"Collecting data for {start_date.date()}")
 
@@ -574,12 +626,123 @@ class DataScheduler:
                     catalog_start_time = time.time()
                     logger.info(f"Writing {len(data)} records to catalog for {symbol_code}")
 
+                    # Prepare low-cardinality metric labels ahead of time
+                    schema_name = self.config.databento.schema
+                    schema_base = schema_name.split("-")[0].lower()
+                    if schema_base == "ohlcv":
+                        dataset_type_label = "bars"
+                    elif schema_base == "trades":
+                        dataset_type_label = "trades"
+                    elif schema_base.startswith("mbp"):
+                        dataset_type_label = "mbp1"
+                    elif schema_base == "tbbo":
+                        dataset_type_label = "tbbo"
+                    else:
+                        dataset_type_label = schema_base
+
                     try:
                         self.catalog.write_data(data)
                         catalog_write_operations_total.labels(status="success").inc()
                         catalog_write_latency.observe(time.time() - catalog_start_time)
-                    except Exception:
+
+                        # Emit CATALOG_WRITTEN event to DataRegistry
+                        if self._data_registry is not None:
+                            try:
+                                # Extract timestamp range from the data
+                                ts_min = min(item.ts_event for item in data) if data else 0
+                                ts_max = max(item.ts_event for item in data) if data else 0
+
+                                # Use the run_id from the collection run
+                                run_id = getattr(self, "_current_run_id", f"scheduler_{time.time_ns()}")
+
+                                # Determine dataset_id based on schema type
+                                schema_type = self.config.databento.schema.split("-")[0].upper()
+                                dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+
+                                # Metric labels prepared above (dataset_type_label, schema_name)
+
+                                # Emit the event
+                                self._data_registry.emit_event(
+                                    dataset_id=dataset_id,
+                                    instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
+                                    stage="CATALOG_WRITTEN",
+                                    source="historical",
+                                    run_id=run_id,
+                                    ts_min=ts_min,
+                                    ts_max=ts_max,
+                                    count=len(data),
+                                    status="success",
+                                )
+
+                                # Update watermark for this dataset
+                                self._data_registry.update_watermark(
+                                    dataset_id=dataset_id,
+                                    instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
+                                    source="historical",
+                                    last_success_ns=ts_max,
+                                    count=len(data),
+                                    completeness_pct=100.0,  # Assume complete for successful writes
+                                )
+
+                                # Track event metrics with low-cardinality labels
+                                if data_events_total:
+                                    data_events_total.labels(
+                                        dataset_type=dataset_type_label,
+                                        component=schema_name,
+                                        stage="CATALOG_WRITTEN",
+                                        source="historical",
+                                        status="success",
+                                    ).inc()
+
+                                logger.debug(
+                                    f"Emitted CATALOG_WRITTEN event for {symbol_code}: "
+                                    f"run_id={run_id}, count={len(data)}"
+                                )
+                            except Exception as e:
+                                # Log but don't fail the pipeline if event emission fails
+                                logger.warning(f"Failed to emit data event for {symbol_code}: {e}")
+                                if data_events_total:
+                                    data_events_total.labels(
+                                        dataset_type=dataset_type_label,
+                                        component=schema_name,
+                                        stage="CATALOG_WRITTEN",
+                                        source="historical",
+                                        status="failed",
+                                    ).inc()
+                    except Exception as catalog_error:
                         catalog_write_operations_total.labels(status="failure").inc()
+
+                        # Try to emit failure event
+                        if self._data_registry is not None:
+                            try:
+                                run_id = getattr(self, "_current_run_id", f"scheduler_{time.time_ns()}")
+                                schema_type = self.config.databento.schema.split("-")[0].upper()
+                                dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
+
+                                self._data_registry.emit_event(
+                                    dataset_id=dataset_id,
+                                    instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
+                                    stage="CATALOG_WRITTEN",
+                                    source="historical",
+                                    run_id=run_id,
+                                    ts_min=0,
+                                    ts_max=0,
+                                    count=0,
+                                    status="failed",
+                                    error=str(catalog_error),
+                                )
+
+                                if data_events_total:
+                                    data_events_total.labels(
+                                        dataset_type=dataset_type_label,
+                                        component=schema_name,
+                                        stage="CATALOG_WRITTEN",
+                                        source="historical",
+                                        status="failed",
+                                    ).inc()
+                            except Exception as e:
+                                logger.warning(f"Failed to emit failure event for {symbol_code}: {e}")
+
                         raise
 
                     # Record collection metrics
@@ -910,6 +1073,8 @@ class DataScheduler:
                             logger.info(
                                 f"Stored {stored_count} feature rows for {instrument_id} in FeatureStore",
                             )
+                            # Note: FEATURE_COMPUTED events are emitted by FeatureStore itself
+                            # to avoid double-counting in metrics
                         except Exception:
                             feature_store_operations_total.labels(
                                 operation="store_historical",

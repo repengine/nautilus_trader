@@ -22,7 +22,7 @@ from ml._imports import xgb
 from ml.config.xgboost import XGBoostTrainingConfig
 from ml.training.base import BaseMLTrainer
 from ml.training.export import DEFAULT_ONNX_OPSET
-from ml.training.model_exporter import ModelExportMixin
+from ml.training.export import ModelExportMixin
 
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     import xgboost as xgb
 
 
-class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):  # type: ignore[misc]
+class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
     """
     XGBoost trainer for financial time series prediction.
 

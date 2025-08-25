@@ -1,0 +1,36 @@
+{
+  "created": "2025-08-22T14:00:51.518061",
+  "indicators": 23,
+  "rows": 2676,
+  "columns": [
+    "timestamp",
+    "DGS1",
+    "DGS2",
+    "DGS10",
+    "DGS30",
+    "FEDFUNDS",
+    "SOFR",
+    "VIXCLS",
+    "GDP",
+    "GDPC1",
+    "CPIAUCSL",
+    "CPILFESL",
+    "PCEPI",
+    "UNRATE",
+    "PAYEMS",
+    "CIVPART",
+    "UMCSENT",
+    "RSXFS",
+    "HOUST",
+    "MORTGAGE30US",
+    "DEXUSEU",
+    "DTWEXBGS",
+    "BAMLH0A0HYM2",
+    "BAMLC0A0CM",
+    "timestamp_ns"
+  ],
+  "date_range": {
+    "start": "2015-07-01 00:00:00",
+    "end": "2025-08-21 00:00:00"
+  }
+}

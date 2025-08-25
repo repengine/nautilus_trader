@@ -295,7 +295,7 @@ class MockEventSource(EventSource):
 
             events.append(
                 EconomicEvent(
-                    event_id=f"OTHER_{event_date.strftime('%Y%m%d')}_{self._rng.randint(1, 100)}",
+                    event_id=f"OTHER_{event_date.strftime('%Y%m%d')}_{int(self._rng.integers(1, 100))}",
                     timestamp=event_date.replace(hour=10, minute=0),
                     name=str(
                         self._rng.choice(

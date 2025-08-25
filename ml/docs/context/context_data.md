@@ -6,13 +6,14 @@ The `ml/data/` module provides a comprehensive data pipeline infrastructure for 
 
 **Key Components:**
 
-- **Data Collection**: Enhanced `DataCollector` for Databento API integration
+- **Data Collection**: Enhanced `DataCollector` for Databento API integration with multi-tier data collection strategy
 - **Data Utilities**: Helper functions working directly with `ParquetDataCatalog`
-- **Scheduling**: Automated data collection and processing via `DataScheduler`
-- **TFT Dataset Building**: Quick training data preparation for TFT models
+- **Scheduling**: Production-ready automated data collection and processing via `DataScheduler` with DataRegistry integration
+- **TFT Dataset Building**: Training data preparation with FeatureStore integration for training/inference parity
 - **Provider Architecture**: Extensible data provider system for static and time-series features
+- **Alternative Data Loaders**: FRED economic indicators loader for macro features
 
-**Implementation Status**: ~85% complete, production-ready core components with extensible architecture for additional providers.
+**Implementation Status**: ~95% complete, production-ready with comprehensive metrics and monitoring
 
 ## Architecture Overview
 
@@ -80,28 +81,46 @@ graph TB
 
 ### 1. Data Collection (`collector.py`)
 
-**Purpose**: Enhanced data collector optimizing Databento subscription value.
+**Purpose**: Enhanced data collector optimizing Databento subscription value with multi-tier collection strategy.
+
+**Class**: `DataCollector`
 
 **I/O Specifications**:
 
-- **Input**: Databento API credentials, symbol lists, date ranges
-- **Output**: Native Nautilus types (Bar, QuoteTick, TradeTick) saved to disk
-- **Storage**: Parquet files organized by symbol and data type
+- **Input**: 
+  - `storage_limit_gb`: Maximum storage budget (default: 500GB)
+  - `data_dir`: Output directory for collected data
+  - Databento API key via `DATABENTO_API_KEY` environment variable
+- **Output**: Raw market data files in Parquet format
+- **Storage**: Organized by symbol and data type under `data/enhanced/`
 
 **Key Features**:
 
-- L2 market depth (mbp-1) - 30 days for liquid symbols
-- L1 trades - Multi-year historical for key symbols
-- TBBO quotes - Spread dynamics analysis
-- Minute bars - 1 year coverage
-- Smart storage management with 500GB-1TB limits
+- **Prioritized Collection Strategy**:
+  - L2 market depth (mbp-1): 30 days for top 50 liquid symbols
+  - L1 trades: 2+ years for top 20 priority symbols
+  - TBBO quotes: 30 days for spread dynamics
+  - Minute bars: 1 year coverage for all symbols
+- **Smart Storage Management**: 
+  - Real-time storage tracking
+  - Automatic phase adjustment based on available space
+  - Collection metadata JSON output
+- **Priority Symbols**: SPY, QQQ, IWM, AAPL, MSFT, NVDA, etc.
+
+**Methods**:
+- `collect_l2_depth(symbols, days)`: Collect L2 market depth data
+- `collect_l1_trades(symbols, years)`: Collect historical trades
+- `collect_tbbo_quotes(symbols, days)`: Collect top-of-book quotes
+- `collect_minute_bars(symbols, days)`: Collect OHLCV bars
+- `run_collection()`: Execute complete collection pipeline
 
 **Current Status**: ✅ Complete implementation
 
-- Storage estimation and management
-- Comprehensive error handling
+- Storage estimation with liquidity adjustments
+- Comprehensive error handling and rate limiting
 - Configurable collection phases
 - Statistics tracking and reporting
+- Collection metadata persistence
 
 **Critical Issues**: None identified - production ready
 
@@ -140,91 +159,124 @@ def bars_to_dataframe(
 
 ### 3. Data Scheduling (`scheduler.py`)
 
-**Purpose**: Automated daily data collection and processing coordination.
+**Purpose**: Production-ready automated data collection and processing with comprehensive monitoring.
+
+**Class**: `DataScheduler`
 
 **I/O Specifications**:
 
-- **Input**: ParquetDataCatalog, DataCollector, FeatureEngineer, FeatureStore
-- **Output**: Updated data catalog, computed features persisted to FeatureStore
-- **Schedule**: Configurable cron expressions (default: 4 AM UTC)
+- **Input**: 
+  - `catalog`: ParquetDataCatalog for data storage
+  - `config`: SchedulerConfig with Databento settings
+  - `collector`: DataCollector instance (optional)
+  - `feature_engineer`: FeatureEngineer for feature computation (optional)
+  - `metrics_port`: Port for Prometheus metrics server
+- **Output**: 
+  - Updated ParquetDataCatalog with new market data
+  - Computed features persisted to FeatureStore
+  - DataRegistry events for pipeline tracking
+  - Prometheus metrics for monitoring
 
-**Current Status**: ✅ Complete implementation with production integration
-
-- Complete scheduling interface with APScheduler
-- Full Databento API integration (live data collection)
-- FeatureStore integration for automatic feature computation
-- Comprehensive error handling and retry logic
-- 15+ Prometheus metrics for monitoring
-- Database health views for pipeline monitoring
+**Current Status**: ✅ Complete production implementation
 
 **Key Features**:
 
-- **Real Calendar Provider**: Using `pandas_market_calendars` for accurate market schedules
-- **FeatureStore Connection**: Automatic feature persistence after computation
-- **Databento Integration**: Live data collection with proper API key management
-- **Metrics Collection**: Comprehensive metrics for monitoring pipeline health
-- **Configurable Modes**: Daily updates, backfill, and real-time streaming
+- **DataRegistry Integration**: 
+  - Emits CATALOG_WRITTEN events for data lineage
+  - Updates watermarks for dataset freshness tracking
+  - Supports both PostgreSQL and JSON backends
+- **Comprehensive Metrics** (15+ Prometheus metrics):
+  - `data_collection_latency`: Collection time by instrument
+  - `pipeline_stage_latency`: Stage execution times
+  - `catalog_write_operations_total`: Catalog write success/failure
+  - `feature_store_operations_total`: Feature store operations
+  - `data_staleness_seconds`: Data freshness tracking
+  - `api_rate_limit_hits`: API rate limit monitoring
+- **Databento Integration**:
+  - Configurable schemas (ohlcv-1m, trades, mbp-1, tbbo)
+  - Temporary file support for large datasets
+  - Automatic retry with exponential backoff
+  - Rate limiting compliance
+- **Feature Computation**:
+  - Automatic feature computation after data collection
+  - FeatureStore persistence for training/inference parity
+  - Support for batch processing of multiple instruments
+
+**Methods**:
+- `run_daily_update()`: Complete daily pipeline execution
+- `_collect_latest_data()`: Fetch data from Databento
+- `_collect_symbol_data()`: Per-symbol collection with metrics
+- `_compute_features()`: Trigger feature computation
+- `_clean_old_data()`: Data retention management
+- `_load_from_dbn_file()`: DBN file processing
 
 **Integration Points**:
 
-- Connects DataCollector → ParquetDataCatalog
-- Triggers FeatureEngineer computation → persists to FeatureStore
-- Manages data lifecycle and retention
-- Provides health monitoring endpoints
+- DataCollector → ParquetDataCatalog → FeatureEngineer → FeatureStore
+- DataRegistry for event tracking and watermark management
+- Prometheus metrics server for observability
+- Database health views for pipeline monitoring
 
 ### 4. TFT Dataset Builder (`tft_dataset_builder.py`)
 
-**Purpose**: Fast path for creating TFT-compatible training datasets with FeatureStore integration.
+**Purpose**: Training dataset preparation with automatic source selection for TFT models.
+
+**Class**: `TFTDatasetBuilder`
 
 **I/O Specifications**:
 
-- **Input**: ParquetDataCatalog OR FeatureStore, symbol list, feature configuration
+- **Input**: 
+  - `catalog`: ParquetDataCatalog for raw data access
+  - `symbols`: List of symbols to include
+  - `feature_config`: MLFeatureConfig for feature engineering
+  - `feature_store`: FeatureStore for pre-computed features (optional)
 - **Output**: TFT-compatible DataFrame (Pandas or Polars)
-- **Features**: Price-based, volume, volatility, static covariates, known-future
 
-**Schema Output**:
+**Key Methods**:
 
-```python
-{
-    "time_index": int,
-    "instrument_id": str,
-    "return_1": float,        # Technical features
-    "return_5": float,
-    "return_20": float,
-    "volume_ratio": float,
-    "volatility_20": float,
-    "sma_5": float,
-    "sma_20": float,
-    "price_position": float,
-    "y": int,                 # Binary target
-    "asset_class": str,       # Static features
-    "tick_size": float,
-    "exchange": str,
-    "hour_sin": float,        # Known-future features
-    "hour_cos": float,
-    "dow_sin": float,
-    "dow_cos": float,
-    "is_market_open": int,
-    "is_premarket": int,
-    "is_aftermarket": int,
-}
-```
+- `prepare_training_data_from_store()`: Load features from FeatureStore
+  - Ensures training/inference parity
+  - Combines FeatureStore features with bar data for targets
+  - Adds TFT-specific features (static, known-future)
+  
+- `prepare_training_data()`: Smart source selection
+  - Automatically uses FeatureStore if available
+  - Falls back to direct computation with logging
+  - Returns Polars or Pandas DataFrame based on preference
 
-**Current Status**: ✅ Complete implementation with FeatureStore integration
+- `_build_training_dataset_direct()`: Direct feature computation
+  - Computes features from raw bar data
+  - Used when FeatureStore is unavailable
 
-- **Dual-Source Support**: Automatically reads from FeatureStore if available, falls back to direct computation
-- **New Methods**:
-  - `prepare_training_data_from_store()`: Reads pre-computed features from FeatureStore
-  - `prepare_training_data()`: Computes features directly from catalog data
-  - `build_training_dataset()`: Smart selection between FeatureStore and direct computation
-- Support for both Polars and Pandas
-- Configurable prediction horizons and thresholds
-- Static feature mapping for major symbols
-- Cyclic time encodings
-- Binary classification targets
-- Training/inference parity through shared feature source
+**Feature Categories**:
 
-**Performance**: Optimized for batch processing, supports large datasets
+1. **Technical Features** (from FeatureStore or computed):
+   - Returns (1, 5, 20 periods)
+   - Volume ratios
+   - Volatility measures
+   - Moving averages
+   - Price position indicators
+
+2. **Static Covariates**:
+   - Asset class
+   - Tick size
+   - Exchange identifier
+
+3. **Known-Future Features**:
+   - Cyclic time encodings (hour, day-of-week)
+   - Market session indicators
+   - Calendar features
+
+4. **Targets**:
+   - Binary classification (configurable threshold)
+   - Forward returns
+
+**Current Status**: ✅ Complete with dual-source support
+
+- **FeatureStore Integration**: Priority source for training/inference parity
+- **Automatic Fallback**: Graceful degradation to direct computation
+- **Performance**: Optimized batch processing for large datasets
+- **Format Support**: Both Polars and Pandas DataFrames
 
 ### 5. Provider Architecture
 
@@ -567,31 +619,37 @@ class DataProvider(Protocol):
 
 ### Production Ready ✅
 
-- **catalog_utils.py**: Complete, tested, type-safe
-- **collector.py**: Complete storage management and collection logic with Databento integration
-- **tft_dataset_builder.py**: Complete feature engineering for TFT with FeatureStore integration
-- **scheduler.py**: Full implementation with Databento API, FeatureStore, and monitoring
-- **Provider architecture**: Complete abstractions and base implementations
-- **Calendar sources**: Real implementation using `pandas_market_calendars`
-- **Mock sources**: Complete for testing and development
+- **catalog_utils.py**: Complete with type-safe Nautilus integration
+- **collector.py**: Full Databento integration with multi-tier collection strategy
+- **scheduler.py**: Production implementation with DataRegistry, metrics, and monitoring
+- **tft_dataset_builder.py**: Dual-source support with FeatureStore priority
+- **fred_loader.py**: Complete FRED API integration with caching and DataStore
+- **Provider architecture**: Complete abstractions and factory pattern
+- **Calendar provider**: Real implementation using `pandas_market_calendars`
+- **Metadata provider**: Multiple sources (Mock, CSV, Nautilus)
+- **Event provider**: Mock implementation with extensible framework
 
 ### Recently Completed 🎯
 
-- **DataScheduler**: Full Databento integration with live data collection
-- **FeatureStore Integration**: Automatic feature computation and persistence
-- **Real Calendar Provider**: Using `pandas_market_calendars` for accurate schedules
-- **Pipeline Monitoring**: 15+ Prometheus metrics and health views
-- **Docker Deployment**: Complete ML pipeline service with health checks
+- **DataRegistry Integration**: Full event emission and watermark tracking in scheduler
+- **FRED Data Loader**: Complete economic indicator integration
+- **FeatureStore Priority**: TFTDatasetBuilder automatically uses FeatureStore
+- **Comprehensive Metrics**: 15+ Prometheus metrics across all components
+- **Production Monitoring**: Metrics server integration in scheduler
 
 ### Framework Complete, Implementation Needed 🔶
 
-- **Databento metadata source**: Stub implementation needs completion
-- **Real event sources**: Economic and earnings event API integration
+- **Databento metadata source**: Stub exists, needs API implementation
+- **Real event sources**: Framework ready for Alpha Vantage, FMP integration
+- **Additional data loaders**: Framework supports Yahoo, IB, Binance (not implemented)
 
-### Integration Requirements ⚠️
+### Integration Points Working ✅
 
-- **Event APIs**: Alpha Vantage, Financial Modeling Prep, etc.
-- **Storage policies**: Data retention and cleanup automation (framework exists)
+- **DataCollector → ParquetDataCatalog**: Full integration
+- **DataScheduler → FeatureStore**: Automatic feature persistence
+- **DataScheduler → DataRegistry**: Event tracking and watermarks
+- **FREDLoader → DataStore**: Economic indicators storage
+- **TFTDatasetBuilder → FeatureStore**: Training/inference parity
 
 ## Critical Issues and Gaps
 
@@ -628,41 +686,103 @@ class DataProvider(Protocol):
 ### Core Functions
 
 ```python
-# Data loading
+# Data loading utilities
 from ml.data import bars_to_dataframe, quotes_to_dataframe, trades_to_dataframe
 
-# Dataset building
-from ml.data.tft_dataset_builder import TFTDatasetBuilder
-builder = TFTDatasetBuilder(catalog, symbols)
-dataset = builder.build_training_dataset(horizon_minutes=15)
+# Load bars data
+bars_df = bars_to_dataframe(
+    catalog=catalog,
+    instrument_ids=["SPY.NYSE", "AAPL.NASDAQ"],
+    start=datetime(2024, 1, 1),
+    end=datetime(2024, 12, 31)
+)
 
-# Provider factory
-from ml.data.providers.factory import ProviderFactory
-factory = ProviderFactory()
-calendar_provider = factory.get_calendar_provider()
-features = calendar_provider.compute_features(timestamps)
+# Dataset building with FeatureStore
+from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.stores.feature_store import FeatureStore
+
+feature_store = FeatureStore(connection_string="postgresql://...")
+builder = TFTDatasetBuilder(
+    catalog=catalog,
+    symbols=["SPY", "AAPL"],
+    feature_store=feature_store  # Optional - enables parity
+)
+
+# Automatic source selection (FeatureStore if available)
+dataset = builder.prepare_training_data(
+    start=datetime(2024, 1, 1),
+    horizon_minutes=15,
+    use_polars=True
+)
 
 # Data collection
 from ml.data.collector import DataCollector
-collector = DataCollector(storage_limit_gb=500)
-collector.run_collection()
 
-# Scheduling
+collector = DataCollector(storage_limit_gb=500)
+collector.run_collection()  # Multi-phase collection
+
+# Scheduling with full integration
 from ml.data.scheduler import DataScheduler
-scheduler = DataScheduler(catalog, retention_days=90)
-scheduler.schedule_updates("0 4 * * *")
+from ml.config.scheduler_config import SchedulerConfig
+
+config = SchedulerConfig(
+    symbols=["SPY.XNYS", "AAPL.XNAS"],
+    feature_store_enabled=True
+)
+scheduler = DataScheduler(
+    catalog=catalog,
+    config=config,
+    feature_engineer=feature_engineer,
+    metrics_port=8000
+)
+scheduler.run_daily_update()
+
+# FRED data loading
+from ml.data.loaders.fred_loader import FREDConfig, FREDDataLoader
+
+fred_config = FREDConfig()  # Uses FRED_API_KEY env var
+fred_loader = FREDDataLoader(fred_config)
+fred_loader.store_indicators(data_store, data_registry)
+
+# Provider factory
+from ml.data.providers.factory import ProviderFactory
+
+factory = ProviderFactory()
+calendar_provider = factory.get_calendar_provider()
+metadata_provider = factory.get_metadata_provider()
 ```
 
 ### Configuration Classes
 
 ```python
 from ml.config.base import MLFeatureConfig
-from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.config.scheduler_config import SchedulerConfig, DatabentoConfig
+from ml.data.loaders.fred_loader import FREDConfig
 
-config = MLFeatureConfig(
-    # Feature computation parameters
+# Feature configuration
+feature_config = MLFeatureConfig(
+    lookback_periods=30,
+    feature_groups=["price", "volume", "microstructure"]
 )
-builder = TFTDatasetBuilder(catalog, symbols, config)
+
+# Scheduler configuration
+scheduler_config = SchedulerConfig(
+    symbols=["SPY.XNYS", "AAPL.XNAS"],
+    retention_days=90,
+    feature_store_enabled=True,
+    databento=DatabentoConfig(
+        dataset="EQUS.MINI",
+        schema="ohlcv-1m",
+        price_precision=2
+    )
+)
+
+# FRED configuration
+fred_config = FREDConfig(
+    cache_ttl_hours=24,
+    backfill_years=10,
+    rate_limit_calls=120
+)
 ```
 
 ## Testing Strategy
@@ -706,10 +826,81 @@ builder = TFTDatasetBuilder(catalog, symbols, config)
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-08-20
+**Document Version**: 2.0
+**Last Updated**: 2025-08-25
 **Maintainer**: ML Data Pipeline Team
-**Status**: Production Ready (Core), Development (Extensions)
+**Status**: Production Ready
+**Changes**: Complete documentation update to reflect actual implementation, added FRED loader, updated scheduler details with DataRegistry integration
+### 7. Alternative Data Loaders (`loaders/`)
+
+#### FRED Data Loader (`loaders/fred_loader.py`)
+
+**Purpose**: Integration with Federal Reserve Economic Data (FRED) API for macroeconomic indicators.
+
+**Classes**:
+
+1. **`FREDIndicator`**: Configuration for individual economic indicators
+   - Series ID, name, category, frequency
+   - Units, seasonal adjustment
+   - Metadata and descriptions
+
+2. **`FREDConfig`**: Loader configuration
+   - API key management (environment variable or direct)
+   - Cache settings (TTL, directory)
+   - Rate limiting (120 calls/minute)
+   - Retry logic and backfill settings
+
+3. **`FREDDataLoader`**: Main loader implementation
+
+**Default Indicators** (25+ series):
+- **Interest Rates**: Treasury yields (1Y, 2Y, 10Y, 30Y), Fed funds, SOFR
+- **Volatility**: VIX index
+- **Economic Indicators**: GDP, CPI, PCE, unemployment, payrolls
+- **Consumer Data**: Sentiment, retail sales
+- **Housing**: Housing starts, mortgage rates
+- **Currency**: USD/EUR, Trade-weighted dollar index
+- **Credit Spreads**: High yield, investment grade
+
+**Key Features**:
+- **Caching System**: 
+  - Parquet file cache with metadata
+  - Configurable TTL (default: 24 hours)
+  - Cache hit tracking via Prometheus
+- **Rate Limiting**: Compliant with FRED's 120 calls/minute limit
+- **DataStore Integration**: 
+  - Stores indicators with DataRegistry registration
+  - Creates DatasetManifest with validation rules
+  - Generates pseudo InstrumentIds (e.g., "FRED.DGS10")
+- **Metrics Support**:
+  - Fetch counters and duration histograms
+  - Cache hit counters
+  - API error tracking
+
+**Methods**:
+- `fetch_indicator(series_id)`: Fetch single indicator with caching
+- `fetch_all_indicators()`: Batch fetch all configured indicators
+- `combine_indicators(data)`: Merge indicators into wide format
+- `store_indicators(data_store, data_registry)`: Persist with registration
+- `update_realtime()`: Fetch recent data for updates
+
+**Usage Example**:
+```python
+config = FREDConfig(api_key="your_key")
+loader = FREDDataLoader(config)
+
+# Fetch and store all indicators
+loader.store_indicators(data_store, data_registry)
+
+# Real-time updates
+loader.update_realtime(data_store, data_registry)
+```
+
+**Current Status**: ✅ Complete implementation
+- Full FRED API integration with robust error handling
+- DataStore and DataRegistry integration
+- Comprehensive metrics and caching
+- Production-ready with retry logic
+
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection

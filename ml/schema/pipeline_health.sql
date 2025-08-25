@@ -1,4 +1,6 @@
--- ML Pipeline Health Monitoring Views
+-- NOTE: These views have been moved into migrations (ml/stores/migrations/005_views.sql)
+-- to ensure consistent application order and proper schema qualification.
+-- This file is retained for reference only.
 -- Provides comprehensive health check views for monitoring the ML pipeline
 -- All timestamps follow Nautilus convention (nanoseconds since epoch)
 

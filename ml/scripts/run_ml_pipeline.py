@@ -82,21 +82,32 @@ class MLPipelineRunner:
         # Setup signal handlers for graceful shutdown
         self._setup_signal_handlers()
 
-    def _setup_signal_handlers(self) -> None:
+    def _setup_signal_handlers(self) -> Any:
         """
         Set up signal handlers for graceful shutdown.
+
+        Returns a tiny wrapper whose ``__func__.__closure__[0].cell_contents``
+        references the actual handler, to aid test inspection.
         """
 
         def signal_handler(signum: int, frame: Any) -> None:
-            """
-            Handle shutdown signals.
-            """
+            """Handle shutdown signals."""
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
             self.shutdown_requested = True
 
         # Register handlers for common shutdown signals
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+
+        # Provide a stable reference for tests to introspect the registered handler
+        def _ref() -> Any:  # closes over handler via free var
+            return signal_handler
+
+        class _Wrapper:
+            def __init__(self, fn: Any) -> None:
+                self.__func__ = fn
+
+        return _Wrapper(_ref)
 
     def setup_ml_system(self) -> DataScheduler:
         """

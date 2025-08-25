@@ -11,11 +11,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from typing import Callable
 
 import requests
 
 
-def check_service_health(service_name: str, check_func) -> tuple[bool, str]:
+def check_service_health(service_name: str, check_func: Callable[[], bool]) -> tuple[bool, str]:
     """
     Check health of a specific service.
     """
@@ -57,7 +58,7 @@ def check_ml_pipeline() -> bool:
     try:
         response = requests.get("http://localhost:8080/health", timeout=5)
         return response.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -68,7 +69,7 @@ def check_prometheus() -> bool:
     try:
         response = requests.get("http://localhost:9090/-/healthy", timeout=5)
         return response.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -79,7 +80,7 @@ def check_grafana() -> bool:
     try:
         response = requests.get("http://localhost:3000/api/health", timeout=5)
         return response.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -103,11 +104,11 @@ def check_docker_compose() -> bool:
         running_names = [s.get("Service") for s in running]
 
         return all(req in running_names for req in required)
-    except:
+    except Exception:
         return False
 
 
-def main():
+def main() -> None:
     """
     Run health checks.
     """

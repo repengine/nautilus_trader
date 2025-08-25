@@ -181,6 +181,13 @@ class FeatureManifest:
     last_modified: float                  # Last update timestamp
 ```
 
+Canonical source of feature names:
+- Feature names and pipeline signatures are computed by the declarative
+  pipeline (`PipelineRunner`) built from `FeatureConfig`. Both
+  `FeatureConfig.get_feature_names()` and `FeatureEngineer.generate_feature_manifest()`
+  delegate to this pipeline to prevent drift between training/inference paths and
+  storage schemas.
+
 ### Feature Roles
 
 ```python

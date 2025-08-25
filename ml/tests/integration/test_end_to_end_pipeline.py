@@ -52,6 +52,7 @@ from hypothesis import HealthCheck
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
+from numpy.random import default_rng
 
 from ml._imports import HAS_XGBOOST
 from ml._imports import check_ml_dependencies

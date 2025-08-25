@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""
+Bootstrap script to pre-register standard dataset manifests.
+
+This script creates manifests for all standard dataset types used in the ML pipeline,
+ensuring consistent naming and avoiding orphaned events.
+
+Usage:
+    python -m ml.registry.bootstrap_datasets [--backend postgres|json] [--registry-path PATH]
+"""
+
+import argparse
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+from ml.registry.data_registry import DataRegistry
+from ml.registry.dataclasses import DataContract
+from ml.registry.dataclasses import DatasetManifest
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import QualityFlag
+from ml.registry.dataclasses import StorageKind
+from ml.registry.dataclasses import ValidationRule
+from ml.registry.dataclasses import ValidationRuleType
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
+
+
+def create_standard_manifests() -> list[DatasetManifest]:
+    """Create standard dataset manifests for all pipeline stages."""
+    manifests = []
+
+    # BARS/OHLCV dataset
+    bars_manifest = DatasetManifest(
+        dataset_id="bars",
+        dataset_type=DatasetType.BARS,
+        storage_kind=StorageKind.PARQUET,
+        location="catalog/bars/",
+        partitioning={"by": ["date", "instrument_id"]},
+        retention_days=365,
+        schema={
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "instrument_id": "str",
+            "open": "float64",
+            "high": "float64",
+            "low": "float64",
+            "close": "float64",
+            "volume": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ts_event", "instrument_id"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["ts_event", "ts_init", "instrument_id", "close"],
+            "nullable_fields": ["volume"],
+            "ranges": {
+                "open": {"min": 0.0, "max": 1e9},
+                "high": {"min": 0.0, "max": 1e9},
+                "low": {"min": 0.0, "max": 1e9},
+                "close": {"min": 0.0, "max": 1e9},
+                "volume": {"min": 0, "max": 1e15},
+            },
+        },
+        lineage=[],
+        pipeline_signature="databento_scheduler_v1",
+        version="1.0.0",
+    )
+    manifests.append(bars_manifest)
+
+    # FEATURES dataset
+    features_manifest = DatasetManifest(
+        dataset_id="features",
+        dataset_type=DatasetType.FEATURES,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml_feature_values",
+        partitioning={"by": ["date", "instrument_id"]},
+        retention_days=180,
+        schema={
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "instrument_id": "str",
+            "feature_set_id": "str",
+            "feature_values": "json",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ts_event", "instrument_id", "feature_set_id"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["ts_event", "ts_init", "instrument_id", "feature_set_id"],
+            "nullable_fields": [],
+        },
+        lineage=["bars"],
+        pipeline_signature="feature_store_v1",
+        version="1.0.0",
+    )
+    manifests.append(features_manifest)
+
+    # PREDICTIONS dataset
+    predictions_manifest = DatasetManifest(
+        dataset_id="predictions",
+        dataset_type=DatasetType.PREDICTIONS,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml_model_predictions",
+        partitioning={"by": ["date", "instrument_id"]},
+        retention_days=90,
+        schema={
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "instrument_id": "str",
+            "model_id": "str",
+            "prediction": "float64",
+            "confidence": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ts_event", "instrument_id", "model_id"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["ts_event", "ts_init", "instrument_id", "model_id", "prediction"],
+            "nullable_fields": ["confidence"],
+            "ranges": {
+                "prediction": {"min": -1.0, "max": 1.0},
+                "confidence": {"min": 0.0, "max": 1.0},
+            },
+        },
+        lineage=["features"],
+        pipeline_signature="model_store_v1",
+        version="1.0.0",
+    )
+    manifests.append(predictions_manifest)
+
+    # SIGNALS dataset
+    signals_manifest = DatasetManifest(
+        dataset_id="signals",
+        dataset_type=DatasetType.SIGNALS,
+        storage_kind=StorageKind.POSTGRES,
+        location="ml_strategy_signals",
+        partitioning={"by": ["date", "instrument_id"]},
+        retention_days=90,
+        schema={
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "instrument_id": "str",
+            "strategy_id": "str",
+            "signal": "int64",
+            "strength": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ts_event", "instrument_id", "strategy_id"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["ts_event", "ts_init", "instrument_id", "strategy_id", "signal"],
+            "nullable_fields": ["strength"],
+            "ranges": {
+                "signal": {"min": -1, "max": 1},
+                "strength": {"min": 0.0, "max": 1.0},
+            },
+        },
+        lineage=["predictions"],
+        pipeline_signature="strategy_store_v1",
+        version="1.0.0",
+    )
+    manifests.append(signals_manifest)
+
+    return manifests
+
+
+def create_standard_contracts() -> dict[str, DataContract]:
+    """Create standard data contracts for each dataset type."""
+    contracts = {}
+
+    # Helper to create validation rules
+    def make_rule(rule_type: ValidationRuleType, field: str = "*", **params: Any) -> ValidationRule:
+        return ValidationRule(
+            rule_type=rule_type,
+            field_name=field,
+            parameters=params,
+            severity=QualityFlag.FAIL,
+            description=f"{rule_type.value} check for {field}"
+        )
+
+    # Bars contract - lenient mode for market data
+    bars_contract = DataContract(
+        contract_id="bars_contract_v1",
+        dataset_id="bars",
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "close", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.01,
+            "duplicate_rate": 0.001,
+        },
+        created_at=time.time_ns(),
+        last_modified=time.time_ns(),
+    )
+    contracts["bars"] = bars_contract
+
+    # Features contract - strict mode for ML features
+    features_contract = DataContract(
+        contract_id="features_contract_v1",
+        dataset_id="features",
+        version="1.0.0",
+        enforcement_mode="strict",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.UNIQUENESS),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.0,
+            "duplicate_rate": 0.0,
+        },
+        created_at=time.time_ns(),
+        last_modified=time.time_ns(),
+    )
+    contracts["features"] = features_contract
+
+    # Predictions contract - strict mode for model outputs
+    predictions_contract = DataContract(
+        contract_id="predictions_contract_v1",
+        dataset_id="predictions",
+        version="1.0.0",
+        enforcement_mode="strict",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "prediction", min=-1.0, max=1.0),
+            make_rule(ValidationRuleType.UNIQUENESS),
+        ],
+        quality_thresholds={
+            "null_rate": 0.0,
+            "duplicate_rate": 0.0,
+        },
+        created_at=time.time_ns(),
+        last_modified=time.time_ns(),
+    )
+    contracts["predictions"] = predictions_contract
+
+    # Signals contract - monitor only for strategy signals
+    signals_contract = DataContract(
+        contract_id="signals_contract_v1",
+        dataset_id="signals",
+        version="1.0.0",
+        enforcement_mode="monitor_only",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.RANGE, "signal", min=-1, max=1),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=time.time_ns(),
+        last_modified=time.time_ns(),
+    )
+    contracts["signals"] = signals_contract
+
+    return contracts
+
+
+def bootstrap_datasets(
+    backend: BackendType = BackendType.JSON,
+    registry_path: Path | None = None,
+) -> None:
+    """Bootstrap the data registry with standard dataset manifests."""
+    # Setup persistence configuration
+    if backend == BackendType.POSTGRES:
+        db_url = os.getenv("NAUTILUS_REGISTRY_DB_URL")
+        if not db_url:
+            raise ValueError(
+                "NAUTILUS_REGISTRY_DB_URL environment variable must be set for PostgreSQL backend"
+            )
+        persistence_config = PersistenceConfig(
+            backend=BackendType.POSTGRES,
+            connection_string=db_url,
+        )
+    else:
+        effective_registry_path: Path = (
+            registry_path if registry_path is not None else Path.home() / ".nautilus" / "ml" / "registry"
+        )
+        persistence_config = PersistenceConfig(
+            backend=BackendType.JSON,
+            json_path=effective_registry_path,
+        )
+
+    # Setup registry
+    registry = DataRegistry(
+        registry_path=effective_registry_path if backend == BackendType.JSON else Path("."),
+        persistence_config=persistence_config,
+    )
+
+    # Create and register manifests
+    manifests = create_standard_manifests()
+    contracts = create_standard_contracts()
+
+    print(f"Bootstrapping {len(manifests)} dataset manifests...")
+
+    for manifest in manifests:
+        try:
+            # Check if already exists
+            existing = registry.get_manifest(manifest.dataset_id)
+            if existing:
+                print(f"  ✓ {manifest.dataset_id} already exists (v{existing.version})")
+                continue
+        except Exception:
+            pass  # Doesn't exist, we'll create it
+
+        # Register new manifest
+        dataset_id = registry.register_dataset(manifest)
+        print(f"  ✓ Registered {dataset_id} ({manifest.dataset_type.value})")
+
+        # Register contract if available
+        if manifest.dataset_id in contracts and backend == BackendType.JSON:
+            # Store contract in JSON registry and persist
+            contract = contracts[manifest.dataset_id]
+            registry._contracts[manifest.dataset_id] = contract  # noqa: SLF001
+            registry._save_registry(immediate=True)  # noqa: SLF001
+            print(f"    → Added contract (mode: {contract.enforcement_mode})")
+
+    print(f"\n✅ Bootstrap complete! Registered {len(manifests)} datasets.")
+    print(f"   Backend: {backend.value}")
+    if backend == BackendType.JSON:
+        print(f"   Registry path: {registry_path}")
+
+
+def main() -> None:
+    """Main entry point for bootstrap script."""
+    parser = argparse.ArgumentParser(
+        description="Bootstrap standard dataset manifests for ML pipeline",
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["json", "postgres"],
+        default="json",
+        help="Backend type to use (default: json)",
+    )
+    parser.add_argument(
+        "--registry-path",
+        type=Path,
+        help="Path to registry directory (for JSON backend)",
+    )
+
+    args = parser.parse_args()
+
+    backend = BackendType.JSON if args.backend == "json" else BackendType.POSTGRES
+
+    try:
+        bootstrap_datasets(backend=backend, registry_path=args.registry_path)
+    except Exception as e:
+        print(f"❌ Bootstrap failed: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    main()

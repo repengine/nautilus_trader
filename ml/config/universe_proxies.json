@@ -1,0 +1,865 @@
+{
+  "metadata": {
+    "name": "Universe Proxy Instruments",
+    "description": "Comprehensive collection of ETF proxies for different asset classes, sectors, regions, and strategies",
+    "version": "1.0.0",
+    "created": "2025-08-22",
+    "symbol_count": 150,
+    "use_cases": [
+      "Global macro strategies",
+      "Asset allocation models",
+      "Market regime detection",
+      "Cross-asset factor analysis",
+      "Risk-on/risk-off sentiment"
+    ]
+  },
+  "equity_indices": {
+    "us_broad_market": [
+      {
+        "symbol": "SPY",
+        "name": "SPDR S&P 500 ETF",
+        "asset_class": "equity",
+        "region": "US",
+        "style": "large_cap",
+        "avg_volume": 85000000,
+        "aum": 450000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "QQQ",
+        "name": "Invesco QQQ Trust",
+        "asset_class": "equity",
+        "region": "US",
+        "style": "technology_growth",
+        "avg_volume": 45000000,
+        "aum": 220000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "VTI",
+        "name": "Vanguard Total Stock Market ETF",
+        "asset_class": "equity",
+        "region": "US",
+        "style": "total_market",
+        "avg_volume": 4000000,
+        "aum": 350000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "IWM",
+        "name": "iShares Russell 2000 ETF",
+        "asset_class": "equity",
+        "region": "US",
+        "style": "small_cap",
+        "avg_volume": 25000000,
+        "aum": 60000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "DIA",
+        "name": "SPDR Dow Jones Industrial Average ETF",
+        "asset_class": "equity",
+        "region": "US",
+        "style": "blue_chip",
+        "avg_volume": 5000000,
+        "aum": 30000000000,
+        "priority": 2
+      }
+    ],
+    "us_sectors": [
+      {
+        "symbol": "XLK",
+        "name": "Technology Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "technology",
+        "avg_volume": 12000000,
+        "aum": 55000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "XLF",
+        "name": "Financial Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "financials",
+        "avg_volume": 15000000,
+        "aum": 40000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "XLE",
+        "name": "Energy Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "energy",
+        "avg_volume": 18000000,
+        "aum": 25000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "XLV",
+        "name": "Health Care Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "healthcare",
+        "avg_volume": 8000000,
+        "aum": 35000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "XLI",
+        "name": "Industrial Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "industrials",
+        "avg_volume": 6000000,
+        "aum": 20000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "XLP",
+        "name": "Consumer Staples Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "consumer_staples",
+        "avg_volume": 5000000,
+        "aum": 15000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "XLY",
+        "name": "Consumer Discretionary Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "consumer_discretionary",
+        "avg_volume": 4000000,
+        "aum": 18000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "XLU",
+        "name": "Utilities Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "utilities",
+        "avg_volume": 8000000,
+        "aum": 14000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "XLB",
+        "name": "Materials Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "materials",
+        "avg_volume": 3000000,
+        "aum": 6000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "XLRE",
+        "name": "Real Estate Select Sector SPDR Fund",
+        "asset_class": "equity",
+        "region": "US",
+        "sector": "real_estate",
+        "avg_volume": 2000000,
+        "aum": 5000000000,
+        "priority": 2
+      }
+    ],
+    "international": [
+      {
+        "symbol": "EFA",
+        "name": "iShares MSCI EAFE ETF",
+        "asset_class": "equity",
+        "region": "developed_ex_us",
+        "avg_volume": 15000000,
+        "aum": 85000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "EEM",
+        "name": "iShares MSCI Emerging Markets ETF",
+        "asset_class": "equity",
+        "region": "emerging_markets",
+        "avg_volume": 25000000,
+        "aum": 25000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "VEA",
+        "name": "Vanguard FTSE Developed Markets ETF",
+        "asset_class": "equity",
+        "region": "developed_ex_us",
+        "avg_volume": 8000000,
+        "aum": 120000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "VWO",
+        "name": "Vanguard FTSE Emerging Markets ETF",
+        "asset_class": "equity",
+        "region": "emerging_markets",
+        "avg_volume": 12000000,
+        "aum": 80000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "FXI",
+        "name": "iShares China Large-Cap ETF",
+        "asset_class": "equity",
+        "region": "china",
+        "avg_volume": 8000000,
+        "aum": 6000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "EWJ",
+        "name": "iShares MSCI Japan ETF",
+        "asset_class": "equity",
+        "region": "japan",
+        "avg_volume": 3000000,
+        "aum": 15000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "EWZ",
+        "name": "iShares MSCI Brazil ETF",
+        "asset_class": "equity",
+        "region": "brazil",
+        "avg_volume": 8000000,
+        "aum": 5000000000,
+        "priority": 3
+      },
+      {
+        "symbol": "INDA",
+        "name": "iShares MSCI India ETF",
+        "asset_class": "equity",
+        "region": "india",
+        "avg_volume": 3000000,
+        "aum": 8000000000,
+        "priority": 3
+      }
+    ]
+  },
+  "fixed_income": {
+    "us_treasuries": [
+      {
+        "symbol": "TLT",
+        "name": "iShares 20+ Year Treasury Bond ETF",
+        "asset_class": "bonds",
+        "duration": "long",
+        "credit_quality": "government",
+        "avg_volume": 15000000,
+        "aum": 50000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "IEF",
+        "name": "iShares 7-10 Year Treasury Bond ETF",
+        "asset_class": "bonds",
+        "duration": "intermediate",
+        "credit_quality": "government",
+        "avg_volume": 5000000,
+        "aum": 20000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "SHY",
+        "name": "iShares 1-3 Year Treasury Bond ETF",
+        "asset_class": "bonds",
+        "duration": "short",
+        "credit_quality": "government",
+        "avg_volume": 3000000,
+        "aum": 25000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "TIP",
+        "name": "iShares TIPS Bond ETF",
+        "asset_class": "bonds",
+        "duration": "intermediate",
+        "credit_quality": "government",
+        "inflation_protected": true,
+        "avg_volume": 3000000,
+        "aum": 35000000000,
+        "priority": 1
+      }
+    ],
+    "corporate_bonds": [
+      {
+        "symbol": "LQD",
+        "name": "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+        "asset_class": "bonds",
+        "duration": "intermediate",
+        "credit_quality": "investment_grade",
+        "avg_volume": 8000000,
+        "aum": 30000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "HYG",
+        "name": "iShares iBoxx $ High Yield Corporate Bond ETF",
+        "asset_class": "bonds",
+        "duration": "intermediate",
+        "credit_quality": "high_yield",
+        "avg_volume": 12000000,
+        "aum": 15000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "JNK",
+        "name": "SPDR Bloomberg High Yield Bond ETF",
+        "asset_class": "bonds",
+        "duration": "intermediate",
+        "credit_quality": "high_yield",
+        "avg_volume": 6000000,
+        "aum": 10000000000,
+        "priority": 2
+      }
+    ],
+    "municipal_bonds": [
+      {
+        "symbol": "MUB",
+        "name": "iShares National Muni Bond ETF",
+        "asset_class": "bonds",
+        "duration": "intermediate",
+        "credit_quality": "investment_grade",
+        "tax_exempt": true,
+        "avg_volume": 1500000,
+        "aum": 20000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "VTEB",
+        "name": "Vanguard Tax-Exempt Bond ETF",
+        "asset_class": "bonds",
+        "duration": "intermediate",
+        "credit_quality": "investment_grade",
+        "tax_exempt": true,
+        "avg_volume": 1000000,
+        "aum": 8000000000,
+        "priority": 2
+      }
+    ],
+    "international_bonds": [
+      {
+        "symbol": "BNDX",
+        "name": "Vanguard Total International Bond ETF",
+        "asset_class": "bonds",
+        "region": "international",
+        "hedged": false,
+        "avg_volume": 500000,
+        "aum": 8000000000,
+        "priority": 2
+      }
+    ]
+  },
+  "commodities": {
+    "precious_metals": [
+      {
+        "symbol": "GLD",
+        "name": "SPDR Gold Shares",
+        "asset_class": "commodities",
+        "commodity": "gold",
+        "avg_volume": 8000000,
+        "aum": 65000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "SLV",
+        "name": "iShares Silver Trust",
+        "asset_class": "commodities",
+        "commodity": "silver",
+        "avg_volume": 12000000,
+        "aum": 15000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "PALL",
+        "name": "Aberdeen Standard Physical Palladium Shares ETF",
+        "asset_class": "commodities",
+        "commodity": "palladium",
+        "avg_volume": 200000,
+        "aum": 800000000,
+        "priority": 3
+      },
+      {
+        "symbol": "PPLT",
+        "name": "Aberdeen Standard Physical Platinum Shares ETF",
+        "asset_class": "commodities",
+        "commodity": "platinum",
+        "avg_volume": 150000,
+        "aum": 600000000,
+        "priority": 3
+      }
+    ],
+    "energy": [
+      {
+        "symbol": "USO",
+        "name": "United States Oil Fund LP",
+        "asset_class": "commodities",
+        "commodity": "crude_oil",
+        "avg_volume": 15000000,
+        "aum": 2000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "UNG",
+        "name": "United States Natural Gas Fund LP",
+        "asset_class": "commodities",
+        "commodity": "natural_gas",
+        "avg_volume": 8000000,
+        "aum": 500000000,
+        "priority": 2
+      },
+      {
+        "symbol": "BNO",
+        "name": "United States Brent Oil Fund LP",
+        "asset_class": "commodities",
+        "commodity": "brent_oil",
+        "avg_volume": 500000,
+        "aum": 100000000,
+        "priority": 3
+      }
+    ],
+    "agriculture": [
+      {
+        "symbol": "DBA",
+        "name": "Invesco DB Agriculture Fund",
+        "asset_class": "commodities",
+        "commodity": "agriculture",
+        "avg_volume": 500000,
+        "aum": 1000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "CORN",
+        "name": "Teucrium Corn Fund",
+        "asset_class": "commodities",
+        "commodity": "corn",
+        "avg_volume": 300000,
+        "aum": 200000000,
+        "priority": 3
+      },
+      {
+        "symbol": "WEAT",
+        "name": "Teucrium Wheat Fund",
+        "asset_class": "commodities",
+        "commodity": "wheat",
+        "avg_volume": 200000,
+        "aum": 150000000,
+        "priority": 3
+      },
+      {
+        "symbol": "SOYB",
+        "name": "Teucrium Soybean Fund",
+        "asset_class": "commodities",
+        "commodity": "soybeans",
+        "avg_volume": 150000,
+        "aum": 100000000,
+        "priority": 3
+      }
+    ],
+    "diversified": [
+      {
+        "symbol": "PDBC",
+        "name": "Invesco Optimum Yield Diversified Commodity Strategy No K-1 ETF",
+        "asset_class": "commodities",
+        "commodity": "diversified",
+        "avg_volume": 1000000,
+        "aum": 2000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "DJP",
+        "name": "iPath Bloomberg Commodity Index Total Return ETN",
+        "asset_class": "commodities",
+        "commodity": "diversified",
+        "avg_volume": 200000,
+        "aum": 500000000,
+        "priority": 3
+      }
+    ]
+  },
+  "currencies": [
+    {
+      "symbol": "UUP",
+      "name": "Invesco DB US Dollar Index Bullish Fund",
+      "asset_class": "currency",
+      "currency": "USD",
+      "direction": "bullish",
+      "avg_volume": 3000000,
+      "aum": 1000000000,
+      "priority": 1
+    },
+    {
+      "symbol": "FXE",
+      "name": "Invesco CurrencyShares Euro Trust",
+      "asset_class": "currency",
+      "currency": "EUR",
+      "avg_volume": 500000,
+      "aum": 500000000,
+      "priority": 2
+    },
+    {
+      "symbol": "FXY",
+      "name": "Invesco CurrencyShares Japanese Yen Trust",
+      "asset_class": "currency",
+      "currency": "JPY",
+      "avg_volume": 200000,
+      "aum": 300000000,
+      "priority": 2
+    },
+    {
+      "symbol": "FXB",
+      "name": "Invesco CurrencyShares British Pound Sterling Trust",
+      "asset_class": "currency",
+      "currency": "GBP",
+      "avg_volume": 100000,
+      "aum": 150000000,
+      "priority": 2
+    },
+    {
+      "symbol": "FXC",
+      "name": "Invesco CurrencyShares Canadian Dollar Trust",
+      "asset_class": "currency",
+      "currency": "CAD",
+      "avg_volume": 50000,
+      "aum": 100000000,
+      "priority": 3
+    },
+    {
+      "symbol": "FXA",
+      "name": "Invesco CurrencyShares Australian Dollar Trust",
+      "asset_class": "currency",
+      "currency": "AUD",
+      "avg_volume": 80000,
+      "aum": 120000000,
+      "priority": 3
+    }
+  ],
+  "real_estate": [
+    {
+      "symbol": "VNQ",
+      "name": "Vanguard Real Estate ETF",
+      "asset_class": "real_estate",
+      "region": "US",
+      "avg_volume": 4000000,
+      "aum": 35000000000,
+      "priority": 1
+    },
+    {
+      "symbol": "SCHH",
+      "name": "Schwab US REIT ETF",
+      "asset_class": "real_estate",
+      "region": "US",
+      "avg_volume": 1000000,
+      "aum": 8000000000,
+      "priority": 2
+    },
+    {
+      "symbol": "RWX",
+      "name": "SPDR Dow Jones International Real Estate ETF",
+      "asset_class": "real_estate",
+      "region": "international",
+      "avg_volume": 200000,
+      "aum": 1000000000,
+      "priority": 3
+    }
+  ],
+  "volatility": [
+    {
+      "symbol": "VIX",
+      "name": "CBOE Volatility Index",
+      "asset_class": "volatility",
+      "instrument_type": "index",
+      "priority": 1,
+      "note": "Index only - not tradeable directly"
+    },
+    {
+      "symbol": "UVXY",
+      "name": "ProShares Ultra VIX Short-Term Futures ETF",
+      "asset_class": "volatility",
+      "multiplier": "2x",
+      "direction": "long",
+      "avg_volume": 35000000,
+      "aum": 1000000000,
+      "priority": 1
+    },
+    {
+      "symbol": "SVXY",
+      "name": "ProShares Short VIX Short-Term Futures ETF",
+      "asset_class": "volatility",
+      "multiplier": "0.5x",
+      "direction": "short",
+      "avg_volume": 15000000,
+      "aum": 800000000,
+      "priority": 2
+    },
+    {
+      "symbol": "VXX",
+      "name": "iPath Series B S&P 500 VIX Short-Term Futures ETN",
+      "asset_class": "volatility",
+      "multiplier": "1x",
+      "direction": "long",
+      "avg_volume": 25000000,
+      "aum": 500000000,
+      "priority": 2,
+      "note": "Check if still trading"
+    }
+  ],
+  "style_factors": {
+    "size": [
+      {
+        "symbol": "IWF",
+        "name": "iShares Russell 1000 Growth ETF",
+        "asset_class": "equity",
+        "factor": "growth",
+        "size": "large_cap",
+        "avg_volume": 2000000,
+        "aum": 35000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "IWD",
+        "name": "iShares Russell 1000 Value ETF",
+        "asset_class": "equity",
+        "factor": "value",
+        "size": "large_cap",
+        "avg_volume": 1500000,
+        "aum": 25000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "IJH",
+        "name": "iShares Core S&P Mid-Cap ETF",
+        "asset_class": "equity",
+        "factor": "size",
+        "size": "mid_cap",
+        "avg_volume": 1500000,
+        "aum": 70000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "IJR",
+        "name": "iShares Core S&P Small-Cap ETF",
+        "asset_class": "equity",
+        "factor": "size",
+        "size": "small_cap",
+        "avg_volume": 3000000,
+        "aum": 65000000000,
+        "priority": 1
+      }
+    ],
+    "systematic_factors": [
+      {
+        "symbol": "MTUM",
+        "name": "iShares MSCI USA Momentum Factor ETF",
+        "asset_class": "equity",
+        "factor": "momentum",
+        "avg_volume": 1000000,
+        "aum": 15000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "QUAL",
+        "name": "iShares MSCI USA Quality Factor ETF",
+        "asset_class": "equity",
+        "factor": "quality",
+        "avg_volume": 800000,
+        "aum": 20000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "USMV",
+        "name": "iShares MSCI USA Min Vol Factor ETF",
+        "asset_class": "equity",
+        "factor": "low_volatility",
+        "avg_volume": 1500000,
+        "aum": 30000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "SIZE",
+        "name": "iShares MSCI USA Size Factor ETF",
+        "asset_class": "equity",
+        "factor": "size",
+        "avg_volume": 200000,
+        "aum": 2000000000,
+        "priority": 2
+      }
+    ],
+    "dividend": [
+      {
+        "symbol": "VYM",
+        "name": "Vanguard High Dividend Yield ETF",
+        "asset_class": "equity",
+        "factor": "dividend",
+        "avg_volume": 2000000,
+        "aum": 50000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "SCHD",
+        "name": "Schwab US Dividend Equity ETF",
+        "asset_class": "equity",
+        "factor": "dividend",
+        "avg_volume": 2500000,
+        "aum": 45000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "DVY",
+        "name": "iShares Select Dividend ETF",
+        "asset_class": "equity",
+        "factor": "dividend",
+        "avg_volume": 1000000,
+        "aum": 20000000000,
+        "priority": 2
+      }
+    ]
+  },
+  "thematic": {
+    "technology": [
+      {
+        "symbol": "ARKK",
+        "name": "ARK Innovation ETF",
+        "asset_class": "equity",
+        "theme": "innovation",
+        "avg_volume": 15000000,
+        "aum": 8000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "SKYY",
+        "name": "First Trust Cloud Computing ETF",
+        "asset_class": "equity",
+        "theme": "cloud_computing",
+        "avg_volume": 800000,
+        "aum": 5000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "HACK",
+        "name": "ETFMG Prime Cyber Security ETF",
+        "asset_class": "equity",
+        "theme": "cybersecurity",
+        "avg_volume": 500000,
+        "aum": 2000000000,
+        "priority": 2
+      },
+      {
+        "symbol": "BOTZ",
+        "name": "Global X Robotics & Artificial Intelligence ETF",
+        "asset_class": "equity",
+        "theme": "robotics_ai",
+        "avg_volume": 800000,
+        "aum": 2500000000,
+        "priority": 2
+      }
+    ],
+    "clean_energy": [
+      {
+        "symbol": "ICLN",
+        "name": "iShares Global Clean Energy ETF",
+        "asset_class": "equity",
+        "theme": "clean_energy",
+        "avg_volume": 3000000,
+        "aum": 5000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "PBW",
+        "name": "Invesco WilderHill Clean Energy ETF",
+        "asset_class": "equity",
+        "theme": "clean_energy",
+        "avg_volume": 1500000,
+        "aum": 1000000000,
+        "priority": 2
+      }
+    ]
+  },
+  "leveraged_inverse": {
+    "leveraged_long": [
+      {
+        "symbol": "TQQQ",
+        "name": "ProShares UltraPro QQQ",
+        "asset_class": "equity",
+        "leverage": "3x",
+        "direction": "long",
+        "underlying": "QQQ",
+        "avg_volume": 30000000,
+        "aum": 20000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "UPRO",
+        "name": "ProShares UltraPro S&P500",
+        "asset_class": "equity",
+        "leverage": "3x",
+        "direction": "long",
+        "underlying": "SPY",
+        "avg_volume": 8000000,
+        "aum": 3000000000,
+        "priority": 2
+      }
+    ],
+    "inverse": [
+      {
+        "symbol": "SH",
+        "name": "ProShares Short S&P500",
+        "asset_class": "equity",
+        "leverage": "1x",
+        "direction": "short",
+        "underlying": "SPY",
+        "avg_volume": 5000000,
+        "aum": 2000000000,
+        "priority": 1
+      },
+      {
+        "symbol": "PSQ",
+        "name": "ProShares Short QQQ",
+        "asset_class": "equity",
+        "leverage": "1x",
+        "direction": "short",
+        "underlying": "QQQ",
+        "avg_volume": 2000000,
+        "aum": 500000000,
+        "priority": 2
+      },
+      {
+        "symbol": "SQQQ",
+        "name": "ProShares UltraPro Short QQQ",
+        "asset_class": "equity",
+        "leverage": "3x",
+        "direction": "short",
+        "underlying": "QQQ",
+        "avg_volume": 20000000,
+        "aum": 1500000000,
+        "priority": 1
+      }
+    ]
+  },
+  "strategy_recommendations": {
+    "cross_sectional_momentum": [
+      "SPY", "QQQ", "XLK", "XLF", "XLE", "XLV", "IWM", "EFA", "EEM"
+    ],
+    "sector_rotation": [
+      "XLK", "XLF", "XLE", "XLV", "XLI", "XLP", "XLY", "XLU", "XLB", "XLRE"
+    ],
+    "pairs_trading": [
+      "SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "GLD", "USO"
+    ],
+    "market_regime_detection": [
+      "VIX", "UVXY", "TLT", "GLD", "UUP", "HYG", "LQD", "EEM"
+    ],
+    "global_macro": [
+      "SPY", "EFA", "EEM", "TLT", "GLD", "USO", "UUP", "FXE", "FXY", "VIX"
+    ],
+    "risk_on_off": [
+      "SPY", "QQQ", "IWM", "EEM", "HYG", "TLT", "GLD", "VIX", "UVXY"
+    ]
+  }
+}

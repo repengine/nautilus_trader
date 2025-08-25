@@ -88,3 +88,7 @@ COMMENT ON TABLE ml_strategy_state IS 'Current strategy state for recovery and m
 -- Grant permissions
 GRANT ALL ON ALL TABLES IN SCHEMA ml TO postgres;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA ml TO postgres;
+-- DEPRECATED: Do not use this file to provision tables.
+-- Canonical DDL is under ml/stores/migrations/*. These migrations create
+-- partitioned tables in the public schema with standardized types.
+-- This file is retained for historical reference only.

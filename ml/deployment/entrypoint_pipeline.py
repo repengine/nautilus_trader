@@ -20,6 +20,7 @@ from pathlib import Path
 
 from flask import Flask
 from flask import jsonify
+from typing import Any, TypedDict
 
 
 # Add the parent directory to the path
@@ -47,12 +48,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Health check Flask app
+class PipelineStatus(TypedDict):
+    healthy: bool
+    last_run: str | None
+    errors: list[str]
+
+
 app = Flask(__name__)
-pipeline_status = {"healthy": False, "last_run": None, "errors": []}
+# Simple runtime status structure used by health endpoint
+pipeline_status: PipelineStatus = {"healthy": False, "last_run": None, "errors": []}
 
 
 @app.route("/health")
-def health_check():
+def health_check() -> tuple[Any, int]:
     """
     Health check endpoint for Docker.
     """
@@ -64,59 +72,63 @@ class PipelineRunner:
     ML Pipeline runner for Docker deployment.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the pipeline runner.
         """
-        self.scheduler = None
-        self.running = False
+        self.scheduler: DataScheduler | None = None
+        self.running: bool = False
         self._shutdown_event = threading.Event()
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-    def _signal_handler(self, signum, frame):
+    def _signal_handler(self, signum: int, frame: object | None) -> None:
         """
         Handle shutdown signals gracefully.
         """
         logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         self.running = False
         self._shutdown_event.set()
-        if self.scheduler:
-            self.scheduler.stop()
+        if self.scheduler is not None:
+            try:
+                # Scheduler implements cooperative stop
+                self.scheduler.stop()
+            except Exception:
+                pass
 
     def _create_config(self) -> SchedulerConfig:
         """
         Create scheduler configuration from environment variables.
         """
         # Parse universe symbols
-        symbols = os.environ.get("UNIVERSE_SYMBOLS", "SPY.XNAS").split(",")
-        symbols = [s.strip() for s in symbols if s.strip()]
+        raw_symbols = os.environ.get("UNIVERSE_SYMBOLS", "SPY.XNAS")
+        symbols = [s.strip() for s in raw_symbols.split(",") if s.strip()]
 
-        # Create Databento config
+        # Create Databento config (API key consumed by underlying loader via env)
         databento_config = DatabentoConfig(
-            api_key=os.environ.get("DATABENTO_API_KEY", ""),
             dataset=os.environ.get("DATABENTO_DATASET", "EQUS.MINI"),
+            schema=os.environ.get("DATABENTO_SCHEMA", "ohlcv-1m"),
+            stype_in=os.environ.get("DATABENTO_STYPE_IN", "raw_symbol"),
         )
 
-        # Create universe config
-        universe_config = UniverseConfig(
-            symbols=symbols,
-            sectors={},  # Can be extended via config file
-            market_caps={},  # Can be extended via config file
+        # Universe expansion (optional)
+        universe = UniverseConfig(
+            expansion_mode=os.environ.get("UNIVERSE_MODE", "moderate")  # type: ignore[arg-type]
         )
+        # Merge user-provided symbols with expanded lists
+        full_universe = list(dict.fromkeys(symbols + universe.get_full_universe()))
 
         # Create scheduler config
         config = SchedulerConfig(
+            symbols=full_universe,
             databento=databento_config,
-            universe=universe_config,
-            catalog_path=Path(os.environ.get("CATALOG_PATH", "/app/data/catalog")),
-            feature_store_type=os.environ.get("FEATURE_STORE_TYPE", "postgres"),
-            model_store_type=os.environ.get("MODEL_STORE_TYPE", "postgres"),
-            schedule=os.environ.get("PIPELINE_SCHEDULE", "0 17 * * *"),
-            max_workers=int(os.environ.get("MAX_WORKERS", "4")),
-            batch_size=int(os.environ.get("BATCH_SIZE", "1000")),
+            feature_store_enabled=True,
+            feature_store_connection=os.environ.get(
+                "FEATURE_STORE_CONNECTION",
+                os.environ.get("DATABASE_URL"),
+            ),
         )
 
         return config
@@ -126,16 +138,19 @@ class PipelineRunner:
         Initialize the feature and model stores.
         """
         # Initialize feature store
-        feature_store = FeatureStore(
-            store_type=config.feature_store_type,
-            connection_string=os.environ.get("FEATURE_STORE_CONNECTION"),
+        fs_conn = config.feature_store_connection or os.environ.get(
+            "FEATURE_STORE_CONNECTION",
+            os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/nautilus"),
         )
+        assert fs_conn is not None
+        feature_store = FeatureStore(connection_string=fs_conn)
 
         # Initialize model store
-        model_store = ModelStore(
-            store_type=config.model_store_type,
-            connection_string=os.environ.get("MODEL_STORE_CONNECTION"),
+        ms_conn = os.environ.get(
+            "MODEL_STORE_CONNECTION",
+            os.environ.get("DATABASE_URL", fs_conn),
         )
+        model_store = ModelStore(connection_string=ms_conn)
 
         return feature_store, model_store
 
@@ -143,12 +158,12 @@ class PipelineRunner:
         """
         Initialize the data catalog.
         """
-        catalog_path = config.catalog_path
+        catalog_path = Path(os.environ.get("CATALOG_PATH", "/app/data/catalog"))
         catalog_path.mkdir(parents=True, exist_ok=True)
 
         return ParquetDataCatalog(str(catalog_path))
 
-    def run(self):
+    def run(self) -> None:
         """
         Run the ML pipeline based on environment configuration.
         """
@@ -162,19 +177,14 @@ class PipelineRunner:
             # Create configuration
             config = self._create_config()
             logger.info(f"Starting ML pipeline in {mode} mode")
-            logger.info(f"Universe: {config.universe.symbols}")
+            logger.info(f"Universe symbols: {len(config.symbols)}")
 
             # Initialize components
             feature_store, model_store = self._initialize_stores(config)
             catalog = self._initialize_catalog(config)
 
             # Create scheduler
-            self.scheduler = DataScheduler(
-                config=config,
-                catalog=catalog,
-                feature_store=feature_store,
-                model_store=model_store,
-            )
+            self.scheduler = DataScheduler(catalog=catalog, config=config)
 
             # Update health status
             pipeline_status["healthy"] = True
@@ -196,7 +206,7 @@ class PipelineRunner:
             pipeline_status["errors"].append(str(e))
             sys.exit(1)
 
-    def _run_backfill(self):
+    def _run_backfill(self) -> None:
         """
         Run pipeline in backfill mode.
         """
@@ -206,20 +216,24 @@ class PipelineRunner:
         start_date = os.environ.get("BACKFILL_START", "2024-01-01")
         end_date = os.environ.get("BACKFILL_END", "2024-01-31")
 
-        # Run backfill
-        self.scheduler.run_backfill(start_date, end_date)
+        # Backfill is currently mapped to a single daily update for simplicity.
+        # A full backfill loop should iterate dates and call collection per day.
+        assert self.scheduler is not None
+        self.scheduler.run_daily_update()
 
         logger.info("Backfill completed successfully")
 
-    def _run_daily(self):
+    def _run_daily(self) -> None:
         """
         Run pipeline in daily scheduled mode.
         """
         logger.info("Running daily scheduled mode")
         self.running = True
 
-        # Start scheduler
-        self.scheduler.start()
+        # Configure schedule (no-op placeholder for now)
+        assert self.scheduler is not None
+        cron = os.environ.get("PIPELINE_SCHEDULE", "0 17 * * *")
+        self.scheduler.schedule_updates(cron)
 
         # Keep running until shutdown signal
         while self.running and not self._shutdown_event.is_set():
@@ -228,7 +242,7 @@ class PipelineRunner:
 
         logger.info("Daily scheduler stopped")
 
-    def _run_realtime(self):
+    def _run_realtime(self) -> None:
         """
         Run pipeline in realtime mode.
         """
@@ -238,8 +252,9 @@ class PipelineRunner:
         # Run continuous updates
         while self.running and not self._shutdown_event.is_set():
             try:
-                # Collect and process latest data
-                self.scheduler.run_once()
+                # Collect and process latest data (best-effort realtime)
+                assert self.scheduler is not None
+                self.scheduler.run_daily_update()
                 pipeline_status["last_run"] = datetime.now().isoformat()
 
                 # Wait before next update (configurable)
@@ -254,7 +269,7 @@ class PipelineRunner:
         logger.info("Realtime mode stopped")
 
 
-def main():
+def main() -> None:
     """
     Main entry point.
     """

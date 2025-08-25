@@ -1,9 +1,10 @@
--- PostgreSQL schema for ML feature storage
--- This table lives in the same database as Nautilus tables (bar, quote, trade)
--- ensuring unified data access for training and inference
+-- DEPRECATED: See ml/stores/migrations/001_stores_schema.sql for the canonical
+-- partitioned JSONB-based feature storage schema. This file is retained only
+-- for historical reference and should not be used to provision databases.
 
 -- Feature values table
 -- Stores computed ML features alongside Nautilus market data
+-- Legacy example (array-based) — do NOT use; provided for reference only.
 CREATE TABLE IF NOT EXISTS ml_feature_values (
     instrument_id VARCHAR(100) NOT NULL,
     ts_event BIGINT NOT NULL,              -- Nautilus convention: nanoseconds since epoch

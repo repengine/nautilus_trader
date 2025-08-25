@@ -18,7 +18,7 @@ from ml._imports import lgb
 from ml._imports import pl
 from ml.config.lightgbm import LightGBMTrainingConfig
 from ml.training.base import BaseMLTrainer
-from ml.training.model_exporter import ModelExportMixin
+from ml.training.export import ModelExportMixin
 
 
 if TYPE_CHECKING:
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     import polars as pl
 
 
-class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):  # type: ignore[misc]
+class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
     def __init__(self, config: LightGBMTrainingConfig) -> None:
         super().__init__(config)
         self._lgb_config: LightGBMTrainingConfig = config

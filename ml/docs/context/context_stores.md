@@ -2,59 +2,91 @@
 
 ## Executive Summary
 
-The Nautilus Trader ML stores infrastructure implements a sophisticated three-tier storage architecture consisting of FeatureStore, ModelStore, and StrategyStore. This system provides mandatory data persistence for all ML actors with advanced PostgreSQL partitioning, comprehensive data processing pipelines, and sophisticated cache implementations. The architecture enforces strict adherence to Nautilus conventions while delivering enterprise-grade performance and reliability.
+The Nautilus Trader ML stores infrastructure implements a sophisticated four-tier storage architecture consisting of FeatureStore, ModelStore, StrategyStore, and DataStore. This system provides mandatory data persistence for all ML actors with advanced PostgreSQL partitioning, comprehensive data processing pipelines, contract validation, and event tracking. The architecture enforces strict adherence to Nautilus conventions while delivering enterprise-grade performance and reliability.
 
 ## Core Architecture
 
-### The Store Triad
+### The Store Quartet
 
-The ML infrastructure is built around three mandatory stores that form the backbone of the data persistence layer:
+The ML infrastructure is built around four stores that form the backbone of the data persistence layer:
 
 ```python
-# Every ML actor MUST use these three stores
+# Every ML actor MUST use these three mandatory stores
 class BaseMLInferenceActor:
     def __init__(self):
         self.feature_store = FeatureStore(connection_string)
         self.model_store = ModelStore(persistence_config)
         self.strategy_store = StrategyStore(persistence_config)
+
+# DataStore provides unified facade with validation
+class DataStore:
+    def __init__(self, registry, connection_string):
+        self.feature_store = FeatureStore(connection_string)
+        self.model_store = ModelStore(connection_string) 
+        self.strategy_store = StrategyStore(connection_string)
+        self.data_processor = DataProcessor(connection_string)
 ```
 
-#### FeatureStore (`/home/nate/projects/nautilus_trader/ml/stores/feature_store.py`)
+#### FeatureStore (`ml/stores/feature_store.py`)
 
 - **Purpose**: Unified feature computation and storage ensuring training/inference parity
 - **Key Capability**: Uses same FeatureEngineer for both batch (historical) and online (live) computation
 - **Storage**: PostgreSQL table `ml_feature_values` with time-based partitioning
 - **Schema**: Feature values stored as JSONB with instrument_id, ts_event, ts_init (nanoseconds)
+- **Pipeline Integration**: Supports PipelineSpec for declarative feature transformations
+- **Data Registry**: Lazy initialization of DataRegistry for event emission
 
-#### ModelStore (`/home/nate/projects/nautilus_trader/ml/stores/model_store.py`)
+#### ModelStore (`ml/stores/model_store.py`)
 
 - **Purpose**: Model prediction storage with performance tracking
 - **Key Capability**: Batch writing with auto-flushing, latency tracking, confidence scoring
 - **Storage**: PostgreSQL table `ml_model_predictions` with time-based partitioning
 - **Schema**: Predictions with features_used, inference_time_ms, confidence metrics
+- **Persistence**: Supports both connection_string and PersistenceConfig initialization
 
-#### StrategyStore (`/home/nate/projects/nautilus_trader/ml/stores/strategy_store.py`)
+#### StrategyStore (`ml/stores/strategy_store.py`)
 
 - **Purpose**: Strategy signal storage with risk metrics and execution parameters
 - **Key Capability**: Signal attribution, risk tracking, execution parameter calculation
 - **Storage**: PostgreSQL table `ml_strategy_signals` with time-based partitioning
 - **Schema**: Signals with model_predictions mapping, risk_metrics, execution_params
 
+#### DataStore (`ml/stores/data_store.py`)
+
+- **Purpose**: Typed read/write facade with contract validation and event emission
+- **Key Capability**: Schema validation, quality reporting, watermark tracking
+- **Features**: 
+  - Preflight schema checks before data processing
+  - Contract-based validation with enforcement modes (strict, lenient, monitor_only)
+  - Automatic event emission to DataRegistry
+  - Schema migration support with dual-write windows
+  - Quality scoring and violation tracking
+
 ### Base Classes and Data Models
 
-Located in `/home/nate/projects/nautilus_trader/ml/stores/base.py`:
+Located in `ml/stores/base.py`:
 
 ```python
 @dataclass
 class FeatureData(Data):
+    """Nautilus-compatible feature data class."""
     feature_set_id: str
     instrument_id: str
     values: dict[str, float]
     _ts_event: int  # nanoseconds
     _ts_init: int   # nanoseconds
+    
+    @property
+    def ts_event(self) -> int:
+        return self._ts_event
+    
+    @property
+    def ts_init(self) -> int:
+        return self._ts_init
 
 @dataclass
 class ModelPrediction(Data):
+    """Store model predictions and inference metadata."""
     model_id: str
     instrument_id: str
     prediction: float
@@ -66,6 +98,7 @@ class ModelPrediction(Data):
 
 @dataclass
 class StrategySignal(Data):
+    """Store strategy decisions and execution signals."""
     strategy_id: str
     instrument_id: str
     signal_type: str  # 'BUY', 'SELL', 'HOLD'
@@ -75,9 +108,29 @@ class StrategySignal(Data):
     execution_params: dict[str, Any]
     _ts_event: int
     _ts_init: int
+
+class BaseStore(ABC):
+    """Abstract base class for all store implementations."""
+    @abstractmethod
+    def write_batch(self, data: list[Any]) -> None: ...
+    @abstractmethod
+    def read_range(self, start_ns: int, end_ns: int, instrument_id: str | None = None) -> pd.DataFrame: ...
+    @abstractmethod
+    def flush(self) -> None: ...
+    @abstractmethod
+    def get_latest(self, instrument_id: str, limit: int = 1) -> pd.DataFrame: ...
+    @abstractmethod
+    def get_statistics(self, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, Any]: ...
+
+class DummyStore:
+    """Dummy store for testing when database is not available."""
+    # Accepts all method calls but doesn't persist anything
 ```
 
 ## Database Schema Architecture
+
+**Important**: Migrations under `ml/stores/migrations/` are the canonical source of schema.
+Legacy SQL files under `ml/schema/` are retained for reference only.
 
 ### Partitioning Strategy
 
@@ -98,14 +151,17 @@ All ML tables use sophisticated time-based partitioning managed by PostgreSQL na
 
 ### Migration System
 
-Located in `/home/nate/projects/nautilus_trader/ml/stores/migrations/`:
+Located in `ml/stores/migrations/`:
 
 #### 001_stores_schema.sql
 
 - Creates core partitioned tables with helper functions
 - Establishes 36 months of initial partitions (2024-2026)
 - Defines optimized indexes for time-series queries
-- Creates metadata tracking tables (lineage, computation stats, performance)
+- Creates metadata tracking tables:
+  - `ml_feature_computation_stats` - Feature computation performance
+  - `ml_feature_lineage` - Feature transformation tracking
+  - `ml_strategy_performance` - Strategy signal statistics
 
 #### 002_auto_partitioning.sql
 
@@ -120,6 +176,23 @@ Located in `/home/nate/projects/nautilus_trader/ml/stores/migrations/`:
 - Instrument metadata with trading specifications
 - Position and risk tracking infrastructure
 - Statistics tables for outlier detection
+
+#### 004_data_registry.sql
+
+- Data registry tables for manifest and contract storage
+- Event tracking and watermark management
+- Dataset versioning and lineage
+
+#### 005_schema_hardening.sql & 005_views.sql
+
+- Schema hardening and optimization
+- Materialized views for performance
+- Additional indexes and constraints
+
+#### 005a_feature_values_dedupe.sql
+
+- Deduplication logic for feature values
+- Ensures data integrity and prevents duplicates
 
 ### Indexing Strategy
 
@@ -139,11 +212,11 @@ CREATE INDEX idx_ml_strategy_signals_type
     ON ml_strategy_signals (signal_type);
 ```
 
-## Sophisticated Data Processing Pipeline
+## Data Processing Pipeline
 
 ### DataProcessor Architecture
 
-The DataProcessor (`/home/nate/projects/nautilus_trader/ml/stores/data_processor.py`) implements a comprehensive data processing pipeline with quality tracking:
+The DataProcessor (`ml/stores/data_processor.py`) implements a comprehensive data processing pipeline with quality tracking:
 
 #### Quality Flags System
 
@@ -162,10 +235,27 @@ class QualityFlags(IntFlag):
 
 #### Processing Stages
 
-1. **Market Data Processing**: Timestamp validation, outlier detection, crossed market correction
-2. **Feature Processing**: NaN/Inf handling, range validation, drift detection, lineage tracking
-3. **Prediction Processing**: Calibration, confidence adjustment, validation
-4. **Signal Processing**: Risk adjustment, execution parameter calculation, position sizing
+1. **Market Data Processing**: 
+   - Timestamp validation and correction
+   - Outlier detection using configurable thresholds
+   - Crossed market detection and correction
+   - Staleness checking (default 300 seconds)
+
+2. **Feature Processing**: 
+   - NaN/Inf handling with imputation
+   - Range validation and normalization
+   - Drift detection and monitoring
+   - Lineage tracking for transformations
+
+3. **Prediction Processing**: 
+   - Confidence calibration
+   - Prediction validation
+   - Feature attribution tracking
+
+4. **Signal Processing**: 
+   - Risk metric calculation
+   - Execution parameter computation
+   - Position sizing logic
 
 ### Processing Metrics
 
@@ -181,11 +271,51 @@ class ProcessingMetrics:
     quality_score: float = 1.0
 ```
 
+### Metadata Caching
+
+The DataProcessor implements intelligent caching for:
+- Instrument metadata
+- Statistical distributions
+- Quality metrics
+- With configurable TTL and LRU eviction
+
+## Live Data Recording
+
+### LiveDataRecorder
+
+Located in `ml/stores/live_data_recorder.py`:
+
+The LiveDataRecorder automatically captures all live market data flowing through the system:
+
+```python
+class LiveDataRecorder:
+    """Automatically records all live data with validation and event tracking."""
+    
+    def __init__(
+        self,
+        data_store: DataStore,
+        data_registry: DataRegistry,
+        buffer_size: int = 1000,
+        flush_interval_ms: int = 1000,
+    ):
+        # Intercepts and records quotes, trades, bars
+        # Automatic buffering and periodic flushing
+        # Event emission and watermark tracking
+```
+
+#### Key Features
+
+- **Automatic Interception**: Captures all market data types (quotes, trades, bars)
+- **Buffered Writing**: Configurable buffer size with periodic flushing
+- **Event Tracking**: Emits events to DataRegistry for observability
+- **Async Support**: Non-blocking recording with async flush tasks
+- **Metadata Tracking**: Records instrument IDs, timestamps, and counts
+
 ## Advanced Partitioning Management
 
 ### PartitionManager
 
-Located in `/home/nate/projects/nautilus_trader/ml/stores/partition_manager.py`:
+Located in `ml/stores/partition_manager.py`:
 
 #### Key Features
 
@@ -292,6 +422,62 @@ perf = strategy_store.get_strategy_performance(
 )
 # Returns: signal counts by type, strength statistics
 ```
+
+## DataStore Contract Validation
+
+### Validation Framework
+
+The DataStore provides comprehensive contract-based validation:
+
+```python
+# Preflight schema validation
+success, error, details = store.preflight_check(
+    dataset_id="bars_eurusd_1m",
+    data=df,
+    strict=True
+)
+
+# Contract validation with quality reporting
+report = store.validate_batch(
+    dataset_id="bars_eurusd_1m",
+    data=df,
+    strict_mode=False
+)
+```
+
+### Validation Rules
+
+DataStore supports multiple validation rule types:
+
+```python
+class ValidationRuleType(Enum):
+    TYPE_CHECK = "type_check"      # Schema type validation
+    RANGE = "range"                # Min/max value constraints
+    UNIQUENESS = "uniqueness"       # Primary key constraints
+    MONOTONICITY = "monotonicity"   # Timestamp ordering
+    NULLABILITY = "nullability"     # Required field checks
+    LATENESS = "lateness"          # Data freshness validation
+```
+
+### Quality Reporting
+
+```python
+@dataclass
+class QualityReport:
+    dataset_id: str
+    total_records: int
+    passed_records: int
+    failed_records: int
+    quality_score: float  # 0-1 score
+    violations: list[ValidationViolation]
+    validation_time_ms: float
+```
+
+### Enforcement Modes
+
+- **strict**: Reject any data with violations
+- **lenient**: Log warnings but allow data through
+- **monitor_only**: Track violations without blocking
 
 ## Cache Implementation
 
@@ -442,13 +628,15 @@ elif self.clock and self._should_flush_by_time():
 
 ### Completed Components ✅
 
-1. **Core Store Classes**: FeatureStore, ModelStore, StrategyStore fully implemented
-2. **Database Schema**: Complete migration system with partitioning
-3. **Data Processing**: Comprehensive DataProcessor with quality tracking
-4. **Partition Management**: Automatic creation, cleanup, and monitoring
-5. **Integration Layer**: Registry integration, persistence manager support
-6. **Performance Optimizations**: Batch writing, caching, indexing
-7. **Documentation**: Comprehensive architecture documentation
+1. **Core Store Classes**: FeatureStore, ModelStore, StrategyStore, DataStore fully implemented
+2. **Database Schema**: Complete migration system with partitioning (7 migration files)
+3. **Data Processing**: Comprehensive DataProcessor with quality tracking and validation
+4. **Contract Validation**: DataStore with preflight checks, quality reporting, enforcement modes
+5. **Live Recording**: LiveDataRecorder for automatic market data capture
+6. **Partition Management**: Automatic creation, cleanup, and monitoring
+7. **Integration Layer**: DataRegistry integration, PersistenceConfig support
+8. **Performance Optimizations**: Batch writing, intelligent caching, optimized indexing
+9. **Event Tracking**: Full event emission and watermark management
 
 ### Production Readiness ✅
 
@@ -456,13 +644,23 @@ elif self.clock and self._should_flush_by_time():
 - **Error Handling**: Comprehensive exception handling and logging
 - **Testing**: Unit tests covering core functionality
 - **Configuration**: Environment-based configuration support
-- **Monitoring**: Health checks and statistics endpoints
+- **Monitoring**: Health checks, statistics endpoints, Prometheus metrics
+- **Schema Migration**: Support for dual-write windows during migrations
 
-### Missing Components ❌
+### Advanced Features ✅
 
-1. **Streaming Ingestion**: Real-time market data integration
+1. **Contract-Based Validation**: Full implementation in DataStore
+2. **Quality Scoring**: Comprehensive quality metrics and reporting
+3. **Event-Driven Architecture**: DataRegistry integration for observability
+4. **Async Support**: LiveDataRecorder with async flush tasks
+5. **Schema Evolution**: Migration windows and version tracking
+
+### Planned Enhancements 🔄
+
+1. **Streaming Ingestion**: Real-time market data integration (partially complete via LiveDataRecorder)
 2. **A/B Testing Framework**: Model comparison infrastructure
 3. **Advanced Analytics**: Complex cross-store queries and aggregations
+4. **Distributed Processing**: Horizontal scaling support
 
 ### Implemented in Other Modules ✅
 
@@ -634,17 +832,20 @@ graph TB
 
 ## Conclusion
 
-The ML stores infrastructure provides a production-ready, scalable foundation for machine learning data management in Nautilus Trader. The sophisticated partitioning system, comprehensive data processing pipeline, and strict adherence to Nautilus conventions ensure both performance and reliability.
+The ML stores infrastructure provides a production-ready, scalable foundation for machine learning data management in Nautilus Trader. The four-store architecture (FeatureStore, ModelStore, StrategyStore, DataStore), sophisticated partitioning system, contract-based validation, and comprehensive data processing ensure enterprise-grade reliability and performance.
 
 Key strengths:
 
 - **Mandatory Integration**: All ML actors must use the three-store architecture
+- **Contract Validation**: DataStore provides schema validation, quality scoring, and enforcement modes
 - **Sophisticated Partitioning**: Automatic partition management with PostgreSQL native features
-- **Comprehensive Processing**: Quality tracking, validation, and enrichment pipelines
-- **Performance Optimized**: Batch writing, intelligent caching, and optimized indexing
-- **Production Ready**: Comprehensive error handling, monitoring, and configuration support
+- **Comprehensive Processing**: Quality tracking, validation, enrichment, and event emission
+- **Performance Optimized**: Batch writing, intelligent caching, optimized indexing, async support
+- **Production Ready**: Complete error handling, monitoring, Prometheus metrics, and configuration
+- **Event-Driven**: Full integration with DataRegistry for observability and watermark tracking
+- **Live Recording**: Automatic capture of all market data with LiveDataRecorder
 
-The implementation successfully balances flexibility with performance, providing a robust foundation for both research and production ML trading systems.
+The implementation successfully provides a robust, validated, and observable foundation for both research and production ML trading systems, with comprehensive data quality controls and full lifecycle management.
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection

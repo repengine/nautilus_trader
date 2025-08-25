@@ -17,12 +17,12 @@ The `ml/features/` directory contains a sophisticated, production-ready feature 
 ```
 ml/features/
 ├── __init__.py              # Public API exports
-├── engineering.py           # Core feature engineering classes (2,436 lines)
-├── validation.py           # Parity validation system (680 lines)
+├── engineering.py           # Core feature engineering classes (2,452 lines)
+├── validation.py           # Parity validation system
 ├── pipeline.py             # Declarative pipeline framework (508 lines)
-├── microstructure.py       # L2/L3 microstructure features (948 lines)
-├── feature_export.py       # Registry integration utilities (53 lines)
-└── materialize_cli.py      # Feature materialization CLI (109 lines)
+├── microstructure.py       # L2/L3 microstructure features
+├── feature_export.py       # Registry integration utilities
+└── materialize_cli.py      # Feature materialization CLI
 ```
 
 ## Core Components
@@ -63,9 +63,11 @@ features = engineer.calculate_features(
 Manages stateful Nautilus indicators for consistent calculations:
 
 - **Indicators Supported**: SMA, EMA, RSI, Bollinger Bands, ATR, MACD
-- **State Management**: Price history with `PRICE_HISTORY_MAXLEN` limit
-- **Dual Update**: Both Bar objects and raw OHLCV values
-- **Vectorized Batch**: `update_batch_vectorized()` for training
+- **State Management**: Price history with `PRICE_HISTORY_MAXLEN` limit (default 1000)
+- **Dual Update Methods**: 
+  - `update_from_bar(bar)`: Updates from Nautilus Bar objects
+  - `update_from_values()`: Updates from raw OHLCV values (hot path convenience)
+- **Vectorized Batch**: `update_batch_vectorized()` for efficient training data processing
 
 ### 3. FeatureConfig Class
 
@@ -92,40 +94,52 @@ class FeatureConfig(MLFeatureConfig):
 
 ### 1. Price-Based Features
 
-- **Returns**: Multiple periods (1, 5, 10, 20 bars)
-- **Momentum**: Same as returns for consistency
+- **Returns**: Multiple periods (default: 1, 5, 10, 20 bars)
+- **Momentum**: Multiple periods (default: 5, 10, 20 bars)
 - **Volatility**: Rolling standard deviation (5, 20 periods)
+- **High-Low Spread**: Normalized by close price
 
 ### 2. Volume Features
 
-- **Volume Ratios**: Current volume vs moving averages
+- **Volume Ratios**: Current volume vs moving averages (default: 5, 10, 20 periods)
 - **Normalization**: Against configurable MA periods
 
 ### 3. Technical Indicators
 
-- **RSI**: Normalized to [-1, 1] range for ML
-- **Bollinger Bands**: Width and position metrics
+- **RSI**: Normalized to [-1, 1] range from Nautilus [0, 1] for ML compatibility
+- **RSI Thresholds**: Overbought (>70) and oversold (<30) binary indicators
+- **Bollinger Bands**: Width (upper-lower)/middle and position within bands
 - **ATR**: Normalized by current price
-- **EMA Cross**: Fast/slow EMA relationships
-- **MACD**: Line, signal, and difference
-- **Price Position**: Location within 20-day range
+- **EMA Features**: 
+  - Fast EMA distance from price
+  - Slow EMA distance from price
+  - EMA cross (fast-slow)/slow
+- **MACD**: Line, signal, and difference (all normalized by price)
+- **Price Position**: Location within 20-day high-low range
 
 ### 4. Microstructure Features (L2/L3)
 Advanced order book and trade flow analysis:
 
-#### L2 Order Book Features
+#### L2 Order Book Features (when include_microstructure=True)
 
-- **Spread Metrics**: Basic, weighted, effective spreads
-- **Imbalance**: Level-wise and weighted imbalances
-- **Depth Analysis**: Concentration, VWAP, slope
-- **Shape Features**: Skewness, kurtosis, liquidity zones
+- **Spread Metrics**: 
+  - `spread_mean`: Average spread over lookback window
+  - `spread_std`: Spread standard deviation
+  - `spread_relative`: Relative spread normalized by price
+- **Size Imbalance**:
+  - `size_imbalance_mean`: Average bid-ask size imbalance
+  - `size_imbalance_std`: Imbalance volatility
+- **Mid-Price Dynamics**:
+  - `mid_return_std`: Mid-price return volatility
+  - `mid_return_autocorr`: Mid-price return autocorrelation
 
-#### L3 Trade Flow Features
+#### L3 Trade Flow Features (when include_trade_flow=True)
 
-- **Trade Imbalance**: Volume, dollar, count imbalances
-- **VWAP Features**: Price deviation, variance, sided VWAP
-- **Intensity**: Trade rate, clustering, size statistics
-- **Price Impact**: Kyle's lambda, temporary vs permanent
+- **Trade Flow Metrics**:
+  - `trade_flow_imbalance`: Buy-sell volume imbalance
+  - `vwap`: Volume-weighted average price
+  - `trade_intensity`: Trading rate normalized by average
+  - `avg_price_impact`: Average price impact per trade
 
 ## Hot Path Optimizations
 
@@ -198,11 +212,39 @@ Comprehensive validation ensuring identical results between batch and online mod
 
 ### Declarative Transform System
 
+The pipeline framework provides a declarative way to define feature transformations with automatic schema computation and data requirements gating.
+
+#### Canonical Source of Feature Names
+The ordered feature names and pipeline signature are derived from the declarative pipeline (`PipelineRunner`) built from `FeatureConfig`. To avoid drift:
+- `FeatureConfig.get_feature_names()` delegates to a `PipelineRunner` 
+- `FeatureEngineer.generate_feature_manifest()` uses the same path
+- This ensures manifests, stores, and training use identical schemas
+
+#### Pipeline Building
+```python
+# Helper function builds pipeline from config
+def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
+    transforms = [
+        TransformSpec(name="returns", params={"periods": cfg.return_periods}),
+        TransformSpec(name="momentum", params={"periods": cfg.momentum_periods}),
+        TransformSpec(name="volatility", params={}),
+        TransformSpec(name="volume_ratio", params={"periods": cfg.volume_ma_periods}),
+        TransformSpec(name="core_indicators", params={}),
+    ]
+    if cfg.include_microstructure:
+        transforms.append(TransformSpec(name="microstructure", params={}))
+    if cfg.include_trade_flow:
+        transforms.append(TransformSpec(name="trade_flow", params={}))
+    return PipelineSpec(transforms=transforms)
+```
+
+#### Core Classes
 ```python
 @dataclass
 class PipelineSpec:
     transforms: list[TransformSpec]
 
+@dataclass
 class TransformSpec:
     name: str
     params: dict[str, Any]
@@ -210,9 +252,24 @@ class TransformSpec:
 
 ### Transform Catalog
 
-- **Core Transforms**: returns, momentum, volatility, volume_ratio, core_indicators
-- **Advanced Transforms**: microstructure, trade_flow, keltner, obv
-- **TFT Transforms**: calendar, event_schedule, macro_indicators, static_covariates
+Core transforms (always available):
+- **returns**: Price returns over configurable periods
+- **momentum**: Price momentum indicators
+- **volatility**: Rolling volatility calculations
+- **volume_ratio**: Volume relative to moving averages
+- **core_indicators**: RSI, Bollinger Bands, ATR, EMA, MACD indicators
+
+Advanced transforms (require L1_L2 data):
+- **microstructure**: Order book spread, imbalance, and depth features
+- **trade_flow**: Trade flow imbalance, VWAP, intensity metrics
+- **keltner**: Keltner channel width and position
+- **obv**: On-Balance Volume normalized
+
+TFT-specific transforms:
+- **calendar**: Time-based features with cyclic/fourier/onehot encoding
+- **event_schedule**: Earnings, Fed meetings, economic releases, options expiry
+- **macro_indicators**: VIX, DXY, treasury yields, term spread, fed funds rate
+- **static_covariates**: Instrument metadata (tick size, lot size, exchange, etc.)
 
 ### Data Requirements Gating
 
@@ -267,32 +324,42 @@ Comprehensive Prometheus metrics:
 ### Completed Features ✅
 
 - [x] Core technical indicators (RSI, BB, ATR, EMA, MACD)
-- [x] Price and volume features
+- [x] Price returns and momentum features
+- [x] Volume ratio features
+- [x] Volatility calculations
 - [x] Perfect parity validation system
-- [x] Hot/cold path separation
-- [x] Pre-allocated online processing
+- [x] Hot/cold path separation with zero-allocation
+- [x] Pre-allocated feature buffers for online processing
 - [x] Comprehensive configuration validation
-- [x] L2/L3 microstructure features
+- [x] Simplified L2/L3 microstructure features for hot path
+- [x] Simplified trade flow features for hot path
 - [x] Pipeline framework with transform catalog
-- [x] Registry integration
-- [x] Performance validation
-- [x] Metrics integration
-- [x] FeatureStore integration via DataScheduler
-- [x] TFTDatasetBuilder with dual-source support (FeatureStore/direct)
+- [x] Feature manifest generation and registry integration
+- [x] Performance validation with latency benchmarks
+- [x] Feature quality validation (null rates, outliers, drift)
+- [x] Feature materialization CLI
+- [x] Convenience API for hot path (direct OHLCV input)
 
-### Advanced Features 🔄
+### Advanced Features (Pipeline Transforms) ✅
 
-- [ ] Fractional differencing integration (StationarityTransformer)
-- [ ] Additional technical indicators (Keltner, OBV)
-- [ ] Cross-sectional features
-- [ ] Feature selection and importance analysis
+- [x] Keltner channel transform (registered, gated by L1_L2)
+- [x] On-Balance Volume transform (registered, gated by L1_L2)
+- [x] Full microstructure transform (registered, gated by L1_L2)
+- [x] Full trade flow transform (registered, gated by L1_L2)
 
-### TFT-Specific Features 📋
+### TFT-Specific Features (Pipeline Transforms) ✅
 
-- [x] Calendar features (time-based, cyclical encoding)
-- [x] Event schedule features (earnings, Fed meetings)
-- [x] Macro indicator features (VIX, rates, yield curve)
-- [x] Static covariate features (instrument metadata)
+- [x] Calendar features transform (cyclic/fourier/onehot encoding)
+- [x] Event schedule features transform (earnings, Fed meetings, options expiry)
+- [x] Macro indicators transform (VIX, DXY, treasury yields, fed funds)
+- [x] Static covariates transform (instrument metadata)
+
+### Pending Features 🔄
+
+- [ ] Fractional differencing integration with StationarityTransformer
+- [ ] Cross-sectional features across multiple instruments
+- [ ] Feature selection and importance analysis tools
+- [ ] Full L2/L3 data integration with L2MicrostructureFeatures class
 
 ## Critical Implementation Notes
 
@@ -313,16 +380,35 @@ Zero-allocation design enables low-latency inference:
 ### 3. Feature Normalization
 Consistent normalization across modes:
 
-- **RSI**: Normalized to [-1, 1] from Nautilus [0, 1]
-- **Price Features**: Normalized by current price
+- **RSI**: Normalized to [-1, 1] from Nautilus [0, 1] using formula: `(rsi - 0.5) * 2.0`
+- **MACD**: All components normalized by current price
+- **Price Features**: Normalized by current price using safe_divide
 - **Volume Features**: Normalized by moving averages
+- **Bollinger Bands**: Width normalized by middle band
+- **ATR**: Normalized by current price
 
 ### 4. Error Handling
 Robust error handling for production:
 
-- **Safe Division**: Prevents NaN/Inf propagation
-- **Bounds Checking**: Configuration validation
+- **Safe Division**: `safe_divide()` helper prevents NaN/Inf propagation
+- **Bounds Checking**: Configuration validation in `__post_init__()`
 - **Graceful Degradation**: Default values for missing data
+- **Runtime Assertions**: RSI normalization bounds checked at runtime
+
+### 5. Internal Implementation Details
+
+Key internal methods in FeatureEngineer:
+- `_calculate_return_features()`: Computes returns and momentum
+- `_calculate_volatility_features()`: Rolling volatility over 5/20 periods
+- `_calculate_indicator_features()`: All technical indicators
+- `_calculate_microstructure_features_online()`: Simplified L2 features for hot path
+- `_calculate_trade_flow_features_online()`: Simplified L3 features for hot path
+- `_extract_price_arrays()`: Handles both Polars and Pandas DataFrames
+- `_apply_scaler()`: Fits StandardScaler on training portion only (prevents lookahead)
+
+Helper utilities:
+- `build_pipeline_spec_from_feature_config()`: Single source of truth for feature ordering
+- `_dummy_context_manager`: Used when metrics collector is not available
 
 ## Integration Examples
 
@@ -332,7 +418,9 @@ Robust error handling for production:
 # Configuration
 config = FeatureConfig(
     rsi_period=14,
-    include_microstructure=True
+    include_microstructure=True,
+    include_trade_flow=False,
+    validate_quality=True
 )
 
 # Engineer
@@ -340,15 +428,24 @@ engineer = FeatureEngineer(config)
 
 # Batch processing (training)
 features_df, scaler = engineer.calculate_features(
-    df, mode="batch", fit_scaler=True
+    df, mode="batch", fit_scaler=True, scaler_fit_ratio=0.7
 )
 
-# Online processing (inference)
+# Online processing (inference) - Option 1: with IndicatorManager
 indicator_mgr = IndicatorManager(config)
 # ... warm up indicators ...
 features = engineer.calculate_features(
     current_bar, mode="online",
     indicator_manager=indicator_mgr,
+    scaler=scaler
+)
+
+# Online processing (inference) - Option 2: using convenience API
+features = engineer.calculate_features_online(
+    close_price=100.5,
+    high_price=101.0,
+    low_price=100.0,
+    volume=1000000.0,
     scaler=scaler
 )
 ```
@@ -390,6 +487,49 @@ assert perf_report["performance_passed"]
 assert perf_report["p99_latency_ms"] < 5.0
 ```
 
+### Feature Manifest Generation
+
+```python
+# Generate feature manifest for registry
+manifest = engineer.generate_feature_manifest(
+    name="core_technical_features",
+    version="1.0.0",
+    role=FeatureRole.PRIMARY,
+    data_requirements=DataRequirements.L1_ONLY,
+    parity_tolerance=1e-10
+)
+
+# Register with FeatureRegistry
+from ml.registry.feature_registry import FeatureRegistry
+registry = FeatureRegistry(Path("ml/registry"))
+feature_set_id = registry.register_feature_set(manifest)
+```
+
+### Feature Export and Materialization
+
+```python
+from ml.features.feature_export import register_feature_set_from_engineer
+
+# Register feature set from engineer configuration
+feature_set_id = register_feature_set_from_engineer(
+    registry_path=Path("ml/registry"),
+    name="production_features",
+    version="2.0.0",
+    role=FeatureRole.PRIMARY,
+    data_requirements=DataRequirements.L1_L2,
+    feature_config=config,
+    parity_report={"tolerance": 1e-10, "parity_passed": True}
+)
+
+# Materialize features to CSV
+# Command-line usage:
+# python -m ml.features.materialize_cli \
+#     --feature_registry_dir ml/registry \
+#     --feature_set_id ${feature_set_id} \
+#     --input_csv data/features_raw.csv \
+#     --output_csv data/features_materialized.csv
+```
+
 ## Dependencies
 
 ### Required
@@ -408,17 +548,24 @@ assert perf_report["p99_latency_ms"] < 5.0
 
 ### Code Quality
 
-- **Type Safety**: Complete type annotations
-- **Documentation**: Comprehensive docstrings
-- **Testing**: Extensive unit and parity tests
+- **Type Safety**: Complete type annotations with overloads for API flexibility
+- **Documentation**: Comprehensive docstrings with examples
+- **Testing**: Extensive unit and parity validation tests
 - **Linting**: Ruff compliant, formatted with black
 
-### Feature Quality
+### Feature Quality (when validate_quality=True)
 
-- **Null Rate**: Monitored per feature
-- **Outlier Rate**: IQR-based detection
-- **Drift Detection**: Comparative statistics
-- **Performance**: Latency and throughput monitoring
+The `validate_feature_quality()` method provides comprehensive metrics:
+- **Null Rate**: Percentage of NaN values per feature
+- **Zero Rate**: Percentage of zero values per feature
+- **Unique Ratio**: Ratio of unique values to total rows
+- **Inf Rate**: Percentage of infinite values (float features only)
+- **Outlier Rate**: IQR-based detection (1.5 * IQR threshold)
+
+Quality validation is performed via:
+- `_calculate_feature_qualities()`: Batch quality metrics computation
+- `_calculate_column_metrics()`: Per-column analysis
+- `_calculate_outlier_rate()`: IQR-based outlier detection
 
 This feature engineering system represents a production-ready, high-performance solution for ML feature computation with guaranteed consistency between training and inference environments.
 ## Cross-Module References

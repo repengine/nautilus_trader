@@ -57,7 +57,7 @@ class DataCollector:
 
     """
 
-    def __init__(self, storage_limit_gb: float = 500.0):
+    def __init__(self, storage_limit_gb: float = 500.0, data_dir: Path | None = None):
         """
         Initialize enhanced collector.
 
@@ -68,14 +68,16 @@ class DataCollector:
 
         """
         self.api_key = os.getenv("DATABENTO_API_KEY")
+        # Degrade gracefully in environments without an API key (e.g., tests)
         if not self.api_key:
-            raise ValueError("DATABENTO_API_KEY not set")
-
-        # Import Databento lazily to avoid asyncio loop creation at module import time
-        import databento as db  # local import
-
-        self.client = db.Historical(self.api_key)
-        self.data_dir = Path("/home/nate/projects/nautilus_trader/data/enhanced")
+            self.client = None
+        else:
+            # Import Databento lazily to avoid asyncio loop creation at module import time
+            import databento as db  # local import
+            self.client = db.Historical(self.api_key)
+        # Allow configuration via argument or environment variable; fallback to project-relative default
+        default_dir = Path(os.getenv("ML_DATA_ENHANCED_DIR", "/home/nate/projects/nautilus_trader/data/enhanced"))
+        self.data_dir = data_dir or default_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # Storage management
@@ -200,6 +202,10 @@ class DataCollector:
             Number of days to collect (max 30)
 
         """
+        if self.client is None:
+            print("Databento client not configured; skipping L2 depth collection.")
+            return
+
         if symbols is None:
             symbols = self.existing_symbols
 
@@ -302,6 +308,10 @@ class DataCollector:
             Number of years to collect (1-7)
 
         """
+        if self.client is None:
+            print("Databento client not configured; skipping L1 trades collection.")
+            return
+
         if symbols is None:
             symbols = self.PRIORITY_SYMBOLS
 
@@ -407,6 +417,10 @@ class DataCollector:
             Number of days
 
         """
+        if self.client is None:
+            print("Databento client not configured; skipping TBBO quotes collection.")
+            return
+
         if symbols is None:
             symbols = self.existing_symbols
 
@@ -490,6 +504,10 @@ class DataCollector:
             Number of days (max 365)
 
         """
+        if self.client is None:
+            print("Databento client not configured; skipping minute bars collection.")
+            return
+
         if symbols is None:
             symbols = self.existing_symbols
 

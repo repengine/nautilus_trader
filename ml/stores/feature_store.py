@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import time
+import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -35,17 +39,34 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from ml._imports import HAS_PROMETHEUS
+from ml._imports import Counter
 from ml.config.base import MLFeatureConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
+from ml.registry.data_registry import DataRegistry
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 
 
 if TYPE_CHECKING:
     from ml._imports import pl
     from nautilus_trader.model.data import Bar
+
+
+logger = logging.getLogger(__name__)
+
+# Prometheus metrics for feature computation events (centralized)
+data_events_total: Counter | None = None
+if HAS_PROMETHEUS:
+    try:
+        from ml.common.metrics import data_events_total as _central_data_events_total
+        data_events_total = _central_data_events_total
+    except Exception:
+        data_events_total = None
 
 
 class FeatureStore:
@@ -83,6 +104,7 @@ class FeatureStore:
 
         """
         self.connection_string = connection_string
+        self._data_registry: DataRegistry | None = None
         # Accept both FeatureConfig and MLFeatureConfig; normalize to FeatureConfig
         if isinstance(feature_config, FeatureConfig):
             self.feature_config: FeatureConfig = feature_config
@@ -121,6 +143,46 @@ class FeatureStore:
         else:
             self.pipeline_runner = None
             self.pipeline_hash = self._compute_config_hash()
+
+    def _get_data_registry(self) -> DataRegistry | None:
+        """
+        Lazily initialize and return the DataRegistry instance.
+
+        Returns
+        -------
+        DataRegistry | None
+            The data registry instance or None if initialization fails.
+
+        """
+        if self._data_registry is None:
+            try:
+                # Initialize DataRegistry with appropriate backend
+                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+
+                # Determine backend based on connection string
+                if "postgresql://" in self.connection_string or "postgres://" in self.connection_string:
+                    # Use PostgreSQL backend for production
+                    persistence_config = PersistenceConfig(
+                        backend=BackendType.POSTGRES,
+                        connection_string=self.connection_string,
+                    )
+                else:
+                    # Use JSON backend for development/testing
+                    persistence_config = PersistenceConfig(
+                        backend=BackendType.JSON,
+                        json_path=registry_path,
+                    )
+
+                self._data_registry = DataRegistry(
+                    registry_path=registry_path,
+                    persistence_config=persistence_config,
+                )
+                logger.debug("Initialized DataRegistry for event emission")
+            except Exception as e:
+                logger.warning(f"Failed to initialize DataRegistry: {e}")
+                self._data_registry = None
+
+        return self._data_registry
 
     def _setup_tables(self) -> None:
         """
@@ -164,6 +226,13 @@ class FeatureStore:
                     "feature_set_id",
                     "instrument_id",
                     "ts_event",
+                ),
+                Index(
+                    "uq_ml_feature_values_key_dev",
+                    "feature_set_id",
+                    "instrument_id",
+                    "ts_event",
+                    unique=True,
                 ),
                 Index("idx_ml_feature_values_live", "is_live"),
             )
@@ -246,7 +315,7 @@ class FeatureStore:
         # Prepare rows with JSONB values mapping
         rows: list[dict[str, Any]] = []
         timestamps = bars_df["ts_event"].to_numpy()
-        created_at_ns = int(datetime.utcnow().timestamp() * 1e9)
+        # created_at is managed by DB default (TIMESTAMPTZ)
 
         # Convert feature rows to dicts
         # features_df is a DataFrame (polars or pandas). Use row-wise access safely.
@@ -264,7 +333,7 @@ class FeatureStore:
                         "values": json.dumps(values_map),
                         "is_live": False,
                         "source": "historical",
-                        "created_at": created_at_ns,
+                        # created_at omitted: DB default
                     },
                 )
         else:
@@ -282,7 +351,7 @@ class FeatureStore:
                         "values": json.dumps(values_map),
                         "is_live": False,
                         "source": "historical",
-                        "created_at": created_at_ns,
+                        # created_at omitted: DB default
                     },
                 )
 
@@ -302,10 +371,71 @@ class FeatureStore:
                     "values": stmt.excluded.values,
                     "ts_init": stmt.excluded.ts_init,
                     "source": stmt.excluded.source,
-                    "created_at": stmt.excluded.created_at,
+                    # created_at left as existing/default
                 },
             )
             conn.execute(stmt, rows)
+
+        # Emit FEATURE_COMPUTED event for successful historical computation
+        try:
+            registry = self._get_data_registry()
+            if registry:
+                # Generate unique run ID for this computation
+                run_id = f"feature_historical_{uuid.uuid4().hex[:8]}_{int(time.time())}"
+
+                # Get the feature dataset ID
+                feature_set_id = self._get_feature_set_id()
+                dataset_id = f"features_{feature_set_id}_{instrument_id}"
+
+                # Get the time range from timestamps
+                ts_min = int(timestamps[0]) if len(timestamps) > 0 else 0
+                ts_max = int(timestamps[-1]) if len(timestamps) > 0 else 0
+
+                # Emit the event
+                registry.emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    stage="FEATURE_COMPUTED",
+                    source="historical",
+                    run_id=run_id,
+                    ts_min=ts_min,
+                    ts_max=ts_max,
+                    count=len(rows),
+                    status="success",
+                )
+
+                # Update watermark for tracking progress
+                registry.update_watermark(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    source="historical",
+                    last_success_ns=ts_max,
+                    count=len(rows),
+                    completeness_pct=100.0,  # Historical data is considered complete
+                )
+
+                # Update Prometheus metrics if available
+                if data_events_total:
+                    data_events_total.labels(
+                        dataset_type="features",
+                        component=feature_set_id,
+                        stage="FEATURE_COMPUTED",
+                        source="historical",
+                        status="success",
+                    ).inc()
+
+                logger.debug(
+                    "Emitted FEATURE_COMPUTED event for historical computation: "
+                    "dataset=%s, instrument=%s, count=%d, ts_range=[%d, %d]",
+                    dataset_id,
+                    instrument_id,
+                    len(rows),
+                    ts_min,
+                    ts_max,
+                )
+        except Exception as e:
+            # Non-blocking: log but don't fail the feature computation
+            logger.warning(f"Failed to emit feature computation event: {e}")
 
         return len(rows)
 
@@ -327,6 +457,8 @@ class FeatureStore:
             Current bar from Nautilus.
         store : bool, default True
             Whether to store computed features for future training.
+        indicator_manager : IndicatorManager | None, default None
+            Optional indicator manager for stateful indicator computation.
 
         Returns
         -------
@@ -357,7 +489,7 @@ class FeatureStore:
         # Update indicators from bar and compute online features
         indicator_manager.update_from_bar(bar)
         if not indicator_manager.all_initialized():
-            # Not enough history yet – return empty array to signal no prediction
+            # Not enough history yet - return empty array to signal no prediction
             return np.zeros(0, dtype=np.float32)
 
         current_bar = {
@@ -395,23 +527,86 @@ class FeatureStore:
                 "values": json.dumps(values_map),
                 "is_live": True,
                 "source": "live",
-                "created_at": int(datetime.utcnow().timestamp() * 1e9),
+                # created_at omitted: DB default
             }
 
             with self.engine.begin() as conn:
                 from typing import Any as _Any
 
-                stmt: _Any = insert(self.feature_values_table).on_conflict_do_update(
+                stmt: _Any = insert(self.feature_values_table)
+                stmt = stmt.on_conflict_do_update(
                     index_elements=["feature_set_id", "instrument_id", "ts_event"],
                     set_={
                         "values": stmt.excluded.values,
                         "ts_init": stmt.excluded.ts_init,
                         "is_live": stmt.excluded.is_live,
                         "source": stmt.excluded.source,
-                        "created_at": stmt.excluded.created_at,
+                        # created_at kept as existing/default
                     },
                 )
                 conn.execute(stmt, row)
+
+                # Emit FEATURE_COMPUTED event for successful realtime computation with storage
+                try:
+                    registry = self._get_data_registry()
+                    if registry:
+                        # Generate unique run ID for this computation
+                        run_id = f"feature_realtime_{uuid.uuid4().hex[:8]}_{int(time.time())}"
+
+                        # Get the feature dataset ID
+                        feature_set_id = self._get_feature_set_id()
+                        instrument_id_str = str(
+                            (
+                                bar.bar_type.instrument_id
+                                if hasattr(bar, "bar_type")
+                                else getattr(bar, "instrument_id", "unknown")
+                            ),
+                        )
+                        dataset_id = f"features_{feature_set_id}_{instrument_id_str}"
+
+                        # Emit the event
+                        registry.emit_event(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id_str,
+                            stage="FEATURE_COMPUTED",
+                            source="realtime",
+                            run_id=run_id,
+                            ts_min=int(bar.ts_event),
+                            ts_max=int(bar.ts_event),
+                            count=1,
+                            status="success",
+                        )
+
+                        # Update watermark for tracking progress
+                        registry.update_watermark(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id_str,
+                            source="realtime",
+                            last_success_ns=int(bar.ts_event),
+                            count=1,
+                            completeness_pct=100.0,  # Single realtime bar is complete
+                        )
+
+                        # Update Prometheus metrics if available
+                        if data_events_total:
+                            data_events_total.labels(
+                                dataset_type="features",
+                                component=feature_set_id,
+                                stage="FEATURE_COMPUTED",
+                                source="realtime",
+                                status="success",
+                            ).inc()
+
+                        logger.debug(
+                            "Emitted FEATURE_COMPUTED event for realtime computation: "
+                            "dataset=%s, instrument=%s, ts_event=%d",
+                            dataset_id,
+                            instrument_id_str,
+                            int(bar.ts_event),
+                        )
+                except Exception as e:
+                    # Non-blocking: log but don't fail the feature computation
+                    logger.warning(f"Failed to emit realtime feature event: {e}")
 
         return features
 

@@ -9,8 +9,10 @@ partitioned queries, and performance tracking.
 from __future__ import annotations
 
 import json
+import logging
 import time
-from datetime import datetime
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import BIGINT
@@ -27,6 +29,8 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from ml._imports import HAS_PROMETHEUS
+from ml._imports import Counter
 from ml.stores.base import BaseStore
 from ml.stores.base import ModelPrediction
 
@@ -34,8 +38,21 @@ from ml.stores.base import ModelPrediction
 if TYPE_CHECKING:
     import pandas as pd
 
+    from ml.registry.data_registry import DataRegistry
     from ml.registry.persistence import PersistenceConfig
     from nautilus_trader.common.clock import Clock
+
+
+logger = logging.getLogger(__name__)
+
+# Prometheus metrics for prediction events (centralized)
+data_events_total: Counter | None = None
+if HAS_PROMETHEUS:
+    try:
+        from ml.common.metrics import data_events_total as _central_data_events_total
+        data_events_total = _central_data_events_total
+    except Exception:
+        data_events_total = None
 
 
 class ModelStore(BaseStore):
@@ -73,17 +90,23 @@ class ModelStore(BaseStore):
             Maximum time between flushes in milliseconds
         clock : Clock | None
             Nautilus clock for timestamps
+        persistence_manager : Any | None
+            Optional persistence manager (for testing)
+        flush_interval_seconds : float | None
+            Alternative flush interval in seconds (overrides flush_interval_ms)
 
         """
         # Handle legacy connection string parameter
         if connection_string and not persistence_config:
-            from ml.registry.persistence import BackendType
-            from ml.registry.persistence import PersistenceConfig
+            # Only create PersistenceConfig for PostgreSQL connections
+            if "postgresql://" in connection_string or "postgres://" in connection_string:
+                from ml.registry.persistence import BackendType
+                from ml.registry.persistence import PersistenceConfig
 
-            persistence_config = PersistenceConfig(
-                backend=BackendType.POSTGRES,
-                connection_string=connection_string,
-            )
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.POSTGRES,
+                    connection_string=connection_string,
+                )
 
         if persistence_config:
             from ml.registry.persistence import PersistenceManager
@@ -107,11 +130,58 @@ class ModelStore(BaseStore):
         self._write_buffer: list[ModelPrediction] = []
         self._last_flush_ns = 0
 
+        # DataRegistry for event emission (lazy initialization)
+        self._data_registry: DataRegistry | None = None
+
         # Create engine and setup tables
         if self.connection_string:
             self.engine: Engine = create_engine(self.connection_string)
             self.metadata = MetaData()
             self._setup_tables()
+
+    def _get_data_registry(self) -> DataRegistry | None:
+        """
+        Lazily initialize and return the DataRegistry instance.
+
+        Returns
+        -------
+        DataRegistry | None
+            The data registry instance or None if initialization fails.
+
+        """
+        if self._data_registry is None:
+            try:
+                from ml.registry.data_registry import DataRegistry
+                from ml.registry.persistence import BackendType
+                from ml.registry.persistence import PersistenceConfig
+
+                # Initialize DataRegistry with appropriate backend
+                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+
+                # Determine backend based on connection string
+                if self.connection_string and ("postgresql://" in self.connection_string or "postgres://" in self.connection_string):
+                    # Use PostgreSQL backend for production
+                    persistence_config = PersistenceConfig(
+                        backend=BackendType.POSTGRES,
+                        connection_string=self.connection_string,
+                    )
+                else:
+                    # Use JSON backend for development/testing
+                    persistence_config = PersistenceConfig(
+                        backend=BackendType.JSON,
+                        json_path=registry_path,
+                    )
+
+                self._data_registry = DataRegistry(
+                    registry_path=registry_path,
+                    persistence_config=persistence_config,
+                )
+                logger.debug("Initialized DataRegistry for event emission")
+            except Exception as e:
+                logger.warning(f"Failed to initialize DataRegistry: {e}")
+                self._data_registry = None
+
+        return self._data_registry
 
     def _setup_tables(self) -> None:
         """
@@ -130,7 +200,7 @@ class ModelStore(BaseStore):
             Column("features_used", JSON),  # Feature values at prediction time
             Column("inference_time_ms", Float),
             Column("is_live", BOOLEAN, default=False),
-            Column("created_at", BIGINT),  # When stored (nanoseconds)
+            Column("created_at", BIGINT),  # Dev table; DB default used in prod
             Index("idx_ml_model_predictions_lookup", "model_id", "instrument_id", "ts_event"),
             Index("idx_ml_model_predictions_live", "is_live"),
         )
@@ -193,7 +263,7 @@ class ModelStore(BaseStore):
         elif self.clock and self._should_flush_by_time():
             self.flush()
 
-    def write_batch(self, data: list[ModelPrediction]) -> None:
+    def write_batch(self, data: list[ModelPrediction], emit_events: bool = True) -> None:
         """
         Write batch of model predictions.
 
@@ -201,6 +271,8 @@ class ModelStore(BaseStore):
         ----------
         data : list[ModelPrediction]
             List of predictions to write
+        emit_events : bool
+            Whether to emit events (default True, False when called from flush to avoid duplication)
 
         """
         if not data:
@@ -232,7 +304,7 @@ class ModelStore(BaseStore):
                         ),
                         "inference_time_ms": item.inference_time_ms,
                         "is_live": getattr(item, "is_live", False),
-                        "created_at": int(datetime.utcnow().timestamp() * 1e9),
+                        # created_at omitted: DB default will be used
                     },
                 )
 
@@ -245,7 +317,7 @@ class ModelStore(BaseStore):
                     "confidence": stmt.excluded.confidence,
                     "features_used": stmt.excluded.features_used,
                     "inference_time_ms": stmt.excluded.inference_time_ms,
-                    "created_at": stmt.excluded.created_at,
+                    # created_at kept as existing/default
                 },
             )
 
@@ -253,6 +325,11 @@ class ModelStore(BaseStore):
                 session.execute(stmt, values)
                 if hasattr(session, "commit"):
                     session.commit()
+
+            # Emit events after successful write if this is a direct call (not from flush)
+            if emit_events:
+                self._emit_prediction_events(data)
+
         finally:
             if session:
                 session.close()
@@ -298,7 +375,7 @@ class ModelStore(BaseStore):
             confidence,
             features_used,
             inference_time_ms
-        FROM ml_model_predictions
+        FROM public.ml_model_predictions
         WHERE model_id = '{model_id}'
         AND instrument_id = '{instrument_id}'
         AND ts_event >= {start_ns}
@@ -355,7 +432,7 @@ class ModelStore(BaseStore):
             prediction,
             confidence,
             inference_time_ms
-        FROM ml_model_predictions
+        FROM public.ml_model_predictions
         {where_clause}
         ORDER BY ts_event
         """  # noqa: S608
@@ -398,7 +475,7 @@ class ModelStore(BaseStore):
             prediction,
             confidence,
             inference_time_ms
-        FROM ml_model_predictions
+        FROM public.ml_model_predictions
         WHERE instrument_id = '{instrument_id}'
         ORDER BY ts_event DESC
         LIMIT {limit}
@@ -449,7 +526,7 @@ class ModelStore(BaseStore):
                     MAX(inference_time_ms) as max_inference_ms,
                     MIN(ts_event) as min_ts,
                     MAX(ts_event) as max_ts
-                FROM ml_model_predictions
+                FROM public.ml_model_predictions
                 {where_clause}
             """,
             )
@@ -479,13 +556,115 @@ class ModelStore(BaseStore):
 
     def flush(self) -> None:
         """
-        Flush pending predictions to storage.
+        Flush pending predictions to storage and emit events.
         """
         if self._write_buffer:
-            self.write_batch(self._write_buffer)
+            # Store the buffer data before clearing for event emission
+            buffer_copy = list(self._write_buffer)
+
+            # Write to storage (emit_events=False to avoid double emission)
+            self.write_batch(buffer_copy, emit_events=False)
+
+            # Emit PREDICTION_EMITTED events after successful storage
+            self._emit_prediction_events(buffer_copy)
+
+            # Clear buffer and update flush time
             self._write_buffer.clear()
             if self.clock:
                 self._last_flush_ns = self.clock.timestamp_ns()
+
+    def _emit_prediction_events(self, predictions: list[ModelPrediction]) -> None:
+        """
+        Emit PREDICTION_EMITTED events for the flushed predictions.
+
+        Parameters
+        ----------
+        predictions : list[ModelPrediction]
+            List of predictions that were successfully written
+
+        """
+        try:
+            registry = self._get_data_registry()
+            if registry is None:
+                return
+
+            # Group predictions by model_id and instrument_id for efficient event emission
+            from collections import defaultdict
+            grouped: dict[tuple[str, str], list[ModelPrediction]] = defaultdict(list)
+
+            for pred in predictions:
+                key = (pred.model_id, pred.instrument_id)
+                grouped[key].append(pred)
+
+            # Emit events for each group
+            for (model_id, instrument_id), group_preds in grouped.items():
+                if not group_preds:
+                    continue
+
+                # Generate unique run ID for this batch
+                run_id = f"prediction_{model_id}_{uuid.uuid4().hex[:8]}_{int(time.time())}"
+
+                # Get timestamp range from the group
+                ts_values = [p.ts_event for p in group_preds]
+                ts_min = min(ts_values)
+                ts_max = max(ts_values)
+
+                # Format dataset_id following convention
+                dataset_id = f"predictions_{model_id}"
+
+                # Determine source based on is_live flag (if available)
+                source = "realtime"
+                if hasattr(group_preds[0], "is_live"):
+                    source = "realtime" if group_preds[0].is_live else "historical"
+
+                # Emit the event
+                registry.emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    stage="PREDICTION_EMITTED",
+                    source=source,
+                    run_id=run_id,
+                    ts_min=ts_min,
+                    ts_max=ts_max,
+                    count=len(group_preds),
+                    status="success",
+                )
+
+                # Update watermark for tracking progress
+                registry.update_watermark(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    source=source,
+                    last_success_ns=ts_max,
+                    count=len(group_preds),
+                    completeness_pct=100.0,  # Predictions are complete once written
+                )
+
+                # Update Prometheus metrics if available
+                if data_events_total:
+                    data_events_total.labels(
+                        dataset_type="predictions",
+                        component=model_id,
+                        stage="PREDICTION_EMITTED",
+                        source=source,
+                        status="success",
+                    ).inc()
+
+                logger.debug(
+                    "Emitted PREDICTION_EMITTED event: dataset=%s, instrument=%s, "
+                    "model=%s, count=%d, ts_range=[%d, %d], source=%s",
+                    dataset_id,
+                    instrument_id,
+                    model_id,
+                    len(group_preds),
+                    ts_min,
+                    ts_max,
+                    source,
+                )
+
+        except Exception as e:
+            # Non-blocking: log but don't fail the prediction storage
+            logger.warning(f"Failed to emit prediction event: {e}")
 
     def _should_flush_by_time(self) -> bool:
         """
@@ -590,7 +769,7 @@ class ModelStore(BaseStore):
                     PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY inference_time_ms) as p50_latency_ms,
                     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY inference_time_ms) as p95_latency_ms,
                     PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY inference_time_ms) as p99_latency_ms
-                FROM ml_model_predictions
+                FROM public.ml_model_predictions
                 {where_clause}
             """,
             )

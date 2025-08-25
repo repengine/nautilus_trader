@@ -139,6 +139,23 @@ format:  #-- Format Rust code using nightly formatter
 pre-commit:  #-- Run all pre-commit hooks on all files
 	uv run --active --no-sync pre-commit run --all-files
 
+#== Database Migrations (ML)
+
+.PHONY: db-preflight-dedupe
+db-preflight-dedupe:  #-- Check duplicates in feature values before adding unique index
+	$(info $(M) Running preflight duplicate detection for ml_feature_values...)
+	@[ -n "$$DATABASE_URL" ] || (echo "ERROR: DATABASE_URL is not set" && exit 1)
+	psql $$DATABASE_URL -f ml/stores/migrations/005a_feature_values_dedupe.sql
+	$(info $(YELLOW)Review results before enabling delete block in the SQL file.$(RESET))
+
+.PHONY: db-migrate-hardening
+db-migrate-hardening:  #-- Apply schema hardening migrations (unique keys, created_at types, views)
+	$(info $(M) Applying schema hardening migrations...)
+	@[ -n "$$DATABASE_URL" ] || (echo "ERROR: DATABASE_URL is not set" && exit 1)
+	psql $$DATABASE_URL -f ml/stores/migrations/005_schema_hardening.sql
+	psql $$DATABASE_URL -f ml/stores/migrations/005_views.sql
+	$(info $(GREEN)DB hardening migrations applied.$(RESET))
+
 .PHONY: ruff
 ruff:  #-- Run ruff linter with automatic fixes
 	uv run --active --no-sync ruff check . --fix
@@ -372,6 +389,36 @@ purge-services:  #-- Purge all development services (stop containers and remove 
 init-db:  #-- Initialize PostgreSQL database schema
 	$(info $(M) Initializing PostgreSQL database schema...)
 	cat schema/sql/*.sql | docker exec -i nautilus-database psql -U nautilus -d nautilus
+
+#== Test DB (PostgreSQL) helpers
+
+.PHONY: docker-up-test
+docker-up-test:  #-- Start PostgreSQL for tests (defaults match StrategyStore)
+	$(info $(M) Starting PostgreSQL for tests...)
+	POSTGRES_USER=postgres POSTGRES_PASSWORD=postgres POSTGRES_DB=nautilus \
+		docker compose -f .docker/docker-compose.yml up -d postgres
+	$(info $(M) Waiting for PostgreSQL to be ready...)
+	DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
+		uv run --active --no-sync python scripts/wait_for_postgres.py
+
+.PHONY: docker-down-test
+docker-down-test:  #-- Stop PostgreSQL test container and remove volumes
+	$(info $(M) Stopping PostgreSQL test container...)
+	docker compose -f .docker/docker-compose.yml down -v
+
+.PHONY: pytest-ml-db
+pytest-ml-db:  #-- Run ML tests requiring DB with coverage (excludes TFT)
+	$(info $(M) Running ML DB tests with coverage...)
+	DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
+		uv run --active --no-sync pytest -n logical --dist=loadgroup \
+		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
+		-k "not tft" -v ml/tests
+
+.PHONY: pytest-ml-coverage
+pytest-ml-coverage:  #-- Run all ML tests with coverage (no DB startup)
+	uv run --active --no-sync pytest -n logical --dist=loadgroup \
+		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
+		-k "not tft" -v ml/tests
 
 #== Python Testing
 

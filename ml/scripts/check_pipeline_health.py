@@ -20,7 +20,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 
 try:
@@ -36,14 +36,15 @@ except ImportError:
     )
 
 try:
-    from tabulate import tabulate
+    # Mypy: tabulate has no official stubs; treat as Any
+    from tabulate import tabulate  # type: ignore[import-untyped]
 
     HAS_TABULATE = True
 except ImportError:
     HAS_TABULATE = False
 
     # Fallback implementation for tabulate
-    def tabulate(data: list[list], headers: list[str], tablefmt: str = "simple") -> str:
+    def tabulate(data: list[list[Any]], headers: list[str], tablefmt: str = "simple") -> str:
         """
         Simple fallback table formatter.
         """
@@ -113,7 +114,7 @@ class ComponentHealth:
     message: str
     metrics: dict[str, Any]
     last_update: datetime | None = None
-    issues: list[str] = None
+    issues: list[str] | None = None
 
     def __post_init__(self) -> None:
         """
@@ -188,7 +189,8 @@ class PipelineHealthChecker:
         try:
             with self._conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(query)
-                return cursor.fetchall()
+                results = cast(list[dict[str, Any]], cursor.fetchall())
+                return results
         except psycopg2.Error as e:
             raise RuntimeError(f"Query execution failed: {e}")
 
@@ -722,15 +724,16 @@ def format_json_output(
         JSON string
 
     """
-    data = {
+    components: dict[str, Any] = {}
+    data: dict[str, Any] = {
         "timestamp": datetime.now().isoformat(),
         "overall_status": overall_status.value,
         "exit_code": exit_code,
-        "components": {},
+        "components": components,
     }
 
     for name, health in component_health.items():
-        data["components"][name] = {
+        components[name] = {
             "name": health.name,
             "status": health.status.value,
             "message": health.message,

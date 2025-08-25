@@ -22,9 +22,16 @@ from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
+from ml.registry.dataclasses import DataContract
+from ml.registry.dataclasses import DatasetManifest
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import RolloutPlan
+from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationResult
+from ml.registry.dataclasses import ValidationRule
+from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.statistics import calculate_sample_size
@@ -35,17 +42,24 @@ from ml.registry.strategy_registry import StrategyRegistry
 __all__ = [
     "CanaryConfig",
     "CanaryDeployment",
+    "DataContract",
     "DataRequirements",
+    "DatasetManifest",
+    "DatasetType",
     "DeploymentStatus",
     "FeatureRegistry",
     "ModelInfo",
     "ModelManifest",
     "ModelRegistry",
     "ModelRole",
+    "QualityFlag",
     "QualityGate",
     "RolloutPlan",
+    "StorageKind",
     "StrategyRegistry",
     "ValidationResult",
+    "ValidationRule",
+    "ValidationRuleType",
     "calculate_sample_size",
     "welch_t_test",
 ]

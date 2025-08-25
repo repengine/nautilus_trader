@@ -14,6 +14,17 @@ ml/strategies/
 └── META_LEARNING_ARCHITECTURE.md  # Future meta-learning design document
 ```
 
+## Public API
+
+The following classes are exported from `ml.strategies`:
+
+- **`BaseMLStrategy`**: Abstract base class for all ML strategies
+- **`SimpleMLStrategy`**: Basic binary signal trading implementation
+- **`MLTradingStrategy`**: Production-ready strategy with full features
+- **`MultiModelMLStrategy`**: Advanced multi-model ensemble strategy
+
+All strategies inherit from `BaseMLStrategy` and extend Nautilus Trader's `Strategy` class.
+
 ## Base Class Hierarchy
 
 ### BaseMLStrategy (Abstract Base Class)
@@ -24,13 +35,14 @@ The foundational abstract class that all ML strategies inherit from. Extends Nau
 
 **Key Features**:
 
-- **Signal Subscription**: Automatically subscribes to MLSignal data types
+- **Signal Subscription**: Automatically subscribes to MLSignal data types (with optional client_id filtering)
 - **Signal Filtering**: Filters signals by model_id, confidence thresholds, and instrument
 - **Signal Aggregation**: Supports multiple models with voting and weighted average modes
 - **Position Management**: Handles position sizing, stop loss, and take profit
 - **Performance Tracking**: Comprehensive metrics via Prometheus
-- **Store Integration**: Mandatory integration with three stores (FeatureStore, ModelStore, StrategyStore)
+- **Store Integration**: Optional StrategyStore integration (configured via `use_strategy_store`)
 - **Hot Path Optimization**: Pre-allocated buffers and minimal dynamic allocations
+- **Dry Run Mode**: Supports `execute_trades=False` for risk-free testing
 
 **Configuration Support**:
 
@@ -39,14 +51,28 @@ The foundational abstract class that all ML strategies inherit from. Extends Nau
 - Signal timing windows (`time_window_ms`)
 - Model performance tracking (`track_performance`)
 - Dynamic model weighting (`model_weights`)
+- Client ID filtering (`signal_client_id`)
+- Minimum confidence threshold (`min_confidence`)
+- Position size percentage (`position_size_pct`)
+- Maximum positions (`max_positions`)
+- Stop loss percentage (`stop_loss_pct`)
+- Take profit percentage (`take_profit_pct`)
+- Dry run mode (`execute_trades`)
+- Signal persistence control (`persist_all_signals`)
 
 **Store Integration**:
 
 ```python
-# Mandatory stores initialized automatically
+# Optional StrategyStore initialized based on configuration
 self.strategy_store: StrategyStore | None = None
 if self._config.use_strategy_store:
-    self.strategy_store = StrategyStore(...)
+    store_config = self._config.strategy_store_config or {}
+    self.strategy_store = StrategyStore(
+        connection_string=store_config.get("connection_string", ...),
+        batch_size=store_config.get("batch_size", 100),
+        flush_interval_ms=store_config.get("flush_interval_ms", 1000),
+        clock=self.clock,
+    )
 ```
 
 **Prometheus Metrics**:
@@ -71,34 +97,48 @@ A basic implementation demonstrating binary signal trading logic.
 - Short position: `signal.prediction <= 0.5`
 - Position reversal on opposite signals
 - Basic position management (one position at a time)
+- Implements `on_order_filled` for position tracking
+
+**Key Methods**:
+- `_process_ml_signal()`: Implements simple binary trading logic
+- `on_order_filled()`: Updates position and pending order counts
 
 **Usage**: Ideal for single-model strategies with straightforward binary classification signals.
 
 ### MLTradingStrategy (Production Implementation)
 
-**Location**: `/home/nate/projects/nautilus_trader/ml/strategies/ml_strategy.py`
+**Location**: `/home/nate/projects/nautilus_trader/ml/strategies/ml_strategy.py` (lines 23-345)
 
 Production-ready strategy with advanced multi-model support and comprehensive decision persistence.
 
 **Enhanced Features**:
 
-- **Decision Persistence**: All trading decisions persisted to StrategyStore
+- **Decision Persistence**: All trading decisions persisted to StrategyStore with comprehensive context
 - **Dry Run Mode**: `execute_trades=False` for risk-free testing in production
 - **Risk Management**: Advanced risk metrics calculation and tracking
-- **Performance Attribution**: Per-model performance tracking and attribution
+- **Performance Attribution**: Per-model performance tracking via `_order_to_model` mapping
 - **Position Reversal Logic**: Sophisticated position management with reversal detection
 
 **Decision Types**:
 
 - `BUY`: Enter long position
 - `SELL`: Enter short position
-- `HOLD`: Maintain current position (optionally persisted)
+- `HOLD`: Maintain current position (optionally persisted based on `persist_all_signals`)
+
+**Key Methods**:
+
+- `_process_ml_signal()`: Main signal processing with decision persistence
+- `_enter_position()`: Enter new position with dry-run support
+- `_reverse_position()`: Handle position reversal with proper closing/opening
+- `_should_reverse_position()`: Logic to determine if reversal needed
+- `_track_trade_entry()`: Map orders to models for performance tracking
+- `on_order_filled()`: Track model performance on order fills
 
 **Execution Flow**:
 
 1. Signal reception and validation
 2. Position analysis and decision calculation
-3. Risk metrics computation
+3. Risk metrics computation (confidence, prediction, position counts)
 4. Decision persistence to StrategyStore
 5. Trade execution (if `execute_trades=True`)
 6. Performance tracking and metrics update
@@ -112,9 +152,22 @@ Extends MLTradingStrategy with dynamic model weighting and performance-based ada
 **Advanced Capabilities**:
 
 - **Dynamic Weighting**: Model weights adapt based on historical performance
-- **Performance-Based Allocation**: Automatically adjusts model influence
-- **Conflict Resolution**: Sophisticated handling of conflicting signals
+- **Performance-Based Allocation**: Automatically adjusts model influence using accuracy and profit metrics
+- **Automatic Performance Tracking**: Enables `track_performance=True` by default
 - **Meta-Learning Ready**: Foundation for future meta-learning implementations
+
+**Key Methods**:
+
+- `_get_dynamic_model_weights()`: Calculates weights based on model accuracy and profit per trade
+- `_aggregate_signal()`: Overrides parent to use dynamic weights when `use_dynamic_weights=True`
+
+**Weight Calculation Formula**:
+```python
+weight = accuracy * (1.0 + np.tanh(profit_per_trade / 100.0))
+```
+- Combines accuracy with normalized profit per trade
+- Minimum weight of 0.1 to prevent complete exclusion
+- Weights are normalized to sum to 1.0
 
 ## Signal Generation Architecture
 
@@ -159,24 +212,38 @@ Performance Tracking & Metrics
 
 ### Signal Aggregation Methods
 
-**Voting Aggregation**:
+The `_aggregate_signal()` method in BaseMLStrategy handles multi-model signal aggregation with time-window validation.
+
+**Voting Aggregation** (default):
 
 ```python
 # Simple majority vote
-bullish = sum(1 for s in signals if s.prediction > 0.5)
-bearish = len(signals) - bullish
+bullish = sum(1 for s in self._model_signals.values() if s.prediction > 0.5)
+bearish = len(self._model_signals) - bullish
 action = "BUY" if bullish > bearish else "SELL"
+confidence = max(s.confidence for s in self._model_signals.values())
+# Creates aggregated signal with prediction 0.8 for BUY, 0.2 for SELL
 ```
 
-**Weighted Average Aggregation**:
+**Weighted Average Aggregation** (`conflict_resolution="weighted_average"`):
 
 ```python
 # Model-weighted prediction combination
-weighted_sum = sum(weight * signal.prediction
-                  for model_id, signal in signals.items()
-                  for weight in [model_weights.get(model_id, 1.0)])
-prediction = weighted_sum / total_weight
+for mid, sig in self._model_signals.items():
+    weight = self.model_weights.get(mid, 1.0)  # Default weight 1.0
+    weighted_sum += weight * sig.prediction
+    total_weight += weight
+
+weighted_pred = weighted_sum / total_weight
+avg_confidence = np.mean([s.confidence for s in self._model_signals.values()])
 ```
+
+**Key Features**:
+- Requires minimum number of models (`required_models` parameter)
+- Validates signals are within time window (`time_window_ms` parameter)
+- Automatically clears old signals outside time window
+- Creates aggregated MLSignal with metadata tracking source models
+- Calls both stub methods (`_make_decision`, `_execute_trade`) and `_process_ml_signal`
 
 ## Hot Path Performance Requirements
 
@@ -221,7 +288,7 @@ if self._signals_received_metric:
 
 ## Store Integration Architecture
 
-All ML strategies MUST integrate with the three mandatory stores to ensure proper data persistence and system consistency.
+ML strategies optionally integrate with StrategyStore for decision persistence and analysis.
 
 ### StrategyStore Integration
 
@@ -261,20 +328,99 @@ def _persist_strategy_decision(
 - Execution parameters (stop loss, take profit, position size)
 - Market context and timing information
 
-### Automatic Store Initialization
+### Store Configuration
 
-**Base Class Initialization**:
+**Store Initialization**:
 
 ```python
 # Store initialization in BaseMLStrategy.__init__
+self.strategy_store: StrategyStore | None = None
 if self._config.use_strategy_store:
     store_config = self._config.strategy_store_config or {}
     self.strategy_store = StrategyStore(
-        connection_string=store_config.get("connection_string", ...),
+        connection_string=store_config.get(
+            "connection_string",
+            "postgresql://postgres:postgres@localhost:5432/nautilus"
+        ),
         batch_size=store_config.get("batch_size", 100),
         flush_interval_ms=store_config.get("flush_interval_ms", 1000),
         clock=self.clock,
     )
+```
+
+**Flush on Stop**:
+- StrategyStore is automatically flushed when strategy stops
+- Ensures all pending decisions are persisted
+- Handles exceptions gracefully to prevent data loss
+
+## Common Usage Patterns
+
+### Single Model Strategy
+
+```python
+from ml.strategies import SimpleMLStrategy
+from ml.config.base import MLStrategyConfig
+
+# Basic single-model configuration
+config = MLStrategyConfig(
+    instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+    ml_signal_source="ml_signal_actor",
+    position_size_pct=0.1,  # 10% of account
+    min_confidence=0.7,
+    max_positions=1,
+    stop_loss_pct=0.02,  # 2% stop loss
+    take_profit_pct=0.04,  # 4% take profit
+    execute_trades=True,
+)
+
+strategy = SimpleMLStrategy(config)
+```
+
+### Multi-Model Ensemble
+
+```python
+from ml.strategies import MultiModelMLStrategy
+
+# Multi-model configuration with aggregation
+config = MLStrategyConfig(
+    instrument_id=InstrumentId.from_str("BTCUSDT.BINANCE"),
+    target_model_ids=["momentum", "mean_revert", "microstructure"],
+    aggregation_mode="weighted_average",
+    required_models=2,  # Need at least 2 models
+    time_window_ms=500,  # 500ms aggregation window
+    model_weights={
+        "momentum": 0.4,
+        "mean_revert": 0.3,
+        "microstructure": 0.3,
+    },
+    use_dynamic_weights=True,  # Enable adaptive weighting
+    track_performance=True,
+    use_strategy_store=True,
+    execute_trades=True,
+)
+
+strategy = MultiModelMLStrategy(config)
+```
+
+### Dry-Run Testing
+
+```python
+# Production dry-run configuration
+config = MLStrategyConfig(
+    instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+    ml_signal_source="ml_signal_actor", 
+    position_size_pct=0.05,
+    min_confidence=0.8,  # Higher threshold for testing
+    execute_trades=False,  # DRY RUN MODE
+    use_strategy_store=True,  # Still persist decisions
+    persist_all_signals=True,  # Persist even HOLD decisions
+    strategy_store_config={
+        "batch_size": 50,
+        "flush_interval_ms": 2000,
+    },
+)
+
+strategy = MLTradingStrategy(config)
 ```
 
 ## Backtesting Integration
@@ -314,29 +460,37 @@ config = MLStrategyConfig(
 ### ✅ Completed Features
 
 1. **Base Strategy Framework**
-   - Complete abstract base class with ML signal handling
-   - Production-ready simple strategy implementation
-   - Comprehensive configuration system
+   - Complete abstract base class (BaseMLStrategy) with ML signal handling
+   - Production-ready simple strategy implementation (SimpleMLStrategy)
+   - Production ML trading strategy (MLTradingStrategy)
+   - Multi-model strategy with dynamic weighting (MultiModelMLStrategy)
+   - Comprehensive configuration system via MLStrategyConfig
 
 2. **Multi-Model Support**
    - Signal aggregation (voting, weighted average)
-   - Model filtering and routing
+   - Model filtering and routing via target_model_ids
    - Performance-based dynamic weighting
+   - Time-window based signal aggregation
+   - Model performance tracking per model_id
 
 3. **Store Integration**
-   - Mandatory StrategyStore integration
-   - Comprehensive decision persistence
-   - Async batched writes for performance
+   - Optional StrategyStore integration (configurable)
+   - Comprehensive decision persistence with risk metrics
+   - Batched writes for performance
+   - Automatic flush on strategy stop
 
 4. **Performance Monitoring**
-   - Complete Prometheus metrics suite
+   - Complete Prometheus metrics suite (7 metrics)
    - Hot path latency tracking
-   - Model performance attribution
+   - Model performance attribution via order tracking
+   - Strategy decision persistence metrics
 
 5. **Production Features**
-   - Dry run mode for risk-free testing
-   - Circuit breaker patterns
-   - Health monitoring integration
+   - Dry run mode (`execute_trades=False`) for risk-free testing
+   - Position sizing based on account balance
+   - Stop loss and take profit support
+   - Position reversal logic
+   - Client ID filtering for signal sources
 
 ### 🔄 In Progress Features
 
@@ -361,6 +515,39 @@ config = MLStrategyConfig(
    - Continuous model weight adaptation
    - Performance-based model selection
    - Real-time regime detection
+
+## Helper Methods in BaseMLStrategy
+
+### Trading Utilities
+
+**`_place_market_order()`**: Places market orders with proper initialization
+- Supports reduce_only flag for position closing
+- Increments pending_orders and trades_executed counters
+- Returns ClientOrderId for tracking
+
+**`_place_stop_loss()`**: Places stop-loss orders
+- Automatically sets reduce_only=True
+- Uses StopMarketOrder with configurable trigger price
+- Logs order placement for audit trail
+
+**`_get_current_position()`**: Retrieves current open position
+- Searches across all venues for the configured instrument
+- Returns first open position or None
+- Used for position management decisions
+
+### Performance Tracking
+
+**`_update_model_performance()`**: Tracks per-model trading performance
+- Records total trades, profit, wins/losses
+- Calculates running accuracy percentage
+- Used by MultiModelMLStrategy for dynamic weighting
+
+### Stub Methods for Compatibility
+
+**`_process_signal()`**, **`_make_decision()`**, **`_execute_trade()`**: Empty stubs
+- Maintained for backward compatibility with tests
+- Called during aggregation for extensibility
+- Can be overridden in subclasses if needed
 
 ## Integration with Nautilus Execution Engine
 
@@ -437,33 +624,74 @@ def _aggregate_signal(self, signal: MLSignal) -> None:
 self._signal_history: deque[MLSignal] = deque(
     maxlen=config.history_size if hasattr(config, "history_size") else 100
 )
+
+# Pre-allocated buffers for aggregation
+self._signal_buffer: dict[str, MLSignal] = {}
+self._model_signals: dict[str, MLSignal] = {}
+self._model_performance: dict[str, dict[str, Any]] = {}
 ```
 
 ### Error Handling
 
-**Graceful Degradation**:
+**Comprehensive Position Sizing**:
 
 ```python
 def _calculate_position_size(self) -> Quantity | None:
     """Calculate position size with comprehensive error handling."""
-
+    
+    # Validate instrument exists
     instrument = self.cache.instrument(self._config.instrument_id)
     if instrument is None:
-        self.log.error(f"Instrument {self._config.instrument_id} not found")
+        self.log.error(f"Cannot calculate position size: Instrument {self._config.instrument_id} not found")
         return None
-
-    # Continue with calculation...
+    
+    # Validate account exists
+    account = self.cache.account_for_venue(instrument.venue)
+    if account is None:
+        self.log.error(f"Cannot calculate position size: No account found for venue {instrument.venue}")
+        return None
+    
+    # Get price data with fallbacks
+    last_tick = self.cache.trade_tick(self._config.instrument_id)
+    if last_tick is not None:
+        current_price = float(last_tick.price.as_double())
+    else:
+        quote_tick = self.cache.quote_tick(self._config.instrument_id)
+        if quote_tick is not None:
+            current_price = (float(quote_tick.bid_price.as_double()) + 
+                           float(quote_tick.ask_price.as_double())) / 2.0
+        else:
+            self.log.error("Cannot calculate position size: No price data available")
+            return None
+    
+    # Calculate with proper rounding and minimum size enforcement
+    return Quantity.from_str(str(quantity_value))
 ```
 
-### Configuration Validation
+### Metrics Initialization
 
-**Startup Validation**:
+**Singleton Pattern for Prometheus Metrics**:
 
 ```python
-def __post_init__(self) -> None:
-    """Validate configuration on initialization."""
-    if not self.model_path and not self.model_id:
-        raise ValidationError("Either model_path or model_id must be provided")
+# Module-level singleton metrics to avoid registry collisions
+_metrics_initialized = False
+
+def _initialize_metrics() -> None:
+    global _metrics_initialized, ml_signals_received, ...
+    
+    if _metrics_initialized:
+        return
+    
+    if HAS_PROMETHEUS:
+        # Check if metrics already exist in registry
+        existing_names = set(REGISTRY._names_to_collectors.keys())
+        
+        if METRIC_SIGNALS_RECEIVED_TOTAL not in existing_names:
+            ml_signals_received = Counter(...)
+        else:
+            ml_signals_received = cast(Counter, REGISTRY._names_to_collectors[...])
+    
+    _metrics_initialized = True
 ```
 
 ## Future Architecture Evolution
@@ -477,9 +705,51 @@ The strategy framework is designed for evolution toward meta-learning and advanc
 
 The current implementation provides a solid foundation for these advanced capabilities while maintaining production stability and performance requirements.
 
+## Strategy Selection Guide
+
+### When to Use Each Strategy
+
+**SimpleMLStrategy**:
+- Single model deployments
+- Binary classification signals
+- Basic position management needs
+- Proof of concept implementations
+
+**MLTradingStrategy**:
+- Production deployments
+- Need for comprehensive decision persistence
+- Dry-run testing requirements
+- Model performance tracking needed
+- Position reversal support required
+
+**MultiModelMLStrategy**:
+- Multiple ML models in ensemble
+- Dynamic weight adjustment needed
+- Performance-based model selection
+- Advanced multi-model orchestration
+
+## Key Implementation Differences
+
+| Feature | SimpleMLStrategy | MLTradingStrategy | MultiModelMLStrategy |
+|---------|-----------------|-------------------|---------------------|
+| **Signal Processing** | Basic binary | Advanced with persistence | Dynamic weighting |
+| **Decision Persistence** | No | Yes (comprehensive) | Yes (enhanced) |
+| **Dry Run Support** | No | Yes | Yes |
+| **Position Reversal** | Basic | Advanced logic | Advanced logic |
+| **Performance Tracking** | No | Yes (per-model) | Yes (with dynamic weights) |
+| **Model Aggregation** | No | Via base class | Enhanced with adaptation |
+| **Production Ready** | Development | Yes | Yes |
+
 ## Conclusion
 
-The ml/strategies/ directory provides a comprehensive, production-ready framework for ML-driven trading strategies. The architecture successfully balances sophistication with performance, providing powerful multi-model capabilities while maintaining the sub-5ms latency requirements of high-frequency trading. The mandatory store integrations ensure complete audit trails and enable sophisticated post-trade analysis and model improvement workflows.
+The ml/strategies/ directory provides a comprehensive, production-ready framework for ML-driven trading strategies. The architecture successfully balances sophistication with performance, providing powerful multi-model capabilities while maintaining the sub-5ms latency requirements of high-frequency trading. The optional store integrations ensure complete audit trails and enable sophisticated post-trade analysis and model improvement workflows.
+
+Key strengths:
+- Flexible architecture supporting single to multi-model deployments
+- Production-grade features (dry-run, persistence, monitoring)
+- Performance optimized for hot-path execution
+- Extensible design ready for meta-learning evolution
+- Comprehensive error handling and logging
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection

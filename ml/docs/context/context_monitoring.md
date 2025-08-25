@@ -7,22 +7,25 @@ The ML monitoring infrastructure for Nautilus Trader provides comprehensive obse
 ### Key Features
 
 - **Production-Ready**: Docker-based deployment with health checks and automatic restarts
-- **Comprehensive Coverage**: 8 specialized metrics collectors covering all ML pipeline stages
+- **Comprehensive Coverage**: Specialized metrics collectors covering all ML pipeline stages
 - **Real-time Alerting**: Multi-tier alert system with Slack, email, and PagerDuty integration
 - **Performance Optimized**: Sub-5ms latency overhead with graceful degradation
 - **Extensible Architecture**: Modular collector design supporting future ML components
+- **Centralized Metrics**: All metrics defined in `ml/common/metrics.py` to avoid duplication
 
 ### Current Status
 
 - ✅ Core infrastructure implemented and tested
 - ✅ Basic metrics collection (MLMetricsCollector) operational
+- ✅ Centralized metrics in `ml/common/metrics.py` (30+ metrics)
 - ✅ Docker deployment stack configured
 - ✅ Grafana dashboards and alert rules defined
-- ✅ DataScheduler metrics (15+ metrics) integrated
-- ✅ Pipeline health monitoring with SQL views
+- ✅ DataScheduler metrics integrated
+- ✅ Pipeline health monitoring with SQL views (moved to migrations)
 - ✅ Health check script (`check_pipeline_health.py`)
-- ✅ Pipeline health dashboard in Grafana
-- 🔄 Extended metrics collectors (multiple specialized types) in development
+- ✅ Real-time dashboard (`realtime_dashboard.py`)
+- ✅ Extended metrics collectors implemented (data, features, model, performance, registry, resources)
+- ✅ MetricsServer with /metrics and /health endpoints
 - 🔄 Full integration with all ML components in progress
 
 ## Architecture Overview
@@ -81,57 +84,104 @@ The ML monitoring infrastructure for Nautilus Trader provides comprehensive obse
 | `nautilus_ml_feature_computation_latency_seconds` | Histogram | Feature computation time | instrument, feature_type | P95 > 500ms |
 | `nautilus_ml_model_errors_total` | Counter | Model error count | model, instrument, error_type | Rate > 5/min |
 
+### Centralized Metrics (ml/common/metrics.py)
+
+#### Data Pipeline Metrics
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_data_events_total` | Counter | Total data events processed | dataset_type, component, stage, source, status |
+| `nautilus_ml_watermark_lag_seconds` | Gauge | Lag since last processing | dataset, instrument, source |
+| `nautilus_ml_stage_coverage_pct` | Gauge | Coverage between pipeline stages | dataset, from_stage, to_stage |
+| `nautilus_ml_contract_violations_total` | Counter | Contract validation violations | dataset, rule |
+
+#### Data Collection Metrics
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_data_collection_duration` | Histogram | Duration of collection operations | source, schema |
+| `nautilus_ml_data_collection_errors` | Counter | Total collection errors | source, instrument, error_type |
+| `nautilus_ml_catalog_write_operations` | Counter | Catalog write operations | status |
+
+#### Feature Store Metrics
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_feature_store_operations` | Counter | Total operations | operation, status |
+| `nautilus_ml_feature_computation_duration_seconds` | Histogram | Feature computation time | feature_set, mode |
+| `nautilus_ml_feature_drift_score` | Gauge | Feature drift score (0-1) | feature_set, feature_name |
+
+#### Model Store Metrics
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_model_store_operations` | Counter | Total operations | operation, status |
+| `nautilus_ml_model_inference_duration_seconds` | Histogram | Model inference time | model_id, version |
+| `nautilus_ml_model_accuracy` | Gauge | Model accuracy score | model_id, version |
+| `nautilus_ml_model_confidence` | Gauge | Average confidence score | model_id, version |
+
+#### Strategy Store Metrics
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_strategy_store_operations` | Counter | Total operations | operation, status |
+| `nautilus_ml_strategy_signal_generation_duration_seconds` | Histogram | Signal generation time | strategy_id |
+| `nautilus_ml_strategy_pnl` | Gauge | Strategy P&L | strategy_id, timeframe |
+
+#### Validation Metrics
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_validation_violations` | Counter | Validation violations | dataset_id, rule_type, severity |
+| `nautilus_ml_validation_duration_seconds` | Histogram | Validation time | dataset_id |
+| `nautilus_ml_schema_mismatches` | Counter | Schema validation failures | dataset, mismatch_type |
+| `nautilus_ml_write_rejections` | Counter | Rejected writes | dataset_id, reason |
+| `nautilus_ml_data_quality_score` | Histogram | Data quality distribution | dataset_id |
+
+#### System Health Metrics
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_pipeline_health` | Gauge | Overall health score (0-1) | component |
+| `nautilus_ml_system_ready` | Gauge | System readiness (0/1) | component |
+
 ### Pipeline Metrics (DataScheduler)
 
-| Metric Name | Type | Description | Labels | Alert Threshold |
-|-------------|------|-------------|--------|-----------------|
-| `nautilus_ml_pipeline_collections_total` | Counter | Total pipeline runs | status | N/A |
-| `nautilus_ml_pipeline_duration_seconds` | Histogram | Pipeline execution time | stage | P95 > 300s |
-| `nautilus_ml_pipeline_bars_processed_total` | Counter | Bars processed | instrument | N/A |
-| `nautilus_ml_pipeline_features_computed_total` | Counter | Features computed | instrument | N/A |
-| `nautilus_ml_pipeline_errors_total` | Counter | Pipeline errors | error_type | Rate > 1/hour |
-| `nautilus_ml_pipeline_last_run_timestamp` | Gauge | Last successful run | N/A | Age > 25 hours |
-| `nautilus_ml_pipeline_data_staleness_seconds` | Gauge | Data freshness | instrument | > 86400s |
-| `nautilus_ml_pipeline_feature_store_writes_total` | Counter | FeatureStore writes | status | N/A |
-| `nautilus_ml_pipeline_databento_api_calls_total` | Counter | API calls made | status | N/A |
-| `nautilus_ml_pipeline_databento_bytes_downloaded_total` | Counter | Data downloaded | N/A | N/A |
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|--------|
+| `nautilus_ml_pipeline_stage_latency_seconds` | Histogram | Stage execution latency | stage |
+| `nautilus_ml_pipeline_runs_total` | Counter | Total pipeline runs | status |
 
-### Extended Metrics (Planned/In Development)
+### Extended Collectors (Implemented)
 
-#### Data Quality Metrics
+#### DataQualityCollector (ml/monitoring/collectors/data.py)
+- Data loading performance and cache efficiency
+- Missing values and data quality ratios
+- Outlier detection and validation failures
+- Data staleness and freshness monitoring
 
-- `nautilus_ml_data_missing_values_ratio` - Missing data percentage
-- `nautilus_ml_data_outliers_detected_total` - Outlier detection count
-- `nautilus_ml_data_staleness_seconds` - Data freshness indicator
-- `nautilus_ml_data_validation_failures_total` - Validation failure count
+#### FeatureEngineeringCollector (ml/monitoring/collectors/features.py)
+- Feature computation performance
+- Feature drift detection and scoring
+- Cache hit ratios and efficiency
+- Feature importance tracking
 
-#### Feature Engineering Metrics
+#### ModelLifecycleCollector (ml/monitoring/collectors/model.py)
+- Model deployment metadata and versioning
+- Training duration and performance tracking
+- Model size and loading time monitoring
+- Model errors and deployment failures
 
-- `nautilus_ml_feature_drift_score` - Feature drift detection
-- `nautilus_ml_feature_cache_hit_ratio` - Feature cache effectiveness
-- `nautilus_ml_feature_importance_score` - Feature importance tracking
-- `nautilus_ml_feature_computation_errors_total` - Feature computation errors
+#### PerformanceDegradationCollector (ml/monitoring/collectors/performance.py)
+- Rolling accuracy and performance tracking
+- Prediction distribution shift detection
+- Inference timeout monitoring
+- Retraining requirement indicators
 
-#### Model Lifecycle Metrics
+#### ResourceUtilizationCollector (ml/monitoring/collectors/resources.py)
+- Memory and CPU utilization tracking
+- GPU utilization monitoring (when available)
+- Disk I/O and storage metrics
+- Feature store and model registry size
 
-- `nautilus_ml_model_info` - Model deployment metadata
-- `nautilus_ml_model_training_duration_seconds` - Training time tracking
-- `nautilus_ml_model_size_bytes` - Model size monitoring
-- `nautilus_ml_model_load_time_seconds` - Model loading performance
-
-#### Performance Degradation Metrics
-
-- `nautilus_ml_model_accuracy_rolling` - Rolling accuracy tracking
-- `nautilus_ml_prediction_distribution_shift` - Distribution drift detection
-- `nautilus_ml_inference_timeout_ratio` - Timeout rate monitoring
-- `nautilus_ml_model_retraining_required` - Retraining indicators
-
-#### Resource Utilization Metrics
-
-- `nautilus_ml_memory_usage_percent` - Memory utilization
-- `nautilus_ml_cpu_usage_percent` - CPU utilization
-- `nautilus_ml_gpu_utilization_percent` - GPU utilization (optional)
-- `nautilus_ml_feature_store_size_bytes` - Feature store size
+#### RegistryHealthCollector (ml/monitoring/collectors/registry.py)
+- Registry operation metrics
+- Schema validation tracking
+- Manifest registration events
+- Version management metrics
 
 ## Dashboard Specifications
 
@@ -237,6 +287,31 @@ The ML monitoring infrastructure for Nautilus Trader provides comprehensive obse
 
 **Refresh**: 15 seconds
 
+### 8. Real-time Terminal Dashboard (`realtime_dashboard.py`)
+**Purpose**: Live monitoring from the command line using Rich library
+
+**Features**:
+
+- System metrics monitoring with live updates
+- Data ingestion rate tracking
+- Feature computation performance
+- Model inference metrics
+- Alert notifications
+- Resource utilization display
+
+**Usage**:
+```bash
+python ml/monitoring/realtime_dashboard.py
+```
+
+The terminal dashboard provides:
+- Live data ingestion metrics (L0/L1/L2 symbols, size, rates)
+- Feature computation statistics
+- Model performance indicators
+- System health monitoring
+- Alert summary panel
+- Auto-refresh with configurable intervals
+
 ## Alert Configuration
 
 ### Alert Severity Levels
@@ -327,7 +402,9 @@ route:
 ### MLDataLoader Integration
 
 ```python
-from ml.monitoring import MLMetricsCollector, MonitoringConfig
+from ml.monitoring.collector import MLMetricsCollector
+from ml.monitoring._config import MonitoringConfig
+from ml.data.loader import MLDataLoader
 
 # Initialize metrics
 config = MonitoringConfig(enabled=True, metrics_port=8000)
@@ -347,6 +424,8 @@ class MonitoredMLDataLoader(MLDataLoader):
 ### FeatureEngineer Integration
 
 ```python
+from ml.features.engineering import FeatureEngineer
+
 class MonitoredFeatureEngineer(FeatureEngineer):
     def __init__(self, config, metrics_collector=None):
         super().__init__(config)
@@ -356,10 +435,10 @@ class MonitoredFeatureEngineer(FeatureEngineer):
         with self.metrics.time_feature_computation("EURUSD", "technical"):
             features = super().compute_features(data)
 
-            # Record quality metrics
+            # Record quality metrics (would use DataQualityCollector)
             if self.metrics:
                 null_ratio = features.isnull().sum().sum() / features.size
-                self.metrics.record_feature_quality("technical", null_ratio)
+                # metrics.record_feature_quality("technical", null_ratio)
 
             return features
 ```
@@ -367,22 +446,30 @@ class MonitoredFeatureEngineer(FeatureEngineer):
 ### BaseMLInferenceActor Integration
 
 ```python
+from ml.actors.base import BaseMLInferenceActor
+
 class ModelActor(BaseMLInferenceActor):
     def __init__(self, config):
         super().__init__(config)
-        self.metrics = MLMetricsCollector(config.monitoring)
+        # Metrics collector can be initialized if monitoring is enabled
+        if config.monitoring.enabled:
+            self.metrics = MLMetricsCollector(config.monitoring)
 
     def on_data(self, data):
-        with self.metrics.time_prediction("xgboost_v1", "EURUSD") as timer:
-            prediction = self.model.predict(data)
-            confidence = self.model.predict_proba(data).max()
+        if hasattr(self, 'metrics'):
+            with self.metrics.time_prediction("xgboost_v1", "EURUSD") as timer:
+                prediction = self.model.predict(data)
+                confidence = self.model.predict_proba(data).max()
 
-            timer.set_prediction(
-                prediction_class="buy" if prediction > 0 else "sell",
-                confidence=confidence
-            )
+                timer.set_prediction(
+                    prediction_class="buy" if prediction > 0 else "sell",
+                    confidence=confidence
+                )
 
-            return prediction
+                return prediction
+        else:
+            # Monitoring disabled, just run prediction
+            return self.model.predict(data)
 ```
 
 ## Performance Baselines
@@ -523,20 +610,28 @@ python scripts/import_dashboards.py --all
 
 - **Core Infrastructure**: Docker compose stack with health checks
 - **Basic Metrics Collection**: MLMetricsCollector with 5 core metrics
-- **Pipeline Metrics**: DataScheduler with 15+ metrics integrated
+- **Centralized Metrics**: 30+ metrics defined in `ml/common/metrics.py`
+- **Extended Collectors**: 6 specialized collectors implemented
+  - DataQualityCollector
+  - FeatureEngineeringCollector
+  - ModelLifecycleCollector
+  - PerformanceDegradationCollector
+  - ResourceUtilizationCollector
+  - RegistryHealthCollector
 - **Metrics Server**: HTTP server with /metrics and /health endpoints
-- **Configuration System**: Type-safe configuration with msgspec
+- **Configuration System**: Type-safe configuration with MonitoringConfig
 - **Dashboard Factory**: Programmatic dashboard generation
 - **Grafana Client**: API client for dashboard management
-- **Alert Rules**: 18 critical and warning alert definitions
-- **Pipeline Health Monitoring**: SQL views for monitoring pipeline health
+- **Alert Rules**: Critical, warning, and info alert definitions
+- **Pipeline Health Monitoring**: SQL views (migrated to ml/stores/migrations/005_views.sql)
 - **Health Check Script**: `check_pipeline_health.py` for automated checks
+- **Real-time Dashboard**: `realtime_dashboard.py` for live monitoring
 - **Documentation**: Comprehensive setup and operation guides
 
 ### 🔄 In Development
 
-- **Extended Metrics Collectors**: 8 specialized collector types
-- **Advanced Dashboard Panels**: Model lifecycle and performance degradation
+- **Full Integration**: Complete integration with all ML components
+- **Advanced Dashboard Panels**: Fine-tuning dashboard layouts
 - **Integration Testing**: End-to-end validation with ML components
 - **Performance Optimization**: Query optimization and caching
 - **Security Hardening**: Authentication and TLS configuration
@@ -559,7 +654,7 @@ python scripts/import_dashboards.py --all
 - **Cache Effectiveness**: Ensure high cache hit ratios for performance
 - **Pipeline Execution**: Monitor daily runs, backfills, and real-time streaming
 - **FeatureStore Integration**: Track feature computation and persistence
-- **Databento API Health**: Monitor API usage and data download metrics
+- **API Health**: Monitor external API usage and data download metrics
 
 ### Model Performance
 
@@ -591,6 +686,36 @@ python scripts/import_dashboards.py --all
 - Uses Nautilus domain types from `nautilus_trader.model.identifiers`
 - Compatible with existing catalog and data infrastructure
 
+### Centralized Metrics Architecture
+
+The monitoring system uses a centralized metrics approach to avoid duplication and registration conflicts:
+
+- **ml/common/metrics.py**: Central definition of all Prometheus metrics
+- **Helper functions**: `record_pipeline_event()` and `update_pipeline_health()` for consistent labeling
+- **Import pattern**: All components import metrics from this central location
+- **No duplication**: Metrics are defined once and reused across all collectors
+
+### SQL Health Views
+
+Pipeline health monitoring is implemented through SQL views (located in ml/stores/migrations/005_views.sql):
+
+- **ml.pipeline_health**: Overall pipeline health with daily aggregates
+- **ml.data_collection_stats**: Data collection metrics per instrument
+- **ml.feature_computation_stats**: Feature computation performance
+- **ml.data_freshness**: Monitor data staleness per instrument
+- **ml.error_summary**: Summary of errors across components
+- **ml.model_performance_summary**: Model inference performance
+- **ml.strategy_signal_summary**: Strategy signal generation metrics
+- **ml.pipeline_processing_summary**: Processing statistics by stage
+- **ml.data_quality_metrics**: Comprehensive quality tracking
+
+These views provide:
+- Nanosecond timestamp support with helper functions
+- Health scoring algorithms
+- Performance percentiles (P95, P99)
+- Quality metrics and error tracking
+- Real-time freshness monitoring
+
 ### ML Infrastructure Integration
 
 - **FeatureStore**: Metrics on feature persistence and retrieval
@@ -606,6 +731,42 @@ python scripts/import_dashboards.py --all
 - **Event Processing**: Integration with Nautilus event system
 
 This monitoring infrastructure provides the foundation for production-ready ML system observability in Nautilus Trader, ensuring reliable operation and early detection of issues across the entire ML pipeline.
+
+## Key Implementation Files
+
+### Core Components
+- **ml/monitoring/__init__.py**: Package exports (MLMetricsCollector, MetricsServer, MonitoringConfig)
+- **ml/monitoring/collector.py**: Main MLMetricsCollector implementation
+- **ml/monitoring/_config.py**: MonitoringConfig dataclass
+- **ml/monitoring/server.py**: HTTP metrics server for Prometheus scraping
+- **ml/common/metrics.py**: Centralized Prometheus metrics definitions
+
+### Specialized Collectors
+- **ml/monitoring/collectors/base.py**: BaseMetricsCollector abstract class
+- **ml/monitoring/collectors/data.py**: DataQualityCollector
+- **ml/monitoring/collectors/features.py**: FeatureEngineeringCollector
+- **ml/monitoring/collectors/model.py**: ModelLifecycleCollector
+- **ml/monitoring/collectors/performance.py**: PerformanceDegradationCollector
+- **ml/monitoring/collectors/resources.py**: ResourceUtilizationCollector
+- **ml/monitoring/collectors/registry.py**: RegistryHealthCollector
+
+### Dashboards and Visualization
+- **ml/monitoring/realtime_dashboard.py**: Terminal-based real-time dashboard
+- **ml/monitoring/dashboard_factory.py**: Programmatic dashboard generation
+- **ml/monitoring/grafana_client.py**: Grafana API client
+- **ml/monitoring/grafana/dashboards/**: JSON dashboard definitions
+
+### Health Monitoring
+- **ml/scripts/check_pipeline_health.py**: Pipeline health check script
+- **ml/stores/migrations/005_views.sql**: SQL health monitoring views
+- **ml/schema/pipeline_health.sql**: Reference SQL (migrated to migrations)
+
+### Configuration
+- **ml/monitoring/docker-compose.yml**: Docker stack configuration
+- **ml/monitoring/prometheus/prometheus.yml**: Prometheus configuration
+- **ml/monitoring/alertmanager/alertmanager.yml**: Alert routing configuration
+- **ml/monitoring/prometheus/alerts/**: Alert rule definitions
+
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection
@@ -615,6 +776,5 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 - **Registry**: See `context_registry.md` for lifecycle management
 - **Strategies**: See `context_strategies.md` for trading strategy framework
 - **Deployment**: See `context_deployment.md` for containerization
-- **Monitoring**: See `context_monitoring.md` for observability
 - **Actors**: See `context_actors.md` for inference actors
 - **Models**: See `context_models.md` for model implementations

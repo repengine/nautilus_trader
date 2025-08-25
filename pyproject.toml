@@ -54,6 +54,7 @@ dependencies = [
     "pytorch-forecasting (>=1.4.0,<2.0.0)",
     "pytorch-lightning (>=2.5.3,<3.0.0)",
     "torchmetrics (>=1.8.1,<2.0.0)",
+    "tabulate (>=0.9.0,<0.10.0)",
 ]
 
 [project.urls]
@@ -331,6 +332,7 @@ max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "test_perf_logger.py" = ["S311"]
+"ml/tests/*" = ["NPY002"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -379,6 +381,20 @@ disable_error_code = [
     "assignment",  # For value -> Column[T] assignments
     "union-attr",  # For Column[T] | T union attribute access
 ]
+
+# Scope down strict checks from scripts/examples during the core stabilization pass
+[[tool.mypy.overrides]]
+module = [
+    "ml.scripts.*",
+    "ml.examples.*",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.tests.*",
+]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

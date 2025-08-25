@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The ML deployment architecture for Nautilus Trader provides a comprehensive containerized production environment for real-time algorithmic trading with machine learning components. The system is built around Docker Compose orchestration and supports both dry-run testing and live trading modes with full monitoring, persistence, and safety controls.
+The ML deployment architecture for Nautilus Trader provides a comprehensive containerized production environment for real-time algorithmic trading with machine learning components. The system is built around Docker Compose orchestration and supports multiple deployment modes including local development, Docker containers, backtest simulations, and production deployment with full monitoring, persistence, and safety controls.
 
 ## Architecture Overview
 
@@ -10,6 +10,14 @@ The ML deployment architecture for Nautilus Trader provides a comprehensive cont
 ┌─────────────────────┐
 │   Databento Feed    │
 │   (Real Market)     │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  ML Pipeline        │
+│  - Data collection  │
+│  - Feature compute  │
+│  - Model training   │
 └──────────┬──────────┘
            │
            ▼
@@ -64,15 +72,15 @@ HEALTH_PORT: 8080
 METRICS_PORT: 8000
 ```
 
-**Entrypoint**: `/home/nate/projects/nautilus_trader/ml/pipeline/entrypoint_pipeline.py`
+**Entrypoint**: `ml/deployment/entrypoint_pipeline.py`
 
 - Three operational modes:
-  - **daily**: Scheduled daily updates with APScheduler
-  - **backfill**: Historical data collection for date ranges
-  - **realtime**: Continuous real-time data streaming
-- Health check endpoint on port 8080
-- Metrics server on port 8000
-- Graceful shutdown handling
+  - **daily**: Scheduled updates using cron expression (default: 5 PM daily)
+  - **backfill**: Historical data collection for specified date ranges
+  - **realtime**: Continuous data streaming with configurable intervals
+- Flask-based health check endpoint on port 8080
+- Pipeline status tracking with error reporting
+- Graceful shutdown handling via signal handlers
 
 ### Core Trading Services
 
@@ -101,12 +109,14 @@ ACTOR_ID: MLSignalActor-001
 USE_DUMMY_STORES: "false"
 ```
 
-**Entrypoint**: `/home/nate/projects/nautilus_trader/ml/deployment/entrypoint_actor.py`
+**Entrypoint**: `ml/deployment/entrypoint_actor.py`
 
-- Configures ML Signal Actor with Databento feed
-- Sets up feature engineering pipeline
-- Handles graceful shutdown with signal handlers
-- Provides health monitoring and metrics
+- Configures ML Signal Actor with Databento data client
+- Validates model file existence at specified path
+- Sets up feature engineering with configurable indicators (SMA, RSI, Bollinger Bands)
+- Implements graceful shutdown with SIGTERM and SIGINT handlers
+- Supports both real stores and dummy stores for testing
+- No longer supports pickle models - requires ONNX or framework-native models
 
 #### 2. ML Trading Strategy Container (`ml_strategy`)
 
@@ -136,11 +146,14 @@ USE_STRATEGY_STORE: "true"
 PERSIST_ALL_SIGNALS: "true"
 ```
 
-**Entrypoint**: `/home/nate/projects/nautilus_trader/ml/deployment/entrypoint_strategy.py`
+**Entrypoint**: `ml/deployment/entrypoint_strategy.py`
 
-- Configures ML Trading Strategy with signal subscriptions
-- Enforces dry run mode safeguards
-- Provides comprehensive trading statistics
+- Configures ML Trading Strategy to consume signals from ML Signal Actor
+- Enforces dry run mode by default with clear warning messages
+- Provides comprehensive trading statistics on shutdown
+- Supports optional Databento data client for market data
+- Configurable risk parameters (position sizing, stop loss, take profit)
+- Persists all signals and decisions to PostgreSQL via StrategyStore
 
 ### Data Persistence Services
 
@@ -154,9 +167,11 @@ PERSIST_ALL_SIGNALS: "true"
 
 **Schema Auto-initialization**:
 
-- `/home/nate/projects/nautilus_trader/ml/schema/features.sql`
-- `/home/nate/projects/nautilus_trader/ml/schema/models.sql`
-- `/home/nate/projects/nautilus_trader/ml/schema/strategies.sql`
+- `ml/schema/00_init.sql` - Base schema setup
+- `ml/schema/features.sql` - Feature storage tables
+- `ml/schema/models.sql` - Model predictions and metrics
+- `ml/schema/strategies.sql` - Strategy signals and decisions
+- `ml/schema/pipeline_health.sql` - Pipeline monitoring tables
 
 **Health Check**: `pg_isready -U postgres`
 
@@ -201,7 +216,7 @@ PERSIST_ALL_SIGNALS: "true"
 
 ### Docker Compose Configuration
 
-**Main Compose File**: `/home/nate/projects/nautilus_trader/ml/deployment/docker-compose.yml`
+**Main Compose File**: `ml/deployment/docker-compose.yml`
 
 **Network**: `nautilus_network` (bridge driver)
 
@@ -214,6 +229,10 @@ PERSIST_ALL_SIGNALS: "true"
 **Service Dependencies**:
 
 ```yaml
+ml_pipeline:
+  depends_on:
+    postgres:
+      condition: service_healthy
 ml_signal_actor:
   depends_on: [postgres, redis]
 ml_strategy:
@@ -229,10 +248,11 @@ grafana:
 ```dockerfile
 FROM python:3.11-slim
 - System deps: gcc, g++, postgresql-client, curl
-- Poetry installation with production dependencies
-- Health check: HTTP endpoint check on port 8080
-- Configuration directory: /app/config
-- Supports three operational modes via PIPELINE_MODE env var
+- Poetry installation with --no-dev flag
+- Flask and requests for health check endpoint
+- Creates directories: /app/data/catalog, /app/models, /app/logs, /app/configs
+- Health check: Python import verification
+- Entrypoint: /app/entrypoint.py
 ```
 
 #### ML Signal Actor Dockerfile (`Dockerfile.actor`)
@@ -240,18 +260,21 @@ FROM python:3.11-slim
 ```dockerfile
 FROM python:3.11-slim
 - System deps: gcc, g++, postgresql-client
-- Poetry installation with --no-dev
-- Health check: Basic Python import test
-- Models directory: /app/models
+- Poetry installation with --no-dev flag
+- Creates models directory: /app/models
+- Health check: Python sys.exit(0) test
+- Entrypoint: /app/entrypoint.py
 ```
 
 #### ML Trading Strategy Dockerfile (`Dockerfile.strategy`)
 
 ```dockerfile
 FROM python:3.11-slim
-- Similar base configuration as actor
-- No models directory (consumes signals)
-- Same health check pattern
+- System deps: gcc, g++, postgresql-client
+- Poetry installation with --no-dev flag
+- No models directory (consumes signals only)
+- Health check: Python sys.exit(0) test
+- Entrypoint: /app/entrypoint.py
 ```
 
 ## Configuration Management
@@ -273,56 +296,87 @@ FROM python:3.11-slim
 
 ### Configuration Files
 
-**Prometheus Config**: `/home/nate/projects/nautilus_trader/ml/deployment/prometheus.yml`
+**Prometheus Config**: `ml/deployment/prometheus.yml`
 
 - 15-second scrape intervals
-- ML service discovery
-- System metrics collection
+- Service endpoints:
+  - ml_signal_actor:8000/metrics
+  - ml_strategy:8001/metrics
+  - postgres_exporter:9187 (optional)
+  - node_exporter:9100 (system metrics)
+
+**Grafana Dashboard**: `ml/deployment/grafana/ml_pipeline_health.json`
+
+- Comprehensive ML pipeline health monitoring
+- Pipeline overview with health score gauge
+- Data freshness and staleness tracking
+- Feature computation metrics
+- Error tracking and recent errors table
+- Instrument data freshness heatmap
+- Configurable time intervals and filters
 
 ## Deployment Modes
 
 ### 1. Docker Compose Deployment (Production-like)
-**Script**: `/home/nate/projects/nautilus_trader/ml/deployment/run_dry_run.sh`
+**Script**: `ml/deployment/run_dry_run.sh`
 
 **Features**:
 
-- Full containerized environment
-- Service health checks
-- Automated schema initialization
-- Log aggregation
-- Graceful shutdown handling
+- Full containerized environment with health monitoring
+- Automated service startup with dependency management
+- Database schema initialization from SQL files
+- Real-time log aggregation
+- Graceful shutdown with cleanup trap
+- Color-coded output for better visibility
 
 **Execution Steps**:
 
-1. Validate API key
-2. Start PostgreSQL with health checks
-3. Initialize Redis
-4. Create database schemas
-5. Launch ML Signal Actor
-6. Launch ML Trading Strategy
-7. Start monitoring services
-8. Display service URLs and monitoring commands
+1. Validate DATABENTO_API_KEY environment variable
+2. Start PostgreSQL and wait for healthy status
+3. Check/start Redis service
+4. Initialize database schemas (00_init.sql, features.sql, models.sql, strategies.sql)
+5. Launch ML Signal Actor container
+6. Launch ML Trading Strategy container
+7. Start Prometheus and Grafana monitoring
+8. Display service URLs and tail logs
 
 ### 2. Local Development Deployment
-**Script**: `/home/nate/projects/nautilus_trader/ml/deployment/run_local_dry_run.py`
+**Script**: `ml/deployment/run_local_dry_run.py`
 
 **Features**:
 
-- Local process execution
-- PostgreSQL connection testing
-- SQLite fallback for development
-- Synthetic model generation
-- Real-time market data integration
+- Local process execution without containers
+- PostgreSQL connection testing with automatic SQLite fallback
+- Automatic dummy model creation if needed
+- Real Databento market data integration
+- Support for US equities (SPY on NASDAQ by default)
+- Configurable feature engineering (SMA, RSI, Bollinger Bands)
+- Comprehensive statistics reporting on shutdown
+
+**Prerequisites Check**:
+- Validates Databento API key
+- Tests PostgreSQL connection
+- Creates dummy model if missing
+- Falls back to SQLite if PostgreSQL unavailable
 
 ### 3. Backtest Deployment
-**Script**: `/home/nate/projects/nautilus_trader/ml/deployment/run_backtest_dry_run.py`
+**Script**: `ml/deployment/run_backtest_dry_run.py`
 
 **Features**:
 
-- Historical data replay
-- Synthetic data generation
-- Backtest engine integration
-- Performance analysis
+- Historical data replay with BacktestEngine
+- Synthetic bar data generation for testing
+- Support for SPY.XNAS with 1-minute bars
+- Netting OMS with cash account type
+- ML Signal Actor and Strategy integration
+- Configurable feature engineering
+- Performance statistics reporting
+
+**Data Generation**:
+- Creates 1000 synthetic bars over 5 days
+- Realistic price movements with continuity
+- Random volume generation
+- Nanosecond timestamp precision
 
 ## Monitoring and Logging Setup
 
@@ -381,13 +435,20 @@ SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
 ### External Port Mappings
 
 ```yaml
+3000: Grafana dashboards
 5432: PostgreSQL database
 6379: Redis cache
-9090: Prometheus metrics
-3000: Grafana dashboards
-8000: ML Pipeline metrics server
-8001: ML Strategy metrics (internal)
 8080: ML Pipeline health check endpoint
+9090: Prometheus metrics
+```
+
+### Internal Port Mappings
+
+```yaml
+8000: ML Signal Actor metrics endpoint
+8001: ML Strategy metrics endpoint
+9100: Node exporter (system metrics)
+9187: PostgreSQL exporter (optional)
 ```
 
 ### Internal Network Communication
@@ -396,13 +457,79 @@ SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
 - **Service Discovery**: Docker DNS resolution
 - **Communication**: HTTP/gRPC for metrics, PostgreSQL protocol for persistence
 
+## Deployment Tools and Scripts
+
+### Quick Start Script
+**Script**: `ml/deployment/quick_start.sh`
+
+Automated setup script for first-time users:
+- Creates .env from .env.example if missing
+- Validates Databento API key configuration
+- Builds Docker images
+- Starts all services
+- Runs health checks
+- Displays useful commands and monitoring URLs
+
+### Makefile Commands
+**File**: `ml/deployment/Makefile`
+
+Convenient development and deployment commands:
+- `make build` - Build all Docker images
+- `make up` - Start all services
+- `make down` - Stop all services
+- `make logs [SERVICE=name]` - View logs
+- `make clean` - Clean up volumes and images
+- `make test` - Run integration tests
+- `make health` - Check service health
+- `make pipeline` - Start only ML pipeline
+- `make backfill START=date END=date` - Run backfill mode
+- `make realtime` - Run realtime mode
+- `make dev` - Development mode with live code mounting
+- `make deploy` - Production deployment
+- `make scale WORKERS=n` - Scale pipeline workers
+- `make backup` - Backup PostgreSQL database
+- `make restore FILE=backup.sql` - Restore database
+
+### Test Script
+**Script**: `ml/deployment/test_docker_setup.sh`
+
+Validates deployment prerequisites:
+- Checks Docker and Docker Compose installation
+- Validates environment configuration
+- Verifies Docker Compose configuration syntax
+- Checks required files existence
+- Tests Docker build (dry run)
+- Validates Python imports in container
+- Provides colored output for test results
+
+### Health Check Script
+**Script**: `ml/deployment/check_health.py`
+
+Comprehensive health monitoring:
+- Checks Docker Compose services status
+- Validates PostgreSQL connectivity
+- Tests Redis connection
+- Verifies ML Pipeline HTTP endpoint
+- Checks Prometheus and Grafana health
+- Returns aggregated health status
+
+### Development Override
+**File**: `ml/deployment/docker-compose.override.yml.example`
+
+Development-specific configurations:
+- Source code live mounting for hot reload
+- Debug logging levels
+- Reduced batch sizes for testing
+- PostgreSQL port exposure for debugging
+- Optional pgAdmin service for database inspection
+
 ## Production Deployment Steps
 
 ### Prerequisites
 
 1. **API Access**: Valid Databento API key
-2. **Infrastructure**: Docker and Docker Compose installed
-3. **Database**: PostgreSQL server (local or remote)
+2. **Infrastructure**: Docker and Docker Compose v2 installed
+3. **Database**: PostgreSQL 15+ server (local or remote)
 4. **Environment**: Environment variables configured
 
 ### Deployment Procedure
@@ -423,7 +550,15 @@ SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
    psql nautilus < ml/schema/strategies.sql
    ```
 
-3. **Service Deployment**:
+3. **Quick Start Deployment**:
+
+   ```bash
+   cd ml/deployment
+   chmod +x quick_start.sh
+   ./quick_start.sh
+   ```
+
+   Or manual deployment:
 
    ```bash
    chmod +x ml/deployment/run_dry_run.sh
@@ -455,37 +590,39 @@ SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
 ## Current Implementation Status
 
 ### Completed Components
-✅ **Docker Compose orchestration** - Full multi-service setup
-✅ **ML Pipeline service** - Automated data collection and feature computation
-✅ **Container specifications** - Optimized Dockerfiles including pipeline
-✅ **Environment configuration** - Comprehensive env var support
-✅ **Service dependencies** - Proper startup ordering
-✅ **Health checks** - Service health monitoring with dedicated endpoints
-✅ **Database integration** - PostgreSQL with auto-schema init and FeatureStore
-✅ **Monitoring stack** - Prometheus/Grafana integration with pipeline metrics
-✅ **Deployment scripts** - Multiple deployment modes (daily, backfill, realtime)
-✅ **Safety controls** - Dry run mode enforcement
-✅ **Graceful shutdown** - Signal handling and cleanup
-✅ **Quick start script** - `quick_start.sh` for easy setup
-✅ **Makefile commands** - Convenient development commands
+✅ **Docker Compose orchestration** - Full multi-service setup with Docker Compose v2
+✅ **ML Pipeline service** - Automated data collection with three operational modes
+✅ **ML Signal Actor** - Real-time inference with Databento integration
+✅ **ML Trading Strategy** - Signal consumption and dry-run trading
+✅ **Container specifications** - Optimized Dockerfiles for all services
+✅ **Environment configuration** - Comprehensive environment variable support
+✅ **Service dependencies** - Health-based startup ordering
+✅ **Health monitoring** - Flask-based health endpoints and Docker health checks
+✅ **Database integration** - PostgreSQL with schema auto-initialization
+✅ **Monitoring stack** - Prometheus metrics and Grafana dashboards
+✅ **Deployment scripts** - Shell and Python scripts for various deployment modes
+✅ **Development tools** - Makefile, quick start, and test scripts
+✅ **Safety controls** - Mandatory dry run mode with explicit overrides
+✅ **Graceful shutdown** - Signal handling in all services
+✅ **Logging** - Centralized logging with configurable levels
 
 ### Architecture Strengths
 
-- **Separation of concerns**: Distinct pipeline, signal generation, and trading strategy containers
-- **Data persistence**: PostgreSQL integration with store triad and FeatureStore
-- **Automated pipeline**: Daily data collection and feature computation
-- **Safety first**: Mandatory dry run mode with explicit trade execution control
-- **Observability**: Comprehensive metrics, logging, and health monitoring
-- **Scalability**: Resource limits and horizontal scaling support
-- **Development workflow**: Local, Docker, and backtest deployment options
-- **Easy setup**: Quick start script and Makefile for rapid deployment
+- **Separation of concerns**: Distinct containers for pipeline, signal generation, and trading
+- **Data persistence**: PostgreSQL with automated schema management
+- **Pipeline flexibility**: Three operational modes (daily, backfill, realtime)
+- **Safety first**: Dry run mode by default with clear warnings
+- **Comprehensive monitoring**: Prometheus metrics with custom Grafana dashboards
+- **Developer friendly**: Multiple deployment modes and convenience scripts
+- **Production ready**: Health checks, graceful shutdown, and error handling
+- **Easy onboarding**: Quick start script and test utilities
 
 ### Current Limitations
-⚠️ **No Kubernetes support** - Only Docker Compose orchestration
-⚠️ **Limited execution clients** - No production execution client configurations
-⚠️ **Basic health checks** - Could be more sophisticated
-⚠️ **Manual scaling** - No auto-scaling configuration
-⚠️ **Single region** - No multi-region deployment support
+⚠️ **No Kubernetes support** - Docker Compose only, no Helm charts or K8s manifests
+⚠️ **Limited execution clients** - No production broker integrations configured
+⚠️ **Manual scaling** - No auto-scaling based on load metrics
+⚠️ **Single region** - No multi-region or failover support
+⚠️ **No secrets management** - API keys via environment variables only
 
 ## Critical Operational Notes
 
@@ -499,10 +636,15 @@ SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
 
 ### Performance Considerations
 
-- **Memory Allocation**: 8GB per ML service for model loading and feature computation
-- **CPU Allocation**: 2 cores per service for parallel processing
-- **Database Connections**: Connection pooling and proper cleanup
-- **Metrics Overhead**: Prometheus scraping configured for minimal performance impact
+- **Memory Allocation**: 
+  - ML Pipeline: 16GB (data processing intensive)
+  - ML Signal Actor: 8GB (model inference)
+  - ML Trading Strategy: 8GB (signal processing)
+- **CPU Allocation**: 
+  - ML Pipeline: 4 cores (parallel processing)
+  - Other services: 2 cores each
+- **Database Connections**: Connection pooling with proper cleanup
+- **Metrics Collection**: 15-second scrape intervals for minimal overhead
 
 ### Security Measures
 
@@ -518,7 +660,18 @@ SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
 - **State Recovery**: Database-backed state for service restart resilience
 - **Monitoring Alerts**: Prometheus alerting for service failure detection
 
-The deployment architecture provides a robust, production-ready foundation for ML-driven algorithmic trading with comprehensive safety controls, monitoring, and operational excellence built-in.
+## Summary
+
+The ML deployment architecture provides a comprehensive, production-ready foundation for ML-driven algorithmic trading. The system features:
+
+- **Multiple deployment modes**: Local development, Docker containers, and backtest simulations
+- **Modular architecture**: Separate containers for data pipeline, signal generation, and trading
+- **Robust monitoring**: Prometheus metrics with custom Grafana dashboards
+- **Safety by design**: Dry run mode by default with explicit overrides
+- **Developer tools**: Quick start scripts, Makefile commands, and health checks
+- **Production readiness**: Graceful shutdown, error handling, and comprehensive logging
+
+The architecture emphasizes safety, observability, and ease of deployment while maintaining flexibility for different operational scenarios.
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection
