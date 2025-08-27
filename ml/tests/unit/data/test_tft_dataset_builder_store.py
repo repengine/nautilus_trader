@@ -21,6 +21,7 @@ from ml.config.base import MLFeatureConfig
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.stores.feature_store import FeatureStore
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 class TestTFTDatasetBuilderWithFeatureStore:
@@ -36,11 +37,12 @@ class TestTFTDatasetBuilderWithFeatureStore:
         return MagicMock(spec=ParquetDataCatalog)
 
     @pytest.fixture
-    def mock_feature_store(self) -> MagicMock:
+    def mock_feature_store(self, test_database: TestDatabase) -> MagicMock:
         """
         Create mock FeatureStore.
         """
         mock_store = MagicMock(spec=FeatureStore)
+        mock_store.connection_string = test_database.connection_string
 
         # Mock get_training_data to return sample features
         features = np.random.randn(100, 10).astype(np.float64)
@@ -58,11 +60,13 @@ class TestTFTDatasetBuilderWithFeatureStore:
         """
         return MLFeatureConfig()
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_init_with_feature_store(
         self,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
         feature_config: MLFeatureConfig,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test initialization with FeatureStore.
@@ -117,12 +121,14 @@ class TestTFTDatasetBuilderWithFeatureStore:
         with pytest.raises(ValueError, match="FeatureStore not configured"):
             builder.prepare_training_data_from_store()
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     @patch("ml.data.tft_dataset_builder.bars_to_dataframe")
     def test_prepare_training_data_from_store_success(
         self,
         mock_bars_to_dataframe: MagicMock,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test successful data preparation from FeatureStore.
@@ -165,12 +171,14 @@ class TestTFTDatasetBuilderWithFeatureStore:
         call_args = mock_feature_store.get_training_data.call_args
         assert call_args[1]["instrument_id"] == "AAPL.NASDAQ"
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     @patch("ml.data.tft_dataset_builder.bars_to_dataframe")
     def test_prepare_training_data_from_store_no_features(
         self,
         mock_bars_to_dataframe: MagicMock,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test handling when no features found in FeatureStore.
@@ -194,12 +202,14 @@ class TestTFTDatasetBuilderWithFeatureStore:
                 instrument_ids=["AAPL.NASDAQ"],
             )
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     @patch("ml.data.tft_dataset_builder.bars_to_dataframe")
     def test_prepare_training_data_auto_selection_with_store(
         self,
         mock_bars_to_dataframe: MagicMock,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test prepare_training_data automatically uses FeatureStore when available.
@@ -254,10 +264,12 @@ class TestTFTDatasetBuilderWithFeatureStore:
             mock_direct.assert_called_once()
             assert isinstance(result, pl.DataFrame)
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_build_training_dataset_uses_feature_store(
         self,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test build_training_dataset method prefers FeatureStore when available.
@@ -278,10 +290,12 @@ class TestTFTDatasetBuilderWithFeatureStore:
             mock_store_method.assert_called_once()
             assert isinstance(result, pl.DataFrame)
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_build_training_dataset_fallback_on_error(
         self,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test build_training_dataset falls back when FeatureStore fails.
@@ -307,10 +321,12 @@ class TestTFTDatasetBuilderWithFeatureStore:
                 mock_direct.assert_called_once()
                 assert isinstance(result, pl.DataFrame)
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_pandas_conversion(
         self,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test conversion to pandas when use_polars=False.
@@ -331,11 +347,13 @@ class TestTFTDatasetBuilderWithFeatureStore:
             assert isinstance(result, pd.DataFrame)
             assert len(result) == 3
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_logging_feature_source(
         self,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
         caplog: pytest.LogCaptureFixture,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test that feature source is properly logged.
@@ -362,11 +380,13 @@ class TestTFTDatasetBuilderWithFeatureStore:
             assert "FeatureStore" in caplog.text
             assert "ensures training/inference parity" in caplog.text
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_logging_fallback(
         self,
         mock_catalog: MagicMock,
         mock_feature_store: MagicMock,
         caplog: pytest.LogCaptureFixture,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test that fallback is properly logged.

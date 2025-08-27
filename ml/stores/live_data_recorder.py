@@ -9,7 +9,7 @@ import asyncio
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, DefaultDict
+from typing import Any
 
 from ml.registry.data_registry import DataRegistry
 from ml.stores.data_store import DataStore
@@ -23,10 +23,10 @@ from nautilus_trader.model.identifiers import InstrumentId
 class LiveDataRecorder:
     """
     Automatically records all live data flowing through the system.
-    
+
     This recorder intercepts market data, validates it, persists it to storage,
     and tracks events/watermarks for observability.
-    
+
     Parameters
     ----------
     data_store : DataStore
@@ -39,7 +39,7 @@ class LiveDataRecorder:
         Maximum time between flushes in milliseconds (default: 1000)
     storage_path : Path
         Base path for data storage
-    
+
     """
 
     def __init__(
@@ -57,8 +57,8 @@ class LiveDataRecorder:
         self.storage_path = storage_path or Path.home() / ".nautilus" / "live_data"
 
         # Buffers for each data type
-        self.buffers: DefaultDict[str, list[Any]] = defaultdict(list)
-        self.buffer_metadata: DefaultDict[str, dict[str, Any]] = defaultdict(dict)
+        self.buffers: dict[str, list[Any]] = defaultdict(list)
+        self.buffer_metadata: dict[str, dict[str, Any]] = defaultdict(dict)
 
         # Async flush task
         self._flush_task: asyncio.Task[None] | None = None
@@ -86,38 +86,38 @@ class LiveDataRecorder:
     def on_quote(self, quote: QuoteTick) -> None:
         """
         Record a quote tick.
-        
+
         Parameters
         ----------
         quote : QuoteTick
             Quote to record
-            
+
         """
         self._buffer_data("quotes", quote.instrument_id, quote)
 
     def on_trade(self, trade: TradeTick) -> None:
         """
         Record a trade tick.
-        
+
         Parameters
         ----------
         trade : TradeTick
             Trade to record
-            
+
         """
         self._buffer_data("trades", trade.instrument_id, trade)
 
     def on_bar(self, bar: Bar) -> None:
         """
         Record a bar.
-        
+
         Parameters
         ----------
         bar : Bar
             Bar to record
-            
+
         """
-        self._buffer_data("bars", bar.instrument_id, bar)
+        self._buffer_data("bars", bar.bar_type.instrument_id, bar)
 
     def _buffer_data(
         self,
@@ -127,7 +127,7 @@ class LiveDataRecorder:
     ) -> None:
         """
         Add data to buffer and flush if needed.
-        
+
         Parameters
         ----------
         dataset_id : str
@@ -136,13 +136,13 @@ class LiveDataRecorder:
             Instrument identifier
         data : Data
             Data to buffer
-            
+
         """
         # Add to buffer
         self.buffers[dataset_id].append(data)
 
-        # Track metadata for this batch
-        if dataset_id not in self.buffer_metadata:
+        # Track metadata for this batch - reinitialize if empty or missing
+        if dataset_id not in self.buffer_metadata or not self.buffer_metadata[dataset_id]:
             self.buffer_metadata[dataset_id] = {
                 "instrument_ids": set(),
                 "ts_min": data.ts_event,
@@ -163,12 +163,12 @@ class LiveDataRecorder:
     async def flush_dataset(self, dataset_id: str) -> None:
         """
         Flush buffered data for a specific dataset.
-        
+
         Parameters
         ----------
         dataset_id : str
             Dataset to flush
-            
+
         """
         if not self.buffers[dataset_id]:
             return
@@ -233,7 +233,7 @@ class LiveDataRecorder:
     async def _persist_quotes(self, quotes: list[QuoteTick], metadata: dict[str, Any]) -> None:
         """Persist quote ticks to storage."""
         # Group by instrument
-        by_instrument: DefaultDict[InstrumentId, list[QuoteTick]] = defaultdict(list)
+        by_instrument: dict[InstrumentId, list[QuoteTick]] = defaultdict(list)
         for quote in quotes:
             by_instrument[quote.instrument_id].append(quote)
 
@@ -254,7 +254,21 @@ class LiveDataRecorder:
 
     async def _persist_bars(self, bars: list[Bar], metadata: dict[str, Any]) -> None:
         """Persist bars to storage."""
-        # Similar to quotes
+        # Group by instrument
+        by_instrument: dict[InstrumentId, list[Bar]] = defaultdict(list)
+        for bar in bars:
+            by_instrument[bar.bar_type.instrument_id].append(bar)
+        
+        # Write to parquet files
+        for instrument_id, instrument_bars in by_instrument.items():
+            date = datetime.fromtimestamp(metadata["ts_min"] / 1e9).date()
+            path = self.storage_path / "bars" / str(date) / f"{instrument_id}.parquet"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Convert to DataFrame and append to parquet
+            # This is where you'd use the Catalog or DataStore
+            # For now, this is a placeholder
+            print(f"Would write {len(instrument_bars)} bars to {path}")
 
     async def flush_all(self) -> None:
         """Flush all buffered data."""
@@ -269,10 +283,10 @@ class LiveDataRecorder:
 class LiveDataInterceptor:
     """
     Intercepts live data flow in Nautilus and routes it to the recorder.
-    
+
     This should be integrated into your Actor or Strategy to automatically
     record all incoming data.
-    
+
     """
 
     def __init__(self, recorder: LiveDataRecorder):

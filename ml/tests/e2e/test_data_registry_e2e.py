@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 class E2EPipelineSimulator:
     """
     Simulates a complete ML pipeline for testing.
-    
+
     This class simulates the flow of data through various ML pipeline stages,
     emitting events and updating watermarks as a real pipeline would.
     """
@@ -56,12 +56,12 @@ class E2EPipelineSimulator:
     def __init__(self, registry: DataRegistry) -> None:
         """
         Initialize pipeline simulator.
-        
+
         Parameters
         ----------
         registry : DataRegistry
             The data registry to use for event emission
-            
+
         """
         self.registry = registry
         self.run_id = f"run_{uuid.uuid4().hex[:8]}"
@@ -76,7 +76,7 @@ class E2EPipelineSimulator:
     ) -> dict[str, Any]:
         """
         Simulate a full day of data processing.
-        
+
         Parameters
         ----------
         date : datetime
@@ -85,12 +85,12 @@ class E2EPipelineSimulator:
             Probability of complete stage failure (0.0-1.0)
         partial_failure_rate : float
             Probability of partial data loss (0.0-1.0)
-            
+
         Returns
         -------
         dict[str, Any]
             Summary statistics of the simulation
-            
+
         """
         stats: dict[str, Any] = {
             "events_emitted": 0,
@@ -254,28 +254,15 @@ class TestDataRegistryE2E:
         )
 
     @pytest.fixture
-    def postgres_registry(self, tmp_path: Path) -> DataRegistry | None:
-        """Create a PostgreSQL-backed registry if available."""
-        # Check if PostgreSQL is available
-        db_url = os.getenv("TEST_DATABASE_URL")
-        if not db_url:
-            pytest.skip("PostgreSQL not available for testing")
-            return None
-
+    def postgres_registry(self, test_database, tmp_path: Path) -> DataRegistry:
+        """Create a PostgreSQL-backed registry using test database fixture."""
         config = PersistenceConfig(
             backend=BackendType.POSTGRES,
-            connection_string=db_url,
+            connection_string=test_database.connection_string,
         )
 
-        # Run migrations
-        engine = create_engine(db_url)
-        migrations_dir = Path(__file__).parent.parent / "registry" / "migrations"
-        for migration_file in sorted(migrations_dir.glob("*.sql")):
-            with open(migration_file) as f:
-                sql = f.read()
-                with engine.begin() as conn:
-                    conn.execute(text(sql))
-
+        # Migrations are already applied by conftest.py
+        
         return DataRegistry(
             registry_path=tmp_path / "registry",
             persistence_config=config,
@@ -742,15 +729,9 @@ class TestDataRegistryE2E:
         elapsed = time.perf_counter() - start_time
         assert elapsed < 0.1  # < 100ms for 100 queries
 
-    @pytest.mark.skipif(
-        not os.getenv("TEST_DATABASE_URL"),
-        reason="PostgreSQL not available",
-    )
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_full_day_pipeline_postgres(self, postgres_registry: DataRegistry) -> None:
         """Test a full day of pipeline processing with PostgreSQL backend."""
-        if postgres_registry is None:
-            pytest.skip("PostgreSQL not available")
-
         # Same test as JSON but with PostgreSQL
         # Register datasets
         datasets = self._register_test_datasets(postgres_registry)

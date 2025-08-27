@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment

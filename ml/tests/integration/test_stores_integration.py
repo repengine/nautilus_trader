@@ -22,93 +22,84 @@ from ml.stores.data_processor import DataProcessor
 from ml.stores.data_processor import QualityFlags
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
-from ml.stores.base import FeatureData
-from ml.stores.base import ModelPrediction
-from ml.stores.base import StrategySignal
 from ml.stores.strategy_store import StrategyStore
 
 
 @pytest.fixture
-def mock_persistence_manager():
+def mock_persistence_manager(test_database):
     """
-    Create mock persistence manager.
+    Create mock persistence manager with real PostgreSQL connection.
     """
     mock = MagicMock()
-    mock.connection_string = "postgresql://test:test@localhost/test"
+    mock.connection_string = test_database.connection_string
     mock.session = MagicMock()
     return mock
 
 
 @pytest.fixture
-def feature_store(mock_persistence_manager):
+def feature_store(test_database):
     """
-    Create feature store with mock persistence.
+    Create feature store with PostgreSQL connection.
     """
-    with patch("ml.stores.feature_store.PersistenceManager", return_value=mock_persistence_manager):
-        store = FeatureStore(
-            persistence_manager=mock_persistence_manager,
-            batch_size=10,
-            flush_interval_seconds=1.0,
-        )
-        yield store
-        # Cleanup
-        if hasattr(store, "_timer") and store._timer:
-            store._timer.cancel()
+    store = FeatureStore(
+        connection_string=test_database.connection_string,
+        batch_size=10,
+        flush_interval_seconds=1.0,
+    )
+    yield store
+    # Cleanup
+    if hasattr(store, "_timer") and store._timer:
+        store._timer.cancel()
 
 
 @pytest.fixture
-def model_store(mock_persistence_manager):
+def model_store(test_database):
     """
-    Create model store with mock persistence.
+    Create model store with PostgreSQL connection.
     """
-    with patch("ml.stores.model_store.PersistenceManager", return_value=mock_persistence_manager):
-        store = ModelStore(
-            persistence_manager=mock_persistence_manager,
-            batch_size=10,
-            flush_interval_seconds=1.0,
-        )
-        yield store
-        # Cleanup
-        if hasattr(store, "_timer") and store._timer:
-            store._timer.cancel()
+    store = ModelStore(
+        connection_string=test_database.connection_string,
+        batch_size=10,
+        flush_interval_seconds=1.0,
+    )
+    yield store
+    # Cleanup
+    if hasattr(store, "_timer") and store._timer:
+        store._timer.cancel()
 
 
 @pytest.fixture
-def strategy_store(mock_persistence_manager):
+def strategy_store(test_database):
     """
-    Create strategy store with mock persistence.
+    Create strategy store with PostgreSQL connection.
     """
-    with patch(
-        "ml.stores.strategy_store.PersistenceManager",
-        return_value=mock_persistence_manager,
-    ):
-        store = StrategyStore(
-            persistence_manager=mock_persistence_manager,
-            batch_size=10,
-            flush_interval_seconds=1.0,
-        )
-        yield store
-        # Cleanup
-        if hasattr(store, "_timer") and store._timer:
-            store._timer.cancel()
+    store = StrategyStore(
+        connection_string=test_database.connection_string,
+        batch_size=10,
+        flush_interval_seconds=1.0,
+    )
+    yield store
+    # Cleanup
+    if hasattr(store, "_timer") and store._timer:
+        store._timer.cancel()
 
 
 @pytest.fixture
-def data_processor():
+def data_processor(test_database):
     """
-    Create data processor.
+    Create data processor with PostgreSQL connection.
     """
-    with patch("ml.stores.data_processor.create_engine"):
-        return DataProcessor(
-            connection_string="postgresql://test:test@localhost/test",
-            outlier_threshold=3.0,
-            staleness_threshold_seconds=60,
-        )
+    return DataProcessor(
+        connection_string=test_database.connection_string,
+        outlier_threshold=3.0,
+        staleness_threshold_seconds=60,
+    )
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestFeatureStore:
     """
-    Test FeatureStore functionality.
+    Test FeatureStore functionality with PostgreSQL.
     """
 
     def test_write_features(self, feature_store):
@@ -167,9 +158,10 @@ class TestFeatureStore:
         assert result.iloc[0]["feature_set_id"] == "test_features"
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestModelStore:
     """
-    Test ModelStore functionality.
+    Test ModelStore functionality with PostgreSQL.
     """
 
     def test_write_prediction(self, model_store):
@@ -241,9 +233,10 @@ class TestModelStore:
         assert metrics["avg_confidence"] == 0.75
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestStrategyStore:
     """
-    Test StrategyStore functionality.
+    Test StrategyStore functionality with PostgreSQL.
     """
 
     def test_write_signal(self, strategy_store):
@@ -296,9 +289,10 @@ class TestStrategyStore:
         assert result.iloc[0]["signal_type"] == "BUY"
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestDataProcessor:
     """
-    Test DataProcessor functionality.
+    Test DataProcessor functionality with PostgreSQL.
     """
 
     def test_process_market_data(self, data_processor):

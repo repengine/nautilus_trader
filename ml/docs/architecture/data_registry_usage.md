@@ -34,12 +34,12 @@ graph LR
     E --> F[Event: PREDICTION_EMITTED]
     F --> G[Signal Generation]
     G --> H[Event: SIGNAL_EMITTED]
-    
+
     B --> I[Watermark Update]
     D --> I
     F --> I
     H --> I
-    
+
     I --> J[Coverage Report]
 ```
 
@@ -567,7 +567,7 @@ groups:
         annotations:
           summary: "High event failure rate"
           description: "Failure rate {{ $value }} exceeds threshold"
-      
+
       - alert: WatermarkLag
         expr: |
           data_registry_watermark_lag_seconds > 3600
@@ -577,7 +577,7 @@ groups:
         annotations:
           summary: "Watermark lag exceeds 1 hour"
           description: "Dataset {{ $labels.dataset_id }} lag: {{ $value }}s"
-      
+
       - alert: LowCoverage
         expr: |
           data_registry_coverage_percent < 90
@@ -602,15 +602,15 @@ def health_check():
     try:
         # Check registry connectivity
         registry.get_manifest("test_dataset")
-        
+
         # Check database connectivity (if using PostgreSQL)
         if registry.backend == BackendType.POSTGRES:
             registry.persistence.check_connection()
-        
+
         # Calculate metrics
         total_events = len(registry._events)
         total_datasets = len(registry._manifests)
-        
+
         return jsonify({
             "status": "healthy",
             "backend": registry.backend.value,
@@ -618,7 +618,7 @@ def health_check():
             "total_datasets": total_datasets,
             "timestamp": time.time()
         }), 200
-        
+
     except Exception as e:
         return jsonify({
             "status": "unhealthy",
@@ -667,11 +667,11 @@ class MLPipelineActor(BaseMLInferenceActor):
         super().__init__(config)
         self.registry = registry
         self.run_id = f"run_{uuid.uuid4().hex[:8]}"
-    
+
     def process_data(self, data):
         # Process data
         result = self._compute_features(data)
-        
+
         # Emit success event
         self.registry.emit_event(
             dataset_id="features_v1",
@@ -684,7 +684,7 @@ class MLPipelineActor(BaseMLInferenceActor):
             count=len(result),
             status="success"
         )
-        
+
         # Update watermark
         self.registry.update_watermark(
             dataset_id="features_v1",
@@ -694,7 +694,7 @@ class MLPipelineActor(BaseMLInferenceActor):
             count=len(result),
             completeness_pct=100.0
         )
-        
+
         return result
 ```
 
@@ -707,19 +707,19 @@ from airflow.operators.python_operator import PythonOperator
 def check_coverage(**context):
     """Check data coverage before processing."""
     from ml.cli.coverage import CoverageReporter
-    
+
     reporter = CoverageReporter()
     coverage = reporter.generate_coverage_report(
         dataset_type="BARS",
         date=context['ds'],
         instruments=["EUR/USD", "GBP/USD"]
     )
-    
+
     # Fail if coverage below threshold
     for row in coverage:
         if row['catalog_pct'] < 95.0:
             raise ValueError(f"Low coverage for {row['instrument']}: {row['catalog_pct']}%")
-    
+
     return coverage
 
 dag = DAG(

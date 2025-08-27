@@ -348,7 +348,7 @@ def main() -> int:
         universe_data = phase1_historical(collector)
 
     if args.phase == 2 or args.full:
-        microstructure = phase2_microstructure(collector)
+        _microstructure = phase2_microstructure(collector)
 
     if args.phase == 3 or args.full:
         # Load universe data if not already loaded
@@ -360,13 +360,13 @@ def main() -> int:
                 symbol = f.stem.split("_")[0]
                 universe_data[symbol] = pl.read_parquet(f)
 
-        cross_features = phase3_cross_sectional(collector, universe_data)
+        _cross_features = phase3_cross_sectional(collector, universe_data)
 
     if args.phase == 4 or args.full:
-        regime = phase4_regime_indicators(collector)
+        _regime = phase4_regime_indicators(collector)
 
     if args.phase == 5 or args.full:
-        tft_dataset = build_tft_dataset(Path(args.data_dir))
+        _tft_dataset = build_tft_dataset(Path(args.data_dir))
 
     if args.full:
         logger.info("=" * 60)

@@ -64,7 +64,7 @@ Manages stateful Nautilus indicators for consistent calculations:
 
 - **Indicators Supported**: SMA, EMA, RSI, Bollinger Bands, ATR, MACD
 - **State Management**: Price history with `PRICE_HISTORY_MAXLEN` limit (default 1000)
-- **Dual Update Methods**: 
+- **Dual Update Methods**:
   - `update_from_bar(bar)`: Updates from Nautilus Bar objects
   - `update_from_values()`: Updates from raw OHLCV values (hot path convenience)
 - **Vectorized Batch**: `update_batch_vectorized()` for efficient training data processing
@@ -110,7 +110,7 @@ class FeatureConfig(MLFeatureConfig):
 - **RSI Thresholds**: Overbought (>70) and oversold (<30) binary indicators
 - **Bollinger Bands**: Width (upper-lower)/middle and position within bands
 - **ATR**: Normalized by current price
-- **EMA Features**: 
+- **EMA Features**:
   - Fast EMA distance from price
   - Slow EMA distance from price
   - EMA cross (fast-slow)/slow
@@ -122,7 +122,7 @@ Advanced order book and trade flow analysis:
 
 #### L2 Order Book Features (when include_microstructure=True)
 
-- **Spread Metrics**: 
+- **Spread Metrics**:
   - `spread_mean`: Average spread over lookback window
   - `spread_std`: Spread standard deviation
   - `spread_relative`: Relative spread normalized by price
@@ -216,7 +216,7 @@ The pipeline framework provides a declarative way to define feature transformati
 
 #### Canonical Source of Feature Names
 The ordered feature names and pipeline signature are derived from the declarative pipeline (`PipelineRunner`) built from `FeatureConfig`. To avoid drift:
-- `FeatureConfig.get_feature_names()` delegates to a `PipelineRunner` 
+- `FeatureConfig.get_feature_names()` delegates to a `PipelineRunner`
 - `FeatureEngineer.generate_feature_manifest()` uses the same path
 - This ensures manifests, stores, and training use identical schemas
 

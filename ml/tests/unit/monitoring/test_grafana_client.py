@@ -17,7 +17,15 @@ import requests
 from ml.monitoring.grafana_client import GrafanaAPIError
 from ml.monitoring.grafana_client import GrafanaClient
 
+# Import test database fixture if not already available
+try:
+    from ml.tests.conftest import clean_postgres_db, test_database
+except ImportError:
+    # Fixtures should be available via pytest
+    pass
 
+
+@pytest.mark.usefixtures("clean_postgres_db")  # Ensure clean PostgreSQL state for integration tests
 class TestGrafanaClient:
     """
     Test cases for GrafanaClient.
@@ -814,7 +822,8 @@ class TestGrafanaAPIError:
         assert error.response_data == response_data
 
 
-def test_main_function() -> None:
+@pytest.mark.usefixtures("clean_postgres_db")
+def test_main_function(test_database) -> None:
     """
     Test the main function runs without error in dry-run mode.
     """
@@ -824,3 +833,5 @@ def test_main_function() -> None:
 
     # Just verify the function exists and can be imported
     assert callable(main)
+    # Ensure PostgreSQL database is available for any metrics storage
+    assert "postgresql://" in test_database.connection_string

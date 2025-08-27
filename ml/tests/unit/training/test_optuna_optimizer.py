@@ -17,10 +17,18 @@ import pytest
 from ml.config.shared import OptunaConfig
 from ml.training.optuna_optimizer import XGBoostOptunaOptimizer
 
+# Import test database fixture if not already available
+try:
+    from ml.tests.conftest import clean_postgres_db, test_database
+except ImportError:
+    # Fixtures should be available via pytest
+    pass
 
+
+@pytest.mark.usefixtures("clean_postgres_db")  # Ensure clean PostgreSQL state
 class TestXGBoostOptunaOptimizer:
     """
-    Test XGBoost Optuna optimizer functionality.
+    Test XGBoost Optuna optimizer functionality with PostgreSQL for ML stores.
     """
 
     @pytest.fixture
@@ -116,14 +124,16 @@ class TestXGBoostOptunaOptimizer:
         self,
         mock_optuna: MagicMock,
         basic_config: OptunaConfig,
+        test_database,
     ) -> None:
         """
-        Test study creation with persistent storage.
+        Test study creation with persistent storage using PostgreSQL.
         """
         import msgspec
 
         config_dict = msgspec.structs.asdict(basic_config)
-        config_dict["storage_url"] = "sqlite:///test.db"
+        # Use PostgreSQL for Optuna study storage
+        config_dict["storage_url"] = f"{test_database.connection_string.replace('nautilus_test', 'optuna_test')}"
         config_dict["study_name"] = "test_study"
         config = OptunaConfig(**config_dict)
         optimizer = XGBoostOptunaOptimizer(config)
@@ -137,11 +147,10 @@ class TestXGBoostOptunaOptimizer:
 
         optimizer.create_study()
 
-        # Verify storage was created
-        mock_optuna.storages.RDBStorage.assert_called_once_with(
-            url="sqlite:///test.db",
-            engine_kwargs={"pool_pre_ping": True, "pool_recycle": 300},
-        )
+        # Verify storage was created with PostgreSQL
+        mock_optuna.storages.RDBStorage.assert_called_once()
+        call_args = mock_optuna.storages.RDBStorage.call_args
+        assert "postgresql://" in call_args[1]["url"]
 
         # Verify study creation with storage
         call_args = mock_optuna.create_study.call_args
@@ -367,9 +376,10 @@ class TestXGBoostOptunaOptimizer:
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
         ],
+        test_database,  # Add test_database fixture
     ) -> None:
         """
-        Test objective function creation.
+        Test objective function creation with PostgreSQL for ML stores.
         """
         optimizer = XGBoostOptunaOptimizer(basic_config)
         optimizer._optuna = mock_optuna  # Initialize the optuna module
@@ -434,9 +444,10 @@ class TestXGBoostOptunaOptimizer:
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
         ],
+        test_database,  # Add test_database fixture
     ) -> None:
         """
-        Test objective function creation for regression.
+        Test objective function creation for regression with PostgreSQL for ML stores.
         """
         optimizer = XGBoostOptunaOptimizer(basic_config)
         optimizer._optuna = mock_optuna  # Initialize the optuna module
@@ -489,9 +500,10 @@ class TestXGBoostOptunaOptimizer:
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
         ],
+        test_database,  # Add test_database fixture
     ) -> None:
         """
-        Test objective function exception handling.
+        Test objective function exception handling with PostgreSQL for ML stores.
         """
         optimizer = XGBoostOptunaOptimizer(basic_config)
         optimizer._optuna = mock_optuna  # Initialize the optuna module

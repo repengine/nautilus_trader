@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.utils import assert_features_compatible
 

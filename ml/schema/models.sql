@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS ml_model_predictions (
 );
 
 -- Indexes for model predictions
-CREATE INDEX IF NOT EXISTS idx_ml_predictions_model_instrument 
+CREATE INDEX IF NOT EXISTS idx_ml_predictions_model_instrument
     ON ml_model_predictions(model_id, instrument_id, ts_event DESC);
-CREATE INDEX IF NOT EXISTS idx_ml_predictions_time 
+CREATE INDEX IF NOT EXISTS idx_ml_predictions_time
     ON ml_model_predictions(ts_event DESC);
 
 -- Model metadata table

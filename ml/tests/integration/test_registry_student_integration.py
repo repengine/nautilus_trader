@@ -7,12 +7,14 @@ import numpy as np
 import pytest
 
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureManifest as _FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry as _FeatureRegistry
-from ml.registry.feature_registry import FeatureRole as _FeatureRole
+from ml.registry.feature_registry import FeatureRole
 from ml.registry.model_registry import ModelRegistry
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 from ml.registry.utils import build_feature_schema
 from ml.registry.utils import build_student_manifest
 
@@ -35,13 +37,22 @@ class DummyOrtSession:
         return [np.array([[0.25], [0.75]], dtype=np.float32)]
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 def test_registry_registers_teacher_and_student_and_loads_onnx(
+    test_database,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Prepare registry
+    # Prepare registry with PostgreSQL backend
     reg_dir = tmp_path / "registry"
-    registry = ModelRegistry(reg_dir)
+    persistence_config = PersistenceConfig(
+        backend=BackendType.POSTGRES,
+        connection_string=test_database.connection_string,
+    )
+    registry = ModelRegistry(
+        registry_path=reg_dir,
+        persistence_config=persistence_config
+    )
 
     # Prepare dummy ONNX files
     teacher_path = reg_dir / "teacher.onnx"
@@ -89,8 +100,11 @@ def test_registry_registers_teacher_and_student_and_loads_onnx(
     # Minimal hash; not tested here beyond presence
     feature_schema_hash = "deadbeef"
 
-    # Prepare FeatureRegistry entry for parity validation
-    freg = _FeatureRegistry(reg_dir)
+    # Prepare FeatureRegistry entry for parity validation with PostgreSQL backend
+    freg = _FeatureRegistry(
+        registry_path=reg_dir,
+        persistence_config=persistence_config
+    )
     freg.register_feature_set(
         _FeatureManifest(
             feature_set_id="fs_dummy",

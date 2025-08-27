@@ -330,7 +330,7 @@ class FeatureStore:
                         "instrument_id": instrument_id,
                         "ts_event": ts_event,
                         "ts_init": ts_event,
-                        "values": json.dumps(values_map),
+                        "values": values_map,
                         "is_live": False,
                         "source": "historical",
                         # created_at omitted: DB default
@@ -348,7 +348,7 @@ class FeatureStore:
                         "instrument_id": instrument_id,
                         "ts_event": ts_event,
                         "ts_init": ts_event,
-                        "values": json.dumps(values_map),
+                        "values": values_map,
                         "is_live": False,
                         "source": "historical",
                         # created_at omitted: DB default
@@ -383,9 +383,9 @@ class FeatureStore:
                 # Generate unique run ID for this computation
                 run_id = f"feature_historical_{uuid.uuid4().hex[:8]}_{int(time.time())}"
 
-                # Get the feature dataset ID
+                # Use canonical dataset id and include context via metrics/metadata elsewhere
                 feature_set_id = self._get_feature_set_id()
-                dataset_id = f"features_{feature_set_id}_{instrument_id}"
+                dataset_id = "features"
 
                 # Get the time range from timestamps
                 ts_min = int(timestamps[0]) if len(timestamps) > 0 else 0
@@ -524,7 +524,7 @@ class FeatureStore:
                 ),
                 "ts_event": int(bar.ts_event),
                 "ts_init": int(bar.ts_init),
-                "values": json.dumps(values_map),
+                "values": values_map,
                 "is_live": True,
                 "source": "live",
                 # created_at omitted: DB default
@@ -553,7 +553,7 @@ class FeatureStore:
                         # Generate unique run ID for this computation
                         run_id = f"feature_realtime_{uuid.uuid4().hex[:8]}_{int(time.time())}"
 
-                        # Get the feature dataset ID
+                        # Context identifiers
                         feature_set_id = self._get_feature_set_id()
                         instrument_id_str = str(
                             (
@@ -562,7 +562,7 @@ class FeatureStore:
                                 else getattr(bar, "instrument_id", "unknown")
                             ),
                         )
-                        dataset_id = f"features_{feature_set_id}_{instrument_id_str}"
+                        dataset_id = "features"
 
                         # Emit the event
                         registry.emit_event(

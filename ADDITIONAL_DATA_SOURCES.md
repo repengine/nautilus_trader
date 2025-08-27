@@ -3,7 +3,7 @@
 ## Currently Implemented ✅
 
 ### 1. Market Data (Databento)
-- **L0**: 7 years OHLCV bars 
+- **L0**: 7 years OHLCV bars
 - **L1**: 1 year quotes/trades
 - **L2**: 30 days market depth (in progress)
 - **Cost**: $0 with EQUS.MINI subscription
@@ -24,7 +24,7 @@
 **Why valuable**: Provides regime context and cross-asset correlations
 
 - **Sector ETFs** (XLK, XLF, XLV, etc.) - sector rotation signals
-- **Factor ETFs** (IWF, IWD, MTUM) - style regime detection  
+- **Factor ETFs** (IWF, IWD, MTUM) - style regime detection
 - **International** (EWJ, FXI, EEM) - global risk sentiment
 - **Commodities** (GLD, USO, DBA) - inflation/growth signals
 - **Bonds** (TLT, HYG, LQD) - yield curve, credit conditions
@@ -117,7 +117,7 @@ Calculate from L1/L2 data:
 
 All data should be aligned to daily frequency with these columns:
 - `timestamp` (datetime)
-- `symbol` (str) 
+- `symbol` (str)
 - `feature_name` (str)
 - `value` (float)
 - `timestamp_ns` (int64)

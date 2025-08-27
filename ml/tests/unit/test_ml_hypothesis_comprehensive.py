@@ -23,7 +23,7 @@ from ml.core.cache import PreAllocatedFeatureCache
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 

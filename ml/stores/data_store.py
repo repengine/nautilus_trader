@@ -318,11 +318,11 @@ class DataStore:
     ) -> tuple[bool, str | None, dict[str, Any]]:
         """
         Perform preflight schema validation before processing data.
-        
+
         This method checks that the data conforms to the expected schema
         without actually writing anything. It validates column names,
         data types, required fields, and schema hash compatibility.
-        
+
         Parameters
         ----------
         dataset_id : str
@@ -331,19 +331,19 @@ class DataStore:
             Data to validate
         strict : bool
             If True, require exact schema match. If False, allow subset.
-        
+
         Returns
         -------
         tuple[bool, str | None, dict[str, Any]]
             (success, error_message, validation_details)
-        
+
         Examples
         --------
         >>> success, error, details = store.preflight_check("bars_eurusd_1m", df)
         >>> if not success:
         ...     print(f"Preflight check failed: {error}")
         ...     print(f"Details: {details}")
-        
+
         """
         try:
             # Get manifest and contract
@@ -795,7 +795,7 @@ class DataStore:
 
         """
         run_id = run_id or f"features_{time.time_ns()}"
-        dataset_id = f"features_{instrument_id.lower().replace('/', '_')}"
+        dataset_id = "features"
 
         # Register dataset if not exists
         self._ensure_dataset_registered(
@@ -894,7 +894,7 @@ class DataStore:
         # Group by instrument for event emission
         instrument_id = predictions[0].instrument_id
         model_id = predictions[0].model_id
-        dataset_id = f"predictions_{model_id}"
+        dataset_id = "predictions"
 
         # Register dataset if not exists
         self._ensure_dataset_registered(
@@ -984,7 +984,7 @@ class DataStore:
         # Group by instrument for event emission
         instrument_id = signals[0].instrument_id
         strategy_id = signals[0].strategy_id
-        dataset_id = f"signals_{strategy_id}"
+        dataset_id = "signals"
 
         # Register dataset if not exists
         self._ensure_dataset_registered(
@@ -1114,7 +1114,7 @@ class DataStore:
         Examples
         --------
         >>> df = store.read_range(
-        ...     dataset_id="features_eurusd",
+        ...     dataset_id="features",
         ...     instrument_id="EUR/USD",
         ...     start_ns=1234567890000000000,
         ...     end_ns=1234567900000000000
@@ -1180,7 +1180,7 @@ class DataStore:
     ) -> QualityReport:
         """
         Validate a batch of data against the dataset's contract.
-        
+
         Performs comprehensive contract validation including type checking,
         null validation, range validation, uniqueness constraints,
         monotonicity checks, and lateness validation.

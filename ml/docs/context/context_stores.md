@@ -22,7 +22,7 @@ class BaseMLInferenceActor:
 class DataStore:
     def __init__(self, registry, connection_string):
         self.feature_store = FeatureStore(connection_string)
-        self.model_store = ModelStore(connection_string) 
+        self.model_store = ModelStore(connection_string)
         self.strategy_store = StrategyStore(connection_string)
         self.data_processor = DataProcessor(connection_string)
 ```
@@ -55,7 +55,7 @@ class DataStore:
 
 - **Purpose**: Typed read/write facade with contract validation and event emission
 - **Key Capability**: Schema validation, quality reporting, watermark tracking
-- **Features**: 
+- **Features**:
   - Preflight schema checks before data processing
   - Contract-based validation with enforcement modes (strict, lenient, monitor_only)
   - Automatic event emission to DataRegistry
@@ -75,11 +75,11 @@ class FeatureData(Data):
     values: dict[str, float]
     _ts_event: int  # nanoseconds
     _ts_init: int   # nanoseconds
-    
+
     @property
     def ts_event(self) -> int:
         return self._ts_event
-    
+
     @property
     def ts_init(self) -> int:
         return self._ts_init
@@ -235,24 +235,24 @@ class QualityFlags(IntFlag):
 
 #### Processing Stages
 
-1. **Market Data Processing**: 
+1. **Market Data Processing**:
    - Timestamp validation and correction
    - Outlier detection using configurable thresholds
    - Crossed market detection and correction
    - Staleness checking (default 300 seconds)
 
-2. **Feature Processing**: 
+2. **Feature Processing**:
    - NaN/Inf handling with imputation
    - Range validation and normalization
    - Drift detection and monitoring
    - Lineage tracking for transformations
 
-3. **Prediction Processing**: 
+3. **Prediction Processing**:
    - Confidence calibration
    - Prediction validation
    - Feature attribution tracking
 
-4. **Signal Processing**: 
+4. **Signal Processing**:
    - Risk metric calculation
    - Execution parameter computation
    - Position sizing logic
@@ -290,7 +290,7 @@ The LiveDataRecorder automatically captures all live market data flowing through
 ```python
 class LiveDataRecorder:
     """Automatically records all live data with validation and event tracking."""
-    
+
     def __init__(
         self,
         data_store: DataStore,

@@ -200,7 +200,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 All universe configuration files are located in `/home/nate/projects/nautilus_trader/ml/config/`:
 
 - `universe_tier1.json` - Core 150 symbols for high-frequency and real-time strategies
-- `universe_tier2.json` - Extended 300 symbols for sector and factor strategies  
+- `universe_tier2.json` - Extended 300 symbols for sector and factor strategies
 - `universe_tier3.json` - Full 750 symbols for comprehensive analysis
 - `universe_proxies.json` - 150 ETF proxies organized by asset class and strategy
 - `universe_summary.md` - This summary document

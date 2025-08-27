@@ -154,32 +154,32 @@ class DatasetManifest:
     # Identity
     dataset_id: str
     dataset_type: DatasetType                 # BARS/TRADES/QUOTES/MBP1/TBBO/FEATURES/PREDICTIONS/SIGNALS
-    
+
     # Storage
     storage_kind: StorageKind                 # PARQUET/POSTGRES
     location: str                             # File path or table name
     partitioning: dict[str, Any]             # {"by": ["date", "instrument_id"]}
     retention_days: int                       # Data retention period
-    
+
     # Schema
     schema: dict[str, str]                   # Column names and data types
     ts_field: str                             # Timestamp field name (in nanoseconds)
     seq_field: str | None                     # Optional sequence number field
     primary_keys: list[str]                   # Primary key columns
     schema_hash: str                          # SHA256 hash for validation
-    
+
     # Validation
     constraints: dict[str, Any]               # Ranges, nullability, etc.
-    
+
     # Lineage
     lineage: list[str]                        # Parent dataset IDs
     pipeline_signature: str                   # Pipeline that created this dataset
-    
+
     # Versioning
     version: str                              # Semantic version
     created_at: int                           # Creation timestamp (nanoseconds)
     last_modified: int                        # Last modification timestamp (nanoseconds)
-    
+
     # Metadata
     metadata: dict[str, Any]                  # Additional metadata
 ```

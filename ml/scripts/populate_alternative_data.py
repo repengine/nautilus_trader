@@ -55,7 +55,7 @@ class CBOEDataLoader:
 
         # CBOE provides delayed data for free
         # Total put/call ratio endpoint
-        url = "https://markets.cboe.com/us/options/market_statistics/daily/"
+        _url = "https://markets.cboe.com/us/options/market_statistics/daily/"
 
         try:
             # This would need proper API implementation
@@ -81,7 +81,7 @@ class CBOEDataLoader:
         logger.info("Fetching VIX Term Structure...")
 
         # VIX futures term structure
-        symbols = ["VIX", "VIX9D", "VIX30D", "VIX90D", "VIX180D"]
+        _symbols = ["VIX", "VIX9D", "VIX30D", "VIX90D", "VIX180D"]
 
         data = {
             "timestamp": [],
@@ -105,7 +105,7 @@ class AAIISentimentLoader:
 
         # AAII provides historical data
         # Updated weekly (Thursdays)
-        url = "https://www.aaii.com/sentiment-survey-historical-data"
+        _url = "https://www.aaii.com/sentiment-survey-historical-data"
 
         # Would scrape or use API if available
         # Structure:
@@ -133,7 +133,7 @@ class COTReportLoader:
         # Updated weekly (Tuesdays)
 
         # Key futures to track:
-        futures = {
+        _futures = {
             "ES": "E-MINI S&P 500",  # Equity index
             "NQ": "E-MINI NASDAQ",   # Tech index
             "VX": "VIX FUTURES",      # Volatility
@@ -191,8 +191,8 @@ class MarketMicrostructureLoader:
         logger.info(f"Calculating microstructure metrics for {symbol}...")
 
         # Load existing L1/L2 data
-        l1_path = Path(f"data/tier1/{symbol}/l1")
-        l2_path = Path(f"data/tier1/{symbol}/l2")
+        _l1_path = Path(f"data/tier1/{symbol}/l1")
+        _l2_path = Path(f"data/tier1/{symbol}/l2")
 
         metrics = {
             "timestamp": [],

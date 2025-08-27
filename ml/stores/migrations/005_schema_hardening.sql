@@ -18,10 +18,10 @@ BEGIN
         WHERE table_schema = 'public' AND table_name = 'ml_model_predictions' AND column_name = 'created_at'
               AND data_type IN ('bigint', 'integer')
     ) THEN
-        EXECUTE 'ALTER TABLE public.ml_model_predictions 
-                 ALTER COLUMN created_at TYPE TIMESTAMPTZ 
+        EXECUTE 'ALTER TABLE public.ml_model_predictions
+                 ALTER COLUMN created_at TYPE TIMESTAMPTZ
                  USING to_timestamp(created_at::double precision / 1000000000)';
-        EXECUTE 'ALTER TABLE public.ml_model_predictions 
+        EXECUTE 'ALTER TABLE public.ml_model_predictions
                  ALTER COLUMN created_at SET DEFAULT NOW()';
     END IF;
 
@@ -31,10 +31,10 @@ BEGIN
         WHERE table_schema = 'public' AND table_name = 'ml_strategy_signals' AND column_name = 'created_at'
               AND data_type IN ('bigint', 'integer')
     ) THEN
-        EXECUTE 'ALTER TABLE public.ml_strategy_signals 
-                 ALTER COLUMN created_at TYPE TIMESTAMPTZ 
+        EXECUTE 'ALTER TABLE public.ml_strategy_signals
+                 ALTER COLUMN created_at TYPE TIMESTAMPTZ
                  USING to_timestamp(created_at::double precision / 1000000000)';
-        EXECUTE 'ALTER TABLE public.ml_strategy_signals 
+        EXECUTE 'ALTER TABLE public.ml_strategy_signals
                  ALTER COLUMN created_at SET DEFAULT NOW()';
     END IF;
 END$$;

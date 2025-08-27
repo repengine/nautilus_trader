@@ -11,14 +11,14 @@ RETURNS VOID AS $$
 DECLARE
     table_names TEXT[] := ARRAY['ml_feature_values', 'ml_model_predictions', 'ml_strategy_signals'];
     table_name TEXT;
-    current_date DATE;
+    cur_date DATE;
     last_partition_date DATE;
     partition_name TEXT;
     start_ns BIGINT;
     end_ns BIGINT;
     months_ahead INTEGER := 3;  -- Always maintain 3 months ahead
 BEGIN
-    current_date := CURRENT_DATE;
+    cur_date := CURRENT_DATE;
 
     FOREACH table_name IN ARRAY table_names
     LOOP
@@ -31,11 +31,11 @@ BEGIN
 
         -- If no partitions exist, start from current month
         IF last_partition_date IS NULL THEN
-            last_partition_date := DATE_TRUNC('month', current_date);
+            last_partition_date := DATE_TRUNC('month', cur_date);
         END IF;
 
         -- Create partitions up to 3 months in the future
-        WHILE last_partition_date <= current_date + INTERVAL '3 months' LOOP
+        WHILE last_partition_date <= cur_date + INTERVAL '3 months' LOOP
             partition_name := table_name || '_' || TO_CHAR(last_partition_date, 'YYYY_MM');
             start_ns := EXTRACT(EPOCH FROM last_partition_date) * 1000000000;
             end_ns := EXTRACT(EPOCH FROM last_partition_date + INTERVAL '1 month') * 1000000000;

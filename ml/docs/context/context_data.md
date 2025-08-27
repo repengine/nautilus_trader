@@ -87,7 +87,7 @@ graph TB
 
 **I/O Specifications**:
 
-- **Input**: 
+- **Input**:
   - `storage_limit_gb`: Maximum storage budget (default: 500GB)
   - `data_dir`: Output directory for collected data
   - Databento API key via `DATABENTO_API_KEY` environment variable
@@ -101,7 +101,7 @@ graph TB
   - L1 trades: 2+ years for top 20 priority symbols
   - TBBO quotes: 30 days for spread dynamics
   - Minute bars: 1 year coverage for all symbols
-- **Smart Storage Management**: 
+- **Smart Storage Management**:
   - Real-time storage tracking
   - Automatic phase adjustment based on available space
   - Collection metadata JSON output
@@ -165,13 +165,13 @@ def bars_to_dataframe(
 
 **I/O Specifications**:
 
-- **Input**: 
+- **Input**:
   - `catalog`: ParquetDataCatalog for data storage
   - `config`: SchedulerConfig with Databento settings
   - `collector`: DataCollector instance (optional)
   - `feature_engineer`: FeatureEngineer for feature computation (optional)
   - `metrics_port`: Port for Prometheus metrics server
-- **Output**: 
+- **Output**:
   - Updated ParquetDataCatalog with new market data
   - Computed features persisted to FeatureStore
   - DataRegistry events for pipeline tracking
@@ -181,7 +181,7 @@ def bars_to_dataframe(
 
 **Key Features**:
 
-- **DataRegistry Integration**: 
+- **DataRegistry Integration**:
   - Emits CATALOG_WRITTEN events for data lineage
   - Updates watermarks for dataset freshness tracking
   - Supports both PostgreSQL and JSON backends
@@ -225,7 +225,7 @@ def bars_to_dataframe(
 
 **I/O Specifications**:
 
-- **Input**: 
+- **Input**:
   - `catalog`: ParquetDataCatalog for raw data access
   - `symbols`: List of symbols to include
   - `feature_config`: MLFeatureConfig for feature engineering
@@ -238,7 +238,7 @@ def bars_to_dataframe(
   - Ensures training/inference parity
   - Combines FeatureStore features with bar data for targets
   - Adds TFT-specific features (static, known-future)
-  
+
 - `prepare_training_data()`: Smart source selection
   - Automatically uses FeatureStore if available
   - Falls back to direct computation with logging
@@ -862,12 +862,12 @@ fred_config = FREDConfig(
 - **Credit Spreads**: High yield, investment grade
 
 **Key Features**:
-- **Caching System**: 
+- **Caching System**:
   - Parquet file cache with metadata
   - Configurable TTL (default: 24 hours)
   - Cache hit tracking via Prometheus
 - **Rate Limiting**: Compliant with FRED's 120 calls/minute limit
-- **DataStore Integration**: 
+- **DataStore Integration**:
   - Stores indicators with DataRegistry registration
   - Creates DatasetManifest with validation rules
   - Generates pseudo InstrumentIds (e.g., "FRED.DGS10")

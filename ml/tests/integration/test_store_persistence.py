@@ -4,45 +4,27 @@ Integration tests for store persistence.
 Tests that data is actually persisted to stores and can be retrieved.
 """
 
-import tempfile
-from pathlib import Path
-
 import pytest
+from sqlalchemy import text
 
-from ml.registry.persistence import PersistenceConfig
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestStorePersistence:
     """
-    Test that stores actually persist data.
+    Test that stores actually persist data with PostgreSQL.
     """
 
-    @pytest.fixture
-    def temp_db_path(self):
-        """Create a temporary SQLite database for testing."""
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            yield f.name
-        # Cleanup
-        Path(f.name).unlink(missing_ok=True)
-
-    @pytest.fixture
-    def persistence_config(self, temp_db_path):
-        """Create persistence config for testing."""
-        return PersistenceConfig(
-            backend="sqlite",
-            connection_string=f"sqlite:///{temp_db_path}",
-        )
-
-    def test_feature_store_persistence(self, temp_db_path):
+    def test_feature_store_persistence(self, test_database):
         """
         Test that FeatureStore actually persists and retrieves features.
         """
         # Create store
         store = FeatureStore(
-            connection_string=f"sqlite:///{temp_db_path}",
+            connection_string=test_database.connection_string,
         )
 
         # Write features
@@ -65,16 +47,17 @@ class TestStorePersistence:
 
         # Create new store instance to verify persistence
         store2 = FeatureStore(
-            connection_string=f"sqlite:///{temp_db_path}",
+            connection_string=test_database.connection_string,
         )
 
         # Read back features
-        with store2.engine.connect() as conn:
-            from sqlalchemy import select
-            result = conn.execute(
-                select([store2.feature_values_table]).where(
-                    store2.feature_values_table.c.feature_set_id == "test_set"
-                )
+        with test_database.get_session() as session:
+            result = session.execute(
+                text("""
+                    SELECT * FROM ml_feature_values
+                    WHERE feature_set_id = :feature_set_id
+                """ ),
+                {"feature_set_id": "test_set"}
             ).fetchone()
 
         assert result is not None
@@ -84,12 +67,14 @@ class TestStorePersistence:
         # Check health
         assert store2.is_healthy()
 
-    def test_model_store_persistence(self, persistence_config, temp_db_path):
+    def test_model_store_persistence(self, test_database):
         """
         Test that ModelStore actually persists and retrieves predictions.
         """
         # Create store
-        store = ModelStore(persistence_config=persistence_config)
+        store = ModelStore(
+            connection_string=test_database.connection_string,
+        )
 
         # Write predictions
         store.write_prediction(
@@ -118,7 +103,9 @@ class TestStorePersistence:
         store.flush()
 
         # Create new store instance to verify persistence
-        store2 = ModelStore(persistence_config=persistence_config)
+        store2 = ModelStore(
+            connection_string=test_database.connection_string,
+        )
 
         # Read back predictions
         predictions = store2.get_predictions(
@@ -132,12 +119,14 @@ class TestStorePersistence:
         # Check health
         assert store2.is_healthy()
 
-    def test_strategy_store_persistence(self, persistence_config, temp_db_path):
+    def test_strategy_store_persistence(self, test_database):
         """
         Test that StrategyStore actually persists and retrieves signals.
         """
         # Create store
-        store = StrategyStore(persistence_config=persistence_config)
+        store = StrategyStore(
+            connection_string=test_database.connection_string,
+        )
 
         # Write signals
         store.write_signal(
@@ -168,7 +157,9 @@ class TestStorePersistence:
         store.flush()
 
         # Create new store instance to verify persistence
-        store2 = StrategyStore(persistence_config=persistence_config)
+        store2 = StrategyStore(
+            connection_string=test_database.connection_string,
+        )
 
         # Read back signals
         signals = store2.get_signals(
@@ -186,35 +177,38 @@ class TestStorePersistence:
         """
         Test that stores handle connection failures gracefully.
         """
-        # Create config with invalid connection
-        bad_config = PersistenceConfig(
-            backend="postgres",
-            connection_string="postgresql://invalid:invalid@nonexistent:5432/none",
-        )
-
-        # ModelStore should raise on bad connection in production mode
+        # Create store with invalid connection string
+        bad_connection = "postgresql://invalid:invalid@nonexistent:5432/none"
+        
+        # Store should raise on bad connection
         with pytest.raises(Exception):
-            ModelStore(persistence_config=bad_config)
+            ModelStore(connection_string=bad_connection)
 
-    def test_dummy_store_in_test_mode(self):
+    def test_store_is_healthy(self, test_database):
         """
-        Test that DummyStore works in test mode.
+        Test that stores properly report health status with PostgreSQL.
         """
-        from ml.stores.base import DummyStore
-
-        store = DummyStore()
-
-        # All operations should work without errors
-        store.write_features(
-            feature_set_id="test",
+        # Create all stores
+        feature_store = FeatureStore(connection_string=test_database.connection_string)
+        model_store = ModelStore(connection_string=test_database.connection_string)
+        strategy_store = StrategyStore(connection_string=test_database.connection_string)
+        
+        # All stores should be healthy with valid PostgreSQL connection
+        assert feature_store.is_healthy()
+        assert model_store.is_healthy()
+        assert strategy_store.is_healthy()
+        
+        # Test writing to each store
+        feature_store.write_features(
+            feature_set_id="health_test",
             instrument_id="EUR/USD",
             features={"test": 1.0},
             ts_event=1000000000,
             ts_init=1000000001,
         )
-
-        store.write_prediction(
-            model_id="test",
+        
+        model_store.write_prediction(
+            model_id="health_test",
             instrument_id="EUR/USD",
             prediction=0.5,
             confidence=0.8,
@@ -222,9 +216,9 @@ class TestStorePersistence:
             inference_time_ms=1.0,
             ts_event=1000000000,
         )
-
-        store.write_signal(
-            strategy_id="test",
+        
+        strategy_store.write_signal(
+            strategy_id="health_test",
             instrument_id="EUR/USD",
             signal_type="buy",
             strength=0.8,
@@ -233,13 +227,13 @@ class TestStorePersistence:
             execution_params={},
             ts_event=1000000000,
         )
-
-        store.flush()
-
-        # Health check should always return True
-        assert store.is_healthy()
-
-        # Stats should return dummy indicator
-        stats = store.get_stats()
-        assert stats["dummy"] is True
-# mypy: ignore-errors
+        
+        # Flush all stores
+        feature_store.flush()
+        model_store.flush()
+        strategy_store.flush()
+        
+        # Stores should still be healthy after operations
+        assert feature_store.is_healthy()
+        assert model_store.is_healthy()
+        assert strategy_store.is_healthy()

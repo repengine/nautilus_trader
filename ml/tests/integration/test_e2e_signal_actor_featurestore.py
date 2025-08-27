@@ -22,6 +22,8 @@ from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+from ml.tests.fixtures.database_fixtures import TestDatabase
+import pytest
 
 
 class _FakeBar:
@@ -43,41 +45,39 @@ def _make_bar() -> _FakeBar:
 
 
 class TestE2EActorFeatureStore:
-    def test_actor_delegates_to_feature_store_when_enabled(self) -> None:
-        # Patch DB setup to avoid real connections
-        with patch("ml.stores.feature_store.create_engine"):
-            with patch("ml.stores.feature_store.FeatureStore._setup_tables"):
-                # Build config with FeatureStore enabled
-                cfg = MLSignalActorConfig(
-                    model_path="./dummy.onnx",
-                    model_id="model-1",
-                    # BarType is required by type, but we only need an object with instrument_id
-                    bar_type=MagicMock(),
-                    instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
-                    use_feature_store=True,
-                    persist_features=True,
-                    prediction_threshold=0.1,
-                    signal_strategy=SignalStrategy.THRESHOLD.value,
-                    db_connection="postgresql://localhost/test",
-                )
+    @pytest.mark.usefixtures("clean_postgres_db")
+    def test_actor_delegates_to_feature_store_when_enabled(self, test_database: TestDatabase) -> None:
+        # Build config with FeatureStore enabled
+        cfg = MLSignalActorConfig(
+            model_path="./dummy.onnx",
+            model_id="model-1",
+            # BarType is required by type, but we only need an object with instrument_id
+            bar_type=MagicMock(),
+            instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
+            use_feature_store=True,
+            persist_features=True,
+            prediction_threshold=0.1,
+            signal_strategy=SignalStrategy.THRESHOLD.value,
+            db_connection=test_database.connection_string,
+        )
 
-                # Prevent actual model loading
-                with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
-                    actor = MLSignalActor(cfg)
+        # Prevent actual model loading
+        with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
+            actor = MLSignalActor(cfg)
 
-                # Stub FeatureStore.compute_realtime to return deterministic features
-                expected = np.arange(10, dtype=np.float32)
-                actor._feature_store.compute_realtime = MagicMock(return_value=expected)
+        # Stub FeatureStore.compute_realtime to return deterministic features
+        expected = np.arange(10, dtype=np.float32)
+        actor._feature_store.compute_realtime = MagicMock(return_value=expected)
 
-                bar = _make_bar()
-                features = actor._compute_features(bar)
+        bar = _make_bar()
+        features = actor._compute_features(bar)
 
-                # Assert features returned from FeatureStore
-                assert isinstance(features, np.ndarray)
-                assert np.array_equal(features, expected)
+        # Assert features returned from FeatureStore
+        assert isinstance(features, np.ndarray)
+        assert np.array_equal(features, expected)
 
-                # Assert store was called with expected API
-                actor._feature_store.compute_realtime.assert_called_once()
-                kwargs = actor._feature_store.compute_realtime.call_args.kwargs
-                assert "bar" in kwargs and kwargs["bar"] is bar
-                assert kwargs.get("store") is True
+        # Assert store was called with expected API
+        actor._feature_store.compute_realtime.assert_called_once()
+        kwargs = actor._feature_store.compute_realtime.call_args.kwargs
+        assert "bar" in kwargs and kwargs["bar"] is bar
+        assert kwargs.get("store") is True

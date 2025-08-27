@@ -25,11 +25,11 @@ from ml.actors.signal import ExtremesStrategy
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import MomentumStrategy
-from ml.actors.signal import OptimizationConfig
+from ml.config.actors import OptimizationConfig
 from ml.actors.signal import OptimizationLevel
 from ml.actors.signal import SignalGenerationStrategy
 from ml.actors.signal import SignalStrategy
-from ml.actors.signal import StrategyConfig
+from ml.config.actors import StrategyConfig
 from ml.actors.signal import ThresholdSignalStrategy
 from ml.actors.signal import ThresholdStrategy
 from nautilus_trader.common.component import TestClock

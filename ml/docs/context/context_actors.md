@@ -227,7 +227,7 @@ if config.use_registry_features and config.feature_set_id:
 ```python
 class HealthMonitor:
     """Tracks prediction success rates, latency violations, system status."""
-    
+
     status: HealthStatus  # HEALTHY, DEGRADED, or UNHEALTHY
     model_loaded: bool
     indicators_initialized: bool
@@ -244,7 +244,7 @@ class HealthMonitor:
         self.consecutive_failures += 1
         self.failed_predictions += 1
         self._update_health_status()
-        
+
     def get_success_rate(self) -> float:
         """Calculate overall prediction success rate."""
 ```
@@ -254,7 +254,7 @@ class HealthMonitor:
 ```python
 class CircuitBreaker:
     """Prevents cascade failures with configurable thresholds."""
-    
+
     _state: CircuitBreakerState  # CLOSED, OPEN, or HALF_OPEN
     _failure_count: int
     _success_count: int
@@ -267,10 +267,10 @@ class CircuitBreaker:
                 return True
             return False
         return True
-        
+
     def record_success(self) -> None:
         """Record successful operation and potentially close circuit."""
-        
+
     def record_failure(self) -> None:
         """Record failure and potentially open circuit."""
 ```
@@ -309,7 +309,7 @@ class OptimizationLevel(Enum):
 The framework supports multiple model formats through automatic detection:
 
 - **ONNX** (.onnx): Optimized runtime with CPU providers
-- **XGBoost** (.json): Native XGBoost JSON format  
+- **XGBoost** (.json): Native XGBoost JSON format
 - **Joblib** (.joblib): Scikit-learn and general Python models
 - **Pickle** (.pkl, .pickle): DEPRECATED - raises SecurityError for security
 
@@ -331,7 +331,7 @@ def _load_optimized_onnx_model(self) -> None:
 ```python
 class PerformanceMonitor:
     """Non-blocking performance tracking with reservoir sampling."""
-    
+
     feature_times: list[float]
     inference_times: list[float]
     total_times: list[float]
@@ -352,7 +352,7 @@ class PerformanceMonitor:
             "inference": {p: np.percentile(self.inference_times, p) for p in percentiles},
             "total": {p: np.percentile(self.total_times, p) for p in percentiles}
         }
-        
+
     def get_current_stats(self) -> dict[str, Any]:
         """Get comprehensive performance statistics."""
 ```
@@ -362,14 +362,14 @@ class PerformanceMonitor:
 ```python
 class ModelSwapper:
     """Atomic model swapping for hot reload without disrupting inference."""
-    
+
     _current_model: Any
     _current_metadata: dict[str, Any]
     _swap_pending: bool
-    
+
     def prepare_swap(self, model: Any, metadata: dict[str, Any]) -> None:
         """Prepare new model for atomic swap."""
-        
+
     def execute_swap(self) -> bool:
         """Execute atomic model swap."""
 ```
@@ -464,41 +464,41 @@ self._inference_count_metric.labels(
 ```python
 class MLActorConfig(NautilusConfig):
     """Base configuration for all ML actors."""
-    
+
     # Model configuration
     model_path: str                   # Path to model file
     model_id: str | None = None       # Model identifier for registry
-    
+
     # Market data configuration
     bar_type: BarType
     instrument_id: InstrumentId | None = None
-    
+
     # Prediction configuration
     prediction_threshold: float = 0.5
     max_inference_latency_ms: float = 5.0
     max_feature_latency_ms: float = 0.5
-    
+
     # Feature configuration
     feature_config: MLFeatureConfig | None = None
-    
+
     # Warm-up and batching
     batch_size: int = 1
     warm_up_period: int = 50          # Bars before predictions start
-    
+
     # Signal publishing
     publish_signals: bool = True
     log_predictions: bool = False
-    
+
     # Hot reload configuration
     enable_hot_reload: bool = False
     model_check_interval: int = 300   # Seconds between checks
     preserve_state_on_reload: bool = True
-    
+
     # Health and resilience
     circuit_breaker_config: CircuitBreakerConfig | None = None
     enable_health_monitoring: bool = True
     health_config: HealthMonitorConfig | None = None
-    
+
     # Actor configuration
     component_id: ComponentId | None = None
     log_events: bool = True
@@ -510,37 +510,37 @@ class MLActorConfig(NautilusConfig):
 ```python
 class MLSignalActorConfig(MLActorConfig):
     """Extended configuration for signal generation actors."""
-    
+
     # Signal generation
     signal_strategy: Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] = "threshold"
     adaptive_window: int = 20
     min_signal_separation_bars: int = 3
     feature_importance_threshold: float = 0.01
     enable_regime_detection: bool = True
-    
+
     # Performance optimization
     optimization_config: OptimizationConfig | None = None
     strategy_config: StrategyConfig | None = None
     onnx_runtime_config: OnnxRuntimeConfig | None = None
-    
+
     # Hot reload
     enable_hot_reload: bool = False
     hot_reload_interval: int = 300
-    
+
     # Custom strategy
     custom_strategy: Any | None = None  # Custom SignalGenerationStrategy
-    
+
     # Registry integration
     feature_set_id: str | None = None
     registry_path: str | None = None
     use_registry_features: bool = False
-    
+
     # Store integration
     use_feature_store: bool = False
     db_connection: str = "postgresql://postgres:postgres@localhost:5432/nautilus"
     persist_features: bool = True
     pipeline_spec: Any | None = None
-    
+
     # Test mode
     use_dummy_stores: bool = False
     actor_id: str | None = None  # For test identification
@@ -551,7 +551,7 @@ class MLSignalActorConfig(MLActorConfig):
 ```python
 class OptimizationConfig(NautilusConfig):
     """Performance optimization settings."""
-    
+
     level: Literal["standard", "optimized"] = "standard"
     enable_zero_copy: bool = False
     enable_model_warm_up: bool = False
@@ -566,16 +566,16 @@ class OptimizationConfig(NautilusConfig):
 ```python
 class StrategyConfig(NautilusConfig):
     """Strategy-specific parameters."""
-    
+
     # Extremes strategy
     extremes_top_pct: float = 0.1
-    
+
     # Momentum strategy
     momentum_lookback: int = 5
-    
+
     # Ensemble strategy
     ensemble_weights: dict[str, float] | None = None
-    
+
     # Adaptive strategy
     adaptive_volatility_factor: float = 2.0
     min_threshold: float = 0.1
@@ -603,16 +603,16 @@ class StrategyConfig(NautilusConfig):
   - XGBoost (.json) native format
   - Joblib (.joblib) for scikit-learn
   - Pickle (.pkl) DEPRECATED with SecurityError
-- **Hot Path Optimization**: 
+- **Hot Path Optimization**:
   - Zero-allocation feature computation
   - Pre-allocated numpy buffers
   - Lock-free buffer support (optional)
   - Model warm-up capability
-- **Registry Integration**: 
+- **Registry Integration**:
   - Model manifest validation
   - Feature schema compatibility checks
   - Automatic model/feature loading from registry
-- **Store Integration**: 
+- **Store Integration**:
   - Mandatory FeatureStore persistence
   - ModelStore for predictions and metrics
   - StrategyStore for signals and decisions
@@ -653,13 +653,13 @@ class MLSignalActor(BaseMLInferenceActor):
         # Feature engineering setup
         self._feature_engineer = FeatureEngineer(self._feature_config)
         self._indicator_manager = IndicatorManager(self._feature_config)
-        
+
         # Validate against model manifest if available
         model_names = getattr(self, "_manifest_feature_names", [])
         if model_names:
             actual_names = self._feature_engineer.config.get_feature_names()
             assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
-        
+
         # Validate against feature registry if configured
         if config.use_registry_features and config.feature_set_id:
             freg = FeatureRegistry(Path(config.registry_path))
@@ -766,7 +766,7 @@ class CustomStrategy(SignalGenerationStrategy):
         # Access context data
         adaptive_threshold = context.get("adaptive_threshold", 0.7)
         market_regime = context.get("market_regime", "unknown")
-        
+
         # Custom signal logic
         if confidence >= adaptive_threshold:
             return MLSignal(

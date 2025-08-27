@@ -324,8 +324,8 @@ def bootstrap_datasets(
         if manifest.dataset_id in contracts and backend == BackendType.JSON:
             # Store contract in JSON registry and persist
             contract = contracts[manifest.dataset_id]
-            registry._contracts[manifest.dataset_id] = contract  # noqa: SLF001
-            registry._save_registry(immediate=True)  # noqa: SLF001
+            registry._contracts[manifest.dataset_id] = contract
+            registry._save_registry(immediate=True)
             print(f"    → Added contract (mode: {contract.enforcement_mode})")
 
     print(f"\n✅ Bootstrap complete! Registered {len(manifests)} datasets.")

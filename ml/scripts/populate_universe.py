@@ -17,18 +17,18 @@ Features:
 Usage:
     # Estimate costs only
     python ml/scripts/populate_universe.py --estimate-only
-    
+
     # Populate specific data level
     python ml/scripts/populate_universe.py --level L0
     python ml/scripts/populate_universe.py --level L1
     python ml/scripts/populate_universe.py --level L2
-    
+
     # Populate specific tier
     python ml/scripts/populate_universe.py --tier 1 --level L1
-    
+
     # Resume from progress
     python ml/scripts/populate_universe.py --resume
-    
+
     # Force restart (ignore progress)
     python ml/scripts/populate_universe.py --force
 """
@@ -356,7 +356,7 @@ class UniversePopulator:
         """Populate data for a specific level."""
         logger.info(f"Starting population of {level} data for Tier {self.config.tier}")
 
-        schema = DataLevel.get_schema(level)
+        _schema = DataLevel.get_schema(level)
         start_date, end_date = DataLevel.get_date_range(level, self.config)
 
         # Filter pending symbols

@@ -24,6 +24,7 @@ from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.stores.feature_store import FeatureStore
+from ml.tests.fixtures.database_fixtures import TestDatabase
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
@@ -141,43 +142,43 @@ class TestFeatureParity:
             f"First 5 online features: {online_features_array[0][:5]}"
         )
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_computation_consistency(
         self,
         feature_config: FeatureConfig,
         mock_bars: list[Bar],
+        test_database: TestDatabase,
     ) -> None:
         """
         Test that FeatureStore produces consistent features.
         """
-        with patch("ml.stores.feature_store.create_engine"):
-            store = FeatureStore(
-                connection_string="postgresql://test@localhost/test",
-                feature_config=feature_config,
-            )
+        store = FeatureStore(
+            connection_string=test_database.connection_string,
+            feature_config=feature_config,
+        )
 
-            # Mock the database operations
-            cast(Any, store)._setup_tables = MagicMock()
-            cast(Any, store)._store_to_postgres = MagicMock()
+        # Mock the database operations
+        cast(Any, store)._store_to_postgres = MagicMock()
 
-            # Compute features for same bar multiple times
-            bar = mock_bars[50]  # Middle bar with stable indicators
+        # Compute features for same bar multiple times
+        bar = mock_bars[50]  # Middle bar with stable indicators
 
-            features_1 = store.feature_engineer.calculate_features_online(
+        features_1 = store.feature_engineer.calculate_features_online(
                 close_price=float(bar.close),
                 high_price=float(bar.high),
                 low_price=float(bar.low),
                 volume=float(bar.volume),
             )
 
-            features_2 = store.feature_engineer.calculate_features_online(
+        features_2 = store.feature_engineer.calculate_features_online(
                 close_price=float(bar.close),
                 high_price=float(bar.high),
                 low_price=float(bar.low),
                 volume=float(bar.volume),
             )
 
-            # Features should be identical for same input
-            assert np.array_equal(features_1, features_2), "Same input produced different features!"
+        # Features should be identical for same input
+        assert np.array_equal(features_1, features_2), "Same input produced different features!"
 
     def test_indicator_state_consistency(
         self,
@@ -228,15 +229,17 @@ class TestFeatureParity:
         assert engineer.indicators.ema_fast.value != ema_fast_value
         assert engineer.indicators.ema_slow.value != ema_slow_value
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_ml_signal_actor_uses_same_features(
         self,
         feature_config: FeatureConfig,
         mock_bars: list[Bar],
+        test_database: TestDatabase,
     ) -> None:
         """
         Test that MLSignalActor computes features identically to training.
         """
-        with patch("ml.actors.signal.FeatureStore"):
+        with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
             # Provide required fields for strict typing
             config = MLSignalActorConfig(
                 actor_id="TEST_ACTOR",
@@ -244,17 +247,15 @@ class TestFeatureParity:
                 bar_type=MagicMock(),
                 instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
                 model_path="./test_model.onnx",
-                db_connection="postgresql://test@localhost/test",
+                db_connection=test_database.connection_string,
             )
 
             # Create actor
             actor = MLSignalActor(config)
 
-            # Mock the feature store
-            mock_feature_store = MagicMock()
+            # Mock the feature store compute method
             expected_features = default_rng(0).random(50).astype(np.float32)
-            mock_feature_store.compute_realtime.return_value = expected_features
-            actor.feature_store = mock_feature_store
+            actor._feature_store.compute_realtime = MagicMock(return_value=expected_features)
 
             # Process a bar
             bar = mock_bars[0]
@@ -269,33 +270,31 @@ class TestFeatureParity:
             # Verify returned features match
             assert np.array_equal(cast(npt.NDArray[np.float32], features), expected_features)
 
-    def test_feature_versioning(self, feature_config: FeatureConfig) -> None:
+    @pytest.mark.usefixtures("clean_postgres_db")
+    def test_feature_versioning(self, feature_config: FeatureConfig, test_database: TestDatabase) -> None:
         """
         Test that feature versions change when pipeline changes.
         """
-        with patch("ml.stores.feature_store.create_engine"):
-            # Create store with initial config
-            store1 = FeatureStore(
-                connection_string="postgresql://test@localhost/test",
-                feature_config=feature_config,
-            )
-            cast(Any, store1)._setup_tables = MagicMock()
+        # Create store with initial config
+        store1 = FeatureStore(
+            connection_string=test_database.connection_string,
+            feature_config=feature_config,
+        )
 
-            version1 = store1.pipeline_hash
+        version1 = store1.pipeline_hash
 
-            # Create store with modified config
-            modified_config = FeatureConfig(rsi_period=20)
+        # Create store with modified config
+        modified_config = FeatureConfig(rsi_period=20)
 
-            store2 = FeatureStore(
-                connection_string="postgresql://test@localhost/test",
-                feature_config=modified_config,
-            )
-            cast(Any, store2)._setup_tables = MagicMock()
+        store2 = FeatureStore(
+            connection_string=test_database.connection_string,
+            feature_config=modified_config,
+        )
 
-            version2 = store2.pipeline_hash
+        version2 = store2.pipeline_hash
 
-            # Versions should differ when config changes
-            assert version1 != version2, "Feature versions must change when configuration changes"
+        # Versions should differ when config changes
+        assert version1 != version2, "Feature versions must change when configuration changes"
 
     def test_parity_across_feature_ranges(
         self,

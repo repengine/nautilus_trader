@@ -99,7 +99,7 @@ class TFTTeacher(BaseTeacher):
         n = len(df_sorted)
         cutoff_idx = int(n * 0.8)
         df_train = df_sorted.iloc[:cutoff_idx]
-        df_val = df_sorted.iloc[cutoff_idx:]
+        _df_val = df_sorted.iloc[cutoff_idx:]
 
         # Default unknown reals: use all features not in control columns
         if not self.time_varying_unknown_reals:

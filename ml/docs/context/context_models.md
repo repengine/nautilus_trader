@@ -19,7 +19,7 @@ The ML models framework in Nautilus Trader provides a production-ready infrastru
 The `/ml/models/` directory currently contains:
 - **Dummy Models**: Pre-generated test models in pickle format (for testing only)
   - `dummy_bullish_model.pkl` - Bullish bias test model
-  - `dummy_bearish_model.pkl` - Bearish bias test model  
+  - `dummy_bearish_model.pkl` - Bearish bias test model
   - `dummy_neutral_model.pkl` - Neutral bias test model
 - **Model Generator**: `save_dummy_model.py` - Script to create test models
 
@@ -101,7 +101,7 @@ The `/ml/models/` directory currently contains:
 ### 3. Test Models (Development/Testing)
 
 #### Dummy Models (`ml/models/` and `ml/examples/`)
-**Implementations**: 
+**Implementations**:
 - `DummyModel` class in `ml/models/save_dummy_model.py`
 - Extended version in `ml/examples/create_dummy_model.py`
 

@@ -37,10 +37,10 @@ def test_databento_connection() -> bool:
         # Create a temporary catalog
         catalog_path = Path("/tmp/test_catalog")
         catalog_path.mkdir(exist_ok=True)
-        catalog = ParquetDataCatalog(str(catalog_path))
+        _catalog = ParquetDataCatalog(str(catalog_path))
 
         # Try to load some recent data
-        loader = DatabentoDataLoader()
+        _loader = DatabentoDataLoader()
 
         # Define a small test window (last trading day)
         end_date = datetime.now()

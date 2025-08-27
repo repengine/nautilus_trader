@@ -99,22 +99,22 @@ class MLPipelineCoordinator:
         self.feature_registry = FeatureRegistry()
         self.model_registry = ModelRegistry()
         self.strategy_registry = StrategyRegistry()
-    
+
     def trace_prediction_lineage(self, prediction_id: str) -> dict:
         """Trace a prediction back through the entire pipeline."""
-        
+
         # Start from strategy signal
         signal = self.strategy_registry.get_signal(prediction_id)
-        
+
         # Trace back to model prediction
         prediction = self.model_registry.get_prediction(signal.prediction_id)
-        
+
         # Trace back to features
         features = self.feature_registry.get_features(prediction.feature_set_id)
-        
+
         # Trace back to raw data
         raw_data = self.data_registry.get_data(features.data_ids)
-        
+
         return {
             "signal": signal,
             "prediction": prediction,
@@ -138,19 +138,19 @@ ML Pipeline Overview:
     - Data quality score
     - Coverage by instrument
     - Backfill queue depth
-    
+
   Row 2 - Feature Domain:
     - Feature computation latency
     - Feature drift alerts
     - Feature store size
     - Training/serving parity
-    
+
   Row 3 - Model Domain:
     - Predictions per second
     - Model accuracy trends
     - Drift detection alerts
     - Retraining queue
-    
+
   Row 4 - Strategy Domain:
     - Signals generated
     - Signal accuracy
@@ -199,15 +199,15 @@ Track resource usage per domain:
 1. **Phase 1**: Data Domain (✅ Completed)
    - DataRegistry + DataStore implemented
    - Event tracking and watermarks working
-   
+
 2. **Phase 2**: Feature Domain (✅ Partial)
    - FeatureRegistry exists
    - FeatureStore enhanced with events
-   
+
 3. **Phase 3**: Model Domain (✅ Partial)
    - ModelRegistry exists
    - ModelStore enhanced with events
-   
+
 4. **Phase 4**: Strategy Domain (✅ Partial)
    - StrategyRegistry exists
    - StrategyStore enhanced with events
@@ -230,27 +230,27 @@ E = TypeVar('E')  # Event type
 
 class DomainBookkeeper(ABC, Generic[T, E]):
     """Universal interface for domain bookkeeping."""
-    
+
     @abstractmethod
     def register(self, entity: T) -> str:
         """Register a new entity in the domain."""
         pass
-    
+
     @abstractmethod
     def record_event(self, event: E) -> None:
         """Record an event that occurred."""
         pass
-    
+
     @abstractmethod
     def get_lineage(self, entity_id: str) -> dict:
         """Get complete lineage for an entity."""
         pass
-    
+
     @abstractmethod
     def get_health(self) -> dict:
         """Get domain health metrics."""
         pass
-    
+
     @abstractmethod
     def trigger_action(self, condition: dict) -> None:
         """Trigger automated action based on condition."""
@@ -259,27 +259,27 @@ class DomainBookkeeper(ABC, Generic[T, E]):
 # Each domain implements this interface
 class DataBookkeeper(DomainBookkeeper[DatasetManifest, DataEvent]):
     """Bookkeeper for the Data domain."""
-    
+
     def __init__(self):
         self.registry = DataRegistry()
         self.store = DataStore()
-    
+
     def register(self, entity: DatasetManifest) -> str:
         return self.registry.register_dataset(entity)
-    
+
     def record_event(self, event: DataEvent) -> None:
         self.registry.emit_event(**event.dict())
-    
+
     def get_lineage(self, entity_id: str) -> dict:
         return self.registry.get_lineage(entity_id)
-    
+
     def get_health(self) -> dict:
         return {
             "coverage": self.registry.get_coverage(),
             "quality": self.store.get_quality_metrics(),
             "watermarks": self.registry.get_watermarks()
         }
-    
+
     def trigger_action(self, condition: dict) -> None:
         if condition["type"] == "GAP_DETECTED":
             self.store.plan_backfill(condition["dataset"], condition["date"])

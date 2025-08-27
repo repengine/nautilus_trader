@@ -167,7 +167,7 @@ python -m ml.cli.coverage report --start 2024-01-15 --end 2024-01-15
 ```python
 class ProductionMLSystem:
     """The end goal: Self-aware, self-healing ML trading system"""
-    
+
     def __init__(self):
         # The 5 Power Systems
         self.message_bus = NautilusMessageBus()      # Nervous system
@@ -176,11 +176,11 @@ class ProductionMLSystem:
         self.model_bookkeeper = ModelRegistry()      # Model memory
         self.strategy_bookkeeper = StrategyRegistry()# Strategy memory
         self.prometheus = PrometheusCollector()      # Vital signs
-        
+
     def trace_any_decision(self, signal_id: str) -> CompleteLineage:
         """From signal back to raw data - complete explainability"""
         return self.unified_lineage.trace(signal_id)
-        
+
     def self_heal(self, issue: Issue) -> Resolution:
         """Automatically detect and fix problems"""
         if issue.type == "DATA_GAP":

@@ -408,7 +408,7 @@ strategy = MultiModelMLStrategy(config)
 # Production dry-run configuration
 config = MLStrategyConfig(
     instrument_id=InstrumentId.from_str("EURUSD.SIM"),
-    ml_signal_source="ml_signal_actor", 
+    ml_signal_source="ml_signal_actor",
     position_size_pct=0.05,
     min_confidence=0.8,  # Higher threshold for testing
     execute_trades=False,  # DRY RUN MODE
@@ -638,19 +638,19 @@ self._model_performance: dict[str, dict[str, Any]] = {}
 ```python
 def _calculate_position_size(self) -> Quantity | None:
     """Calculate position size with comprehensive error handling."""
-    
+
     # Validate instrument exists
     instrument = self.cache.instrument(self._config.instrument_id)
     if instrument is None:
         self.log.error(f"Cannot calculate position size: Instrument {self._config.instrument_id} not found")
         return None
-    
+
     # Validate account exists
     account = self.cache.account_for_venue(instrument.venue)
     if account is None:
         self.log.error(f"Cannot calculate position size: No account found for venue {instrument.venue}")
         return None
-    
+
     # Get price data with fallbacks
     last_tick = self.cache.trade_tick(self._config.instrument_id)
     if last_tick is not None:
@@ -658,12 +658,12 @@ def _calculate_position_size(self) -> Quantity | None:
     else:
         quote_tick = self.cache.quote_tick(self._config.instrument_id)
         if quote_tick is not None:
-            current_price = (float(quote_tick.bid_price.as_double()) + 
+            current_price = (float(quote_tick.bid_price.as_double()) +
                            float(quote_tick.ask_price.as_double())) / 2.0
         else:
             self.log.error("Cannot calculate position size: No price data available")
             return None
-    
+
     # Calculate with proper rounding and minimum size enforcement
     return Quantity.from_str(str(quantity_value))
 ```
@@ -678,19 +678,19 @@ _metrics_initialized = False
 
 def _initialize_metrics() -> None:
     global _metrics_initialized, ml_signals_received, ...
-    
+
     if _metrics_initialized:
         return
-    
+
     if HAS_PROMETHEUS:
         # Check if metrics already exist in registry
         existing_names = set(REGISTRY._names_to_collectors.keys())
-        
+
         if METRIC_SIGNALS_RECEIVED_TOTAL not in existing_names:
             ml_signals_received = Counter(...)
         else:
             ml_signals_received = cast(Counter, REGISTRY._names_to_collectors[...])
-    
+
     _metrics_initialized = True
 ```
 

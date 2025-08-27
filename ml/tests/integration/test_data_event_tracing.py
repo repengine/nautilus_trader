@@ -19,6 +19,7 @@ import pytest
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
+from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
@@ -143,6 +144,7 @@ class DataEventTracer:
         return "\n".join(diagram_lines)
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestDataEventTracing:
     """Test suite for tracing data events through the ML pipeline."""
 
@@ -152,7 +154,7 @@ class TestDataEventTracing:
         return DataEventTracer(verbose=True)
 
     @pytest.fixture
-    def setup_components(self, tracer: DataEventTracer) -> dict[str, Any]:
+    def setup_components(self, tracer: DataEventTracer, test_database) -> dict[str, Any]:
         """Set up all necessary components for testing."""
         # Clear Prometheus metrics registry
         try:
@@ -207,10 +209,11 @@ class TestDataEventTracing:
         instrument = TestInstrumentProvider.equity()
         cache.add_instrument(instrument)
 
-        # Mock stores for testing
-        feature_store = MagicMock()
-        model_store = MagicMock()
-        strategy_store = MagicMock()
+        # Create stores with PostgreSQL connection
+        feature_store = FeatureStore(connection_string=test_database.connection_string)
+        model_store = ModelStore(connection_string=test_database.connection_string)
+        strategy_store = StrategyStore(connection_string=test_database.connection_string)
+        data_store = DataStore(connection_string=test_database.connection_string)
 
         return {
             "clock": clock,
@@ -222,9 +225,11 @@ class TestDataEventTracing:
             "feature_store": feature_store,
             "model_store": model_store,
             "strategy_store": strategy_store,
+            "data_store": data_store,
             "tracer": tracer,
             "model_path": model_path,
             "temp_dir": temp_dir,
+            "test_database": test_database,
         }
 
     def test_full_pipeline_data_flow(self, setup_components: dict[str, Any], tracer: DataEventTracer) -> None:
@@ -437,7 +442,8 @@ class TestDataEventTracing:
         assert tracer.checkpoints["store_write_error_caught"] == True
 
 
-def test_isolated_component_failures() -> None:
+@pytest.mark.usefixtures("clean_postgres_db")
+def test_isolated_component_failures(test_database) -> None:
     """Test individual component failures in isolation."""
     tracer = DataEventTracer(verbose=True)
 
@@ -450,24 +456,34 @@ def test_isolated_component_failures() -> None:
     except Exception as e:
         tracer.checkpoint("feature_store_init_failed", success=True, error=e)
 
-    # Test model store failure
+    # Test model store failure with real PostgreSQL
     tracer.checkpoint("testing_model_store", success=True)
     try:
-        mock_store = MagicMock(spec=ModelStore)
-        # Simulate write failure
-        mock_store.write_predictions.side_effect = Exception("DB write failed")
-        mock_store.write_predictions(None, None, None)
+        # Create real store with PostgreSQL
+        model_store = ModelStore(connection_string=test_database.connection_string)
+        # Try invalid operation to trigger PostgreSQL error
+        model_store.write_predictions(
+            model_id="INVALID_MODEL",
+            instrument_id="TEST",
+            prediction=1.0,
+            ts_event=-1,  # Invalid timestamp
+            ts_init=-1,
+        )
         tracer.checkpoint("model_store_write", success=False)
     except Exception as e:
         tracer.checkpoint("model_store_write_failed", success=True, error=e)
 
-    # Test strategy store failure
+    # Test strategy store failure with real PostgreSQL
     tracer.checkpoint("testing_strategy_store", success=True)
     try:
-        mock_store = MagicMock(spec=StrategyStore)
-        # Simulate write failure
-        mock_store.write_decision.side_effect = Exception("DB write failed")
-        mock_store.write_decision(None, None, None)
+        # Create real store with PostgreSQL
+        strategy_store = StrategyStore(connection_string=test_database.connection_string)
+        # Try invalid operation to trigger PostgreSQL error
+        strategy_store.write_decision(
+            strategy_id="INVALID_STRATEGY",
+            decision={"invalid": "data"},
+            ts_event=-1,  # Invalid timestamp
+        )
         tracer.checkpoint("strategy_store_write", success=False)
     except Exception as e:
         tracer.checkpoint("strategy_store_write_failed", success=True, error=e)

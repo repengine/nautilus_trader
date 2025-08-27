@@ -123,6 +123,7 @@ class MockMLStrategy(BaseMLStrategy):
         """
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestBaseMLStrategy:
     """
     Test BaseMLStrategy base class.
@@ -638,6 +639,7 @@ class TestBaseMLStrategy:
         assert "Win rate: 0.0%" in log_message
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestSimpleMLStrategy:
     """
     Test SimpleMLStrategy concrete implementation.

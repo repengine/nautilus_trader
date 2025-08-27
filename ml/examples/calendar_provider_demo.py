@@ -26,7 +26,7 @@ def main() -> None:
 
     # Create factory - will automatically use PandasCalendarSource if available
     factory = ProviderFactory()
-    calendar_provider = factory.get_calendar_provider()
+    _calendar_provider = factory.get_calendar_provider()
 
     print(f"\nUsing calendar source: {factory._calendar_source.__class__.__name__}")
     print(f"pandas_market_calendars available: {HAS_PANDAS_MARKET_CALENDARS}")

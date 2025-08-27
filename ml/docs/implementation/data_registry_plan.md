@@ -138,7 +138,7 @@ ting.
   - **STATUS**: DatasetManifest, DataContract, ValidationRule types created in `ml/registry/dataclasses.py`
   - **STATUS**: Migration DDL created in `ml/stores/migrations/004_data_registry.sql`
 
-- Phase 1: Persistence + API Skeletons (2–3 days) ✅ COMPLETED  
+- Phase 1: Persistence + API Skeletons (2–3 days) ✅ COMPLETED
   - Add: `ml/registry/data_registry.py`, `ml/stores/data_store.py`, migration `004_data_registry.sql`.
   - JSON backend for dev + Postgres backend prod via `PersistenceManager`.
   - DOD: unit tests for CRUD, events, watermarks; basic docs.
@@ -149,7 +149,7 @@ ting.
 - Phase 2: Integration (Scheduler + FeatureStore) (2–3 days) ✅ COMPLETED
   - Instrument `DataScheduler` and `FeatureStore` to emit events/watermarks; add event metrics.
   - DOD: integration test (Day T end-to-end with events/watermarks), metrics visible.
-  - **STATUS 2.1**: ✅ DataScheduler instrumented to emit CATALOG_WRITTEN events 
+  - **STATUS 2.1**: ✅ DataScheduler instrumented to emit CATALOG_WRITTEN events
   - **STATUS 2.2**: ✅ FeatureStore instrumented to emit FEATURE_COMPUTED events
   - **STATUS 2.3**: ✅ Event metrics added (data_events_total counter)
   - **STATUS 2.4**: ✅ Watermark updates implemented

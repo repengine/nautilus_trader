@@ -131,7 +131,7 @@ class SubscriptionChecker:
                      start_date: str, end_date: str) -> float:
         """
         Estimate the cost for downloading data.
-        
+
         If cost is $0, it's included in your subscription!
         """
         try:
@@ -286,7 +286,7 @@ class SubscriptionChecker:
         self.check_subscription_coverage()
 
         # 4. Generate safe configuration
-        safe_config = self.generate_safe_config()
+        _safe_config = self.generate_safe_config()
 
         # 5. Print summary
         print("\n" + "="*60)

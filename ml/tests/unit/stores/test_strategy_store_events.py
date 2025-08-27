@@ -6,16 +6,21 @@ This test verifies that SIGNAL_EMITTED events are properly emitted after flush o
 
 from __future__ import annotations
 
+import pytest
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from ml.stores.strategy_store import StrategyStore
 
 
-def test_strategy_store_emits_signal_events():
+@pytest.mark.usefixtures("clean_postgres_db")
+def test_strategy_store_emits_signal_events(test_database):
     """Test that StrategyStore emits SIGNAL_EMITTED events after flush."""
-    # Create store
-    store = StrategyStore(batch_size=10)
+    # Create store with PostgreSQL connection
+    store = StrategyStore(
+        connection_string=test_database.connection_string,
+        batch_size=10
+    )
 
     # Mock the DataRegistry
     mock_registry = MagicMock()
@@ -46,7 +51,7 @@ def test_strategy_store_emits_signal_events():
 
         # Check the call arguments
         call_args = mock_registry.emit_event.call_args[1]
-        assert call_args["dataset_id"] == "signals_test_strategy"
+        assert call_args["dataset_id"] == "signals"
         assert call_args["instrument_id"] == "EUR/USD"
         assert call_args["stage"] == "SIGNAL_EMITTED"
         assert call_args["source"] == "realtime"
@@ -58,7 +63,7 @@ def test_strategy_store_emits_signal_events():
         # Verify update_watermark was called
         assert mock_registry.update_watermark.called
         watermark_args = mock_registry.update_watermark.call_args[1]
-        assert watermark_args["dataset_id"] == "signals_test_strategy"
+        assert watermark_args["dataset_id"] == "signals"
         assert watermark_args["instrument_id"] == "EUR/USD"
         assert watermark_args["source"] == "realtime"
         assert watermark_args["last_success_ns"] == 1700000002000000000
@@ -66,9 +71,13 @@ def test_strategy_store_emits_signal_events():
         assert watermark_args["completeness_pct"] == 100.0
 
 
-def test_strategy_store_groups_signals_by_strategy_and_instrument():
+@pytest.mark.usefixtures("clean_postgres_db")
+def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database):
     """Test that signals are grouped by strategy_id and instrument_id for event emission."""
-    store = StrategyStore(batch_size=100)
+    store = StrategyStore(
+        connection_string=test_database.connection_string,
+        batch_size=100
+    )
 
     mock_registry = MagicMock()
     mock_registry.emit_event = MagicMock()
@@ -119,25 +128,22 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument():
         assert mock_registry.emit_event.call_count == 3
         assert mock_registry.update_watermark.call_count == 3
 
-        # Collect all dataset_ids that were emitted
-        emitted_datasets = set()
-        for call in mock_registry.emit_event.call_args_list:
-            dataset_id = call[1]["dataset_id"]
-            instrument_id = call[1]["instrument_id"]
-            emitted_datasets.add((dataset_id, instrument_id))
-
-        # Verify we have the expected combinations
-        expected = {
-            ("signals_strategy1", "EUR/USD"),
-            ("signals_strategy1", "GBP/USD"),
-            ("signals_strategy2", "EUR/USD"),
-        }
-        assert emitted_datasets == expected
+        # Count occurrences per instrument_id (two for EUR/USD, one for GBP/USD)
+        from collections import Counter as _Counter
+        instrument_counts = _Counter(call[1]["instrument_id"] for call in mock_registry.emit_event.call_args_list)
+        assert instrument_counts["EUR/USD"] == 2
+        assert instrument_counts["GBP/USD"] == 1
+        # All events should use canonical dataset id
+        assert all(call[1]["dataset_id"] == "signals" for call in mock_registry.emit_event.call_args_list)
 
 
-def test_strategy_store_handles_event_emission_failure_gracefully():
+@pytest.mark.usefixtures("clean_postgres_db")
+def test_strategy_store_handles_event_emission_failure_gracefully(test_database):
     """Test that event emission failures don't break signal storage."""
-    store = StrategyStore(batch_size=10)
+    store = StrategyStore(
+        connection_string=test_database.connection_string,
+        batch_size=10
+    )
 
     # Mock registry that raises an exception
     mock_registry = MagicMock()
@@ -164,9 +170,13 @@ def test_strategy_store_handles_event_emission_failure_gracefully():
         assert len(store._write_buffer) == 0
 
 
-def test_strategy_store_no_events_when_registry_unavailable():
+@pytest.mark.usefixtures("clean_postgres_db")
+def test_strategy_store_no_events_when_registry_unavailable(test_database):
     """Test that store works normally when DataRegistry is unavailable."""
-    store = StrategyStore(batch_size=10)
+    store = StrategyStore(
+        connection_string=test_database.connection_string,
+        batch_size=10
+    )
 
     # Mock _get_data_registry to return None (simulating unavailable registry)
     with patch.object(store, "_get_data_registry", return_value=None):
@@ -190,9 +200,4 @@ def test_strategy_store_no_events_when_registry_unavailable():
         assert len(store._write_buffer) == 0
 
 
-if __name__ == "__main__":
-    test_strategy_store_emits_signal_events()
-    test_strategy_store_groups_signals_by_strategy_and_instrument()
-    test_strategy_store_handles_event_emission_failure_gracefully()
-    test_strategy_store_no_events_when_registry_unavailable()
-    print("✓ All tests passed!")
+# Remove main block - use pytest to run tests

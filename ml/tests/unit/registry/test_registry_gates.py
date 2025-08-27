@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from hypothesis import HealthCheck
 from hypothesis import given
 from hypothesis import settings
@@ -10,11 +11,14 @@ from hypothesis import strategies as st
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(
     role=st.sampled_from([ModelRole.TEACHER, ModelRole.STUDENT, ModelRole.INFERENCE]),
@@ -24,13 +28,22 @@ from ml.registry.model_registry import ModelRegistry
     has_parent=st.booleans(),
 )
 def test_auto_deploy_gates(
+    test_database,
     tmp_path: Path,
     role: ModelRole,
     req: DataRequirements,
     has_parent: bool,
 ) -> None:
     reg_dir = tmp_path / "reg"
-    registry = ModelRegistry(reg_dir)
+    # Initialize registry with PostgreSQL backend
+    persistence_config = PersistenceConfig(
+        backend=BackendType.POSTGRES,
+        connection_string=test_database.connection_string,
+    )
+    registry = ModelRegistry(
+        registry_path=reg_dir,
+        persistence_config=persistence_config
+    )
     # Ensure model files exist and are ONNX
     model_path = reg_dir / "model.onnx"
     model_path.write_bytes(b"dummy")

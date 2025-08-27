@@ -45,31 +45,31 @@ CREATE TABLE IF NOT EXISTS ml_dataset_registry (
     name VARCHAR(255) NOT NULL,
     version VARCHAR(50) NOT NULL,
     dataset_type VARCHAR(50) NOT NULL,  -- BARS, TRADES, QUOTES, MBP1, TBBO, FEATURES, PREDICTIONS, SIGNALS
-    
+
     -- Storage configuration
     storage_kind VARCHAR(20) NOT NULL,  -- 'parquet' or 'postgres'
     location TEXT NOT NULL,              -- File path or table name
     partitioning JSONB,                  -- {"by": "ts_event", "interval": "monthly"}
     retention_days INTEGER NOT NULL,
-    
+
     -- Schema information
     schema JSONB NOT NULL,               -- {"instrument_id": "str", "ts_event": "int64", ...}
     schema_hash VARCHAR(64) NOT NULL,    -- SHA256 hash of schema for validation
-    
+
     -- Validation and constraints
     constraints JSONB,                   -- {"ranges": {...}, "nullability": {...}}
-    
+
     -- Lineage tracking
     parents JSONB,                       -- List of parent dataset IDs
     pipeline_signature VARCHAR(255),     -- Signature of pipeline that creates this dataset
-    
+
     -- Timestamps
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_modified TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+
     -- Metadata
     metadata JSONB,                      -- Additional flexible metadata
-    
+
     -- Constraints
     CONSTRAINT check_dataset_type CHECK (
         dataset_type IN ('BARS', 'TRADES', 'QUOTES', 'MBP1', 'TBBO', 'FEATURES', 'PREDICTIONS', 'SIGNALS')
@@ -100,31 +100,31 @@ CREATE TABLE IF NOT EXISTS ml_data_events (
     event_id BIGSERIAL,
     dataset_id VARCHAR(255) NOT NULL,
     instrument_id VARCHAR(100) NOT NULL,
-    
+
     -- Event details
     stage VARCHAR(50) NOT NULL,         -- INGESTED, CATALOG_WRITTEN, FEATURE_COMPUTED, PREDICTION_EMITTED, SIGNAL_EMITTED
     source VARCHAR(50) NOT NULL,        -- 'live', 'historical', 'backfill'
     run_id VARCHAR(255),                -- Unique identifier for this processing run
-    
+
     -- Time range of data in this event
     ts_min BIGINT NOT NULL,             -- Minimum timestamp in nanoseconds
     ts_max BIGINT NOT NULL,             -- Maximum timestamp in nanoseconds
     ts_event BIGINT NOT NULL,           -- When this event occurred (for partitioning)
-    
+
     -- Data statistics
     count BIGINT NOT NULL,              -- Number of records processed
     seq_min BIGINT,                     -- Minimum sequence number (optional)
     seq_max BIGINT,                     -- Maximum sequence number (optional)
-    
+
     -- Processing status
     status VARCHAR(20) NOT NULL,        -- 'success', 'failed', 'partial'
     error TEXT,                         -- Error message if status is 'failed'
-    
+
     -- Metadata
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+
     PRIMARY KEY (event_id, ts_event),
-    
+
     -- Constraints
     CONSTRAINT check_stage CHECK (
         stage IN ('INGESTED', 'CATALOG_WRITTEN', 'FEATURE_COMPUTED', 'PREDICTION_EMITTED', 'SIGNAL_EMITTED')
@@ -161,7 +161,7 @@ CREATE INDEX IF NOT EXISTS idx_ml_data_events_stage
 
 -- Partial index for failed events
 CREATE INDEX IF NOT EXISTS idx_ml_data_events_failures
-    ON ml_data_events (status, created_at DESC) 
+    ON ml_data_events (status, created_at DESC)
     WHERE status = 'failed';
 
 -- ============================================================================
@@ -174,21 +174,21 @@ CREATE TABLE IF NOT EXISTS ml_data_watermarks (
     dataset_id VARCHAR(255) NOT NULL,
     instrument_id VARCHAR(100) NOT NULL,
     source VARCHAR(50) NOT NULL,        -- 'live', 'historical', 'backfill'
-    
+
     -- Watermark tracking
     last_success_ns BIGINT,             -- Last successful processing timestamp
     last_attempt_ns BIGINT,             -- Last attempted processing timestamp
-    
+
     -- Statistics
     last_count BIGINT DEFAULT 0,        -- Count from last successful processing
     completeness_pct DECIMAL(5,2),      -- Percentage of expected data received (0-100)
-    
+
     -- Metadata
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+
     -- Primary key and constraints
     PRIMARY KEY (dataset_id, instrument_id, source),
-    
+
     CONSTRAINT check_source_watermark CHECK (
         source IN ('live', 'historical', 'backfill')
     ),
@@ -219,18 +219,18 @@ CREATE TABLE IF NOT EXISTS ml_data_lineage (
     -- Lineage identification
     lineage_id BIGSERIAL PRIMARY KEY,
     transform_id VARCHAR(255) NOT NULL,  -- Unique identifier for this transformation
-    
+
     -- Dataset relationships
     child_dataset_id VARCHAR(255) NOT NULL,
     parent_dataset_id VARCHAR(255) NOT NULL,
-    
+
     -- Transformation details
     ts_range JSONB,                     -- {"start_ns": ..., "end_ns": ...}
     parameters JSONB,                    -- Transformation parameters used
-    
+
     -- Metadata
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
+
     -- Constraints
     CONSTRAINT fk_lineage_child FOREIGN KEY (child_dataset_id)
         REFERENCES ml_dataset_registry(dataset_id) ON DELETE CASCADE,
@@ -255,7 +255,7 @@ CREATE INDEX IF NOT EXISTS idx_ml_data_lineage_created
 -- View for stage coverage analysis
 CREATE OR REPLACE VIEW ml_stage_coverage AS
 WITH stage_counts AS (
-    SELECT 
+    SELECT
         dataset_id,
         instrument_id,
         stage,
@@ -270,7 +270,7 @@ WITH stage_counts AS (
     GROUP BY dataset_id, instrument_id, stage, source, event_date
 ),
 feature_coverage AS (
-    SELECT 
+    SELECT
         feature_set_id as dataset_id,
         instrument_id,
         DATE(to_timestamp(ts_event / 1000000000)) as event_date,
@@ -280,7 +280,7 @@ feature_coverage AS (
     GROUP BY feature_set_id, instrument_id, event_date
 ),
 prediction_coverage AS (
-    SELECT 
+    SELECT
         model_id as dataset_id,
         instrument_id,
         DATE(to_timestamp(ts_event / 1000000000)) as event_date,
@@ -290,7 +290,7 @@ prediction_coverage AS (
     GROUP BY model_id, instrument_id, event_date
 ),
 signal_coverage AS (
-    SELECT 
+    SELECT
         strategy_id as dataset_id,
         instrument_id,
         DATE(to_timestamp(ts_event / 1000000000)) as event_date,
@@ -299,7 +299,7 @@ signal_coverage AS (
     WHERE ts_event >= EXTRACT(EPOCH FROM (CURRENT_DATE - INTERVAL '30 days')) * 1000000000
     GROUP BY strategy_id, instrument_id, event_date
 )
-SELECT 
+SELECT
     COALESCE(sc.dataset_id, fc.dataset_id, pc.dataset_id, sgc.dataset_id) as dataset_id,
     COALESCE(sc.instrument_id, fc.instrument_id, pc.instrument_id, sgc.instrument_id) as instrument_id,
     COALESCE(sc.event_date, fc.event_date, pc.event_date, sgc.event_date) as event_date,
@@ -312,11 +312,11 @@ SELECT
     fc.feature_count,
     pc.prediction_count,
     sgc.signal_count,
-    CASE 
+    CASE
         WHEN sc.stage = 'FEATURE_COMPUTED' AND fc.feature_count > 0 THEN 100.0
         WHEN sc.stage = 'PREDICTION_EMITTED' AND pc.prediction_count > 0 THEN 100.0
         WHEN sc.stage = 'SIGNAL_EMITTED' AND sgc.signal_count > 0 THEN 100.0
-        WHEN sc.record_count > 0 THEN 
+        WHEN sc.record_count > 0 THEN
             CASE
                 WHEN fc.feature_count IS NOT NULL THEN (fc.feature_count::DECIMAL / sc.record_count) * 100
                 WHEN pc.prediction_count IS NOT NULL THEN (pc.prediction_count::DECIMAL / sc.record_count) * 100
@@ -326,22 +326,22 @@ SELECT
         ELSE 0
     END as coverage_pct
 FROM stage_counts sc
-LEFT JOIN feature_coverage fc 
-    ON sc.dataset_id = fc.dataset_id 
-    AND sc.instrument_id = fc.instrument_id 
+LEFT JOIN feature_coverage fc
+    ON sc.dataset_id = fc.dataset_id
+    AND sc.instrument_id = fc.instrument_id
     AND sc.event_date = fc.event_date
-LEFT JOIN prediction_coverage pc 
-    ON sc.dataset_id = pc.dataset_id 
-    AND sc.instrument_id = pc.instrument_id 
+LEFT JOIN prediction_coverage pc
+    ON sc.dataset_id = pc.dataset_id
+    AND sc.instrument_id = pc.instrument_id
     AND sc.event_date = pc.event_date
-LEFT JOIN signal_coverage sgc 
-    ON sc.dataset_id = sgc.dataset_id 
-    AND sc.instrument_id = sgc.instrument_id 
+LEFT JOIN signal_coverage sgc
+    ON sc.dataset_id = sgc.dataset_id
+    AND sc.instrument_id = sgc.instrument_id
     AND sc.event_date = sgc.event_date;
 
 -- View for watermark lag analysis
 CREATE OR REPLACE VIEW ml_watermark_lag AS
-SELECT 
+SELECT
     w.dataset_id,
     w.instrument_id,
     w.source,
@@ -361,18 +361,18 @@ ORDER BY lag_seconds DESC NULLS LAST;
 CREATE OR REPLACE VIEW ml_lineage_graph AS
 WITH RECURSIVE lineage_tree AS (
     -- Base case: datasets with no parents
-    SELECT 
+    SELECT
         dataset_id,
         dataset_id as root_dataset,
         0 as depth,
         ARRAY[dataset_id] as path
     FROM ml_dataset_registry
     WHERE parents IS NULL OR parents = '[]'::jsonb
-    
+
     UNION ALL
-    
+
     -- Recursive case: follow lineage relationships
-    SELECT 
+    SELECT
         l.child_dataset_id as dataset_id,
         lt.root_dataset as root_dataset,
         lt.depth + 1 as depth,
@@ -381,7 +381,7 @@ WITH RECURSIVE lineage_tree AS (
     JOIN lineage_tree lt ON l.parent_dataset_id = lt.dataset_id
     WHERE NOT l.child_dataset_id = ANY(lt.path)  -- Prevent cycles
 )
-SELECT 
+SELECT
     dataset_id,
     root_dataset,
     depth,
@@ -391,7 +391,7 @@ ORDER BY root_dataset, depth, dataset_id;
 
 -- View for data quality summary
 CREATE OR REPLACE VIEW ml_data_quality_summary AS
-SELECT 
+SELECT
     e.dataset_id,
     e.instrument_id,
     DATE(to_timestamp(e.ts_event / 1000000000)) as date,
@@ -404,8 +404,8 @@ SELECT
     MAX(w.completeness_pct) as max_completeness,
     AVG(w.completeness_pct) as avg_completeness
 FROM ml_data_events e
-LEFT JOIN ml_data_watermarks w 
-    ON e.dataset_id = w.dataset_id 
+LEFT JOIN ml_data_watermarks w
+    ON e.dataset_id = w.dataset_id
     AND e.instrument_id = w.instrument_id
 WHERE e.ts_event >= EXTRACT(EPOCH FROM (CURRENT_DATE - INTERVAL '7 days')) * 1000000000
 GROUP BY e.dataset_id, e.instrument_id, date
@@ -427,23 +427,23 @@ CREATE OR REPLACE FUNCTION update_watermark(
 RETURNS VOID AS $$
 BEGIN
     INSERT INTO ml_data_watermarks (
-        dataset_id, 
-        instrument_id, 
-        source, 
-        last_success_ns, 
+        dataset_id,
+        instrument_id,
+        source,
+        last_success_ns,
         last_attempt_ns,
-        last_count, 
-        completeness_pct, 
+        last_count,
+        completeness_pct,
         updated_at
     )
     VALUES (
-        p_dataset_id, 
-        p_instrument_id, 
-        p_source, 
+        p_dataset_id,
+        p_instrument_id,
+        p_source,
         p_last_success_ns,
         p_last_success_ns,
-        p_count, 
-        p_completeness_pct, 
+        p_count,
+        p_completeness_pct,
         NOW()
     )
     ON CONFLICT (dataset_id, instrument_id, source)
@@ -478,7 +478,7 @@ DECLARE
 BEGIN
     -- Get current timestamp in nanoseconds
     v_ts_event := EXTRACT(EPOCH FROM NOW()) * 1000000000;
-    
+
     -- Insert event
     INSERT INTO ml_data_events (
         dataset_id, instrument_id, stage, source, run_id,
@@ -491,19 +491,19 @@ BEGIN
         p_status, p_error, NOW()
     )
     RETURNING event_id INTO v_event_id;
-    
+
     -- Update watermark if successful
     IF p_status = 'success' THEN
         PERFORM update_watermark(
-            p_dataset_id, 
-            p_instrument_id, 
-            p_source, 
-            p_ts_max, 
+            p_dataset_id,
+            p_instrument_id,
+            p_source,
+            p_ts_max,
             p_count,
             NULL  -- Let the application calculate completeness
         );
     END IF;
-    
+
     RETURN v_event_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -532,30 +532,30 @@ CREATE TRIGGER trigger_update_dataset_modified
 
 -- Insert common dataset definitions (can be customized per deployment)
 INSERT INTO ml_dataset_registry (
-    dataset_id, name, version, dataset_type, storage_kind, 
+    dataset_id, name, version, dataset_type, storage_kind,
     location, partitioning, retention_days, schema, schema_hash,
     constraints, parents, pipeline_signature
 )
-VALUES 
+VALUES
     -- Market data datasets
     ('bars_1m', 'One Minute Bars', '1.0.0', 'BARS', 'postgres',
      'market_data', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 365,
      '{"instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "open": "float64", "high": "float64", "low": "float64", "close": "float64", "volume": "float64"}'::jsonb,
      '', '{"ranges": {"open": {"min": 0}, "high": {"min": 0}, "low": {"min": 0}, "close": {"min": 0}, "volume": {"min": 0}}}'::jsonb,
      '[]'::jsonb, 'data_scheduler_v1'),
-    
+
     -- Feature datasets
     ('features_microstructure', 'Microstructure Features', '1.0.0', 'FEATURES', 'postgres',
      'ml_feature_values', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 180,
      '{"feature_set_id": "str", "instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "values": "jsonb"}'::jsonb,
      '', '{}'::jsonb, '["bars_1m"]'::jsonb, 'feature_engineer_v1'),
-    
+
     -- Prediction datasets
     ('predictions_xgboost', 'XGBoost Model Predictions', '1.0.0', 'PREDICTIONS', 'postgres',
      'ml_model_predictions', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 90,
      '{"model_id": "str", "instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "prediction": "float64", "confidence": "float64"}'::jsonb,
      '', '{}'::jsonb, '["features_microstructure"]'::jsonb, 'model_inference_v1'),
-    
+
     -- Signal datasets
     ('signals_momentum', 'Momentum Strategy Signals', '1.0.0', 'SIGNALS', 'postgres',
      'ml_strategy_signals', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 90,
@@ -568,11 +568,11 @@ ON CONFLICT (dataset_id) DO NOTHING;
 -- ============================================================================
 
 -- Example: Register a new dataset
--- INSERT INTO ml_dataset_registry (dataset_id, name, version, dataset_type, ...) 
+-- INSERT INTO ml_dataset_registry (dataset_id, name, version, dataset_type, ...)
 -- VALUES ('my_dataset', 'My Dataset', '1.0.0', 'FEATURES', ...);
 
 -- Example: Emit a data event
--- SELECT emit_data_event('bars_1m', 'EUR/USD', 'CATALOG_WRITTEN', 'historical', 
+-- SELECT emit_data_event('bars_1m', 'EUR/USD', 'CATALOG_WRITTEN', 'historical',
 --                        'run_123', 1234567890000000000, 1234567900000000000, 1000, 'success');
 
 -- Example: Update watermark

@@ -55,6 +55,7 @@ dependencies = [
     "pytorch-lightning (>=2.5.3,<3.0.0)",
     "torchmetrics (>=1.8.1,<2.0.0)",
     "tabulate (>=0.9.0,<0.10.0)",
+    "dotenv (>=0.9.9,<0.10.0)",
 ]
 
 [project.urls]
@@ -96,6 +97,9 @@ ml-student-lightgbm = "ml.training.student.lightgbm_cli:main"
 [tool.poetry.build]
 script = "build.py"
 generate-setup-file = false
+
+[tool.poetry.group.dev.dependencies]
+pytest-benchmark = "^5.1.0"
 
 [project.optional-dependencies]
 betfair = [
@@ -332,7 +336,7 @@ max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "test_perf_logger.py" = ["S311"]
-"ml/tests/*" = ["NPY002"]
+"ml/tests/*" = ["NPY002", "F841", "F401", "E712"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -397,23 +401,103 @@ module = [
 ignore_errors = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra --new-first --failed-first --doctest-modules --doctest-glob=\"*.pyx\""
+testpaths = ["tests", "ml/tests"]
+addopts = "-ra --new-first --failed-first --doctest-modules --doctest-glob=\"*.pyx\" --strict-markers"
 asyncio_mode = "strict"
 filterwarnings = [
     "ignore::UserWarning",
     "ignore::DeprecationWarning",
 ]
+markers = [
+    # Test type markers
+    "unit: Unit tests - isolated component testing",
+    "integration: Integration tests - testing component interactions",
+    "e2e: End-to-end tests - full system testing",
+    "system: System tests - infrastructure and deployment testing",
+    "property: Property-based tests using hypothesis",
+    "contract: Contract tests - API and behavioral contracts",
+    "benchmark: Performance benchmark tests",
+    
+    # Speed markers
+    "slow: Tests that take > 5 seconds",
+    "fast: Tests that take < 1 second",
+    
+    # Resource requirement markers
+    "requires_data: Tests requiring external data sources or databases",
+    "requires_gpu: Tests requiring GPU resources",
+    "requires_network: Tests requiring network access",
+    "requires_databento: Tests requiring Databento API access",
+    "requires_fred: Tests requiring FRED API access",
+    "requires_ml_deps: Tests requiring ML dependencies (xgboost, lightgbm, etc.)",
+    
+    # Component markers
+    "stores: Tests for store components (FeatureStore, ModelStore, StrategyStore)",
+    "registry: Tests for registry components",
+    "actors: Tests for ML actors",
+    "strategies: Tests for ML strategies",
+    "features: Tests for feature engineering",
+    "models: Tests for ML models",
+    "data: Tests for data processing",
+    "monitoring: Tests for monitoring components",
+    "deployment: Tests for deployment components",
+    
+    # ML-specific markers
+    "training: Tests involving model training",
+    "inference: Tests involving model inference",
+    "distillation: Tests for knowledge distillation",
+    "preprocessing: Tests for data preprocessing",
+    
+    # Stability markers
+    "flaky: Tests known to be flaky",
+    "experimental: Tests for experimental features",
+    "critical: Critical tests that must pass",
+]
+# ML test paths configuration
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Coverage thresholds for ML module
+minversion = "7.4.0"
+log_cli = false
+log_cli_level = "INFO"
 
 [tool.coverage.run]
 plugins = ["Cython.Coverage"]
-source = ["nautilus_trader"]
+source = ["nautilus_trader", "ml"]
 omit = [
     "nautilus_trader/adapters/*",
     "nautilus_trader/examples/*",
     "nautilus_trader/test_kit/*",
+    "ml/tests/*",
+    "ml/scripts/*",
+    "ml/examples/*",
+    "ml/docs/*",
 ]
+branch = true
+parallel = true
 
 [tool.coverage.report]
 fail_under = 0
 show_missing = true
+precision = 2
+skip_covered = false
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.ml]
+# ML-specific coverage requirements
+target = 90
+fail_under = 80

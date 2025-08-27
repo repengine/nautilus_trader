@@ -20,7 +20,7 @@ import pytest
 
 SUFFIX_ONNX = ".onnx"  # Define directly to avoid import issues
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry

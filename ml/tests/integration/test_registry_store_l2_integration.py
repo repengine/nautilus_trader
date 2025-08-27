@@ -32,6 +32,8 @@ from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
 from ml.registry.feature_registry import compute_schema_hash
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 from ml.stores.feature_store import FeatureStore
 
 
@@ -112,12 +114,20 @@ class TestL2L3RegistryStoreIntegration:
             mock_l2.assert_called_once()
             mock_instance.compute_all_features.assert_called_once()
 
-    def test_feature_registry_manifest_with_l2_features(self) -> None:
+    @pytest.mark.usefixtures("clean_postgres_db") 
+    def test_feature_registry_manifest_with_l2_features(self, test_database) -> None:
         """
         Test creating feature manifest with L2/L3 capabilities.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry = FeatureRegistry(Path(tmpdir))
+            persistence_config = PersistenceConfig(
+                backend=BackendType.POSTGRES,
+                connection_string=test_database.connection_string,
+            )
+            registry = FeatureRegistry(
+                registry_path=Path(tmpdir),
+                persistence_config=persistence_config
+            )
 
             # Create manifest with L2/L3 features
             config = FeatureConfig(
@@ -179,24 +189,22 @@ class TestL2L3RegistryStoreIntegration:
             assert "spread_mean" in retrieved.feature_names
             assert retrieved.data_requirements == DataRequirements.L1_L2
 
-    @patch("ml.stores.feature_store.create_engine")
-    @patch("ml.stores.feature_store.FeatureStore._setup_tables")
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_computes_l2_features(
         self,
-        mock_setup: MagicMock,
-        mock_engine: MagicMock,
+        test_database,
     ) -> None:
         """
         Test that FeatureStore properly computes L2/L3 features.
         """
-        # Create store with L2/L3 features enabled
+        # Create store with L2/L3 features enabled using real PostgreSQL
         config = FeatureConfig(
             include_microstructure=True,
             include_trade_flow=True,
         )
 
         store = FeatureStore(
-            connection_string="postgresql://test",
+            connection_string=test_database.connection_string,
             feature_config=config,
         )
 
@@ -329,13 +337,21 @@ class TestL2L3RegistryStoreIntegration:
         assert any("bid" in k for k in shape_features.keys())
         assert any("ask" in k for k in shape_features.keys())
 
-    def test_end_to_end_l2_feature_persistence(self) -> None:
+    @pytest.mark.usefixtures("clean_postgres_db")
+    def test_end_to_end_l2_feature_persistence(self, test_database) -> None:
         """
         Test end-to-end flow from L2 data to persisted features.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Setup registry
-            registry = FeatureRegistry(Path(tmpdir))
+            # Setup registry with PostgreSQL backend
+            persistence_config = PersistenceConfig(
+                backend=BackendType.POSTGRES,
+                connection_string=test_database.connection_string,
+            )
+            registry = FeatureRegistry(
+                registry_path=Path(tmpdir),
+                persistence_config=persistence_config
+            )
 
             # Create config with L2 features
             config = FeatureConfig(

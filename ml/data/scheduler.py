@@ -263,7 +263,7 @@ class DataScheduler:
     def _init_data_registry(self) -> None:
         """
         Initialize the DataRegistry for event tracking.
-        
+
         This method sets up the DataRegistry for emitting data processing events
         and tracking watermarks throughout the pipeline.
         """
@@ -579,7 +579,6 @@ class DataScheduler:
                     )
 
                     # Request and save data
-                    api_start_time = time.time()
                     response = client.timeseries.get_range(
                         dataset=self.config.databento.dataset,
                         symbols=[symbol_code],

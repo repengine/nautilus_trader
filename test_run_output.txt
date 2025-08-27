@@ -1,0 +1,36 @@
+[0;32mML Test Runner - PostgreSQL Authentication Fixed[0m
+=================================================
+Database URL: postgresql://postgres:postgres@localhost:5432/nautilus_test
+
+[1;33mChecking PostgreSQL connection...[0m
+✅ PostgreSQL connection successful
+
+[1;33mRunning ML tests (default)...[0m
+Command: pytest ml/tests
+
+PostgreSQL is already running
+Skipping migrations (SKIP_MIGRATIONS=1)
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0
+benchmark: 5.1.0 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/nate/projects/nautilus_trader/ml
+configfile: pytest.ini
+plugins: mock-3.14.1, anyio-4.10.0, asyncio-1.1.0, cov-6.2.1, benchmark-5.1.0, hypothesis-6.137.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1326 items
+run-last-failure: rerun previous 152 failures first
+
+ml/tests/unit/stores/test_data_store_canonical_ids.py .                  [  0%]
+ml/tests/integration/test_model_store_reads.py F                         [  0%]
+ml/tests/integration/test_feature_store_jsonb.py F                       [  0%]
+ml/tests/unit/stores/test_strategy_store_events.py FFFF                  [  0%]
+ml/tests/integration/test_feature_parity.py FFFFFFFFEE..                 [  1%]
+ml/tests/integration/test_strategy_store_demo.py F                       [  1%]
+ml/tests/integration/test_scheduler_feature_store.py FF..F..             [  2%]
+ml/tests/integration/test_feature_store_integration.py F.FFFF.           [  2%]
+ml/tests/integration/test_dry_run_integration.py F                       [  2%]
+ml/tests/unit/training/test_optuna_optimizer.py ........................ [  4%]
+                                                                         [  4%]
+ml/tests/unit/monitoring/test_grafana_client.py ........................ [  6%]
+..................................                                       [  8%]
+ml/tests/unit/deployment/test_entrypoint_pipeline.py ............

@@ -20,13 +20,13 @@ Options:
 Examples:
     # Full backfill with 10 years of history
     python ml/scripts/populate_fred_data.py
-    
+
     # Update with last 30 days only
     python ml/scripts/populate_fred_data.py --update-only
-    
+
     # Custom backfill period
     python ml/scripts/populate_fred_data.py --backfill-years 5
-    
+
     # Dry run to see what would be fetched
     python ml/scripts/populate_fred_data.py --dry-run
 

@@ -10,6 +10,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import pytest
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
@@ -22,7 +23,9 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
-def test_dry_run_production_scenario() -> None:
+@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.integration
+def test_dry_run_production_scenario(test_database):
     """
     Test a realistic production scenario with dry run mode.
 
@@ -55,35 +58,46 @@ def test_dry_run_production_scenario() -> None:
         min_confidence=0.6,
         stop_loss_pct=0.015,
         take_profit_pct=0.03,
+        strategy_store_config={
+            "connection_string": test_database.connection_string,
+        }
     )
 
-    # Create strategy with mocked store
-    with patch("ml.strategies.base.StrategyStore") as MockStore:
+    # Create strategy with real database store for integration test
+    from ml.stores.strategy_store import StrategyStore
+    
+    strategy = MLTradingStrategy(config)
+    strategy.register_base(
+        portfolio=portfolio,
+        msgbus=msgbus,
+        cache=cache,
+        clock=clock,
+    )
+    
+    # Mock store methods for tracking while keeping real store
+    original_store = strategy.strategy_store
+    if original_store:
         mock_store = MagicMock()
-        MockStore.return_value = mock_store
+        mock_store.write_signal = MagicMock(side_effect=original_store.write_signal)
+        mock_store.flush = MagicMock(side_effect=original_store.flush)
+        strategy.strategy_store = mock_store
+    else:
+        mock_store = MagicMock()
 
-        strategy = MLTradingStrategy(config)
-        strategy.register_base(
-            portfolio=portfolio,
-            msgbus=msgbus,
-            cache=cache,
-            clock=clock,
-        )
+    # Mock position sizing
+    cast(Any, strategy)._calculate_position_size = MagicMock(return_value=50)
+    cast(Any, strategy)._place_market_order = MagicMock()
 
-        # Mock position sizing
-        cast(Any, strategy)._calculate_position_size = MagicMock(return_value=50)
-        cast(Any, strategy)._place_market_order = MagicMock()
+    # Mock position tracking for reversal logic
+    mock_position = None
 
-        # Mock position tracking for reversal logic
-        mock_position = None
+    def get_position_mock() -> Any:
+        return mock_position
 
-        def get_position_mock() -> Any:
-            return mock_position
+    cast(Any, strategy)._get_current_position = get_position_mock
 
-        cast(Any, strategy)._get_current_position = get_position_mock
-
-        # Simulate production signals coming in
-        signals = [
+    # Simulate production signals coming in
+    signals = [
             # Initial BUY signal
             MLSignal(
                 instrument_id=instrument_id,
@@ -114,61 +128,62 @@ def test_dry_run_production_scenario() -> None:
                 ts_event=dt_to_unix_nanos(clock.utc_now()) + 20_000_000_000,
                 ts_init=dt_to_unix_nanos(clock.utc_now()) + 20_000_000_000,
             ),
-        ]
+    ]
 
-        # Process signals as they would come in production
-        for i, signal in enumerate(signals):
-            print(f"\n--- Processing Signal {i+1} ---")
-            print(f"Model: {signal.model_id}")
-            print(f"Prediction: {signal.prediction:.3f}")
-            print(f"Confidence: {signal.confidence:.3f}")
+    # Process signals as they would come in production
+    for i, signal in enumerate(signals):
+        print(f"\n--- Processing Signal {i+1} ---")
+        print(f"Model: {signal.model_id}")
+        print(f"Prediction: {signal.prediction:.3f}")
+        print(f"Confidence: {signal.confidence:.3f}")
 
-            # Process the signal
-            strategy._handle_ml_signal(signal)
+        # Process the signal
+        strategy._handle_ml_signal(signal)
 
-            # After first signal, mock a position exists
-            if i == 0:
-                mock_position = MagicMock()
-                mock_position.side.name = "LONG"
-                mock_position.quantity = 50
+        # After first signal, mock a position exists
+        if i == 0:
+            mock_position = MagicMock()
+            mock_position.side.name = "LONG"
+            mock_position.quantity = 50
 
-            # Advance time slightly
-            clock.advance_time(1_000_000_000)  # 1 second
+        # Advance time slightly
+        clock.advance_time(1_000_000_000)  # 1 second
 
-        # Verify dry run behavior
-        print("\n--- Dry Run Results ---")
-        print(f"Signals received: {strategy._signals_received}")
-        print(f"Dry run trades: {strategy._dry_run_trades}")
-        _mock_place = cast(Any, strategy)._place_market_order
-        print(f"Actual orders placed: {_mock_place.call_count}")
+    # Verify dry run behavior
+    print("\n--- Dry Run Results ---")
+    print(f"Signals received: {strategy._signals_received}")
+    print(f"Dry run trades: {strategy._dry_run_trades}")
+    _mock_place = cast(Any, strategy)._place_market_order
+    print(f"Actual orders placed: {_mock_place.call_count}")
 
-        # Assertions
-        assert strategy._signals_received == 3
-        assert strategy._dry_run_trades == 2  # Initial entry + reversal (HOLD doesn't increment)
-        assert _mock_place.call_count == 0  # No actual orders
+    # Assertions
+    assert strategy._signals_received == 3
+    assert strategy._dry_run_trades == 2  # Initial entry + reversal (HOLD doesn't increment)
+    assert _mock_place.call_count == 0  # No actual orders
 
-        # Verify all decisions were persisted
-        assert mock_store.write_signal.call_count == 3
+    # Verify all decisions were persisted
+    assert mock_store.write_signal.call_count == 3
 
-        # Check persisted decision types
-        calls = mock_store.write_signal.call_args_list
-        signal_types = [call.kwargs["signal_type"] for call in calls]
-        assert signal_types == ["BUY", "HOLD", "SELL"]
+    # Check persisted decision types
+    calls = mock_store.write_signal.call_args_list
+    signal_types = [call.kwargs["signal_type"] for call in calls]
+    assert signal_types == ["BUY", "HOLD", "SELL"]
 
-        # Verify metrics were updated despite dry run
-        for call in calls:
-            assert "confidence" in call.kwargs["risk_metrics"]
-            assert "prediction" in call.kwargs["risk_metrics"]
-            assert "action" in call.kwargs["execution_params"]
+    # Verify metrics were updated despite dry run
+    for call in calls:
+        assert "confidence" in call.kwargs["risk_metrics"]
+        assert "prediction" in call.kwargs["risk_metrics"]
+        assert "action" in call.kwargs["execution_params"]
 
-        # Stop strategy and verify flush
-        strategy.on_stop()
-        mock_store.flush.assert_called_once()
+    # Stop strategy and verify flush
+    strategy.on_stop()
+    mock_store.flush.assert_called_once()
 
-        print("\n✅ Dry run integration test passed!")
-        print("Strategy successfully processed signals, made decisions,")
-        print("persisted to stores, and updated metrics without placing orders.")
+    print("\n✅ Dry run integration test passed!")
+    print("Strategy successfully processed signals, made decisions,")
+    print("persisted to stores, and updated metrics without placing orders.")
 
 
 if __name__ == "__main__":
-    test_dry_run_production_scenario()
+    # Run with PostgreSQL fixtures
+    pytest.main([__file__, "-xvs"])

@@ -7,8 +7,6 @@ partitioned queries, and performance tracking.
 """
 
 from __future__ import annotations
-
-import json
 import logging
 import time
 import uuid
@@ -299,9 +297,7 @@ class ModelStore(BaseStore):
                         "ts_init": item.ts_init,
                         "prediction": item.prediction,
                         "confidence": item.confidence,
-                        "features_used": (
-                            json.dumps(item.features_used) if item.features_used else None
-                        ),
+                        "features_used": item.features_used if item.features_used else None,
                         "inference_time_ms": item.inference_time_ms,
                         "is_live": getattr(item, "is_live", False),
                         # created_at omitted: DB default will be used
@@ -361,33 +357,32 @@ class ModelStore(BaseStore):
             Predictions within range
 
         """
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
-        from ml._imports import pl
+        import pandas as pd
+        from sqlalchemy import text as _text
 
-        if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
+        sql = _text(
+            """
+            SELECT ts_event, prediction, confidence, features_used, inference_time_ms
+            FROM public.ml_model_predictions
+            WHERE model_id = :model_id
+              AND instrument_id = :instrument_id
+              AND ts_event >= :start_ns
+              AND ts_event < :end_ns
+            ORDER BY ts_event
+            """,
+        )
 
-        query = f"""
-        SELECT
-            ts_event,
-            prediction,
-            confidence,
-            features_used,
-            inference_time_ms
-        FROM public.ml_model_predictions
-        WHERE model_id = '{model_id}'
-        AND instrument_id = '{instrument_id}'
-        AND ts_event >= {start_ns}
-        AND ts_event < {end_ns}
-        ORDER BY ts_event
-        """  # noqa: S608
-
-        # Use Polars for efficient reading
-        df = pl.read_database(query, self.connection_string or "")
-
-        # Convert to pandas for compatibility
-        return df.to_pandas()
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(
+                sql,
+                conn,
+                params={
+                    "model_id": model_id,
+                    "instrument_id": instrument_id,
+                    "start_ns": int(start_ns),
+                    "end_ns": int(end_ns),
+                },
+            )
 
     def read_range(
         self,
@@ -413,32 +408,33 @@ class ModelStore(BaseStore):
             Predictions within range
 
         """
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
-        from ml._imports import pl
+        import pandas as pd
+        from sqlalchemy import text as _text
 
-        if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
+        if instrument_id is None:
+            sql = _text(
+                """
+                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+                FROM public.ml_model_predictions
+                WHERE ts_event >= :start_ns AND ts_event < :end_ns
+                ORDER BY ts_event
+                """,
+            )
+            params = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
+        else:
+            sql = _text(
+                """
+                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+                FROM public.ml_model_predictions
+                WHERE ts_event >= :start_ns AND ts_event < :end_ns
+                  AND instrument_id = :instrument_id
+                ORDER BY ts_event
+                """,
+            )
+            params = {"start_ns": int(start_ns), "end_ns": int(end_ns), "instrument_id": instrument_id}
 
-        where_clause = f"WHERE ts_event >= {start_ns} AND ts_event < {end_ns}"
-        if instrument_id:
-            where_clause += f" AND instrument_id = '{instrument_id}'"
-
-        query = f"""
-        SELECT
-            model_id,
-            instrument_id,
-            ts_event,
-            prediction,
-            confidence,
-            inference_time_ms
-        FROM public.ml_model_predictions
-        {where_clause}
-        ORDER BY ts_event
-        """  # noqa: S608
-
-        df = pl.read_database(query, self.connection_string or "")
-        return df.to_pandas()
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(sql, conn, params=params)
 
     def get_latest(
         self,
@@ -461,28 +457,21 @@ class ModelStore(BaseStore):
             Latest predictions
 
         """
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
-        from ml._imports import pl
+        import pandas as pd
+        from sqlalchemy import text as _text
 
-        if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
+        sql = _text(
+            """
+            SELECT model_id, ts_event, prediction, confidence, inference_time_ms
+            FROM public.ml_model_predictions
+            WHERE instrument_id = :instrument_id
+            ORDER BY ts_event DESC
+            LIMIT :limit
+            """,
+        )
 
-        query = f"""
-        SELECT
-            model_id,
-            ts_event,
-            prediction,
-            confidence,
-            inference_time_ms
-        FROM public.ml_model_predictions
-        WHERE instrument_id = '{instrument_id}'
-        ORDER BY ts_event DESC
-        LIMIT {limit}
-        """  # noqa: S608
-
-        df = pl.read_database(query, self.connection_string or "")
-        return df.to_pandas()
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(sql, conn, params={"instrument_id": instrument_id, "limit": int(limit)})
 
     def get_statistics(
         self,
@@ -506,32 +495,31 @@ class ModelStore(BaseStore):
 
         """
         with self.engine.connect() as conn:
-            # Build WHERE clause
-            where_parts = []
-            if start_ns:
-                where_parts.append(f"ts_event >= {start_ns}")
-            if end_ns:
-                where_parts.append(f"ts_event < {end_ns}")
+            # Build WHERE clause with parameters
+            conditions: list[str] = []
+            params: dict[str, Any] = {}
+            if start_ns is not None:
+                conditions.append("ts_event >= :start_ns")
+                params["start_ns"] = int(start_ns)
+            if end_ns is not None:
+                conditions.append("ts_event < :end_ns")
+                params["end_ns"] = int(end_ns)
 
-            where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-
-            # Get statistics
-            query = text(
-                f"""
-                SELECT
-                    COUNT(*) as total_predictions,
-                    COUNT(DISTINCT model_id) as unique_models,
-                    COUNT(DISTINCT instrument_id) as unique_instruments,
-                    AVG(inference_time_ms) as avg_inference_ms,
-                    MAX(inference_time_ms) as max_inference_ms,
-                    MIN(ts_event) as min_ts,
-                    MAX(ts_event) as max_ts
-                FROM public.ml_model_predictions
-                {where_clause}
-            """,
+            base_sql = (
+                "SELECT COUNT(*) as total_predictions, "
+                "COUNT(DISTINCT model_id) as unique_models, "
+                "COUNT(DISTINCT instrument_id) as unique_instruments, "
+                "AVG(inference_time_ms) as avg_inference_ms, "
+                "MAX(inference_time_ms) as max_inference_ms, "
+                "MIN(ts_event) as min_ts, "
+                "MAX(ts_event) as max_ts "
+                "FROM public.ml_model_predictions "
             )
+            if conditions:
+                base_sql += "WHERE " + " AND ".join(conditions)
 
-            result = conn.execute(query).fetchone()
+            query = text(base_sql)
+            result = conn.execute(query, params).fetchone()
 
             if result:
                 return {
@@ -609,8 +597,8 @@ class ModelStore(BaseStore):
                 ts_min = min(ts_values)
                 ts_max = max(ts_values)
 
-                # Format dataset_id following convention
-                dataset_id = f"predictions_{model_id}"
+                # Use canonical dataset id; model_id is conveyed via metrics/metadata
+                dataset_id = "predictions"
 
                 # Determine source based on is_live flag (if available)
                 source = "realtime"
@@ -750,31 +738,30 @@ class ModelStore(BaseStore):
             Performance metrics
 
         """
-        where_parts = [f"model_id = '{model_id}'"]
-        if start_ns:
-            where_parts.append(f"ts_event >= {start_ns}")
-        if end_ns:
-            where_parts.append(f"ts_event < {end_ns}")
+        conditions: list[str] = ["model_id = :model_id"]
+        params: dict[str, Any] = {"model_id": model_id}
+        if start_ns is not None:
+            conditions.append("ts_event >= :start_ns")
+            params["start_ns"] = int(start_ns)
+        if end_ns is not None:
+            conditions.append("ts_event < :end_ns")
+            params["end_ns"] = int(end_ns)
 
-        where_clause = f"WHERE {' AND '.join(where_parts)}"
+        sql = (
+            "SELECT COUNT(*) as prediction_count, "
+            "AVG(confidence) as avg_confidence, "
+            "STDDEV(confidence) as std_confidence, "
+            "AVG(inference_time_ms) as avg_latency_ms, "
+            "PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY inference_time_ms) as p50_latency_ms, "
+            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY inference_time_ms) as p95_latency_ms, "
+            "PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY inference_time_ms) as p99_latency_ms "
+            "FROM public.ml_model_predictions "
+            "WHERE " + " AND ".join(conditions)
+        )
 
         with self.engine.connect() as conn:
-            query = text(
-                f"""
-                SELECT
-                    COUNT(*) as prediction_count,
-                    AVG(confidence) as avg_confidence,
-                    STDDEV(confidence) as std_confidence,
-                    AVG(inference_time_ms) as avg_latency_ms,
-                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY inference_time_ms) as p50_latency_ms,
-                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY inference_time_ms) as p95_latency_ms,
-                    PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY inference_time_ms) as p99_latency_ms
-                FROM public.ml_model_predictions
-                {where_clause}
-            """,
-            )
-
-            result = conn.execute(query).fetchone()
+            query = text(sql)
+            result = conn.execute(query, params).fetchone()
 
             if result:
                 return {

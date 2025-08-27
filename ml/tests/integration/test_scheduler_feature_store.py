@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import pytest
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -31,6 +32,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 def create_test_bars(
@@ -123,7 +125,7 @@ class TestSchedulerFeatureStoreIntegration:
                 schema="ohlcv-1m",
             ),
             feature_store_enabled=True,
-            feature_store_connection=None,  # Will use mock
+            feature_store_connection=None,  # Will be provided via test fixture
         )
 
         # Create feature config and engineer
@@ -145,25 +147,28 @@ class TestSchedulerFeatureStoreIntegration:
         if self.temp_dir and Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir)
 
-    @patch("ml.stores.feature_store.FeatureStore")
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_computation_with_catalog_data(
         self,
-        mock_feature_store_class: MagicMock,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test feature computation when bars are available in catalog.
         """
-        # Set up mock feature store
-        mock_feature_store = MagicMock()
-        mock_feature_store.compute_and_store_historical.return_value = 100
-        mock_feature_store_class.return_value = mock_feature_store
-
+        # Update config with test database connection
+        self.config.feature_store_connection = test_database.connection_string
         # Create scheduler
-        scheduler = DataScheduler(
-            catalog=self.catalog,
-            config=self.config,
-            feature_engineer=self.feature_engineer,
-        )
+        with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
+            # Set up mock feature store
+            mock_feature_store = MagicMock()
+            mock_feature_store.compute_and_store_historical.return_value = 100
+            mock_feature_store_class.return_value = mock_feature_store
+            
+            scheduler = DataScheduler(
+                catalog=self.catalog,
+                config=self.config,
+                feature_engineer=self.feature_engineer,
+            )
 
         # Prepare test data in catalog
         instrument_id = InstrumentId.from_str("SPY.NASDAQ")
@@ -226,23 +231,26 @@ class TestSchedulerFeatureStoreIntegration:
         # Verify feature store was not initialized
         assert scheduler._feature_store is None
 
-    @patch("ml.stores.feature_store.create_engine")
-    def test_feature_store_initialization_failure(self, mock_create_engine: MagicMock) -> None:
+    @pytest.mark.usefixtures("clean_postgres_db")
+    def test_feature_store_initialization_failure(self, test_database: TestDatabase) -> None:
         """
         Test graceful handling of feature store initialization failure.
         """
-        # Make engine creation fail
-        mock_create_engine.side_effect = Exception("Database connection failed")
+        # Set an invalid connection string to trigger failure
+        self.config.feature_store_connection = "invalid://connection"
 
         # Create scheduler - should handle failure gracefully
-        scheduler = DataScheduler(
-            catalog=self.catalog,
-            config=self.config,
-            feature_engineer=self.feature_engineer,
-        )
+        with patch("ml.stores.feature_store.create_engine") as mock_create_engine:
+            mock_create_engine.side_effect = Exception("Database connection failed")
+            
+            scheduler = DataScheduler(
+                catalog=self.catalog,
+                config=self.config,
+                feature_engineer=self.feature_engineer,
+            )
 
-        # Feature store should be None after failed initialization
-        assert scheduler._feature_store is None
+            # Feature store should be None after failed initialization
+            assert scheduler._feature_store is None
 
         # Scheduler should still be functional
         assert scheduler.enabled
@@ -275,39 +283,44 @@ class TestSchedulerFeatureStoreIntegration:
         assert venue_map["XNYS"] == "NYSE"
         assert venue_map.get("UNKNOWN", "UNKNOWN") == "UNKNOWN"
 
-    @patch.dict(
-        os.environ,
-        {"NAUTILUS_DB_CONNECTION": "postgresql://test:test@testhost:5432/testdb"},
-    )
-    @patch("ml.stores.feature_store.FeatureStore")
-    def test_feature_store_connection_from_env(self, mock_feature_store_class: MagicMock) -> None:
+    @pytest.mark.usefixtures("clean_postgres_db")
+    def test_feature_store_connection_from_env(self, test_database: TestDatabase) -> None:
         """
         Test that feature store uses connection string from environment.
         """
-        mock_feature_store = MagicMock()
-        mock_feature_store_class.return_value = mock_feature_store
+        # Temporarily set environment variable
+        with patch.dict(
+            os.environ,
+            {"NAUTILUS_DB_CONNECTION": test_database.connection_string},
+        ):
+            with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
+                mock_feature_store = MagicMock()
+                mock_feature_store_class.return_value = mock_feature_store
 
-        # Create scheduler with no explicit connection string
-        config = SchedulerConfig(
-            feature_store_enabled=True,
-            feature_store_connection=None,  # Should use env var
-        )
+                # Create scheduler with no explicit connection string
+                config = SchedulerConfig(
+                    feature_store_enabled=True,
+                    feature_store_connection=None,  # Should use env var
+                )
 
-        scheduler = DataScheduler(
-            catalog=self.catalog,
-            config=config,
-            feature_engineer=self.feature_engineer,
-        )
+                scheduler = DataScheduler(
+                    catalog=self.catalog,
+                    config=config,
+                    feature_engineer=self.feature_engineer,
+                )
 
-        # Verify feature store was initialized with env var connection
-        mock_feature_store_class.assert_called_once()
-        call_args = mock_feature_store_class.call_args
-        assert "testhost:5432/testdb" in call_args[1]["connection_string"]
+                # Verify feature store was initialized with env var connection
+                mock_feature_store_class.assert_called_once()
+                call_args = mock_feature_store_class.call_args
+                assert test_database.connection_string in str(call_args)
 
-    def test_metrics_tracking(self) -> None:
+    @pytest.mark.usefixtures("clean_postgres_db")
+    def test_metrics_tracking(self, test_database: TestDatabase) -> None:
         """
         Test that feature computation tracks metrics correctly.
         """
+        # Update config with test database connection
+        self.config.feature_store_connection = test_database.connection_string
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
             mock_feature_store = MagicMock()
             mock_feature_store.compute_and_store_historical.return_value = 50

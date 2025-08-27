@@ -20,7 +20,7 @@ from typing import Any
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 

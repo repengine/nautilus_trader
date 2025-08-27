@@ -26,6 +26,7 @@ from ml._imports import pl
 from ml.data.loaders import FREDConfig
 from ml.data.loaders import FREDDataLoader
 from ml.data.loaders import FREDIndicator
+from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 class TestFREDConfig:
@@ -357,17 +358,19 @@ class TestFREDDataLoader:
         assert dgs10_values[1] is not None  # Has DGS10 data
         assert dgs2_values[1] is None  # No DGS2 data for second date
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_store_indicators(
         self,
         fred_loader: FREDDataLoader,
         tmp_path: Path,
+        test_database: TestDatabase,
     ) -> None:
         """Test storing indicators in DataStore."""
         from ml.registry.data_registry import DataRegistry
         from ml.stores.data_store import DataStore
 
-        # Create mock stores and registry
-        mock_data_store = MagicMock(spec=DataStore)
+        # Create DataStore with test database
+        data_store = DataStore(connection_string=test_database.connection_string)
         mock_registry = MagicMock(spec=DataRegistry)
 
         # Create sample data
@@ -379,8 +382,11 @@ class TestFREDDataLoader:
             }),
         }
 
+        # Mock data store write method to avoid actual DB write
+        data_store.write_ingestion = MagicMock()
+        
         # Store indicators
-        fred_loader.store_indicators(mock_data_store, mock_registry, data)
+        fred_loader.store_indicators(data_store, mock_registry, data)
 
         # Check registry was called
         mock_registry.register_dataset.assert_called_once()
@@ -389,19 +395,24 @@ class TestFREDDataLoader:
         assert manifest.dataset_type.value == "features"  # Economic indicators are stored as features
 
         # Check data store was called
-        mock_data_store.write_ingestion.assert_called()
+        data_store.write_ingestion.assert_called()
 
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_update_realtime(
         self,
         fred_loader: FREDDataLoader,
+        test_database: TestDatabase,
     ) -> None:
         """Test real-time update functionality."""
         from ml.registry.data_registry import DataRegistry
         from ml.stores.data_store import DataStore
 
-        # Create mock stores and registry
-        mock_data_store = MagicMock(spec=DataStore)
+        # Create DataStore with test database
+        data_store = DataStore(connection_string=test_database.connection_string)
         mock_registry = MagicMock(spec=DataRegistry)
+        
+        # Mock data store write method to avoid actual DB write
+        data_store.write_ingestion = MagicMock()
 
         # Mock fetch to return data
         dates = pd.date_range("2020-01-01", periods=5)
@@ -417,7 +428,7 @@ class TestFREDDataLoader:
         ]
 
         # Run update
-        fred_loader.update_realtime(mock_data_store, mock_registry)
+        fred_loader.update_realtime(data_store, mock_registry)
 
         # Check that fetch was called with recent dates
         call_args = fred_loader.fred.get_series.call_args
@@ -429,7 +440,7 @@ class TestFREDDataLoader:
         assert 29 <= date_diff <= 31
 
         # Check store was called
-        mock_data_store.write_ingestion.assert_called()
+        data_store.write_ingestion.assert_called()
 
 
 class TestFREDDataLoaderIntegration:

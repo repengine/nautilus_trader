@@ -632,8 +632,8 @@ class StrategyStore(BaseStore):
                 ts_min = min(ts_values)
                 ts_max = max(ts_values)
 
-                # Format dataset_id following convention
-                dataset_id = f"signals_{strategy_id}"
+                # Use canonical dataset id; strategy_id is conveyed via metrics/metadata
+                dataset_id = "signals"
 
                 # Signals are typically realtime but check if is_live flag exists
                 source = "realtime"

@@ -67,10 +67,8 @@ if HAS_PROMETHEUS:
     try:
         # Create FRED-specific metrics
         from prometheus_client import Counter
-        from prometheus_client import Histogram
 
         from ml.common.metrics import data_collection_duration
-        from ml.common.metrics import data_events_total
 
         fred_fetch_counter = Counter(
             "nautilus_ml_fred_fetch_total",
@@ -128,7 +126,7 @@ if not HAS_PROMETHEUS:
 class FREDIndicator:
     """
     Configuration for a FRED economic indicator.
-    
+
     Attributes
     ----------
     series_id : str
@@ -147,7 +145,7 @@ class FREDIndicator:
         Earliest available data date
     description : str
         Detailed description of the indicator
-    
+
     """
 
     series_id: str
@@ -164,7 +162,7 @@ class FREDIndicator:
 class FREDConfig:
     """
     Configuration for FRED data loader.
-    
+
     Attributes
     ----------
     api_key : str | None
@@ -183,7 +181,7 @@ class FREDConfig:
         Maximum retries for failed API calls
     retry_delay_seconds : float
         Delay between retries
-    
+
     """
 
     api_key: str | None = None
@@ -212,28 +210,28 @@ class FREDConfig:
 class FREDDataLoader:
     """
     FRED data loader for economic indicators.
-    
+
     Fetches and stores key economic indicators from FRED API with support for:
     - Interest rates (Treasury yields, Fed funds rate)
     - Volatility indices (VIX, MOVE)
     - Economic indicators (GDP, CPI, unemployment, consumer sentiment)
     - Market breadth indicators
     - Currency indices (DXY)
-    
+
     Examples
     --------
     >>> config = FREDConfig(api_key="your_key")
     >>> loader = FREDDataLoader(config)
-    >>> 
+    >>>
     >>> # Fetch all configured indicators
     >>> data = loader.fetch_all_indicators()
-    >>> 
+    >>>
     >>> # Fetch specific indicator
     >>> treasury_10y = loader.fetch_indicator("DGS10")
-    >>> 
+    >>>
     >>> # Store in DataStore with registration
     >>> loader.store_indicators(data_store, data_registry)
-    
+
     """
 
     # Default indicators configuration
@@ -459,21 +457,21 @@ class FREDDataLoader:
     ) -> None:
         """
         Initialize FRED data loader.
-        
+
         Parameters
         ----------
         config : FREDConfig | None
             Configuration for the loader. If None, uses defaults.
         indicators : list[FREDIndicator] | None
             List of indicators to fetch. If None, uses DEFAULT_INDICATORS.
-        
+
         Raises
         ------
         ImportError
             If fredapi package is not installed
         ValueError
             If FRED API key is not provided
-        
+
         """
         self.config = config or FREDConfig()
         self.indicators = indicators or self.DEFAULT_INDICATORS
@@ -528,17 +526,17 @@ class FREDDataLoader:
     def _is_cache_valid(self, series_id: str) -> bool:
         """
         Check if cached data is still valid.
-        
+
         Parameters
         ----------
         series_id : str
             FRED series identifier
-        
+
         Returns
         -------
         bool
             True if cache is valid, False otherwise
-        
+
         """
         cache_path = self._get_cache_path(series_id)
         metadata_path = self._get_cache_metadata_path(series_id)
@@ -564,17 +562,17 @@ class FREDDataLoader:
     def _load_from_cache(self, series_id: str) -> pl.DataFrame | None:
         """
         Load data from cache if valid.
-        
+
         Parameters
         ----------
         series_id : str
             FRED series identifier
-        
+
         Returns
         -------
         pl.DataFrame | None
             Cached data if valid, None otherwise
-        
+
         """
         if not self._is_cache_valid(series_id):
             return None
@@ -595,14 +593,14 @@ class FREDDataLoader:
     def _save_to_cache(self, series_id: str, df: pl.DataFrame) -> None:
         """
         Save data to cache.
-        
+
         Parameters
         ----------
         series_id : str
             FRED series identifier
         df : pl.DataFrame
             Data to cache
-        
+
         """
         try:
             cache_path = self._get_cache_path(series_id)
@@ -636,7 +634,7 @@ class FREDDataLoader:
     ) -> pl.DataFrame:
         """
         Fetch a single FRED indicator.
-        
+
         Parameters
         ----------
         series_id : str
@@ -647,12 +645,12 @@ class FREDDataLoader:
             End date for data (defaults to today)
         use_cache : bool
             Whether to use cached data if available
-        
+
         Returns
         -------
         pl.DataFrame
             DataFrame with columns: timestamp, series_id, value
-        
+
         """
         # Check cache first
         if use_cache:
@@ -706,7 +704,7 @@ class FREDDataLoader:
 
                 logger.info(
                     f"Fetched {series_id}: {len(df)} rows, "
-                    f"range={str(df['timestamp'].min())} to {str(df['timestamp'].max())}"
+                    f"range={df['timestamp'].min()!s} to {df['timestamp'].max()!s}"
                 )
 
                 # Save to cache
@@ -739,7 +737,7 @@ class FREDDataLoader:
     ) -> dict[str, pl.DataFrame]:
         """
         Fetch all configured indicators.
-        
+
         Parameters
         ----------
         start_date : datetime | None
@@ -748,12 +746,12 @@ class FREDDataLoader:
             End date for data
         use_cache : bool
             Whether to use cached data
-        
+
         Returns
         -------
         dict[str, pl.DataFrame]
             Dictionary mapping series_id to DataFrame
-        
+
         """
         results: dict[str, pl.DataFrame] = {}
 
@@ -777,17 +775,17 @@ class FREDDataLoader:
     def combine_indicators(self, data: dict[str, pl.DataFrame]) -> pl.DataFrame:
         """
         Combine multiple indicators into a single DataFrame.
-        
+
         Parameters
         ----------
         data : dict[str, pl.DataFrame]
             Dictionary mapping series_id to DataFrame
-        
+
         Returns
         -------
         pl.DataFrame
             Combined DataFrame with all indicators
-        
+
         """
         if not data:
             return pl.DataFrame()
@@ -836,7 +834,7 @@ class FREDDataLoader:
     ) -> None:
         """
         Store indicators in DataStore with proper registration.
-        
+
         Parameters
         ----------
         data_store : DataStore
@@ -845,7 +843,7 @@ class FREDDataLoader:
             DataRegistry for dataset registration
         data : dict[str, pl.DataFrame] | None
             Pre-fetched data, or None to fetch all indicators
-        
+
         """
         # Fetch data if not provided
         if data is None:
@@ -940,7 +938,7 @@ class FREDDataLoader:
                 "description": "FRED economic indicators for ML features",
                 "source": "fred",
                 "indicators": [ind.series_id for ind in self.indicators],
-                "categories": list(set(ind.category for ind in self.indicators)),
+                "categories": list({ind.category for ind in self.indicators}),
                 "last_update": datetime.now().isoformat(),
                 "contract": contract.contract_id,
             },
@@ -992,16 +990,16 @@ class FREDDataLoader:
     ) -> None:
         """
         Update indicators in real-time mode.
-        
+
         Fetches only recent data to update existing indicators.
-        
+
         Parameters
         ----------
         data_store : DataStore
             DataStore instance
         data_registry : DataRegistry
             DataRegistry instance
-        
+
         """
         # Fetch last 30 days of data
         end_date = datetime.now()

@@ -53,4 +53,3 @@ def test_manifest_schema_matches_config_names() -> None:
         data_requirements=DataRequirements.L1_ONLY,
     )
     assert manifest.feature_names == cfg.get_feature_names()
-

@@ -24,7 +24,7 @@ from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
+from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog

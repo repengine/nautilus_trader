@@ -17,10 +17,10 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any, TypedDict
 
 from flask import Flask
 from flask import jsonify
-from typing import Any, TypedDict
 
 
 # Add the parent directory to the path
@@ -37,13 +37,21 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 # Configure logging
+def _get_log_handlers():
+    """Get logging handlers based on environment."""
+    handlers = [logging.StreamHandler()]
+    log_file = os.environ.get("LOG_FILE")
+    if log_file:
+        # Only add file handler if LOG_FILE is explicitly set
+        log_dir = Path(log_file).parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(log_file))
+    return handlers
+
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.environ.get("LOG_FILE", "/app/logs/ml_pipeline.log")),
-    ],
+    handlers=_get_log_handlers(),
 )
 logger = logging.getLogger(__name__)
 
@@ -211,10 +219,6 @@ class PipelineRunner:
         Run pipeline in backfill mode.
         """
         logger.info("Running backfill mode")
-
-        # Get date range from environment or use defaults
-        start_date = os.environ.get("BACKFILL_START", "2024-01-01")
-        end_date = os.environ.get("BACKFILL_END", "2024-01-31")
 
         # Backfill is currently mapped to a single daily update for simplicity.
         # A full backfill loop should iterate dates and call collection per day.

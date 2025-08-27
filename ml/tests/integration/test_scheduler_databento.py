@@ -21,17 +21,19 @@ import pytest
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.scheduler import DataScheduler
+from ml.stores.data_store import DataStore
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestDataSchedulerIntegration:
     """
     Test DataScheduler with Databento integration.
     """
 
-    def test_scheduler_initialization(self) -> None:
+    def test_scheduler_initialization(self, test_database) -> None:
         """
         Test scheduler initializes correctly with configuration.
         """
@@ -39,17 +41,22 @@ class TestDataSchedulerIntegration:
             # Create catalog
             catalog = ParquetDataCatalog(temp_dir)
 
-            # Create config
+            # Create config with PostgreSQL connection
             config = SchedulerConfig(
                 symbols=["SPY.XNAS", "QQQ.XNAS"],
                 retention_days=30,
+                connection_string=test_database.connection_string,
             )
 
-            # Initialize scheduler
+            # Initialize scheduler with PostgreSQL
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
+                connection=test_database.connection_string,
             )
+            
+            # Initialize DataStore
+            scheduler._data_store = DataStore(connection_string=test_database.connection_string)
 
             # Verify initialization
             assert scheduler.enabled is True
@@ -57,13 +64,20 @@ class TestDataSchedulerIntegration:
             assert scheduler.config.retention_days == 30
             assert scheduler._databento_loader is not None
 
-    def test_get_previous_trading_day(self) -> None:
+    def test_get_previous_trading_day(self, test_database) -> None:
         """
         Test getting previous trading day logic.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = ParquetDataCatalog(temp_dir)
-            scheduler = DataScheduler(catalog=catalog)
+            config = SchedulerConfig(
+                connection_string=test_database.connection_string,
+            )
+            scheduler = DataScheduler(
+                catalog=catalog,
+                config=config,
+                connection=test_database.connection_string,
+            )
 
             # Mock different days
             with patch("ml.data.scheduler.datetime") as mock_datetime:
@@ -83,7 +97,7 @@ class TestDataSchedulerIntegration:
                 result = scheduler._get_previous_trading_day()
                 assert result.date() == datetime(2024, 1, 8).date()  # Monday
 
-    def test_scheduler_status(self) -> None:
+    def test_scheduler_status(self, test_database) -> None:
         """
         Test scheduler status reporting.
         """
@@ -96,11 +110,13 @@ class TestDataSchedulerIntegration:
                     dataset="GLBX.MDP3",
                     schema="ohlcv-1m",
                 ),
+                connection_string=test_database.connection_string,
             )
 
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
+                connection=test_database.connection_string,
             )
 
             status = scheduler.get_status()
@@ -115,7 +131,7 @@ class TestDataSchedulerIntegration:
             assert status["has_feature_engineer"] is False
 
     @patch("ml.data.scheduler.db")
-    def test_collect_symbol_data_success(self, mock_db: MagicMock) -> None:
+    def test_collect_symbol_data_success(self, mock_db: MagicMock, test_database) -> None:
         """
         Test successful data collection for a symbol.
         """
@@ -128,11 +144,13 @@ class TestDataSchedulerIntegration:
                     use_temporary_files=True,
                     temp_data_dir=temp_dir,
                 ),
+                connection_string=test_database.connection_string,
             )
 
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
+                connection=test_database.connection_string,
             )
 
             # Mock Databento client
@@ -162,7 +180,7 @@ class TestDataSchedulerIntegration:
                 mock_loader.assert_called_once()
 
     @patch("ml.data.scheduler.db")
-    def test_collect_symbol_data_retry_logic(self, mock_db: MagicMock) -> None:
+    def test_collect_symbol_data_retry_logic(self, mock_db: MagicMock, test_database) -> None:
         """
         Test retry logic on collection failure.
         """
@@ -177,11 +195,13 @@ class TestDataSchedulerIntegration:
                     use_temporary_files=True,
                     temp_data_dir=temp_dir,
                 ),
+                connection_string=test_database.connection_string,
             )
 
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
+                connection=test_database.connection_string,
             )
 
             # Mock client to fail twice then succeed
@@ -207,13 +227,20 @@ class TestDataSchedulerIntegration:
                 assert result is True
                 assert mock_client.timeseries.get_range.call_count == 3
 
-    def test_load_from_dbn_file_venue_mapping(self) -> None:
+    def test_load_from_dbn_file_venue_mapping(self, test_database) -> None:
         """
         Test venue code mapping in DBN file loading.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = ParquetDataCatalog(temp_dir)
-            scheduler = DataScheduler(catalog=catalog)
+            config = SchedulerConfig(
+                connection_string=test_database.connection_string,
+            )
+            scheduler = DataScheduler(
+                catalog=catalog,
+                config=config,
+                connection=test_database.connection_string,
+            )
 
             # Test venue mappings
             test_cases = [
@@ -281,29 +308,40 @@ class TestDataSchedulerIntegration:
             bars = catalog.bars([spy_instrument])
             assert len(bars) > 0
 
-    def test_clean_old_data(self) -> None:
+    def test_clean_old_data(self, test_database) -> None:
         """
         Test cleanup of old data (placeholder test).
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = ParquetDataCatalog(temp_dir)
 
-            config = SchedulerConfig(retention_days=30)
+            config = SchedulerConfig(
+                retention_days=30,
+                connection_string=test_database.connection_string,
+            )
             scheduler = DataScheduler(
                 catalog=catalog,
                 config=config,
+                connection=test_database.connection_string,
             )
 
             # Currently just logs, but test it doesn't error
             scheduler._clean_old_data()
 
-    def test_compute_features(self) -> None:
+    def test_compute_features(self, test_database) -> None:
         """
         Test feature computation trigger (placeholder test).
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             catalog = ParquetDataCatalog(temp_dir)
-            scheduler = DataScheduler(catalog=catalog)
+            config = SchedulerConfig(
+                connection_string=test_database.connection_string,
+            )
+            scheduler = DataScheduler(
+                catalog=catalog,
+                config=config,
+                connection=test_database.connection_string,
+            )
 
             # Without feature engineer, should return early
             scheduler._compute_features()

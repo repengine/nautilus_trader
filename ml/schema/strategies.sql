@@ -21,11 +21,11 @@ CREATE TABLE IF NOT EXISTS ml_strategy_signals (
 );
 
 -- Indexes for strategy signals
-CREATE INDEX IF NOT EXISTS idx_ml_signals_strategy_instrument 
+CREATE INDEX IF NOT EXISTS idx_ml_signals_strategy_instrument
     ON ml_strategy_signals(strategy_id, instrument_id, ts_event DESC);
-CREATE INDEX IF NOT EXISTS idx_ml_signals_time 
+CREATE INDEX IF NOT EXISTS idx_ml_signals_time
     ON ml_strategy_signals(ts_event DESC);
-CREATE INDEX IF NOT EXISTS idx_ml_signals_type 
+CREATE INDEX IF NOT EXISTS idx_ml_signals_type
     ON ml_strategy_signals(signal_type);
 
 -- Strategy metadata table

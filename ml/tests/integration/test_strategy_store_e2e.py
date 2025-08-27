@@ -6,13 +6,11 @@ to the PostgreSQL database.
 
 """
 
-import os
 import time
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy import text
 
 from ml.actors.base import MLSignal
@@ -28,57 +26,21 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
-# Skip if PostgreSQL is not available
-POSTGRES_AVAILABLE = os.environ.get("POSTGRES_TEST_URL") is not None
-POSTGRES_URL = os.environ.get(
-    "POSTGRES_TEST_URL",
-    "postgresql://postgres:postgres@localhost:5432/nautilus",
-)
-
-
-@pytest.mark.skipif(not POSTGRES_AVAILABLE, reason="PostgreSQL not available")
+@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.integration
 class TestStrategyStoreE2E:
     """
     End-to-end tests for StrategyStore with real PostgreSQL.
     """
 
-    engine: Any
-
-    @classmethod
-    def setup_class(cls) -> None:
+    def setup_class(self, test_database) -> None:
         """
-        Set up database connection and ensure tables exist.
+        Set up database connection using test_database fixture.
         """
-        try:
-            cls.engine = create_engine(POSTGRES_URL)
+        self.engine = test_database.engine
+        self.connection_string = test_database.connection_string
 
-            # Ensure tables exist (simplified schema for testing)
-            with cls.engine.connect() as conn:
-                conn.execute(
-                    text(
-                        """
-                    CREATE TABLE IF NOT EXISTS ml_strategy_signals (
-                        strategy_id VARCHAR(255) NOT NULL,
-                        instrument_id VARCHAR(100) NOT NULL,
-                        ts_event BIGINT NOT NULL,
-                        ts_init BIGINT,
-                        signal_type VARCHAR(20) NOT NULL,
-                        strength FLOAT NOT NULL,
-                        model_predictions JSONB,
-                        risk_metrics JSONB,
-                        execution_params JSONB,
-                        is_live BOOLEAN DEFAULT FALSE,
-                        created_at BIGINT,
-                        PRIMARY KEY (strategy_id, instrument_id, ts_event)
-                    )
-                """,
-                    ),
-                )
-                conn.commit()
-        except Exception as e:
-            pytest.skip(f"Cannot connect to PostgreSQL: {e}")
-
-    def setup_method(self) -> None:
+    def setup_method(self, test_database) -> None:
         """
         Set up test fixtures.
         """
@@ -100,29 +62,16 @@ class TestStrategyStoreE2E:
 
         # Create unique strategy ID for each test
         self.strategy_id = f"E2E-{int(time.time() * 1000)}"
-
-        # Clean up any existing test data
-        self._cleanup_test_data()
+        
+        # Store test database reference
+        self.engine = test_database.engine
+        self.connection_string = test_database.connection_string
 
     def teardown_method(self) -> None:
         """
-        Clean up test data after each test.
+        Clean up handled by clean_postgres_db fixture.
         """
-        self._cleanup_test_data()
-
-    def _cleanup_test_data(self) -> None:
-        """
-        Remove test data from database.
-        """
-        try:
-            with self.engine.connect() as conn:
-                conn.execute(
-                    text("DELETE FROM ml_strategy_signals WHERE strategy_id = :sid"),
-                    {"sid": self.strategy_id},
-                )
-                conn.commit()
-        except Exception:
-            pass  # Ignore cleanup errors
+        pass  # Database cleanup handled by fixture
 
     def test_full_pipeline_with_real_database(self) -> None:
         """
@@ -135,7 +84,7 @@ class TestStrategyStoreE2E:
             ml_signal_source="E2E_TEST",
             use_strategy_store=True,
             strategy_store_config={
-                "connection_string": POSTGRES_URL,
+                "connection_string": self.connection_string,
                 "batch_size": 10,
                 "flush_interval_ms": 100,
             },
@@ -215,13 +164,13 @@ class TestStrategyStoreE2E:
                 # Verify model predictions
                 assert f"model_{i}" in row[4]  # model_predictions JSON
 
-    def test_batch_persistence(self) -> None:
+    def test_batch_persistence(self, test_database) -> None:
         """
         Test that batching works correctly with real database.
         """
         # Create store with small batch size
         store = StrategyStore(
-            connection_string=POSTGRES_URL,
+            connection_string=test_database.connection_string,
             batch_size=3,  # Small batch for testing
             flush_interval_ms=10000,  # Long interval so we control flushing
             clock=self.clock,
@@ -284,7 +233,7 @@ class TestStrategyStoreE2E:
             )
             conn.commit()
 
-    def test_error_recovery(self) -> None:
+    def test_error_recovery(self, test_database) -> None:
         """
         Test that the system recovers from database errors.
         """
@@ -294,7 +243,7 @@ class TestStrategyStoreE2E:
             ml_signal_source="ERROR_TEST",
             use_strategy_store=True,
             strategy_store_config={
-                "connection_string": POSTGRES_URL,
+                "connection_string": self.connection_string,
                 "batch_size": 10,
                 "flush_interval_ms": 100,
             },
@@ -364,7 +313,7 @@ class TestStrategyStoreE2E:
             # At least the recovery signal should be there
             assert count >= 1
 
-    def test_concurrent_strategies(self) -> None:
+    def test_concurrent_strategies(self, test_database) -> None:
         """
         Test multiple strategies writing to the same database.
         """
@@ -378,7 +327,7 @@ class TestStrategyStoreE2E:
                 ml_signal_source=f"CONCURRENT_{i}",
                 use_strategy_store=True,
                 strategy_store_config={
-                    "connection_string": POSTGRES_URL,
+                    "connection_string": self.connection_string,
                     "batch_size": 5,
                     "flush_interval_ms": 100,
                 },
@@ -437,11 +386,5 @@ class TestStrategyStoreE2E:
 
 
 if __name__ == "__main__":
-    # Run with PostgreSQL if available
-    if POSTGRES_AVAILABLE:
-        pytest.main([__file__, "-xvs"])
-    else:
-        print("PostgreSQL not available. Set POSTGRES_TEST_URL environment variable to run tests.")
-        print(
-            "Example: export POSTGRES_TEST_URL='postgresql://postgres:postgres@localhost:5432/nautilus'",
-        )
+    # Run with PostgreSQL using test fixtures
+    pytest.main([__file__, "-xvs"])

@@ -27,6 +27,7 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
+@pytest.mark.usefixtures("clean_postgres_db")
 class TestStrategyStoreIntegration:
     """Test cases for StrategyStore integration."""
 
@@ -55,7 +56,7 @@ class TestStrategyStoreIntegration:
             output_path=self.temp_dir / "test_model.pkl"
         )
 
-    def test_strategy_store_initialization_with_config(self) -> None:
+    def test_strategy_store_initialization_with_config(self, test_database) -> None:
         """Test that StrategyStore is initialized when configured."""
         # Create config with StrategyStore enabled
         config = MLStrategyConfig(
@@ -64,7 +65,7 @@ class TestStrategyStoreIntegration:
             ml_signal_source="TEST_ACTOR",
             use_strategy_store=True,
             strategy_store_config={
-                "connection_string": "postgresql://test:test@localhost:5432/test",
+                "connection_string": test_database.connection_string,
                 "batch_size": 50,
                 "flush_interval_ms": 500,
             }
@@ -83,7 +84,7 @@ class TestStrategyStoreIntegration:
             # Verify StrategyStore was created with correct parameters
             MockStore.assert_called_once()
             call_args = MockStore.call_args
-            assert call_args.kwargs["connection_string"] == "postgresql://test:test@localhost:5432/test"
+            assert call_args.kwargs["connection_string"] == test_database.connection_string
             assert call_args.kwargs["batch_size"] == 50
             assert call_args.kwargs["flush_interval_ms"] == 500
             # Clock should be present but might be the strategy's clock
@@ -110,13 +111,16 @@ class TestStrategyStoreIntegration:
 
         assert strategy.strategy_store is None
 
-    def test_persist_buy_decision(self) -> None:
+    def test_persist_buy_decision(self, test_database) -> None:
         """Test persisting a BUY decision to StrategyStore."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
             instrument_id=self.instrument_id,
             ml_signal_source="TEST_ACTOR",
             use_strategy_store=True,
+            strategy_store_config={
+                "connection_string": test_database.connection_string,
+            }
         )
 
         # Mock StrategyStore to prevent real connection
@@ -158,13 +162,16 @@ class TestStrategyStoreIntegration:
         assert call_args.kwargs["model_predictions"] == {"test_model": 0.8}
         assert call_args.kwargs["instrument_id"] == str(self.instrument_id)
 
-    def test_persist_sell_decision(self) -> None:
+    def test_persist_sell_decision(self, test_database) -> None:
         """Test persisting a SELL decision to StrategyStore."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
             instrument_id=self.instrument_id,
             ml_signal_source="TEST_ACTOR",
             use_strategy_store=True,
+            strategy_store_config={
+                "connection_string": test_database.connection_string,
+            }
         )
 
         # Mock StrategyStore to prevent real connection
@@ -205,7 +212,7 @@ class TestStrategyStoreIntegration:
         assert call_args.kwargs["strength"] == 0.85
         assert call_args.kwargs["model_predictions"] == {"test_model": 0.2}
 
-    def test_persist_hold_decision_with_config(self) -> None:
+    def test_persist_hold_decision_with_config(self, test_database) -> None:
         """Test that HOLD decisions are persisted when configured."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -213,6 +220,9 @@ class TestStrategyStoreIntegration:
             ml_signal_source="TEST_ACTOR",
             use_strategy_store=True,
             persist_all_signals=True,  # Persist HOLD signals
+            strategy_store_config={
+                "connection_string": test_database.connection_string,
+            }
         )
 
         # Mock StrategyStore to prevent real connection
@@ -256,7 +266,7 @@ class TestStrategyStoreIntegration:
         call_args = mock_store.write_signal.call_args
         assert call_args.kwargs["signal_type"] == "HOLD"
 
-    def test_skip_hold_decision_when_not_configured(self) -> None:
+    def test_skip_hold_decision_when_not_configured(self, test_database) -> None:
         """Test that HOLD decisions are not persisted when not configured."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -264,6 +274,9 @@ class TestStrategyStoreIntegration:
             ml_signal_source="TEST_ACTOR",
             use_strategy_store=True,
             persist_all_signals=False,  # Don't persist HOLD signals
+            strategy_store_config={
+                "connection_string": test_database.connection_string,
+            }
         )
 
         # Mock StrategyStore to prevent real connection
@@ -304,13 +317,16 @@ class TestStrategyStoreIntegration:
         from typing import Any as _Any
         cast(_Any, mock_store).write_signal.assert_not_called()
 
-    def test_error_handling_in_persistence(self) -> None:
+    def test_error_handling_in_persistence(self, test_database) -> None:
         """Test that errors in persistence are handled gracefully."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
             instrument_id=self.instrument_id,
             ml_signal_source="TEST_ACTOR",
             use_strategy_store=True,
+            strategy_store_config={
+                "connection_string": test_database.connection_string,
+            }
         )
 
         # Mock StrategyStore to prevent real connection
@@ -347,13 +363,16 @@ class TestStrategyStoreIntegration:
         # Verify error was handled
         mock_store.write_signal.assert_called()
 
-    def test_flush_on_stop(self) -> None:
+    def test_flush_on_stop(self, test_database) -> None:
         """Test that StrategyStore is flushed when strategy stops."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
             instrument_id=self.instrument_id,
             ml_signal_source="TEST_ACTOR",
             use_strategy_store=True,
+            strategy_store_config={
+                "connection_string": test_database.connection_string,
+            }
         )
 
         # Mock StrategyStore to prevent real connection
@@ -378,7 +397,7 @@ class TestStrategyStoreIntegration:
         # Verify flush was called
         mock_store.flush.assert_called_once()
 
-    def test_risk_metrics_calculation(self) -> None:
+    def test_risk_metrics_calculation(self, test_database) -> None:
         """Test that risk metrics are properly calculated and persisted."""
         config = MLStrategyConfig(
             strategy_id="TEST-001",
@@ -388,6 +407,9 @@ class TestStrategyStoreIntegration:
             position_size_pct=0.02,
             stop_loss_pct=0.01,
             take_profit_pct=0.02,
+            strategy_store_config={
+                "connection_string": test_database.connection_string,
+            }
         )
 
         # Mock StrategyStore to prevent real connection

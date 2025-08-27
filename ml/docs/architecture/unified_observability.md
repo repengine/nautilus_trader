@@ -7,7 +7,7 @@
 
 - **DataRegistry/Store**: Raw market data
 - **FeatureRegistry/Store**: Feature engineering
-- **ModelRegistry/Store**: ML models and predictions  
+- **ModelRegistry/Store**: ML models and predictions
 - **StrategyRegistry/Store**: Trading signals and decisions
 
 ### 2. 📊 Prometheus
@@ -37,17 +37,17 @@ class UnifiedObservabilityPipeline:
     """
     Combines all 5 systems for complete pipeline observability.
     """
-    
+
     def __init__(self, msgbus: MessageBus):
         # Core message bus for event distribution
         self.msgbus = msgbus
-        
+
         # Domain bookkeepers
         self.data_bookkeeper = DataBookkeeper()
         self.feature_bookkeeper = FeatureBookkeeper()
         self.model_bookkeeper = ModelBookkeeper()
         self.strategy_bookkeeper = StrategyBookkeeper()
-        
+
         # Prometheus metrics
         self.event_counter = Counter(
             'ml_pipeline_events_total',
@@ -64,14 +64,14 @@ class UnifiedObservabilityPipeline:
             'Pipeline health score',
             ['domain']
         )
-        
+
         # Wire everything together
         self._setup_subscriptions()
         self._setup_metrics_export()
-    
+
     def _setup_subscriptions(self):
         """Subscribe to all relevant message bus topics."""
-        
+
         # Data domain events
         self.msgbus.subscribe(
             topic="data.quote.*",
@@ -81,25 +81,25 @@ class UnifiedObservabilityPipeline:
             topic="data.trade.*",
             handler=self._handle_trade_event
         )
-        
+
         # Feature domain events
         self.msgbus.subscribe(
             topic="features.computed.*",
             handler=self._handle_feature_event
         )
-        
+
         # Model domain events
         self.msgbus.subscribe(
             topic="model.prediction.*",
             handler=self._handle_prediction_event
         )
-        
+
         # Strategy domain events
         self.msgbus.subscribe(
             topic="strategy.signal.*",
             handler=self._handle_signal_event
         )
-    
+
     def _handle_quote_event(self, event: Any):
         """Process quote through entire pipeline."""
         with self.latency_histogram.labels(domain='data', stage='ingestion').time():
@@ -109,20 +109,20 @@ class UnifiedObservabilityPipeline:
                 'instrument': event.instrument_id,
                 'timestamp': event.ts_event
             })
-            
+
             # 2. Update Prometheus metrics
             self.event_counter.labels(
                 domain='data',
                 stage='ingestion',
                 status='success'
             ).inc()
-            
+
             # 3. Publish to feature computation
             self.msgbus.publish(
                 topic=f"compute.features.{event.instrument_id}",
                 msg=event
             )
-    
+
     def _handle_feature_event(self, event: Any):
         """Handle computed features."""
         with self.latency_histogram.labels(domain='features', stage='computation').time():
@@ -132,20 +132,20 @@ class UnifiedObservabilityPipeline:
                 'feature_set': event.feature_set_id,
                 'timestamp': event.ts_event
             })
-            
+
             # 2. Update metrics
             self.event_counter.labels(
                 domain='features',
                 stage='computation',
                 status='success'
             ).inc()
-            
+
             # 3. Trigger model inference
             self.msgbus.publish(
                 topic=f"model.inference.{event.instrument_id}",
                 msg={'features': event.features, 'feature_id': feature_id}
             )
-    
+
     def _handle_prediction_event(self, event: Any):
         """Handle model predictions."""
         with self.latency_histogram.labels(domain='model', stage='inference').time():
@@ -156,20 +156,20 @@ class UnifiedObservabilityPipeline:
                 'prediction': event.prediction,
                 'confidence': event.confidence
             })
-            
+
             # 2. Update metrics
             self.event_counter.labels(
                 domain='model',
                 stage='inference',
                 status='success'
             ).inc()
-            
+
             # 3. Forward to strategy
             self.msgbus.publish(
                 topic=f"strategy.evaluate.{event.instrument_id}",
                 msg={'prediction': event.prediction, 'prediction_id': prediction_id}
             )
-    
+
     def _handle_signal_event(self, event: Any):
         """Handle strategy signals."""
         with self.latency_histogram.labels(domain='strategy', stage='signal').time():
@@ -180,21 +180,21 @@ class UnifiedObservabilityPipeline:
                 'signal': event.signal,
                 'strength': event.strength
             })
-            
+
             # 2. Update metrics
             self.event_counter.labels(
                 domain='strategy',
                 stage='signal',
                 status='success'
             ).inc()
-            
+
             # 3. Execute if actionable
             if event.signal != 0:
                 self.msgbus.publish(
                     topic="execution.order.create",
                     msg=event
                 )
-    
+
     def get_end_to_end_latency(self, signal_id: str) -> float:
         """
         Trace signal back to original data and calculate total latency.
@@ -204,7 +204,7 @@ class UnifiedObservabilityPipeline:
         prediction = self.model_bookkeeper.get_event(signal.prediction_id)
         features = self.feature_bookkeeper.get_event(prediction.feature_id)
         data = self.data_bookkeeper.get_event(features.data_id)
-        
+
         # Calculate end-to-end latency
         return (signal.timestamp - data.timestamp) / 1e9  # Convert to seconds
 ```
@@ -216,10 +216,10 @@ class UnifiedObservabilityPipeline:
 ```python
 class AutoRecoverySystem:
     """Automatically detects and recovers from issues."""
-    
+
     def __init__(self, pipeline: UnifiedObservabilityPipeline):
         self.pipeline = pipeline
-        
+
         # Monitor Prometheus alerts
         self.alert_rules = [
             {
@@ -238,18 +238,18 @@ class AutoRecoverySystem:
                 'action': self.rollback_model
             }
         ]
-    
+
     def handle_data_gap(self, alert):
         """Automatically trigger backfill when data gap detected."""
         # Use DataRegistry to identify gap
         gap_info = self.pipeline.data_bookkeeper.identify_gap()
-        
+
         # Trigger backfill via message bus
         self.pipeline.msgbus.publish(
             topic="data.backfill.start",
             msg={'dataset': gap_info.dataset, 'period': gap_info.period}
         )
-    
+
     def trigger_model_retrain(self, alert):
         """Automatically retrain model on drift detection."""
         self.pipeline.msgbus.publish(
@@ -263,13 +263,13 @@ class AutoRecoverySystem:
 ```python
 class PerformanceAttributor:
     """Attribute trading performance to specific components."""
-    
+
     def attribute_pnl(self, trade_id: str) -> dict:
         """Break down PnL contribution by component."""
-        
+
         # Trace through all systems
         lineage = self.trace_trade_lineage(trade_id)
-        
+
         return {
             'data_quality_impact': self.calculate_data_impact(lineage),
             'feature_contribution': self.calculate_feature_impact(lineage),
@@ -284,10 +284,10 @@ class PerformanceAttributor:
 ```python
 class IntelligentCircuitBreaker:
     """Smart circuit breakers using all 5 systems."""
-    
+
     def should_halt_trading(self) -> bool:
         """Decide if trading should be halted."""
-        
+
         # Check multiple dimensions via Prometheus
         metrics = {
             'data_quality': prometheus.query('avg(ml_data_quality_score[5m])'),
@@ -295,11 +295,11 @@ class IntelligentCircuitBreaker:
             'model_confidence': prometheus.query('avg(ml_model_confidence[5m])'),
             'strategy_performance': prometheus.query('sum(ml_strategy_pnl[1h])')
         }
-        
+
         # Check event patterns via Message Bus
         recent_events = self.msgbus.get_recent_events(minutes=5)
         anomaly_score = self.detect_anomalies(recent_events)
-        
+
         # Check bookkeeper health
         health_scores = {
             'data': self.data_bookkeeper.get_health(),
@@ -307,20 +307,20 @@ class IntelligentCircuitBreaker:
             'models': self.model_bookkeeper.get_health(),
             'strategies': self.strategy_bookkeeper.get_health()
         }
-        
+
         # Intelligent decision
-        if (metrics['data_quality'] < 0.8 or 
+        if (metrics['data_quality'] < 0.8 or
             metrics['model_confidence'] < 0.5 or
             anomaly_score > 0.7 or
             any(h['score'] < 0.6 for h in health_scores.values())):
-            
+
             # Publish halt event
             self.msgbus.publish(
                 topic="risk.trading.halt",
                 msg={'reason': self.get_halt_reason(metrics, health_scores)}
             )
             return True
-        
+
         return False
 ```
 
@@ -328,7 +328,7 @@ class IntelligentCircuitBreaker:
 
 ### 1. **Complete Observability**
 - Every event tracked (Registries)
-- Every metric measured (Prometheus)  
+- Every metric measured (Prometheus)
 - Every message traced (Message Bus)
 
 ### 2. **Intelligent Automation**
@@ -385,18 +385,18 @@ Unified ML Pipeline Dashboard:
     - Events/sec by domain (line chart)
     - End-to-end latency (histogram)
     - Message bus throughput (gauge)
-    
+
   Row 2 - Domain Health:
     - Data quality score (gauge)
     - Feature drift score (gauge)
     - Model accuracy (gauge)
     - Strategy Sharpe ratio (gauge)
-    
+
   Row 3 - Alerts & Actions:
     - Active alerts (table)
     - Auto-recovery actions (log)
     - Circuit breaker status (status panel)
-    
+
   Row 4 - Lineage & Attribution:
     - Recent trades with full lineage (table)
     - PnL attribution breakdown (pie chart)

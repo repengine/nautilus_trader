@@ -8,7 +8,7 @@ import logging
 
 import numpy as np
 
-from ml.actors.base import EnhancedMLInferenceActor
+from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
 from ml.features.engineering import FeatureConfig

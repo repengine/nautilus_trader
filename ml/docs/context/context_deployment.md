@@ -636,11 +636,11 @@ Development-specific configurations:
 
 ### Performance Considerations
 
-- **Memory Allocation**: 
+- **Memory Allocation**:
   - ML Pipeline: 16GB (data processing intensive)
   - ML Signal Actor: 8GB (model inference)
   - ML Trading Strategy: 8GB (signal processing)
-- **CPU Allocation**: 
+- **CPU Allocation**:
   - ML Pipeline: 4 cores (parallel processing)
   - Other services: 2 cores each
 - **Database Connections**: Connection pooling with proper cleanup

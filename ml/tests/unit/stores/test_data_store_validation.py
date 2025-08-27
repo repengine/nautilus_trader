@@ -5,7 +5,7 @@ Comprehensive tests for DataStore schema enforcement and contract validation.
 
 This module tests all aspects of Phase 5 implementation including:
 - Type validation
-- Null validation  
+- Null validation
 - Range validation
 - Uniqueness validation
 - Monotonicity validation
@@ -149,8 +149,8 @@ def mock_registry() -> MagicMock:
 
 
 @pytest.fixture
-def data_store(mock_registry: MagicMock) -> DataStore:
-    """Create a DataStore instance with mocked dependencies."""
+def data_store(mock_registry: MagicMock, test_database) -> DataStore:
+    """Create a DataStore instance with proper PostgreSQL connection."""
     # Mock the underlying stores
     feature_store = MagicMock()
     model_store = MagicMock()
@@ -158,7 +158,7 @@ def data_store(mock_registry: MagicMock) -> DataStore:
 
     store = DataStore(
         registry=mock_registry,
-        connection_string="postgresql://test@localhost/test",
+        connection_string=test_database.connection_string,
         feature_store=feature_store,
         model_store=model_store,
         strategy_store=strategy_store,
@@ -672,6 +672,7 @@ class TestSchemaMigration:
     def test_schema_migration_window(
         self,
         mock_registry: MagicMock,
+        test_database,
     ) -> None:
         """Test schema migration window allows dual writes."""
         # Mock the underlying stores to avoid database connections
@@ -681,7 +682,7 @@ class TestSchemaMigration:
 
         store = DataStore(
             registry=mock_registry,
-            connection_string="postgresql://test@localhost/test",
+            connection_string=test_database.connection_string,
             feature_store=feature_store,
             model_store=model_store,
             strategy_store=strategy_store,
@@ -706,6 +707,7 @@ class TestSchemaMigration:
     def test_schema_version_change_detection(
         self,
         mock_registry: MagicMock,
+        test_database,
     ) -> None:
         """Test detection of schema version changes."""
         # Mock the underlying stores
@@ -715,7 +717,7 @@ class TestSchemaMigration:
 
         store = DataStore(
             registry=mock_registry,
-            connection_string="postgresql://test@localhost/test",
+            connection_string=test_database.connection_string,
             feature_store=feature_store,
             model_store=model_store,
             strategy_store=strategy_store,
@@ -781,6 +783,7 @@ class TestSchemaMigration:
         self,
         mock_registry: MagicMock,
         valid_bar_data: list[dict[str, Any]],
+        test_database,
     ) -> None:
         """Test dual-write is allowed during migration window."""
         # Mock the underlying stores
@@ -790,7 +793,7 @@ class TestSchemaMigration:
 
         store = DataStore(
             registry=mock_registry,
-            connection_string="postgresql://test@localhost/test",
+            connection_string=test_database.connection_string,
             feature_store=feature_store,
             model_store=model_store,
             strategy_store=strategy_store,
@@ -923,7 +926,7 @@ class TestPropertyBased:
         # Create data store inside the test
         data_store = DataStore(
             registry=mock_registry,
-            connection_string="postgresql://test@localhost/test",
+            connection_string=test_database.connection_string,
             feature_store=MagicMock(),
             model_store=MagicMock(),
             strategy_store=MagicMock(),
@@ -989,6 +992,7 @@ class TestPropertyBased:
         close_max: float,
         volume_min: float,
         volume_max: float,
+        test_database,
     ) -> None:
         """Test range validation with fuzzy boundaries."""
         # Create mock registry inside the test
@@ -1054,7 +1058,7 @@ class TestPropertyBased:
 
         store = DataStore(
             registry=mock_registry,
-            connection_string="postgresql://test@localhost/test",
+            connection_string=test_database.connection_string,
             feature_store=MagicMock(),
             model_store=MagicMock(),
             strategy_store=MagicMock(),
