@@ -5,6 +5,7 @@
 The ML actors framework provides a production-ready foundation for real-time machine learning inference and signal generation within Nautilus Trader. The architecture follows strict hot/cold path separation, ensuring sub-millisecond performance in production environments while maintaining comprehensive observability and fault tolerance.
 
 Operational notes:
+
 - Timestamps: Actors should emit UNIX nanoseconds for `ts_event`/`ts_init`. Stores defensively normalize smaller units (seconds/ms/us) to ns with a warning. See `context_stores.md` → "Timestamp Policy & Normalization".
 - DB preflight: Verify required DB functions and current partition exist before startup. See `context_deployment.md` → "DB Preflight (recommended)".
 
@@ -15,7 +16,7 @@ Operational notes:
 - **ONNXMLInferenceActor**: ONNX-optimized inference actor for lowest latency
 - **EnhancedMLInferenceActor**: Complete implementation showcasing all production features
 - **Hot Path Optimization**: Zero-allocation inference with <5ms end-to-end latency targets
-- **Mandatory Store Triad**: FeatureStore, ModelStore, and StrategyStore for complete data persistence
+- **Mandatory 4-Store + 4-Registry Pattern**: Complete data lifecycle management with automatic initialization
 
 ## Architecture Overview
 
@@ -24,7 +25,8 @@ Operational notes:
 ```
 BaseMLInferenceActor (Abstract)
 ├── Mandatory Features:
-│   ├── Store Integration (FeatureStore, ModelStore, StrategyStore)
+│   ├── Store Integration (FeatureStore, ModelStore, StrategyStore, DataStore)
+│   ├── Registry Integration (FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry)
 │   ├── Health Monitoring & Circuit Breaker
 │   ├── Model Hot-Reloading with State Preservation
 │   ├── Prometheus Metrics Integration
@@ -113,13 +115,14 @@ def on_bar(self, bar: Bar) -> None:
 
 ## Store Integration Patterns
 
-### Mandatory Store Triad
+### Mandatory 4-Store + 4-Registry Pattern
 
-Every ML actor **MUST** initialize and use three stores for complete data persistence:
+Every ML actor **MUST** initialize and use four stores and four registries for complete data lifecycle management:
 
 ```python
 def _init_stores_and_registries(self) -> None:
-    """MANDATORY: Initialize all stores - no optional parameters allowed."""
+    """MANDATORY: Initialize all stores and registries - no optional parameters allowed."""
+    # STORES: Complete data lifecycle management
     # 1. FeatureStore: For training/inference parity
     self._feature_store = FeatureStore(connection_string=db_connection)
 
@@ -128,6 +131,22 @@ def _init_stores_and_registries(self) -> None:
 
     # 3. StrategyStore: For trading decisions and signal analysis
     self._strategy_store = StrategyStore(persistence_config=persistence_config)
+
+    # 4. DataStore: Unified facade with contract validation and event emission
+    self._data_store = DataStore(registry=self._data_registry, connection_string=db_connection)
+
+    # REGISTRIES: Component lifecycle and schema management
+    # 1. FeatureRegistry: Feature schema validation and lifecycle
+    self._feature_registry = FeatureRegistry(registry_path, persistence_config)
+
+    # 2. ModelRegistry: Model deployment tracking and A/B testing
+    self._model_registry = ModelRegistry(registry_path, persistence_config)
+
+    # 3. StrategyRegistry: Strategy compatibility and requirements
+    self._strategy_registry = StrategyRegistry(registry_path, persistence_config)
+
+    # 4. DataRegistry: Dataset manifest management and lineage tracking
+    self._data_registry = DataRegistry(registry_path, persistence_config)
 ```
 
 ### Data Persistence Flow
@@ -135,6 +154,9 @@ def _init_stores_and_registries(self) -> None:
 1. **Feature Storage**: Every computed feature vector is persisted with instrument_id, ts_event, ts_init
 2. **Prediction Storage**: All predictions stored with inference_time_ms, confidence, and feature_dict
 3. **Signal Storage**: Generated signals with strategy metadata, risk metrics, and execution parameters
+4. **Contract Validation**: DataStore validates all data against registered schemas before persistence
+5. **Event Emission**: DataRegistry tracks processing events and lineage for complete observability
+6. **Schema Management**: Registries enforce compatibility between components and track evolution
 
 ### Store Usage in Hot Path
 
@@ -823,6 +845,43 @@ actor = MLSignalActor(config)
 ```
 
 This ML actors framework provides a production-ready foundation for real-time machine learning in trading systems, with strict performance requirements, comprehensive observability, and robust fault tolerance.
+## Universal Pattern Compliance
+
+The ML actors framework fully implements all 5 universal ML architecture patterns:
+
+### ✅ Pattern 1: Mandatory 4-Store + 4-Registry Integration
+
+- All actors inherit from BaseMLInferenceActor with automatic component initialization
+- Property accessors provide clean interface: `.feature_store`, `.data_store`, `.feature_registry`, etc.
+- Health monitoring includes all 8 components
+- Progressive fallback to DummyStore/DummyRegistry when PostgreSQL unavailable
+
+### ✅ Pattern 2: Protocol-First Interface Design
+
+- Store protocols in `ml/stores/protocols.py` enable structural typing
+- DummyStore conforms to all protocols for testing compatibility
+- Type safety without circular dependencies
+
+### ✅ Pattern 3: Hot/Cold Path Separation
+
+- Hot path: <5ms P99 latency with zero-allocation patterns
+- Cold path: Model loading, registry operations, health monitoring
+- Pre-allocated feature arrays and model sessions
+
+### ✅ Pattern 4: Progressive Fallback Chains
+
+- PostgreSQL → DummyStore with warning logs
+- Registry loading → Direct file loading via model_path
+- Configuration errors → Safe defaults with operational alerts
+
+### ✅ Pattern 5: Centralized Metrics Bootstrap
+
+- All Prometheus metrics via `ml.common.metrics_bootstrap`
+- Zero direct prometheus_client imports
+- Safe metric registration across module reloads
+
+This comprehensive pattern adherence ensures consistent architecture, reliable performance, and maintainable integration across all ML components.
+
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection
@@ -835,3 +894,16 @@ This ML actors framework provides a production-ready foundation for real-time ma
 - **Monitoring**: See `context_monitoring.md` for observability
 - **Actors**: See `context_actors.md` for inference actors
 - **Models**: See `context_models.md` for model implementations
+
+## Universal Component Protocol
+
+All actors implement the universal component interface defined in `ml/common/protocols.py`:
+
+- `get_health_status() -> dict[str, Any]`: health summary (safe to call off the hot path)
+- `get_performance_metrics() -> dict[str, float]`: lightweight diagnostic metrics
+- `validate_configuration() -> list[str]`: configuration validation issues (empty if valid)
+
+Notes:
+
+- These methods must not be called in the hot path; use them in setup, health endpoints, or scheduled checks.
+- Protocol compliance is validated by the Integration Manager (warn by default; strict mode via `ML_STRICT_PROTOCOL_VALIDATION`).

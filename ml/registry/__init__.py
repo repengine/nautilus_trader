@@ -13,6 +13,7 @@ This module provides:
 
 The registry acts as the central orchestrator for all ML components,
 tracking which models are deployed where and their performance over time.
+
 """
 
 from ml.registry.base import DataRequirements
@@ -20,6 +21,7 @@ from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import DataContract
@@ -43,6 +45,7 @@ __all__ = [
     "CanaryConfig",
     "CanaryDeployment",
     "DataContract",
+    "DataRegistry",
     "DataRequirements",
     "DatasetManifest",
     "DatasetType",

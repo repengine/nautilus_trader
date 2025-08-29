@@ -27,6 +27,7 @@ from ml._imports import check_ml_dependencies
 from ml._imports import ort
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
+from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
 from ml.config.base import MLActorConfig
@@ -39,12 +40,14 @@ from ml.config.names import METRIC_PREDICTIONS_TOTAL
 from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
+from ml.registry import DataRegistry
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
 from ml.registry.strategy_registry import StrategyRegistry
+from ml.stores import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
@@ -56,22 +59,27 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 if TYPE_CHECKING:
     from typing import Any as _Any
+
     class NautilusActor:  # typing stub with minimal surface used in this module
         log: _Any
         id: str
         clock: _Any
+
         def __init__(self, *args: object, **kwargs: object) -> None: ...
         def subscribe_bars(self, *args: object, **kwargs: object) -> None: ...
         def publish_data(self, *args: object, **kwargs: object) -> None: ...
     class NautilusData:  # typing stub
         pass
+
 else:
     from nautilus_trader.common.actor import Actor as NautilusActor
     from nautilus_trader.core.data import Data as NautilusData
 
 if TYPE_CHECKING:
     # Protocols for type safety without enforcing concrete implementations
-    from ml.stores.protocols import FeatureStoreProtocol, ModelStoreProtocol, StrategyStoreProtocol  # noqa: I001
+    from ml.stores.protocols import FeatureStoreProtocol
+    from ml.stores.protocols import ModelStoreProtocol
+    from ml.stores.protocols import StrategyStoreProtocol
 
 
 class HealthStatus(Enum):
@@ -339,7 +347,7 @@ class ProductionModelLoader(ModelLoader):
     Production model loader (compatibility layer for legacy code).
     """
 
-    def __init__(self, model_dir: str | None = None):
+    def __init__(self, model_dir: str | None = None) -> None:
         self.model_dir = Path(model_dir) if model_dir else Path.cwd()
 
     def load_model(self, path: str) -> tuple[Any, dict[str, Any]]:
@@ -377,7 +385,7 @@ class ProductionModelLoader(ModelLoader):
             # Pickle models are disallowed for security; require safe formats
             raise ValueError(
                 "Pickle model formats (.pkl, .pickle) are not supported. "
-                "Export models to ONNX, joblib, or native framework formats."
+                "Export models to ONNX, joblib, or native framework formats.",
             )
 
         elif path.endswith(".joblib"):
@@ -567,7 +575,7 @@ ml_signal_confidence = Histogram(
 )
 
 
-class BaseMLInferenceActor(NautilusActor, ABC):
+class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     """
     Base class for ML inference actors with production features.
 
@@ -597,9 +605,11 @@ class BaseMLInferenceActor(NautilusActor, ABC):
     _feature_store: FeatureStoreProtocol  # Protocol-typed; DummyStore conforms at runtime
     _model_store: ModelStoreProtocol
     _strategy_store: StrategyStoreProtocol
+    _data_store: Any  # DataStore facade over stores
     _feature_registry: Any
     _model_registry: Any
     _strategy_registry: Any
+    _data_registry: Any
 
     def __init__(self, config: MLActorConfig) -> None:
         """
@@ -731,11 +741,13 @@ class BaseMLInferenceActor(NautilusActor, ABC):
             self._feature_store = DummyStore()
             self._model_store = DummyStore()
             self._strategy_store = DummyStore()
+            self._data_store = DummyStore()
 
             # Also use dummy registries to avoid file I/O during tests
             self._feature_registry = DummyRegistry()
             self._model_registry = DummyRegistry()
             self._strategy_registry = DummyRegistry()
+            self._data_registry = DummyRegistry()
             self._persistence_manager = None
 
             return  # Skip the rest of initialization
@@ -780,7 +792,75 @@ class BaseMLInferenceActor(NautilusActor, ABC):
         self._model_registry = ModelRegistry(registry_path)
         self._strategy_registry = StrategyRegistry(registry_path)
 
+        # Initialize DataRegistry
+        self._data_registry = DataRegistry(
+            registry_path=registry_path / "datasets",
+            persistence_config=persistence_config,
+        )
+
+        # Initialize DataStore with the registry and connection
+        self._data_store = DataStore(
+            registry=self._data_registry,
+            connection_string=db_connection,
+        )
+
         self.log.info("Stores and registries initialized for data persistence")
+
+    @property
+    def feature_store(self) -> FeatureStoreProtocol:
+        """
+        Get the feature store instance.
+        """
+        return self._feature_store
+
+    @property
+    def model_store(self) -> ModelStoreProtocol:
+        """
+        Get the model store instance.
+        """
+        return self._model_store
+
+    @property
+    def strategy_store(self) -> StrategyStoreProtocol:
+        """
+        Get the strategy store instance.
+        """
+        return self._strategy_store
+
+    @property
+    def data_store(self) -> DataStore:
+        """
+        Get the data store facade instance.
+        """
+        return self._data_store
+
+    @property
+    def feature_registry(self) -> FeatureRegistry:
+        """
+        Get the feature registry instance.
+        """
+        return self._feature_registry
+
+    @property
+    def model_registry(self) -> ModelRegistry:
+        """
+        Get the model registry instance.
+        """
+        return self._model_registry
+
+    @property
+    def strategy_registry(self) -> StrategyRegistry:
+        """
+        Get the strategy registry instance.
+        """
+        return self._strategy_registry
+
+    @property
+    def data_registry(self) -> DataRegistry:
+        """
+        Get the data registry instance.
+        """
+        return self._data_registry
 
     def on_start(self) -> None:
         """
@@ -902,6 +982,8 @@ class BaseMLInferenceActor(NautilusActor, ABC):
         self._feature_store.flush()
         self._model_store.flush()
         self._strategy_store.flush()
+        if hasattr(self._data_store, "flush"):
+            self._data_store.flush()
         self.log.info("All stores flushed on shutdown")
 
         avg_inference_time = self._total_inference_time / max(self._prediction_count, 1)
@@ -1128,8 +1210,13 @@ class BaseMLInferenceActor(NautilusActor, ABC):
             if not loaded_from_registry:
                 # Enforce ONNX-only in production unless explicitly allowed
                 from pathlib import Path as _Path
+
                 model_ext = _Path(self._config.model_path).suffix.lower()
-                if model_ext != '.onnx' and not getattr(self._config, 'allow_non_onnx_in_dev', False):
+                if model_ext != ".onnx" and not getattr(
+                    self._config,
+                    "allow_non_onnx_in_dev",
+                    False,
+                ):
                     raise ValueError(f"Non-ONNX model format disallowed in prod: {model_ext}")
                 # Load from direct path (existing behavior)
                 self._model, self._model_metadata = self._model_loader.load_model(
@@ -1155,7 +1242,9 @@ class BaseMLInferenceActor(NautilusActor, ABC):
             raise
 
     def _try_load_from_registry(self) -> bool:
-        """Attempt to load model and metadata from registry; return True if loaded."""
+        """
+        Attempt to load model and metadata from registry; return True if loaded.
+        """
         if (
             hasattr(self._config, "model_id")
             and self._config.model_id
@@ -1206,7 +1295,10 @@ class BaseMLInferenceActor(NautilusActor, ABC):
                 self._manifest_feature_dtypes = []
 
             # Use manifest features if configured
-            if hasattr(self._config, "use_manifest_features") and self._config.use_manifest_features:
+            if (
+                hasattr(self._config, "use_manifest_features")
+                and self._config.use_manifest_features
+            ):
                 self._feature_names = list(manifest.feature_schema.keys())
                 self.log.info(f"Using {len(self._feature_names)} features from manifest")
 
@@ -1225,7 +1317,9 @@ class BaseMLInferenceActor(NautilusActor, ABC):
         return False
 
     def _determine_model_id(self) -> None:
-        """Populate `_model_id` from metadata, training metadata, or path fallback."""
+        """
+        Populate `_model_id` from metadata, training metadata, or path fallback.
+        """
         if "model_id" in self._model_metadata:
             self._model_id = self._model_metadata["model_id"]
             return
@@ -1402,10 +1496,13 @@ class PickleMLInferenceActor(BaseMLInferenceActor):
 
     def _load_model(self) -> None:  # pragma: no cover - stub
         raise SecurityError(
-            "Pickle models are deprecated and not supported. Use ONNX or framework-native formats."
+            "Pickle models are deprecated and not supported. Use ONNX or framework-native formats.",
         )
 
-    def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:  # pragma: no cover - stub
+    def _predict(
+        self,
+        features: npt.NDArray[np.float32],
+    ) -> tuple[float, float]:  # pragma: no cover - stub
         raise SecurityError("Pickle models are deprecated and not supported.")
 
 

@@ -9,6 +9,7 @@ This document describes the comprehensive testing strategy for the Nautilus Trad
 **"Write less tests, get more coverage"**
 
 Instead of writing hundreds of brittle example-based tests, we focus on:
+
 - **Invariants**: Properties that must always hold
 - **Contracts**: Behavioral guarantees at boundaries
 - **Relationships**: How outputs change under input transformations
@@ -23,12 +24,14 @@ Property-based tests verify mathematical properties and invariants that must hol
 **Location**: `ml/tests/property/test_store_invariants.py`
 
 **Key Invariants Tested**:
+
 - **FeatureStore**: Timestamp monotonicity, feature immutability, partition consistency
 - **ModelStore**: Prediction bounds [-1, 1], version ordering consistency
-- **StrategyStore**: Signal temporal ordering, position state consistency  
+- **StrategyStore**: Signal temporal ordering, position state consistency
 - **DataStore**: Watermark progression (non-decreasing), event ordering
 
 **Example**:
+
 ```python
 @given(
     ts_events=st.lists(nanosecond_timestamps(), min_size=1, max_size=100, unique=True)
@@ -39,6 +42,7 @@ def test_timestamp_monotonicity_invariant(self, ts_events):
 ```
 
 **Benefits**:
+
 - Catches edge cases automatically
 - Tests hold for all valid inputs
 - No need to maintain golden files
@@ -50,6 +54,7 @@ Contract tests define and validate data contracts at component boundaries using 
 **Location**: `ml/tests/contracts/test_store_schemas.py`
 
 **Schemas Defined**:
+
 - `FeatureInputSchema`: Validates feature store inputs
 - `PredictionSchema`: Validates model predictions
 - `SignalSchema`: Validates strategy signals
@@ -57,18 +62,20 @@ Contract tests define and validate data contracts at component boundaries using 
 - `EventLogSchema`: Validates event logging
 
 **Example**:
+
 ```python
 class PredictionSchema(pa.DataFrameModel):
     prediction: Series[float] = pa.Field(ge=-1.0, le=1.0)
     confidence: Series[float] = pa.Field(ge=0.0, le=1.0)
     ts_event: Series[np.int64] = pa.Field(ge=0)
-    
+
     @pa.check("ts_init", "ts_event")
     def check_timestamp_ordering(cls, df):
         return df["ts_init"] >= df["ts_event"]
 ```
 
 **Benefits**:
+
 - Early detection of data quality issues
 - Clear documentation of expected formats
 - Automated validation at boundaries
@@ -78,26 +85,30 @@ class PredictionSchema(pa.DataFrameModel):
 Metamorphic tests verify relationships between outputs under controlled input transformations.
 
 **Locations**:
+
 - `test_feature_transforms.py`: Feature engineering transformations
 - `test_signal_predictions.py`: ML predictions and signals
 
 **Key Relations Tested**:
+
 - **Price Scaling**: Normalized features unchanged, raw features scale proportionally
 - **Time Reversal**: Magnitude features unchanged, directional features reversed
 - **Noise Addition**: Bounded output changes for small input perturbations
 - **Data Duplication**: Stability under repeated observations
 
 **Example**:
+
 ```python
 def test_price_scaling_invariance(self, base_price, scale_factor):
     """Scaling prices should scale price features but not normalized ones."""
     # Returns should be unchanged (normalized)
     assert features_original["returns"] ≈ features_scaled["returns"]
-    # Moving averages should scale proportionally  
+    # Moving averages should scale proportionally
     assert features_scaled["ma_5"] ≈ features_original["ma_5"] * scale_factor
 ```
 
 **Benefits**:
+
 - No need for exact expected values
 - Tests algorithmic properties, not implementations
 - Robust to code changes that preserve behavior
@@ -109,12 +120,14 @@ Pairwise tests efficiently cover parameter interactions without full cartesian p
 **Location**: `ml/tests/combinatorial/test_config_combinations.py`
 
 **Coverage Areas**:
+
 - Feature configuration parameters
 - Model × Instrument × Timeframe combinations
 - Store configuration options
 - Critical three-way interactions
 
 **Example**:
+
 ```python
 # Instead of 8,748 full combinations, test 15 pairwise
 parameters = {
@@ -128,6 +141,7 @@ pairs = AllPairs(parameters.values())
 ```
 
 **Benefits**:
+
 - Dramatically reduces test count (often 90%+ reduction)
 - Still catches most bugs (which typically involve 2-way interactions)
 - Systematic coverage of parameter space
@@ -139,6 +153,7 @@ Stateful tests verify complex workflows using state machines.
 **Location**: `ml/tests/property/test_store_invariants.py` (StoreStateMachine class)
 
 **Example**:
+
 ```python
 class StoreStateMachine(RuleBasedStateMachine):
     @rule(feature_set=feature_sets, timestamp=timestamps)
@@ -148,6 +163,7 @@ class StoreStateMachine(RuleBasedStateMachine):
 ```
 
 **Benefits**:
+
 - Tests complex sequences of operations
 - Finds bugs in state management
 - Generates minimal reproduction cases
@@ -155,6 +171,7 @@ class StoreStateMachine(RuleBasedStateMachine):
 ## Test Execution Guidelines
 
 ### Quick Validation (Green Tests)
+
 ```bash
 # Run property tests (high value, fast)
 pytest ml/tests/property -x
@@ -170,6 +187,7 @@ pytest ml/tests/combinatorial -x
 ```
 
 ### Full Test Suite
+
 ```bash
 # All new test categories
 pytest ml/tests/property ml/tests/contracts ml/tests/metamorphic ml/tests/combinatorial -x
@@ -180,21 +198,25 @@ pytest ml/tests/property ml/tests/contracts ml/tests/metamorphic ml/tests/combin
 ### When to Use Each Type
 
 **Property-Based Tests**:
+
 - Mathematical invariants (monotonicity, bounds, conservation)
 - Data structure properties (ordering, uniqueness)
 - Algorithmic guarantees (convergence, stability)
 
 **Contract Tests**:
+
 - API boundaries
 - Data pipeline interfaces
 - External service integrations
 
 **Metamorphic Tests**:
+
 - ML models (no ground truth available)
 - Feature engineering
 - Signal generation
 
 **Pairwise Tests**:
+
 - Configuration parameters
 - Multi-dimensional parameter spaces
 - Feature flags and options
@@ -255,6 +277,7 @@ When refactoring existing tests:
 ## Summary
 
 This testing strategy provides:
+
 - **Higher confidence** with fewer tests
 - **Better bug detection** through property exploration
 - **Lower maintenance** by testing behavior not implementation

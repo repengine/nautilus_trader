@@ -17,11 +17,12 @@ import os
 import signal
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING
 from types import FrameType
+from typing import Any
 
 import click
 
@@ -89,12 +90,14 @@ class MLPipelineRunner:
 
         Returns a tiny wrapper whose ``__func__.__closure__[0].cell_contents``
         references the actual handler, to aid test inspection.
-        """
 
+        """
         SignalHandler = Callable[[int, FrameType | None], None]
 
         def signal_handler(signum: int, frame: FrameType | None) -> None:
-            """Handle shutdown signals."""
+            """
+            Handle shutdown signals.
+            """
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
             self.shutdown_requested = True
 

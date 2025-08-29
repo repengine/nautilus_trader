@@ -24,9 +24,9 @@ from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import text
-from typing_extensions import override
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
+from typing_extensions import override
 
 from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
@@ -36,14 +36,12 @@ from ml.stores.base import StrategySignal
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ml.registry.data_registry import DataRegistry
     from ml.registry.persistence import PersistenceConfig
-    from nautilus_trader.common.clock import Clock
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
-
 
 
 # Prometheus metrics are optional; type as Any for strict typing compatibility
@@ -52,6 +50,7 @@ try:
     from ml.common.metrics import data_events_total as data_events_total
 except Exception:
     data_events_total = None
+
 
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
 def create_engine(connection_string: str, **kwargs: object) -> Engine:
@@ -97,6 +96,7 @@ class StrategyStore(BaseStore):
             Optional persistence manager (used in tests).
         flush_interval_seconds : float | None
             Alternative flush interval in seconds (overrides `flush_interval_ms`).
+
         """
         # Handle legacy connection string parameter
         if connection_string and not persistence_config:
@@ -132,7 +132,7 @@ class StrategyStore(BaseStore):
         self._last_flush_ns = 0
 
         # DataRegistry for event emission (lazy initialization)
-        self._data_registry: "RegistryProtocol" | None = None
+        self._data_registry: RegistryProtocol | None = None
 
         # Create engine and setup tables
         if self.connection_string:
@@ -146,7 +146,7 @@ class StrategyStore(BaseStore):
             except Exception as e:
                 logger.debug("Pool status unavailable: %s", e)
 
-    def _get_data_registry(self) -> "RegistryProtocol" | None:
+    def _get_data_registry(self) -> RegistryProtocol | None:
         """
         Lazily initialize and return the DataRegistry instance.
 
@@ -166,7 +166,10 @@ class StrategyStore(BaseStore):
                 registry_path = Path.home() / ".nautilus" / "ml" / "registry"
 
                 # Determine backend based on connection string
-                if self.connection_string and ("postgresql://" in self.connection_string or "postgres://" in self.connection_string):
+                if self.connection_string and (
+                    "postgresql://" in self.connection_string
+                    or "postgres://" in self.connection_string
+                ):
                     # Use PostgreSQL backend for production
                     persistence_config = PersistenceConfig(
                         backend=BackendType.POSTGRES,
@@ -271,17 +274,20 @@ class StrategyStore(BaseStore):
             Whether this is live trading
 
         """
-        ts_init_raw = (
-            self.clock.timestamp_ns() if self.clock else time.time_ns()
-        )
+        ts_init_raw = self.clock.timestamp_ns() if self.clock else time.time_ns()
 
         # Normalize timestamps via centralized sanitizer
         from ml.common.timestamps import sanitize_timestamp_ns
+
         ts_event_norm = sanitize_timestamp_ns(
-            int(ts_event), logger=logger, context="StrategyStore.write_signal:ts_event"
+            int(ts_event),
+            logger=logger,
+            context="StrategyStore.write_signal:ts_event",
         )
         ts_init = sanitize_timestamp_ns(
-            int(ts_init_raw), logger=logger, context="StrategyStore.write_signal:ts_init"
+            int(ts_init_raw),
+            logger=logger,
+            context="StrategyStore.write_signal:ts_init",
         )
 
         data = StrategySignal(
@@ -338,9 +344,10 @@ class StrategyStore(BaseStore):
 
         self._execute_write(values)
 
-
     def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
-        """Upsert signals (patchable in tests)."""
+        """
+        Upsert signals (patchable in tests).
+        """
         if not values:
             return
         # Optional audit logging (sampled)
@@ -359,11 +366,20 @@ class StrategyStore(BaseStore):
             logger.debug("Audit logging skipped due to error: %s", e)
         # Normalize timestamps in incoming values
         from ml.common.timestamps import sanitize_timestamp_ns
+
         for v in values:
             if "ts_event" in v and isinstance(v["ts_event"], int):
-                v["ts_event"] = sanitize_timestamp_ns(int(v["ts_event"]), logger=logger, context="StrategyStore._execute_write")
+                v["ts_event"] = sanitize_timestamp_ns(
+                    int(v["ts_event"]),
+                    logger=logger,
+                    context="StrategyStore._execute_write",
+                )
             if "ts_init" in v and isinstance(v["ts_init"], int):
-                v["ts_init"] = sanitize_timestamp_ns(int(v["ts_init"]), logger=logger, context="StrategyStore._execute_write")
+                v["ts_init"] = sanitize_timestamp_ns(
+                    int(v["ts_init"]),
+                    logger=logger,
+                    context="StrategyStore._execute_write",
+                )
         stmt = insert(self.strategy_signals_table)
         stmt = stmt.on_conflict_do_update(
             index_elements=["strategy_id", "instrument_id", "ts_event"],
@@ -381,7 +397,6 @@ class StrategyStore(BaseStore):
     # Backwards-compatible alias used in some tests
     def write_signals(self, data: list[StrategySignal]) -> None:
         self.write_batch(data)
-
 
     def read_signals(
         self,
@@ -432,6 +447,7 @@ class StrategyStore(BaseStore):
         with self.engine.connect() as conn:
             from collections.abc import Mapping
             from typing import cast
+
             _params = cast(
                 Mapping[str, object],
                 {
@@ -485,7 +501,7 @@ class StrategyStore(BaseStore):
             FROM public.ml_strategy_signals
             WHERE {' AND '.join(where_parts)}
             ORDER BY ts_event
-            """
+            """,
         )
         with self.engine.connect() as conn:
             df = pd.read_sql_query(sql, conn, params=params)
@@ -654,6 +670,7 @@ class StrategyStore(BaseStore):
 
             # Group signals by strategy_id and instrument_id for efficient event emission
             from collections import defaultdict
+
             grouped: dict[tuple[str, str], list[StrategySignal]] = defaultdict(list)
 
             for signal in signals:
@@ -755,6 +772,7 @@ class StrategyStore(BaseStore):
             if self.engine:
                 with self.engine.connect() as conn:
                     from sqlalchemy import text
+
                     result = conn.execute(text("SELECT 1"))
                     return result is not None
             return True  # If no engine, assume healthy (in-memory mode)
@@ -997,5 +1015,7 @@ class StrategyStore(BaseStore):
                 )
 
     def _get_connection(self) -> object:  # pragma: no cover (test hook for patching)
-        """Return a connection context manager (patchable in tests)."""
+        """
+        Return a connection context manager (patchable in tests).
+        """
         return self.engine.connect()

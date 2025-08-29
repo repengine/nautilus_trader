@@ -38,7 +38,9 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 # Configure logging
 def _get_log_handlers() -> list[logging.Handler]:
-    """Get logging handlers based on environment."""
+    """
+    Get logging handlers based on environment.
+    """
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     log_file = os.environ.get("LOG_FILE")
     if log_file:
@@ -48,12 +50,14 @@ def _get_log_handlers() -> list[logging.Handler]:
         handlers.append(logging.FileHandler(log_file))
     return handlers
 
+
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=_get_log_handlers(),
 )
 logger = logging.getLogger(__name__)
+
 
 # Health check Flask app
 class PipelineStatus(TypedDict):
@@ -123,7 +127,7 @@ class PipelineRunner:
 
         # Universe expansion (optional)
         universe = UniverseConfig(
-            expansion_mode=os.environ.get("UNIVERSE_MODE", "moderate")  # type: ignore[arg-type]
+            expansion_mode=os.environ.get("UNIVERSE_MODE", "moderate"),  # type: ignore[arg-type]
         )
         # Merge user-provided symbols with expanded lists
         full_universe = list(dict.fromkeys(symbols + universe.get_full_universe()))

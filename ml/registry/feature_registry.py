@@ -19,6 +19,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
+from ml.common.protocols import MLComponentMixin
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
 from ml.registry.persistence import BackendType
@@ -150,7 +151,7 @@ class FeatureInfo:
     artifacts: dict[str, str] = field(default_factory=dict)
 
 
-class FeatureRegistry:
+class FeatureRegistry(MLComponentMixin):
     """
     Feature registry with configurable persistence backend.
 

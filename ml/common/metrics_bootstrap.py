@@ -6,22 +6,24 @@ avoid duplicate registration and reliance on prometheus-client internals.
 
 Usage: always acquire metrics via get_counter/get_histogram/get_gauge.
 Subsequent calls with the same name return the existing collector.
+
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 from ml.common.metrics import Counter
 from ml.common.metrics import Gauge
 from ml.common.metrics import Histogram
 
 
-_METRICS: Dict[str, Any] = {}
+_METRICS: dict[str, Any] = {}
 
 
 def _key(name: str, labelnames: Iterable[str] | None) -> str:
-    labels_tuple: Tuple[str, ...] = tuple(labelnames) if labelnames is not None else tuple()
+    labels_tuple: tuple[str, ...] = tuple(labelnames) if labelnames is not None else tuple()
     return f"{name}||{labels_tuple!r}"
 
 
@@ -61,4 +63,4 @@ def get_gauge(name: str, description: str, labelnames: Iterable[str] | None = No
     return metric
 
 
-__all__ = ["get_counter", "get_histogram", "get_gauge"]
+__all__ = ["get_counter", "get_gauge", "get_histogram"]

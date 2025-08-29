@@ -2,9 +2,9 @@
 """
 FRED (Federal Reserve Economic Data) loader for Nautilus Trader ML.
 
-Provides integration with FRED API to fetch and store key economic indicators
-for trading strategies. Supports both real-time updates and historical backfill
-with proper caching and rate limiting.
+Provides integration with FRED API to fetch and store key economic indicators for
+trading strategies. Supports both real-time updates and historical backfill with proper
+caching and rate limiting.
 
 """
 
@@ -24,7 +24,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
-from ml._imports import HAS_FREDAPI, HAS_POLARS, HAS_PROMETHEUS
+from ml._imports import HAS_FREDAPI
+from ml._imports import HAS_POLARS
+from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml._imports import check_ml_dependencies
 from ml._imports import fredapi as _fredapi
@@ -92,8 +94,10 @@ if not HAS_PROMETHEUS:
     class NoOpMetric:
         def labels(self, **kwargs: Any) -> Any:
             return self
+
         def inc(self, amount: float = 1) -> None:
             pass
+
         def observe(self, amount: float) -> None:
             pass
 
@@ -175,13 +179,15 @@ class FREDConfig:
     retry_delay_seconds: float = 1.0
 
     def __post_init__(self) -> None:
-        """Validate configuration after initialization."""
+        """
+        Validate configuration after initialization.
+        """
         if self.api_key is None:
             self.api_key = os.getenv("FRED_API_KEY")
             if not self.api_key:
                 raise ValueError(
                     "FRED API key not provided. Set FRED_API_KEY environment variable "
-                    "or pass api_key to FREDConfig"
+                    "or pass api_key to FREDConfig",
                 )
 
         # Create cache directory
@@ -266,7 +272,6 @@ class FREDDataLoader:
             units="percent",
             description="Secured Overnight Financing Rate",
         ),
-
         # Volatility Indices
         FREDIndicator(
             series_id="VIXCLS",
@@ -276,7 +281,6 @@ class FREDDataLoader:
             units="index",
             description="CBOE Volatility Index: VIX",
         ),
-
         # Economic Indicators - GDP
         FREDIndicator(
             series_id="GDP",
@@ -296,7 +300,6 @@ class FREDDataLoader:
             seasonal_adjustment="SAAR",
             description="Real Gross Domestic Product, seasonally adjusted annual rate",
         ),
-
         # Economic Indicators - Inflation
         FREDIndicator(
             series_id="CPIAUCSL",
@@ -325,7 +328,6 @@ class FREDDataLoader:
             seasonal_adjustment="SA",
             description="Personal Consumption Expenditures: Chain-type Price Index",
         ),
-
         # Economic Indicators - Employment
         FREDIndicator(
             series_id="UNRATE",
@@ -354,7 +356,6 @@ class FREDDataLoader:
             seasonal_adjustment="SA",
             description="Civilian Labor Force Participation Rate",
         ),
-
         # Economic Indicators - Consumer
         FREDIndicator(
             series_id="UMCSENT",
@@ -374,7 +375,6 @@ class FREDDataLoader:
             seasonal_adjustment="SA",
             description="Advance Retail Sales: Retail Trade and Food Services",
         ),
-
         # Economic Indicators - Housing
         FREDIndicator(
             series_id="HOUST",
@@ -393,7 +393,6 @@ class FREDDataLoader:
             units="percent",
             description="30-Year Fixed Rate Mortgage Average in the United States",
         ),
-
         # Currency
         FREDIndicator(
             series_id="DEXUSEU",
@@ -411,7 +410,6 @@ class FREDDataLoader:
             units="index_2006",
             description="Trade Weighted U.S. Dollar Index: Broad, Goods and Services",
         ),
-
         # Credit Spreads
         FREDIndicator(
             series_id="BAMLH0A0HYM2",
@@ -473,11 +471,13 @@ class FREDDataLoader:
 
         logger.info(
             f"Initialized FRED loader with {len(self.indicators)} indicators, "
-            f"cache_dir={self.config.cache_dir}"
+            f"cache_dir={self.config.cache_dir}",
         )
 
     def _rate_limit(self) -> None:
-        """Implement rate limiting for FRED API calls."""
+        """
+        Implement rate limiting for FRED API calls.
+        """
         current_time = time.time()
 
         # Reset counter if window has passed
@@ -497,11 +497,15 @@ class FREDDataLoader:
         self._call_count += 1
 
     def _get_cache_path(self, series_id: str) -> Path:
-        """Get cache file path for a series."""
+        """
+        Get cache file path for a series.
+        """
         return self.config.cache_dir / f"{series_id}.parquet"
 
     def _get_cache_metadata_path(self, series_id: str) -> Path:
-        """Get cache metadata file path for a series."""
+        """
+        Get cache metadata file path for a series.
+        """
         return self.config.cache_dir / f"{series_id}_metadata.json"
 
     def _is_cache_valid(self, series_id: str) -> bool:
@@ -661,15 +665,17 @@ class FREDDataLoader:
                 )
 
                 # Convert to Polars DataFrame
-                df = pl.DataFrame({
-                    "timestamp": series_data.index,
-                    "series_id": series_id,
-                    "value": series_data.values,
-                })
+                df = pl.DataFrame(
+                    {
+                        "timestamp": series_data.index,
+                        "series_id": series_id,
+                        "value": series_data.values,
+                    },
+                )
 
                 # Convert timestamp to nanoseconds
                 df = df.with_columns(
-                    pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns")
+                    pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"),
                 )
 
                 # Remove any null values
@@ -681,11 +687,13 @@ class FREDDataLoader:
                 # Record metrics
                 duration = time.time() - start_time
                 data_fetch_counter.labels(series=series_id).inc()
-                data_fetch_duration_histogram.labels(source="fred", schema="economic").observe(duration)
+                data_fetch_duration_histogram.labels(source="fred", schema="economic").observe(
+                    duration,
+                )
 
                 logger.info(
                     f"Fetched {series_id}: {len(df)} rows, "
-                    f"range={df['timestamp'].min()!s} to {df['timestamp'].max()!s}"
+                    f"range={df['timestamp'].min()!s} to {df['timestamp'].max()!s}",
                 )
 
                 # Save to cache
@@ -697,17 +705,17 @@ class FREDDataLoader:
             except Exception as e:
                 last_error = e
                 logger.warning(
-                    f"Error fetching {series_id} (attempt {attempt + 1}/{self.config.max_retries}): {e}"
+                    f"Error fetching {series_id} (attempt {attempt + 1}/{self.config.max_retries}): {e}",
                 )
 
                 if attempt < self.config.max_retries - 1:
-                    time.sleep(self.config.retry_delay_seconds * (2 ** attempt))
+                    time.sleep(self.config.retry_delay_seconds * (2**attempt))
 
                 api_error_counter.labels(error_type=type(e).__name__).inc()
 
         # All retries failed
         raise RuntimeError(
-            f"Failed to fetch {series_id} after {self.config.max_retries} attempts: {last_error}"
+            f"Failed to fetch {series_id} after {self.config.max_retries} attempts: {last_error}",
         )
 
     def fetch_all_indicators(
@@ -776,10 +784,12 @@ class FREDDataLoader:
 
         for series_id, df in data.items():
             # Pivot to wide format
-            wide_df = df.select([
-                "timestamp",
-                pl.col("value").alias(series_id),
-            ])
+            wide_df = df.select(
+                [
+                    "timestamp",
+                    pl.col("value").alias(series_id),
+                ],
+            )
 
             if combined is None:
                 combined = wide_df
@@ -802,7 +812,7 @@ class FREDDataLoader:
 
             # Add timestamp_ns column
             combined = combined.with_columns(
-                pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns")
+                pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"),
             )
 
         return combined if combined is not None else pl.DataFrame()
@@ -897,7 +907,11 @@ class FREDDataLoader:
                 "ts_init": "int64",  # Required for Nautilus (use timestamp_ns)
                 "timestamp": "datetime64[ns]",
                 "timestamp_ns": "int64",
-                **{col: "float64" for col in combined_df.columns if col not in ["timestamp", "timestamp_ns"]}
+                **{
+                    col: "float64"
+                    for col in combined_df.columns
+                    if col not in ["timestamp", "timestamp_ns"]
+                },
             },
             ts_field="ts_event",  # Use standard Nautilus field name
             seq_field=None,
@@ -949,11 +963,13 @@ class FREDDataLoader:
             # Store as ingestion data
             data_store.write_ingestion(
                 dataset_id=dataset_id,
-                records=pl.DataFrame({
-                    "instrument_id": str(instrument_id),
-                    "timestamp_ns": timestamps,
-                    "value": values,
-                }),
+                records=pl.DataFrame(
+                    {
+                        "instrument_id": str(instrument_id),
+                        "timestamp_ns": timestamps,
+                        "value": values,
+                    },
+                ),
                 source="fred",
                 run_id=f"fred_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                 instrument_id=str(instrument_id),
@@ -961,7 +977,7 @@ class FREDDataLoader:
 
         logger.info(
             f"Stored {len(combined_df.columns) - 2} indicators to DataStore, "
-            f"dataset_id={dataset_id}"
+            f"dataset_id={dataset_id}",
         )
 
     def update_realtime(

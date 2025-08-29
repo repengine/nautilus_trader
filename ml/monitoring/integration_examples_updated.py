@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any, cast
 from datetime import datetime
+from typing import TYPE_CHECKING, Any, cast
 
 from ml.monitoring.extended_metrics import ExtendedMetricsManager
 
@@ -228,11 +228,14 @@ class MonitoredFeatureEngineer:
         try:
             # Calculate features
             from typing import cast
+
             from ml.typing import DataFrameLike
+
             features: object
             if mode == "batch":
                 features_df, _ = self.engineer.calculate_features(
-                    cast(DataFrameLike, data), mode="batch"
+                    cast(DataFrameLike, data),
+                    mode="batch",
                 )
                 features = features_df
             else:
@@ -472,6 +475,7 @@ def example_production_monitoring() -> None:
             # Load and process data
             bars = monitored_catalog.load_bars(["SPY.NYSE"], start="2024-01-01")
             from typing import Any as _Any
+
             features_df = cast(_Any, monitored_engineer.calculate_features(bars, mode="batch"))
 
             logger.info(f"Iteration {i}: Processed {len(features_df)} samples")

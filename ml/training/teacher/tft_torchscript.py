@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from ml._imports import HAS_TORCH, check_ml_dependencies, torch as _torch
+from ml._imports import HAS_TORCH
+from ml._imports import check_ml_dependencies
+from ml._imports import torch as _torch
+
 
 # Ensure torch is available at runtime (training-only dependency)
 if not HAS_TORCH or _torch is None:  # pragma: no cover - environment dependent
@@ -19,8 +22,8 @@ else:
 
 class TFTScriptAdapter(nn.Module):
     """
-    Wraps a TFT-like module that expects keyword tensor inputs into a module
-    that accepts a positional list/tuple of tensors in a fixed key order.
+    Wraps a TFT-like module that expects keyword tensor inputs into a module that
+    accepts a positional list/tuple of tensors in a fixed key order.
     """
 
     def __init__(self, model: nn.Module, input_keys: list[str]) -> None:
@@ -37,6 +40,7 @@ class TFTScriptAdapter(nn.Module):
         if isinstance(out_obj, dict):
             # Prefer common key names
             from typing import cast
+
             for key in ("pred", "prediction", "logits"):
                 if key in out_obj and isinstance(out_obj[key], torch.Tensor):
                     return cast(torch.Tensor, out_obj[key])
@@ -72,11 +76,14 @@ def export_tft_to_torchscript_from_batch(
     -------
     Path
         Saved TorchScript file path (.pt).
+
     """
     tft_module.eval().cpu()
 
     # Select tensor inputs
-    tensor_items = {k: v.detach().cpu().contiguous() for k, v in batch_x.items() if torch.is_tensor(v)}
+    tensor_items = {
+        k: v.detach().cpu().contiguous() for k, v in batch_x.items() if torch.is_tensor(v)
+    }
     if key_filter is None:
         input_keys = sorted(tensor_items.keys())
     else:
@@ -86,7 +93,8 @@ def export_tft_to_torchscript_from_batch(
 
     example_args = tuple(tensor_items[k] for k in input_keys)
     adapter = TFTScriptAdapter(tft_module, input_keys)
-    def _jit_trace(mod: object, example: object) -> Any:  # noqa: ANN401
+
+    def _jit_trace(mod: object, example: object) -> Any:
         return torch.jit.trace(mod, example)  # type: ignore[no-untyped-call]
 
     with torch.inference_mode():

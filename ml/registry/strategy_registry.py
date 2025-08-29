@@ -21,6 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
+from ml.common.protocols import MLComponentMixin
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
@@ -160,7 +161,7 @@ class StrategyInfo:
 # =================================================================================================
 
 
-class StrategyRegistry:
+class StrategyRegistry(MLComponentMixin):
     """
     Strategy registry with configurable persistence backend.
 

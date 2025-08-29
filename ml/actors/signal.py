@@ -38,13 +38,10 @@ import numpy as np
 import numpy.typing as npt
 
 from ml._imports import HAS_ONNX
-from ml._imports import HAS_PROMETHEUS
 from ml._imports import check_ml_dependencies
 from ml._imports import ort
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
-from ml.common.metrics import Counter
-from ml.common.metrics import Histogram
 from ml.config.actors import MLSignalActorConfig as _BaseMLSignalActorConfig
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
@@ -72,6 +69,7 @@ from nautilus_trader.model.data import Bar
 
 if TYPE_CHECKING:
     pass
+
 
 # Explicit re-exports for strict mypy (implicit_reexport disabled)
 # NOTE: We provide a local subclass to add optional test-friendly fields while keeping
@@ -142,8 +140,11 @@ _market_regime_metric = None
 
 
 def _initialize_performance_metrics() -> None:
-    """Initialize module-level performance metrics once globally (idempotent)."""
-    from ml.common.metrics_bootstrap import get_counter, get_histogram
+    """
+    Initialize module-level performance metrics once globally (idempotent).
+    """
+    from ml.common.metrics_bootstrap import get_counter
+    from ml.common.metrics_bootstrap import get_histogram
 
     global _metrics_initialized
     global _prediction_distribution_metric
@@ -1292,7 +1293,11 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         # Prefer delegated computation via FeatureStore when configured
         try:
-            if getattr(self._signal_config, "use_feature_store", False) and hasattr(self, "_feature_store") and self._feature_store is not None:
+            if (
+                getattr(self._signal_config, "use_feature_store", False)
+                and hasattr(self, "_feature_store")
+                and self._feature_store is not None
+            ):
                 # Keep call signature minimal to satisfy tests which assert (bar=..., store=...)
                 features = cast(
                     npt.NDArray[np.float32],
@@ -1330,7 +1335,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
         feature_time = (time.perf_counter() - start_time) * 1000
         # store in ns for performance monitor
-        from ml.config.constants import TimeConstants as _TC
+
         self._last_feature_time_ns = int(feature_time * 1_000_000)
         if feature_time > self._config.max_feature_latency_ms:
             self.log.warning(f"Feature computation slow: {feature_time:.3f}ms")
@@ -1544,8 +1549,11 @@ class MLSignalActor(BaseMLInferenceActor):
                 ).inc()
 
     def _record_performance(self, start_time: float) -> None:
-        """Record performance metrics."""
+        """
+        Record performance metrics.
+        """
         from ml.config.constants import TimeConstants
+
         total_time_ns = int((time.perf_counter() - start_time) * TimeConstants.NS_IN_SECOND)
         feature_time_ns = getattr(self, "_last_feature_time_ns", 0)
         inference_time_ns = max(0, total_time_ns - feature_time_ns)

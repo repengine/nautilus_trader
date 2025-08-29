@@ -177,6 +177,16 @@ Dynamic reads in FeatureStore (historical bars) and StrategyStore are parameteri
 - Stores emit data events and update watermarks via a Protocol-typed registry interface (`RegistryProtocol`).
 - This enforces correct usage of `emit_event(...)`/`update_watermark(...)` across JSON and Postgres backends and prevents API drift from breaking callers.
 
+## Universal Component Protocol
+
+All stores implement the universal component interface defined in `ml/common/protocols.py` via `MLComponentMixin`:
+
+- `get_health_status() -> dict[str, Any]`
+- `get_performance_metrics() -> dict[str, float]`
+- `validate_configuration() -> list[str]`
+
+These methods are not used in hot write paths; use them for health endpoints and startup checks. Integration Manager validates protocol compliance (warn by default; strict via `ML_STRICT_PROTOCOL_VALIDATION`).
+
 ### DB Preflight
 
 Use `ml/stores/db_preflight.check_db_prereqs()` at startup or during ops to verify:
@@ -299,6 +309,7 @@ class ProcessingMetrics:
 ### Metadata Caching
 
 The DataProcessor implements intelligent caching for:
+
 - Instrument metadata
 - Statistical distributions
 - Quality metrics

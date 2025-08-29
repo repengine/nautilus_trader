@@ -33,10 +33,11 @@ import os
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from sqlalchemy import text
@@ -56,7 +57,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Pretty table formatting (avoid hard import for mypy/stubs)
-TABULATE_FUNC: Optional[Callable[..., str]] = None
+TABULATE_FUNC: Callable[..., str] | None = None
 HAS_TABULATE = False
 if TYPE_CHECKING:
     # Avoid importing third-party stubs; keep typing simple
@@ -261,16 +262,18 @@ class CoverageReporter:
             # Convert to list of dicts
             coverage_data = []
             for row in rows:
-                coverage_data.append({
-                    "instrument_id": row[0],
-                    "event_date": row[1],
-                    "catalog_written_count": row[2] or 0,
-                    "feature_computed_count": row[3] or 0,
-                    "prediction_emitted_count": row[4] or 0,
-                    "signal_emitted_count": row[5] or 0,
-                    "lag_hours": row[6] or 0.0,
-                    "completeness_pct": row[7] or 0.0,
-                })
+                coverage_data.append(
+                    {
+                        "instrument_id": row[0],
+                        "event_date": row[1],
+                        "catalog_written_count": row[2] or 0,
+                        "feature_computed_count": row[3] or 0,
+                        "prediction_emitted_count": row[4] or 0,
+                        "signal_emitted_count": row[5] or 0,
+                        "lag_hours": row[6] or 0.0,
+                        "completeness_pct": row[7] or 0.0,
+                    },
+                )
 
             return coverage_data
 
@@ -394,16 +397,18 @@ class CoverageReporter:
             day = start_date.date()
             while day <= end_date.date():
                 for inst in instruments:
-                    records.append({
-                        "instrument_id": inst,
-                        "event_date": day,
-                        "catalog_written_count": 0,
-                        "feature_computed_count": 0,
-                        "prediction_emitted_count": 0,
-                        "signal_emitted_count": 0,
-                        "lag_hours": 0.0,
-                        "completeness_pct": 0.0,
-                    })
+                    records.append(
+                        {
+                            "instrument_id": inst,
+                            "event_date": day,
+                            "catalog_written_count": 0,
+                            "feature_computed_count": 0,
+                            "prediction_emitted_count": 0,
+                            "signal_emitted_count": 0,
+                            "lag_hours": 0.0,
+                            "completeness_pct": 0.0,
+                        },
+                    )
                 day = day + timedelta(days=1)
 
         return records
@@ -604,9 +609,7 @@ class CoverageReporter:
                     if row[0].startswith("-"):
                         table_lines.append(separator)
                     else:
-                        row_line = " | ".join(
-                            str(val).ljust(w) for val, w in zip(row, col_widths)
-                        )
+                        row_line = " | ".join(str(val).ljust(w) for val, w in zip(row, col_widths))
                         table_lines.append(row_line)
                 table_str = "\n".join(table_lines)
 
@@ -621,7 +624,9 @@ class CoverageReporter:
         return "\n".join(report_lines)
 
     def close(self) -> None:
-        """Close database connections."""
+        """
+        Close database connections.
+        """
         self.persistence.close()
 
 
@@ -704,7 +709,9 @@ def plan_backfill(
     # Check if date is within last 30 days (as per plan requirement)
     days_ago = (datetime.now() - target_date).days
     if days_ago > 30:
-        print(f"Warning: Date {date} is {days_ago} days ago. Backfill is only supported for data within the last 30 days.")
+        print(
+            f"Warning: Date {date} is {days_ago} days ago. Backfill is only supported for data within the last 30 days.",
+        )
         response = input("Do you want to continue anyway? (y/N): ")
         if response.lower() != "y":
             print("Aborted.")
@@ -736,7 +743,8 @@ def plan_backfill(
 
         try:
             # Find instruments that have source data but missing target data
-            query = text("""
+            query = text(
+                """
                 WITH source_instruments AS (
                     SELECT DISTINCT e.instrument_id
                     FROM ml_data_events e
@@ -784,7 +792,8 @@ def plan_backfill(
                         AND e.status = 'success'
                 ) tc ON true
                 WHERE t.instrument_id IS NULL OR target_count = 0
-            """)
+            """,
+            )
 
             params = {
                 "from_type": from_type.value,
@@ -805,12 +814,16 @@ def plan_backfill(
 
                 checked_instruments += 1
                 if source_count > 0 and target_count == 0:
-                    gaps.append({
-                        "instrument_id": instrument_id,
-                        "source_count": source_count,
-                        "target_count": target_count,
-                    })
-                    print(f"  ✗ {instrument_id}: {source_count:,} {from_dataset_normalized} records, 0 {to_dataset_normalized} records")
+                    gaps.append(
+                        {
+                            "instrument_id": instrument_id,
+                            "source_count": source_count,
+                            "target_count": target_count,
+                        },
+                    )
+                    print(
+                        f"  ✗ {instrument_id}: {source_count:,} {from_dataset_normalized} records, 0 {to_dataset_normalized} records",
+                    )
 
         finally:
             session.close()
@@ -848,26 +861,38 @@ def plan_backfill(
                     continue
 
                 if event["dataset_id"] in from_datasets:
-                    source_counts[instrument_id] = source_counts.get(instrument_id, 0) + event.get("count", 0)
+                    source_counts[instrument_id] = source_counts.get(instrument_id, 0) + event.get(
+                        "count",
+                        0,
+                    )
                 elif event["dataset_id"] in to_datasets:
-                    target_counts[instrument_id] = target_counts.get(instrument_id, 0) + event.get("count", 0)
+                    target_counts[instrument_id] = target_counts.get(instrument_id, 0) + event.get(
+                        "count",
+                        0,
+                    )
 
             # Find gaps
             for instrument_id, source_count in source_counts.items():
                 checked_instruments += 1
                 target_count = target_counts.get(instrument_id, 0)
                 if source_count > 0 and target_count == 0:
-                    gaps.append({
-                        "instrument_id": instrument_id,
-                        "source_count": source_count,
-                        "target_count": target_count,
-                    })
-                    print(f"  ✗ {instrument_id}: {source_count:,} {from_dataset_normalized} records, 0 {to_dataset_normalized} records")
+                    gaps.append(
+                        {
+                            "instrument_id": instrument_id,
+                            "source_count": source_count,
+                            "target_count": target_count,
+                        },
+                    )
+                    print(
+                        f"  ✗ {instrument_id}: {source_count:,} {from_dataset_normalized} records, 0 {to_dataset_normalized} records",
+                    )
 
     # Calculate estimates
     total_source_records = sum(g["source_count"] for g in gaps)
     estimated_api_calls = len(gaps) * 10  # Rough estimate: 10 API calls per instrument/day
-    estimated_storage_mb = (total_source_records * 100) / (1024 * 1024)  # Rough estimate: 100 bytes per record
+    estimated_storage_mb = (total_source_records * 100) / (
+        1024 * 1024
+    )  # Rough estimate: 100 bytes per record
 
     # Create backfill job specification
     job_id = str(uuid.uuid4())
@@ -987,7 +1012,14 @@ def apply_backfill(
         sys.exit(1)
 
     # Validate job specification
-    required_fields = ["job_id", "source_dataset", "target_dataset", "date_range", "instruments", "gaps"]
+    required_fields = [
+        "job_id",
+        "source_dataset",
+        "target_dataset",
+        "date_range",
+        "instruments",
+        "gaps",
+    ]
     for field in required_fields:
         if field not in job_spec:
             logger.error(f"Missing required field in job spec: {field}")
@@ -1049,6 +1081,7 @@ def apply_backfill(
     catalog_path = os.getenv("NAUTILUS_CATALOG_PATH", "./catalog")
     try:
         from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
         catalog = ParquetDataCatalog(catalog_path)
     except ImportError:
         logger.error("Failed to import ParquetDataCatalog")
@@ -1079,6 +1112,7 @@ def apply_backfill(
     if not dry_run and api_key:
         try:
             import databento as db
+
             databento_client = db.Historical(api_key)
             logger.info("Initialized Databento client")
         except ImportError:
@@ -1188,7 +1222,11 @@ def apply_backfill(
                             df = data.to_df()
 
                             # Check batch size
-                            estimated_mb = len(df) * df.memory_usage(deep=True).sum() / (1024 * 1024 * len(df.columns))
+                            estimated_mb = (
+                                len(df)
+                                * df.memory_usage(deep=True).sum()
+                                / (1024 * 1024 * len(df.columns))
+                            )
 
                             if estimated_mb > storage_batch_mb:
                                 # Split into smaller batches
@@ -1198,7 +1236,9 @@ def apply_backfill(
                                     batch_df = df.iloc[batch_start:batch_end]
 
                                     # Write to catalog (implementation depends on catalog API)
-                                    print(f"    Writing batch {batch_start}-{batch_end} to catalog...")
+                                    print(
+                                        f"    Writing batch {batch_start}-{batch_end} to catalog...",
+                                    )
                                     # catalog.write(batch_df, ...)  # Actual implementation needed
 
                                     total_bytes_stored += batch_df.memory_usage(deep=True).sum()
@@ -1230,7 +1270,7 @@ def apply_backfill(
                         error_msg = str(api_error)
                         if "rate limit" in error_msg.lower():
                             logger.warning("Rate limit hit, backing off...")
-                            time.sleep(min(60, 2 ** retry_count))  # Exponential backoff up to 60s
+                            time.sleep(min(60, 2**retry_count))  # Exponential backoff up to 60s
                         elif "not found" in error_msg.lower():
                             logger.error(f"Symbol not found: {symbol_code}")
                             failed_instruments.append(instrument_id)
@@ -1243,7 +1283,7 @@ def apply_backfill(
                 retry_count += 1
 
                 if retry_count < max_retries:
-                    wait_time = min(60, 2 ** retry_count)  # Exponential backoff
+                    wait_time = min(60, 2**retry_count)  # Exponential backoff
                     logger.warning(f"  Attempt {retry_count} failed: {e}")
                     logger.info(f"  Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
@@ -1482,7 +1522,9 @@ Environment Variables:
                 persistence_config = PersistenceConfig(backend=backend)
 
         # Create reporter
-        reporter_registry_path: Path | None = Path(args.registry_path) if args.registry_path else None
+        reporter_registry_path: Path | None = (
+            Path(args.registry_path) if args.registry_path else None
+        )
         reporter = CoverageReporter(
             registry_path=reporter_registry_path,
             persistence_config=persistence_config,
@@ -1517,7 +1559,9 @@ Environment Variables:
             else:
                 db_url = os.getenv("NAUTILUS_REGISTRY_DB_URL")
                 if not db_url:
-                    logger.error("PostgreSQL backend requires NAUTILUS_REGISTRY_DB_URL environment variable")
+                    logger.error(
+                        "PostgreSQL backend requires NAUTILUS_REGISTRY_DB_URL environment variable",
+                    )
                     sys.exit(1)
                 persistence_config = PersistenceConfig(
                     backend=backend,
@@ -1553,7 +1597,9 @@ Environment Variables:
             else:
                 db_url = os.getenv("NAUTILUS_REGISTRY_DB_URL")
                 if not db_url:
-                    logger.error("PostgreSQL backend requires NAUTILUS_REGISTRY_DB_URL environment variable")
+                    logger.error(
+                        "PostgreSQL backend requires NAUTILUS_REGISTRY_DB_URL environment variable",
+                    )
                     sys.exit(1)
                 persistence_config = PersistenceConfig(
                     backend=backend,

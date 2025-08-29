@@ -228,6 +228,7 @@ class DataCollectorConfig(NautilusConfig, kw_only=True, frozen=True):
     ML_DATA_ENHANCED_DIR -> data_dir
     ML_STORAGE_LIMIT_GB  -> storage_limit_gb
     ML_END_DATE          -> end_date_iso
+
     """
 
     data_dir: str = "./data/enhanced"
@@ -379,6 +380,7 @@ class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
     # FeatureStore integration
     db_connection: str | None = None
     pipeline_spec: Any | None = None
+
 
 class MultiModelStrategyConfig(MLStrategyConfig, kw_only=True, frozen=True):
     """

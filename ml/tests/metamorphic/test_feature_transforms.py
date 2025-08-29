@@ -1,9 +1,10 @@
 """
 Metamorphic tests for feature transformations.
 
-These tests verify that feature transformations maintain expected relationships
-under controlled input changes. Instead of testing for specific outputs (which
-can be brittle), we test how outputs should change relative to each other.
+These tests verify that feature transformations maintain expected relationships under
+controlled input changes. Instead of testing for specific outputs (which can be
+brittle), we test how outputs should change relative to each other.
+
 """
 
 from __future__ import annotations
@@ -21,17 +22,20 @@ from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
-from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestFeatureTransformMetamorphic:
-    """Metamorphic tests for feature engineering transformations."""
+    """
+    Metamorphic tests for feature engineering transformations.
+    """
 
     @given(
         base_price=st.floats(min_value=1.0, max_value=1000.0),
@@ -74,7 +78,7 @@ class TestFeatureTransformMetamorphic:
                 features_original["returns"],
                 features_scaled["returns"],
                 rtol=1e-10,
-                err_msg="Returns should be scale-invariant"
+                err_msg="Returns should be scale-invariant",
             )
 
         # 2. RSI should be unchanged (it's normalized)
@@ -83,7 +87,7 @@ class TestFeatureTransformMetamorphic:
                 features_original["rsi"],
                 features_scaled["rsi"],
                 rtol=1e-3,
-                err_msg="RSI should be scale-invariant (allowing small fp tolerance)"
+                err_msg="RSI should be scale-invariant (allowing small fp tolerance)",
             )
 
         # 3. Moving averages should scale proportionally
@@ -93,14 +97,14 @@ class TestFeatureTransformMetamorphic:
                 features_scaled["ma_5"],
                 expected_ma,
                 rtol=1e-10,
-                err_msg="Moving averages should scale proportionally"
+                err_msg="Moving averages should scale proportionally",
             )
 
     @given(
         prices=st.lists(
             st.floats(min_value=90.0, max_value=110.0),
             min_size=30,
-            max_size=100
+            max_size=100,
         ),
         shuffle_seed=st.integers(min_value=0, max_value=1000000),
     )
@@ -133,22 +137,24 @@ class TestFeatureTransformMetamorphic:
         # 1. Volatility should be the same (magnitude-based)
         if "volatility" in features_forward:
             # Allow small differences due to rolling window effects
-            assert abs(features_forward["volatility"] - features_reverse["volatility"]) < 0.01, \
-                "Volatility should be similar regardless of time direction"
+            assert (
+                abs(features_forward["volatility"] - features_reverse["volatility"]) < 0.01
+            ), "Volatility should be similar regardless of time direction"
 
         # 2. Returns should be negated (directional)
         if "returns" in features_forward:
             # The sign of returns should be opposite
             if features_forward["returns"] != 0:
-                assert np.sign(features_forward["returns"]) == -np.sign(features_reverse["returns"]) or \
-                       abs(features_forward["returns"]) < 1e-10, \
-                    "Returns should have opposite signs when time is reversed"
+                assert (
+                    np.sign(features_forward["returns"]) == -np.sign(features_reverse["returns"])
+                    or abs(features_forward["returns"]) < 1e-10
+                ), "Returns should have opposite signs when time is reversed"
 
     @given(
         base_prices=st.lists(
             st.floats(min_value=90.0, max_value=110.0),
             min_size=50,
-            max_size=50
+            max_size=50,
         ),
         noise_level=st.floats(min_value=0.0, max_value=0.1),
     )
@@ -188,14 +194,15 @@ class TestFeatureTransformMetamorphic:
                 if original_val != 0:
                     relative_change = abs((noisy_val - original_val) / original_val)
                     # Feature change should be bounded by noise level (with some margin)
-                    assert relative_change <= noise_level * 10, \
-                        f"Feature {key} changed too much ({relative_change:.2%}) for {noise_level:.2%} noise"
+                    assert (
+                        relative_change <= noise_level * 10
+                    ), f"Feature {key} changed too much ({relative_change:.2%}) for {noise_level:.2%} noise"
 
     @given(
         prices=st.lists(
             st.floats(min_value=90.0, max_value=110.0),
             min_size=30,
-            max_size=100
+            max_size=100,
         ),
         duplication_factor=st.integers(min_value=2, max_value=5),
     )
@@ -231,16 +238,20 @@ class TestFeatureTransformMetamorphic:
         # 1. Mean-based features should be similar
         if "ma_10" in features_original and len(prices) >= 10:
             # The moving average should be similar (within tolerance)
-            assert abs(features_original.get("ma_10", 0) - features_duplicated.get("ma_10", 0)) < 1.0, \
-                "Moving average should be stable under data duplication"
+            assert (
+                abs(features_original.get("ma_10", 0) - features_duplicated.get("ma_10", 0)) < 1.0
+            ), "Moving average should be stable under data duplication"
 
         # 2. Volatility should decrease (less variation in duplicated data)
         if "volatility" in features_original and "volatility" in features_duplicated:
-            assert features_duplicated["volatility"] <= features_original["volatility"], \
-                "Volatility should not increase with duplicated data"
+            assert (
+                features_duplicated["volatility"] <= features_original["volatility"]
+            ), "Volatility should not increase with duplicated data"
 
     def _create_bars_from_prices(self, prices: np.ndarray) -> list[Bar]:
-        """Helper to create bars from price array."""
+        """
+        Helper to create bars from price array.
+        """
         bars: list[Bar] = []
         bar_type = BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL")
 
@@ -258,14 +269,16 @@ class TestFeatureTransformMetamorphic:
                     volume=Quantity.from_int(1_000_000),
                     ts_event=i * 60_000_000_000,
                     ts_init=i * 60_000_000_000 + 1000,
-                )
+                ),
             )
 
         return bars
 
 
 class TestFeatureCompositionMetamorphic:
-    """Test metamorphic properties of feature composition."""
+    """
+    Test metamorphic properties of feature composition.
+    """
 
     @given(
         n_features=st.integers(min_value=5, max_value=20),
@@ -311,19 +324,19 @@ class TestFeatureCompositionMetamorphic:
                     features_subset[key],
                     features_all[key],
                     rtol=1e-10,
-                    err_msg=f"Feature {key} differs between subset and full computation"
+                    err_msg=f"Feature {key} differs between subset and full computation",
                 )
 
     @given(
         prices1=st.lists(
             st.floats(min_value=90.0, max_value=110.0),
             min_size=20,
-            max_size=50
+            max_size=50,
         ),
         prices2=st.lists(
             st.floats(min_value=90.0, max_value=110.0),
             min_size=20,
-            max_size=50
+            max_size=50,
         ),
     )
     @settings(max_examples=30, deadline=5000)
@@ -354,11 +367,14 @@ class TestFeatureCompositionMetamorphic:
         # should be captured in the concatenated version
         if "returns" in features_concat:
             # The concatenated version should have a valid return value
-            assert not np.isnan(features_concat["returns"]), \
-                "Concatenated features should handle boundaries properly"
+            assert not np.isnan(
+                features_concat["returns"],
+            ), "Concatenated features should handle boundaries properly"
 
     def _create_simple_bars(self, prices: list[float]) -> list[Bar]:
-        """Helper to create simple bars from prices."""
+        """
+        Helper to create simple bars from prices.
+        """
         bars: list[Bar] = []
         bar_type = BarType.from_str("TEST.SIM-1-MINUTE-BID-EXTERNAL")
 
@@ -373,7 +389,7 @@ class TestFeatureCompositionMetamorphic:
                     volume=Quantity.from_int(1_000_000),
                     ts_event=i * 60_000_000_000,
                     ts_init=i * 60_000_000_000 + 1000,
-                )
+                ),
             )
 
         return bars

@@ -43,7 +43,7 @@ class ModelType(Enum):
     UNKNOWN = "unknown"
 
 
-def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:  # noqa: ANN401
+def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
     """
     Best-effort detection of model type from object or file extension.
     """
@@ -90,7 +90,7 @@ DEFAULT_ONNX_OPSET = Versions.ONNX_OPSET
 
 
 def save_model_with_metadata(
-    model: Any,  # noqa: ANN401
+    model: Any,
     path: str | Path,
     input_shape: tuple[int, ...] | None = None,
     output_shape: tuple[int, ...] | None = None,
@@ -120,7 +120,7 @@ def save_model_with_metadata(
     else:
         raise ValueError(
             f"Unsupported model type '{model_type.value}' for direct save. "
-            "Export to ONNX or use a framework-native saver before calling this."
+            "Export to ONNX or use a framework-native saver before calling this.",
         )
 
     metadata_dict = {
@@ -141,7 +141,7 @@ def save_model_with_metadata(
     return model_path
 
 
-def _save_xgboost_model(model: Any, path: Path) -> Path:  # noqa: ANN401
+def _save_xgboost_model(model: Any, path: Path) -> Path:
     if HAS_XGBOOST:
         model_path = path.with_suffix(".xgb")
         model.save_model(str(model_path))
@@ -150,7 +150,7 @@ def _save_xgboost_model(model: Any, path: Path) -> Path:  # noqa: ANN401
         raise ImportError("XGBoost not installed; cannot save XGBoost model")
 
 
-def _save_lightgbm_model(model: Any, path: Path) -> Path:  # noqa: ANN401
+def _save_lightgbm_model(model: Any, path: Path) -> Path:
     if not HAS_LIGHTGBM:
         raise ImportError("LightGBM not installed; cannot save LightGBM model")
 
@@ -176,7 +176,7 @@ def _save_lightgbm_model(model: Any, path: Path) -> Path:  # noqa: ANN401
         raise RuntimeError(f"LightGBM save_model failed: {exc}")
 
 
-def _save_onnx_model(model: Any, path: Path) -> Path:  # noqa: ANN401
+def _save_onnx_model(model: Any, path: Path) -> Path:
     if HAS_ONNX_CORE and onnx is not None:
         model_path = path.with_suffix(SUFFIX_ONNX)
         onnx.save(model, str(model_path))
@@ -188,7 +188,7 @@ def _save_onnx_model(model: Any, path: Path) -> Path:  # noqa: ANN401
 # Removed: pickle saving is deprecated and unsupported.
 
 
-def _generate_version(model: Any) -> str:  # noqa: ANN401
+def _generate_version(model: Any) -> str:
     import hashlib
 
     parts = [model.__class__.__name__, str(type(model))]
@@ -206,7 +206,7 @@ def _generate_version(model: Any) -> str:  # noqa: ANN401
 
 
 def convert_to_onnx(
-    model: Any,  # noqa: ANN401
+    model: Any,
     sample_input: NDArray[np.float32],
     output_path: str | Path,
     opset_version: int = DEFAULT_ONNX_OPSET,
@@ -275,7 +275,7 @@ def convert_to_onnx(
 
 
 def convert_to_torchscript(
-    model: Any,  # noqa: ANN401
+    model: Any,
     sample_input: NDArray[np.float32] | None,
     output_path: str | Path,
 ) -> Path:
@@ -288,6 +288,7 @@ def convert_to_torchscript(
       that accepts the provided `sample_input`.
     - For complex models that expect dict inputs (e.g., TFT), callers should
       wrap the model in a small adapter module that accepts a tensor.
+
     """
     try:
         import torch
@@ -296,11 +297,12 @@ def convert_to_torchscript(
 
     output_path = Path(output_path).with_suffix(".pt")
     model.eval()
-    def _jit_trace(mod: object, example: object) -> Any:  # noqa: ANN401
+
+    def _jit_trace(mod: object, example: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.
         return torch.jit.trace(mod, example)  # type: ignore[no-untyped-call]
 
-    def _jit_script(mod: object) -> Any:  # noqa: ANN401
+    def _jit_script(mod: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.
         return torch.jit.script(mod)
 
@@ -340,7 +342,7 @@ class ModelExportMixin(ABC):
     """
 
     @abstractmethod
-    def get_model(self) -> Any:  # pragma: no cover - interface  # noqa: ANN401
+    def get_model(self) -> Any:  # pragma: no cover - interface
         ...
 
     @abstractmethod

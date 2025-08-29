@@ -21,18 +21,21 @@
 ## Critical Issues
 
 ### 1. API Mismatch Crisis (P0)
+
 - **Impact**: 35% of all failures
 - **Root Cause**: `MLSignalActor.register()` method doesn't exist
 - **Affected**: 23+ tests immediately fail
 - **Fix**: Update test actor initialization pattern
 
 ### 2. Test Philosophy Violation (P0)
+
 - **85%+ tests are example-based** instead of property-based
 - **Hardcoded assertions** instead of relationship testing
 - **Missing contract/schema tests** at boundaries
 - **No metamorphic testing** for ML components
 
 ### 3. Massive Redundancy (P1)
+
 - **60-70% of tests are redundant**
 - Same functionality tested multiple times
 - Copy-paste patterns across files
@@ -41,6 +44,7 @@
 ## Detailed Analysis
 
 ### Test Distribution
+
 ```
 Unit Tests:        1,102 (77%)
 Integration Tests:   182 (13%)
@@ -52,6 +56,7 @@ Metamorphic Tests:     2 (<1%) ⚠️
 ```
 
 ### Failure Pattern Analysis
+
 ```
 AttributeErrors:     35% (API mismatches)
 Database Errors:     20% (infrastructure)
@@ -63,12 +68,14 @@ Other:              10%
 ```
 
 ### Coverage Gaps (Critical Modules at 0%)
+
 - `ml/stores/` - All store modules uncovered
 - `ml/registry/` - Registry system untested
 - `ml/deployment/` - Deployment logic uncovered
 - `ml/monitoring/` - Monitoring untested
 
 ### Complexity Hotspots
+
 1. `generate_report()` - Complexity: 22
 2. `pytest_collection_modifyitems()` - Complexity: 21
 3. `_create_test_strategy()` - Complexity: 19
@@ -79,6 +86,7 @@ Other:              10%
 ### Major Violations with Examples
 
 #### 1. Example-Based Instead of Property-Based
+
 ```python
 # ❌ CURRENT (Wrong)
 def test_signal_value():
@@ -97,6 +105,7 @@ def test_signal_bounds_property(prediction, confidence):
 ```
 
 #### 2. Testing Values Instead of Relationships
+
 ```python
 # ❌ CURRENT (Wrong)
 assert feature_value == 42.5
@@ -107,6 +116,7 @@ assert normalized_feature.mean() == pytest.approx(0.0)
 ```
 
 #### 3. Missing Contract Tests
+
 ```python
 # ✅ NEEDED (Pandera Schema)
 class PredictionSchema(pa.DataFrameModel):
@@ -126,6 +136,7 @@ class PredictionSchema(pa.DataFrameModel):
 | test_error_handling_comprehensive.py | 1,495 | 39 | 3 metamorphic tests (~200 lines) | 85% |
 
 ### Consolidation Opportunities
+
 - **23 initialization tests** → 1 parameterized test
 - **18 performance tests** → 1 property-based benchmark
 - **8 error handling patterns** → 1 metamorphic test
@@ -133,10 +144,11 @@ class PredictionSchema(pa.DataFrameModel):
 ## Action Plan
 
 ### Phase 1: Emergency Fixes (Week 1)
+
 1. **Fix MLSignalActor API mismatch** (2 days)
    - Update actor initialization pattern
    - Remove `register()` calls
-   
+
 2. **Fix CircuitBreakerConfig** (1 day)
    - Update parameter names
    - Fix initialization patterns
@@ -148,6 +160,7 @@ class PredictionSchema(pa.DataFrameModel):
 **Target**: 50% pass rate
 
 ### Phase 2: Test Transformation (Weeks 2-3)
+
 1. **Implement Property-Based Testing** (5 days)
    - Convert top 20 critical tests
    - Add Hypothesis strategies
@@ -166,6 +179,7 @@ class PredictionSchema(pa.DataFrameModel):
 **Target**: 80% pass rate, 50% reduction in test count
 
 ### Phase 3: Optimization (Weeks 4-6)
+
 1. **Consolidate Redundant Tests** (5 days)
    - Parameterize similar tests
    - Remove duplicates
@@ -186,17 +200,20 @@ class PredictionSchema(pa.DataFrameModel):
 ## Success Criteria
 
 ### Immediate (1 Week)
+
 - [ ] 50% tests passing
 - [ ] API mismatches fixed
 - [ ] Database connections working
 
 ### Short-term (1 Month)
+
 - [ ] 80% tests passing
 - [ ] 30% coverage achieved
 - [ ] 50% test count reduction
 - [ ] All critical modules have basic tests
 
 ### Long-term (3 Months)
+
 - [ ] 95% tests passing
 - [ ] 70% coverage achieved
 - [ ] 60-70% test count reduction
@@ -229,12 +246,14 @@ class PredictionSchema(pa.DataFrameModel):
 
 The ML test suite requires immediate intervention. While type safety is excellent (100% MyPy compliance), the suite fundamentally violates modern testing principles with massive redundancy, poor design patterns, and critical infrastructure failures.
 
-**Estimated Effort**: 
+**Estimated Effort**:
+
 - Emergency fixes: 1 week
-- Basic restoration: 2-3 weeks  
+- Basic restoration: 2-3 weeks
 - Comprehensive transformation: 6-8 weeks
 
 **Expected Outcome**:
+
 - From: 1,428 brittle tests with 0.2% pass rate
 - To: ~400 robust tests with 95% pass rate and 70% coverage
 

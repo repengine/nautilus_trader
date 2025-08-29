@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
 """
-Data registry with self-describing manifests, contracts, lineage tracking, and watermarks.
+Data registry with self-describing manifests, contracts, lineage tracking, and
+watermarks.
 
 This module provides a registry for dataset manifests with lifecycle management, data
-contracts, lineage tracking, event recording, and watermark management. It supports
-both JSON (for development) and PostgreSQL (for production) backends.
+contracts, lineage tracking, event recording, and watermark management. It supports both
+JSON (for development) and PostgreSQL (for production) backends.
 
 """
 
@@ -21,6 +22,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from ml.common.protocols import MLComponentMixin
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -70,7 +72,7 @@ class Watermark:
     updated_at: float
 
 
-class DataRegistry:
+class DataRegistry(MLComponentMixin):
     """
     Registry for dataset manifests with configurable persistence backend.
 
@@ -200,7 +202,9 @@ class DataRegistry:
             logger.info("Using PostgreSQL backend - data is stored in database")
 
     def _initialize_empty_registry(self) -> None:
-        """Initialize empty registry structures."""
+        """
+        Initialize empty registry structures.
+        """
         self._manifests = {}
         self._contracts = {}
         self._events = []
@@ -210,14 +214,18 @@ class DataRegistry:
             self._save_registry()
 
     def _dict_to_manifest(self, data: dict[str, Any]) -> DatasetManifest:
-        """Convert dictionary to DatasetManifest."""
+        """
+        Convert dictionary to DatasetManifest.
+        """
         # Convert string enum values back to enum types
         data["dataset_type"] = DatasetType(data["dataset_type"])
         data["storage_kind"] = StorageKind(data["storage_kind"])
         return DatasetManifest(**data)
 
     def _manifest_to_dict(self, manifest: DatasetManifest) -> dict[str, Any]:
-        """Convert DatasetManifest to dictionary."""
+        """
+        Convert DatasetManifest to dictionary.
+        """
         data = {
             "dataset_id": manifest.dataset_id,
             "dataset_type": manifest.dataset_type.value,
@@ -241,7 +249,9 @@ class DataRegistry:
         return data
 
     def _dict_to_contract(self, data: dict[str, Any]) -> DataContract:
-        """Convert dictionary to DataContract."""
+        """
+        Convert dictionary to DataContract.
+        """
         from ml.registry.dataclasses import QualityFlag
         from ml.registry.dataclasses import ValidationRule
         from ml.registry.dataclasses import ValidationRuleType
@@ -257,16 +267,20 @@ class DataRegistry:
         return DataContract(**data)
 
     def _contract_to_dict(self, contract: DataContract) -> dict[str, Any]:
-        """Convert DataContract to dictionary."""
+        """
+        Convert DataContract to dictionary.
+        """
         rules = []
         for rule in contract.validation_rules:
-            rules.append({
-                "rule_type": rule.rule_type.value,
-                "field_name": rule.field_name,
-                "parameters": rule.parameters,
-                "severity": rule.severity.value,
-                "description": rule.description,
-            })
+            rules.append(
+                {
+                    "rule_type": rule.rule_type.value,
+                    "field_name": rule.field_name,
+                    "parameters": rule.parameters,
+                    "severity": rule.severity.value,
+                    "description": rule.description,
+                }
+            )
 
         return {
             "contract_id": contract.contract_id,
@@ -281,11 +295,15 @@ class DataRegistry:
         }
 
     def _dict_to_watermark(self, data: dict[str, Any]) -> Watermark:
-        """Convert dictionary to Watermark."""
+        """
+        Convert dictionary to Watermark.
+        """
         return Watermark(**data)
 
     def _watermark_to_dict(self, watermark: Watermark) -> dict[str, Any]:
-        """Convert Watermark to dictionary."""
+        """
+        Convert Watermark to dictionary.
+        """
         return {
             "dataset_id": watermark.dataset_id,
             "instrument_id": watermark.instrument_id,
@@ -335,7 +353,9 @@ class DataRegistry:
                     self._save_timer.start()
 
     def _do_save(self) -> None:
-        """Perform the actual save operation."""
+        """
+        Perform the actual save operation.
+        """
         with self._lock:
             if self.backend == BackendType.JSON:
                 # Convert all data to serializable format
@@ -412,7 +432,8 @@ class DataRegistry:
 
                 try:
                     # Execute SQL function to register dataset
-                    query = text("""
+                    query = text(
+                        """
                         INSERT INTO ml_dataset_registry
                         (dataset_id, name, version, dataset_type, storage_kind, location,
                          partitioning, retention_days, schema, schema_hash, constraints,
@@ -421,24 +442,28 @@ class DataRegistry:
                         (:dataset_id, :name, :version, :dataset_type, :storage_kind, :location,
                          :partitioning, :retention_days, :schema, :schema_hash, :constraints,
                          :parents, :pipeline_signature, :metadata)
-                    """)
+                    """
+                    )
 
-                    session.execute(query, {
-                        "dataset_id": manifest.dataset_id,
-                        "name": manifest.metadata.get("name", manifest.dataset_id),
-                        "version": manifest.version,
-                        "dataset_type": manifest.dataset_type.value,
-                        "storage_kind": manifest.storage_kind.value,
-                        "location": manifest.location,
-                        "partitioning": json.dumps(manifest.partitioning),
-                        "retention_days": manifest.retention_days,
-                        "schema": json.dumps(manifest.schema),
-                        "schema_hash": manifest.schema_hash,
-                        "constraints": json.dumps(manifest.constraints),
-                        "parents": json.dumps(manifest.lineage),
-                        "pipeline_signature": manifest.pipeline_signature,
-                        "metadata": json.dumps(manifest.metadata),
-                    })
+                    session.execute(
+                        query,
+                        {
+                            "dataset_id": manifest.dataset_id,
+                            "name": manifest.metadata.get("name", manifest.dataset_id),
+                            "version": manifest.version,
+                            "dataset_type": manifest.dataset_type.value,
+                            "storage_kind": manifest.storage_kind.value,
+                            "location": manifest.location,
+                            "partitioning": json.dumps(manifest.partitioning),
+                            "retention_days": manifest.retention_days,
+                            "schema": json.dumps(manifest.schema),
+                            "schema_hash": manifest.schema_hash,
+                            "constraints": json.dumps(manifest.constraints),
+                            "parents": json.dumps(manifest.lineage),
+                            "pipeline_signature": manifest.pipeline_signature,
+                            "metadata": json.dumps(manifest.metadata),
+                        },
+                    )
                     session.commit()
 
                     # Cache locally
@@ -513,9 +538,19 @@ class DataRegistry:
                     # Build UPDATE query safely with all possible fields
                     # This avoids dynamic SQL construction
                     all_fields = [
-                        "name", "version", "dataset_type", "storage_kind", "location",
-                        "partitioning", "retention_days", "schema", "schema_hash",
-                        "constraints", "parents", "pipeline_signature", "metadata"
+                        "name",
+                        "version",
+                        "dataset_type",
+                        "storage_kind",
+                        "location",
+                        "partitioning",
+                        "retention_days",
+                        "schema",
+                        "schema_hash",
+                        "constraints",
+                        "parents",
+                        "pipeline_signature",
+                        "metadata",
                     ]
 
                     # Build the update dict
@@ -525,8 +560,16 @@ class DataRegistry:
                     for field in all_fields:
                         if field in changes:
                             value = changes[field]
-                            if field in ["partitioning", "schema", "constraints", "metadata", "parents"]:
-                                update_data[field] = json.dumps(value) if value is not None else "{}"
+                            if field in [
+                                "partitioning",
+                                "schema",
+                                "constraints",
+                                "metadata",
+                                "parents",
+                            ]:
+                                update_data[field] = (
+                                    json.dumps(value) if value is not None else "{}"
+                                )
                             else:
                                 update_data[field] = value
                             set_parts.append(f"{field} = :{field}")
@@ -535,11 +578,13 @@ class DataRegistry:
                         raise ValueError("No valid fields to update")
 
                     # Safe query with parameterized values
-                    query = text(f"""
+                    query = text(
+                        f"""
                         UPDATE ml_dataset_registry
                         SET {', '.join(set_parts)}, last_modified = NOW()
                         WHERE dataset_id = :dataset_id
-                    """)  # noqa: S608 - All field names are from predefined list
+                    """
+                    )
 
                     result = session.execute(query, update_data)
                     # Check if any rows were affected
@@ -642,7 +687,8 @@ class DataRegistry:
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    query = text("""
+                    query = text(
+                        """
                         SELECT dataset_id, dataset_type, storage_kind, location,
                                partitioning, retention_days, schema, schema_hash,
                                constraints, parents as lineage, pipeline_signature,
@@ -651,7 +697,8 @@ class DataRegistry:
                                metadata
                         FROM ml_dataset_registry
                         WHERE dataset_id = :dataset_id
-                    """)
+                    """
+                    )
 
                     result = session.execute(query, {"dataset_id": dataset_id}).fetchone()
                     if result is None:
@@ -660,8 +707,12 @@ class DataRegistry:
                     # Convert to manifest
                     manifest_data = dict(result)
                     manifest_data["seq_field"] = manifest_data.get("metadata", {}).get("seq_field")
-                    manifest_data["ts_field"] = manifest_data.get("metadata", {}).get("ts_field", "ts_event")
-                    manifest_data["primary_keys"] = manifest_data.get("metadata", {}).get("primary_keys", ["instrument_id", "ts_event"])
+                    manifest_data["ts_field"] = manifest_data.get("metadata", {}).get(
+                        "ts_field", "ts_event"
+                    )
+                    manifest_data["primary_keys"] = manifest_data.get("metadata", {}).get(
+                        "primary_keys", ["instrument_id", "ts_event"]
+                    )
 
                     manifest = self._dict_to_manifest(manifest_data)
 
@@ -674,7 +725,9 @@ class DataRegistry:
                     session.close()
 
     def _create_contract_from_manifest(self, manifest: DatasetManifest) -> DataContract:
-        """Create a data contract from a dataset manifest."""
+        """
+        Create a data contract from a dataset manifest.
+        """
         from ml.registry.dataclasses import QualityFlag
         from ml.registry.dataclasses import ValidationRule
         from ml.registry.dataclasses import ValidationRuleType
@@ -686,34 +739,40 @@ class DataRegistry:
         if "ranges" in constraints:
             for field, range_spec in constraints["ranges"].items():
                 if "min" in range_spec or "max" in range_spec:
-                    rules.append(ValidationRule(
-                        rule_type=ValidationRuleType.RANGE,
-                        field_name=field,
-                        parameters=range_spec,
-                        severity=QualityFlag.FAIL,
-                        description=f"Range validation for {field}",
-                    ))
+                    rules.append(
+                        ValidationRule(
+                            rule_type=ValidationRuleType.RANGE,
+                            field_name=field,
+                            parameters=range_spec,
+                            severity=QualityFlag.FAIL,
+                            description=f"Range validation for {field}",
+                        ),
+                    )
 
         if "nullability" in constraints:
             for field, nullable in constraints["nullability"].items():
                 if not nullable:
-                    rules.append(ValidationRule(
-                        rule_type=ValidationRuleType.NULLABILITY,
-                        field_name=field,
-                        parameters={"nullable": False},
-                        severity=QualityFlag.FAIL,
-                        description=f"{field} cannot be null",
-                    ))
+                    rules.append(
+                        ValidationRule(
+                            rule_type=ValidationRuleType.NULLABILITY,
+                            field_name=field,
+                            parameters={"nullable": False},
+                            severity=QualityFlag.FAIL,
+                            description=f"{field} cannot be null",
+                        ),
+                    )
 
         # Create default rule if no rules defined
         if not rules:
-            rules.append(ValidationRule(
-                rule_type=ValidationRuleType.TYPE_CHECK,
-                field_name="*",
-                parameters={},
-                severity=QualityFlag.WARN,
-                description="Type validation for all fields",
-            ))
+            rules.append(
+                ValidationRule(
+                    rule_type=ValidationRuleType.TYPE_CHECK,
+                    field_name="*",
+                    parameters={},
+                    severity=QualityFlag.WARN,
+                    description="Type validation for all fields",
+                ),
+            )
 
         return DataContract(
             contract_id=f"{manifest.dataset_id}_contract",
@@ -865,25 +924,30 @@ class DataRegistry:
 
                 try:
                     # Use the SQL function to emit event
-                    query = text("""
+                    query = text(
+                        """
                         SELECT emit_data_event(
                             :dataset_id, :instrument_id, :stage, :source, :run_id,
                             :ts_min, :ts_max, :count, :status, :error
                         )
-                    """)
+                    """
+                    )
 
-                    session.execute(query, {
-                        "dataset_id": dataset_id,
-                        "instrument_id": instrument_id,
-                        "stage": stage,
-                        "source": source,
-                        "run_id": run_id,
-                        "ts_min": ts_min,
-                        "ts_max": ts_max,
-                        "count": count,
-                        "status": status,
-                        "error": error,
-                    })
+                    session.execute(
+                        query,
+                        {
+                            "dataset_id": dataset_id,
+                            "instrument_id": instrument_id,
+                            "stage": stage,
+                            "source": source,
+                            "run_id": run_id,
+                            "ts_min": ts_min,
+                            "ts_max": ts_max,
+                            "count": count,
+                            "status": status,
+                            "error": error,
+                        },
+                    )
                     session.commit()
 
                 except Exception as e:
@@ -966,21 +1030,26 @@ class DataRegistry:
 
                 try:
                     # Use the SQL function to update watermark
-                    query = text("""
+                    query = text(
+                        """
                         SELECT update_watermark(
                             :dataset_id, :instrument_id, :source,
                             :last_success_ns, :count, :completeness_pct
                         )
-                    """)
+                    """
+                    )
 
-                    session.execute(query, {
-                        "dataset_id": dataset_id,
-                        "instrument_id": instrument_id,
-                        "source": source,
-                        "last_success_ns": last_success_ns,
-                        "count": count,
-                        "completeness_pct": completeness_pct,
-                    })
+                    session.execute(
+                        query,
+                        {
+                            "dataset_id": dataset_id,
+                            "instrument_id": instrument_id,
+                            "source": source,
+                            "last_success_ns": last_success_ns,
+                            "count": count,
+                            "completeness_pct": completeness_pct,
+                        },
+                    )
                     session.commit()
 
                     # Update cache
@@ -1043,7 +1112,8 @@ class DataRegistry:
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    query = text("""
+                    query = text(
+                        """
                         SELECT dataset_id, instrument_id, source,
                                last_success_ns, last_attempt_ns, last_count,
                                completeness_pct, EXTRACT(EPOCH FROM updated_at) as updated_at
@@ -1051,13 +1121,17 @@ class DataRegistry:
                         WHERE dataset_id = :dataset_id
                           AND instrument_id = :instrument_id
                           AND source = :source
-                    """)
+                    """
+                    )
 
-                    result = session.execute(query, {
-                        "dataset_id": dataset_id,
-                        "instrument_id": instrument_id,
-                        "source": source,
-                    }).fetchone()
+                    result = session.execute(
+                        query,
+                        {
+                            "dataset_id": dataset_id,
+                            "instrument_id": instrument_id,
+                            "source": source,
+                        },
+                    ).fetchone()
 
                     if result is None:
                         return None
@@ -1133,20 +1207,25 @@ class DataRegistry:
                         raise RuntimeError("Failed to get database session")
 
                     try:
-                        query = text("""
+                        query = text(
+                            """
                             INSERT INTO ml_data_lineage
                             (transform_id, child_dataset_id, parent_dataset_id, ts_range, parameters)
                             VALUES
                             (:transform_id, :child_dataset_id, :parent_dataset_id, :ts_range, :parameters)
-                        """)
+                        """
+                        )
 
-                        session.execute(query, {
-                            "transform_id": transform_id,
-                            "child_dataset_id": child_dataset_id,
-                            "parent_dataset_id": parent_id,
-                            "ts_range": json.dumps(ts_range),
-                            "parameters": json.dumps(params),
-                        })
+                        session.execute(
+                            query,
+                            {
+                                "transform_id": transform_id,
+                                "child_dataset_id": child_dataset_id,
+                                "parent_dataset_id": parent_id,
+                                "ts_range": json.dumps(ts_range),
+                                "parameters": json.dumps(params),
+                            },
+                        )
 
                     except Exception as e:
                         session.rollback()
@@ -1166,7 +1245,9 @@ class DataRegistry:
             )
 
     def __del__(self) -> None:
-        """Cleanup on deletion."""
+        """
+        Cleanup on deletion.
+        """
         # Cancel any pending save timer
         if hasattr(self, "_save_timer") and self._save_timer is not None:
             self._save_timer.cancel()

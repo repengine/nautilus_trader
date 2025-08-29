@@ -13,10 +13,16 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ml.common.protocols import MLComponentMixin
+
+
 if TYPE_CHECKING:  # pragma: no cover - typing stub for mypy
+
     class NautilusData:
-        """Typing stub for Nautilus `Data` base class."""
-        pass
+        """
+        Typing stub for Nautilus `Data` base class.
+        """
+
 else:  # Use real runtime base to preserve integration
     from nautilus_trader.core.data import Data as NautilusData
 
@@ -63,6 +69,7 @@ class FeatureData(NautilusData):
         -------
         dict[str, float]
             Mapping of feature name to value.
+
         """
         # Prefer raw attribute dict to bypass potential properties/methods
         raw: dict[str, Any] = object.__getattribute__(self, "__dict__")
@@ -195,7 +202,7 @@ class StrategySignal(NautilusData):
         return self._ts_init
 
 
-class BaseStore(ABC):
+class BaseStore(MLComponentMixin, ABC):
     """
     Abstract base class for all store implementations.
 
@@ -330,7 +337,9 @@ class DummyStore:
         """
 
     def write_batch(self, data: list[Any], emit_events: bool = True) -> None:
-        """Batch write (dummy)."""
+        """
+        Batch write (dummy).
+        """
         return None
 
     def flush(self, *args: object, **kwargs: object) -> None:
@@ -340,15 +349,22 @@ class DummyStore:
 
     # Backward-compatible alias used in some tests
     def get_stats(self, *args: object, **kwargs: object) -> dict[str, Any]:
-        """Deprecated alias for get_statistics (retained for compatibility)."""
+        """
+        Deprecated alias for get_statistics (retained for compatibility).
+        """
         return self.get_statistics()
 
-    def get_statistics(self, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, Any]:
+    def get_statistics(
+        self,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
+    ) -> dict[str, Any]:
         """
         Get storage statistics (dummy implementation).
 
         This method conforms to the BaseStore interface. For backward compatibility,
         `get_stats` remains as a deprecated alias.
+
         """
         return self.get_stats(start_ns=start_ns, end_ns=end_ns)
 
@@ -365,30 +381,52 @@ class DummyStore:
         return None
 
     # Model store protocol methods (dummy implementations)
-    def read_predictions(self, model_id: str, instrument_id: str, start_ns: int, end_ns: int) -> Any:
+    def read_predictions(
+        self,
+        model_id: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> object | None:
         return None
 
     def get_model_performance(
-        self, model_id: str, start_ns: int | None = None, end_ns: int | None = None
+        self,
+        model_id: str,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
     ) -> dict[str, Any]:
         return {}
 
     # Strategy store protocol methods (dummy implementations)
-    def read_signals(self, strategy_id: str, instrument_id: str, start_ns: int, end_ns: int) -> Any:
+    def read_signals(
+        self, strategy_id: str, instrument_id: str, start_ns: int, end_ns: int
+    ) -> object | None:
         return None
 
     def get_strategy_performance(
-        self, strategy_id: str, start_ns: int | None = None, end_ns: int | None = None
+        self,
+        strategy_id: str,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
     ) -> dict[str, Any]:
         return {}
 
     def get_signal_distribution(
-        self, strategy_id: str | None = None, start_ns: int | None = None, end_ns: int | None = None
+        self,
+        strategy_id: str | None = None,
+        start_ns: int | None = None,
+        end_ns: int | None = None,
     ) -> dict[str, int]:
         return {}
 
     # Feature store extension (dummy realtime computation)
-    def compute_realtime(self, bar: Any, store: bool = True, indicator_manager: Any | None = None) -> Any:
+    def compute_realtime(
+        self,
+        bar: object,
+        store: bool = True,
+        indicator_manager: object | None = None,
+    ) -> object | None:
         return None
 
     def __getattr__(self, name: str) -> object:

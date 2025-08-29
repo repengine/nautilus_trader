@@ -13,31 +13,34 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from ml.common.protocols import MLComponentProtocol
 from ml.core.db_engine import EngineManager
+from ml.registry import DataRegistry
 from ml.registry import FeatureRegistry
 from ml.registry import ModelRegistry
 from ml.registry import StrategyRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.stores import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.partition_manager import PartitionManager
 from ml.stores.strategy_store import StrategyStore
 
+
 logger = logging.getLogger(__name__)
-
-
-from typing import runtime_checkable
 
 
 @runtime_checkable
 class HasDBConnection(Protocol):
-    """Protocol for configs carrying an optional DB connection string."""
+    """
+    Protocol for configs carrying an optional DB connection string.
+    """
 
     db_connection: str | None
 
@@ -74,6 +77,7 @@ class MLIntegrationManager:
         auto_start_postgres: bool = False,
         auto_migrate: bool = False,
         ensure_healthy: bool = True,
+        strict_protocol_validation: bool | None = None,
     ) -> None:
         """
         Initialize the ML integration manager.
@@ -101,6 +105,7 @@ class MLIntegrationManager:
 
         # Allow environment variables to opt-in
         import os
+
         env_start = os.getenv("ML_AUTO_START_DB", "").lower() in {"1", "true", "yes"}
         env_migrate = os.getenv("ML_AUTO_MIGRATE", "").lower() in {"1", "true", "yes"}
         self.auto_start_postgres = auto_start_postgres or env_start
@@ -115,6 +120,9 @@ class MLIntegrationManager:
         # Ensure everything is healthy
         if ensure_healthy:
             self.ensure_healthy()
+
+        # Validate protocol compliance (warn by default)
+        self._validate_protocol_compliance(strict=strict_protocol_validation)
 
     def _init_database(self) -> None:
         """
@@ -160,6 +168,9 @@ class MLIntegrationManager:
             batch_size=1000,
         )
 
+        # Initialize DataStore after registries are available (will be set in _init_registries)
+        self.data_store: DataStore | None = None
+
     def _init_registries(self) -> None:
         """
         Initialize all registry components.
@@ -186,6 +197,18 @@ class MLIntegrationManager:
         self.strategy_registry = StrategyRegistry(
             base_path=registry_path / "strategies",
             persistence_config=persistence_config,
+        )
+
+        # Initialize DataRegistry
+        self.data_registry = DataRegistry(
+            registry_path=registry_path / "datasets",
+            persistence_config=persistence_config,
+        )
+
+        # Now initialize DataStore with the registry
+        self.data_store = DataStore(
+            registry=self.data_registry,
+            connection_string=self.db_connection,
         )
 
     def _init_partition_manager(self) -> None:
@@ -215,10 +238,13 @@ class MLIntegrationManager:
             return False
 
     def _start_postgres_container(self) -> None:
-        """Start PostgreSQL using docker-compose if available, else docker run."""
+        """
+        Start PostgreSQL using docker-compose if available, else docker run.
+        """
         logger.info("Starting PostgreSQL (preferring docker-compose if available)...")
 
         import shutil
+
         compose_file = None
         docker_path = shutil.which("docker")
         if docker_path is None:
@@ -328,6 +354,64 @@ class MLIntegrationManager:
 
         logger.info("All ML components are healthy!")
 
+    def _validate_protocol_compliance(self, strict: bool | None = None) -> None:
+        """
+        Validate MLComponentProtocol compliance for core components.
+
+        Parameters
+        ----------
+        strict : bool | None
+            If True, raise on violations. If None, read from env
+            `ML_STRICT_PROTOCOL_VALIDATION` (defaults to False).
+
+        """
+        import os
+
+        if strict is None:
+            strict = os.getenv("ML_STRICT_PROTOCOL_VALIDATION", "").lower() in {"1", "true", "yes"}
+
+        components: dict[str, Any] = {
+            "feature_store": self.feature_store,
+            "model_store": self.model_store,
+            "strategy_store": self.strategy_store,
+            "data_store": self.data_store,
+            "feature_registry": self.feature_registry,
+            "model_registry": self.model_registry,
+            "strategy_registry": self.strategy_registry,
+            "data_registry": self.data_registry,
+        }
+
+        violations: dict[str, list[str]] = {}
+
+        for name, comp in components.items():
+            issues: list[str] = []
+            if comp is None or not isinstance(comp, MLComponentProtocol):
+                issues.append("does_not_implement_protocol")
+            else:
+                try:
+                    _ = comp.get_health_status()
+                except Exception as e:  # pragma: no cover - defensive
+                    issues.append(f"health_status_error:{e}")
+                try:
+                    _ = comp.get_performance_metrics()
+                except Exception as e:  # pragma: no cover - defensive
+                    issues.append(f"performance_metrics_error:{e}")
+                try:
+                    config_issues = comp.validate_configuration()
+                    if config_issues:
+                        issues.extend([f"config:{i}" for i in config_issues])
+                except Exception as e:  # pragma: no cover - defensive
+                    issues.append(f"validate_configuration_error:{e}")
+
+            if issues:
+                violations[name] = issues
+
+        if violations:
+            msg = f"Protocol compliance issues: {violations}"
+            if strict:
+                raise RuntimeError(msg)
+            logger.warning(msg)
+
     def check_health(self) -> dict[str, bool]:
         """
         Check health of all components.
@@ -344,58 +428,73 @@ class MLIntegrationManager:
         health["postgres"] = self._is_postgres_running()
 
         # Check stores
-        try:
-            # FeatureStore exposes is_healthy()
-            health["feature_store"] = bool(getattr(self.feature_store, "is_healthy", lambda: False)())
-        except Exception:
-            health["feature_store"] = False
-
-        try:
-            # Prefer get_statistics() if available, else try is_healthy()
-            if hasattr(self.model_store, "get_statistics") and callable(self.model_store.get_statistics):
-                self.model_store.get_statistics()
-                health["model_store"] = True
-            else:
-                health["model_store"] = bool(getattr(self.model_store, "is_healthy", lambda: False)())
-        except Exception:
-            health["model_store"] = False
-
-        try:
-            if hasattr(self.strategy_store, "get_statistics") and callable(self.strategy_store.get_statistics):
-                self.strategy_store.get_statistics()
-                health["strategy_store"] = True
-            else:
-                health["strategy_store"] = bool(getattr(self.strategy_store, "is_healthy", lambda: False)())
-        except Exception:
-            health["strategy_store"] = False
+        health["feature_store"] = self._check_store_health(self.feature_store)
+        health["model_store"] = self._check_store_health(self.model_store)
+        health["strategy_store"] = self._check_store_health(self.strategy_store)
 
         # Check registries
-        try:
-            lf = getattr(self.feature_registry, "list_features", None)
-            health["feature_registry"] = bool(lf and callable(lf) and lf())
-        except Exception:
-            health["feature_registry"] = False
+        health["feature_registry"] = self._check_registry_health(
+            self.feature_registry,
+            "list_features",
+        )
+        health["model_registry"] = self._check_registry_health(self.model_registry, "list_models")
+        health["strategy_registry"] = self._check_registry_health(
+            self.strategy_registry,
+            "list_strategies",
+        )
+        health["data_registry"] = self._check_registry_health(self.data_registry, "list_datasets")
 
-        try:
-            lm = getattr(self.model_registry, "list_models", None)
-            health["model_registry"] = bool(lm and callable(lm) and lm())
-        except Exception:
-            health["model_registry"] = False
-
-        try:
-            ls = getattr(self.strategy_registry, "list_strategies", None)
-            health["strategy_registry"] = bool(ls and callable(ls) and ls())
-        except Exception:
-            health["strategy_registry"] = False
+        # Check DataStore
+        health["data_store"] = self._check_data_store_health()
 
         # Check partitions
-        try:
-            stats = self.partition_manager.get_partition_stats()
-            health["partitions"] = len(stats) > 0
-        except Exception:
-            health["partitions"] = False
+        health["partitions"] = self._check_partition_health()
 
         return health
+
+    def _check_store_health(self, store: object) -> bool:
+        """
+        Check health of a store component.
+        """
+        try:
+            # Prefer get_statistics() if available, else try is_healthy()
+            if hasattr(store, "get_statistics") and callable(store.get_statistics):
+                store.get_statistics()
+                return True
+            return bool(getattr(store, "is_healthy", lambda: False)())
+        except Exception:
+            return False
+
+    def _check_registry_health(self, registry: object, method_name: str) -> bool:
+        """
+        Check health of a registry component.
+        """
+        try:
+            method = getattr(registry, method_name, None)
+            if method_name == "list_datasets":
+                return bool(method and callable(method))
+            return bool(method and callable(method) and method())
+        except Exception:
+            return False
+
+    def _check_data_store_health(self) -> bool:
+        """
+        Check health of DataStore component.
+        """
+        try:
+            return bool(self.data_store and hasattr(self.data_store, "registry"))
+        except Exception:
+            return False
+
+    def _check_partition_health(self) -> bool:
+        """
+        Check health of partition manager.
+        """
+        try:
+            stats = self.partition_manager.get_partition_stats()
+            return len(stats) > 0
+        except Exception:
+            return False
 
     def create_integrated_actor(self, actor_class: type[Any], config: object) -> object:
         """
@@ -418,6 +517,7 @@ class MLIntegrationManager:
         if not hasattr(config, "db_connection"):
             # Best-effort attach db_connection for consumers expecting it
             import logging
+
             try:
                 setattr(config, "db_connection", self.db_connection)
             except Exception:
@@ -439,6 +539,8 @@ class MLIntegrationManager:
             self.model_store.flush()
         if hasattr(self.strategy_store, "flush"):
             self.strategy_store.flush()
+        if self.data_store is not None and hasattr(self.data_store, "flush"):
+            self.data_store.flush()
 
         logger.info("ML integration manager shutdown complete")
 
@@ -465,17 +567,21 @@ class AutoIntegratedActor:
 
         """
         # Get or create integration manager
-        self.integration = integration or MLIntegrationManager(config if isinstance(config, HasDBConnection) else None)
+        self.integration = integration or MLIntegrationManager(
+            config if isinstance(config, HasDBConnection) else None,
+        )
 
         # Wire all stores
         self.feature_store = self.integration.feature_store
         self.model_store = self.integration.model_store
         self.strategy_store = self.integration.strategy_store
+        self.data_store = self.integration.data_store
 
         # Wire all registries
         self.feature_registry = self.integration.feature_registry
         self.model_registry = self.integration.model_registry
         self.strategy_registry = self.integration.strategy_registry
+        self.data_registry = self.integration.data_registry
 
     def write_features(self, features: dict[str, float], **kwargs: object) -> None:
         """

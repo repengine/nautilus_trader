@@ -8,20 +8,19 @@ performance requirements.
 """
 
 from __future__ import annotations
+
 # ruff: noqa: I001
 
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 # Metrics bootstrap handles idempotency; no direct registry access
 from ml.actors.base import MLSignal
-from ml.common.metrics import Counter
-from ml.common.metrics import Histogram
 from ml.config.base import MLStrategyConfig
 from ml.config.names import LABEL_INSTRUMENT
 from ml.config.names import LABEL_ORDER_SIDE
@@ -35,6 +34,7 @@ from ml.config.names import METRIC_STRATEGY_STORE_BATCH_SIZE
 from ml.config.names import METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS
 from ml.config.names import METRIC_TRADES_EXECUTED_TOTAL
 from ml.stores.strategy_store import StrategyStore
+
 if TYPE_CHECKING:
     from ml.stores.protocols import StrategyStoreProtocol
 from nautilus_trader.core.data import Data
@@ -66,7 +66,9 @@ ml_strategy_store_batch_size = None
 
 
 def _initialize_metrics() -> None:
-    """Initialize Prometheus metrics once (idempotent)."""
+    """
+    Initialize Prometheus metrics once (idempotent).
+    """
     from ml.common.metrics_bootstrap import get_counter, get_gauge, get_histogram
 
     global _metrics_initialized, ml_signals_received, ml_trades_executed, ml_signal_to_trade_latency, ml_position_count
@@ -195,7 +197,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             self.strategy_store = StrategyStore(
                 connection_string=store_config.get(
                     "connection_string",
-                    "postgresql://postgres:postgres@localhost:5432/nautilus"
+                    "postgresql://postgres:postgres@localhost:5432/nautilus",
                 ),
                 batch_size=store_config.get("batch_size", 100),
                 flush_interval_ms=store_config.get("flush_interval_ms", 1000),
@@ -258,10 +260,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             if self.target_model_ids is not None:
                 if model_id not in self.target_model_ids:
                     self.log.debug(
-                        (
-                            f"Ignoring signal from model {model_id} "
-                            "(not in target list)"
-                        ),
+                        (f"Ignoring signal from model {model_id} " "(not in target list)"),
                     )
                     return
 
@@ -326,7 +325,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             # Add account balance if available
             try:
                 base_currency = self.cache.account_for_venue(
-                    self.cache.venues()[0] if self.cache.venues() else None
+                    self.cache.venues()[0] if self.cache.venues() else None,
                 ).base_currency
                 if base_currency:
                     balance = self.portfolio.balances_total().get(base_currency)
@@ -346,12 +345,9 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             }
 
         # Extract model predictions
-        model_id = (
-            getattr(signal, "model_id", None)
-            or signal.metadata.get("model_id", "unknown")
-        )
+        model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
         model_predictions = {
-            model_id: float(signal.prediction)
+            model_id: float(signal.prediction),
         }
 
         # Add any aggregated model predictions if available
@@ -362,6 +358,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
 
         # Write to store with timing
         import time
+
         start_time = time.perf_counter()
 
         try:
@@ -388,7 +385,9 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             if self._strategy_decisions_persisted:
                 self._strategy_decisions_persisted.labels(strategy_id=str(self.id)).inc()
             if self._strategy_store_write_latency:
-                self._strategy_store_write_latency.labels(strategy_id=str(self.id)).observe(write_latency)
+                self._strategy_store_write_latency.labels(strategy_id=str(self.id)).observe(
+                    write_latency,
+                )
             if self._strategy_store_batch_size and hasattr(store, "_write_buffer"):
                 self._strategy_store_batch_size.labels(
                     strategy_id=str(self.id),

@@ -10,7 +10,7 @@ Feature parity is critical for ML model performance in production.
 from __future__ import annotations
 
 import types
-from typing import TYPE_CHECKING, Any, Self, overload, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
 
 import msgspec
 import numpy as np
@@ -21,13 +21,6 @@ from ml._imports import HAS_POLARS
 from ml._imports import HAS_SKLEARN
 from ml._imports import pd
 from ml._imports import pl
-from ml.typing import (
-    DataFrameLike,
-    PolarsDF,
-    PolarsSeries,
-    PandasDF,
-    StandardScaler as StandardScalerT,
-)
 from ml.config.base import MLFeatureConfig
 from ml.config.constants import IndicatorNames
 from ml.config.constants import SystemConstants
@@ -39,6 +32,11 @@ from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
+from ml.typing import DataFrameLike
+from ml.typing import PandasDF
+from ml.typing import PolarsDF
+from ml.typing import PolarsSeries
+from ml.typing import StandardScaler as StandardScalerT
 
 
 if TYPE_CHECKING:
@@ -642,8 +640,9 @@ class FeatureEngineer:
         """
         Reset internal state for a clean start.
 
-        Clears cached statistics and resets the underlying indicator manager and
-        feature buffer to ensure no cross-run state leakage.
+        Clears cached statistics and resets the underlying indicator manager and feature
+        buffer to ensure no cross-run state leakage.
+
         """
         # Reset indicator state and price history
         if hasattr(self, "_indicator_manager"):
@@ -717,7 +716,10 @@ class FeatureEngineer:
         )
 
     # Minimal quality calculator stub for strict typing; extended in teacher pipelines
-    def _calculate_feature_qualities(self: Self, df: DataFrameLike) -> dict[str, Any]:  # pragma: no cover - typing stub
+    def _calculate_feature_qualities(
+        self: Self,
+        df: DataFrameLike,
+    ) -> dict[str, Any]:  # pragma: no cover - typing stub
         return {}
 
     def _extract_price_arrays(self: Self, df: DataFrameLike) -> tuple[npt.NDArray[np.float64], ...]:
@@ -799,7 +801,11 @@ class FeatureEngineer:
                 features_df[col] = features_df[col].astype("float32")
         return features_df
 
-    def _create_features_dataframe(self: Self, feature_rows: list[dict[str, float]], df: DataFrameLike) -> DataFrameLike:
+    def _create_features_dataframe(
+        self: Self,
+        feature_rows: list[dict[str, float]],
+        df: DataFrameLike,
+    ) -> DataFrameLike:
         """
         Create features DataFrame from feature rows.
         """
@@ -820,7 +826,11 @@ class FeatureEngineer:
             features_df = features_df.select(feature_names)
             # Cast to float32 to match online path dtype exactly
             features_df = features_df.with_columns(
-                [pl.col(name).cast(pl.Float32) for name in feature_names if name in features_df.columns]
+                [
+                    pl.col(name).cast(pl.Float32)
+                    for name in feature_names
+                    if name in features_df.columns
+                ],
             )
         else:
             features_df = self._create_pandas_features_dataframe(
@@ -895,8 +905,7 @@ class FeatureEngineer:
         fit_scaler: bool = ...,
         scaler_fit_ratio: float = ...,
         scaler: None = ...,
-    ) -> tuple[DataFrameLike, StandardScalerT | None]:
-        ...
+    ) -> tuple[DataFrameLike, StandardScalerT | None]: ...
 
     @overload
     def calculate_features(
@@ -908,8 +917,7 @@ class FeatureEngineer:
         fit_scaler: bool = ...,
         scaler_fit_ratio: float = ...,
         scaler: StandardScalerT | None = ...,
-    ) -> npt.NDArray[np.float32]:
-        ...
+    ) -> npt.NDArray[np.float32]: ...
 
     def calculate_features(
         self: Self,
@@ -2162,11 +2170,13 @@ class FeatureEngineer:
 
     # ---- Compatibility shim for legacy tests ----
     def compute_features(self, bars: list[Bar]) -> dict[str, float]:  # pragma: no cover - shim
-        """Compatibility wrapper mapping legacy API to the unified calculator.
+        """
+        Compatibility wrapper mapping legacy API to the unified calculator.
 
         Accepts a list of `Bar` objects, converts them to a tabular form,
         performs batch feature computation, and returns the latest row as a
         simple dict[str, float] to match older test expectations.
+
         """
         # Convert Bars to a lightweight pandas DataFrame regardless of POLARS availability
         rows = []
@@ -2179,7 +2189,7 @@ class FeatureEngineer:
                     "close": float(b.close),
                     "volume": float(b.volume),
                     "timestamp": int(b.ts_event),
-                }
+                },
             )
 
         # Ensure pandas import via centralized imports (fallback if not loaded yet)
@@ -2194,29 +2204,36 @@ class FeatureEngineer:
         # Extract the last row as a plain dict
         if hasattr(features_df, "to_pandas"):
             features_pd = features_df.to_pandas()
-            return {k: float(features_pd.iloc[-1][k]) for k in features_pd.columns if k != "timestamp"}
+            return {
+                k: float(features_pd.iloc[-1][k]) for k in features_pd.columns if k != "timestamp"
+            }
         else:
-            return {k: float(features_df.iloc[-1][k]) for k in features_df.columns if k != "timestamp"}
+            return {
+                k: float(features_df.iloc[-1][k]) for k in features_df.columns if k != "timestamp"
+            }
+
 
 # ===== Shared helpers to prevent drift between Config/Engineer/Pipeline =====
+
 
 def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
     """
     Build a PipelineSpec from a FeatureConfig, including optional transforms.
 
     This is the single source of truth for feature name enumeration.
+
     """
     transforms: list[TransformSpec] = []
 
     # Legacy compatibility: boolean toggles default to enabled if None.
     if getattr(cfg, "enable_returns", None) is not False:
         transforms.append(
-            TransformSpec(name="returns", params={"periods": list(cfg.return_periods)})
+            TransformSpec(name="returns", params={"periods": list(cfg.return_periods)}),
         )
 
     if getattr(cfg, "enable_momentum", None) is not False:
         transforms.append(
-            TransformSpec(name="momentum", params={"periods": list(cfg.momentum_periods)})
+            TransformSpec(name="momentum", params={"periods": list(cfg.momentum_periods)}),
         )
 
     if getattr(cfg, "enable_volatility", None) is not False:
@@ -2384,7 +2401,10 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
         return feature_idx
 
-    def validate_feature_quality(self, features_df: DataFrameLike) -> dict[str, dict[str, float]]:  # noqa: ANN001
+    def validate_feature_quality(
+        self,
+        features_df: DataFrameLike,
+    ) -> dict[str, dict[str, float]]:
         """
         Validate feature quality metrics (cold path only).
 
@@ -2422,7 +2442,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
         return quality_metrics
 
-    def _convert_to_polars(self, features_df: DataFrameLike) -> PolarsDF | None:  # noqa: ANN001
+    def _convert_to_polars(self, features_df: DataFrameLike) -> PolarsDF | None:
         """
         Convert DataFrame to Polars format.
         """
@@ -2434,7 +2454,11 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
                 return None
         return features_df
 
-    def _calculate_column_metrics(self, col_data: PolarsSeries, total_rows: int) -> dict[str, float]:  # noqa: ANN001
+    def _calculate_column_metrics(
+        self,
+        col_data: PolarsSeries,
+        total_rows: int,
+    ) -> dict[str, float]:
         """
         Calculate quality metrics for a single column.
         """
@@ -2459,7 +2483,11 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
         return metrics
 
-    def _calculate_outlier_rate(self, col_data: PolarsSeries, total_rows: int) -> float:  # noqa: ANN001
+    def _calculate_outlier_rate(
+        self,
+        col_data: PolarsSeries,
+        total_rows: int,
+    ) -> float:
         """
         Calculate outlier rate using IQR method.
         """
@@ -2478,14 +2506,17 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
             pass
         return 0.0
 
-    def reset(self) -> None:  # noqa: ANN001
+    def reset(self) -> None:
         """
         Reset the feature engineer state.
         """
         if hasattr(self, "feature_buffer"):
             self.feature_buffer.fill(0.0)
 
-    def _calculate_feature_qualities(self, features_df: DataFrameLike) -> dict[str, dict[str, float]]:  # noqa: ANN001
+    def _calculate_feature_qualities(
+        self,
+        features_df: DataFrameLike,
+    ) -> dict[str, dict[str, float]]:
         """
         Calculate feature quality metrics for monitoring.
 

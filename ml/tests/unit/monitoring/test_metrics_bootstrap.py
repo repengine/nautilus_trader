@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from ml.common.metrics_bootstrap import get_counter, get_gauge, get_histogram
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_gauge
+from ml.common.metrics_bootstrap import get_histogram
 
 
 def test_metrics_bootstrap_idempotent() -> None:

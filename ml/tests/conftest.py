@@ -8,6 +8,7 @@ This module provides:
 - Mock services for external dependencies
 - Hypothesis testing profiles
 - Performance monitoring fixtures
+
 """
 
 
@@ -36,6 +37,7 @@ from sqlalchemy.pool import StaticPool
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
+
     env_file = Path(__file__).parent / ".env"
     if env_file.exists():
         load_dotenv(env_file)
@@ -115,6 +117,7 @@ else:
 # Session-scoped fixtures for expensive resources
 # ============================================================================
 
+
 @pytest.fixture(scope="session")
 def database_engine() -> Generator[Engine, None, None]:
     """
@@ -126,6 +129,7 @@ def database_engine() -> Generator[Engine, None, None]:
     Following Martin Fowler's Test Pyramid principle:
     - Use a single shared connection for fast tests
     - Only integration tests get separate connections
+
     """
     # Use conservative pooling for tests (prevents exhaustion)
     engine = EngineManager.get_engine(
@@ -147,8 +151,9 @@ def database_session_factory(database_engine: Engine) -> sessionmaker:
     """
     Create a session factory for the test session.
 
-    This factory creates sessions that share the same connection pool,
-    preventing connection exhaustion.
+    This factory creates sessions that share the same connection pool, preventing
+    connection exhaustion.
+
     """
     return sessionmaker(bind=database_engine)
 
@@ -156,6 +161,7 @@ def database_session_factory(database_engine: Engine) -> sessionmaker:
 # ============================================================================
 # Function-scoped fixtures with proper isolation
 # ============================================================================
+
 
 @pytest.fixture
 def database_session(database_session_factory: sessionmaker) -> Generator[Session, None, None]:
@@ -167,6 +173,7 @@ def database_session(database_session_factory: sessionmaker) -> Generator[Sessio
 
     Based on SQLAlchemy testing best practices:
     https://docs.sqlalchemy.org/en/14/orm/session_transaction.html
+
     """
     connection = database_session_factory.bind.connect()
     transaction = connection.begin()
@@ -190,8 +197,9 @@ def isolated_engine() -> Generator[Engine, None, None]:
     """
     Create an isolated in-memory SQLite engine for unit tests.
 
-    This is perfect for tests that don't need PostgreSQL-specific features
-    and provides complete isolation with zero connection overhead.
+    This is perfect for tests that don't need PostgreSQL-specific features and provides
+    complete isolation with zero connection overhead.
+
     """
     # Use in-memory SQLite with shared cache for speed
     engine = create_engine(
@@ -209,7 +217,9 @@ def isolated_engine() -> Generator[Engine, None, None]:
 
 @pytest.fixture
 def postgres_connection() -> str:
-    """Get PostgreSQL connection string from environment."""
+    """
+    Get PostgreSQL connection string from environment.
+    """
     return DATABASE_URL
 
 
@@ -217,8 +227,11 @@ def postgres_connection() -> str:
 # PostgreSQL Management Fixtures
 # ============================================================================
 
+
 def is_postgresql_running() -> bool:
-    """Check if PostgreSQL is running and accessible."""
+    """
+    Check if PostgreSQL is running and accessible.
+    """
     try:
         conn = psycopg2.connect(DATABASE_URL)
         conn.close()
@@ -228,7 +241,9 @@ def is_postgresql_running() -> bool:
 
 
 def start_postgresql() -> None:
-    """Attempt to start PostgreSQL if not running."""
+    """
+    Attempt to start PostgreSQL if not running.
+    """
     if is_postgresql_running():
         print("PostgreSQL is already running")
         return
@@ -263,9 +278,11 @@ def start_postgresql() -> None:
 # Compatibility fixture: clean Postgres DB pre/post test
 # ============================================================================
 
+
 @pytest.fixture(scope="function")
 def clean_postgres_db() -> Generator[None, None, None]:
-    """Ensure a clean PostgreSQL state before and after each test.
+    """
+    Ensure a clean PostgreSQL state before and after each test.
 
     - Uses `EngineManager.get_engine(DATABASE_URL)` to respect pooling
     - Defers constraints to allow TRUNCATE order-agnostically
@@ -274,6 +291,7 @@ def clean_postgres_db() -> Generator[None, None, None]:
     This fixture exists for compatibility with legacy tests which
     assume a clean database. Prefer transaction-scoped isolation
     where possible, but this keeps existing tests unblocked.
+
     """
     engine = EngineManager.get_engine(
         DATABASE_URL,
@@ -293,8 +311,8 @@ def clean_postgres_db() -> Generator[None, None, None]:
                     WHERE schemaname = 'public'
                       AND tablename NOT LIKE 'pg_%'
                       AND tablename NOT LIKE 'sql_%'
-                    """
-                )
+                    """,
+                ),
             )
 
             for row in result:
@@ -320,8 +338,8 @@ def clean_postgres_db() -> Generator[None, None, None]:
                     WHERE schemaname = 'public'
                       AND tablename NOT LIKE 'pg_%'
                       AND tablename NOT LIKE 'sql_%'
-                    """
-                )
+                    """,
+                ),
             )
 
             for row in result:
@@ -339,12 +357,15 @@ def clean_postgres_db() -> Generator[None, None, None]:
 # Compatibility database fixtures (legacy names expected by tests)
 # ============================================================================
 
+
 @pytest.fixture(scope="function")
 def test_database() -> Generator[TestDatabase, None, None]:
-    """Create a TestDatabase bound to PostgreSQL with schema initialized.
+    """
+    Create a TestDatabase bound to PostgreSQL with schema initialized.
 
-    Provides a connection string and engine consistent with production usage
-    while ensuring each test starts from a clean state and has required tables.
+    Provides a connection string and engine consistent with production usage while
+    ensuring each test starts from a clean state and has required tables.
+
     """
     if not is_postgresql_running():
         pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
@@ -365,8 +386,8 @@ def test_database() -> Generator[TestDatabase, None, None]:
                 WHERE schemaname = 'public'
                   AND tablename NOT LIKE 'pg_%'
                   AND tablename NOT LIKE 'sql_%'
-                """
-            )
+                """,
+            ),
         )
         for row in result:
             table_name = row[0]
@@ -393,27 +414,35 @@ def test_database() -> Generator[TestDatabase, None, None]:
 
 @pytest.fixture
 def test_db_engine(test_database: TestDatabase) -> Engine:
-    """Expose the SQLAlchemy engine from TestDatabase (compat fixture)."""
+    """
+    Expose the SQLAlchemy engine from TestDatabase (compat fixture).
+    """
     return test_database.engine
 
 
 @pytest.fixture
 def test_db_session(test_database: TestDatabase) -> Generator[Session, None, None]:
-    """Yield a session with automatic rollback from TestDatabase (compat)."""
+    """
+    Yield a session with automatic rollback from TestDatabase (compat).
+    """
     with test_database.get_session() as session:
         yield session
 
 
 @pytest.fixture
 def seeded_database(test_database: TestDatabase) -> TestDatabase:
-    """Seed basic data for tests requiring pre-populated state (compat)."""
+    """
+    Seed basic data for tests requiring pre-populated state (compat).
+    """
     test_database.seed_test_data("basic")
     return test_database
 
 
 @pytest.fixture
 def database_snapshot(test_database: TestDatabase) -> DatabaseSnapshot:
-    """Provide DatabaseSnapshot helper (compat)."""
+    """
+    Provide DatabaseSnapshot helper (compat).
+    """
     return DatabaseSnapshot(test_database)
 
 
@@ -421,13 +450,15 @@ def database_snapshot(test_database: TestDatabase) -> DatabaseSnapshot:
 # Store Fixtures with Proper Mocking
 # ============================================================================
 
+
 @pytest.fixture
 def mock_feature_store() -> MagicMock:
     """
     Create a mock FeatureStore for unit tests.
 
-    This avoids database connections entirely, following the
-    test pyramid principle of using mocks for unit tests.
+    This avoids database connections entirely, following the test pyramid principle of
+    using mocks for unit tests.
+
     """
     mock_store = MagicMock()
     mock_store.write_features = MagicMock(return_value=True)
@@ -439,7 +470,9 @@ def mock_feature_store() -> MagicMock:
 
 @pytest.fixture
 def mock_model_store() -> MagicMock:
-    """Create a mock ModelStore for unit tests."""
+    """
+    Create a mock ModelStore for unit tests.
+    """
     mock_store = MagicMock()
     mock_store.write_predictions = MagicMock(return_value=True)
     mock_store.get_latest_predictions = MagicMock(return_value=[])
@@ -448,7 +481,9 @@ def mock_model_store() -> MagicMock:
 
 @pytest.fixture
 def mock_strategy_store() -> MagicMock:
-    """Create a mock StrategyStore for unit tests."""
+    """
+    Create a mock StrategyStore for unit tests.
+    """
     mock_store = MagicMock()
     mock_store.write_signals = MagicMock(return_value=True)
     mock_store.get_active_signals = MagicMock(return_value=[])
@@ -459,22 +494,27 @@ def mock_strategy_store() -> MagicMock:
 # Connection Monitoring Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def connection_monitor(database_engine: Engine):
     """
     Monitor database connections during test execution.
 
-    This helps identify connection leaks and exhaustion issues.
-    Logs warnings if connection usage exceeds thresholds.
+    This helps identify connection leaks and exhaustion issues. Logs warnings if
+    connection usage exceeds thresholds.
+
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     # Get initial connection count
     with database_engine.connect() as conn:
-        result = conn.execute(text(
-            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
-        ))
+        result = conn.execute(
+            text(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()",
+            ),
+        )
         initial_count = result.scalar()
 
     # Monitor during test
@@ -482,22 +522,24 @@ def connection_monitor(database_engine: Engine):
 
     # Check final connection count
     with database_engine.connect() as conn:
-        result = conn.execute(text(
-            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
-        ))
+        result = conn.execute(
+            text(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()",
+            ),
+        )
         final_count = result.scalar()
 
     # Warn if connections leaked
     if final_count > initial_count + 2:  # Allow small variance
         logger.warning(
-            f"Potential connection leak detected: "
-            f"Initial={initial_count}, Final={final_count}"
+            f"Potential connection leak detected: " f"Initial={initial_count}, Final={final_count}",
         )
 
 
 # ============================================================================
 # Hypothesis-specific Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def hypothesis_database_session():
@@ -509,6 +551,7 @@ def hypothesis_database_session():
 
     Reference: Hypothesis docs on database testing
     https://hypothesis.readthedocs.io/en/latest/database.html
+
     """
     engine = create_engine(
         "sqlite:///:memory:",
@@ -530,19 +573,21 @@ def hypothesis_database_session():
 # Cleanup Fixtures
 # ============================================================================
 
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
     """
     Automatic cleanup after each test.
 
-    This ensures no test leaves behind state that could
-    affect subsequent tests.
+    This ensures no test leaves behind state that could affect subsequent tests.
+
     """
     yield
 
     # Clear any caches (if cache module exists)
     try:
         from ml.core.cache import clear_all_caches
+
         clear_all_caches()
     except ImportError:
         pass
@@ -550,18 +595,22 @@ def cleanup_after_test():
     # Reset any global state (if config module exists)
     try:
         from ml.config import reset_global_config
+
         reset_global_config()
     except ImportError:
         pass
 
     # Garbage collect to free memory
     import gc
+
     gc.collect()
 
 
 @pytest.fixture(autouse=True)
 def cleanup_engines():
-    """Clean up database engines after each test to prevent leaks."""
+    """
+    Clean up database engines after each test to prevent leaks.
+    """
     yield
     EngineManager.dispose_all()
 
@@ -571,8 +620,8 @@ def configure_test_logging():
     """
     Configure logging for tests.
 
-    Reduces log noise during test runs while preserving
-    important error information.
+    Reduces log noise during test runs while preserving important error information.
+
     """
     import logging
 
@@ -582,10 +631,11 @@ def configure_test_logging():
 
     # Add test run identifier to logs
     import uuid
+
     test_run_id = str(uuid.uuid4())[:8]
     logging.basicConfig(
         format=f"[{test_run_id}] %(levelname)s %(name)s: %(message)s",
-        level=logging.INFO
+        level=logging.INFO,
     )
 
 
@@ -593,12 +643,14 @@ def configure_test_logging():
 # Parallel Test Execution Support
 # ============================================================================
 
+
 def pytest_configure(config):
     """
     Configure pytest for optimal parallel execution.
 
-    Uses pytest-xdist for parallel test execution to reduce
-    total test time while preventing connection exhaustion.
+    Uses pytest-xdist for parallel test execution to reduce total test time while
+    preventing connection exhaustion.
+
     """
     # Register known markers to silence PytestUnknownMarkWarning
     config.addinivalue_line("markers", "database: requires PostgreSQL; may run serially")
@@ -611,6 +663,7 @@ def pytest_configure(config):
         import multiprocessing
 
         import xdist
+
         cpu_count = multiprocessing.cpu_count()
 
         # Use half the CPUs to avoid overwhelming the database
@@ -625,15 +678,19 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Gate database-marked tests when PostgreSQL is not reachable.
+    """
+    Gate database-marked tests when PostgreSQL is not reachable.
 
-    This prevents noisy failures on CI or local environments without
-    a running Postgres instance. A clear skip reason is added.
+    This prevents noisy failures on CI or local environments without a running Postgres
+    instance. A clear skip reason is added.
+
     """
     if is_postgresql_running():
         return
 
-    skip_reason = f"PostgreSQL not reachable at {DATABASE_URL}; skipping @pytest.mark.database tests"
+    skip_reason = (
+        f"PostgreSQL not reachable at {DATABASE_URL}; skipping @pytest.mark.database tests"
+    )
     skip_db = pytest.mark.skip(reason=skip_reason)
     for item in items:
         if "database" in item.keywords:
@@ -641,13 +698,16 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_sessionstart(session):
-    """Set up test database at session start."""
+    """
+    Set up test database at session start.
+    """
     # Ensure PostgreSQL is running
     start_postgresql()
 
     # Initialize test database
     if is_postgresql_running():
         from ml.core.db_engine import EngineManager
+
         engine = EngineManager.get_engine(DATABASE_URL)
 
         # Tables will be created by stores as needed
@@ -660,12 +720,14 @@ def pytest_sessionfinish(session, exitstatus):
     Clean up after test session completes.
 
     Ensures all resources are properly released.
+
     """
     # Final cleanup of all database connections
     EngineManager.dispose_all()
 
     # Log session summary
     import logging
+
     logger = logging.getLogger(__name__)
     logger.info(f"Test session completed with exit status: {exitstatus}")
 

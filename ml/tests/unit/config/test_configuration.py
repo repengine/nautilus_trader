@@ -3,9 +3,11 @@
 Test the test configuration infrastructure itself.
 
 This ensures our test configuration, mocks, and database fixtures work correctly.
+
 """
 
 import pytest
+
 
 pytest.skip("TestConfig infrastructure not yet implemented", allow_module_level=True)
 from sqlalchemy import text
@@ -15,6 +17,8 @@ from ml.tests.fixtures.mock_services import MockDatabentoClient
 from ml.tests.fixtures.mock_services import MockFredClient
 from ml.tests.fixtures.mock_services import MockRedis
 from ml.tests.fixtures.mock_services import MockYahooClient
+
+
 # Note: test_config.py doesn't exist - commenting out for now
 # from ml.tests.test_config import TestConfig
 # from ml.tests.test_config import TestEnvironment
@@ -26,12 +30,16 @@ from ml.tests.fixtures.mock_services import MockYahooClient
 @pytest.mark.parallel_safe
 @pytest.mark.unit
 class TestTestConfiguration:
-    """Test the test configuration system."""
+    """
+    Test the test configuration system.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
     def test_config_initialization(self, test_config: TestConfig):
-        """Test that test configuration initializes correctly."""
+        """
+        Test that test configuration initializes correctly.
+        """
         assert test_config is not None
         assert test_config.environment in TestEnvironment
         assert test_config.database is not None
@@ -41,7 +49,9 @@ class TestTestConfiguration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_database_config_by_environment(self):
-        """Test database configuration for different environments."""
+        """
+        Test database configuration for different environments.
+        """
         # Unit test config
         unit_config = TestConfig(TestEnvironment.UNIT)
         assert unit_config.database.use_in_memory is True
@@ -59,7 +69,9 @@ class TestTestConfiguration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_test_database_initialization(self, test_database: TestDatabase):
-        """Test that test database initializes and works."""
+        """
+        Test that test database initializes and works.
+        """
         assert test_database is not None
         assert test_database.engine is not None
         assert test_database._schema_initialized is True
@@ -72,14 +84,16 @@ class TestTestConfiguration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_database_seed_data(self, test_database: TestDatabase):
-        """Test database seeding functionality."""
+        """
+        Test database seeding functionality.
+        """
         test_database.seed_test_data("basic")
 
         # Check that data was seeded
         with test_database.get_session() as session:
             # Check instruments table
             result = session.execute(
-                text("SELECT COUNT(*) FROM ml_instruments")
+                text("SELECT COUNT(*) FROM ml_instruments"),
             )
             count = result.scalar()
             assert count >= 3  # Basic seed should have at least 3 instruments
@@ -87,21 +101,25 @@ class TestTestConfiguration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_database_rollback(self, test_database: TestDatabase):
-        """Test that database rollback works for test isolation."""
+        """
+        Test that database rollback works for test isolation.
+        """
         # Insert data in a session
         with test_database.get_session() as session:
             session.execute(
-                text("""
+                text(
+                    """
                     INSERT INTO ml_instruments (instrument_id, symbol, asset_type, tick_size, lot_size)
                     VALUES ('TEST.ROLLBACK', 'TEST', 'EQUITY', 0.01, 1)
-                """)
+                """,
+                ),
             )
             # No explicit commit due to auto_rollback
 
         # Verify data was rolled back
         with test_database.get_session() as session:
             result = session.execute(
-                text("SELECT COUNT(*) FROM ml_instruments WHERE instrument_id = 'TEST.ROLLBACK'")
+                text("SELECT COUNT(*) FROM ml_instruments WHERE instrument_id = 'TEST.ROLLBACK'"),
             )
             assert result.scalar() == 0
 
@@ -109,12 +127,16 @@ class TestTestConfiguration:
 @pytest.mark.database
 @pytest.mark.serial
 class TestMockServices:
-    """Test mock service implementations."""
+    """
+    Test mock service implementations.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
     def test_mock_databento_client(self, mock_databento_client):
-        """Test mock Databento client functionality."""
+        """
+        Test mock Databento client functionality.
+        """
         assert isinstance(mock_databento_client, MockDatabentoClient)
 
         # Test list datasets
@@ -124,6 +146,7 @@ class TestMockServices:
 
         # Test get data
         import pandas as pd
+
         data = mock_databento_client.get_data(
             dataset="XNAS.ITCH",
             symbols=["SPY"],
@@ -139,11 +162,14 @@ class TestMockServices:
     @pytest.mark.database
     @pytest.mark.serial
     def test_mock_fred_client(self, mock_fred_client):
-        """Test mock FRED client functionality."""
+        """
+        Test mock FRED client functionality.
+        """
         assert isinstance(mock_fred_client, MockFredClient)
 
         # Test get series
         import pandas as pd
+
         data = mock_fred_client.get_series("DGS10")
         assert isinstance(data, pd.DataFrame)
         assert "value" in data.columns
@@ -152,11 +178,14 @@ class TestMockServices:
     @pytest.mark.database
     @pytest.mark.serial
     def test_mock_yahoo_client(self, mock_yahoo_client):
-        """Test mock Yahoo client functionality."""
+        """
+        Test mock Yahoo client functionality.
+        """
         assert isinstance(mock_yahoo_client, MockYahooClient)
 
         # Test get history
         import pandas as pd
+
         data = mock_yahoo_client.get_history("SPY")
         assert isinstance(data, pd.DataFrame)
         assert "Open" in data.columns
@@ -166,7 +195,9 @@ class TestMockServices:
     @pytest.mark.database
     @pytest.mark.serial
     def test_mock_redis(self, mock_redis):
-        """Test mock Redis functionality."""
+        """
+        Test mock Redis functionality.
+        """
         # Could be real or mock depending on environment
         assert mock_redis is not None
 
@@ -184,12 +215,16 @@ class TestMockServices:
 @pytest.mark.database
 @pytest.mark.serial
 class TestFixtureIntegration:
-    """Test that fixtures work together correctly."""
+    """
+    Test that fixtures work together correctly.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
     def test_database_with_mocks(self, test_database, mock_databento_client):
-        """Test database and mock services work together."""
+        """
+        Test database and mock services work together.
+        """
         # Both should be available
         assert test_database is not None
         assert mock_databento_client is not None
@@ -205,13 +240,15 @@ class TestFixtureIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_seeded_database_fixture(self, seeded_database):
-        """Test the seeded database fixture."""
+        """
+        Test the seeded database fixture.
+        """
         assert seeded_database is not None
 
         # Should have seed data
         with seeded_database.get_session() as session:
             result = session.execute(
-                text("SELECT COUNT(*) FROM ml_instruments")
+                text("SELECT COUNT(*) FROM ml_instruments"),
             )
             assert result.scalar() >= 3
 
@@ -223,7 +260,9 @@ class TestFixtureIntegration:
         model_store_connection,
         strategy_store_connection,
     ):
-        """Test store connection string fixtures."""
+        """
+        Test store connection string fixtures.
+        """
         assert feature_store_connection is not None
         assert model_store_connection is not None
         assert strategy_store_connection is not None
@@ -237,12 +276,16 @@ class TestFixtureIntegration:
 @pytest.mark.database
 @pytest.mark.serial
 class TestEnvironmentDetection:
-    """Test automatic environment detection."""
+    """
+    Test automatic environment detection.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
     def test_environment_detection(self, test_config):
-        """Test that environment is detected correctly."""
+        """
+        Test that environment is detected correctly.
+        """
         # In pytest context, should detect unit tests by default
         assert test_config.environment in TestEnvironment
 
@@ -253,7 +296,9 @@ class TestEnvironmentDetection:
     @pytest.mark.database
     @pytest.mark.serial
     def test_feature_flags(self, test_config):
-        """Test feature flags configuration."""
+        """
+        Test feature flags configuration.
+        """
         # By default, should use mocks
         assert test_config.use_real_databento is False
         assert test_config.use_real_fred is False

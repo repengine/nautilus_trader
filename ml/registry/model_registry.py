@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+from ml.common.protocols import MLComponentMixin
 from ml.config.constants import SUFFIX_ONNX
 from ml.config.constants import Versions
 from ml.config.registry import RegistryPolicyConfig
@@ -41,7 +42,7 @@ from ml.registry.statistics import welch_t_test
 logger = logging.getLogger(__name__)
 
 
-class ModelRegistry:
+class ModelRegistry(MLComponentMixin):
     """
     Model registry with configurable persistence backend.
 
@@ -767,7 +768,9 @@ class ModelRegistry:
     ) -> list[ModelInfo]:
         """
         List models compatible with a given feature schema hash.
+
         Optionally filter by role and architecture.
+
         """
         with self._lock:
             result = [
@@ -786,10 +789,15 @@ class ModelRegistry:
         schema_hash: str,
     ) -> ModelInfo | None:
         """
-        Resolve the latest model by version matching role, architecture, and schema hash.
+        Resolve the latest model by version matching role, architecture, and schema
+        hash.
+
         Uses lexical comparison of version strings.
+
         """
-        candidates = self.list_compatible(schema_hash=schema_hash, role=role, architecture=architecture)
+        candidates = self.list_compatible(
+            schema_hash=schema_hash, role=role, architecture=architecture
+        )
         if not candidates:
             return None
         latest = max(candidates, key=lambda m: m.manifest.version)
@@ -800,6 +808,7 @@ class ModelRegistry:
         Return the model artifact path if present and within registry root.
 
         Does not attempt to load or execute the artifact. Use for cold-path models.
+
         """
         with self._lock:
             if model_id not in self._models:
@@ -870,7 +879,7 @@ class ModelRegistry:
 
             return lineage
 
-    def load_model(self, model_id: str) -> Any | None:
+    def load_model(self, model_id: str) -> object | None:
         """
         Load model from cache or disk.
 

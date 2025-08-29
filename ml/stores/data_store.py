@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ContextManager, cast
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml._imports import Histogram
+from ml.common.protocols import MLComponentMixin
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -207,7 +208,7 @@ class ValidationViolation:
 # ========================================================================
 
 
-class DataStore:
+class DataStore(MLComponentMixin):
     """
     Typed read/write facade with contract validation and event emission.
 
@@ -245,7 +246,7 @@ class DataStore:
 
     def __init__(
         self,
-        registry: "RegistryProtocol",
+        registry: RegistryProtocol,
         connection_string: str,
         feature_store: FeatureStore | None = None,
         model_store: ModelStore | None = None,
@@ -387,7 +388,9 @@ class DataStore:
                     validation_details["extra_columns"] = list(extra_columns)
                     return False, error_msg, validation_details
                 elif extra_columns:
-                    validation_details["warnings"].append(f"Extra columns will be ignored: {extra_columns}")
+                    validation_details["warnings"].append(
+                        f"Extra columns will be ignored: {extra_columns}",
+                    )
 
             # Check 2: Data types compatibility
             type_mismatches: list[dict[str, str]] = []
@@ -397,11 +400,13 @@ class DataStore:
                     if col_name in df.columns:
                         actual_type = str(df[col_name].dtype)
                         if not self._types_compatible(actual_type, expected_type):
-                            type_mismatches.append({
-                                "column": col_name,
-                                "expected": expected_type,
-                                "actual": actual_type,
-                            })
+                            type_mismatches.append(
+                                {
+                                    "column": col_name,
+                                    "expected": expected_type,
+                                    "actual": actual_type,
+                                },
+                            )
 
             if type_mismatches:
                 validation_details["type_mismatches"] = type_mismatches
@@ -409,7 +414,9 @@ class DataStore:
                     error_msg = f"Type mismatches found: {type_mismatches}"
                     return False, error_msg, validation_details
                 else:
-                    validation_details["warnings"].append(f"Type coercion will be attempted for {len(type_mismatches)} columns")
+                    validation_details["warnings"].append(
+                        f"Type coercion will be attempted for {len(type_mismatches)} columns",
+                    )
 
             # Check 3: Schema hash compatibility
             actual_schema_hash = self._compute_schema_hash(df, manifest)
@@ -420,7 +427,9 @@ class DataStore:
                 # Check if we're in a migration window
                 if self._is_in_migration_window(dataset_id):
                     validation_details["migration_mode"] = True
-                    validation_details["warnings"].append("Schema migration in progress - dual-write enabled")
+                    validation_details["warnings"].append(
+                        "Schema migration in progress - dual-write enabled",
+                    )
                 else:
                     error_msg = (
                         f"Schema hash mismatch. Expected: {manifest.schema_hash}, "
@@ -454,7 +463,9 @@ class DataStore:
                             null_count = 0
 
                         if null_count > 0:
-                            error_msg = f"Primary key field '{pk_field}' contains {null_count} null values"
+                            error_msg = (
+                                f"Primary key field '{pk_field}' contains {null_count} null values"
+                            )
                             return False, error_msg, validation_details
 
             # Check 5: Required fields (from constraints)
@@ -473,7 +484,9 @@ class DataStore:
                             null_count = 0
 
                         if null_count > 0:
-                            error_msg = f"Required field '{field}' contains {null_count} null values"
+                            error_msg = (
+                                f"Required field '{field}' contains {null_count} null values"
+                            )
                             return False, error_msg, validation_details
 
             validation_details["preflight_passed"] = True
@@ -539,7 +552,9 @@ class DataStore:
 
         # Perform preflight schema check
         preflight_passed, preflight_error, preflight_details = self.preflight_check(
-            dataset_id, records, strict=self.fail_on_validation_error
+            dataset_id,
+            records,
+            strict=self.fail_on_validation_error,
         )
 
         if not preflight_passed:
@@ -552,7 +567,7 @@ class DataStore:
 
             raise ValueError(
                 f"Preflight check failed for {dataset_id}: {preflight_error}. "
-                f"Details: {preflight_details}"
+                f"Details: {preflight_details}",
             )
 
         # Log warnings from preflight check
@@ -589,8 +604,7 @@ class DataStore:
 
             # Count critical violations (FAIL severity)
             critical_violations = [
-                v for v in quality_report.violations
-                if v.severity == QualityFlag.FAIL
+                v for v in quality_report.violations if v.severity == QualityFlag.FAIL
             ]
 
             # Fail-closed: Block any data with critical violations (unless monitor_only)
@@ -606,7 +620,7 @@ class DataStore:
                     f"Data validation failed for {dataset_id} (fail-closed). "
                     f"Quality score: {quality_report.quality_score:.2f}. "
                     f"Critical violations: {len(critical_violations)}. "
-                    f"Details: {violations_str}"
+                    f"Details: {violations_str}",
                 )
 
             # For non-critical violations, check enforcement mode
@@ -621,7 +635,7 @@ class DataStore:
                 raise ValueError(
                     f"Data validation failed for {dataset_id} (strict mode). "
                     f"Quality score: {quality_report.quality_score:.2f}. "
-                    f"Violations: {violations_str}"
+                    f"Violations: {violations_str}",
                 )
             elif contract.enforcement_mode == "lenient":
                 logger.warning(
@@ -813,7 +827,7 @@ class DataStore:
             if feature_data.instrument_id != instrument_id:
                 raise ValueError(
                     f"Instrument mismatch: expected {instrument_id}, "
-                    f"got {feature_data.instrument_id}"
+                    f"got {feature_data.instrument_id}",
                 )
 
         # Store features
@@ -1135,6 +1149,7 @@ class DataStore:
         if manifest.dataset_type == DatasetType.FEATURES:
             # Convert nanoseconds to datetime for FeatureStore
             from datetime import datetime
+
             start_dt = datetime.fromtimestamp(start_ns / 1e9)
             end_dt = datetime.fromtimestamp(end_ns / 1e9)
             # Use feature store's get_training_data method
@@ -1169,7 +1184,7 @@ class DataStore:
         else:
             # For raw market data types, would integrate with Nautilus catalog
             raise NotImplementedError(
-                f"Read not implemented for dataset type {manifest.dataset_type}"
+                f"Read not implemented for dataset type {manifest.dataset_type}",
             )
 
     # =========================================================================
@@ -1293,7 +1308,7 @@ class DataStore:
                             violation_count=int(null_rate * total_records),
                             sample_values=[],
                             description=f"Null rate {null_rate:.2%} exceeds threshold",
-                        )
+                        ),
                     )
 
         validation_time_ms = (time.perf_counter() - start_time) * 1000
@@ -1339,7 +1354,9 @@ class DataStore:
     # =========================================================================
 
     def _get_manifest(self, dataset_id: str) -> DatasetManifest:
-        """Get dataset manifest with caching and version check."""
+        """
+        Get dataset manifest with caching and version check.
+        """
         if dataset_id not in self._manifest_cache:
             manifest = self.registry.get_manifest(dataset_id)
             self._manifest_cache[dataset_id] = manifest
@@ -1361,7 +1378,9 @@ class DataStore:
         return self._manifest_cache[dataset_id]
 
     def _get_contract(self, dataset_id: str) -> DataContract:
-        """Get data contract with caching and version check."""
+        """
+        Get data contract with caching and version check.
+        """
         if dataset_id not in self._contract_cache:
             contract = self.registry.get_contract(dataset_id)
             self._contract_cache[dataset_id] = contract
@@ -1377,8 +1396,13 @@ class DataStore:
 
         return self._contract_cache[dataset_id]
 
-    def _to_dataframe(self, data: DataFrameLike | list[dict[str, Any]]) -> DataFrameLike | list[dict[str, Any]]:
-        """Convert various data formats to DataFrame-like or pass-through list."""
+    def _to_dataframe(
+        self,
+        data: DataFrameLike | list[dict[str, Any]],
+    ) -> DataFrameLike | list[dict[str, Any]]:
+        """
+        Convert various data formats to DataFrame-like or pass-through list.
+        """
         # Import here to avoid circular dependency
         from ml._imports import HAS_POLARS
         from ml._imports import pl
@@ -1401,7 +1425,9 @@ class DataStore:
         return data
 
     def _get_stage_for_dataset_type(self, dataset_type: DatasetType) -> str:
-        """Map dataset type to processing stage."""
+        """
+        Map dataset type to processing stage.
+        """
         stage_map = {
             DatasetType.BARS: "CATALOG_WRITTEN",
             DatasetType.TRADES: "CATALOG_WRITTEN",
@@ -1420,7 +1446,9 @@ class DataStore:
         df: object,
         manifest: DatasetManifest,
     ) -> ValidationViolation | None:
-        """Apply a single validation rule to data."""
+        """
+        Apply a single validation rule to data.
+        """
         try:
             if rule.rule_type == ValidationRuleType.TYPE_CHECK:
                 return self._validate_types(rule, df, manifest)
@@ -1455,7 +1483,9 @@ class DataStore:
         manifest: DatasetManifest,
     ) -> ValidationViolation | None:
         df_any = cast(Any, df)
-        """Validate data types match schema."""
+        """
+        Validate data types match schema.
+        """
         violations = 0
         sample_values = []
 
@@ -1483,7 +1513,9 @@ class DataStore:
         return None
 
     def _validate_range(self, rule: ValidationRule, df: object) -> ValidationViolation | None:
-        """Validate values are within specified range."""
+        """
+        Validate values are within specified range.
+        """
         df_any = cast(Any, df)
         field_name = rule.field_name
         params = rule.parameters
@@ -1547,7 +1579,9 @@ class DataStore:
                             # Get sample of violating values
                             violating = col[above_max]
                             if hasattr(violating, "head"):
-                                sample_values.extend(violating.head(5 - len(sample_values)).to_list())
+                                sample_values.extend(
+                                    violating.head(5 - len(sample_values)).to_list(),
+                                )
                 except:
                     pass
 
@@ -1568,7 +1602,9 @@ class DataStore:
         rule: ValidationRule,
         df: object,
     ) -> ValidationViolation | None:
-        """Validate uniqueness constraints."""
+        """
+        Validate uniqueness constraints.
+        """
         field_name = rule.field_name
         df_any = cast(Any, df)
 
@@ -1643,7 +1679,9 @@ class DataStore:
         rule: ValidationRule,
         df: object,
     ) -> ValidationViolation | None:
-        """Validate monotonic sequences (e.g., timestamps)."""
+        """
+        Validate monotonic sequences (e.g., timestamps).
+        """
         df_any = cast(Any, df)
 
         field_name = rule.field_name
@@ -1716,7 +1754,9 @@ class DataStore:
         rule: ValidationRule,
         df: object,
     ) -> ValidationViolation | None:
-        """Validate null value constraints."""
+        """
+        Validate null value constraints.
+        """
         df_any = cast(Any, df)
         field_name = rule.field_name
         params = rule.parameters
@@ -1734,16 +1774,14 @@ class DataStore:
                     null_counts = df_any.null_count()
                     total_nulls = sum(null_counts.to_dicts()[0].values())
                     fields_with_nulls = [
-                        col for col in df_any.columns
-                        if df_any[col].is_null().sum() > 0
+                        col for col in df_any.columns if df_any[col].is_null().sum() > 0
                     ]
                 elif hasattr(df_any, "isnull"):
                     # pandas
                     null_counts = df_any.isnull().sum()
                     total_nulls = null_counts.sum()
                     fields_with_nulls = [
-                        col for col in df_any.columns
-                        if df_any[col].isnull().sum() > 0
+                        col for col in df_any.columns if df_any[col].isnull().sum() > 0
                     ]
                 else:
                     total_nulls = 0
@@ -1788,8 +1826,10 @@ class DataStore:
         rule: ValidationRule,
         df: object,
         manifest: DatasetManifest,
-     ) -> ValidationViolation | None:
-        """Validate data freshness/lateness."""
+    ) -> ValidationViolation | None:
+        """
+        Validate data freshness/lateness.
+        """
         df_any = cast(Any, df)
         params = rule.parameters
         max_lateness_ns = params.get("max_lateness_ns", 300_000_000_000)  # Default 5 minutes
@@ -1816,7 +1856,9 @@ class DataStore:
         return None
 
     def _types_compatible(self, actual: str, expected: str) -> bool:
-        """Check if actual type is compatible with expected type."""
+        """
+        Check if actual type is compatible with expected type.
+        """
         # Simple type compatibility check
         type_map = {
             "int64": ["int", "int64", "i8", "Int64"],
@@ -1833,7 +1875,9 @@ class DataStore:
         return actual.lower() == expected.lower()
 
     def _format_violations(self, violations: list[ValidationViolation]) -> str:
-        """Format violations for logging."""
+        """
+        Format violations for logging.
+        """
         if not violations:
             return "None"
 
@@ -1847,7 +1891,9 @@ class DataStore:
         return "; ".join(parts)
 
     def _df_to_feature_data(self, df: DataFrameLike, instrument_id: str) -> list[FeatureData]:
-        """Convert DataFrame to list of FeatureData."""
+        """
+        Convert DataFrame to list of FeatureData.
+        """
         features = []
 
         # Generate a default feature_set_id if not present
@@ -1863,12 +1909,13 @@ class DataStore:
                         feature_set_id=feature_set_id,
                         instrument_id=instrument_id,
                         values={
-                            str(k): v for k, v in row.items()
+                            str(k): v
+                            for k, v in row.items()
                             if k not in ["instrument_id", "ts_event", "ts_init"]
                         },
                         _ts_event=int(row["ts_event"]),
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
-                    )
+                    ),
                 )
         elif hasattr(df, "iterrows"):
             # pandas DataFrame
@@ -1878,12 +1925,13 @@ class DataStore:
                         feature_set_id=feature_set_id,
                         instrument_id=instrument_id,
                         values={
-                            str(k): v for k, v in row.items()
+                            str(k): v
+                            for k, v in row.items()
                             if k not in ["instrument_id", "ts_event", "ts_init"]
                         },
                         _ts_event=int(row["ts_event"]),
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
-                    )
+                    ),
                 )
         else:
             # Fallback for list of dicts
@@ -1894,18 +1942,21 @@ class DataStore:
                             feature_set_id=feature_set_id,
                             instrument_id=instrument_id,
                             values={
-                                str(k): v for k, v in row.items()
+                                str(k): v
+                                for k, v in row.items()
                                 if k not in ["instrument_id", "ts_event", "ts_init"]
                             },
                             _ts_event=int(row["ts_event"]),
                             _ts_init=int(row.get("ts_init") or row["ts_event"]),
-                        )
+                        ),
                     )
 
         return features
 
     def _df_to_predictions(self, df: DataFrameLike | list[dict[str, Any]]) -> list[ModelPrediction]:
-        """Convert DataFrame to list of ModelPrediction."""
+        """
+        Convert DataFrame to list of ModelPrediction.
+        """
         predictions = []
 
         # Handle both Polars and pandas-like DataFrames
@@ -1923,7 +1974,7 @@ class DataStore:
                         inference_time_ms=row.get("inference_time_ms", 0.0),
                         _ts_event=int(row["ts_event"]),
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
-                    )
+                    ),
                 )
         elif hasattr(df, "iterrows"):
             # pandas DataFrame
@@ -1938,7 +1989,7 @@ class DataStore:
                         inference_time_ms=row.get("inference_time_ms", 0.0),
                         _ts_event=int(row["ts_event"]),
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
-                    )
+                    ),
                 )
         else:
             # Fallback for list of dicts
@@ -1954,13 +2005,15 @@ class DataStore:
                             inference_time_ms=row.get("inference_time_ms", 0.0),
                             _ts_event=int(row["ts_event"]),
                             _ts_init=int(row.get("ts_init") or row["ts_event"]),
-                        )
+                        ),
                     )
 
         return predictions
 
     def _df_to_signals(self, df: DataFrameLike | list[dict[str, Any]]) -> list[StrategySignal]:
-        """Convert DataFrame to list of StrategySignal."""
+        """
+        Convert DataFrame to list of StrategySignal.
+        """
         signals = []
 
         # Handle both Polars and pandas-like DataFrames
@@ -1979,7 +2032,7 @@ class DataStore:
                         execution_params=row.get("execution_params", {}),
                         _ts_event=int(row["ts_event"]),
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
-                    )
+                    ),
                 )
         elif hasattr(df, "iterrows"):
             # pandas DataFrame
@@ -1995,7 +2048,7 @@ class DataStore:
                         execution_params=row.get("execution_params", {}),
                         _ts_event=int(row["ts_event"]),
                         _ts_init=int(row.get("ts_init", row["ts_event"])),
-                    )
+                    ),
                 )
         else:
             # Fallback for list of dicts
@@ -2006,13 +2059,15 @@ class DataStore:
                             strategy_id=row["strategy_id"],
                             instrument_id=row["instrument_id"],
                             signal_type=row["signal_type"],
-                            strength=float(row.get("strength", row.get("signal_value", 0.0)) or 0.0),
+                            strength=float(
+                                row.get("strength", row.get("signal_value", 0.0)) or 0.0,
+                            ),
                             model_predictions=row.get("model_predictions", {}),
                             risk_metrics=row.get("risk_metrics", {}),
                             execution_params=row.get("execution_params", {}),
                             _ts_event=int(row["ts_event"]),
                             _ts_init=int(row.get("ts_init") or row["ts_event"]),
-                        )
+                        ),
                     )
 
         return signals
@@ -2023,7 +2078,9 @@ class DataStore:
         dataset_type: DatasetType,
         instrument_id: str,
     ) -> None:
-        """Ensure dataset is registered in the registry."""
+        """
+        Ensure dataset is registered in the registry.
+        """
         try:
             # Check if already registered
             self.registry.get_manifest(dataset_id)
@@ -2054,7 +2111,7 @@ class DataStore:
                         "instrument_id": False,
                         "ts_event": False,
                         "ts_init": False,
-                    }
+                    },
                 },
                 lineage=[],
                 pipeline_signature="data_store_auto",
@@ -2066,7 +2123,9 @@ class DataStore:
             logger.info("Auto-registered dataset %s", dataset_id)
 
     def _get_schema_for_type(self, dataset_type: DatasetType) -> dict[str, str]:
-        """Get default schema for dataset type."""
+        """
+        Get default schema for dataset type.
+        """
         if dataset_type == DatasetType.FEATURES:
             return {
                 "instrument_id": "str",
@@ -2108,7 +2167,9 @@ class DataStore:
             }
 
     def _compute_schema_hash(self, df: DataFrameLike, manifest: DatasetManifest) -> str:
-        """Compute schema hash for the actual data."""
+        """
+        Compute schema hash for the actual data.
+        """
         df_any = cast(Any, df)
         if not hasattr(df_any, "columns"):
             # For non-DataFrame data, use manifest hash
@@ -2139,7 +2200,9 @@ class DataStore:
         return hashlib.sha256(schema_str.encode()).hexdigest()
 
     def _is_in_migration_window(self, dataset_id: str) -> bool:
-        """Check if dataset is in schema migration window."""
+        """
+        Check if dataset is in schema migration window.
+        """
         if not self.allow_schema_migration:
             return False
 
@@ -2160,7 +2223,9 @@ class DataStore:
             return False
 
     def _start_migration_window(self, dataset_id: str, manifest: DatasetManifest) -> None:
-        """Start a schema migration window for dual-write."""
+        """
+        Start a schema migration window for dual-write.
+        """
         self._schema_migration_state[dataset_id] = {
             "start_time": time.time_ns(),
             "version": manifest.version,
@@ -2190,7 +2255,9 @@ class DataStore:
         count: int,
         completeness_pct: float,
     ) -> None:
-        """Internal hook to update the registry watermark (patchable in tests)."""
+        """
+        Internal hook to update the registry watermark (patchable in tests).
+        """
         self.registry.update_watermark(
             dataset_id=dataset_id,
             instrument_id=instrument_id,
@@ -2200,7 +2267,12 @@ class DataStore:
             completeness_pct=completeness_pct,
         )
 
-    def _begin_transaction(self) -> ContextManager[object]:  # pragma: no cover (test hook for patching)
-        """Return a no-op context manager for tests to patch."""
+    def _begin_transaction(
+        self,
+    ) -> ContextManager[object]:  # pragma: no cover (test hook for patching)
+        """
+        Return a no-op context manager for tests to patch.
+        """
         from contextlib import nullcontext
+
         return nullcontext()

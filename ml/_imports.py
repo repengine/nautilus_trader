@@ -26,8 +26,8 @@ if TYPE_CHECKING:
     import polars as pl
     import skl2onnx
     import sklearn
-    import xgboost as xgb
     import torch
+    import xgboost as xgb
     from prometheus_client import Counter
     from prometheus_client import Gauge
     from prometheus_client import Histogram
@@ -483,7 +483,9 @@ def check_ml_dependencies(required: list[str]) -> None:
 
 __all__ = [
     "DATABENTO_IMPORT_ERROR",
+    "FREDAPI_IMPORT_ERROR",
     "HAS_DATABENTO",
+    "HAS_FREDAPI",
     "HAS_LIGHTGBM",
     "HAS_MLFLOW",
     "HAS_ONNX",
@@ -491,7 +493,6 @@ __all__ = [
     "HAS_ONNX_EXPORT",
     "HAS_OPTUNA",
     "HAS_PANDAS",
-    "HAS_FREDAPI",
     "HAS_PANDAS_MARKET_CALENDARS",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
@@ -504,19 +505,19 @@ __all__ = [
     "ONNX_IMPORT_ERROR",
     "OPTUNA_IMPORT_ERROR",
     "PANDAS_IMPORT_ERROR",
-    "FREDAPI_IMPORT_ERROR",
     "PANDAS_MARKET_CALENDARS_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
-    "TORCH_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
     "REGISTRY",
     "SKLEARN_IMPORT_ERROR",
+    "TORCH_IMPORT_ERROR",
     "XGBOOST_IMPORT_ERROR",
     "Counter",
     "Gauge",
     "Histogram",
     "check_ml_dependencies",
     "db",
+    "fredapi",
     "generate_latest",
     "lgb",
     "mcal",
@@ -525,11 +526,10 @@ __all__ = [
     "onnxmltools",
     "optuna",
     "ort",
-    "fredapi",
-    "torch",
     "pd",
     "pl",
     "skl2onnx",
     "sklearn",
+    "torch",
     "xgb",
 ]
