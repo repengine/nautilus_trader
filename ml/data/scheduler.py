@@ -28,6 +28,7 @@ from ml.registry.persistence import PersistenceConfig
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from ml.config.events import Stage as _stage
 
 
 if TYPE_CHECKING:
@@ -657,7 +658,7 @@ class DataScheduler:
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,
                                     instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
-                                    stage="CATALOG_WRITTEN",
+                                    stage=_stage.CATALOG_WRITTEN.value,
                                     source="historical",
                                     run_id=run_id,
                                     ts_min=ts_min,
@@ -681,13 +682,13 @@ class DataScheduler:
                                     data_events_total.labels(
                                         dataset_type=dataset_type_label,
                                         component=schema_name,
-                                        stage="CATALOG_WRITTEN",
+                                        stage=_stage.CATALOG_WRITTEN.value,
                                         source="historical",
                                         status="success",
                                     ).inc()
 
                                 logger.debug(
-                                    f"Emitted CATALOG_WRITTEN event for {symbol_code}: "
+                                    f"Emitted {_stage.CATALOG_WRITTEN.value} event for {symbol_code}: "
                                     f"run_id={run_id}, count={len(data)}"
                                 )
                             except Exception as e:
@@ -697,7 +698,7 @@ class DataScheduler:
                                     data_events_total.labels(
                                         dataset_type=dataset_type_label,
                                         component=schema_name,
-                                        stage="CATALOG_WRITTEN",
+                                        stage=_stage.CATALOG_WRITTEN.value,
                                         source="historical",
                                         status="failed",
                                     ).inc()
@@ -714,7 +715,7 @@ class DataScheduler:
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,
                                     instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
-                                    stage="CATALOG_WRITTEN",
+                                    stage=_stage.CATALOG_WRITTEN.value,
                                     source="historical",
                                     run_id=run_id,
                                     ts_min=0,
@@ -728,7 +729,7 @@ class DataScheduler:
                                     data_events_total.labels(
                                         dataset_type=dataset_type_label,
                                         component=schema_name,
-                                        stage="CATALOG_WRITTEN",
+                                        stage=_stage.CATALOG_WRITTEN.value,
                                         source="historical",
                                         status="failed",
                                     ).inc()

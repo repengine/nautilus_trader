@@ -28,6 +28,7 @@ from ml.common.protocols import MLComponentMixin
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
+from ml.config.events import Stage
 from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
@@ -857,7 +858,7 @@ class DataStore(MLComponentMixin):
         ts_min = min(f.ts_event for f in features)
         ts_max = max(f.ts_event for f in features)
 
-        # Create event and emit/update registry watermarks
+            # Create event and emit/update registry watermarks
         event = DataEvent(
             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -873,7 +874,7 @@ class DataStore(MLComponentMixin):
         self._emit_success_event_and_update(
             dataset_id=dataset_id,
             instrument_id=instrument_id,
-            stage="FEATURE_COMPUTED",
+            stage=Stage.FEATURE_COMPUTED.value,
             source=source,
             run_id=run_id,
             ts_min=ts_min,
@@ -958,7 +959,7 @@ class DataStore(MLComponentMixin):
         self._emit_success_event_and_update(
             dataset_id=dataset_id,
             instrument_id=instrument_id,
-            stage="PREDICTION_EMITTED",
+            stage=Stage.PREDICTION_EMITTED.value,
             source=source,
             run_id=run_id,
             ts_min=ts_min,
@@ -1048,7 +1049,7 @@ class DataStore(MLComponentMixin):
         self._emit_success_event_and_update(
             dataset_id=dataset_id,
             instrument_id=instrument_id,
-            stage="SIGNAL_EMITTED",
+            stage=Stage.SIGNAL_EMITTED.value,
             source=source,
             run_id=run_id,
             ts_min=ts_min,
@@ -1474,16 +1475,16 @@ class DataStore(MLComponentMixin):
         Map dataset type to processing stage.
         """
         stage_map = {
-            DatasetType.BARS: "CATALOG_WRITTEN",
-            DatasetType.TRADES: "CATALOG_WRITTEN",
-            DatasetType.QUOTES: "CATALOG_WRITTEN",
-            DatasetType.MBP1: "CATALOG_WRITTEN",
-            DatasetType.TBBO: "CATALOG_WRITTEN",
-            DatasetType.FEATURES: "FEATURE_COMPUTED",
-            DatasetType.PREDICTIONS: "PREDICTION_EMITTED",
-            DatasetType.SIGNALS: "SIGNAL_EMITTED",
+            DatasetType.BARS: Stage.CATALOG_WRITTEN.value,
+            DatasetType.TRADES: Stage.CATALOG_WRITTEN.value,
+            DatasetType.QUOTES: Stage.CATALOG_WRITTEN.value,
+            DatasetType.MBP1: Stage.CATALOG_WRITTEN.value,
+            DatasetType.TBBO: Stage.CATALOG_WRITTEN.value,
+            DatasetType.FEATURES: Stage.FEATURE_COMPUTED.value,
+            DatasetType.PREDICTIONS: Stage.PREDICTION_EMITTED.value,
+            DatasetType.SIGNALS: Stage.SIGNAL_EMITTED.value,
         }
-        return stage_map.get(dataset_type, "INGESTED")
+        return stage_map.get(dataset_type, Stage.DATA_INGESTED.value)
 
     def _apply_validation_rule(
         self,

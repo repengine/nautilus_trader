@@ -58,3 +58,9 @@ This log records notable decisions in the ML integration layer.
 - Problem: ts_event alone is insufficient for end‑to‑end traceability across domains (collisions, replays, and multi‑event ambiguity). No place to persist per‑event trace data.
 - Decision: Extend DataRegistry events with optional `metadata: JSONB` to persist correlation data (e.g., `correlation_id`). Add new SQL migration and `emit_data_event_ext` function; code prefers extended function and falls back to legacy when unavailable. DataStore now generates deterministic `correlation_id` and attaches it to event metadata.
 - Consequences: Backward‑compatible tracing across Data→Features→Predictions→Signals without touching manifests or store schemas. Enables lineage queries and simplifies debugging. Manifests and schema hashes remain unchanged.
+
+## 2025-08-29: Canonical Event Constants
+
+- Problem: Stage names were hardcoded across modules, risking drift and typos that break DB constraints and analytics.
+- Decision: Add `ml/config/events.py` with a typed `Stage` enum (values persisted to DB). Refactor core emitters (DataStore, DataScheduler) to use constants. Add a lightweight validator script to flag raw stage literals.
+- Consequences: Consistent event stage usage across codebase; easier refactors and safer migrations. Prevents accidental string drift.
