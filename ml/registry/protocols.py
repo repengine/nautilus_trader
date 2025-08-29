@@ -19,6 +19,7 @@ class RegistryProtocol(Protocol):
         count: int,
         status: str,
         error: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> None: ...
 
     def update_watermark(

@@ -186,7 +186,7 @@ def bars_to_dataframe(
 **Key Features**:
 
 - **DataRegistry Integration**:
-  - Emits CATALOG_WRITTEN events for data lineage
+  - Emits CATALOG_WRITTEN events for data lineage (with optional event metadata)
   - Updates watermarks for dataset freshness tracking
   - Supports both PostgreSQL and JSON backends
 - **Comprehensive Metrics** (15+ Prometheus metrics):

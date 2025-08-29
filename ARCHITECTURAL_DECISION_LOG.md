@@ -52,3 +52,9 @@ This log records notable decisions in the ML integration layer.
 - Problem: Modules instantiated Prometheus collectors directly, causing duplicate registration risks in tests and making metrics definitions hard to reason about.
 - Decision: Enforce centralized, idempotent metrics acquisition via `ml/common/metrics_bootstrap.py` (get_counter/get_histogram/get_gauge). Refactor monitoring collectors and DataScheduler to use the bootstrap; keep commonly shared metrics defined in `ml/common/metrics.py`.
 - Consequences: No duplicate registration, simpler imports, consistent naming/labels, and safer reuse across modules. Hot paths remain unaffected (observations only; collectors created at init).
+
+## 2025-08-29: Registry Event Metadata + Correlation IDs
+
+- Problem: ts_event alone is insufficient for end‑to‑end traceability across domains (collisions, replays, and multi‑event ambiguity). No place to persist per‑event trace data.
+- Decision: Extend DataRegistry events with optional `metadata: JSONB` to persist correlation data (e.g., `correlation_id`). Add new SQL migration and `emit_data_event_ext` function; code prefers extended function and falls back to legacy when unavailable. DataStore now generates deterministic `correlation_id` and attaches it to event metadata.
+- Consequences: Backward‑compatible tracing across Data→Features→Predictions→Signals without touching manifests or store schemas. Enables lineage queries and simplifies debugging. Manifests and schema hashes remain unchanged.

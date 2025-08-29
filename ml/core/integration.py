@@ -319,6 +319,8 @@ class MLIntegrationManager:
             "ml/stores/migrations/001_stores_schema.sql",
             "ml/stores/migrations/002_auto_partitioning.sql",
             "ml/stores/migrations/003_market_data.sql",
+            "ml/stores/migrations/004_data_registry.sql",
+            "ml/stores/migrations/007_add_event_metadata.sql",
         ]
 
         engine = EngineManager.get_engine(self.db_connection)

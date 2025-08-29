@@ -176,6 +176,7 @@ Dynamic reads in FeatureStore (historical bars) and StrategyStore are parameteri
 
 - Stores emit data events and update watermarks via a Protocol-typed registry interface (`RegistryProtocol`).
 - This enforces correct usage of `emit_event(...)`/`update_watermark(...)` across JSON and Postgres backends and prevents API drift from breaking callers.
+- Events now include optional `metadata` persisted by the registry (JSONB in Postgres). `DataStore` attaches a deterministic `correlation_id` for lineage tracing; use it in logs/queries, not as a general metric label (avoid high cardinality).
 
 ## Universal Component Protocol
 

@@ -847,6 +847,7 @@ class DataRegistry(MLComponentMixin):
         count: int,
         status: str,
         error: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         """
         Emit a data processing event.
@@ -906,6 +907,7 @@ class DataRegistry(MLComponentMixin):
                 "status": status,
                 "error": error,
                 "created_at": time.time(),
+                "metadata": metadata or {},
             }
 
             if self.backend == BackendType.JSON:
@@ -923,31 +925,56 @@ class DataRegistry(MLComponentMixin):
                     raise RuntimeError("Failed to get database session")
 
                 try:
-                    # Use the SQL function to emit event
-                    query = text(
+                    # Prefer extended function with metadata if available; else fallback
+                    try:
+                        query_ext = text(
+                            """
+                            SELECT emit_data_event_ext(
+                                :dataset_id, :instrument_id, :stage, :source, :run_id,
+                                :ts_min, :ts_max, :count, :status, :error, :metadata
+                            )
                         """
-                        SELECT emit_data_event(
-                            :dataset_id, :instrument_id, :stage, :source, :run_id,
-                            :ts_min, :ts_max, :count, :status, :error
                         )
-                    """
-                    )
-
-                    session.execute(
-                        query,
-                        {
-                            "dataset_id": dataset_id,
-                            "instrument_id": instrument_id,
-                            "stage": stage,
-                            "source": source,
-                            "run_id": run_id,
-                            "ts_min": ts_min,
-                            "ts_max": ts_max,
-                            "count": count,
-                            "status": status,
-                            "error": error,
-                        },
-                    )
+                        session.execute(
+                            query_ext,
+                            {
+                                "dataset_id": dataset_id,
+                                "instrument_id": instrument_id,
+                                "stage": stage,
+                                "source": source,
+                                "run_id": run_id,
+                                "ts_min": ts_min,
+                                "ts_max": ts_max,
+                                "count": count,
+                                "status": status,
+                                "error": error,
+                                "metadata": metadata or {},
+                            },
+                        )
+                    except Exception:
+                        query = text(
+                            """
+                            SELECT emit_data_event(
+                                :dataset_id, :instrument_id, :stage, :source, :run_id,
+                                :ts_min, :ts_max, :count, :status, :error
+                            )
+                        """
+                        )
+                        session.execute(
+                            query,
+                            {
+                                "dataset_id": dataset_id,
+                                "instrument_id": instrument_id,
+                                "stage": stage,
+                                "source": source,
+                                "run_id": run_id,
+                                "ts_min": ts_min,
+                                "ts_max": ts_max,
+                                "count": count,
+                                "status": status,
+                                "error": error,
+                            },
+                        )
                     session.commit()
 
                 except Exception as e:

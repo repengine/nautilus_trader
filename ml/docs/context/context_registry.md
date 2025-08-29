@@ -6,6 +6,13 @@ The `ml/registry/` directory implements a comprehensive, production-ready ML lif
 
 All registries now implement the Universal ML Component Protocol (`ml/common/protocols.py`) to standardize health reporting, performance metrics, and configuration validation across domains. Protocol compliance is verified by the Integration Manager at startup (warn by default; strict via `ML_STRICT_PROTOCOL_VALIDATION`).
 
+### Event Metadata & Correlation IDs
+
+- DataRegistry events now accept optional `metadata: dict[str, Any]`.
+- `DataStore` attaches a deterministic `correlation_id` to each success/failure event (derived from run_id, dataset_id, instrument_id, and time window) for end‑to‑end tracing.
+- SQL migration adds a JSONB `metadata` column to `ml_data_events` and an extended function `emit_data_event_ext`. Code prefers the extended function and falls back to the legacy one when not available.
+- Manifests and schema hashes remain unchanged; correlation is per‑event, not per‑model/feature schema.
+
 ### Migrations & DB Functions
 
 The registry relies on PostgreSQL-side functions for event emission and watermarks. Ensure migrations in `ml/stores/migrations/004_data_registry.sql` are applied in every environment so that:
