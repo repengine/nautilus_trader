@@ -29,6 +29,7 @@ from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml.core.db_engine import EngineManager
+from ml.config.events import Stage
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
 
@@ -702,7 +703,7 @@ class StrategyStore(BaseStore):
                 registry.emit_event(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage="SIGNAL_EMITTED",
+                    stage=Stage.SIGNAL_EMITTED.value,
                     source=source,
                     run_id=run_id,
                     ts_min=ts_min,
@@ -726,7 +727,7 @@ class StrategyStore(BaseStore):
                     data_events_total.labels(
                         dataset_type="signals",
                         component=strategy_id,
-                        stage="SIGNAL_EMITTED",
+                        stage=Stage.SIGNAL_EMITTED.value,
                         source=source,
                         status="success",
                     ).inc()

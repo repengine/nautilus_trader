@@ -37,17 +37,18 @@ from ml.stores.base import ModelPrediction
 
 if TYPE_CHECKING:
     import pandas as pd
-
-    from ml.registry.data_registry import DataRegistry
     from ml.registry.persistence import PersistenceConfig
     from nautilus_trader.common.clock import Clock
     from ml.registry.protocols import RegistryProtocol
+
+from ml.registry.data_registry import DataRegistry
+from ml.config.events import Stage
 
 
 logger = logging.getLogger(__name__)
 
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
-def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+def create_engine(connection_string: str, **kwargs: object) -> Engine:
     return EngineManager.get_engine(connection_string, **kwargs)
 
 # Prometheus metrics for prediction events (centralized)
@@ -76,9 +77,9 @@ class ModelStore(BaseStore):
         batch_size: int = 1000,
         flush_interval_ms: int = 100,
         clock: Clock | None = None,
-        persistence_manager: Any | None = None,
+        persistence_manager: object | None = None,
         flush_interval_seconds: float | None = None,
-        **_: Any,
+        **_: object,
     ) -> None:
         """
         Initialize model store.
@@ -650,7 +651,7 @@ class ModelStore(BaseStore):
                 registry.emit_event(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage="PREDICTION_EMITTED",
+                    stage=Stage.PREDICTION_EMITTED.value,
                     source=source,
                     run_id=run_id,
                     ts_min=ts_min,
@@ -674,7 +675,7 @@ class ModelStore(BaseStore):
                     data_events_total.labels(
                         dataset_type="predictions",
                         component=model_id,
-                        stage="PREDICTION_EMITTED",
+                        stage=Stage.PREDICTION_EMITTED.value,
                         source=source,
                         status="success",
                     ).inc()

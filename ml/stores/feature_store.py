@@ -48,6 +48,7 @@ from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.registry.data_registry import DataRegistry
+from ml.config.events import Stage
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 
@@ -496,7 +497,7 @@ class FeatureStore:
                 registry.emit_event(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage="FEATURE_COMPUTED",
+                    stage=Stage.FEATURE_COMPUTED.value,
                     source="historical",
                     run_id=run_id,
                     ts_min=ts_min,
@@ -520,7 +521,7 @@ class FeatureStore:
                     data_events_total.labels(
                         dataset_type="features",
                         component=feature_set_id,
-                        stage="FEATURE_COMPUTED",
+                        stage=Stage.FEATURE_COMPUTED.value,
                         source="historical",
                         status="success",
                     ).inc()
@@ -672,7 +673,7 @@ class FeatureStore:
                         registry.emit_event(
                             dataset_id=dataset_id,
                             instrument_id=instrument_id_str,
-                            stage="FEATURE_COMPUTED",
+                            stage=Stage.FEATURE_COMPUTED.value,
                             source="realtime",
                             run_id=run_id,
                             ts_min=int(bar.ts_event),
@@ -696,7 +697,7 @@ class FeatureStore:
                             data_events_total.labels(
                                 dataset_type="features",
                                 component=feature_set_id,
-                                stage="FEATURE_COMPUTED",
+                            stage=Stage.FEATURE_COMPUTED.value,
                                 source="realtime",
                                 status="success",
                             ).inc()

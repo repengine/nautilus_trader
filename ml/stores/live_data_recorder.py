@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ml.registry.data_registry import DataRegistry
+from ml.config.events import Stage
 from ml.stores.data_store import DataStore
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
@@ -195,7 +196,7 @@ class LiveDataRecorder:
                 self.data_registry.emit_event(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage="CATALOG_WRITTEN",
+                    stage=Stage.CATALOG_WRITTEN.value,
                     source="live",
                     run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
                     ts_min=metadata["ts_min"],
@@ -219,7 +220,7 @@ class LiveDataRecorder:
             self.data_registry.emit_event(
                 dataset_id=dataset_id,
                 instrument_id="unknown",
-                stage="CATALOG_WRITTEN",
+                stage=Stage.CATALOG_WRITTEN.value,
                 source="live",
                 run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
                 ts_min=0,

@@ -983,16 +983,16 @@ def test_training_inference_parity():
 ### Monitoring Integration
 
 ```python
-from ml.common.metrics import Counter, Histogram
+from ml.common.metrics_bootstrap import get_counter, get_histogram
 
-# ✅ Register metrics at module level
-PREDICTIONS_TOTAL = Counter(
+# ✅ Acquire metrics via bootstrap (idempotent)
+PREDICTIONS_TOTAL = get_counter(
     "ml_predictions_total",
     "Total ML predictions made",
     ["actor_id", "model_id", "instrument"],
 )
 
-INFERENCE_LATENCY = Histogram(
+INFERENCE_LATENCY = get_histogram(
     "ml_inference_latency_seconds",
     "ML inference latency",
     ["actor_id", "model_id"],
@@ -1038,6 +1038,13 @@ Before submitting any pull request, verify:
 - [ ] **Tests**: ≥90% coverage for ML modules, includes property tests
 - [ ] **Performance**: Hot path functions validated <5ms
 - [ ] **Config**: No hardcoded values, all constants in config classes
+- [ ] **Metrics**: Use bootstrap (`ml.common.metrics_bootstrap`) for collectors
+- [ ] **Events**: Use canonical event constants (`ml.config.events.Stage`); no raw literals
+
+### CI/Validation Helpers
+
+- Run `make validate-metrics` to ensure no direct prometheus instantiation in code.
+- Run `make validate-events` to ensure event stage constants are used (Stage.*.value).
 - [ ] **Errors**: Comprehensive validation and graceful error handling
 - [ ] **Docs**: Google-style docstrings with examples
 - [ ] **Standards**: Passes Ruff, Black formatting

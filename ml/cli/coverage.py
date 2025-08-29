@@ -38,6 +38,7 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from ml.config.events import Stage
 
 import numpy as np
 from sqlalchemy import text
@@ -89,10 +90,10 @@ class CoverageReporter:
 
     # Pipeline stages in order
     PIPELINE_STAGES = [
-        "CATALOG_WRITTEN",
-        "FEATURE_COMPUTED",
-        "PREDICTION_EMITTED",
-        "SIGNAL_EMITTED",
+        Stage.CATALOG_WRITTEN.value,
+        Stage.FEATURE_COMPUTED.value,
+        Stage.PREDICTION_EMITTED.value,
+        Stage.SIGNAL_EMITTED.value,
     ]
 
     def __init__(

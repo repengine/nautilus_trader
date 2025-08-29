@@ -203,6 +203,7 @@ class DataScheduler:
         feature_engineer: FeatureEngineer | None = None,
         metrics_port: int | None = None,
         start_metrics_server: bool = True,
+        connection: str | None = None,
     ) -> None:
         """
         Initialize data scheduler.
@@ -225,6 +226,12 @@ class DataScheduler:
         """
         self.catalog = catalog
         self.config = config or SchedulerConfig()
+        # Backward-compat: allow passing connection string directly
+        if connection is not None:
+            try:
+                setattr(self.config, "feature_store_connection", connection)
+            except Exception:
+                logger.warning("Failed to set feature_store_connection from connection arg")
         self.collector = collector or DataCollector()
         self.feature_engineer = feature_engineer
 

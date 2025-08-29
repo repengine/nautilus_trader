@@ -160,6 +160,14 @@ db-migrate-hardening:  #-- Apply schema hardening migrations (unique keys, creat
 ruff:  #-- Run ruff linter with automatic fixes
 	uv run --active --no-sync ruff check . --fix
 
+.PHONY: validate-metrics
+validate-metrics:  #-- Validate metrics bootstrap usage (no direct prometheus collectors)
+	uv run --active --no-sync python tools/validate_metrics_bootstrap.py
+
+.PHONY: validate-events
+validate-events:  #-- Validate canonical event stage constants usage
+	uv run --active --no-sync python tools/validate_event_constants.py
+
 .PHONY: clippy
 clippy:  #-- Run Rust clippy linter with fixes
 	cargo clippy --fix --all-targets --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery -W clippy::unwrap_used -W clippy::expect_used
