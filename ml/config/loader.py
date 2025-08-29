@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar, cast, Iterable
 
 import msgspec
 
@@ -48,11 +48,11 @@ def merge_env(prefix: str, t: type[T], base: T) -> T:
         return base
 
 
-def _merge_structs(a: Any, b: Any) -> Any:
+def _merge_structs(a: object, b: object) -> object:
     # Best-effort shallow merge for msgspec structs
     if type(a) is not type(b):
         return a
-    fields = getattr(a, "__struct_fields__", []) or getattr(a, "__annotations__", {}).keys()
+    fields: Iterable[str] = getattr(a, "__struct_fields__", []) or getattr(a, "__annotations__", {}).keys()
     updates: dict[str, Any] = {}
     for name in fields:
         av = getattr(a, name)

@@ -240,7 +240,7 @@ except ImportError as e:
         Dummy Counter when prometheus-client is not available.
         """
 
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             """
             Initialize mock Counter.
 
@@ -253,7 +253,7 @@ except ImportError as e:
 
             """
 
-        def inc(self, *args: Any, **kwargs: Any) -> None:
+        def inc(self, *args: object, **kwargs: object) -> None:
             """
             Increment counter (no-op).
 
@@ -266,7 +266,7 @@ except ImportError as e:
 
             """
 
-        def labels(self, *args: Any, **kwargs: Any) -> Any:
+        def labels(self, *args: object, **kwargs: object) -> object:
             """
             Get labeled counter (returns self for chaining).
 
@@ -290,7 +290,7 @@ except ImportError as e:
         Dummy Gauge when prometheus-client is not available.
         """
 
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             """
             Initialize mock Gauge.
 
@@ -303,7 +303,7 @@ except ImportError as e:
 
             """
 
-        def set(self, *args: Any, **kwargs: Any) -> None:
+        def set(self, *args: object, **kwargs: object) -> None:
             """
             Set gauge value (no-op).
 
@@ -316,7 +316,7 @@ except ImportError as e:
 
             """
 
-        def labels(self, *args: Any, **kwargs: Any) -> Any:
+        def labels(self, *args: object, **kwargs: object) -> object:
             """
             Get labeled gauge (returns self for chaining).
 
@@ -340,7 +340,7 @@ except ImportError as e:
         Dummy Histogram when prometheus-client is not available.
         """
 
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             """
             Initialize mock Histogram.
 
@@ -353,7 +353,7 @@ except ImportError as e:
 
             """
 
-        def observe(self, *args: Any, **kwargs: Any) -> None:
+        def observe(self, *args: object, **kwargs: object) -> None:
             """
             Observe value (no-op).
 
@@ -366,7 +366,7 @@ except ImportError as e:
 
             """
 
-        def labels(self, *args: Any, **kwargs: Any) -> Any:
+        def labels(self, *args: object, **kwargs: object) -> object:
             """
             Get labeled histogram (returns self for chaining).
 
@@ -396,7 +396,7 @@ except ImportError as e:
     # Provide underlying symbols, then expose unified names below
     _PROM_REGISTRY = _DummyRegistry()
 
-    def _generate_latest_dummy(registry: Any = None) -> bytes:
+    def _generate_latest_dummy(registry: object | None = None) -> bytes:
         return b""
 
     _GENERATE_LATEST = _generate_latest_dummy
@@ -410,13 +410,13 @@ else:
 
 
 # Public, unified names with stable signatures
-def generate_latest(registry: Any = None) -> bytes:
+def generate_latest(registry: object | None = None) -> bytes:
     if registry is None:
         registry = _PROM_REGISTRY
     return _GENERATE_LATEST(registry)
 
 
-REGISTRY: Any = _PROM_REGISTRY
+REGISTRY: object = _PROM_REGISTRY
 
 
 def check_ml_dependencies(required: list[str]) -> None:

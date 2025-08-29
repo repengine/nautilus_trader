@@ -19,7 +19,7 @@ import logging
 import time
 from dataclasses import dataclass
 from dataclasses import field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ContextManager, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
@@ -37,6 +37,7 @@ from ml.stores.data_processor import DataProcessor
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
+from ml.typing import DataFrameLike
 
 
 if TYPE_CHECKING:
@@ -313,7 +314,7 @@ class DataStore:
     def preflight_check(
         self,
         dataset_id: str,
-        data: Any,
+        data: DataFrameLike | list[dict[str, Any]],
         strict: bool = True,
     ) -> tuple[bool, str | None, dict[str, Any]]:
         """
@@ -350,7 +351,9 @@ class DataStore:
             manifest = self._get_manifest(dataset_id)
 
             # Convert to DataFrame for validation
-            df = self._to_dataframe(data)
+            df_obj = self._to_dataframe(data)
+            df = cast(DataFrameLike, df_obj)
+            df_any = cast(Any, df)
 
             validation_details: dict[str, Any] = {
                 "dataset_id": dataset_id,
@@ -439,14 +442,14 @@ class DataStore:
             if manifest.primary_keys:
                 validation_details["checks_performed"].append("primary_keys")
                 for pk_field in manifest.primary_keys:
-                    if hasattr(df, "columns") and pk_field in df.columns:
+                    if hasattr(df_any, "columns") and pk_field in df_any.columns:
                         # Handle both Polars and pandas
-                        if hasattr(df[pk_field], "is_null"):
+                        if hasattr(df_any[pk_field], "is_null"):
                             # Polars
-                            null_count = df[pk_field].is_null().sum()
-                        elif hasattr(df[pk_field], "isnull"):
+                            null_count = df_any[pk_field].is_null().sum()
+                        elif hasattr(df_any[pk_field], "isnull"):
                             # pandas
-                            null_count = df[pk_field].isnull().sum()
+                            null_count = df_any[pk_field].isnull().sum()
                         else:
                             null_count = 0
 
@@ -484,7 +487,7 @@ class DataStore:
     def write_ingestion(
         self,
         dataset_id: str,
-        records: list[dict[str, Any]] | Any,  # Accept DataFrame or list
+        records: list[dict[str, Any]] | DataFrameLike,  # Accept DataFrame or list
         source: str,
         run_id: str,
         instrument_id: str | None = None,
@@ -558,7 +561,8 @@ class DataStore:
                 logger.warning("Preflight warning for %s: %s", dataset_id, warning)
 
         # Convert to DataFrame if needed
-        df = self._to_dataframe(records)
+        df_obj = self._to_dataframe(records)
+        df = cast(DataFrameLike, df_obj)
 
         # Extract instrument_id if not provided
         if instrument_id is None:
@@ -634,8 +638,8 @@ class DataStore:
 
         # Extract timestamp range
         ts_field = manifest.ts_field
-        ts_min = int(df[ts_field].min())
-        ts_max = int(df[ts_field].max())
+        ts_min = int(cast(Any, df)[ts_field].min())
+        ts_max = int(cast(Any, df)[ts_field].max())
 
         # Determine appropriate store and stage based on dataset type
         stage = self._get_stage_for_dataset_type(manifest.dataset_type)
@@ -1086,7 +1090,7 @@ class DataStore:
         instrument_id: str,
         start_ns: int,
         end_ns: int,
-    ) -> Any:  # Returns DataFrame or list depending on dataset
+    ) -> object:  # Returns DataFrame or list depending on dataset
         """
         Read data for a specific time range.
 
@@ -1175,7 +1179,7 @@ class DataStore:
     def validate_batch(
         self,
         dataset_id: str,
-        data: Any,  # DataFrame or list
+        data: DataFrameLike | list[dict[str, Any]],  # DataFrame or list
         strict_mode: bool = False,
     ) -> QualityReport:
         """
@@ -1215,7 +1219,8 @@ class DataStore:
         contract = self._get_contract(dataset_id)
 
         # Convert to DataFrame for validation
-        df = self._to_dataframe(data)
+        df_obj = self._to_dataframe(data)
+        df = cast(DataFrameLike, df_obj)
 
         # Track violations
         violations: list[ValidationViolation] = []
@@ -1265,16 +1270,18 @@ class DataStore:
         # Check quality thresholds
         if contract.quality_thresholds:
             # Calculate metrics
-            if hasattr(df, "null_count"):
+            df_any = cast(Any, df)
+            if hasattr(df_any, "null_count"):
                 # Polars
-                null_count_total = df.null_count().sum_horizontal().sum()
-            elif hasattr(df, "isnull"):
+                null_count_total = df_any.null_count().sum_horizontal().sum()
+            elif hasattr(df_any, "isnull"):
                 # pandas
-                null_count_total = df.isnull().sum().sum()
+                null_count_total = df_any.isnull().sum().sum()
             else:
                 null_count_total = 0
 
-            null_rate = null_count_total / (total_records * len(df.columns)) if total_records > 0 else 0
+            base_count = (total_records * len(cast(Any, df).columns)) if total_records > 0 else 0
+            null_rate = float(null_count_total) / float(base_count) if base_count else 0.0
 
             if "null_rate" in contract.quality_thresholds:
                 if null_rate > contract.quality_thresholds["null_rate"]:
@@ -1370,8 +1377,8 @@ class DataStore:
 
         return self._contract_cache[dataset_id]
 
-    def _to_dataframe(self, data: Any) -> Any:
-        """Convert various data formats to DataFrame."""
+    def _to_dataframe(self, data: DataFrameLike | list[dict[str, Any]]) -> DataFrameLike | list[dict[str, Any]]:
+        """Convert various data formats to DataFrame-like or pass-through list."""
         # Import here to avoid circular dependency
         from ml._imports import HAS_POLARS
         from ml._imports import pl
@@ -1410,7 +1417,7 @@ class DataStore:
     def _apply_validation_rule(
         self,
         rule: ValidationRule,
-        df: Any,
+        df: object,
         manifest: DatasetManifest,
     ) -> ValidationViolation | None:
         """Apply a single validation rule to data."""
@@ -1444,18 +1451,19 @@ class DataStore:
     def _validate_types(
         self,
         rule: ValidationRule,
-        df: Any,
+        df: object,
         manifest: DatasetManifest,
     ) -> ValidationViolation | None:
+        df_any = cast(Any, df)
         """Validate data types match schema."""
         violations = 0
         sample_values = []
 
         # Check each column in schema
         for col_name, expected_type in manifest.schema.items():
-            if hasattr(df, "columns") and col_name in df.columns:
+            if hasattr(df_any, "columns") and col_name in df_any.columns:
                 # Get actual type
-                actual_type = str(df[col_name].dtype)
+                actual_type = str(df_any[col_name].dtype)
 
                 # Simple type checking (would be more sophisticated in production)
                 if not self._types_compatible(actual_type, expected_type):
@@ -1474,19 +1482,20 @@ class DataStore:
 
         return None
 
-    def _validate_range(self, rule: ValidationRule, df: Any) -> ValidationViolation | None:
+    def _validate_range(self, rule: ValidationRule, df: object) -> ValidationViolation | None:
         """Validate values are within specified range."""
+        df_any = cast(Any, df)
         field_name = rule.field_name
         params = rule.parameters
 
-        if not hasattr(df, "columns") or field_name not in df.columns:
+        if not hasattr(df_any, "columns") or field_name not in df_any.columns:
             return None
 
         violations = 0
         sample_values = []
 
         # Get column values
-        col = df[field_name]
+        col = df_any[field_name]
 
         # Check min
         if "min" in params:
@@ -1557,26 +1566,27 @@ class DataStore:
     def _validate_uniqueness(
         self,
         rule: ValidationRule,
-        df: Any,
+        df: object,
     ) -> ValidationViolation | None:
         """Validate uniqueness constraints."""
         field_name = rule.field_name
+        df_any = cast(Any, df)
 
-        if not hasattr(df, "columns"):
+        if not hasattr(df_any, "columns"):
             return None
 
         # Handle composite keys
         if "," in field_name:
             key_fields = [f.strip() for f in field_name.split(",")]
-            if all(f in df.columns for f in key_fields):
+            if all(f in df_any.columns for f in key_fields):
                 # Check for duplicates on composite key
-                if hasattr(df, "is_duplicated"):
+                if hasattr(df_any, "is_duplicated"):
                     # Polars
-                    duplicates = df.select(key_fields).is_duplicated()
+                    duplicates = df_any.select(key_fields).is_duplicated()
                     duplicate_count = duplicates.sum()
-                elif hasattr(df, "duplicated"):
+                elif hasattr(df_any, "duplicated"):
                     # pandas
-                    duplicates = df.duplicated(subset=key_fields)
+                    duplicates = df_any.duplicated(subset=key_fields)
                     duplicate_count = duplicates.sum()
                 else:
                     duplicate_count = 0
@@ -1592,24 +1602,24 @@ class DataStore:
                     )
         else:
             # Single field uniqueness
-            if field_name in df.columns:
-                if hasattr(df, "is_duplicated"):
+            if field_name in df_any.columns:
+                if hasattr(df_any, "is_duplicated"):
                     # Polars
-                    duplicates = df.select([field_name]).is_duplicated()
+                    duplicates = df_any.select([field_name]).is_duplicated()
                     duplicate_count = duplicates.sum()
                     sample_values = []
                     if duplicate_count > 0:
                         # Get sample duplicate values
-                        duplicate_vals = df[field_name].filter(duplicates)
+                        duplicate_vals = df_any[field_name].filter(duplicates)
                         sample_values = duplicate_vals.head(5).to_list()
-                elif hasattr(df, "duplicated"):
+                elif hasattr(df_any, "duplicated"):
                     # pandas
-                    duplicates = df.duplicated(subset=[field_name])
+                    duplicates = df_any.duplicated(subset=[field_name])
                     duplicate_count = duplicates.sum()
                     sample_values = []
                     if duplicate_count > 0:
                         # Get sample duplicate values
-                        duplicate_vals = df[field_name][duplicates]
+                        duplicate_vals = df_any[field_name][duplicates]
                         if hasattr(duplicate_vals, "head"):
                             sample_values = duplicate_vals.head(5).to_list()
                 else:
@@ -1631,16 +1641,18 @@ class DataStore:
     def _validate_monotonicity(
         self,
         rule: ValidationRule,
-        df: Any,
+        df: object,
     ) -> ValidationViolation | None:
         """Validate monotonic sequences (e.g., timestamps)."""
+        df_any = cast(Any, df)
+
         field_name = rule.field_name
         params = rule.parameters
 
-        if not hasattr(df, "columns") or field_name not in df.columns:
+        if not hasattr(df_any, "columns") or field_name not in df_any.columns:
             return None
 
-        col = df[field_name]
+        col = df_any[field_name]
         direction = params.get("direction", "increasing")
         strict = params.get("strict", True)
 
@@ -1675,17 +1687,17 @@ class DataStore:
                     if strict:
                         # Check for strictly increasing
                         # dropna() to remove the first NaN
-                        violations = (diffs.dropna() <= 0).sum()
+                        violations = (cast(Any, diffs.dropna()) <= 0).sum()
                     else:
                         # Check for non-decreasing
-                        violations = (diffs.dropna() < 0).sum()
+                        violations = (cast(Any, diffs.dropna()) < 0).sum()
                 else:  # decreasing
                     if strict:
                         # Check for strictly decreasing
-                        violations = (diffs.dropna() >= 0).sum()
+                        violations = (cast(Any, diffs.dropna()) >= 0).sum()
                     else:
                         # Check for non-increasing
-                        violations = (diffs.dropna() > 0).sum()
+                        violations = (cast(Any, diffs.dropna()) > 0).sum()
 
         if violations > 0:
             return ValidationViolation(
@@ -1702,13 +1714,14 @@ class DataStore:
     def _validate_nullability(
         self,
         rule: ValidationRule,
-        df: Any,
+        df: object,
     ) -> ValidationViolation | None:
         """Validate null value constraints."""
+        df_any = cast(Any, df)
         field_name = rule.field_name
         params = rule.parameters
 
-        if not hasattr(df, "columns"):
+        if not hasattr(df_any, "columns"):
             return None
 
         nullable = params.get("nullable", True)
@@ -1716,21 +1729,21 @@ class DataStore:
         if not nullable:
             if field_name == "*":
                 # Check all fields
-                if hasattr(df, "null_count"):
+                if hasattr(df_any, "null_count"):
                     # Polars
-                    null_counts = df.null_count()
+                    null_counts = df_any.null_count()
                     total_nulls = sum(null_counts.to_dicts()[0].values())
                     fields_with_nulls = [
-                        col for col in df.columns
-                        if df[col].is_null().sum() > 0
+                        col for col in df_any.columns
+                        if df_any[col].is_null().sum() > 0
                     ]
-                elif hasattr(df, "isnull"):
+                elif hasattr(df_any, "isnull"):
                     # pandas
-                    null_counts = df.isnull().sum()
+                    null_counts = df_any.isnull().sum()
                     total_nulls = null_counts.sum()
                     fields_with_nulls = [
-                        col for col in df.columns
-                        if df[col].isnull().sum() > 0
+                        col for col in df_any.columns
+                        if df_any[col].isnull().sum() > 0
                     ]
                 else:
                     total_nulls = 0
@@ -1747,14 +1760,14 @@ class DataStore:
                     )
             else:
                 # Check specific field
-                if field_name in df.columns:
+                if field_name in df_any.columns:
                     # Handle both Polars and pandas
-                    if hasattr(df[field_name], "is_null"):
+                    if hasattr(df_any[field_name], "is_null"):
                         # Polars
-                        null_count = df[field_name].is_null().sum()
-                    elif hasattr(df[field_name], "isnull"):
+                        null_count = df_any[field_name].is_null().sum()
+                    elif hasattr(df_any[field_name], "isnull"):
                         # pandas
-                        null_count = df[field_name].isnull().sum()
+                        null_count = df_any[field_name].isnull().sum()
                     else:
                         null_count = 0
 
@@ -1773,19 +1786,20 @@ class DataStore:
     def _validate_lateness(
         self,
         rule: ValidationRule,
-        df: Any,
+        df: object,
         manifest: DatasetManifest,
-    ) -> ValidationViolation | None:
+     ) -> ValidationViolation | None:
         """Validate data freshness/lateness."""
+        df_any = cast(Any, df)
         params = rule.parameters
         max_lateness_ns = params.get("max_lateness_ns", 300_000_000_000)  # Default 5 minutes
 
         ts_field = manifest.ts_field
-        if not hasattr(df, "columns") or ts_field not in df.columns:
+        if not hasattr(df_any, "columns") or ts_field not in df_any.columns:
             return None
 
         current_ns = time.time_ns()
-        latest_ts = df[ts_field].max()
+        latest_ts = int(cast(Any, df)[ts_field].max())
 
         lateness_ns = current_ns - latest_ts
 
@@ -1832,7 +1846,7 @@ class DataStore:
 
         return "; ".join(parts)
 
-    def _df_to_feature_data(self, df: Any, instrument_id: str) -> list[FeatureData]:
+    def _df_to_feature_data(self, df: DataFrameLike, instrument_id: str) -> list[FeatureData]:
         """Convert DataFrame to list of FeatureData."""
         features = []
 
@@ -1842,13 +1856,14 @@ class DataStore:
         # Handle both Polars and pandas-like DataFrames
         if hasattr(df, "iter_rows"):
             # Polars DataFrame
-            for row in df.iter_rows(named=True):
+            df_polars = cast(Any, df)
+            for row in df_polars.iter_rows(named=True):
                 features.append(
                     FeatureData(
                         feature_set_id=feature_set_id,
                         instrument_id=instrument_id,
                         values={
-                            k: v for k, v in row.items()
+                            str(k): v for k, v in row.items()
                             if k not in ["instrument_id", "ts_event", "ts_init"]
                         },
                         _ts_event=int(row["ts_event"]),
@@ -1863,7 +1878,7 @@ class DataStore:
                         feature_set_id=feature_set_id,
                         instrument_id=instrument_id,
                         values={
-                            k: v for k, v in row.items()
+                            str(k): v for k, v in row.items()
                             if k not in ["instrument_id", "ts_event", "ts_init"]
                         },
                         _ts_event=int(row["ts_event"]),
@@ -1879,7 +1894,7 @@ class DataStore:
                             feature_set_id=feature_set_id,
                             instrument_id=instrument_id,
                             values={
-                                k: v for k, v in row.items()
+                                str(k): v for k, v in row.items()
                                 if k not in ["instrument_id", "ts_event", "ts_init"]
                             },
                             _ts_event=int(row["ts_event"]),
@@ -1889,14 +1904,15 @@ class DataStore:
 
         return features
 
-    def _df_to_predictions(self, df: Any) -> list[ModelPrediction]:
+    def _df_to_predictions(self, df: DataFrameLike | list[dict[str, Any]]) -> list[ModelPrediction]:
         """Convert DataFrame to list of ModelPrediction."""
         predictions = []
 
         # Handle both Polars and pandas-like DataFrames
         if hasattr(df, "iter_rows"):
             # Polars DataFrame
-            for row in df.iter_rows(named=True):
+            df_polars = cast(Any, df)
+            for row in df_polars.iter_rows(named=True):
                 predictions.append(
                     ModelPrediction(
                         model_id=row["model_id"],
@@ -1943,14 +1959,15 @@ class DataStore:
 
         return predictions
 
-    def _df_to_signals(self, df: Any) -> list[StrategySignal]:
+    def _df_to_signals(self, df: DataFrameLike | list[dict[str, Any]]) -> list[StrategySignal]:
         """Convert DataFrame to list of StrategySignal."""
         signals = []
 
         # Handle both Polars and pandas-like DataFrames
         if hasattr(df, "iter_rows"):
             # Polars DataFrame
-            for row in df.iter_rows(named=True):
+            df_polars = cast(Any, df)
+            for row in df_polars.iter_rows(named=True):
                 signals.append(
                     StrategySignal(
                         strategy_id=row["strategy_id"],
@@ -2090,21 +2107,22 @@ class DataStore:
                 "volume": "float64",
             }
 
-    def _compute_schema_hash(self, df: Any, manifest: DatasetManifest) -> str:
+    def _compute_schema_hash(self, df: DataFrameLike, manifest: DatasetManifest) -> str:
         """Compute schema hash for the actual data."""
-        if not hasattr(df, "columns"):
+        df_any = cast(Any, df)
+        if not hasattr(df_any, "columns"):
             # For non-DataFrame data, use manifest hash
             return manifest.schema_hash
 
         # Build schema dict from actual data
         actual_schema = {}
-        for col in df.columns:
+        for col in df_any.columns:
             if col in manifest.schema:
                 # Use expected type if column is in manifest
                 actual_schema[col] = manifest.schema[col]
             else:
                 # Infer type for extra columns
-                dtype = str(df[col].dtype)
+                dtype = str(df_any[col].dtype)
                 if "int" in dtype.lower():
                     actual_schema[col] = "int64"
                 elif "float" in dtype.lower():
@@ -2182,7 +2200,7 @@ class DataStore:
             completeness_pct=completeness_pct,
         )
 
-    def _begin_transaction(self) -> Any:  # pragma: no cover (test hook for patching)
+    def _begin_transaction(self) -> ContextManager[object]:  # pragma: no cover (test hook for patching)
         """Return a no-op context manager for tests to patch."""
         from contextlib import nullcontext
         return nullcontext()

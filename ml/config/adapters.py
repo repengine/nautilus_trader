@@ -8,7 +8,7 @@ of Nautilus Trader's actor system.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.common.config import NautilusConfig
@@ -38,6 +38,18 @@ def create_actor_config(ml_config: NautilusConfig) -> ActorConfig:
     )
 
 
+class _ConfigWithBarType(Protocol):
+    bar_type: BarType
+
+
+class _ConfigWithInstrument(Protocol):
+    instrument_id: InstrumentId
+
+
+class _ConfigWithModelPath(Protocol):
+    model_path: str | Any
+
+
 class ConfigurationHelper:
     """
     Helper class for working with ML configurations in actors.
@@ -48,7 +60,7 @@ class ConfigurationHelper:
     """
 
     @staticmethod
-    def get_bar_type(config: Any) -> BarType:
+    def get_bar_type(config: _ConfigWithBarType) -> BarType:
         """
         Extract BarType from configuration.
 
@@ -63,13 +75,10 @@ class ConfigurationHelper:
             The bar type from the configuration.
 
         """
-        if hasattr(config, "bar_type"):
-            return config.bar_type
-
-        raise AttributeError(f"No bar_type found in configuration of type {type(config).__name__}")
+        return config.bar_type
 
     @staticmethod
-    def get_instrument_id(config: Any) -> InstrumentId:
+    def get_instrument_id(config: _ConfigWithInstrument) -> InstrumentId:
         """
         Extract InstrumentId from configuration.
 
@@ -84,15 +93,10 @@ class ConfigurationHelper:
             The instrument ID from the configuration.
 
         """
-        if hasattr(config, "instrument_id"):
-            return config.instrument_id
-
-        raise AttributeError(
-            f"No instrument_id found in configuration of type {type(config).__name__}",
-        )
+        return config.instrument_id
 
     @staticmethod
-    def get_model_path(config: Any) -> str:
+    def get_model_path(config: _ConfigWithModelPath) -> str:
         """
         Extract model path from configuration.
 
@@ -107,9 +111,4 @@ class ConfigurationHelper:
             The model path from the configuration.
 
         """
-        if hasattr(config, "model_path"):
-            return str(config.model_path)
-
-        raise AttributeError(
-            f"No model_path found in configuration of type {type(config).__name__}",
-        )
+        return str(config.model_path)

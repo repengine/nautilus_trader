@@ -48,7 +48,7 @@ if not HAS_POLARS:
 
 if not HAS_FREDAPI:
     # Defer hard failure until use, so dependent modules can import
-    _fredapi = None  # type: ignore[assignment]
+    _fredapi = None
 
 
 logger = logging.getLogger(__name__)

@@ -71,7 +71,7 @@ class EngineManager:
         pool_pre_ping: bool = True,
         pool_recycle: int = 3600,
         echo: bool = False,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> Engine:
         """
         Get or create a SQLAlchemy engine for the given connection string.

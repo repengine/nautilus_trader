@@ -37,9 +37,9 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 # Configure logging
-def _get_log_handlers():
+def _get_log_handlers() -> list[logging.Handler]:
     """Get logging handlers based on environment."""
-    handlers = [logging.StreamHandler()]
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
     log_file = os.environ.get("LOG_FILE")
     if log_file:
         # Only add file handler if LOG_FILE is explicitly set

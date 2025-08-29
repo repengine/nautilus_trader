@@ -20,7 +20,8 @@ import time
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TYPE_CHECKING
+from types import FrameType
 
 import click
 
@@ -82,7 +83,7 @@ class MLPipelineRunner:
         # Setup signal handlers for graceful shutdown
         self._setup_signal_handlers()
 
-    def _setup_signal_handlers(self) -> Any:
+    def _setup_signal_handlers(self) -> object:
         """
         Set up signal handlers for graceful shutdown.
 
@@ -90,7 +91,9 @@ class MLPipelineRunner:
         references the actual handler, to aid test inspection.
         """
 
-        def signal_handler(signum: int, frame: Any) -> None:
+        SignalHandler = Callable[[int, FrameType | None], None]
+
+        def signal_handler(signum: int, frame: FrameType | None) -> None:
             """Handle shutdown signals."""
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
             self.shutdown_requested = True
@@ -100,12 +103,12 @@ class MLPipelineRunner:
         signal.signal(signal.SIGTERM, signal_handler)
 
         # Provide a stable reference for tests to introspect the registered handler
-        def _ref() -> Any:  # closes over handler via free var
+        def _ref() -> SignalHandler:  # closes over handler via free var
             return signal_handler
 
         class _Wrapper:
-            def __init__(self, fn: Any) -> None:
-                self.__func__ = fn
+            def __init__(self, fn: SignalHandler) -> None:
+                self.__func__: SignalHandler = fn
 
         return _Wrapper(_ref)
 
@@ -252,7 +255,7 @@ class MLPipelineRunner:
             feature_store_connection=os.getenv("DB_CONNECTION"),
         )
 
-    def _initialize_feature_engineer(self) -> Any:
+    def _initialize_feature_engineer(self) -> object | None:
         """
         Initialize feature engineer for feature computation.
 

@@ -54,8 +54,8 @@ except Exception:
     data_events_total = None
 
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
-def create_engine(connection_string: str, **kwargs: Any) -> Engine:
-    return EngineManager.get_engine(connection_string, **kwargs)
+def create_engine(connection_string: str, **kwargs: object) -> Engine:
+    return EngineManager.get_engine(connection_string, **kwargs)  # type: ignore[arg-type]
 
 
 class StrategyStore(BaseStore):
@@ -74,9 +74,9 @@ class StrategyStore(BaseStore):
         batch_size: int = 1000,
         flush_interval_ms: int = 100,
         clock: Clock | None = None,
-        persistence_manager: Any | None = None,
+        persistence_manager: object | None = None,
         flush_interval_seconds: float | None = None,
-        **_: Any,
+        **_: object,
     ) -> None:
         """
         Initialize strategy store.
@@ -996,6 +996,6 @@ class StrategyStore(BaseStore):
                     },
                 )
 
-    def _get_connection(self) -> Any:  # pragma: no cover (test hook for patching)
+    def _get_connection(self) -> object:  # pragma: no cover (test hook for patching)
         """Return a connection context manager (patchable in tests)."""
         return self.engine.connect()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING, cast
 
 from ml._imports import HAS_TORCH, check_ml_dependencies, torch as _torch
 
@@ -11,7 +11,10 @@ if not HAS_TORCH or _torch is None:  # pragma: no cover - environment dependent
     check_ml_dependencies(["torch"])  # raises with helpful message
 
 torch = _torch  # alias for local use
-nn = _torch.nn  # type: ignore[union-attr]
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import torch.nn as nn
+else:
+    nn = cast(Any, _torch).nn
 
 
 class TFTScriptAdapter(nn.Module):
@@ -83,8 +86,11 @@ def export_tft_to_torchscript_from_batch(
 
     example_args = tuple(tensor_items[k] for k in input_keys)
     adapter = TFTScriptAdapter(tft_module, input_keys)
+    def _jit_trace(mod: object, example: object) -> Any:  # noqa: ANN401
+        return torch.jit.trace(mod, example)  # type: ignore[no-untyped-call]
+
     with torch.inference_mode():
-        scripted = torch.jit.trace(adapter, example_args)
+        scripted = _jit_trace(adapter, example_args)
     out_path = Path(out_path).with_suffix(".pt")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     scripted.save(str(out_path))

@@ -203,6 +203,8 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     component_id: ComponentId | None = None
     log_events: bool = True
     log_commands: bool = True
+    # Security: enforce ONNX-only in production by default
+    allow_non_onnx_in_dev: bool = False
 
 
 from typing import ClassVar

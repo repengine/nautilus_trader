@@ -329,6 +329,10 @@ class DummyStore:
         Write signal (dummy).
         """
 
+    def write_batch(self, data: list[Any], emit_events: bool = True) -> None:
+        """Batch write (dummy)."""
+        return None
+
     def flush(self, *args: object, **kwargs: object) -> None:
         """
         Flush buffered state (dummy).
@@ -358,6 +362,33 @@ class DummyStore:
         """
         Get latest item (dummy).
         """
+        return None
+
+    # Model store protocol methods (dummy implementations)
+    def read_predictions(self, model_id: str, instrument_id: str, start_ns: int, end_ns: int) -> Any:
+        return None
+
+    def get_model_performance(
+        self, model_id: str, start_ns: int | None = None, end_ns: int | None = None
+    ) -> dict[str, Any]:
+        return {}
+
+    # Strategy store protocol methods (dummy implementations)
+    def read_signals(self, strategy_id: str, instrument_id: str, start_ns: int, end_ns: int) -> Any:
+        return None
+
+    def get_strategy_performance(
+        self, strategy_id: str, start_ns: int | None = None, end_ns: int | None = None
+    ) -> dict[str, Any]:
+        return {}
+
+    def get_signal_distribution(
+        self, strategy_id: str | None = None, start_ns: int | None = None, end_ns: int | None = None
+    ) -> dict[str, int]:
+        return {}
+
+    # Feature store extension (dummy realtime computation)
+    def compute_realtime(self, bar: Any, store: bool = True, indicator_manager: Any | None = None) -> Any:
         return None
 
     def __getattr__(self, name: str) -> object:

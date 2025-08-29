@@ -594,9 +594,9 @@ class BaseMLInferenceActor(NautilusActor, ABC):
     """
 
     # Store attributes are initialized in _init_stores_and_registries
-    _feature_store: FeatureStoreProtocol | Any  # Protocol-typed for mypy; DummyStore allowed
-    _model_store: ModelStoreProtocol | Any
-    _strategy_store: StrategyStoreProtocol | Any
+    _feature_store: FeatureStoreProtocol  # Protocol-typed; DummyStore conforms at runtime
+    _model_store: ModelStoreProtocol
+    _strategy_store: StrategyStoreProtocol
     _feature_registry: Any
     _model_registry: Any
     _strategy_registry: Any
@@ -689,10 +689,9 @@ class BaseMLInferenceActor(NautilusActor, ABC):
             None,
         )
 
-        # If no connection string provided, check if PostgreSQL is available
-        # If not, use SQLite for testing/development
+        # If no connection string provided, check if PostgreSQL is available; otherwise use DummyStore.
+        use_dummy = False
         if db_connection is None:
-            # Try PostgreSQL first
             try:
                 from sqlalchemy import text
 
@@ -706,11 +705,11 @@ class BaseMLInferenceActor(NautilusActor, ABC):
                 db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
                 backend_type = BackendType.POSTGRES
             except Exception:
-                # Fall back to in-memory SQLite for testing
-                db_connection = "sqlite:///:memory:"
-                # Use POSTGRES backend type for unified handling; engine will still use SQLite
-                backend_type = BackendType.POSTGRES
-                self.log.warning("PostgreSQL not available, using in-memory SQLite for testing")
+                # No Postgres: operate with non-persistent DummyStore to avoid dialect issues.
+                use_dummy = True
+                backend_type = BackendType.JSON
+                db_connection = ""
+                self.log.warning("PostgreSQL not available; using DummyStore (no persistence)")
         else:
             backend_type = BackendType.POSTGRES
 
@@ -721,7 +720,7 @@ class BaseMLInferenceActor(NautilusActor, ABC):
         )
 
         # Initialize stores - use DummyStore only in test mode
-        use_dummy_stores = getattr(self._config, "use_dummy_stores", False)
+        use_dummy_stores = getattr(self._config, "use_dummy_stores", False) or use_dummy
 
         if use_dummy_stores:
             # Explicitly requested dummy stores for testing
@@ -911,7 +910,7 @@ class BaseMLInferenceActor(NautilusActor, ABC):
         # Health status summary
         health_status = "N/A"
         if self._health_monitor:
-            health_status = self._health_monitor.status.value
+            health_status = str(self._health_monitor.status)
 
         self.log.info(
             f"Stopping Enhanced {self.__class__.__name__} - "
@@ -919,7 +918,7 @@ class BaseMLInferenceActor(NautilusActor, ABC):
             f"Avg inference time: {avg_inference_time:.3f}ms, "
             f"Avg feature time: {avg_feature_time:.3f}ms, "
             f"Health: {health_status}, "
-            f"Circuit breaker: {self._circuit_breaker.state.value if self._circuit_breaker else 'disabled'}",
+            f"Circuit breaker: {str(self._circuit_breaker.state) if self._circuit_breaker else 'disabled'}",
         )
 
     def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:
@@ -1042,7 +1041,7 @@ class BaseMLInferenceActor(NautilusActor, ABC):
 
         """
         self.publish_data(
-            DataType(MLSignal, metadata={"source": self.id.value}),
+            DataType(MLSignal, metadata={"source": str(self.id)}),
             signal,
         )
 
@@ -1127,6 +1126,11 @@ class BaseMLInferenceActor(NautilusActor, ABC):
         try:
             loaded_from_registry = self._try_load_from_registry()
             if not loaded_from_registry:
+                # Enforce ONNX-only in production unless explicitly allowed
+                from pathlib import Path as _Path
+                model_ext = _Path(self._config.model_path).suffix.lower()
+                if model_ext != '.onnx' and not getattr(self._config, 'allow_non_onnx_in_dev', False):
+                    raise ValueError(f"Non-ONNX model format disallowed in prod: {model_ext}")
                 # Load from direct path (existing behavior)
                 self._model, self._model_metadata = self._model_loader.load_model(
                     self._config.model_path,
@@ -1261,7 +1265,7 @@ class BaseMLInferenceActor(NautilusActor, ABC):
             f"Scheduled model checks every {self._config.model_check_interval}s",
         )
 
-    def _check_model_updates(self, event: Any) -> None:
+    def _check_model_updates(self, event: object) -> None:
         """
         Check for model updates and hot-reload if needed.
 
@@ -1359,8 +1363,8 @@ class BaseMLInferenceActor(NautilusActor, ABC):
             Health status information including metrics and system state.
 
         """
-        base_status = {
-            "actor_id": self.id.value,
+        base_status: dict[str, Any] = {
+            "actor_id": str(self.id),
             "model_path": self._config.model_path,
             "model_version": self._model_version,
             "is_warmed_up": self._is_warmed_up,

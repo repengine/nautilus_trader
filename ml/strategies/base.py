@@ -18,8 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
-from ml._imports import HAS_PROMETHEUS
-from ml._imports import REGISTRY
+# Metrics bootstrap handles idempotency; no direct registry access
 from ml.actors.base import MLSignal
 from ml.common.metrics import Counter
 from ml.common.metrics import Histogram
@@ -67,144 +66,50 @@ ml_strategy_store_batch_size = None
 
 
 def _initialize_metrics() -> None:
-    """
-    Initialize Prometheus metrics once.
-    """
+    """Initialize Prometheus metrics once (idempotent)."""
+    from ml.common.metrics_bootstrap import get_counter, get_gauge, get_histogram
+
     global _metrics_initialized, ml_signals_received, ml_trades_executed, ml_signal_to_trade_latency, ml_position_count
     global ml_strategy_decisions_persisted, ml_strategy_store_write_latency, ml_strategy_store_batch_size
 
     if _metrics_initialized:
         return
 
-    # Check if metrics already exist in registry
-    if HAS_PROMETHEUS:
-        # Try to get existing metrics or create new ones
-        existing_names = set(REGISTRY._names_to_collectors.keys())
-
-        if METRIC_SIGNALS_RECEIVED_TOTAL not in existing_names:
-            ml_signals_received = Counter(
-                METRIC_SIGNALS_RECEIVED_TOTAL,
-                "Total number of ML signals received",
-                [LABEL_STRATEGY_ID, LABEL_SIGNAL_SOURCE],
-            )
-        else:
-            ml_signals_received = cast(
-                Counter,
-                REGISTRY._names_to_collectors[METRIC_SIGNALS_RECEIVED_TOTAL],
-            )
-
-        if METRIC_TRADES_EXECUTED_TOTAL not in existing_names:
-            ml_trades_executed = Counter(
-                METRIC_TRADES_EXECUTED_TOTAL,
-                "Total number of trades executed based on ML signals",
-                [LABEL_STRATEGY_ID, LABEL_ORDER_SIDE],
-            )
-        else:
-            ml_trades_executed = cast(
-                Counter,
-                REGISTRY._names_to_collectors[METRIC_TRADES_EXECUTED_TOTAL],
-            )
-
-        if METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS not in existing_names:
-            ml_signal_to_trade_latency = Histogram(
-                METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS,
-                "Latency from signal reception to trade execution",
-                [LABEL_STRATEGY_ID],
-            )
-        else:
-            ml_signal_to_trade_latency = cast(
-                Histogram,
-                REGISTRY._names_to_collectors[METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS],
-            )
-
-        if METRIC_POSITION_COUNT not in existing_names:
-            ml_position_count = Counter(
-                METRIC_POSITION_COUNT,
-                "Current number of open positions",
-                [LABEL_STRATEGY_ID, LABEL_INSTRUMENT],
-            )
-        else:
-            ml_position_count = cast(
-                Counter,
-                REGISTRY._names_to_collectors[METRIC_POSITION_COUNT],
-            )
-
-        # Add new strategy store metrics
-        if METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL not in existing_names:
-            ml_strategy_decisions_persisted = Counter(
-                METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL,
-                "Total number of strategy decisions persisted to store",
-                [LABEL_STRATEGY_ID],
-            )
-        else:
-            ml_strategy_decisions_persisted = cast(
-                Counter,
-                REGISTRY._names_to_collectors[METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL],
-            )
-
-        if METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS not in existing_names:
-            ml_strategy_store_write_latency = Histogram(
-                METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS,
-                "Latency of writing to strategy store",
-                [LABEL_STRATEGY_ID],
-            )
-        else:
-            ml_strategy_store_write_latency = cast(
-                Histogram,
-                REGISTRY._names_to_collectors[METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS],
-            )
-
-        if METRIC_STRATEGY_STORE_BATCH_SIZE not in existing_names:
-            from ml._imports import Gauge
-            ml_strategy_store_batch_size = Gauge(
-                METRIC_STRATEGY_STORE_BATCH_SIZE,
-                "Current batch size in strategy store buffer",
-                [LABEL_STRATEGY_ID],
-            )
-        else:
-            from ml._imports import Gauge
-            ml_strategy_store_batch_size = cast(
-                Gauge,
-                REGISTRY._names_to_collectors[METRIC_STRATEGY_STORE_BATCH_SIZE],
-            )
-    else:
-        # Use dummy metrics when Prometheus is not available
-        ml_signals_received = Counter(
-            METRIC_SIGNALS_RECEIVED_TOTAL,
-            "Total number of ML signals received",
-            [LABEL_STRATEGY_ID, LABEL_SIGNAL_SOURCE],
-        )
-        ml_trades_executed = Counter(
-            METRIC_TRADES_EXECUTED_TOTAL,
-            "Total number of trades executed based on ML signals",
-            [LABEL_STRATEGY_ID, LABEL_ORDER_SIDE],
-        )
-        ml_signal_to_trade_latency = Histogram(
-            METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS,
-            "Latency from signal reception to trade execution",
-            [LABEL_STRATEGY_ID],
-        )
-        ml_position_count = Counter(
-            METRIC_POSITION_COUNT,
-            "Current number of open positions",
-            [LABEL_STRATEGY_ID, LABEL_INSTRUMENT],
-        )
-        ml_strategy_decisions_persisted = Counter(
-            METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL,
-            "Total number of strategy decisions persisted to store",
-            [LABEL_STRATEGY_ID],
-        )
-        ml_strategy_store_write_latency = Histogram(
-            METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS,
-            "Latency of writing to strategy store",
-            [LABEL_STRATEGY_ID],
-        )
-        from ml._imports import Gauge
-        ml_strategy_store_batch_size = Gauge(
-            METRIC_STRATEGY_STORE_BATCH_SIZE,
-            "Current batch size in strategy store buffer",
-            [LABEL_STRATEGY_ID],
-        )
+    ml_signals_received = get_counter(
+        METRIC_SIGNALS_RECEIVED_TOTAL,
+        "Total number of ML signals received",
+        [LABEL_STRATEGY_ID, LABEL_SIGNAL_SOURCE],
+    )
+    ml_trades_executed = get_counter(
+        METRIC_TRADES_EXECUTED_TOTAL,
+        "Total number of trades executed based on ML signals",
+        [LABEL_STRATEGY_ID, LABEL_ORDER_SIDE],
+    )
+    ml_signal_to_trade_latency = get_histogram(
+        METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS,
+        "Latency from signal reception to trade execution",
+        [LABEL_STRATEGY_ID],
+    )
+    ml_position_count = get_counter(
+        METRIC_POSITION_COUNT,
+        "Current number of open positions",
+        [LABEL_STRATEGY_ID, LABEL_INSTRUMENT],
+    )
+    ml_strategy_decisions_persisted = get_counter(
+        METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL,
+        "Total number of strategy decisions persisted to store",
+        [LABEL_STRATEGY_ID],
+    )
+    ml_strategy_store_write_latency = get_histogram(
+        METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS,
+        "Latency of writing to strategy store",
+        [LABEL_STRATEGY_ID],
+    )
+    ml_strategy_store_batch_size = get_gauge(
+        METRIC_STRATEGY_STORE_BATCH_SIZE,
+        "Current batch size in strategy store buffer",
+        [LABEL_STRATEGY_ID],
+    )
 
     _metrics_initialized = True
 

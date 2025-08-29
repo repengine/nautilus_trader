@@ -143,6 +143,17 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     include_trade_flow: bool = False
     validate_quality: bool = False
 
+    # --- Compatibility toggles for legacy tests (no-ops by default) ---
+    # These mirror older boolean switches used in tests such as
+    # enable_returns/enable_momentum/enable_volatility/enable_technical and
+    # ma_periods. They are optional and default to None to avoid affecting
+    # normal configurations.
+    enable_returns: bool | None = None
+    enable_momentum: bool | None = None
+    enable_volatility: bool | None = None
+    enable_technical: bool | None = None
+    ma_periods: list[int] | None = None
+
     def __post_init__(self) -> None:
         """
         Post-initialization validation and setup.
@@ -180,6 +191,9 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         if not (2 <= self.macd_signal <= 50):
             msg = f"macd_signal must be between 2 and 50, got {self.macd_signal}"
             raise ValueError(msg)
+
+        # Note: Do not mutate fields in frozen msgspec.Struct. Compatibility
+        # handling for `ma_periods` occurs in pipeline spec construction.
 
     def get_feature_names(self) -> list[str]:
         """
@@ -2146,6 +2160,44 @@ class FeatureEngineer:
         """
         return self.config.get_feature_names()
 
+    # ---- Compatibility shim for legacy tests ----
+    def compute_features(self, bars: list[Bar]) -> dict[str, float]:  # pragma: no cover - shim
+        """Compatibility wrapper mapping legacy API to the unified calculator.
+
+        Accepts a list of `Bar` objects, converts them to a tabular form,
+        performs batch feature computation, and returns the latest row as a
+        simple dict[str, float] to match older test expectations.
+        """
+        # Convert Bars to a lightweight pandas DataFrame regardless of POLARS availability
+        rows = []
+        for b in bars:
+            rows.append(
+                {
+                    "open": float(b.open),
+                    "high": float(b.high),
+                    "low": float(b.low),
+                    "close": float(b.close),
+                    "volume": float(b.volume),
+                    "timestamp": int(b.ts_event),
+                }
+            )
+
+        # Ensure pandas import via centralized imports (fallback if not loaded yet)
+        local_pd = pd
+        if local_pd is None:
+            from ml._imports import pd as local_pd  # type: ignore[no-redef]
+        assert local_pd is not None
+
+        df = local_pd.DataFrame(rows)
+        features_df, _ = self.calculate_features(df, mode="batch", fit_scaler=False)
+
+        # Extract the last row as a plain dict
+        if hasattr(features_df, "to_pandas"):
+            features_pd = features_df.to_pandas()
+            return {k: float(features_pd.iloc[-1][k]) for k in features_pd.columns if k != "timestamp"}
+        else:
+            return {k: float(features_df.iloc[-1][k]) for k in features_df.columns if k != "timestamp"}
+
 # ===== Shared helpers to prevent drift between Config/Engineer/Pipeline =====
 
 def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
@@ -2154,13 +2206,29 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
     This is the single source of truth for feature name enumeration.
     """
-    transforms: list[TransformSpec] = [
-        TransformSpec(name="returns", params={"periods": list(cfg.return_periods)}),
-        TransformSpec(name="momentum", params={"periods": list(cfg.momentum_periods)}),
-        TransformSpec(name="volatility", params={}),
-        TransformSpec(name="volume_ratio", params={"periods": list(cfg.volume_ma_periods)}),
-        TransformSpec(name="core_indicators", params={}),
-    ]
+    transforms: list[TransformSpec] = []
+
+    # Legacy compatibility: boolean toggles default to enabled if None.
+    if getattr(cfg, "enable_returns", None) is not False:
+        transforms.append(
+            TransformSpec(name="returns", params={"periods": list(cfg.return_periods)})
+        )
+
+    if getattr(cfg, "enable_momentum", None) is not False:
+        transforms.append(
+            TransformSpec(name="momentum", params={"periods": list(cfg.momentum_periods)})
+        )
+
+    if getattr(cfg, "enable_volatility", None) is not False:
+        transforms.append(TransformSpec(name="volatility", params={}))
+
+    # Volume ratio belongs to core indicators group conceptually, but keep separate
+    # to allow parameterization by periods.
+    vr_periods = list(cfg.ma_periods) if cfg.ma_periods is not None else list(cfg.volume_ma_periods)
+    transforms.append(TransformSpec(name="volume_ratio", params={"periods": vr_periods}))
+
+    if getattr(cfg, "enable_technical", None) is not False:
+        transforms.append(TransformSpec(name="core_indicators", params={}))
 
     if getattr(cfg, "include_microstructure", False):
         transforms.append(TransformSpec(name="microstructure", params={}))

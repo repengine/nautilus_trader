@@ -260,6 +260,164 @@ def start_postgresql() -> None:
 
 
 # ============================================================================
+# Compatibility fixture: clean Postgres DB pre/post test
+# ============================================================================
+
+@pytest.fixture(scope="function")
+def clean_postgres_db() -> Generator[None, None, None]:
+    """Ensure a clean PostgreSQL state before and after each test.
+
+    - Uses `EngineManager.get_engine(DATABASE_URL)` to respect pooling
+    - Defers constraints to allow TRUNCATE order-agnostically
+    - TRUNCATEs all user tables in the `public` schema pre/post test
+
+    This fixture exists for compatibility with legacy tests which
+    assume a clean database. Prefer transaction-scoped isolation
+    where possible, but this keeps existing tests unblocked.
+    """
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    # Clean before test
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+            result = conn.execute(
+                text(
+                    """
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                      AND tablename NOT LIKE 'pg_%'
+                      AND tablename NOT LIKE 'sql_%'
+                    """
+                )
+            )
+
+            for row in result:
+                table = row[0]
+                try:
+                    conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                except Exception as e:  # Best-effort cleanup
+                    print(f"Warning during pre-test cleanup of {table}: {e}")
+            conn.commit()
+    except Exception as e:
+        # If cleanup cannot run (e.g., DB down), proceed; tests may be skipped by gate
+        print(f"clean_postgres_db pre-test cleanup skipped: {e}")
+
+    yield
+
+    # Clean after test as well
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                      AND tablename NOT LIKE 'pg_%'
+                      AND tablename NOT LIKE 'sql_%'
+                    """
+                )
+            )
+
+            for row in result:
+                table = row[0]
+                try:
+                    conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                except Exception as e:
+                    print(f"Warning during post-test cleanup of {table}: {e}")
+            conn.commit()
+    except Exception as e:
+        print(f"clean_postgres_db post-test cleanup skipped: {e}")
+
+
+# ============================================================================
+# Compatibility database fixtures (legacy names expected by tests)
+# ============================================================================
+
+@pytest.fixture(scope="function")
+def test_database() -> Generator[TestDatabase, None, None]:
+    """Create a TestDatabase bound to PostgreSQL with schema initialized.
+
+    Provides a connection string and engine consistent with production usage
+    while ensuring each test starts from a clean state and has required tables.
+    """
+    if not is_postgresql_running():
+        pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
+
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    # Best-effort clean before creating wrapper
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+                  AND tablename NOT LIKE 'pg_%'
+                  AND tablename NOT LIKE 'sql_%'
+                """
+            )
+        )
+        for row in result:
+            table_name = row[0]
+            try:
+                conn.execute(text(f"TRUNCATE TABLE {table_name} CASCADE"))
+            except Exception:
+                # Ignore per-table errors; migrations may not be applied yet
+                pass
+        conn.commit()
+
+    db = TestDatabase(engine=engine, connection_string=DATABASE_URL, auto_rollback=False)
+    # Ensure minimal schema exists for tests expecting migrations
+    try:
+        db.init_schema()
+    except Exception:
+        # If migrations fail due to environment, let tests surface specifics
+        pass
+
+    try:
+        yield db
+    finally:
+        db.cleanup()
+
+
+@pytest.fixture
+def test_db_engine(test_database: TestDatabase) -> Engine:
+    """Expose the SQLAlchemy engine from TestDatabase (compat fixture)."""
+    return test_database.engine
+
+
+@pytest.fixture
+def test_db_session(test_database: TestDatabase) -> Generator[Session, None, None]:
+    """Yield a session with automatic rollback from TestDatabase (compat)."""
+    with test_database.get_session() as session:
+        yield session
+
+
+@pytest.fixture
+def seeded_database(test_database: TestDatabase) -> TestDatabase:
+    """Seed basic data for tests requiring pre-populated state (compat)."""
+    test_database.seed_test_data("basic")
+    return test_database
+
+
+@pytest.fixture
+def database_snapshot(test_database: TestDatabase) -> DatabaseSnapshot:
+    """Provide DatabaseSnapshot helper (compat)."""
+    return DatabaseSnapshot(test_database)
+
+
+# ============================================================================
 # Store Fixtures with Proper Mocking
 # ============================================================================
 
@@ -442,6 +600,11 @@ def pytest_configure(config):
     Uses pytest-xdist for parallel test execution to reduce
     total test time while preventing connection exhaustion.
     """
+    # Register known markers to silence PytestUnknownMarkWarning
+    config.addinivalue_line("markers", "database: requires PostgreSQL; may run serially")
+    config.addinivalue_line("markers", "serial: run test in isolation (no xdist)")
+    config.addinivalue_line("markers", "integration: integration test category")
+
     # Check if xdist is available
     try:
         # Set optimal worker count based on CPU cores
@@ -459,6 +622,22 @@ def pytest_configure(config):
 
     except ImportError:
         pass  # xdist not installed
+
+
+def pytest_collection_modifyitems(config, items):
+    """Gate database-marked tests when PostgreSQL is not reachable.
+
+    This prevents noisy failures on CI or local environments without
+    a running Postgres instance. A clear skip reason is added.
+    """
+    if is_postgresql_running():
+        return
+
+    skip_reason = f"PostgreSQL not reachable at {DATABASE_URL}; skipping @pytest.mark.database tests"
+    skip_db = pytest.mark.skip(reason=skip_reason)
+    for item in items:
+        if "database" in item.keywords:
+            item.add_marker(skip_db)
 
 
 def pytest_sessionstart(session):
@@ -505,6 +684,12 @@ __all__ = [
     "DatabaseSnapshot",
     # Legacy
     "TestDatabase",
+    "clean_postgres_db",
+    "test_database",
+    "test_db_engine",
+    "test_db_session",
+    "seeded_database",
+    "database_snapshot",
     # Monitoring
     "connection_monitor",
     "create_mock_databento_client",

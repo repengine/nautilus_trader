@@ -32,6 +32,10 @@ from ml.stores.strategy_store import StrategyStore
 logger = logging.getLogger(__name__)
 
 
+from typing import runtime_checkable
+
+
+@runtime_checkable
 class HasDBConnection(Protocol):
     """Protocol for configs carrying an optional DB connection string."""
 
@@ -67,10 +71,10 @@ class MLIntegrationManager:
         self,
         config: HasDBConnection | None = None,
         db_connection: str | None = None,
-        auto_start_postgres: bool = True,
-        auto_migrate: bool = True,
+        auto_start_postgres: bool = False,
+        auto_migrate: bool = False,
         ensure_healthy: bool = True,
-    ):
+    ) -> None:
         """
         Initialize the ML integration manager.
 
@@ -95,8 +99,12 @@ class MLIntegrationManager:
             or "postgresql://postgres:postgres@localhost:5432/nautilus"
         )
 
-        self.auto_start_postgres = auto_start_postgres
-        self.auto_migrate = auto_migrate
+        # Allow environment variables to opt-in
+        import os
+        env_start = os.getenv("ML_AUTO_START_DB", "").lower() in {"1", "true", "yes"}
+        env_migrate = os.getenv("ML_AUTO_MIGRATE", "").lower() in {"1", "true", "yes"}
+        self.auto_start_postgres = auto_start_postgres or env_start
+        self.auto_migrate = auto_migrate or env_migrate
 
         # Initialize components
         self._init_database()
@@ -389,7 +397,7 @@ class MLIntegrationManager:
 
         return health
 
-    def create_integrated_actor(self, actor_class: type[Any], config: Any) -> Any:
+    def create_integrated_actor(self, actor_class: type[Any], config: object) -> object:
         """
         Create an actor with automatic integration.
 
@@ -444,7 +452,7 @@ class AutoIntegratedActor:
     automatic store integration built-in.
     """
 
-    def __init__(self, config: Any, integration: MLIntegrationManager | None = None):
+    def __init__(self, config: object, integration: MLIntegrationManager | None = None) -> None:
         """
         Initialize actor with automatic integration.
 
@@ -457,7 +465,7 @@ class AutoIntegratedActor:
 
         """
         # Get or create integration manager
-        self.integration = integration or MLIntegrationManager(config)
+        self.integration = integration or MLIntegrationManager(config if isinstance(config, HasDBConnection) else None)
 
         # Wire all stores
         self.feature_store = self.integration.feature_store
@@ -469,7 +477,7 @@ class AutoIntegratedActor:
         self.model_registry = self.integration.model_registry
         self.strategy_registry = self.integration.strategy_registry
 
-    def write_features(self, features: dict[str, float], **kwargs: Any) -> None:
+    def write_features(self, features: dict[str, float], **kwargs: object) -> None:
         """
         Automatically write features to store.
         """
@@ -477,7 +485,8 @@ class AutoIntegratedActor:
             feature_set_id=getattr(self, "feature_set_id", "default"),
             instrument_id=getattr(self, "instrument_id", "unknown"),
             features=features,
-            **kwargs,
+            ts_event=getattr(self, "ts_event", None),
+            ts_init=getattr(self, "ts_init", None),
         )
 
     def write_prediction(
@@ -485,7 +494,7 @@ class AutoIntegratedActor:
         prediction: float,
         confidence: float,
         features: dict[str, float],
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """
         Automatically write prediction to store.
@@ -496,7 +505,9 @@ class AutoIntegratedActor:
             prediction=prediction,
             confidence=confidence,
             features=features,
-            **kwargs,
+            inference_time_ms=float(getattr(self, "inference_time_ms", 0.0)),
+            ts_event=int(getattr(self, "ts_event", 0)),
+            is_live=bool(getattr(self, "is_live", False)),
         )
 
     def write_signal(
@@ -504,7 +515,7 @@ class AutoIntegratedActor:
         signal_type: str,
         strength: float,
         model_predictions: dict[str, float],
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         """
         Automatically write signal to store.
@@ -515,7 +526,10 @@ class AutoIntegratedActor:
             signal_type=signal_type,
             strength=strength,
             model_predictions=model_predictions,
-            **kwargs,
+            risk_metrics={},
+            execution_params={},
+            ts_event=int(getattr(self, "ts_event", 0)),
+            is_live=bool(getattr(self, "is_live", False)),
         )
 
 

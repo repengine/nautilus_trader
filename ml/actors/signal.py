@@ -142,9 +142,9 @@ _market_regime_metric = None
 
 
 def _initialize_performance_metrics() -> None:
-    """
-    Initialize module-level performance metrics once globally.
-    """
+    """Initialize module-level performance metrics once globally (idempotent)."""
+    from ml.common.metrics_bootstrap import get_counter, get_histogram
+
     global _metrics_initialized
     global _prediction_distribution_metric
     global _confidence_distribution_metric
@@ -152,138 +152,48 @@ def _initialize_performance_metrics() -> None:
     global _signals_generated_metric
     global _adaptive_threshold_metric
     global _market_regime_metric
+    global _feature_time_by_feature_set_metric
 
     if _metrics_initialized:
         return
 
-    if HAS_PROMETHEUS:
-        from ml._imports import REGISTRY
-
-        existing_names = set(REGISTRY._names_to_collectors.keys())
-
-        if METRIC_PREDICTION_DISTRIBUTION not in existing_names:
-            _prediction_distribution_metric = Histogram(
-                METRIC_PREDICTION_DISTRIBUTION,
-                "Distribution of model predictions",
-                [LABEL_ACTOR_ID],
-            )
-        else:
-            _prediction_distribution_metric = cast(
-                Histogram,
-                REGISTRY._names_to_collectors[METRIC_PREDICTION_DISTRIBUTION],
-            )
-
-        if METRIC_CONFIDENCE_DISTRIBUTION not in existing_names:
-            _confidence_distribution_metric = Histogram(
-                METRIC_CONFIDENCE_DISTRIBUTION,
-                "Distribution of prediction confidence scores",
-                [LABEL_ACTOR_ID],
-            )
-        else:
-            _confidence_distribution_metric = cast(
-                Histogram,
-                REGISTRY._names_to_collectors[METRIC_CONFIDENCE_DISTRIBUTION],
-            )
-
-        if METRIC_SIGNAL_GENERATION_SECONDS not in existing_names:
-            _signal_generation_time_metric = Histogram(
-                METRIC_SIGNAL_GENERATION_SECONDS,
-                "Signal generation latency in seconds",
-                [LABEL_ACTOR_ID, "strategy"],
-                buckets=SIGNAL_LATENCY_BUCKETS,
-            )
-        else:
-            _signal_generation_time_metric = cast(
-                Histogram,
-                REGISTRY._names_to_collectors[METRIC_SIGNAL_GENERATION_SECONDS],
-            )
-        if METRIC_FEATURE_TIME_BY_SET_SECONDS not in existing_names:
-            _feature_time_by_feature_set_metric = Histogram(
-                METRIC_FEATURE_TIME_BY_SET_SECONDS,
-                "Feature computation latency by feature_set_id",
-                [LABEL_ACTOR_ID, LABEL_FEATURE_SET_ID],
-                buckets=FEATURE_TIME_BUCKETS,
-            )
-        else:
-            _feature_time_by_feature_set_metric = cast(
-                Histogram,
-                REGISTRY._names_to_collectors[METRIC_FEATURE_TIME_BY_SET_SECONDS],
-            )
-
-        if METRIC_SIGNALS_GENERATED_TOTAL not in existing_names:
-            _signals_generated_metric = Counter(
-                METRIC_SIGNALS_GENERATED_TOTAL,
-                "Total number of signals generated",
-                [LABEL_ACTOR_ID, "strategy", "signal_type"],
-            )
-        else:
-            _signals_generated_metric = cast(
-                Counter,
-                REGISTRY._names_to_collectors[METRIC_SIGNALS_GENERATED_TOTAL],
-            )
-
-        if METRIC_ADAPTIVE_THRESHOLD not in existing_names:
-            _adaptive_threshold_metric = Histogram(
-                METRIC_ADAPTIVE_THRESHOLD,
-                "Adaptive threshold values",
-                [LABEL_ACTOR_ID],
-            )
-        else:
-            _adaptive_threshold_metric = cast(
-                Histogram,
-                REGISTRY._names_to_collectors[METRIC_ADAPTIVE_THRESHOLD],
-            )
-
-        if METRIC_MARKET_REGIME_TOTAL not in existing_names:
-            _market_regime_metric = Counter(
-                METRIC_MARKET_REGIME_TOTAL,
-                "Market regime detection counts",
-                [LABEL_ACTOR_ID, "regime"],
-            )
-        else:
-            _market_regime_metric = cast(
-                Counter,
-                REGISTRY._names_to_collectors[METRIC_MARKET_REGIME_TOTAL],
-            )
-    else:
-        # Use dummy metrics when Prometheus is not available
-        _prediction_distribution_metric = Histogram(
-            METRIC_PREDICTION_DISTRIBUTION,
-            "Distribution of model predictions",
-            [LABEL_ACTOR_ID],
-        )
-        _confidence_distribution_metric = Histogram(
-            METRIC_CONFIDENCE_DISTRIBUTION,
-            "Distribution of prediction confidence scores",
-            [LABEL_ACTOR_ID],
-        )
-        _signal_generation_time_metric = Histogram(
-            METRIC_SIGNAL_GENERATION_SECONDS,
-            "Signal generation latency in seconds",
-            [LABEL_ACTOR_ID, "strategy"],
-            buckets=SIGNAL_LATENCY_BUCKETS,
-        )
-        _signals_generated_metric = Counter(
-            METRIC_SIGNALS_GENERATED_TOTAL,
-            "Total number of signals generated",
-            [LABEL_ACTOR_ID, "strategy", "signal_type"],
-        )
-        _feature_time_by_feature_set_metric = Histogram(
-            METRIC_FEATURE_TIME_BY_SET_SECONDS,
-            "Feature computation latency by feature_set_id",
-            [LABEL_ACTOR_ID, LABEL_FEATURE_SET_ID],
-            buckets=FEATURE_TIME_BUCKETS,
-        )
-        _adaptive_threshold_metric = Histogram(
-            METRIC_ADAPTIVE_THRESHOLD,
-            "Adaptive threshold values",
-            [LABEL_ACTOR_ID],
-        )
-        _market_regime_metric = Counter(
-            METRIC_MARKET_REGIME_TOTAL,
-            "Market regime detection counts",
-            [LABEL_ACTOR_ID, "regime"],
-        )
+    _prediction_distribution_metric = get_histogram(
+        METRIC_PREDICTION_DISTRIBUTION,
+        "Distribution of model predictions",
+        [LABEL_ACTOR_ID],
+    )
+    _confidence_distribution_metric = get_histogram(
+        METRIC_CONFIDENCE_DISTRIBUTION,
+        "Distribution of prediction confidence scores",
+        [LABEL_ACTOR_ID],
+    )
+    _signal_generation_time_metric = get_histogram(
+        METRIC_SIGNAL_GENERATION_SECONDS,
+        "Signal generation latency in seconds",
+        [LABEL_ACTOR_ID, "strategy"],
+        buckets=SIGNAL_LATENCY_BUCKETS,
+    )
+    _feature_time_by_feature_set_metric = get_histogram(
+        METRIC_FEATURE_TIME_BY_SET_SECONDS,
+        "Feature computation latency by feature_set_id",
+        [LABEL_ACTOR_ID, LABEL_FEATURE_SET_ID],
+        buckets=FEATURE_TIME_BUCKETS,
+    )
+    _signals_generated_metric = get_counter(
+        METRIC_SIGNALS_GENERATED_TOTAL,
+        "Total number of signals generated",
+        [LABEL_ACTOR_ID, "strategy", "signal_type"],
+    )
+    _adaptive_threshold_metric = get_histogram(
+        METRIC_ADAPTIVE_THRESHOLD,
+        "Adaptive threshold values",
+        [LABEL_ACTOR_ID],
+    )
+    _market_regime_metric = get_counter(
+        METRIC_MARKET_REGIME_TOTAL,
+        "Market regime detection counts",
+        [LABEL_ACTOR_ID, "regime"],
+    )
 
     _metrics_initialized = True
 
@@ -893,7 +803,7 @@ class ModelSwapper:
         inference operations.
 
         """
-        self._current_model: Any | None = None
+        self._current_model: object | None = None
         self._current_metadata: dict[str, Any] | None = None
         self._next_model: Any | None = None
         self._next_metadata: dict[str, Any] | None = None
@@ -901,7 +811,7 @@ class ModelSwapper:
         self._load_error: Exception | None = None
 
     @property
-    def current_model(self) -> Any | None:
+    def current_model(self) -> object | None:
         """
         Get current model.
         """
@@ -928,7 +838,7 @@ class ModelSwapper:
         """
         return self._load_error
 
-    def set_current_model(self, model: Any, metadata: dict[str, Any] | None = None) -> None:
+    def set_current_model(self, model: object, metadata: dict[str, Any] | None = None) -> None:
         """
         Set current model.
         """
@@ -936,13 +846,13 @@ class ModelSwapper:
         self._current_metadata = metadata or {}
         self._load_error = None
 
-    def set_current(self, model: Any, metadata: dict[str, Any] | None = None) -> None:
+    def set_current(self, model: object, metadata: dict[str, Any] | None = None) -> None:
         """
         Set current model (backward compatibility).
         """
         self.set_current_model(model, metadata)
 
-    def prepare_swap(self, model: Any, metadata: dict[str, Any] | None = None) -> None:
+    def prepare_swap(self, model: object, metadata: dict[str, Any] | None = None) -> None:
         """
         Prepare model swap.
         """
@@ -1115,6 +1025,7 @@ class MLSignalActor(BaseMLInferenceActor):
         self._confidence_window = np.zeros(config.adaptive_window, dtype=np.float32)
         self._volatility_window = np.zeros(config.adaptive_window, dtype=np.float32)
         self._window_index = 0
+        self._last_feature_time_ns: int = 0
 
         # Initialize strategy
         self._signal_strategy = self._create_strategy()
@@ -1418,6 +1329,9 @@ class MLSignalActor(BaseMLInferenceActor):
         )
 
         feature_time = (time.perf_counter() - start_time) * 1000
+        # store in ns for performance monitor
+        from ml.config.constants import TimeConstants as _TC
+        self._last_feature_time_ns = int(feature_time * 1_000_000)
         if feature_time > self._config.max_feature_latency_ms:
             self.log.warning(f"Feature computation slow: {feature_time:.3f}ms")
 
@@ -1425,7 +1339,7 @@ class MLSignalActor(BaseMLInferenceActor):
         if _feature_time_by_feature_set_metric and self._feature_set_id:
             try:
                 _feature_time_by_feature_set_metric.labels(
-                    actor_id=self.id.value,
+                    actor_id=str(self.id),
                     feature_set_id=self._feature_set_id,
                 ).observe(feature_time / 1000.0)
             except Exception as exc:
@@ -1460,7 +1374,7 @@ class MLSignalActor(BaseMLInferenceActor):
                         return float(outputs[0][0]), float(outputs[1][0])
                     else:
                         prediction = float(outputs[0][0])
-                        return prediction, abs(prediction)
+                        return prediction, 0.5
                 elif hasattr(self._model, "predict_proba"):
                     features_2d = features.reshape(1, -1)
                     probabilities = self._model.predict_proba(features_2d)[0]
@@ -1470,7 +1384,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 elif hasattr(self._model, "predict"):
                     features_2d = features.reshape(1, -1)
                     prediction = float(self._model.predict(features_2d)[0])
-                    confidence = min(abs(prediction), 1.0) if prediction != 0 else 0.5
+                    confidence = 0.5
                     return prediction, confidence
 
             # Check if model uses the unified interface
@@ -1491,7 +1405,7 @@ class MLSignalActor(BaseMLInferenceActor):
                     return float(outputs[0][0]), float(outputs[1][0])
                 else:
                     prediction = float(outputs[0][0])
-                    return prediction, abs(prediction)
+                    return prediction, 0.5
             elif hasattr(self._model, "predict_proba"):
                 # Raw scikit-learn with probabilities
                 features_2d = features.reshape(1, -1)
@@ -1509,13 +1423,13 @@ class MLSignalActor(BaseMLInferenceActor):
                     dmatrix = xgb.DMatrix(features_2d)
                     predictions = self._model.predict(dmatrix)
                     prediction = float(predictions[0])
-                    confidence = min(abs(prediction), 1.0) if prediction != 0 else 0.5
+                    confidence = 0.5
                     return prediction, confidence
                 else:
                     # Raw general model (sklearn, etc.)
                     features_2d = features.reshape(1, -1)
                     prediction = float(self._model.predict(features_2d)[0])
-                    confidence = min(abs(prediction), 1.0) if prediction != 0 else 0.5
+                    confidence = 0.5
                     return prediction, confidence
             else:
                 self.log.error(f"Unsupported model type: {type(self._model)}")
@@ -1604,7 +1518,7 @@ class MLSignalActor(BaseMLInferenceActor):
             if hasattr(self, "_strategy_store"):
                 # Strategy store is always available from base class
                 self._strategy_store.write_signal(
-                    strategy_id=(self.id.value if getattr(self, "id", None) else "ml_signal"),
+                    strategy_id=(str(self.id) if getattr(self, "id", None) else "ml_signal"),
                     instrument_id=str(bar.bar_type.instrument_id),
                     signal_type="buy" if signal.prediction > 0 else "sell",
                     strength=abs(signal.prediction),
@@ -1624,226 +1538,23 @@ class MLSignalActor(BaseMLInferenceActor):
                     strategy_name = strategy_name.value
 
                 self._signals_generated_metric.labels(
-                    actor_id=self.id.value,
+                    actor_id=str(self.id),
                     strategy=strategy_name,
                     signal_type="buy" if signal.prediction > 0 else "sell",
                 ).inc()
 
     def _record_performance(self, start_time: float) -> None:
-        """
-        Record performance metrics.
-        """
+        """Record performance metrics."""
         from ml.config.constants import TimeConstants
-
         total_time_ns = int((time.perf_counter() - start_time) * TimeConstants.NS_IN_SECOND)
+        feature_time_ns = getattr(self, "_last_feature_time_ns", 0)
+        inference_time_ns = max(0, total_time_ns - feature_time_ns)
         if self._performance_monitor:
-            feature_time_ns = 500_000  # Placeholder, would need to track separately
-            inference_time_ns = total_time_ns - feature_time_ns
             self._performance_monitor.record_timing(
                 feature_time_ns,
                 inference_time_ns,
                 total_time_ns,
             )
-
-    def _record_success(self) -> None:
-        """
-        Record successful prediction.
-        """
-        if self._circuit_breaker:
-            self._circuit_breaker.record_success()
-        if self._health_monitor:
-            self._health_monitor.update_prediction_success()
-
-    def _handle_prediction_error(self, error: Exception) -> None:
-        """
-        Handle prediction error.
-        """
-        self.log.error(f"Signal generation failed: {error}")
-        if self._performance_monitor:
-            self._performance_monitor.record_error()
-        if self._circuit_breaker:
-            self._circuit_breaker.record_failure()
-        if self._health_monitor:
-            self._health_monitor.update_prediction_failure()
-
-    def _update_prediction_history(self, prediction: float, confidence: float, bar: Bar) -> None:
-        """
-        Update prediction history.
-        """
-        self._prediction_history.append(prediction)
-        self._confidence_history.append(confidence)
-
-        # Keep bounded
-        max_size = max(self._signal_config.adaptive_window * 2, 1000)
-        if len(self._prediction_history) > max_size:
-            self._prediction_history = self._prediction_history[-max_size:]
-            self._confidence_history = self._confidence_history[-max_size:]
-
-        # Update windows
-        self._prediction_window[self._window_index] = prediction
-        self._confidence_window[self._window_index] = confidence
-
-        # Update volatility
-        if self._indicator_manager and "closes" in self._indicator_manager.price_history:
-            closes = self._indicator_manager.price_history["closes"]
-            if len(closes) >= 2:
-                recent_return = abs(closes[-1] - closes[-2]) / closes[-2]
-                self._volatility_window[self._window_index] = recent_return
-
-        self._window_index = (self._window_index + 1) % self._signal_config.adaptive_window
-
-        # Update adaptive threshold
-        strategy_val = str(self._signal_config.signal_strategy)
-        if strategy_val == "adaptive":
-            self._update_adaptive_threshold()
-
-    def _update_adaptive_threshold(self) -> None:
-        """
-        Update adaptive threshold.
-        """
-        volatility = float(np.mean(self._volatility_window))
-        volatility_adjustment = volatility * self._strat_config.adaptive_volatility_factor
-        pred_std = float(np.std(self._prediction_window))
-
-        base_threshold = self._config.prediction_threshold
-        self._adaptive_threshold = float(base_threshold + volatility_adjustment + (pred_std * 0.5))
-        self._adaptive_threshold = np.clip(
-            self._adaptive_threshold,
-            self._strat_config.min_threshold,
-            self._strat_config.max_threshold,
-        )
-
-        if self._adaptive_threshold_metric:
-            self._adaptive_threshold_metric.labels(actor_id=self.id.value).observe(
-                self._adaptive_threshold,
-            )
-
-    def _detect_market_regime(self, bar: Bar) -> None:
-        """
-        Detect current market regime.
-        """
-        if not self._indicator_manager or "closes" not in self._indicator_manager.price_history:
-            return
-
-        closes = self._indicator_manager.price_history["closes"]
-        if len(closes) < 20:
-            return
-
-        closes_array = np.array(closes[-20:])
-        returns = np.diff(closes_array) / closes_array[:-1]
-        volatility = float(np.std(returns))
-        trend_strength = abs(np.corrcoef(np.arange(len(closes_array)), closes_array)[0, 1])
-
-        if volatility > 0.02:
-            new_regime = "volatile"
-        elif trend_strength > 0.7:
-            new_regime = "trending"
-        else:
-            new_regime = "ranging"
-
-        if new_regime != self._market_regime:
-            self._market_regime = new_regime
-            if self._market_regime_metric:
-                self._market_regime_metric.labels(
-                    actor_id=self.id.value,
-                    regime=new_regime,
-                ).inc()
-
-    def _should_hot_reload(self) -> bool:
-        """
-        Check if hot reload should be performed.
-        """
-        if not self._signal_config.enable_hot_reload or not self._model_swapper:
-            return False
-
-        current_time = time.time()
-        if current_time - self._last_reload_check < self._signal_config.hot_reload_interval:
-            return False
-
-        self._last_reload_check = int(current_time)
-        # Would check for new model file here
-        return False
-
-    def _execute_hot_reload(self) -> None:
-        """
-        Execute model hot reload.
-        """
-        if not self._model_swapper:
-            return
-
-        try:
-            # Load new model in background
-            # This would be implemented based on specific requirements
-            pass
-        except Exception as e:
-            self.log.error(f"Hot reload failed: {e}")
-
-    def _backup_indicator_state(self) -> None:
-        """
-        Backup indicator state for hot reload.
-        """
-        if self._indicator_manager:
-            self._indicator_state_backup = {
-                "prediction_history": self._prediction_history.copy(),
-                "confidence_history": self._confidence_history.copy(),
-                "prediction_window": self._prediction_window.copy(),
-                "confidence_window": self._confidence_window.copy(),
-                "volatility_window": self._volatility_window.copy(),
-                "window_index": self._window_index,
-                "adaptive_threshold": self._adaptive_threshold,
-                "market_regime": self._market_regime,
-                "last_signal_bar": self._last_signal_bar,
-            }
-            self.log.info("Indicator state backed up")
-
-    def _restore_indicator_state(self) -> None:
-        """
-        Restore indicator state after hot reload.
-        """
-        if hasattr(self, "_indicator_state_backup") and self._indicator_state_backup:
-            backup = self._indicator_state_backup
-            self._prediction_history = backup.get("prediction_history", [])
-            self._confidence_history = backup.get("confidence_history", [])
-            self._prediction_window = backup.get("prediction_window", self._prediction_window)
-            self._confidence_window = backup.get("confidence_window", self._confidence_window)
-            self._volatility_window = backup.get("volatility_window", self._volatility_window)
-            self._window_index = backup.get("window_index", 0)
-            self._adaptive_threshold = backup.get(
-                "adaptive_threshold",
-                self._config.prediction_threshold,
-            )
-            self._market_regime = backup.get("market_regime", "unknown")
-            self._last_signal_bar = backup.get(
-                "last_signal_bar",
-                -self._signal_config.min_signal_separation_bars,
-            )
-            self._indicator_state_backup.clear()
-            self.log.info("Indicator state restored")
-
-    def get_signal_statistics(self) -> dict[str, Any]:
-        """
-        Get comprehensive signal statistics.
-        """
-        base_stats = self.get_health_status()
-
-        # Handle both enum and string for stats
-        strategy_name = self._signal_config.signal_strategy
-        if isinstance(strategy_name, SignalStrategy):
-            strategy_name = strategy_name.value
-
-        signal_stats = {
-            "signal_strategy": strategy_name,
-            "optimization_level": self._opt_config.level,
-            "adaptive_threshold": self._adaptive_threshold,
-            "market_regime": self._market_regime,
-            "last_signal_bar": self._last_signal_bar,
-            "prediction_history_length": len(self._prediction_history),
-        }
-
-        if self._performance_monitor:
-            signal_stats.update(self._performance_monitor.get_current_stats())
-
-        base_stats.update(signal_stats)
         return base_stats
 
     def reset_signal_state(self) -> None:

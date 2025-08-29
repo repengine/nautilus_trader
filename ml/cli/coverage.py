@@ -36,7 +36,7 @@ import uuid
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TYPE_CHECKING, Optional, cast
 
 import numpy as np
 from sqlalchemy import text
@@ -55,14 +55,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Try to import tabulate for pretty table formatting
-try:
-    from tabulate import tabulate
+# Pretty table formatting (avoid hard import for mypy/stubs)
+TABULATE_FUNC: Optional[Callable[..., str]] = None
+HAS_TABULATE = False
+if TYPE_CHECKING:
+    # Avoid importing third-party stubs; keep typing simple
+    pass
+else:  # runtime import via importlib to avoid mypy stub requirement
+    try:
+        import importlib
 
-    HAS_TABULATE = True
-except ImportError:
-    HAS_TABULATE = False
-    logger.warning("tabulate not installed. Install with 'pip install tabulate' for better table formatting.")
+        _mod = importlib.import_module("tabulate")
+        _func = getattr(_mod, "tabulate", None)
+        if callable(_func):
+            TABULATE_FUNC = cast(Callable[..., str], _func)
+            HAS_TABULATE = True
+    except Exception:
+        HAS_TABULATE = False
+        logger.warning(
+            "tabulate not installed. Install with 'pip install tabulate' for better table formatting.",
+        )
 
 
 class CoverageReporter:
@@ -579,8 +591,8 @@ class CoverageReporter:
                 "Complete",
             ]
 
-            if HAS_TABULATE:
-                table_str = tabulate(table_data, headers=headers, tablefmt="grid")
+            if HAS_TABULATE and TABULATE_FUNC is not None:
+                table_str = TABULATE_FUNC(table_data, headers=headers, tablefmt="grid")
             else:
                 # Simple formatting without tabulate
                 col_widths = [12, 18, 18, 20, 18, 8, 10]

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
+from datetime import datetime
 
 from ml.monitoring.extended_metrics import ExtendedMetricsManager
 
@@ -18,6 +19,8 @@ from ml.monitoring.extended_metrics import ExtendedMetricsManager
 if TYPE_CHECKING:
     from ml._imports import pl
     from ml.features.engineering import FeatureEngineer
+    from ml.features.engineering import IndicatorManager
+    from ml.typing import StandardScaler as StandardScalerT
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -60,8 +63,8 @@ class MonitoredDataCatalog:
     def load_bars(
         self,
         instrument_ids: list[str],
-        start: Any = None,
-        end: Any = None,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
     ) -> pl.DataFrame:
         """
         Load bars with quality metrics collection.
@@ -86,6 +89,7 @@ class MonitoredDataCatalog:
         start_time = time.perf_counter()
 
         try:
+            features: object
             # Load data using catalog utilities
             df = bars_to_dataframe(self.catalog, instrument_ids, start, end)
 
@@ -112,8 +116,8 @@ class MonitoredDataCatalog:
     def load_quotes(
         self,
         instrument_ids: list[str],
-        start: Any = None,
-        end: Any = None,
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
     ) -> pl.DataFrame:
         """
         Load quotes with quality metrics collection.
@@ -197,10 +201,10 @@ class MonitoredFeatureEngineer:
 
     def calculate_features(
         self,
-        data: Any,
+        data: object,
         mode: str = "batch",
-        **kwargs: Any,
-    ) -> Any:
+        **kwargs: object,
+    ) -> object:
         """
         Calculate features with comprehensive metrics.
 
@@ -225,12 +229,16 @@ class MonitoredFeatureEngineer:
             # Calculate features
             from typing import cast
             from ml.typing import DataFrameLike
+            features: object
             if mode == "batch":
-                features = self.engineer.calculate_features(cast(DataFrameLike, data), mode="batch")
+                features_df, _ = self.engineer.calculate_features(
+                    cast(DataFrameLike, data), mode="batch"
+                )
+                features = features_df
             else:
                 # Expect required online kwargs
-                indicator_manager = kwargs.get("indicator_manager")
-                scaler = kwargs.get("scaler")
+                indicator_manager = cast("IndicatorManager", kwargs.get("indicator_manager"))
+                scaler = cast("StandardScalerT | None", kwargs.get("scaler"))
                 features = self.engineer.calculate_features(
                     cast(dict[str, float], data),
                     mode="online",
@@ -243,8 +251,12 @@ class MonitoredFeatureEngineer:
                 calc_time = time.perf_counter() - start_time
 
                 if mode == "batch":
+                    try:
+                        num_samples = len(cast(Any, data))
+                    except Exception:
+                        num_samples = 1
                     self.metrics.feature_engineering.record_batch_computation(
-                        num_samples=len(data) if hasattr(data, "__len__") else 1,
+                        num_samples=num_samples,
                         computation_time=calc_time,
                     )
                 else:
@@ -254,11 +266,12 @@ class MonitoredFeatureEngineer:
 
                 # Check for feature quality issues
                 if hasattr(features, "isna"):
-                    nan_count = features.isna().sum()
+                    feats_any = cast(Any, features)
+                    nan_count = feats_any.isna().sum()
                     if nan_count > 0:
                         self.metrics.feature_engineering.record_feature_quality_issue(
                             issue_type="nan_values",
-                            feature_names=features.columns[features.isna().any()].tolist(),
+                            feature_names=feats_any.columns[feats_any.isna().any()].tolist(),
                         )
 
             return features
@@ -317,9 +330,9 @@ class MonitoredMLPipeline:
     def process_batch(
         self,
         instrument_ids: list[str],
-        start: Any = None,
-        end: Any = None,
-    ) -> tuple[Any, Any]:
+        start: str | datetime | None = None,
+        end: str | datetime | None = None,
+    ) -> tuple[object, object]:
         """
         Process batch data through complete pipeline.
 
@@ -458,9 +471,10 @@ def example_production_monitoring() -> None:
         try:
             # Load and process data
             bars = monitored_catalog.load_bars(["SPY.NYSE"], start="2024-01-01")
-            features = monitored_engineer.calculate_features(bars, mode="batch")
+            from typing import Any as _Any
+            features_df = cast(_Any, monitored_engineer.calculate_features(bars, mode="batch"))
 
-            logger.info(f"Iteration {i}: Processed {len(features)} samples")
+            logger.info(f"Iteration {i}: Processed {len(features_df)} samples")
 
         except Exception as e:
             logger.error(f"Iteration {i} failed: {e}")
