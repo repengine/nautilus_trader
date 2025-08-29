@@ -14,7 +14,7 @@ Operational notes:
 - **Real-time Alerting**: Multi-tier alert system with Slack, email, and PagerDuty integration
 - **Performance Optimized**: Sub-5ms latency overhead with graceful degradation
 - **Extensible Architecture**: Modular collector design supporting future ML components
-- **Centralized Metrics**: All metrics defined in `ml/common/metrics.py` to avoid duplication
+- **Centralized Metrics**: All metrics must be acquired via `ml/common/metrics_bootstrap.py` (get_counter/get_histogram/get_gauge) or imported from `ml/common/metrics.py` to avoid duplication
 
 ### Current Status
 
@@ -76,6 +76,15 @@ Operational notes:
 - **Reverse Proxy**: Optional (nginx/traefik for production)
 
 ## Metrics Catalog
+### Bootstrap Usage and Naming Standards
+
+- Always acquire metrics via `ml.common.metrics_bootstrap`:
+  - `get_counter(name, description, labelnames)`
+  - `get_histogram(name, description, labelnames, buckets=...)`
+  - `get_gauge(name, description, labelnames)`
+- Do not instantiate Prometheus collectors directly in modules. This prevents duplicate registration and ensures idempotency across tests and processes.
+- Naming conventions: prefix all ML metrics with `nautilus_ml_` and use snake_case. Labels should be stable and minimal (e.g., `model`, `instrument`, `stage`, `status`).
+- Central, widely used metrics live in `ml/common/metrics.py`; domain‑specific metrics use the bootstrap in their owning module.
 
 ### Core Metrics (MLMetricsCollector)
 

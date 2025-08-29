@@ -13,8 +13,6 @@ import threading
 from typing import Any
 
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
-from ml._imports import Gauge
 from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.base import BaseMetricsCollector
 
@@ -64,24 +62,29 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
+        from ml.common.metrics_bootstrap import (
+            get_counter,
+            get_gauge,
+        )
+
         prefix = self._config.metrics_prefix
 
         # Memory metrics
-        self._model_memory_usage_bytes = Gauge(
+        self._model_memory_usage_bytes = get_gauge(
             f"{prefix}_model_memory_usage_bytes",
             "Memory usage by ML models",
             ["model", "memory_type"],
         )
         self._register_metric("model_memory_usage_bytes", self._model_memory_usage_bytes)
 
-        self._feature_store_size_bytes = Gauge(
+        self._feature_store_size_bytes = get_gauge(
             f"{prefix}_feature_store_size_bytes",
             "Size of feature store in bytes",
             ["storage_type"],
         )
         self._register_metric("feature_store_size_bytes", self._feature_store_size_bytes)
 
-        self._python_memory_usage_bytes = Gauge(
+        self._python_memory_usage_bytes = get_gauge(
             f"{prefix}_python_memory_usage_bytes",
             "Python process memory usage",
             ["memory_type"],
@@ -89,14 +92,14 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         self._register_metric("python_memory_usage_bytes", self._python_memory_usage_bytes)
 
         # CPU metrics
-        self._cpu_usage_percent = Gauge(
+        self._cpu_usage_percent = get_gauge(
             f"{prefix}_cpu_usage_percent",
             "CPU usage percentage",
             ["core"],
         )
         self._register_metric("cpu_usage_percent", self._cpu_usage_percent)
 
-        self._ml_cpu_time_seconds = Counter(
+        self._ml_cpu_time_seconds = get_counter(
             f"{prefix}_ml_cpu_time_seconds_total",
             "Total CPU time spent on ML operations",
             ["operation_type"],
@@ -104,14 +107,14 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         self._register_metric("ml_cpu_time_seconds", self._ml_cpu_time_seconds)
 
         # GPU metrics (optional)
-        self._gpu_utilization_percent = Gauge(
+        self._gpu_utilization_percent = get_gauge(
             f"{prefix}_gpu_utilization_percent",
             "GPU utilization percentage",
             ["device", "metric"],
         )
         self._register_metric("gpu_utilization_percent", self._gpu_utilization_percent)
 
-        self._gpu_memory_usage_bytes = Gauge(
+        self._gpu_memory_usage_bytes = get_gauge(
             f"{prefix}_gpu_memory_usage_bytes",
             "GPU memory usage in bytes",
             ["device", "memory_type"],
@@ -119,14 +122,14 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         self._register_metric("gpu_memory_usage_bytes", self._gpu_memory_usage_bytes)
 
         # Disk and I/O metrics
-        self._disk_usage_bytes = Gauge(
+        self._disk_usage_bytes = get_gauge(
             f"{prefix}_disk_usage_bytes",
             "Disk usage for ML data and models",
             ["path", "usage_type"],
         )
         self._register_metric("disk_usage_bytes", self._disk_usage_bytes)
 
-        self._data_io_bytes_total = Counter(
+        self._data_io_bytes_total = get_counter(
             f"{prefix}_data_io_bytes_total",
             "Total bytes read/written for ML data",
             ["operation", "data_type"],
@@ -134,14 +137,14 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         self._register_metric("data_io_bytes_total", self._data_io_bytes_total)
 
         # Batch size and throughput metrics
-        self._inference_batch_size = Gauge(
+        self._inference_batch_size = get_gauge(
             f"{prefix}_inference_batch_size",
             "Current inference batch size",
             ["model"],
         )
         self._register_metric("inference_batch_size", self._inference_batch_size)
 
-        self._training_data_rows_processed_total = Counter(
+        self._training_data_rows_processed_total = get_counter(
             f"{prefix}_training_data_rows_processed_total",
             "Total training data rows processed",
             ["dataset"],

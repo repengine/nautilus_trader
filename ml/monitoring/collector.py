@@ -13,9 +13,6 @@ import types
 from typing import TYPE_CHECKING, Self
 
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
-from ml._imports import Gauge as _GaugeType
-from ml._imports import Histogram
 from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.base import BaseMetricsCollector
 
@@ -51,11 +48,11 @@ class MLMetricsCollector(BaseMetricsCollector):
         super().__init__(config)
 
         # Core metrics
-        self._ml_predictions_total: Counter | None = None
-        self._ml_prediction_latency_seconds: Histogram | None = None
-        self._ml_model_confidence: Gauge | None = None
-        self._ml_feature_computation_latency_seconds: Histogram | None = None
-        self._ml_model_errors_total: Counter | None = None
+        self._ml_predictions_total: object | None = None
+        self._ml_prediction_latency_seconds: object | None = None
+        self._ml_model_confidence: object | None = None
+        self._ml_feature_computation_latency_seconds: object | None = None
+        self._ml_model_errors_total: object | None = None
 
     def _initialize_metrics(self) -> None:
         """
@@ -64,40 +61,43 @@ class MLMetricsCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
-        # Gauge provided via centralized imports
-        Gauge = _GaugeType
+        from ml.common.metrics_bootstrap import (
+            get_counter,
+            get_gauge,
+            get_histogram,
+        )
 
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()
 
         # Core ML metrics
-        self._ml_predictions_total = Counter(
+        self._ml_predictions_total = get_counter(
             f"{prefix}_predictions_total",
             "Total number of ML predictions made",
             ["model", "instrument", "prediction_class", "status"],
         )
 
-        self._ml_prediction_latency_seconds = Histogram(
+        self._ml_prediction_latency_seconds = get_histogram(
             f"{prefix}_prediction_latency_seconds",
             "Time taken for ML model inference",
             ["model", "instrument"],
             buckets=buckets,
         )
 
-        self._ml_model_confidence = Gauge(
+        self._ml_model_confidence = get_gauge(
             f"{prefix}_model_confidence",
             "Current ML model confidence score",
             ["model", "instrument"],
         )
 
-        self._ml_feature_computation_latency_seconds = Histogram(
+        self._ml_feature_computation_latency_seconds = get_histogram(
             f"{prefix}_feature_computation_latency_seconds",
             "Time taken for feature computation",
             ["instrument", "feature_type"],
             buckets=buckets,
         )
 
-        self._ml_model_errors_total = Counter(
+        self._ml_model_errors_total = get_counter(
             f"{prefix}_model_errors_total",
             "Total number of ML model errors",
             ["model", "instrument", "error_type"],

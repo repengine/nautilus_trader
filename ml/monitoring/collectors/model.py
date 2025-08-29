@@ -13,9 +13,6 @@ import types
 from typing import Any, Self
 
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
-from ml._imports import Gauge
-from ml._imports import Histogram
 from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.base import BaseMetricsCollector
 
@@ -61,18 +58,24 @@ class ModelLifecycleCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
+        from ml.common.metrics_bootstrap import (
+            get_counter,
+            get_gauge,
+            get_histogram,
+        )
+
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()
 
         # Model versioning and deployment info
-        self._model_info = Gauge(
+        self._model_info = get_gauge(
             f"{prefix}_model_info",
             "Model deployment information",
             ["model", "version", "instrument", "deployment_time", "git_commit"],
         )
         self._register_metric("model_info", self._model_info)
 
-        self._model_last_trained_timestamp = Gauge(
+        self._model_last_trained_timestamp = get_gauge(
             f"{prefix}_model_last_trained_timestamp",
             "Timestamp when model was last trained",
             ["model", "instrument"],
@@ -80,7 +83,7 @@ class ModelLifecycleCollector(BaseMetricsCollector):
         self._register_metric("model_last_trained_timestamp", self._model_last_trained_timestamp)
 
         # Training metrics
-        self._model_training_duration_seconds = Histogram(
+        self._model_training_duration_seconds = get_histogram(
             f"{prefix}_model_training_duration_seconds",
             "Time taken for model training phases",
             ["model", "phase"],
@@ -91,7 +94,7 @@ class ModelLifecycleCollector(BaseMetricsCollector):
             self._model_training_duration_seconds,
         )
 
-        self._model_training_samples_total = Counter(
+        self._model_training_samples_total = get_counter(
             f"{prefix}_model_training_samples_total",
             "Total number of training samples processed",
             ["model", "dataset"],
@@ -99,14 +102,14 @@ class ModelLifecycleCollector(BaseMetricsCollector):
         self._register_metric("model_training_samples_total", self._model_training_samples_total)
 
         # Model size and loading metrics
-        self._model_size_bytes = Gauge(
+        self._model_size_bytes = get_gauge(
             f"{prefix}_model_size_bytes",
             "Model size in bytes",
             ["model", "format"],
         )
         self._register_metric("model_size_bytes", self._model_size_bytes)
 
-        self._model_load_time_seconds = Histogram(
+        self._model_load_time_seconds = get_histogram(
             f"{prefix}_model_load_time_seconds",
             "Time taken to load model",
             ["model", "location"],
@@ -115,14 +118,14 @@ class ModelLifecycleCollector(BaseMetricsCollector):
         self._register_metric("model_load_time_seconds", self._model_load_time_seconds)
 
         # Model performance metrics
-        self._model_training_score = Gauge(
+        self._model_training_score = get_gauge(
             f"{prefix}_model_training_score",
             "Training score/accuracy of the model",
             ["model", "metric_type"],
         )
         self._register_metric("model_training_score", self._model_training_score)
 
-        self._model_validation_score = Gauge(
+        self._model_validation_score = get_gauge(
             f"{prefix}_model_validation_score",
             "Validation score/accuracy of the model",
             ["model", "metric_type"],
@@ -130,14 +133,14 @@ class ModelLifecycleCollector(BaseMetricsCollector):
         self._register_metric("model_validation_score", self._model_validation_score)
 
         # Model deployment and error metrics
-        self._model_deployments_total = Counter(
+        self._model_deployments_total = get_counter(
             f"{prefix}_model_deployments_total",
             "Total number of model deployments",
             ["model", "status"],
         )
         self._register_metric("model_deployments_total", self._model_deployments_total)
 
-        self._model_load_errors_total = Counter(
+        self._model_load_errors_total = get_counter(
             f"{prefix}_model_load_errors_total",
             "Total number of model loading errors",
             ["model", "error_type"],

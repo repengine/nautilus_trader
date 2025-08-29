@@ -19,9 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
-from ml._imports import Gauge
-from ml._imports import Histogram
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
@@ -76,73 +73,75 @@ except Exception:
         ["operation", "status"],
     )
 
+from ml.common.metrics_bootstrap import get_counter, get_gauge, get_histogram
+
 # Define pipeline-level and additional metrics (not centralized)
 # Exported for tests/docs
-data_collected_total = Counter(
+data_collected_total = get_counter(
     "nautilus_ml_data_collected_total",
     "Total data records collected",
     ["source", "instrument", "data_type"],
 )
-pipeline_stage_latency = Histogram(
+pipeline_stage_latency = get_histogram(
     "nautilus_ml_pipeline_stage_latency_seconds",
     "Pipeline stage execution latency in seconds",
     ["stage"],
     buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),
 )
 
-pipeline_runs_total = Counter(
+pipeline_runs_total = get_counter(
     "nautilus_ml_pipeline_runs_total",
     "Total pipeline runs",
     ["status"],
 )
 
-active_collection_tasks = Gauge(
+active_collection_tasks = get_gauge(
     "nautilus_ml_active_collection_tasks",
     "Number of active data collection tasks",
 )
 
-active_feature_tasks = Gauge(
+active_feature_tasks = get_gauge(
     "nautilus_ml_active_feature_tasks",
     "Number of active feature computation tasks",
 )
 
-data_retention_cleanup_total = Counter(
+data_retention_cleanup_total = get_counter(
     "nautilus_ml_data_retention_cleanup_total",
     "Total data retention cleanup operations",
     ["status"],
 )
 
-data_missing_ratio = Gauge(
+data_missing_ratio = get_gauge(
     "nautilus_ml_data_missing_ratio",
     "Ratio of missing data points",
     ["instrument", "data_type"],
 )
 
-data_staleness_seconds = Gauge(
+data_staleness_seconds = get_gauge(
     "nautilus_ml_data_staleness_seconds",
     "Age of most recent data in seconds",
     ["instrument"],
 )
 
-api_request_total = Counter(
+api_request_total = get_counter(
     "nautilus_ml_api_request_total",
     "Total API requests made",
     ["endpoint", "status_code"],
 )
 
-api_rate_limit_hits = Counter(
+api_rate_limit_hits = get_counter(
     "nautilus_ml_api_rate_limit_hits_total",
     "Total API rate limit hits",
     ["endpoint"],
 )
 
-catalog_write_latency = Histogram(
+catalog_write_latency = get_histogram(
     "nautilus_ml_catalog_write_latency_seconds",
     "Catalog write operation latency",
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
 )
 
-feature_store_latency = Histogram(
+feature_store_latency = get_histogram(
     "nautilus_ml_feature_store_latency_seconds",
     "Feature store operation latency",
     ["operation"],
@@ -150,13 +149,13 @@ feature_store_latency = Histogram(
 )
 
 # Application-specific counters not in common metrics
-features_computed_total = Counter(
+features_computed_total = get_counter(
     "nautilus_ml_features_computed_total",
     "Total features computed",
     ["instrument", "feature_type"],
 )
 
-feature_computation_errors_total = Counter(
+feature_computation_errors_total = get_counter(
     "nautilus_ml_feature_computation_errors_total",
     "Total errors during feature computation",
     ["instrument", "error_type"],
@@ -516,7 +515,7 @@ class DataScheduler:
 
     def _collect_symbol_data(
         self,
-        client: Any,  # databento.Historical
+        client: object,  # databento.Historical
         symbol: str,
         start_date: datetime,
         end_date: datetime,

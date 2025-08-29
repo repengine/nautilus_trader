@@ -46,3 +46,9 @@ This log records notable decisions in the ML integration layer.
   - `validate_configuration() -> list[str]`
   Provide `MLComponentMixin` with safe defaults and adopt it in base actor, base stores, DataStore, and all registries. Add protocol compliance validation in `MLIntegrationManager` with a strictness toggle via `ML_STRICT_PROTOCOL_VALIDATION`.
 - Consequences: Standardized health/metrics/config API across components, early detection of non-compliance, and zero hot-path overhead (methods are not invoked in hot loops). Backward compatible defaults minimize churn.
+
+## 2025-08-29: Standardize Metrics Bootstrap (Task 2.3)
+
+- Problem: Modules instantiated Prometheus collectors directly, causing duplicate registration risks in tests and making metrics definitions hard to reason about.
+- Decision: Enforce centralized, idempotent metrics acquisition via `ml/common/metrics_bootstrap.py` (get_counter/get_histogram/get_gauge). Refactor monitoring collectors and DataScheduler to use the bootstrap; keep commonly shared metrics defined in `ml/common/metrics.py`.
+- Consequences: No duplicate registration, simpler imports, consistent naming/labels, and safer reuse across modules. Hot paths remain unaffected (observations only; collectors created at init).

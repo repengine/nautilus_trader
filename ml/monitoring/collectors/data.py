@@ -13,9 +13,6 @@ import types
 from typing import Any, Self
 
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
-from ml._imports import Gauge
-from ml._imports import Histogram
 from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.base import BaseMetricsCollector
 
@@ -61,18 +58,24 @@ class DataQualityCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
+        from ml.common.metrics_bootstrap import (
+            get_counter,
+            get_gauge,
+            get_histogram,
+        )
+
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()
 
         # Data loading metrics
-        self._data_rows_loaded_total = Counter(
+        self._data_rows_loaded_total = get_counter(
             f"{prefix}_data_rows_loaded_total",
             "Total number of data rows loaded",
             ["instrument", "data_type"],
         )
         self._register_metric("data_rows_loaded_total", self._data_rows_loaded_total)
 
-        self._data_load_duration_seconds = Histogram(
+        self._data_load_duration_seconds = get_histogram(
             f"{prefix}_data_load_duration_seconds",
             "Time taken to load data",
             ["instrument", "data_type"],
@@ -81,14 +84,14 @@ class DataQualityCollector(BaseMetricsCollector):
         self._register_metric("data_load_duration_seconds", self._data_load_duration_seconds)
 
         # Cache metrics
-        self._data_cache_hit_ratio = Gauge(
+        self._data_cache_hit_ratio = get_gauge(
             f"{prefix}_data_cache_hit_ratio",
             "Cache hit ratio for data loading",
             ["instrument", "data_type"],
         )
         self._register_metric("data_cache_hit_ratio", self._data_cache_hit_ratio)
 
-        self._data_cache_size_entries = Gauge(
+        self._data_cache_size_entries = get_gauge(
             f"{prefix}_data_cache_size_entries",
             "Number of entries in data cache",
             [],
@@ -96,14 +99,14 @@ class DataQualityCollector(BaseMetricsCollector):
         self._register_metric("data_cache_size_entries", self._data_cache_size_entries)
 
         # Data quality metrics
-        self._data_missing_values_ratio = Gauge(
+        self._data_missing_values_ratio = get_gauge(
             f"{prefix}_data_missing_values_ratio",
             "Ratio of missing values in data",
             ["instrument", "data_type", "column"],
         )
         self._register_metric("data_missing_values_ratio", self._data_missing_values_ratio)
 
-        self._data_outliers_detected_total = Counter(
+        self._data_outliers_detected_total = get_counter(
             f"{prefix}_data_outliers_detected_total",
             "Total number of outliers detected",
             ["instrument", "data_type", "detection_method"],
@@ -111,7 +114,7 @@ class DataQualityCollector(BaseMetricsCollector):
         self._register_metric("data_outliers_detected_total", self._data_outliers_detected_total)
 
         # Data validation metrics
-        self._data_validation_failures_total = Counter(
+        self._data_validation_failures_total = get_counter(
             f"{prefix}_data_validation_failures_total",
             "Total number of data validation failures",
             ["instrument", "data_type", "validation_type"],
@@ -121,7 +124,7 @@ class DataQualityCollector(BaseMetricsCollector):
             self._data_validation_failures_total,
         )
 
-        self._data_validation_checks_total = Counter(
+        self._data_validation_checks_total = get_counter(
             f"{prefix}_data_validation_checks_total",
             "Total number of data validation checks performed",
             ["instrument", "data_type", "validation_type"],
@@ -129,14 +132,14 @@ class DataQualityCollector(BaseMetricsCollector):
         self._register_metric("data_validation_checks_total", self._data_validation_checks_total)
 
         # Data freshness and staleness
-        self._data_staleness_seconds = Gauge(
+        self._data_staleness_seconds = get_gauge(
             f"{prefix}_data_staleness_seconds",
             "Time since last data update",
             ["instrument", "data_type"],
         )
         self._register_metric("data_staleness_seconds", self._data_staleness_seconds)
 
-        self._data_last_updated_timestamp = Gauge(
+        self._data_last_updated_timestamp = get_gauge(
             f"{prefix}_data_last_updated_timestamp",
             "Timestamp of last data update",
             ["instrument", "data_type"],
@@ -144,7 +147,7 @@ class DataQualityCollector(BaseMetricsCollector):
         self._register_metric("data_last_updated_timestamp", self._data_last_updated_timestamp)
 
         # Data loading errors
-        self._data_load_errors_total = Counter(
+        self._data_load_errors_total = get_counter(
             f"{prefix}_data_load_errors_total",
             "Total number of data loading errors",
             ["instrument", "data_type", "error_type"],

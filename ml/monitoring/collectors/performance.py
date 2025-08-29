@@ -12,9 +12,6 @@ import time
 from typing import Any
 
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
-from ml._imports import Gauge
-from ml._imports import Histogram
 from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.base import BaseMetricsCollector
 
@@ -60,18 +57,24 @@ class PerformanceDegradationMonitor(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
+        from ml.common.metrics_bootstrap import (
+            get_counter,
+            get_gauge,
+            get_histogram,
+        )
+
         prefix = self._config.metrics_prefix
         self._config.get_histogram_buckets()
 
         # Model accuracy and performance
-        self._model_accuracy_rolling = Gauge(
+        self._model_accuracy_rolling = get_gauge(
             f"{prefix}_model_accuracy_rolling",
             "Rolling model accuracy over time windows",
             ["model", "window", "metric_type"],
         )
         self._register_metric("model_accuracy_rolling", self._model_accuracy_rolling)
 
-        self._model_performance_score = Gauge(
+        self._model_performance_score = get_gauge(
             f"{prefix}_model_performance_score",
             "Current model performance score",
             ["model", "metric_type"],
@@ -79,14 +82,14 @@ class PerformanceDegradationMonitor(BaseMetricsCollector):
         self._register_metric("model_performance_score", self._model_performance_score)
 
         # Prediction distribution monitoring
-        self._prediction_distribution_shift = Gauge(
+        self._prediction_distribution_shift = get_gauge(
             f"{prefix}_prediction_distribution_shift",
             "Distribution shift in model predictions",
             ["model", "shift_metric"],
         )
         self._register_metric("prediction_distribution_shift", self._prediction_distribution_shift)
 
-        self._prediction_confidence_percentiles = Gauge(
+        self._prediction_confidence_percentiles = get_gauge(
             f"{prefix}_prediction_confidence_percentiles",
             "Percentiles of prediction confidence scores",
             ["model", "percentile"],
@@ -97,14 +100,14 @@ class PerformanceDegradationMonitor(BaseMetricsCollector):
         )
 
         # Inference performance
-        self._inference_timeout_ratio = Gauge(
+        self._inference_timeout_ratio = get_gauge(
             f"{prefix}_inference_timeout_ratio",
             "Ratio of inference operations that timed out",
             ["model", "threshold_ms"],
         )
         self._register_metric("inference_timeout_ratio", self._inference_timeout_ratio)
 
-        self._inference_latency_p99 = Gauge(
+        self._inference_latency_p99 = get_gauge(
             f"{prefix}_inference_latency_p99",
             "99th percentile inference latency",
             ["model"],
@@ -112,14 +115,14 @@ class PerformanceDegradationMonitor(BaseMetricsCollector):
         self._register_metric("inference_latency_p99", self._inference_latency_p99)
 
         # Retraining and alerts
-        self._model_retraining_required = Gauge(
+        self._model_retraining_required = get_gauge(
             f"{prefix}_model_retraining_required",
             "Whether model requires retraining",
             ["model", "reason"],
         )
         self._register_metric("model_retraining_required", self._model_retraining_required)
 
-        self._model_performance_alerts_total = Counter(
+        self._model_performance_alerts_total = get_counter(
             f"{prefix}_model_performance_alerts_total",
             "Total number of performance alerts triggered",
             ["model", "alert_type"],
@@ -130,14 +133,14 @@ class PerformanceDegradationMonitor(BaseMetricsCollector):
         )
 
         # Prediction quality tracking
-        self._predictions_evaluated_total = Counter(
+        self._predictions_evaluated_total = get_counter(
             f"{prefix}_predictions_evaluated_total",
             "Total number of predictions evaluated",
             ["model", "result"],
         )
         self._register_metric("predictions_evaluated_total", self._predictions_evaluated_total)
 
-        self._prediction_accuracy_window = Histogram(
+        self._prediction_accuracy_window = get_histogram(
             f"{prefix}_prediction_accuracy_window",
             "Accuracy within time windows",
             ["model", "window"],
@@ -146,14 +149,14 @@ class PerformanceDegradationMonitor(BaseMetricsCollector):
         self._register_metric("prediction_accuracy_window", self._prediction_accuracy_window)
 
         # Model degradation tracking
-        self._model_degradation_score = Gauge(
+        self._model_degradation_score = get_gauge(
             f"{prefix}_model_degradation_score",
             "Overall model degradation score",
             ["model"],
         )
         self._register_metric("model_degradation_score", self._model_degradation_score)
 
-        self._model_last_retrained_timestamp = Gauge(
+        self._model_last_retrained_timestamp = get_gauge(
             f"{prefix}_model_last_retrained_timestamp",
             "Timestamp when model was last retrained",
             ["model"],
