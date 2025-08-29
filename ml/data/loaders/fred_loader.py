@@ -27,7 +27,6 @@ import numpy as np
 from ml._imports import HAS_FREDAPI
 from ml._imports import HAS_POLARS
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
 from ml._imports import check_ml_dependencies
 from ml._imports import fredapi as _fredapi
 from ml._imports import pl
@@ -57,31 +56,32 @@ logger = logging.getLogger(__name__)
 
 # Prometheus metrics
 if HAS_PROMETHEUS:
-    # Create FRED-specific metrics using centralized Counter
+    # Create FRED-specific metrics using bootstrap + centralized histogram
     from ml.common.metrics import data_collection_duration
+    from ml.common.metrics_bootstrap import get_counter
 
-    fred_fetch_counter = Counter(
+    fred_fetch_counter = get_counter(
         "nautilus_ml_fred_fetch_total",
         "Total FRED API fetches",
         ["series"],
     )
-    fred_cache_hit_counter = Counter(
+    fred_cache_hit_counter = get_counter(
         "nautilus_ml_fred_cache_hits_total",
         "FRED cache hits",
         ["series"],
     )
-    fred_api_error_counter = Counter(
+    fred_api_error_counter = get_counter(
         "nautilus_ml_fred_api_errors_total",
         "FRED API errors",
         ["error_type"],
     )
 
     class _CounterLike(Protocol):
-        def labels(self, **kwargs: Any) -> Any: ...
+        def labels(self, **kwargs: object) -> object: ...
         def inc(self, amount: float = 1) -> None: ...
 
     class _HistogramLike(Protocol):
-        def labels(self, **kwargs: Any) -> Any: ...
+        def labels(self, **kwargs: object) -> object: ...
         def observe(self, amount: float) -> None: ...
 
     data_fetch_counter: _CounterLike = fred_fetch_counter
@@ -92,7 +92,7 @@ if HAS_PROMETHEUS:
 if not HAS_PROMETHEUS:
     # Create no-op metrics
     class NoOpMetric:
-        def labels(self, **kwargs: Any) -> Any:
+        def labels(self, **kwargs: object) -> object:
             return self
 
         def inc(self, amount: float = 1) -> None:

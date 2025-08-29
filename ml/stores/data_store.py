@@ -58,27 +58,22 @@ try:
     from ml.common.metrics import validation_violations_counter
     from ml.common.metrics import write_rejection_counter
 except Exception:
-    # Final fallback: define local no-op metrics to avoid crashes if metrics unavailable
-    validation_violations_counter = Counter(
-        "nautilus_ml_validation_violations_fallback",
-        "Fallback validation violations counter",
-    )
-    validation_duration_histogram = Histogram(
-        "nautilus_ml_validation_duration_fallback",
-        "Fallback validation duration",
-    )
-    schema_mismatch_counter = Counter(
-        "nautilus_ml_schema_mismatches_fallback",
-        "Fallback schema mismatch counter",
-    )
-    write_rejection_counter = Counter(
-        "nautilus_ml_write_rejections_fallback",
-        "Fallback write rejections",
-    )
-    quality_score_histogram = Histogram(
-        "nautilus_ml_data_quality_score_fallback",
-        "Fallback data quality score",
-    )
+    # Final fallback: no-op metrics to avoid crashes if metrics unavailable
+    class _NoOpMetric:
+        def labels(self, **_: object) -> "_NoOpMetric":  # type: ignore[name-defined]
+            return self
+
+        def inc(self, *_: object, **__: object) -> None:
+            return None
+
+        def observe(self, *_: object, **__: object) -> None:
+            return None
+
+    validation_violations_counter = _NoOpMetric()
+    validation_duration_histogram = _NoOpMetric()
+    schema_mismatch_counter = _NoOpMetric()
+    write_rejection_counter = _NoOpMetric()
+    quality_score_histogram = _NoOpMetric()
 
 
 # ========================================================================

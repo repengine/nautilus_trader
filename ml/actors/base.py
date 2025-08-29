@@ -25,8 +25,8 @@ import numpy.typing as npt
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
 from ml._imports import ort
-from ml.common.metrics import Counter
-from ml.common.metrics import Histogram
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_histogram
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
@@ -558,17 +558,17 @@ class MLSignal(NautilusData):
 
 
 # Prometheus metrics for monitoring
-ml_predictions_total = Counter(
+ml_predictions_total = get_counter(
     METRIC_PREDICTIONS_TOTAL,
     "Total number of ML predictions made",
     [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
-ml_prediction_latency = Histogram(
+ml_prediction_latency = get_histogram(
     METRIC_PREDICTION_LATENCY_SECONDS,
     "Latency of ML predictions in seconds",
     [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
-ml_signal_confidence = Histogram(
+ml_signal_confidence = get_histogram(
     METRIC_SIGNAL_CONFIDENCE,
     "Distribution of ML signal confidence scores",
     [LABEL_ACTOR_ID, LABEL_MODEL_NAME],

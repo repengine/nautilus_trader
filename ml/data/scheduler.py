@@ -50,28 +50,21 @@ try:
     from ml.common.metrics import feature_computation_duration as feature_computation_latency
     from ml.common.metrics import feature_store_operations_total as feature_store_operations_total
 except Exception:
-    # Fallback: define minimal local metrics if central import fails
-    data_collection_latency = Histogram(
-        "nautilus_ml_data_collection_latency_seconds",
-        "Data collection latency in seconds",
-        ["source", "instrument"],
-        buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
-    )
-    data_collection_errors_total = Counter(
-        "nautilus_ml_data_collection_errors_total",
-        "Total errors during data collection",
-        ["source", "instrument", "error_type"],
-    )
-    catalog_write_operations_total = Counter(
-        "nautilus_ml_catalog_write_operations_total",
-        "Total catalog write operations",
-        ["status"],
-    )
-    feature_store_operations_total = Counter(
-        "nautilus_ml_feature_store_operations_total",
-        "Total feature store operations",
-        ["operation", "status"],
-    )
+    # Fallback: define no-op metrics if central import fails
+    class _NoOpMetric:
+        def labels(self, **_: object) -> "_NoOpMetric":  # type: ignore[name-defined]
+            return self
+
+        def inc(self, *_: object, **__: object) -> None:
+            return None
+
+        def observe(self, *_: object, **__: object) -> None:
+            return None
+
+    data_collection_latency = _NoOpMetric()
+    data_collection_errors_total = _NoOpMetric()
+    catalog_write_operations_total = _NoOpMetric()
+    feature_store_operations_total = _NoOpMetric()
 
 from ml.common.metrics_bootstrap import get_counter, get_gauge, get_histogram
 
