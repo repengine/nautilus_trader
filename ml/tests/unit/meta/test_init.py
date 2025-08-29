@@ -5,6 +5,8 @@ Test ML package initialization.
 import sys
 from pathlib import Path
 
+import pytest
+
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -12,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import ml
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_ml_version() -> None:
     """
     Test that ML package has version.

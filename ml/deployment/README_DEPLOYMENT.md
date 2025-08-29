@@ -22,6 +22,14 @@ This directory contains the Docker Compose configuration for deploying the Nauti
 
    ```bash
    make health
+
+4. **Verify DB prerequisites (recommended):**
+
+   Ensure required DB functions and current-month partitions are present. From your host:
+
+   ```bash
+   python -c "from ml.stores.db_preflight import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5432/nautilus'))"
+   ```
    ```
 
 4. **View logs:**
@@ -152,6 +160,20 @@ make restore FILE=backup_20240101_120000.sql
 ```bash
 # PostgreSQL CLI
 docker-compose exec postgres psql -U postgres nautilus
+
+### Migrations
+
+Canonical migrations live under `ml/stores/migrations/`. Apply them in order before first run:
+
+```bash
+docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/001_stores_schema.sql
+docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/002_auto_partitioning.sql
+docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/003_market_data.sql
+docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/004_data_registry.sql
+docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/005_schema_hardening.sql
+docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/005a_feature_values_dedupe.sql
+docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/006_disable_partition_triggers.sql
+```
 
 # pgAdmin web interface (if using override)
 # http://localhost:5050

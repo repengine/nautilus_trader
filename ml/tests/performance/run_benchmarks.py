@@ -17,7 +17,6 @@ from pathlib import Path
 
 def run_benchmarks():
     """Run all ML hot path benchmarks and generate report."""
-    
     print("=" * 80)
     print("ML HOT PATH PERFORMANCE BENCHMARK REPORT")
     print("=" * 80)
@@ -31,10 +30,10 @@ def run_benchmarks():
     print()
     print("Running benchmarks...")
     print()
-    
+
     # Path to the benchmark file
     benchmark_file = Path(__file__).parent / "test_ml_hot_path_benchmarks.py"
-    
+
     # Run benchmarks
     cmd = [
         sys.executable,
@@ -51,7 +50,7 @@ def run_benchmarks():
         "--benchmark-max-time=2",  # Limit time per benchmark
         "-q",  # Quiet mode for cleaner output
     ]
-    
+
     try:
         result = subprocess.run(
             cmd,
@@ -59,9 +58,9 @@ def run_benchmarks():
             text=True,
             check=False,
         )
-        
+
         print(result.stdout)
-        
+
         if result.returncode != 0:
             print("\n❌ BENCHMARK FAILURES DETECTED:")
             print(result.stderr)
@@ -71,7 +70,7 @@ def run_benchmarks():
             print("\n✅ All performance requirements satisfied!")
             print()
             print("Summary:")
-            
+
             # Parse output to extract key metrics
             lines = result.stdout.split("\n")
             for line in lines:
@@ -90,9 +89,9 @@ def run_benchmarks():
                     if len(parts) > 2:
                         max_latency = parts[2]
                         print(f"  • End-to-end signal P99: {max_latency} (Target: <5ms)")
-            
+
             return 0
-            
+
     except Exception as e:
         print(f"\n❌ Error running benchmarks: {e}")
         return 1
@@ -100,14 +99,13 @@ def run_benchmarks():
 
 def run_memory_tests():
     """Run memory allocation and leak detection tests."""
-    
     print("\n" + "=" * 80)
     print("MEMORY ALLOCATION TESTS")
     print("=" * 80)
     print()
-    
+
     benchmark_file = Path(__file__).parent / "test_ml_hot_path_benchmarks.py"
-    
+
     # Run memory tests
     cmd = [
         sys.executable,
@@ -119,7 +117,7 @@ def run_memory_tests():
         "-v",
         "-q",
     ]
-    
+
     try:
         result = subprocess.run(
             cmd,
@@ -127,7 +125,7 @@ def run_memory_tests():
             text=True,
             check=False,
         )
-        
+
         if "PASSED" in result.stdout:
             print("✅ Memory allocation tests passed")
             print("  • Feature computation allocates <500 bytes per call")
@@ -135,9 +133,9 @@ def run_memory_tests():
         else:
             print("❌ Memory allocation tests failed")
             print(result.stdout)
-        
+
         return result.returncode
-        
+
     except Exception as e:
         print(f"❌ Error running memory tests: {e}")
         return 1
@@ -146,18 +144,18 @@ def run_memory_tests():
 def main():
     """Main entry point."""
     print("\nStarting ML Hot Path Performance Validation\n")
-    
+
     # Run performance benchmarks
     benchmark_result = run_benchmarks()
-    
+
     # Run memory tests
     memory_result = run_memory_tests()
-    
+
     # Final summary
     print("\n" + "=" * 80)
     print("FINAL RESULTS")
     print("=" * 80)
-    
+
     if benchmark_result == 0 and memory_result == 0:
         print("\n🎉 SUCCESS: All ML hot path components meet production requirements!")
         print("\nThe system is ready for production deployment with:")

@@ -4,6 +4,9 @@
 
 The ML monitoring infrastructure for Nautilus Trader provides comprehensive observability for machine learning components through a Prometheus/Grafana/AlertManager stack. This production-ready system offers real-time metrics collection, visualization, and alerting across data quality, feature engineering, model lifecycle, performance degradation, and resource utilization.
 
+Operational notes:
+- Include DB preflight status and engine pool telemetry in dashboards where useful. Preflight utility: `ml/stores/db_preflight.py`. Pool status: `EngineManager.get_pool_status()`.
+
 ### Key Features
 
 - **Production-Ready**: Docker-based deployment with health checks and automatic restarts

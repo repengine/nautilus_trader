@@ -33,6 +33,8 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestSafeDivide:
     """
     Test safe_divide utility function.

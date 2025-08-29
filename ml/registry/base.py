@@ -402,3 +402,62 @@ class ModelRegistry(ABC):
 
         """
         ...
+
+
+class DummyRegistry:
+    """
+    Dummy registry for testing purposes.
+    
+    This registry does nothing and returns safe defaults for all operations,
+    avoiding any file I/O or database operations during tests.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        """Initialize dummy registry (accepts any arguments)."""
+
+    def register_model(self, *args: object, **kwargs: object) -> str:
+        """Dummy model registration."""
+        return "dummy_model"
+
+    def get_model(self, model_id: str) -> None:
+        """Dummy model retrieval."""
+        return None
+
+    def list_models(self) -> list[dict[str, Any]]:
+        """Dummy model listing."""
+        return []
+
+    def register_feature(self, *args: object, **kwargs: object) -> str:
+        """Dummy feature registration."""
+        return "dummy_feature"
+
+    def get_feature(self, feature_id: str) -> None:
+        """Dummy feature retrieval."""
+        return None
+
+    def list_features(self) -> list[dict[str, Any]]:
+        """Dummy feature listing."""
+        return []
+
+    def register_strategy(self, *args: object, **kwargs: object) -> str:
+        """Dummy strategy registration."""
+        return "dummy_strategy"
+
+    def get_strategy(self, strategy_id: str) -> None:
+        """Dummy strategy retrieval."""
+        return None
+
+    def list_strategies(self) -> list[dict[str, Any]]:
+        """Dummy strategy listing."""
+        return []
+
+    def load_model(self, model_id: str) -> None:
+        """Dummy model loading."""
+        return None
+
+    def __getattr__(self, name: str) -> object:
+        """Handle any other method calls by doing nothing."""
+        def dummy_method(*args: object, **kwargs: object) -> None:
+            return None
+
+        return dummy_method

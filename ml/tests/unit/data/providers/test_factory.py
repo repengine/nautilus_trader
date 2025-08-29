@@ -30,6 +30,9 @@ from ml.data.sources.metadata import MockMetadataSource
 from ml.features.pipeline import TransformSpec
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestProviderFactory:
     """
     Test provider factory pattern.

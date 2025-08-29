@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from ml.features.materialize_cli import main as materialize_main
 from ml.registry.base import DataRequirements
@@ -33,6 +34,7 @@ def _register_feature_manifest(tmp_path: Path, feature_names: list[str]) -> tupl
     return reg_dir, fid
 
 
+@pytest.mark.parallel_safe
 def test_materialize_reorder_only(tmp_path: Path) -> None:
     feature_names = ["f1", "f2", "f3"]
     reg_dir, fid = _register_feature_manifest(tmp_path, feature_names)

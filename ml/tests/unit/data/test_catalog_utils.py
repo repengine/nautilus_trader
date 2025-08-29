@@ -52,6 +52,9 @@ price_strategy = st.floats(min_value=0.00001, max_value=10000.0, allow_nan=False
 volume_strategy = st.integers(min_value=1, max_value=1000000)
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestCatalogUtils:
     """
     Test catalog utility functions.

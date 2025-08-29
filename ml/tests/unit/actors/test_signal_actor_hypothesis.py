@@ -8,9 +8,12 @@ regardless of implementation.
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pytest
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -22,13 +25,28 @@ from ml.actors.base import CircuitBreakerState
 from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
+from ml.tests.fixtures.dummy_model import create_dummy_onnx_model
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestMLSignalActorProperties:
     """
     Property-based tests for ML signal actors.
     """
+
+    @pytest.fixture(autouse=True)
+    def setup_dummy_model(self):
+        """Create a dummy model for all tests in this class."""
+        self.dummy_model_path = create_dummy_onnx_model()
+        yield
+        # Cleanup
+        try:
+            self.dummy_model_path.unlink()
+        except Exception:
+            pass
 
     @given(
         warm_up_period=st.integers(min_value=5, max_value=100),
@@ -45,11 +63,12 @@ class TestMLSignalActorProperties:
         from nautilus_trader.model.identifiers import InstrumentId
 
         config = MLSignalActorConfig(
-            model_path="dummy_model.onnx",
+            model_path=str(self.dummy_model_path),
             model_id="test_model",
             bar_type=BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
             warm_up_period=warm_up_period,
+            use_dummy_stores=True,  # Use dummy stores to prevent DB connections in property tests
         )
 
         # Create a mock actor for testing
@@ -89,11 +108,12 @@ class TestMLSignalActorProperties:
         from nautilus_trader.model.identifiers import InstrumentId
 
         config = MLSignalActorConfig(
-            model_path="dummy_model.onnx",
+            model_path=str(self.dummy_model_path),
             model_id="test_model",
             bar_type=BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
             warm_up_period=10,
+            use_dummy_stores=True,  # Use dummy stores to prevent DB connections in property tests
         )
 
         actor = MLSignalActor(config)
@@ -307,13 +327,17 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
         from nautilus_trader.model.data import BarType
         from nautilus_trader.model.identifiers import InstrumentId
 
+        # Create dummy model for this state machine
+        self.dummy_model_path = create_dummy_onnx_model()
+
         self.config = MLSignalActorConfig(
-            model_path="dummy_model.onnx",
+            model_path=str(self.dummy_model_path),
             model_id="test_model",
             bar_type=BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL"),
             instrument_id=InstrumentId.from_str("EURUSD.SIM"),
             warm_up_period=10,
             prediction_threshold=0.5,
+            use_dummy_stores=True,  # Use dummy stores to prevent DB connections in property tests
         )
         self.actor = MLSignalActor(self.config)
         self.bars_processed = 0
@@ -389,6 +413,15 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
         assert self.bars_processed >= 0, "Negative bars processed"
         assert self.predictions_made >= 0, "Negative predictions"
         assert self.circuit_breaker_trips >= 0, "Negative circuit breaker trips"
+
+    def teardown(self) -> None:
+        """Clean up resources after state machine tests."""
+        # Clean up the dummy model file
+        try:
+            if hasattr(self, "dummy_model_path") and self.dummy_model_path.exists():
+                self.dummy_model_path.unlink()
+        except Exception:
+            pass
 
 
 # Create the stateful test

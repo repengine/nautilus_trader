@@ -10,7 +10,7 @@ Feature parity is critical for ML model performance in production.
 from __future__ import annotations
 
 import types
-from typing import TYPE_CHECKING, Any, Self, overload
+from typing import TYPE_CHECKING, Any, Self, overload, Literal, cast
 
 import msgspec
 import numpy as np
@@ -21,6 +21,13 @@ from ml._imports import HAS_POLARS
 from ml._imports import HAS_SKLEARN
 from ml._imports import pd
 from ml._imports import pl
+from ml.typing import (
+    DataFrameLike,
+    PolarsDF,
+    PolarsSeries,
+    PandasDF,
+    StandardScaler as StandardScalerT,
+)
 from ml.config.base import MLFeatureConfig
 from ml.config.constants import IndicatorNames
 from ml.config.constants import SystemConstants
@@ -593,7 +600,7 @@ class FeatureEngineer:
 
         """
         self.config = config or FeatureConfig()
-        self.scaler: Any = None
+        self.scaler: StandardScalerT | None = None
         self._metrics = metrics_collector
 
         # Pre-allocate feature buffer for hot path performance
@@ -696,10 +703,10 @@ class FeatureEngineer:
         )
 
     # Minimal quality calculator stub for strict typing; extended in teacher pipelines
-    def _calculate_feature_qualities(self, df: Any) -> dict[str, Any]:  # pragma: no cover - typing stub
+    def _calculate_feature_qualities(self: Self, df: DataFrameLike) -> dict[str, Any]:  # pragma: no cover - typing stub
         return {}
 
-    def _extract_price_arrays(self, df: Any) -> tuple[npt.NDArray[np.float64], ...]:
+    def _extract_price_arrays(self: Self, df: DataFrameLike) -> tuple[npt.NDArray[np.float64], ...]:
         """
         Extract price arrays from DataFrame.
         """
@@ -719,7 +726,7 @@ class FeatureEngineer:
             volumes = df["volume"].to_numpy() if "volume" in df.columns else np.zeros(len(df))
         return open_prices, high_prices, low_prices, close_prices, volumes
 
-    def _create_empty_features_dataframe(self, feature_names: list[str]) -> Any:
+    def _create_empty_features_dataframe(self: Self, feature_names: list[str]) -> DataFrameLike:
         """
         Create empty DataFrame with correct columns.
         """
@@ -733,11 +740,11 @@ class FeatureEngineer:
             return pd.DataFrame(columns=feature_names)
 
     def _create_pandas_features_dataframe(
-        self,
+        self: Self,
         feature_rows: list[dict[str, float]],
-        df: Any,
+        df: DataFrameLike,
         feature_names: list[str],
-    ) -> Any:
+    ) -> PandasDF:
         """
         Create pandas DataFrame from feature rows.
         """
@@ -778,7 +785,7 @@ class FeatureEngineer:
                 features_df[col] = features_df[col].astype("float32")
         return features_df
 
-    def _create_features_dataframe(self, feature_rows: list[dict[str, float]], df: Any) -> Any:
+    def _create_features_dataframe(self: Self, feature_rows: list[dict[str, float]], df: DataFrameLike) -> DataFrameLike:
         """
         Create features DataFrame from feature rows.
         """
@@ -788,6 +795,7 @@ class FeatureEngineer:
         if not feature_rows:
             return self._create_empty_features_dataframe(feature_names)
 
+        features_df: DataFrameLike
         if POLARS_AVAILABLE and hasattr(df, "__module__") and "polars" in df.__module__:
             # Input is a Polars DataFrame
             features_df = pl.DataFrame(feature_rows)
@@ -809,11 +817,11 @@ class FeatureEngineer:
         return features_df
 
     def _apply_scaler(
-        self,
-        features_df: Any,
-        df: Any,
+        self: Self,
+        features_df: DataFrameLike,
+        df: DataFrameLike,
         scaler_fit_ratio: float,
-    ) -> tuple[Any, Any]:
+    ) -> tuple[DataFrameLike, StandardScalerT]:
         """
         Apply feature scaling.
         """
@@ -846,15 +854,10 @@ class FeatureEngineer:
             features_scaled_array = features_array
 
         # Convert back to appropriate DataFrame type
-        features_scaled: Any  # Will be either pl.DataFrame or pd.DataFrame
+        features_scaled: DataFrameLike  # Will be either pl.DataFrame or pd.DataFrame
         if POLARS_AVAILABLE:
             # Convert column names to list to avoid pandas Index issues
-            column_names = (
-                list(features_df.columns)
-                if hasattr(features_df.columns, "__iter__")
-                and not isinstance(features_df.columns, str)
-                else features_df.columns
-            )
+            column_names = list(features_df.columns)
             features_scaled = pl.DataFrame(features_scaled_array, schema=column_names)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:
@@ -865,17 +868,44 @@ class FeatureEngineer:
             if "timestamp" in df.columns:
                 features_scaled["timestamp"] = df["timestamp"]
 
+        assert self.scaler is not None
         return features_scaled, self.scaler
 
+    @overload
     def calculate_features(
-        self,
-        data: Any,  # Can be DataFrame for batch or dict for online
+        self: Self,
+        data: DataFrameLike,
+        *,
+        mode: Literal["batch"] = "batch",
+        indicator_manager: None = ...,
+        fit_scaler: bool = ...,
+        scaler_fit_ratio: float = ...,
+        scaler: None = ...,
+    ) -> tuple[DataFrameLike, StandardScalerT | None]:
+        ...
+
+    @overload
+    def calculate_features(
+        self: Self,
+        data: dict[str, float],
+        *,
+        mode: Literal["online"],
+        indicator_manager: IndicatorManager,
+        fit_scaler: bool = ...,
+        scaler_fit_ratio: float = ...,
+        scaler: StandardScalerT | None = ...,
+    ) -> npt.NDArray[np.float32]:
+        ...
+
+    def calculate_features(
+        self: Self,
+        data: DataFrameLike | dict[str, float],
         mode: str = "batch",
         indicator_manager: IndicatorManager | None = None,
         fit_scaler: bool = False,
         scaler_fit_ratio: float = 0.7,
-        scaler: Any = None,
-    ) -> Any:
+        scaler: StandardScalerT | None = None,
+    ) -> tuple[DataFrameLike, StandardScalerT | None] | npt.NDArray[np.float32]:
         """
         Unified feature calculation method for both batch and online modes.
 
@@ -929,7 +959,7 @@ class FeatureEngineer:
         """
         if mode == "batch":
             return self.calculate_features_batch(
-                df=data,
+                df=cast(DataFrameLike, data),
                 fit_scaler=fit_scaler,
                 scaler_fit_ratio=scaler_fit_ratio,
             )
@@ -938,7 +968,7 @@ class FeatureEngineer:
                 msg = "indicator_manager is required for online mode"
                 raise ValueError(msg)
             return self.calculate_features_online(
-                current_bar=data,
+                current_bar=cast(dict[str, float], data),
                 indicator_manager=indicator_manager,
                 scaler=scaler,
             )
@@ -947,11 +977,11 @@ class FeatureEngineer:
             raise ValueError(msg)
 
     def calculate_features_batch(
-        self,
-        df: Any,  # pl.DataFrame or pd.DataFrame
+        self: Self,
+        df: DataFrameLike,  # pl.DataFrame or pd.DataFrame
         fit_scaler: bool = False,
         scaler_fit_ratio: float = 0.7,
-    ) -> tuple[Any, Any]:
+    ) -> tuple[DataFrameLike, StandardScalerT | None]:
         """
         Calculate features for batch data using Nautilus indicators.
 
@@ -997,12 +1027,12 @@ class FeatureEngineer:
             )
 
     def _calculate_features_batch_impl(
-        self,
-        df: Any,
+        self: Self,
+        df: DataFrameLike,
         fit_scaler: bool,
         scaler_fit_ratio: float,
-        timer: Any = None,
-    ) -> tuple[Any, Any]:
+        timer: object | None = None,
+    ) -> tuple[DataFrameLike, StandardScalerT | None]:
         """
         Implement batch feature calculation internally.
         """
@@ -1055,7 +1085,7 @@ class FeatureEngineer:
                 if hasattr(features_df, "width")
                 else len(features_df.columns) if hasattr(features_df, "columns") else 0
             )
-            timer.set_computation_result(
+            cast(Any, timer).set_computation_result(
                 features_computed=feature_count,
                 cache_hit=False,  # Batch computation is never cached
                 feature_qualities=(
@@ -1242,7 +1272,7 @@ class FeatureEngineer:
         high_price: float,
         low_price: float,
         volume: float,
-        scaler: Any | None = None,
+        scaler: StandardScalerT | None = None,
     ) -> npt.NDArray[np.float32]: ...
 
     @overload
@@ -1250,14 +1280,14 @@ class FeatureEngineer:
         self,
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
-        scaler: Any | None = None,
+        scaler: StandardScalerT | None = None,
     ) -> npt.NDArray[np.float32]: ...
 
     def calculate_features_online(
         self,
         current_bar: dict[str, float] | None = None,
         indicator_manager: IndicatorManager | None = None,
-        scaler: Any | None = None,
+        scaler: StandardScalerT | None = None,
         *,
         close_price: float | None = None,
         high_price: float | None = None,
@@ -1345,7 +1375,7 @@ class FeatureEngineer:
 
             # Set timer results if available
             if timer is not None:
-                timer.set_computation_result(
+                cast(Any, timer).set_computation_result(
                     features_computed=len(result),
                     cache_hit=False,  # Online computation is never cached in the traditional sense
                 )
@@ -1356,8 +1386,8 @@ class FeatureEngineer:
         self,
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
-        scaler: Any = None,
-        timer: Any = None,
+        scaler: StandardScalerT | None = None,
+        timer: object | None = None,
     ) -> npt.NDArray[np.float32]:
         """
         Implement online feature calculation internally.
@@ -1426,7 +1456,7 @@ class FeatureEngineer:
     def _calculate_microstructure_features_online(
         self,
         current_bar: dict[str, float],
-        indicator_manager: "IndicatorManager",
+        indicator_manager: IndicatorManager,
         feature_idx: int,
     ) -> int:  # pragma: no cover - typing stub
         return feature_idx
@@ -1435,14 +1465,14 @@ class FeatureEngineer:
     def _calculate_trade_flow_features_online(
         self,
         current_bar: dict[str, float],
-        indicator_manager: "IndicatorManager",
+        indicator_manager: IndicatorManager,
         feature_idx: int,
     ) -> int:  # pragma: no cover - typing stub
         return feature_idx
 
     def _extract_data_arrays(
-        self,
-        df: Any,
+        self: Self,
+        df: DataFrameLike,
     ) -> tuple[
         npt.NDArray[np.float64],
         npt.NDArray[np.float64] | None,
@@ -1602,7 +1632,7 @@ class FeatureEngineer:
         self,
         bar_data: dict[str, float],
         ind_values: dict[str, float],
-        df: Any,  # pl.DataFrame or pd.DataFrame
+        df: DataFrameLike,  # pl.DataFrame or pd.DataFrame
         idx: int,
     ) -> dict[str, float]:
         """
@@ -1667,7 +1697,7 @@ class FeatureEngineer:
 
     def _extract_bid_ask_data(
         self,
-        df: Any,
+        df: DataFrameLike,
     ) -> tuple[
         npt.NDArray[np.float64],
         npt.NDArray[np.float64],
@@ -1764,7 +1794,7 @@ class FeatureEngineer:
 
     def _calculate_microstructure_features_from_ohlcv(
         self,
-        df: Any,
+        df: DataFrameLike,
         idx: int,
     ) -> dict[str, float]:
         """
@@ -1815,8 +1845,8 @@ class FeatureEngineer:
         return features
 
     def _calculate_microstructure_features_batch(
-        self,
-        df: Any,
+        self: Self,
+        df: DataFrameLike,
         idx: int,
     ) -> dict[str, float]:
         """
@@ -1861,9 +1891,9 @@ class FeatureEngineer:
             # Get subset of data for this window
             start_idx = max(0, idx - window + 1)
             df_window = (
-                df[start_idx : idx + 1]
+                cast(PolarsDF, df)[start_idx : idx + 1]
                 if hasattr(df, "__getitem__")
-                else df.iloc[start_idx : idx + 1]
+                else cast(PandasDF, df).iloc[start_idx : idx + 1]
             )
 
             # Compute all L2 features
@@ -1916,8 +1946,8 @@ class FeatureEngineer:
         return features
 
     def _extract_trade_data(
-        self,
-        df: Any,
+        self: Self,
+        df: DataFrameLike,
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Extract trade price, volume, and side arrays from DataFrame.
@@ -1988,8 +2018,8 @@ class FeatureEngineer:
         return trade_flow_imbalance, vwap, trade_intensity, avg_price_impact
 
     def _calculate_trade_flow_features_from_ohlcv(
-        self,
-        df: Any,
+        self: Self,
+        df: DataFrameLike,
         idx: int,
         bar_data: dict[str, float],
     ) -> dict[str, float]:
@@ -2042,7 +2072,7 @@ class FeatureEngineer:
 
     def _calculate_trade_flow_features_batch(
         self,
-        df: Any,
+        df: DataFrameLike,
         idx: int,
         bar_data: dict[str, float],
     ) -> dict[str, float]:
@@ -2140,7 +2170,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
     return PipelineSpec(transforms=transforms)
 
     def _calculate_microstructure_features_online(
-        self,
+        self: object,
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
         feature_idx: int,
@@ -2223,7 +2253,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
         return feature_idx
 
     def _calculate_trade_flow_features_online(
-        self,
+        self: object,
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
         feature_idx: int,
@@ -2286,7 +2316,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
         return feature_idx
 
-    def validate_feature_quality(self, features_df: Any) -> dict[str, dict[str, float]]:
+    def validate_feature_quality(self, features_df: DataFrameLike) -> dict[str, dict[str, float]]:  # noqa: ANN001
         """
         Validate feature quality metrics (cold path only).
 
@@ -2324,7 +2354,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
         return quality_metrics
 
-    def _convert_to_polars(self, features_df: Any) -> Any:
+    def _convert_to_polars(self, features_df: DataFrameLike) -> PolarsDF | None:  # noqa: ANN001
         """
         Convert DataFrame to Polars format.
         """
@@ -2336,7 +2366,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
                 return None
         return features_df
 
-    def _calculate_column_metrics(self, col_data: Any, total_rows: int) -> dict[str, float]:
+    def _calculate_column_metrics(self, col_data: PolarsSeries, total_rows: int) -> dict[str, float]:  # noqa: ANN001
         """
         Calculate quality metrics for a single column.
         """
@@ -2361,7 +2391,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
         return metrics
 
-    def _calculate_outlier_rate(self, col_data: Any, total_rows: int) -> float:
+    def _calculate_outlier_rate(self, col_data: PolarsSeries, total_rows: int) -> float:  # noqa: ANN001
         """
         Calculate outlier rate using IQR method.
         """
@@ -2380,14 +2410,14 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
             pass
         return 0.0
 
-    def reset(self) -> None:
+    def reset(self) -> None:  # noqa: ANN001
         """
         Reset the feature engineer state.
         """
         if hasattr(self, "feature_buffer"):
             self.feature_buffer.fill(0.0)
 
-    def _calculate_feature_qualities(self, features_df: Any) -> dict[str, dict[str, float]]:
+    def _calculate_feature_qualities(self, features_df: DataFrameLike) -> dict[str, dict[str, float]]:  # noqa: ANN001
         """
         Calculate feature quality metrics for monitoring.
 

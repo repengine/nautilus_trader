@@ -14,6 +14,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -34,6 +35,9 @@ from ml.registry.feature_registry import compute_schema_hash
         unique=True,
     ),
 )
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_feature_registry_roundtrip(names: list[str]) -> None:
     dtypes = ["float32" for _ in names]
     signature = "sig_v1"

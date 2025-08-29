@@ -40,7 +40,7 @@ from ml.stores.strategy_store import StrategyStore
 
 
 if TYPE_CHECKING:
-    from ml.registry.data_registry import DataRegistry
+    from ml.registry.protocols import RegistryProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -244,7 +244,7 @@ class DataStore:
 
     def __init__(
         self,
-        registry: DataRegistry,
+        registry: "RegistryProtocol",
         connection_string: str,
         feature_store: FeatureStore | None = None,
         model_store: ModelStore | None = None,
@@ -705,8 +705,8 @@ class DataStore:
                 status="success",
             )
 
-            # Update watermark
-            self.registry.update_watermark(
+            # Update watermark (test hook patchable via _update_watermark)
+            self._update_watermark(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 source=source,
@@ -2162,3 +2162,27 @@ class DataStore:
                 dataset=dataset_id,
                 mismatch_type="migration_started",
             ).inc()
+
+    def _update_watermark(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        source: str,
+        last_success_ns: int,
+        count: int,
+        completeness_pct: float,
+    ) -> None:
+        """Internal hook to update the registry watermark (patchable in tests)."""
+        self.registry.update_watermark(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            source=source,
+            last_success_ns=last_success_ns,
+            count=count,
+            completeness_pct=completeness_pct,
+        )
+
+    def _begin_transaction(self) -> Any:  # pragma: no cover (test hook for patching)
+        """Return a no-op context manager for tests to patch."""
+        from contextlib import nullcontext
+        return nullcontext()

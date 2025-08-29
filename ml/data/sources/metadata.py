@@ -15,7 +15,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import polars as pl
+from ml._imports import pl, check_ml_dependencies
 
 
 if TYPE_CHECKING:
@@ -86,6 +86,9 @@ class DatabentoMetadataSource(MetadataSource):
             Instrument metadata
 
         """
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
+
         if not self.api_key:
             logger.warning("No API key, returning mock data")
             return MockMetadataSource().fetch_metadata(instruments)
@@ -214,6 +217,8 @@ class NautilusMetadataSource(MetadataSource):
 
             metadata_list.append(metadata)
 
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
         return pl.DataFrame(metadata_list)
 
     def _extract_metadata(self, instrument: Instrument) -> dict[str, Any]:
@@ -272,6 +277,8 @@ class CSVMetadataSource(MetadataSource):
             logger.warning(f"CSV file not found: {self.file_path}")
             self._data = None
         else:
+            if pl is None:
+                check_ml_dependencies(["polars"])  # Ensure Polars present when used
             self._data = pl.read_csv(self.file_path)
             logger.info(f"Loaded metadata for {len(self._data)} instruments from CSV")
 
@@ -290,6 +297,9 @@ class CSVMetadataSource(MetadataSource):
             Instrument metadata
 
         """
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
+
         if self._data is None:
             logger.warning("No CSV data available, using mock source")
             return MockMetadataSource().fetch_metadata(instruments)
@@ -415,4 +425,6 @@ class MockMetadataSource(MetadataSource):
 
             metadata_list.append(metadata)
 
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
         return pl.DataFrame(metadata_list)

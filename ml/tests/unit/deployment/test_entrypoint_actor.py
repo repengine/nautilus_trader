@@ -12,13 +12,22 @@ import os
 import signal
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import Mock
+from unittest.mock import patch
 
 import pytest
 
-from ml.deployment.entrypoint_actor import MLSignalActorNode, main
+from ml.deployment.entrypoint_actor import MLSignalActorNode
+from ml.deployment.entrypoint_actor import main
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.docker
+@pytest.mark.slow
+@pytest.mark.unit
 class TestMLSignalActorNode:
     """Test MLSignalActorNode container entrypoint."""
 
@@ -27,7 +36,7 @@ class TestMLSignalActorNode:
         """Clean environment for isolated testing."""
         # Remove any existing ML environment variables
         for key in list(os.environ.keys()):
-            if key.startswith("ML_") or key.startswith("DATABENTO_") or key.startswith("DB_"):
+            if key.startswith(("ML_", "DATABENTO_", "DB_")):
                 monkeypatch.delenv(key, raising=False)
 
     @pytest.fixture
@@ -47,6 +56,8 @@ class TestMLSignalActorNode:
 
         return model_path
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_setup_with_valid_config(self, valid_env):
         """Test setup with valid configuration."""
         node = MLSignalActorNode()
@@ -78,6 +89,8 @@ class TestMLSignalActorNode:
                 # Verify subscription
                 mock_actor.subscribe_bars.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_setup_without_api_key_exits(self, monkeypatch, tmp_path):
         """Test that setup exits when DATABENTO_API_KEY is missing."""
         model_path = tmp_path / "model.pkl"
@@ -92,6 +105,8 @@ class TestMLSignalActorNode:
 
         assert exc_info.value.code == 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_setup_without_model_exits(self, monkeypatch):
         """Test that setup exits when model file doesn't exist."""
         monkeypatch.setenv("DATABENTO_API_KEY", "test_key")
@@ -104,6 +119,8 @@ class TestMLSignalActorNode:
 
         assert exc_info.value.code == 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_setup_with_database_connection(self, valid_env, monkeypatch):
         """Test setup with database connection (non-dummy stores)."""
         monkeypatch.setenv("USE_DUMMY_STORES", "false")
@@ -241,6 +258,8 @@ class TestMLSignalActorNode:
             assert signal.SIGTERM in signals_registered
             assert signal.SIGINT in signals_registered
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_environment_variable_parsing(self, monkeypatch, tmp_path):
         """Test correct parsing of environment variables."""
         model_path = tmp_path / "model.pkl"
@@ -273,6 +292,8 @@ class TestMLSignalActorNode:
                 assert actor_config.component_id == "CustomActor-123"
                 assert actor_config.use_dummy_stores is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_feature_config_creation(self, valid_env):
         """Test feature configuration is properly created."""
         node = MLSignalActorNode()
@@ -296,6 +317,8 @@ class TestMLSignalActorNode:
                 assert "rsi" in feature_config.indicators
                 assert "bbands" in feature_config.indicators
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_databento_config_creation(self, valid_env):
         """Test Databento configuration is properly created."""
         node = MLSignalActorNode()
@@ -315,6 +338,8 @@ class TestMLSignalActorNode:
                 assert data_config.live_gateway == "wss://stream.databento.com"
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestMainFunction:
     """Test the main entry point function."""
 
@@ -335,6 +360,8 @@ class TestMainFunction:
 
         return model_path
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_main_successful_run(self, valid_env):
         """Test successful main function execution."""
         with patch("ml.deployment.entrypoint_actor.MLSignalActorNode") as mock_node_class:
@@ -349,6 +376,8 @@ class TestMainFunction:
                 mock_node.setup.assert_called_once()
                 mock_asyncio_run.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_main_handles_keyboard_interrupt(self, valid_env):
         """Test main handles KeyboardInterrupt gracefully."""
         with patch("ml.deployment.entrypoint_actor.MLSignalActorNode") as mock_node_class:
@@ -361,6 +390,8 @@ class TestMainFunction:
 
                 mock_node.setup.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_main_handles_fatal_error(self, valid_env):
         """Test main handles fatal errors with sys.exit."""
         with patch("ml.deployment.entrypoint_actor.MLSignalActorNode") as mock_node_class:
@@ -373,6 +404,8 @@ class TestMainFunction:
 
                 assert exc_info.value.code == 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_main_prints_startup_info(self, valid_env, capsys):
         """Test main prints startup information."""
         with patch("ml.deployment.entrypoint_actor.MLSignalActorNode") as mock_node_class:

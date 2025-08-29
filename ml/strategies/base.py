@@ -8,12 +8,13 @@ performance requirements.
 """
 
 from __future__ import annotations
+# ruff: noqa: I001
 
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
 from decimal import Decimal
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -35,6 +36,8 @@ from ml.config.names import METRIC_STRATEGY_STORE_BATCH_SIZE
 from ml.config.names import METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS
 from ml.config.names import METRIC_TRADES_EXECUTED_TOTAL
 from ml.stores.strategy_store import StrategyStore
+if TYPE_CHECKING:
+    from ml.stores.protocols import StrategyStoreProtocol
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import DataType
@@ -281,7 +284,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         self._strategy_store_batch_size = ml_strategy_store_batch_size
 
         # Initialize StrategyStore if configured
-        self.strategy_store: StrategyStore | None = None
+        self.strategy_store: StrategyStoreProtocol | None = None
         if self._config.use_strategy_store:
             store_config = self._config.strategy_store_config or {}
             self.strategy_store = StrategyStore(
@@ -349,13 +352,21 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             # Filter by model_id if configured
             if self.target_model_ids is not None:
                 if model_id not in self.target_model_ids:
-                    self.log.debug(f"Ignoring signal from model {model_id} (not in target list)")
+                    self.log.debug(
+                        (
+                            f"Ignoring signal from model {model_id} "
+                            "(not in target list)"
+                        ),
+                    )
                     return
 
             # Check confidence threshold
             if data.confidence < self._config.min_confidence:
                 self.log.debug(
-                    f"Signal below confidence threshold: {data.confidence:.3f} < {self._config.min_confidence:.3f}",
+                    (
+                        "Signal below confidence threshold: "
+                        f"{data.confidence:.3f} < {self._config.min_confidence:.3f}"
+                    ),
                 )
                 return
 
@@ -430,7 +441,10 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             }
 
         # Extract model predictions
-        model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
+        model_id = (
+            getattr(signal, "model_id", None)
+            or signal.metadata.get("model_id", "unknown")
+        )
         model_predictions = {
             model_id: float(signal.prediction)
         }
@@ -443,10 +457,14 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
 
         # Write to store with timing
         import time
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         try:
-            self.strategy_store.write_signal(
+            store = self.strategy_store
+            if store is None:
+                return
+            self.strategy_store = store  # keep attribute
+            store.write_signal(
                 strategy_id=str(self.id),
                 instrument_id=str(signal.instrument_id),
                 signal_type=decision_type,
@@ -455,19 +473,21 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 risk_metrics=risk_metrics,
                 execution_params=execution_params,
                 ts_event=signal.ts_event,
-                is_live=not self.cache.is_backtesting if hasattr(self.cache, "is_backtesting") else True,
+                is_live=(
+                    not self.cache.is_backtesting if hasattr(self.cache, "is_backtesting") else True
+                ),
             )
 
             # Update metrics
-            write_latency = time.time() - start_time
+            write_latency = time.perf_counter() - start_time
             if self._strategy_decisions_persisted:
                 self._strategy_decisions_persisted.labels(strategy_id=str(self.id)).inc()
             if self._strategy_store_write_latency:
                 self._strategy_store_write_latency.labels(strategy_id=str(self.id)).observe(write_latency)
-            if self._strategy_store_batch_size and hasattr(self.strategy_store, "_write_buffer"):
-                self._strategy_store_batch_size.labels(strategy_id=str(self.id)).set(
-                    len(self.strategy_store._write_buffer)
-                )
+            if self._strategy_store_batch_size and hasattr(store, "_write_buffer"):
+                self._strategy_store_batch_size.labels(
+                    strategy_id=str(self.id),
+                ).set(len(store._write_buffer))
 
         except Exception as e:
             self.log.error(f"Failed to persist strategy decision: {e}")
@@ -544,15 +564,21 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         instrument = self.cache.instrument(self._config.instrument_id)
         if instrument is None:
             self.log.error(
-                f"Cannot calculate position size: Instrument {self._config.instrument_id} not found. "
-                "Ensure instrument is subscribed and available in cache.",
+                (
+                    "Cannot calculate position size: Instrument "
+                    f"{self._config.instrument_id} not found. "
+                    "Ensure instrument is subscribed and available in cache."
+                ),
             )
             return None
 
         account = self.cache.account_for_venue(instrument.venue)
         if account is None:
             self.log.error(
-                f"Cannot calculate position size: No account found for venue {instrument.venue}. Position sizing requires account information.",
+                (
+                    "Cannot calculate position size: No account found for venue "
+                    f"{instrument.venue}. Position sizing requires account information."
+                ),
             )
             return None
 
@@ -575,8 +601,11 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 current_price = (bid_price + ask_price) / 2.0
             else:
                 self.log.error(
-                    f"Cannot calculate position size: No price data available for {self._config.instrument_id}. "
-                    "Ensure market data is being received before trading.",
+                    (
+                        "Cannot calculate position size: No price data available for "
+                        f"{self._config.instrument_id}. Ensure market data is being received "
+                        "before trading."
+                    ),
                 )
                 return None
 

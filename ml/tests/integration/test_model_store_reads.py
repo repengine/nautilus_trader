@@ -13,6 +13,8 @@ import pytest
 from ml.stores.model_store import ModelStore
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_model_store_events_and_jsonb_and_reads(test_database: Any, monkeypatch: Any) -> None:
     """
@@ -69,7 +71,7 @@ def test_model_store_events_and_jsonb_and_reads(test_database: Any, monkeypatch:
     assert "features_used" in df.columns
     # Features_used should be dict-like (SQLAlchemy may deserialize to dict); if string, ensure JSON-looking
     fu = df.iloc[0]["features_used"]
-    assert isinstance(fu, (dict, str))
+    assert isinstance(fu, dict | str)
     if isinstance(fu, dict):
         assert set(fu.keys()) <= {"f1", "f2"}
 

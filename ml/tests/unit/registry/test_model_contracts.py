@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Test contracts for model registry - defines expected behaviors for all model types.
 
@@ -15,9 +14,11 @@ import time
 from abc import ABC
 from abc import abstractmethod
 
+import pytest
+
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 
 
 class ModelContract(ABC):
@@ -29,6 +30,8 @@ class ModelContract(ABC):
 
     """
 
+    @pytest.mark.parallel_safe
+    @pytest.mark.unit
     @abstractmethod
     def test_manifest_completeness(self, manifest: ModelManifest) -> None:
         """

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
@@ -18,6 +20,8 @@ from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import InstrumentId
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_actor_validates_feature_manifest(tmp_path: Path) -> None:
     # Prepare feature manifest matching default FeatureConfig
     cfg = FeatureConfig()
@@ -54,4 +58,4 @@ def test_actor_validates_feature_manifest(tmp_path: Path) -> None:
         use_registry_features=True,
     )
     # Construct actor; it should validate schema successfully
-    actor = MLSignalActor(acfg)  # noqa: F841
+    actor = MLSignalActor(acfg)

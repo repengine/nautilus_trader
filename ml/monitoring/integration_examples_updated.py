@@ -83,7 +83,7 @@ class MonitoredDataCatalog:
         """
         from ml.data.catalog_utils import bars_to_dataframe
 
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         try:
             # Load data using catalog utilities
@@ -98,7 +98,7 @@ class MonitoredDataCatalog:
                 )
 
             # Record load time
-            load_time = time.time() - start_time
+            load_time = time.perf_counter() - start_time
             logger.info(f"Loaded {len(df)} bars in {load_time:.2f}s")
 
             return df
@@ -135,7 +135,7 @@ class MonitoredDataCatalog:
         """
         from ml.data.catalog_utils import quotes_to_dataframe
 
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         try:
             # Load data using catalog utilities
@@ -150,7 +150,7 @@ class MonitoredDataCatalog:
                 )
 
             # Record load time
-            load_time = time.time() - start_time
+            load_time = time.perf_counter() - start_time
             logger.info(f"Loaded {len(df)} quotes in {load_time:.2f}s")
 
             return df
@@ -219,15 +219,28 @@ class MonitoredFeatureEngineer:
             Calculated features with metrics collected.
 
         """
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         try:
             # Calculate features
-            features = self.engineer.calculate_features(data, mode=mode, **kwargs)
+            from typing import cast
+            from ml.typing import DataFrameLike
+            if mode == "batch":
+                features = self.engineer.calculate_features(cast(DataFrameLike, data), mode="batch")
+            else:
+                # Expect required online kwargs
+                indicator_manager = kwargs.get("indicator_manager")
+                scaler = kwargs.get("scaler")
+                features = self.engineer.calculate_features(
+                    cast(dict[str, float], data),
+                    mode="online",
+                    indicator_manager=indicator_manager,
+                    scaler=scaler,
+                )
 
             # Collect engineering metrics
             if self.metrics and self.metrics.feature_engineering:
-                calc_time = time.time() - start_time
+                calc_time = time.perf_counter() - start_time
 
                 if mode == "batch":
                     self.metrics.feature_engineering.record_batch_computation(
@@ -325,7 +338,7 @@ class MonitoredMLPipeline:
             Raw data and computed features.
 
         """
-        pipeline_start = time.time()
+        pipeline_start = time.perf_counter()
 
         try:
             # Stage 1: Load data
@@ -337,7 +350,7 @@ class MonitoredMLPipeline:
             features = self.feature_engineer.calculate_features(bars, mode="batch")
 
             # Record pipeline metrics
-            pipeline_time = time.time() - pipeline_start
+            pipeline_time = time.perf_counter() - pipeline_start
             logger.info(f"Pipeline completed in {pipeline_time:.2f}s")
 
             if self.metrics:

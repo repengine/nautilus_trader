@@ -11,6 +11,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import polars as pl
+import pytest
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -22,6 +23,9 @@ from ml.data.sources.calendar import MockCalendarSource
 from ml.data.sources.calendar import SimpleCalendarSource
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestMockCalendarSource:
     """
     Test mock calendar source.

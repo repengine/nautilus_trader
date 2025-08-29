@@ -164,6 +164,14 @@ repos:
         pass_filenames: true
         stages: [pre-commit]
 
+      - id: sanity-sweep
+        name: ML sanity sweep (advisory)
+        description: Fast advisory checks (ruff S608/C901, mypy strict ml/, legacy schema refs, SQL f-strings, broad excepts, layering)
+        entry: python ml/scripts/sanity_check.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   ##############################################################################
   #  Rust formatting and linting
   ##############################################################################

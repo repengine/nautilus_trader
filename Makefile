@@ -407,12 +407,19 @@ docker-down-test:  #-- Stop PostgreSQL test container and remove volumes
 	docker compose -f .docker/docker-compose.yml down -v
 
 .PHONY: pytest-ml-db
-pytest-ml-db:  #-- Run ML tests requiring DB with coverage (excludes TFT)
-	$(info $(M) Running ML DB tests with coverage...)
-	DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
-		uv run --active --no-sync pytest -n logical --dist=loadgroup \
-		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
-		-k "not tft" -v ml/tests
+pytest-ml-db:  #-- Run ML tests requiring DB with coverage (FAST=1 skips heavy/legacy)
+    $(info $(M) Running ML DB tests with coverage...)
+    DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
+        uv run --active --no-sync pytest -n logical --dist=loadgroup \
+        --cov=ml --cov=nautilus_trader --cov-report=term-missing \
+        $(if $(FAST),-k "not tft and not stores_concurrency and not stores_integration",-k "not tft") \
+        -v ml/tests
+
+.PHONY: pytest-ml-fast
+pytest-ml-fast:  #-- Quick ML test run (smoke + unit + core + actors + features)
+    $(info $(M) Running fast ML test subset...)
+    uv run --active --no-sync pytest -n auto --dist=loadfile \
+        -k "smoke or unit or actors or features or core or EngineManagerIntegration" -v ml/tests
 
 .PHONY: pytest-ml-coverage
 pytest-ml-coverage:  #-- Run all ML tests with coverage (no DB startup)
@@ -535,3 +542,6 @@ ml-coverage:  #-- Generate ML module coverage report with property tests
 		--cov-report=html:htmlcov/ml \
 		--cov-fail-under=75
 	@echo "Coverage report generated in htmlcov/ml/index.html"
+sanity:
+	@echo "Running ML codebase sanity sweep (advisory)..."
+	@python ml/scripts/sanity_check.py || true

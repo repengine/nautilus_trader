@@ -17,14 +17,18 @@ import pytest
 from ml.config.shared import OptunaConfig
 from ml.training.optuna_optimizer import XGBoostOptunaOptimizer
 
+
 # Import test database fixture if not already available
 try:
-    from ml.tests.conftest import clean_postgres_db, test_database
+    from ml.tests.conftest import clean_postgres_db
+    from ml.tests.conftest import test_database
 except ImportError:
     # Fixtures should be available via pytest
     pass
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")  # Ensure clean PostgreSQL state
 class TestXGBoostOptunaOptimizer:
     """
@@ -64,6 +68,8 @@ class TestXGBoostOptunaOptimizer:
         y_val = rng.integers(0, 2, 50).astype(np.float64)
         return X_train, y_train, X_val, y_val
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_optimizer_initialization(self, basic_config: OptunaConfig) -> None:
         """
         Test optimizer initialization.
@@ -74,6 +80,8 @@ class TestXGBoostOptunaOptimizer:
         assert optimizer._optuna is None
         assert optimizer._study is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_ensure_optuna(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
@@ -86,6 +94,8 @@ class TestXGBoostOptunaOptimizer:
         optimizer._ensure_optuna()
         assert optimizer._optuna is not None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", False)
     def test_ensure_optuna_not_available(self, basic_config: OptunaConfig) -> None:
         """
@@ -96,6 +106,8 @@ class TestXGBoostOptunaOptimizer:
         with pytest.raises(ImportError, match="Optuna required"):
             optimizer._ensure_optuna()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_create_study(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
@@ -118,6 +130,8 @@ class TestXGBoostOptunaOptimizer:
         assert call_args[1]["direction"] == "maximize"
         assert call_args[1]["load_if_exists"] is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_create_study_with_storage(
@@ -166,6 +180,8 @@ class TestXGBoostOptunaOptimizer:
             ("grid", "GridSampler"),
         ],
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_create_sampler(
@@ -207,6 +223,8 @@ class TestXGBoostOptunaOptimizer:
             ("hyperband", "HyperbandPruner"),
         ],
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_create_pruner(
@@ -243,6 +261,8 @@ class TestXGBoostOptunaOptimizer:
             getattr(mock_optuna.pruners, expected_class).assert_called_once()
             assert pruner == mock_pruner
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_sample_xgboost_params(
@@ -288,6 +308,8 @@ class TestXGBoostOptunaOptimizer:
         assert sampled_params["max_depth"] == 6
         assert sampled_params["learning_rate"] == 0.1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_sample_xgboost_params_gpu(
@@ -324,6 +346,8 @@ class TestXGBoostOptunaOptimizer:
         # GPU training should limit max_depth
         assert sampled_params["max_depth"] <= 10
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_sample_xgboost_params_regression(
@@ -361,6 +385,8 @@ class TestXGBoostOptunaOptimizer:
         assert sampled_params["objective"] == "reg:squarederror"
         assert sampled_params["huber_slope"] == 1.5
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_XGBOOST", True)
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.xgb")
@@ -429,6 +455,8 @@ class TestXGBoostOptunaOptimizer:
         # Verify result is numeric
         assert isinstance(result, int | float)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_XGBOOST", True)
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.xgb")
@@ -485,6 +513,8 @@ class TestXGBoostOptunaOptimizer:
         mock_xgb.XGBRegressor.assert_called_once()
         mock_model.predict.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_XGBOOST", True)
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.xgb")
@@ -539,6 +569,8 @@ class TestXGBoostOptunaOptimizer:
         result = objective(mock_trial)
         assert result == float("-inf")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_optimize(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
@@ -598,6 +630,8 @@ class TestXGBoostOptunaOptimizer:
         assert stats["n_pruned"] == 1
         assert stats["success_rate"] == 0.6  # 3/5
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_optimize_with_keyboard_interrupt(
@@ -628,6 +662,8 @@ class TestXGBoostOptunaOptimizer:
         assert results["interrupted"] is True
         assert results["best_params"] == {"n_estimators": 100}
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_get_study_summary(self, mock_optuna: MagicMock, basic_config: OptunaConfig) -> None:
@@ -685,6 +721,8 @@ class TestXGBoostOptunaOptimizer:
         assert summary["param_importance"]["n_estimators"] == 0.6
         assert summary["param_importance"]["max_depth"] == 0.4
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_get_study_summary_no_study(self, basic_config: OptunaConfig) -> None:
         """
         Test study summary with no study available.
@@ -694,6 +732,8 @@ class TestXGBoostOptunaOptimizer:
         with pytest.raises(ValueError, match="No study available"):
             optimizer.get_study_summary()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.training.optuna_optimizer.HAS_OPTUNA", True)
     @patch("ml.training.optuna_optimizer.optuna")
     def test_get_study_summary_with_values(

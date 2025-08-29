@@ -13,17 +13,17 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import SignalStrategy
+from ml.tests.fixtures.database_fixtures import TestDatabase
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
-from ml.tests.fixtures.database_fixtures import TestDatabase
-import pytest
 
 
 class _FakeBar:
@@ -44,7 +44,11 @@ def _make_bar() -> _FakeBar:
     return _FakeBar(instrument_id)
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestE2EActorFeatureStore:
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_actor_delegates_to_feature_store_when_enabled(self, test_database: TestDatabase) -> None:
         # Build config with FeatureStore enabled

@@ -14,6 +14,8 @@ from ml.core.cache import PreAllocatedFeatureCache
 from ml.core.cache import ReservoirSampler
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestLockFreeRingBuffer:
     """
     Test suite for LockFreeRingBuffer behavior.

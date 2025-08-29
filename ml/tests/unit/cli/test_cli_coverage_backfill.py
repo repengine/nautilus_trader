@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Test for the plan-backfill CLI command.
 
@@ -22,6 +21,8 @@ from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 
 
+@pytest.mark.slow
+@pytest.mark.unit
 def test_plan_backfill_with_gaps(tmp_path: Path) -> None:
     """
     Test plan_backfill identifies gaps correctly and creates job spec.

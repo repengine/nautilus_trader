@@ -28,6 +28,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.integration
 class TestSchedulerMetrics:
     """
     Test DataScheduler metrics integration.

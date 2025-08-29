@@ -22,6 +22,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import TypedDict
 
+from ml.config.base import DataCollectorConfig
+
 
 warnings.filterwarnings("ignore")
 
@@ -57,7 +59,14 @@ class DataCollector:
 
     """
 
-    def __init__(self, storage_limit_gb: float = 500.0, data_dir: Path | None = None):
+    def __init__(
+        self,
+        storage_limit_gb: float | None = None,
+        data_dir: Path | None = None,
+        *,
+        config: DataCollectorConfig | None = None,
+        end_date: datetime | None = None,
+    ):
         """
         Initialize enhanced collector.
 
@@ -75,17 +84,30 @@ class DataCollector:
             # Import Databento lazily to avoid asyncio loop creation at module import time
             import databento as db  # local import
             self.client = db.Historical(self.api_key)
-        # Allow configuration via argument or environment variable; fallback to project-relative default
-        default_dir = Path(os.getenv("ML_DATA_ENHANCED_DIR", "/home/nate/projects/nautilus_trader/data/enhanced"))
+        # Config-driven defaults with env overrides
+        self._config = config or DataCollectorConfig()
+        default_dir = Path(self._config.data_dir)
         self.data_dir = data_dir or default_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # Storage management
-        self.storage_limit_gb = storage_limit_gb
+        self.storage_limit_gb = (
+            float(storage_limit_gb)
+            if storage_limit_gb is not None
+            else float(self._config.storage_limit_gb)
+        )
         self.storage_used_gb = 0.0
 
-        # Fixed end date (last available data)
-        self.end_date = datetime(2025, 8, 16)
+        # End date (last available data) – configurable; defaults to now
+        if end_date is not None:
+            self.end_date = end_date
+        elif self._config.end_date_iso:
+            try:
+                self.end_date = datetime.fromisoformat(self._config.end_date_iso)
+            except Exception:
+                self.end_date = datetime.now()
+        else:
+            self.end_date = datetime.now()
 
         # Load existing symbols
         self.existing_symbols = self._load_existing_symbols()
@@ -133,7 +155,7 @@ class DataCollector:
         """
         Load list of symbols we already have basic data for.
         """
-        universe_dir = Path("/home/nate/projects/nautilus_trader/data/universe")
+        universe_dir = Path(self.data_dir) / "universe"
         symbols = []
         for symbol_dir in universe_dir.iterdir():
             if symbol_dir.is_dir() and symbol_dir.name.isupper():

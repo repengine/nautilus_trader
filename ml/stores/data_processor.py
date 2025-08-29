@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+import logging
 from enum import IntFlag
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from sqlalchemy import create_engine
 from sqlalchemy import text
+from ml.common.timestamps import sanitize_timestamp_ns
+logger = logging.getLogger(__name__)
 
+from ml.core.db_engine import EngineManager
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
@@ -88,7 +91,7 @@ class DataProcessor:
             Enable caching of metadata and statistics
 
         """
-        self.engine: Engine = create_engine(connection_string)
+        self.engine: Engine = EngineManager.get_engine(connection_string)
         self.outlier_threshold = outlier_threshold
         self.staleness_threshold_ns = staleness_threshold_seconds * 1_000_000_000
         self.enable_caching = enable_caching
@@ -131,7 +134,8 @@ class DataProcessor:
         quality_flags = QualityFlags.CLEAN
 
         # 1. Validate timestamps
-        ts_init = int(time.time() * 1e9)
+        # Initialize ts_init in ns using centralized sanitizer
+        ts_init = sanitize_timestamp_ns(time.time_ns())
         if ts_event > ts_init:
             quality_flags |= QualityFlags.TIMESTAMP_ERROR
             metrics.records_failed += 1
@@ -273,7 +277,7 @@ class DataProcessor:
             instrument_id=instrument_id,
             values=cleaned_features,
             _ts_event=ts_event,
-            _ts_init=int(time.time() * 1e9),
+            _ts_init=sanitize_timestamp_ns(time.time_ns()),
         )
 
         # 5. Store additional metadata separately
@@ -399,7 +403,7 @@ class DataProcessor:
             features_used=features,
             inference_time_ms=inference_time_ms,
             _ts_event=ts_event,
-            _ts_init=int(time.time() * 1e9),
+            _ts_init=sanitize_timestamp_ns(time.time_ns()),
         )
 
         metrics.records_processed = 1
@@ -515,7 +519,7 @@ class DataProcessor:
             risk_metrics=risk_metrics,
             execution_params=execution_params,
             _ts_event=ts_event,
-            _ts_init=int(time.time() * 1e9),
+            _ts_init=sanitize_timestamp_ns(time.time_ns()),
         )
 
         metrics.records_processed = 1
@@ -860,6 +864,8 @@ class DataProcessor:
         total_metrics = ProcessingMetrics()
 
         for item in batch:
+            result: object
+            metrics: ProcessingMetrics
             if data_type == "market":
                 result, metrics = self.process_market_data(
                     item["instrument_id"],

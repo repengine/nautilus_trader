@@ -12,27 +12,31 @@ import signal
 import threading
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+from unittest.mock import patch
 
 import pytest
 
-from ml.deployment.entrypoint_pipeline import (
-    PipelineRunner,
-    PipelineStatus,
-    app,
-    health_check,
-    main,
-    pipeline_status,
-)
+from ml.deployment.entrypoint_pipeline import PipelineRunner
+from ml.deployment.entrypoint_pipeline import PipelineStatus
+from ml.deployment.entrypoint_pipeline import app
+from ml.deployment.entrypoint_pipeline import health_check
+from ml.deployment.entrypoint_pipeline import main
+from ml.deployment.entrypoint_pipeline import pipeline_status
+
 
 # Import test database fixture if not already available
 try:
-    from ml.tests.conftest import clean_postgres_db, test_database
+    from ml.tests.conftest import clean_postgres_db
+    from ml.tests.conftest import test_database
 except ImportError:
     # Fixtures should be available via pytest
     pass
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.unit
 class TestHealthEndpoint:
     """Test Flask health check endpoint."""
 
@@ -51,6 +55,8 @@ class TestHealthEndpoint:
             assert data["last_run"] is not None
             assert len(data["errors"]) == 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_health_check_unhealthy(self):
         """Test health check returns 503 when unhealthy."""
         # Set pipeline status to unhealthy
@@ -66,6 +72,8 @@ class TestHealthEndpoint:
             assert "Database connection failed" in data["errors"]
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")  # Ensure clean PostgreSQL state
 class TestPipelineRunner:
     """Test PipelineRunner class."""
@@ -93,6 +101,8 @@ class TestPipelineRunner:
 
         return catalog_path
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init(self):
         """Test PipelineRunner initialization."""
         runner = PipelineRunner()
@@ -100,6 +110,8 @@ class TestPipelineRunner:
         assert runner.running is False
         assert isinstance(runner._shutdown_event, threading.Event)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_signal_handler(self):
         """Test signal handler sets shutdown event."""
         runner = PipelineRunner()
@@ -116,6 +128,8 @@ class TestPipelineRunner:
         assert runner._shutdown_event.is_set()
         mock_scheduler.stop.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_signal_handler_no_scheduler(self):
         """Test signal handler handles missing scheduler gracefully."""
         runner = PipelineRunner()
@@ -128,6 +142,8 @@ class TestPipelineRunner:
         assert runner.running is False
         assert runner._shutdown_event.is_set()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_create_config(self, valid_env):
         """Test configuration creation from environment."""
         runner = PipelineRunner()
@@ -141,6 +157,8 @@ class TestPipelineRunner:
         assert config.databento.stype_in == "raw_symbol"
         assert config.feature_store_enabled is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_create_config_with_universe_expansion(self, valid_env, monkeypatch):
         """Test configuration with universe expansion."""
         monkeypatch.setenv("UNIVERSE_MODE", "aggressive")
@@ -152,6 +170,8 @@ class TestPipelineRunner:
         assert "SPY.XNAS" in config.symbols
         assert len(config.symbols) > 3  # More than just the 3 provided
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_initialize_stores(self, valid_env, test_database):
         """Test store initialization with PostgreSQL."""
         runner = PipelineRunner()
@@ -176,6 +196,8 @@ class TestPipelineRunner:
                 if fs_call_args and fs_call_args[1].get("connection_string"):
                     assert "postgresql://" in fs_call_args[1]["connection_string"]
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_initialize_catalog(self, valid_env):
         """Test catalog initialization."""
         runner = PipelineRunner()
@@ -193,6 +215,8 @@ class TestPipelineRunner:
             assert "catalog" in call_args[0]
             assert catalog == mock_catalog
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_backfill_mode(self, valid_env, monkeypatch):
         """Test pipeline run in backfill mode."""
         monkeypatch.setenv("PIPELINE_MODE", "backfill")
@@ -211,6 +235,8 @@ class TestPipelineRunner:
                                 assert pipeline_status["healthy"] is True
                                 assert pipeline_status["last_run"] is not None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_daily_mode(self, valid_env, monkeypatch):
         """Test pipeline run in daily mode."""
         monkeypatch.setenv("PIPELINE_MODE", "daily")
@@ -228,6 +254,8 @@ class TestPipelineRunner:
                                 mock_daily.assert_called_once()
                                 assert pipeline_status["healthy"] is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_realtime_mode(self, valid_env, monkeypatch):
         """Test pipeline run in realtime mode."""
         monkeypatch.setenv("PIPELINE_MODE", "realtime")
@@ -245,6 +273,8 @@ class TestPipelineRunner:
                                 mock_realtime.assert_called_once()
                                 assert pipeline_status["healthy"] is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_invalid_mode(self, valid_env, monkeypatch):
         """Test pipeline run with invalid mode."""
         monkeypatch.setenv("PIPELINE_MODE", "invalid_mode")
@@ -263,6 +293,8 @@ class TestPipelineRunner:
                             assert pipeline_status["healthy"] is False
                             assert len(pipeline_status["errors"]) > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_handles_exception(self, valid_env):
         """Test pipeline run handles exceptions."""
         runner = PipelineRunner()
@@ -275,6 +307,8 @@ class TestPipelineRunner:
             assert pipeline_status["healthy"] is False
             assert "Missing dependency" in str(pipeline_status["errors"])
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_backfill_executes_daily_update(self, valid_env):
         """Test backfill mode executes daily update."""
         runner = PipelineRunner()
@@ -287,6 +321,8 @@ class TestPipelineRunner:
 
         mock_scheduler.run_daily_update.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_daily_schedules_updates(self, valid_env, monkeypatch):
         """Test daily mode schedules updates."""
         monkeypatch.setenv("PIPELINE_SCHEDULE", "0 18 * * *")
@@ -306,6 +342,8 @@ class TestPipelineRunner:
         mock_scheduler.schedule_updates.assert_called_once_with("0 18 * * *")
         assert runner.running is True  # Should stay running until shutdown
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_realtime_continuous_updates(self, valid_env, monkeypatch):
         """Test realtime mode runs continuous updates."""
         monkeypatch.setenv("REALTIME_INTERVAL", "60")  # 1 minute
@@ -325,6 +363,8 @@ class TestPipelineRunner:
         # Should attempt at least one update
         mock_scheduler.run_daily_update.assert_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_realtime_handles_errors(self, valid_env, monkeypatch):
         """Test realtime mode handles update errors."""
         monkeypatch.setenv("REALTIME_INTERVAL", "60")
@@ -348,6 +388,8 @@ class TestPipelineRunner:
         # Should have error in pipeline status
         assert "Update failed" in str(pipeline_status["errors"])
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_environment_variable_defaults(self, monkeypatch, tmp_path, test_database):
         """Test default environment variable values with PostgreSQL."""
         # Set minimal required env vars with PostgreSQL
@@ -365,6 +407,8 @@ class TestPipelineRunner:
         assert config.databento.stype_in == "raw_symbol"
         assert "SPY.XNAS" in config.symbols  # Default symbol
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_signal_registration(self):
         """Test signal handlers are registered."""
         runner = PipelineRunner()
@@ -379,6 +423,8 @@ class TestPipelineRunner:
             assert signal.SIGTERM in signals_registered
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestMainFunction:
     """Test the main entry point function with PostgreSQL."""
@@ -393,6 +439,8 @@ class TestMainFunction:
         monkeypatch.setenv("HEALTH_CHECK_PORT", "8081")
         monkeypatch.setenv("DATABASE_URL", test_database.connection_string)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_main_starts_health_server(self, valid_env):
         """Test main starts health check server in background."""
         with patch("threading.Thread") as mock_thread_class:
@@ -413,6 +461,8 @@ class TestMainFunction:
                 mock_runner_class.assert_called_once()
                 mock_runner.run.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_main_configures_health_port(self, valid_env, monkeypatch):
         """Test main uses configured health check port."""
         monkeypatch.setenv("HEALTH_CHECK_PORT", "9090")

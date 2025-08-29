@@ -20,10 +20,13 @@ import pytest
 from ml.config.base import MLFeatureConfig
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from ml.stores.feature_store import FeatureStore
-from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from ml.tests.fixtures.database_fixtures import TestDatabase
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.unit
 class TestTFTDatasetBuilderWithFeatureStore:
     """
     Test TFT Dataset Builder FeatureStore integration.
@@ -60,6 +63,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
         """
         return MLFeatureConfig()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_init_with_feature_store(
         self,
@@ -85,6 +90,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
         assert builder.feature_store == mock_feature_store
         assert builder.feature_config == feature_config
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_without_feature_store(
         self,
         mock_catalog: MagicMock,
@@ -106,6 +113,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
         assert builder.feature_store is None
         assert builder.feature_config == feature_config
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_prepare_training_data_from_store_no_store(
         self,
         mock_catalog: MagicMock,
@@ -121,6 +130,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
         with pytest.raises(ValueError, match="FeatureStore not configured"):
             builder.prepare_training_data_from_store()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     @patch("ml.data.tft_dataset_builder.bars_to_dataframe")
     def test_prepare_training_data_from_store_success(
@@ -171,6 +182,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
         call_args = mock_feature_store.get_training_data.call_args
         assert call_args[1]["instrument_id"] == "AAPL.NASDAQ"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     @patch("ml.data.tft_dataset_builder.bars_to_dataframe")
     def test_prepare_training_data_from_store_no_features(
@@ -202,6 +215,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
                 instrument_ids=["AAPL.NASDAQ"],
             )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     @patch("ml.data.tft_dataset_builder.bars_to_dataframe")
     def test_prepare_training_data_auto_selection_with_store(
@@ -240,6 +255,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
         assert isinstance(result, pl.DataFrame)
         mock_feature_store.get_training_data.assert_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_prepare_training_data_fallback_to_direct(
         self,
         mock_catalog: MagicMock,
@@ -264,6 +281,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
             mock_direct.assert_called_once()
             assert isinstance(result, pl.DataFrame)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_build_training_dataset_uses_feature_store(
         self,
@@ -290,6 +309,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
             mock_store_method.assert_called_once()
             assert isinstance(result, pl.DataFrame)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_build_training_dataset_fallback_on_error(
         self,
@@ -321,6 +342,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
                 mock_direct.assert_called_once()
                 assert isinstance(result, pl.DataFrame)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_pandas_conversion(
         self,
@@ -347,6 +370,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
             assert isinstance(result, pd.DataFrame)
             assert len(result) == 3
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_logging_feature_source(
         self,
@@ -380,6 +405,8 @@ class TestTFTDatasetBuilderWithFeatureStore:
             assert "FeatureStore" in caplog.text
             assert "ensures training/inference parity" in caplog.text
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_logging_fallback(
         self,

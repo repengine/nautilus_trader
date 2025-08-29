@@ -178,7 +178,7 @@ def validate_timestamps(series: pl.Series) -> bool:
         return False
 
     # Cast to int for comparison (polars timestamps are ints)
-    if isinstance(min_ts, int | float):
+    if isinstance(min_ts, (int, float)):
         if min_ts < 0:
             return False
     else:
@@ -186,7 +186,7 @@ def validate_timestamps(series: pl.Series) -> bool:
 
     # Year 2100 in nanoseconds since epoch
     max_reasonable = 4102444800000000000
-    if isinstance(max_ts, int | float):
+    if isinstance(max_ts, (int, float)):
         if max_ts > max_reasonable:
             return False
     else:

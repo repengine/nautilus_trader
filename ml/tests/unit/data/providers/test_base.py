@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     import polars as pl
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestProviderProtocols:
     """Test that provider protocols are properly enforced."""
 

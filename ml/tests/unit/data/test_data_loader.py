@@ -32,6 +32,8 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 pytestmark = pytest.mark.skipif(not HAS_POLARS, reason="Polars not available")
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestCatalogUtils:
     """
     Test cases for catalog utility functions.

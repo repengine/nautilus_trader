@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import polars as pl
+import pytest
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -24,6 +25,9 @@ from ml.data.sources.metadata import MockMetadataSource
 from ml.data.sources.metadata import NautilusMetadataSource
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestMockMetadataSource:
     """
     Test mock metadata source.

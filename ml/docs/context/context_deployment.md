@@ -165,13 +165,34 @@ PERSIST_ALL_SIGNALS: "true"
 - **Database**: `nautilus`
 - **Credentials**: postgres/postgres
 
-**Schema Auto-initialization**:
+**Schema & Migrations (canonical)**:
 
-- `ml/schema/00_init.sql` - Base schema setup
-- `ml/schema/features.sql` - Feature storage tables
-- `ml/schema/models.sql` - Model predictions and metrics
-- `ml/schema/strategies.sql` - Strategy signals and decisions
-- `ml/schema/pipeline_health.sql` - Pipeline monitoring tables
+- Canonical DDL and functions live under `ml/stores/migrations/`
+- Includes partitioned tables for features/predictions/signals and registry functions
+- Critical functions: `emit_data_event`, `update_watermark`
+
+Apply migrations in all environments before starting services.
+
+```bash
+psql "$DB_CONNECTION" -f ml/stores/migrations/001_stores_schema.sql
+psql "$DB_CONNECTION" -f ml/stores/migrations/002_auto_partitioning.sql
+psql "$DB_CONNECTION" -f ml/stores/migrations/003_market_data.sql
+psql "$DB_CONNECTION" -f ml/stores/migrations/004_data_registry.sql
+psql "$DB_CONNECTION" -f ml/stores/migrations/005_schema_hardening.sql
+psql "$DB_CONNECTION" -f ml/stores/migrations/005a_feature_values_dedupe.sql
+psql "$DB_CONNECTION" -f ml/stores/migrations/006_disable_partition_triggers.sql
+```
+
+Optionally, run `ml/stores/migrations/999_fix_partitions_immediate.sql` if you need to reconcile partitions immediately.
+
+**DB Preflight (recommended)**:
+
+Run a quick preflight to verify required functions and current-month partitions exist:
+
+```python
+from ml.stores.db_preflight import check_db_prereqs
+print(check_db_prereqs("$DB_CONNECTION"))
+```
 
 **Health Check**: `pg_isready -U postgres`
 
@@ -334,7 +355,7 @@ FROM python:3.11-slim
 1. Validate DATABENTO_API_KEY environment variable
 2. Start PostgreSQL and wait for healthy status
 3. Check/start Redis service
-4. Initialize database schemas (00_init.sql, features.sql, models.sql, strategies.sql)
+4. Apply canonical migrations (ml/stores/migrations/*.sql in order)
 5. Launch ML Signal Actor container
 6. Launch ML Trading Strategy container
 7. Start Prometheus and Grafana monitoring
@@ -412,13 +433,13 @@ docker-compose logs -f ml_strategy
 
 ```sql
 -- Signal monitoring
-SELECT * FROM ml.strategy_signals ORDER BY ts_event DESC LIMIT 10;
+SELECT * FROM public.ml_strategy_signals ORDER BY ts_event DESC LIMIT 10;
 
 -- Feature monitoring
-SELECT * FROM ml.features ORDER BY ts_event DESC LIMIT 10;
+SELECT * FROM public.ml_feature_values ORDER BY ts_event DESC LIMIT 10;
 
 -- Model prediction monitoring
-SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
+SELECT * FROM public.ml_model_predictions ORDER BY ts_event DESC LIMIT 10;
 ```
 
 ### Health Checks
@@ -545,9 +566,13 @@ Development-specific configurations:
 
    ```bash
    createdb nautilus
-   psql nautilus < ml/schema/features.sql
-   psql nautilus < ml/schema/models.sql
-   psql nautilus < ml/schema/strategies.sql
+   psql nautilus -f ml/stores/migrations/001_stores_schema.sql
+   psql nautilus -f ml/stores/migrations/002_auto_partitioning.sql
+   psql nautilus -f ml/stores/migrations/003_market_data.sql
+   psql nautilus -f ml/stores/migrations/004_data_registry.sql
+   psql nautilus -f ml/stores/migrations/005_schema_hardening.sql
+   psql nautilus -f ml/stores/migrations/005a_feature_values_dedupe.sql
+   psql nautilus -f ml/stores/migrations/006_disable_partition_triggers.sql
    ```
 
 3. **Quick Start Deployment**:

@@ -24,6 +24,8 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestDryRunMode:
     """
@@ -50,6 +52,8 @@ class TestDryRunMode:
         # Create test instrument
         self.instrument_id = InstrumentId.from_str("BTC/USDT.BINANCE")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_dry_run_mode_enabled(self, test_database) -> None:
         """
         Test that strategy does not execute trades when execute_trades=False.
@@ -106,6 +110,8 @@ class TestDryRunMode:
             # Verify decision was still persisted
             mock_store_instance.write_signal.assert_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_normal_execution_mode(self, test_database) -> None:
         """
         Test that strategy executes trades normally when execute_trades=True.
@@ -162,6 +168,8 @@ class TestDryRunMode:
             # Verify decision was persisted
             mock_store_instance.write_signal.assert_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_dry_run_persistence_and_metrics(self, test_database) -> None:
         """
         Test that persistence and metrics work correctly in dry run mode.
@@ -224,6 +232,8 @@ class TestDryRunMode:
             # Verify flush was called
             mock_store_instance.flush.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_dry_run_with_position_reversal(self, test_database) -> None:
         """
         Test dry run mode handles position reversals correctly.

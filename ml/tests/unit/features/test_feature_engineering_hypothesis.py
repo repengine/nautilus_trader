@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from hypothesis import assume
 from hypothesis import given
 from hypothesis import settings
@@ -20,6 +21,9 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestFeatureEngineerProperties:
     """
     Property-based tests for FeatureEngineer.

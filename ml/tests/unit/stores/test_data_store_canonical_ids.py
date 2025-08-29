@@ -8,7 +8,11 @@ import os
 import time
 from typing import Any
 
-from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
+import pytest
+
+from ml.stores.base import FeatureData
+from ml.stores.base import ModelPrediction
+from ml.stores.base import StrategySignal
 from ml.stores.data_store import DataStore
 
 
@@ -24,6 +28,9 @@ class _MockRegistry:
         self.watermarks.append(kwargs)
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.unit
 def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
     registry = _MockRegistry()
 
@@ -38,7 +45,7 @@ def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
 
     # Use DATABASE_URL from environment or fall back to test database
     connection_string = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test")
-    
+
     store = DataStore(
         registry=registry,  # type: ignore[arg-type]
         connection_string=connection_string,

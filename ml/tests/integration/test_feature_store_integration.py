@@ -24,6 +24,8 @@ from ml.training.base import BaseMLTrainer
 from nautilus_trader.model.data import Bar
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestFeatureStoreIntegration:
     """
     Test FeatureStore integration with existing components.
@@ -37,6 +39,8 @@ class TestFeatureStoreIntegration:
         # Use a MagicMock with Bar spec to avoid strict C-extension type checks
         return MagicMock(spec=Bar)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_ml_signal_actor_with_feature_store(self, mock_bar: Bar, test_database: TestDatabase) -> None:
         """
@@ -93,6 +97,8 @@ class TestFeatureStoreIntegration:
                         expected_features,
                     )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_ml_signal_actor_without_feature_store(self, mock_bar: Bar, test_database: TestDatabase) -> None:
         """
@@ -123,12 +129,16 @@ class TestFeatureStoreIntegration:
             # Verify actor still has FeatureEngineer
             assert actor._feature_engineer is not None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_training_with_feature_store(self, test_database: TestDatabase) -> None:
         """
         Test training pipeline with FeatureStore integration.
         """
 
+        @pytest.mark.database
+        @pytest.mark.serial
         class TestTrainer(BaseMLTrainer):
             """
             Test trainer implementation.
@@ -239,6 +249,8 @@ class TestFeatureStoreIntegration:
         assert y.shape == (100,)
         assert len(feature_names) == 10
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_config_propagation(self, test_database: TestDatabase) -> None:
         """
@@ -272,6 +284,8 @@ class TestFeatureStoreIntegration:
             )
             assert actor._feature_store.feature_config == feature_config
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_parity_validation_in_training(self, test_database: TestDatabase) -> None:
         """
@@ -323,11 +337,15 @@ class TestFeatureStoreIntegration:
         assert max_diff < 1e-10, f"Parity violation: max diff = {max_diff}"
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestBackwardCompatibility:
     """
     Test that existing code continues to work without FeatureStore.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_ml_signal_actor_backward_compatibility(self) -> None:
         """
         Test that MLSignalActor works with old config (no FeatureStore fields).
@@ -356,11 +374,15 @@ class TestBackwardCompatibility:
             assert actor._persist_features is False
             assert actor._feature_engineer is not None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_training_backward_compatibility(self) -> None:
         """
         Test that training works with old config (no db_connection).
         """
 
+        @pytest.mark.database
+        @pytest.mark.serial
         class TestTrainer(BaseMLTrainer):
             """
             Test trainer implementation.

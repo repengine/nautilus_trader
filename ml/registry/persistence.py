@@ -24,11 +24,12 @@ from sqlalchemy import Float
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Text
-from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
+
+from ml.core.db_engine import EngineManager
 
 
 if TYPE_CHECKING:
@@ -225,7 +226,7 @@ class PersistenceManager:
         """Initialize PostgreSQL connection."""
         if self.config.connection_string is None:
             raise ValueError("Connection string is required for PostgreSQL backend")
-        self._engine = create_engine(
+        self._engine = EngineManager.get_engine(
             self.config.connection_string,
             pool_size=self.config.pool_size,
             max_overflow=self.config.max_overflow,

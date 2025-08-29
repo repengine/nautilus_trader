@@ -37,6 +37,8 @@ class _FakeBar:
         self.volume = 1000.0
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_feature_store_realtime_event_and_jsonb(test_database: Any, monkeypatch: Any) -> None:
     """
@@ -49,7 +51,7 @@ def test_feature_store_realtime_event_and_jsonb(test_database: Any, monkeypatch:
     monkeypatch.setattr(
         store.feature_engineer,
         "calculate_features_online",
-        lambda current_bar, indicator_manager, scaler=None: np.array([1.23, 4.56], dtype=np.float32),  # noqa: ARG005
+        lambda current_bar, indicator_manager, scaler=None: np.array([1.23, 4.56], dtype=np.float32),
     )
 
     # Mock DataRegistry to capture events

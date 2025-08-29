@@ -131,7 +131,7 @@ class BaseMLTrainer(ABC):
             Training results including model, metrics, and metadata.
 
         """
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
@@ -216,7 +216,7 @@ class BaseMLTrainer(ABC):
             all_metrics["cv_scores"] = self._cv_results
 
         # Store training metadata
-        training_time = time.time() - start_time
+        training_time = time.perf_counter() - start_time
         self._training_metrics = {
             "training_time": training_time,
             "training_samples": len(X_train),

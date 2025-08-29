@@ -12,7 +12,10 @@ import os
 import threading
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import Mock
+from unittest.mock import patch
 
 import pytest
 
@@ -20,14 +23,18 @@ from ml.deployment.entrypoint_actor import MLSignalActorNode
 from ml.deployment.entrypoint_pipeline import PipelineRunner
 from ml.deployment.entrypoint_strategy import MLStrategyNode
 
+
 # Import test database fixture if not already available
 try:
-    from ml.tests.conftest import clean_postgres_db, test_database
+    from ml.tests.conftest import clean_postgres_db
+    from ml.tests.conftest import test_database
 except ImportError:
     # Fixtures should be available via pytest
     pass
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.deployment
 @pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")  # Ensure clean PostgreSQL state
@@ -66,6 +73,8 @@ class TestDeploymentIntegration:
             "catalog_path": catalog_path,
         }
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_actor_to_strategy_communication(self, deployment_env):
         """Test signal actor communicates with strategy."""
         # Set up actor node
@@ -140,6 +149,8 @@ class TestDeploymentIntegration:
                         mock_actor_trading.run_async.assert_called_once()
                         mock_strategy_trading.run_async.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_pipeline_with_stores_initialization(self, deployment_env, test_database):
         """Test pipeline initializes stores correctly with PostgreSQL."""
         runner = PipelineRunner()
@@ -177,9 +188,12 @@ class TestDeploymentIntegration:
                             call_kwargs = mock_scheduler_class.call_args[1]
                             assert call_kwargs["catalog"] == mock_catalog
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_health_check_endpoint_availability(self, deployment_env):
         """Test health check endpoint is available during pipeline run."""
-        from ml.deployment.entrypoint_pipeline import app, pipeline_status
+        from ml.deployment.entrypoint_pipeline import app
+        from ml.deployment.entrypoint_pipeline import pipeline_status
 
         # Set pipeline to healthy
         pipeline_status["healthy"] = True
@@ -231,6 +245,8 @@ class TestDeploymentIntegration:
         mock_strategy_trading.stop_async.assert_called_once()
         mock_scheduler.stop.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_environment_variable_propagation(self, deployment_env, monkeypatch):
         """Test environment variables propagate correctly to all components."""
         # Set custom environment variables
@@ -263,6 +279,8 @@ class TestDeploymentIntegration:
         assert "MSFT.XNAS" in config.symbols
         assert config.databento.dataset == "XNAS.ITCH"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_error_recovery_and_retry(self, deployment_env):
         """Test error recovery and retry mechanisms."""
         runner = PipelineRunner()
@@ -303,6 +321,8 @@ class TestDeploymentIntegration:
         assert "First failure" in str(pipeline_status["errors"])
         assert "Second failure" in str(pipeline_status["errors"])
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.common.metrics.PREDICTION_COUNTER")
     @patch("ml.common.metrics.FEATURE_CALCULATION_TIMER")
     @patch("ml.common.metrics.MODEL_INFERENCE_TIMER")
@@ -321,6 +341,8 @@ class TestDeploymentIntegration:
                 actor_config = mock_actor_class.call_args[1]["config"]
                 assert actor_config.enable_health_monitoring is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_docker_compose_service_dependencies(self, deployment_env):
         """Test service dependency checks."""
         from ml.deployment.check_health import check_docker_compose
@@ -353,6 +375,8 @@ class TestDeploymentIntegration:
             result = check_docker_compose()
             assert result is False
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_configuration_validation(self, deployment_env, monkeypatch):
         """Test configuration validation across components."""
         # Test invalid configuration handling
@@ -372,6 +396,8 @@ class TestDeploymentIntegration:
             actor_node.setup()
         assert exc_info.value.code == 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_multi_threading_safety(self, deployment_env):
         """Test thread safety of concurrent operations."""
         from ml.deployment.entrypoint_pipeline import pipeline_status

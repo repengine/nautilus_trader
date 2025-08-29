@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
@@ -9,6 +11,8 @@ from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_generate_and_register_manifest(tmp_path: Path) -> None:
     cfg = FeatureConfig()
     eng = FeatureEngineer(cfg)

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-
 """Tests for test data structure and accessibility."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 
+
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestDataStructure:
     """Test that test data is properly organized and accessible."""
 

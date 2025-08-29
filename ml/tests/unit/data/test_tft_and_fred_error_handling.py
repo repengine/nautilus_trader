@@ -42,6 +42,8 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 # ============================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestTFTDatasetBuilderErrors:
     """Test error handling in TFTDatasetBuilder."""
@@ -89,6 +91,8 @@ class TestTFTDatasetBuilderErrors:
             feature_store=mock_feature_store,
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_builder_without_feature_store(
         self,
         mock_catalog: MagicMock,
@@ -101,11 +105,13 @@ class TestTFTDatasetBuilderErrors:
             feature_store=None,
             connection_string=test_database.connection_string,
         )
-        
+
         # Should raise ValueError when trying to use store
         with pytest.raises(ValueError, match="FeatureStore not configured"):
             builder.prepare_training_data_from_store()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_empty_features_from_store(
         self,
         builder: TFTDatasetBuilder,
@@ -118,13 +124,15 @@ class TestTFTDatasetBuilderErrors:
             np.array([]),
             [],
         )
-        
+
         # Should handle empty data gracefully
         with pytest.raises(RuntimeError, match="No features loaded from FeatureStore"):
             builder.prepare_training_data_from_store(
                 instrument_ids=["SPY.NYSE"],
             )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_mismatched_feature_dimensions(
         self,
         builder: TFTDatasetBuilder,
@@ -138,19 +146,21 @@ class TestTFTDatasetBuilderErrors:
             np.array([1000, 2000, 3000]),  # 3 timestamps - mismatch!
             ["feat1", "feat2"],
         )
-        
+
         # Mock bars data
         mock_catalog.query.return_value = [
             MagicMock(spec=Bar, ts_event=1000),
             MagicMock(spec=Bar, ts_event=2000),
         ]
-        
+
         # Should detect dimension mismatch
         with pytest.raises((ValueError, RuntimeError)):
             builder.prepare_training_data_from_store(
                 instrument_ids=["SPY.NYSE"],
             )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_nan_and_inf_values_in_features(
         self,
         builder: TFTDatasetBuilder,
@@ -163,13 +173,15 @@ class TestTFTDatasetBuilderErrors:
             np.array([1000, 2000, 3000]),
             ["feat1", "feat2"],
         )
-        
+
         # Should detect invalid values
         with pytest.raises((ValueError, RuntimeError)):
             builder.prepare_training_data_from_store(
                 instrument_ids=["SPY.NYSE"],
             )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_bars_loading_failure(
         self,
         builder: TFTDatasetBuilder,
@@ -183,17 +195,19 @@ class TestTFTDatasetBuilderErrors:
             np.array([1000]),
             ["feat1", "feat2"],
         )
-        
+
         # Mock bars_to_dataframe to raise exception
         with patch("ml.data.tft_dataset_builder.bars_to_dataframe") as mock_bars:
             mock_bars.side_effect = Exception("Database connection lost")
-            
+
             # Should log error and continue, then raise RuntimeError for no data
             with pytest.raises(RuntimeError, match="No features loaded from FeatureStore"):
                 builder.prepare_training_data_from_store(
                     instrument_ids=["SPY.NYSE"],
                 )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_empty_bars_data(
         self,
         builder: TFTDatasetBuilder,
@@ -207,17 +221,19 @@ class TestTFTDatasetBuilderErrors:
             np.array([1000]),
             ["feat1", "feat2"],
         )
-        
+
         # Mock bars_to_dataframe to return empty DataFrame
         with patch("ml.data.tft_dataset_builder.bars_to_dataframe") as mock_bars_to_df:
             mock_bars_to_df.return_value = pl.DataFrame()
-            
+
             # Should skip instruments with no bars and raise RuntimeError
             with pytest.raises(RuntimeError, match="No features loaded from FeatureStore"):
                 builder.prepare_training_data_from_store(
                     instrument_ids=["SPY.NYSE"],
                 )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_target_generation_errors(
         self,
         builder: TFTDatasetBuilder,
@@ -228,14 +244,16 @@ class TestTFTDatasetBuilderErrors:
             "close": [100.0, np.nan, 102.0],
             "ts_event": [1000, 2000, 3000],
         })
-        
+
         with patch.object(builder, "_generate_targets_polars") as mock_gen:
             mock_gen.side_effect = ValueError("Cannot generate targets with NaN values")
-            
+
             # Should handle target generation errors
             with pytest.raises(ValueError):
                 builder._generate_targets_polars(df, horizon_minutes=15, min_return_threshold=0.001)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_static_features_generation_errors(
         self,
         builder: TFTDatasetBuilder,
@@ -245,14 +263,16 @@ class TestTFTDatasetBuilderErrors:
             "instrument_id": ["INVALID_ID"],
             "close": [100.0],
         })
-        
+
         with patch.object(builder, "_add_static_features_polars") as mock_add:
             mock_add.side_effect = ValueError("Invalid instrument ID format")
-            
+
             # Should handle static feature errors
             with pytest.raises(ValueError):
                 builder._add_static_features_polars(df)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_known_future_features_errors(
         self,
         builder: TFTDatasetBuilder,
@@ -262,14 +282,16 @@ class TestTFTDatasetBuilderErrors:
             "ts_event": ["not_a_timestamp"],  # Invalid timestamp
             "close": [100.0],
         })
-        
+
         with patch.object(builder, "_add_known_future_features_polars") as mock_add:
             mock_add.side_effect = TypeError("Cannot extract time features from string")
-            
+
             # Should handle time feature errors
             with pytest.raises(TypeError):
                 builder._add_known_future_features_polars(df)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_multiple_instrument_processing_with_failures(
         self,
         builder: TFTDatasetBuilder,
@@ -278,25 +300,25 @@ class TestTFTDatasetBuilderErrors:
     ) -> None:
         """Test processing multiple instruments with partial failures."""
         instruments = ["SPY.NYSE", "QQQ.NASDAQ", "IWM.ARCA"]
-        
+
         # First instrument succeeds, second fails, third succeeds
         call_count = 0
-        
+
         def get_training_data_side_effect(*args: Any, **kwargs: Any) -> tuple:
             nonlocal call_count
             call_count += 1
-            
+
             if call_count == 2:  # Second instrument fails
                 raise Exception("Feature store unavailable")
-            
+
             return (
                 np.array([[1.0, 2.0]]),
                 np.array([1000]),
                 ["feat1", "feat2"],
             )
-        
+
         mock_feature_store.get_training_data.side_effect = get_training_data_side_effect
-        
+
         # Mock bars data
         with patch("ml.data.tft_dataset_builder.bars_to_dataframe") as mock_bars:
             mock_bars.return_value = pl.DataFrame({
@@ -307,12 +329,12 @@ class TestTFTDatasetBuilderErrors:
                 "low": [98.5],
                 "volume": [1000000],
             })
-            
+
             # Should continue processing despite failures
             result = builder.prepare_training_data_from_store(
                 instrument_ids=instruments,
             )
-            
+
             # Should have attempted all 3 instruments
             assert mock_feature_store.get_training_data.call_count == 3
             # Result should have data from successful instruments
@@ -325,6 +347,8 @@ class TestTFTDatasetBuilderErrors:
 # ============================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestFREDDataLoaderErrors:
     """Test error handling in FREDDataLoader."""
@@ -357,12 +381,16 @@ class TestFREDDataLoaderErrors:
         loader._data_store = DataStore(connection_string=test_database.connection_string)
         return loader
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_missing_api_key_error(self, temp_dir: Path) -> None:
         """Test error when API key is missing."""
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="FRED API key not provided"):
                 FREDConfig(cache_dir=temp_dir)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_fredapi_import_failure(self, fred_config: FREDConfig) -> None:
         """Test handling of missing fredapi library."""
         with patch("ml.data.loaders.fred_loader.HAS_FREDAPI", False):
@@ -371,6 +399,8 @@ class TestFREDDataLoaderErrors:
                 with pytest.raises(ImportError, match="fredapi package required"):
                     FREDDataLoader(config=fred_config)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_api_connection_failures(
         self,
         loader: FREDDataLoader,
@@ -383,16 +413,18 @@ class TestFREDDataLoaderErrors:
                 TimeoutError("Request timeout"),
                 OSError("Network unreachable"),
             ]
-            
+
             for error in errors:
                 mock_fred.get_series.side_effect = error
-                
+
                 # Should raise RuntimeError after retries
                 with pytest.raises(RuntimeError, match="Failed to fetch"):
                     loader.fetch_indicator(
                         FREDIndicator(series_id="DGS10", name="10Y Treasury", category="rates")
                     )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_api_rate_limiting(
         self,
         loader: FREDDataLoader,
@@ -405,15 +437,17 @@ class TestFREDDataLoaderErrors:
                 Exception("Too Many Requests"),
                 pd.Series([2.5, 2.6], index=[datetime(2025, 1, 1), datetime(2025, 1, 2)]),
             ]
-            
+
             # Should retry and eventually succeed
             result = loader.fetch_indicator(
                 FREDIndicator(series_id="DGS10", name="10Y Treasury", category="rates")
             )
-            
+
             assert not result.is_empty()
             assert mock_fred.get_series.call_count == 3
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_invalid_series_id(
         self,
         loader: FREDDataLoader,
@@ -421,13 +455,15 @@ class TestFREDDataLoaderErrors:
         """Test handling of invalid series IDs."""
         with patch.object(loader, "fred") as mock_fred:
             mock_fred.get_series.side_effect = ValueError("Series not found: INVALID123")
-            
+
             # Should raise RuntimeError for invalid series
             with pytest.raises(RuntimeError, match="Failed to fetch"):
                 loader.fetch_indicator(
                     FREDIndicator(series_id="INVALID123", name="Invalid", category="test")
                 )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_cache_corruption_recovery(
         self,
         loader: FREDDataLoader,
@@ -435,23 +471,25 @@ class TestFREDDataLoaderErrors:
     ) -> None:
         """Test recovery from corrupted cache files."""
         indicator = FREDIndicator(series_id="DGS10", name="10Y Treasury", category="rates")
-        
+
         # Create corrupted cache file
         cache_file = temp_dir / "fred_cache" / "DGS10.parquet"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_bytes(b"corrupted parquet data")
-        
+
         with patch.object(loader, "fred") as mock_fred:
             # Should fetch fresh data when cache is corrupted
             mock_fred.get_series.return_value = pd.Series(
                 [2.5], index=[datetime(2025, 1, 1)]
             )
-            
+
             result = loader.fetch_indicator(indicator)
-            
+
             assert not result.is_empty()
             assert mock_fred.get_series.called
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_cache_ttl_expiration(
         self,
         loader: FREDDataLoader,
@@ -459,33 +497,35 @@ class TestFREDDataLoaderErrors:
     ) -> None:
         """Test cache TTL expiration handling."""
         indicator = FREDIndicator(series_id="DGS10", name="10Y Treasury", category="rates")
-        
+
         # Create expired cache file
         cache_file = temp_dir / "fred_cache" / "DGS10.parquet"
         cache_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Create valid but old cache
         old_data = pl.DataFrame({
             "timestamp": [datetime.now() - timedelta(hours=2)],
             "value": [2.5],
         })
         old_data.write_parquet(cache_file)
-        
+
         # Modify file timestamp to be old
         old_time = time.time() - (2 * 3600)  # 2 hours ago
         os.utime(cache_file, (old_time, old_time))
-        
+
         with patch.object(loader, "fred") as mock_fred:
             # Should fetch fresh data when cache is expired
             mock_fred.get_series.return_value = pd.Series(
                 [2.6], index=[datetime.now()]
             )
-            
+
             result = loader.fetch_indicator(indicator)
-            
+
             assert not result.is_empty()
             assert mock_fred.get_series.called
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_empty_api_response(
         self,
         loader: FREDDataLoader,
@@ -494,14 +534,16 @@ class TestFREDDataLoaderErrors:
         with patch.object(loader, "fred") as mock_fred:
             # Return empty series
             mock_fred.get_series.return_value = pd.Series([])
-            
+
             result = loader.fetch_indicator(
                 FREDIndicator(series_id="TEST", name="Test", category="test")
             )
-            
+
             # Empty series is valid and should be returned
             assert result.is_empty()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_malformed_api_response(
         self,
         loader: FREDDataLoader,
@@ -513,51 +555,55 @@ class TestFREDDataLoaderErrors:
                 ["not", "numeric", "data"],
                 index=[datetime.now()] * 3,
             )
-            
+
             # Should raise RuntimeError for non-numeric data
             with pytest.raises((RuntimeError, ValueError)):
                 loader.fetch_indicator(
                     FREDIndicator(series_id="TEST", name="Test", category="test")
                 )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_concurrent_fetch_requests(
         self,
         loader: FREDDataLoader,
     ) -> None:
         """Test thread safety of concurrent fetch requests."""
         import threading
-        
+
         indicators = [
             FREDIndicator(series_id=f"TEST{i}", name=f"Test {i}", category="test")
             for i in range(5)
         ]
-        
+
         results = []
         lock = threading.Lock()
-        
+
         def fetch_indicator(indicator: FREDIndicator) -> None:
             with patch.object(loader, "fred") as mock_fred:
                 mock_fred.get_series.return_value = pd.Series(
                     [1.0], index=[datetime.now()]
                 )
-                
+
                 result = loader.fetch_indicator(indicator)
-                
+
                 with lock:
                     results.append(result)
-        
+
         threads = []
         for indicator in indicators:
             thread = threading.Thread(target=fetch_indicator, args=(indicator,))
             threads.append(thread)
             thread.start()
-        
+
         for thread in threads:
             thread.join()
-        
+
         # All fetches should complete
         assert len(results) == 5
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_data_store_integration_errors(
         self,
         loader: FREDDataLoader,
@@ -569,20 +615,22 @@ class TestFREDDataLoaderErrors:
         mock_store.connection_string = test_database.connection_string
         mock_store.store.side_effect = Exception("Database unavailable")
         loader._data_store = mock_store
-        
+
         with patch.object(loader, "fred") as mock_fred:
             mock_fred.get_series.return_value = pd.Series(
                 [2.5], index=[datetime.now()]
             )
-            
+
             # Should handle store errors gracefully
             result = loader.fetch_indicator(
                 FREDIndicator(series_id="DGS10", name="10Y Treasury", category="rates")
             )
-            
+
             # Should still return data despite store error
             assert not result.is_empty()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_registry_integration_errors(
         self,
         loader: FREDDataLoader,
@@ -592,20 +640,22 @@ class TestFREDDataLoaderErrors:
         mock_registry = MagicMock()
         mock_registry.register_dataset.side_effect = Exception("Registry unavailable")
         loader._data_registry = mock_registry
-        
+
         with patch.object(loader, "fred") as mock_fred:
             mock_fred.get_series.return_value = pd.Series(
                 [2.5], index=[datetime.now()]
             )
-            
+
             # Should handle registry errors gracefully
             result = loader.fetch_indicator(
                 FREDIndicator(series_id="DGS10", name="10Y Treasury", category="rates")
             )
-            
+
             # Should still return data despite registry error
             assert not result.is_empty()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_batch_fetch_with_failures(
         self,
         loader: FREDDataLoader,
@@ -616,15 +666,15 @@ class TestFREDDataLoaderErrors:
             FREDIndicator(series_id="INVALID", name="Invalid", category="test"),
             FREDIndicator(series_id="DGS2", name="2Y Treasury", category="rates"),
         ]
-        
+
         with patch.object(loader, "fred") as mock_fred:
             def get_series_side_effect(series_id: str, *args: Any, **kwargs: Any) -> pd.Series:
                 if series_id == "INVALID":
                     raise ValueError("Series not found")
                 return pd.Series([2.5], index=[datetime.now()])
-            
+
             mock_fred.get_series.side_effect = get_series_side_effect
-            
+
             # Fetch all indicators
             results = []
             for indicator in indicators:
@@ -633,7 +683,7 @@ class TestFREDDataLoaderErrors:
                     results.append(result)
                 except RuntimeError:
                     results.append(None)  # Failed fetch
-            
+
             # Should have 2 successful, 1 failed
             successful = [r for r in results if r is not None and not r.is_empty()]
             assert len(successful) == 2

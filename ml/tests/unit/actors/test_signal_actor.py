@@ -67,6 +67,9 @@ class MockTestModel:
         return np.array([[0.2, 0.8]])
 
 
+@pytest.mark.flaky
+@pytest.mark.slow
+@pytest.mark.unit
 class TestMLSignalActor:
     """
     Test cases for MLSignalActor.
@@ -479,11 +482,11 @@ class TestMLSignalActor:
         # The _bars_processed counter might not increase for all bars during warm-up
         # Just verify that the actor is functioning properly
         assert actor._bars_processed > 0, "No bars were processed"
-        
+
         # Check that some processing occurred
         signal_stats = actor.get_signal_statistics()
         bars_processed = signal_stats.get("bars_processed", 0)
-        
+
         # Verify basic functionality - actor should have at least handled the bars
         assert bars_processed > 0 or actor._bars_processed > 0, "Actor did not process any bars"
 

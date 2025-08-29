@@ -1,0 +1,264 @@
+# ML Testing Strategy
+
+## Overview
+
+This document describes the comprehensive testing strategy for the Nautilus Trader ML system, focusing on achieving high confidence with fewer, more effective tests using property-based, metamorphic, contract, and pairwise testing approaches.
+
+## Testing Philosophy
+
+**"Write less tests, get more coverage"**
+
+Instead of writing hundreds of brittle example-based tests, we focus on:
+- **Invariants**: Properties that must always hold
+- **Contracts**: Behavioral guarantees at boundaries
+- **Relationships**: How outputs change under input transformations
+- **Combinations**: Efficient coverage of parameter interactions
+
+## Test Categories
+
+### 1. Property-Based Tests (`ml/tests/property/`)
+
+Property-based tests verify mathematical properties and invariants that must hold regardless of specific input values.
+
+**Location**: `ml/tests/property/test_store_invariants.py`
+
+**Key Invariants Tested**:
+- **FeatureStore**: Timestamp monotonicity, feature immutability, partition consistency
+- **ModelStore**: Prediction bounds [-1, 1], version ordering consistency
+- **StrategyStore**: Signal temporal ordering, position state consistency  
+- **DataStore**: Watermark progression (non-decreasing), event ordering
+
+**Example**:
+```python
+@given(
+    ts_events=st.lists(nanosecond_timestamps(), min_size=1, max_size=100, unique=True)
+)
+def test_timestamp_monotonicity_invariant(self, ts_events):
+    """Features stored with increasing timestamps must maintain order."""
+    # Property: Retrieved timestamps should be monotonically increasing
+```
+
+**Benefits**:
+- Catches edge cases automatically
+- Tests hold for all valid inputs
+- No need to maintain golden files
+
+### 2. Contract/Schema Tests (`ml/tests/contracts/`)
+
+Contract tests define and validate data contracts at component boundaries using Pandera schemas.
+
+**Location**: `ml/tests/contracts/test_store_schemas.py`
+
+**Schemas Defined**:
+- `FeatureInputSchema`: Validates feature store inputs
+- `PredictionSchema`: Validates model predictions
+- `SignalSchema`: Validates strategy signals
+- `WatermarkSchema`: Validates watermark progression
+- `EventLogSchema`: Validates event logging
+
+**Example**:
+```python
+class PredictionSchema(pa.DataFrameModel):
+    prediction: Series[float] = pa.Field(ge=-1.0, le=1.0)
+    confidence: Series[float] = pa.Field(ge=0.0, le=1.0)
+    ts_event: Series[np.int64] = pa.Field(ge=0)
+    
+    @pa.check("ts_init", "ts_event")
+    def check_timestamp_ordering(cls, df):
+        return df["ts_init"] >= df["ts_event"]
+```
+
+**Benefits**:
+- Early detection of data quality issues
+- Clear documentation of expected formats
+- Automated validation at boundaries
+
+### 3. Metamorphic Tests (`ml/tests/metamorphic/`)
+
+Metamorphic tests verify relationships between outputs under controlled input transformations.
+
+**Locations**:
+- `test_feature_transforms.py`: Feature engineering transformations
+- `test_signal_predictions.py`: ML predictions and signals
+
+**Key Relations Tested**:
+- **Price Scaling**: Normalized features unchanged, raw features scale proportionally
+- **Time Reversal**: Magnitude features unchanged, directional features reversed
+- **Noise Addition**: Bounded output changes for small input perturbations
+- **Data Duplication**: Stability under repeated observations
+
+**Example**:
+```python
+def test_price_scaling_invariance(self, base_price, scale_factor):
+    """Scaling prices should scale price features but not normalized ones."""
+    # Returns should be unchanged (normalized)
+    assert features_original["returns"] ≈ features_scaled["returns"]
+    # Moving averages should scale proportionally  
+    assert features_scaled["ma_5"] ≈ features_original["ma_5"] * scale_factor
+```
+
+**Benefits**:
+- No need for exact expected values
+- Tests algorithmic properties, not implementations
+- Robust to code changes that preserve behavior
+
+### 4. Pairwise/Combinatorial Tests (`ml/tests/combinatorial/`)
+
+Pairwise tests efficiently cover parameter interactions without full cartesian products.
+
+**Location**: `ml/tests/combinatorial/test_config_combinations.py`
+
+**Coverage Areas**:
+- Feature configuration parameters
+- Model × Instrument × Timeframe combinations
+- Store configuration options
+- Critical three-way interactions
+
+**Example**:
+```python
+# Instead of 8,748 full combinations, test 15 pairwise
+parameters = {
+    "return_periods": [[1], [1, 5], [1, 5, 10, 20]],
+    "rsi_period": [7, 14, 21],
+    "bb_period": [10, 20, 30],
+    # ...
+}
+pairs = AllPairs(parameters.values())
+# Results: 99.8% reduction in test count while covering all 2-way interactions
+```
+
+**Benefits**:
+- Dramatically reduces test count (often 90%+ reduction)
+- Still catches most bugs (which typically involve 2-way interactions)
+- Systematic coverage of parameter space
+
+### 5. Stateful Property Tests
+
+Stateful tests verify complex workflows using state machines.
+
+**Location**: `ml/tests/property/test_store_invariants.py` (StoreStateMachine class)
+
+**Example**:
+```python
+class StoreStateMachine(RuleBasedStateMachine):
+    @rule(feature_set=feature_sets, timestamp=timestamps)
+    def store_features(self, feature_set, timestamp):
+        # Store features and verify invariants hold
+        assert timestamps == sorted(timestamps)
+```
+
+**Benefits**:
+- Tests complex sequences of operations
+- Finds bugs in state management
+- Generates minimal reproduction cases
+
+## Test Execution Guidelines
+
+### Quick Validation (Green Tests)
+```bash
+# Run property tests (high value, fast)
+pytest ml/tests/property -x
+
+# Run contract tests (catch data issues)
+pytest ml/tests/contracts -x
+
+# Run metamorphic tests (algorithmic correctness)
+pytest ml/tests/metamorphic -x
+
+# Run pairwise tests (config coverage)
+pytest ml/tests/combinatorial -x
+```
+
+### Full Test Suite
+```bash
+# All new test categories
+pytest ml/tests/property ml/tests/contracts ml/tests/metamorphic ml/tests/combinatorial -x
+```
+
+## Writing New Tests
+
+### When to Use Each Type
+
+**Property-Based Tests**:
+- Mathematical invariants (monotonicity, bounds, conservation)
+- Data structure properties (ordering, uniqueness)
+- Algorithmic guarantees (convergence, stability)
+
+**Contract Tests**:
+- API boundaries
+- Data pipeline interfaces
+- External service integrations
+
+**Metamorphic Tests**:
+- ML models (no ground truth available)
+- Feature engineering
+- Signal generation
+
+**Pairwise Tests**:
+- Configuration parameters
+- Multi-dimensional parameter spaces
+- Feature flags and options
+
+### Best Practices
+
+1. **Focus on Properties, Not Examples**
+   - ❌ `assert compute_return(100, 101) == 0.01`
+   - ✅ `assert all returns are bounded by [-1, 1]`
+
+2. **Test Relationships, Not Values**
+   - ❌ `assert feature_value == 42.5`
+   - ✅ `assert scaled_feature == original_feature * scale_factor`
+
+3. **Use Schemas at Boundaries**
+   - Define Pandera schemas for all public interfaces
+   - Validate inputs and outputs systematically
+
+4. **Minimize Test Count**
+   - Use pairwise testing for configurations
+   - Generate test data with Hypothesis
+   - One property test can replace dozens of examples
+
+## Mutation Testing
+
+To measure test effectiveness, use mutation testing:
+
+```bash
+# Install mutmut
+poetry add mutmut --group dev
+
+# Run mutation testing on critical modules
+mutmut run --paths-to-mutate ml/stores --tests-dir ml/tests/property
+
+# View results
+mutmut results
+```
+
+Mutation testing reveals whether tests actually catch bugs by making small code changes and verifying tests fail.
+
+## Migration from Example-Based Tests
+
+When refactoring existing tests:
+
+1. **Identify the Property**: What invariant is the test really checking?
+2. **Generalize the Input**: Use Hypothesis strategies instead of fixed values
+3. **Assert Relationships**: Check properties, not specific outputs
+4. **Remove Redundancy**: One property test can replace many examples
+
+## Success Metrics
+
+- **Test Count**: Reduced by 80%+ while maintaining coverage
+- **Failure Detection**: Catches real bugs, not implementation details
+- **Maintenance**: Tests rarely need updates when code changes
+- **Execution Time**: Faster overall despite property generation
+- **Confidence**: Higher confidence from testing invariants
+
+## Summary
+
+This testing strategy provides:
+- **Higher confidence** with fewer tests
+- **Better bug detection** through property exploration
+- **Lower maintenance** by testing behavior not implementation
+- **Clearer documentation** through contracts and schemas
+- **Efficient coverage** via pairwise testing
+
+The result: A robust, maintainable test suite that gives you the "green tests" you need while actually improving quality.

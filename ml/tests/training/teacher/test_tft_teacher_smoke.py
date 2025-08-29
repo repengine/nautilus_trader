@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 
+@pytest.mark.parallel_safe
 def test_tft_teacher_fit_predict_smoke() -> None:
     # Skip if heavy deps missing
     pf = pytest.importorskip("pytorch_forecasting", reason="pytorch_forecasting not installed")

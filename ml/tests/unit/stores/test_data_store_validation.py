@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Comprehensive tests for DataStore schema enforcement and contract validation.
 
@@ -193,6 +192,11 @@ def valid_bar_data() -> list[dict[str, Any]]:
 # ========================================================================
 
 
+@pytest.mark.property
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.slow
+@pytest.mark.unit
 class TestPreflightCheck:
     """Test preflight schema validation."""
 
@@ -216,6 +220,8 @@ class TestPreflightCheck:
         assert "type_compatibility" in details["checks_performed"]
         assert "schema_hash" in details["checks_performed"]
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_preflight_check_missing_required_columns(
         self,
         data_store: DataStore,
@@ -234,6 +240,8 @@ class TestPreflightCheck:
         assert "Missing required columns" in error
         assert "missing_columns" in details
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_preflight_check_type_mismatch(
         self,
         data_store: DataStore,
@@ -257,6 +265,8 @@ class TestPreflightCheck:
         assert success is True
         assert len(details.get("warnings", [])) > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_preflight_check_schema_hash_mismatch(
         self,
         data_store: DataStore,
@@ -277,6 +287,8 @@ class TestPreflightCheck:
         assert success is False
         assert "Unexpected columns" in error or "Schema hash mismatch" in details.get("warnings", [])
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_preflight_check_primary_key_nulls(
         self,
         data_store: DataStore,
@@ -301,9 +313,13 @@ class TestPreflightCheck:
 # ========================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestContractValidation:
     """Test contract validation rules."""
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_type_validation(
         self,
         data_store: DataStore,
@@ -327,6 +343,8 @@ class TestContractValidation:
         assert report.quality_score < 1.0
         assert any(v.rule_type == ValidationRuleType.TYPE_CHECK for v in report.violations)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_null_validation(
         self,
         data_store: DataStore,
@@ -353,6 +371,8 @@ class TestContractValidation:
         assert len(null_violations) > 0
         assert null_violations[0].field_name == "instrument_id"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_range_validation(
         self,
         data_store: DataStore,
@@ -380,6 +400,8 @@ class TestContractValidation:
         assert len(range_violations) > 0
         assert range_violations[0].violation_count >= 2
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_uniqueness_validation(
         self,
         data_store: DataStore,
@@ -404,6 +426,8 @@ class TestContractValidation:
         ]
         assert len(uniqueness_violations) > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_monotonicity_validation(
         self,
         data_store: DataStore,
@@ -428,6 +452,8 @@ class TestContractValidation:
         ]
         assert len(monotonicity_violations) > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_lateness_validation(
         self,
         data_store: DataStore,
@@ -489,9 +515,13 @@ class TestContractValidation:
 # ========================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestFailClosedWrites:
     """Test fail-closed write behavior."""
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_write_rejected_on_validation_failure(
         self,
         data_store: DataStore,
@@ -514,6 +544,8 @@ class TestFailClosedWrites:
                 run_id="test_run",
             )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_write_rejected_on_preflight_failure(
         self,
         data_store: DataStore,
@@ -535,6 +567,8 @@ class TestFailClosedWrites:
                 run_id="test_run",
             )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_strict_mode_enforcement(
         self,
         data_store: DataStore,
@@ -576,6 +610,8 @@ class TestFailClosedWrites:
         report = data_store.validate_batch("test_bars", df, strict_mode=True)
         assert report.quality_score < 1.0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_lenient_mode_allows_warnings(
         self,
         data_store: DataStore,
@@ -619,6 +655,8 @@ class TestFailClosedWrites:
 
         assert event.status == "success"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_monitor_only_mode(
         self,
         data_store: DataStore,
@@ -666,9 +704,13 @@ class TestFailClosedWrites:
 # ========================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestSchemaMigration:
     """Test schema migration and dual-write functionality."""
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_schema_migration_window(
         self,
         mock_registry: MagicMock,
@@ -704,6 +746,8 @@ class TestSchemaMigration:
 
         assert store._is_in_migration_window("test_bars") is False
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_schema_version_change_detection(
         self,
         mock_registry: MagicMock,
@@ -779,6 +823,8 @@ class TestSchemaMigration:
             _ = store._get_manifest("test_bars")
             mock_start.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_dual_write_during_migration(
         self,
         mock_registry: MagicMock,
@@ -827,6 +873,8 @@ class TestSchemaMigration:
 # ========================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestPropertyBased:
     """Property-based tests for validation fuzzing."""
 
@@ -835,6 +883,8 @@ class TestPropertyBased:
         null_probability=st.floats(min_value=0.0, max_value=1.0),
         include_duplicates=st.booleans(),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=50, deadline=5000)
     def test_validation_consistency(
         self,
@@ -985,6 +1035,8 @@ class TestPropertyBased:
         volume_min=st.floats(min_value=-1000.0, max_value=0.0),
         volume_max=st.floats(min_value=0.0, max_value=10000.0),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=50, deadline=5000)
     def test_range_validation_fuzzing(
         self,
@@ -1110,9 +1162,13 @@ class TestPropertyBased:
 # ========================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestPrometheusMetrics:
     """Test Prometheus metrics emission."""
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus not available")
     def test_validation_metrics_emitted(
         self,
@@ -1146,6 +1202,8 @@ class TestPrometheusMetrics:
                 # Quality score histogram should be observed
                 assert mock_quality.called
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus not available")
     def test_write_rejection_metrics(
         self,
@@ -1174,6 +1232,8 @@ class TestPrometheusMetrics:
                 reason="preflight_failed",
             )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.skipif(not HAS_PROMETHEUS, reason="Prometheus not available")
     def test_schema_mismatch_metrics(
         self,
@@ -1209,9 +1269,13 @@ class TestPrometheusMetrics:
 # ========================================================================
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestIntegration:
     """End-to-end integration tests."""
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_full_validation_pipeline(
         self,
         data_store: DataStore,
@@ -1263,6 +1327,8 @@ class TestIntegration:
         mock_registry.emit_event.assert_called()
         mock_registry.update_watermark.assert_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_validation_performance(
         self,
         data_store: DataStore,

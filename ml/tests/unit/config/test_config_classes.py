@@ -14,6 +14,8 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestModelRegistryConfig:
     """
     Tests for ModelRegistryConfig.

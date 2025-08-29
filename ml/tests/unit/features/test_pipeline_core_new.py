@@ -12,6 +12,8 @@ from ml.features.pipeline import register_transform
 from ml.registry.base import DataRequirements
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_pipeline_names_and_signature_stability() -> None:
     spec = PipelineSpec(
         transforms=[

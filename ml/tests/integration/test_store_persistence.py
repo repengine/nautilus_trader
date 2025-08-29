@@ -12,12 +12,16 @@ from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestStorePersistence:
     """
     Test that stores actually persist data with PostgreSQL.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_feature_store_persistence(self, test_database):
         """
         Test that FeatureStore actually persists and retrieves features.
@@ -67,6 +71,8 @@ class TestStorePersistence:
         # Check health
         assert store2.is_healthy()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_model_store_persistence(self, test_database):
         """
         Test that ModelStore actually persists and retrieves predictions.
@@ -119,6 +125,8 @@ class TestStorePersistence:
         # Check health
         assert store2.is_healthy()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_strategy_store_persistence(self, test_database):
         """
         Test that StrategyStore actually persists and retrieves signals.
@@ -173,17 +181,21 @@ class TestStorePersistence:
         # Check health
         assert store2.is_healthy()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_store_failure_handling(self):
         """
         Test that stores handle connection failures gracefully.
         """
         # Create store with invalid connection string
         bad_connection = "postgresql://invalid:invalid@nonexistent:5432/none"
-        
+
         # Store should raise on bad connection
         with pytest.raises(Exception):
             ModelStore(connection_string=bad_connection)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_store_is_healthy(self, test_database):
         """
         Test that stores properly report health status with PostgreSQL.
@@ -192,12 +204,12 @@ class TestStorePersistence:
         feature_store = FeatureStore(connection_string=test_database.connection_string)
         model_store = ModelStore(connection_string=test_database.connection_string)
         strategy_store = StrategyStore(connection_string=test_database.connection_string)
-        
+
         # All stores should be healthy with valid PostgreSQL connection
         assert feature_store.is_healthy()
         assert model_store.is_healthy()
         assert strategy_store.is_healthy()
-        
+
         # Test writing to each store
         feature_store.write_features(
             feature_set_id="health_test",
@@ -206,7 +218,7 @@ class TestStorePersistence:
             ts_event=1000000000,
             ts_init=1000000001,
         )
-        
+
         model_store.write_prediction(
             model_id="health_test",
             instrument_id="EUR/USD",
@@ -216,7 +228,7 @@ class TestStorePersistence:
             inference_time_ms=1.0,
             ts_event=1000000000,
         )
-        
+
         strategy_store.write_signal(
             strategy_id="health_test",
             instrument_id="EUR/USD",
@@ -227,12 +239,12 @@ class TestStorePersistence:
             execution_params={},
             ts_event=1000000000,
         )
-        
+
         # Flush all stores
         feature_store.flush()
         model_store.flush()
         strategy_store.flush()
-        
+
         # Stores should still be healthy after operations
         assert feature_store.is_healthy()
         assert model_store.is_healthy()

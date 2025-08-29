@@ -127,3 +127,22 @@ class AlertConfig(NautilusConfig, kw_only=True, frozen=True):
     error_rate_threshold: NonNegativeFloat = 0.05
     confidence_drop_threshold: NonNegativeFloat = 0.2
     alert_cooldown_seconds: PositiveInt = 300
+
+
+class DashboardConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for the real-time monitoring dashboard.
+
+    Parameters
+    ----------
+    data_dir : str
+        Base directory for data inspection (e.g., tier1 parquet files).
+    l1_progress_file : str
+        JSON file path for L1 ingestion progress.
+    feature_progress_file : str
+        JSON file path for feature computation progress.
+    """
+
+    data_dir: str = "./data/tier1"
+    l1_progress_file: str = "tier1_l1_progress.json"
+    feature_progress_file: str = "tier1_features_progress.json"

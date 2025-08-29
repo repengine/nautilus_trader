@@ -445,13 +445,41 @@ class ExtremesStrategy(SignalGenerationStrategy):
             The generated signal or None if not extreme.
 
         """
-        history = context.get("prediction_history", [])
-        if len(history) < self.window_size:
+        # Maintain a fixed-size ring buffer of recent predictions to avoid allocations
+        ring: npt.NDArray[np.float32]
+        scratch: npt.NDArray[np.float32]
+        filled: int
+        idx: int
+
+        if "_pred_ring" not in context:
+            context["_pred_ring"] = np.empty(self.window_size, dtype=np.float32)
+            context["_pred_scratch"] = np.empty(self.window_size, dtype=np.float32)
+            context["_pred_ring_filled"] = 0
+            context["_pred_ring_idx"] = 0
+
+        ring = context["_pred_ring"]
+        scratch = context["_pred_scratch"]
+        filled = int(context.get("_pred_ring_filled", 0))
+        idx = int(context.get("_pred_ring_idx", 0))
+
+        # Update ring buffer with the latest prediction
+        ring[idx] = np.float32(prediction)
+        idx = (idx + 1) % self.window_size
+        filled = min(self.window_size, filled + 1)
+        context["_pred_ring_idx"] = idx
+        context["_pred_ring_filled"] = filled
+
+        if filled < self.window_size:
             return None
 
-        predictions = np.array(history[-self.window_size :])
-        top_threshold = np.percentile(predictions, 100 - self.top_pct * 100)
-        bottom_threshold = np.percentile(predictions, self.top_pct * 100)
+        # Copy current window into scratch and compute thresholds
+        # Using np.partition to avoid full sort; this keeps allocations bounded
+        scratch[:filled] = ring[:filled]
+        # Compute order statistics indices for bottom and top percentiles
+        k_top = max(0, min(filled - 1, int(np.ceil((1.0 - self.top_pct) * filled)) - 1))
+        k_bottom = max(0, min(filled - 1, int(np.floor(self.top_pct * filled)) - 1))
+        top_threshold = float(np.partition(scratch[:filled], k_top)[k_top])
+        bottom_threshold = float(np.partition(scratch[:filled], k_bottom)[k_bottom])
 
         if (
             prediction >= top_threshold or prediction <= bottom_threshold

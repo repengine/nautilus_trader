@@ -4,6 +4,10 @@
 
 The ML models framework in Nautilus Trader provides a production-ready infrastructure for training, exporting, and deploying machine learning models optimized for financial time series prediction. The framework emphasizes hot-path performance, ONNX export capabilities, and seamless integration with the broader ML pipeline including registries, stores, and inference actors.
 
+Operational notes:
+- Persistence: Model predictions are written via `ModelStore` with nanosecond timestamps; store write paths defensively normalize and log if smaller units are detected. See `context_stores.md` → "Timestamp Policy & Normalization".
+- DB readiness: Apply registry/store migrations and run a DB preflight before deployments. See `context_deployment.md` and `context_registry.md`.
+
 **Key Design Principles:**
 
 - **Production-First**: All models export to ONNX for hot-path inference

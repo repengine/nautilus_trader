@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     import skl2onnx
     import sklearn
     import xgboost as xgb
+    import torch
     from prometheus_client import Counter
     from prometheus_client import Gauge
     from prometheus_client import Histogram
@@ -104,6 +105,18 @@ except ImportError as e:
     optuna = None  # type: ignore[assignment,unused-ignore]
 
 
+# PyTorch
+try:
+    import torch
+
+    HAS_TORCH = True
+    TORCH_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_TORCH = False
+    TORCH_IMPORT_ERROR = e
+    torch = None  # type: ignore[assignment,unused-ignore]
+
+
 # MLflow
 try:
     import mlflow
@@ -154,6 +167,18 @@ except ImportError as e:
     HAS_PANDAS = False
     PANDAS_IMPORT_ERROR = e
     pd = None  # type: ignore[assignment,unused-ignore]
+
+
+# FRED API (fredapi) optional dependency
+try:
+    import fredapi as fredapi
+
+    HAS_FREDAPI = True
+    FREDAPI_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_FREDAPI = False
+    FREDAPI_IMPORT_ERROR = e
+    fredapi = None  # type: ignore[assignment,unused-ignore]
 
 
 # Databento (data collection)
@@ -466,6 +491,7 @@ __all__ = [
     "HAS_ONNX_EXPORT",
     "HAS_OPTUNA",
     "HAS_PANDAS",
+    "HAS_FREDAPI",
     "HAS_PANDAS_MARKET_CALENDARS",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
@@ -478,8 +504,10 @@ __all__ = [
     "ONNX_IMPORT_ERROR",
     "OPTUNA_IMPORT_ERROR",
     "PANDAS_IMPORT_ERROR",
+    "FREDAPI_IMPORT_ERROR",
     "PANDAS_MARKET_CALENDARS_IMPORT_ERROR",
     "POLARS_IMPORT_ERROR",
+    "TORCH_IMPORT_ERROR",
     "PROMETHEUS_IMPORT_ERROR",
     "REGISTRY",
     "SKLEARN_IMPORT_ERROR",
@@ -497,6 +525,8 @@ __all__ = [
     "onnxmltools",
     "optuna",
     "ort",
+    "fredapi",
+    "torch",
     "pd",
     "pl",
     "skl2onnx",

@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
@@ -23,6 +24,8 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 @pytest.mark.integration
 def test_dry_run_production_scenario(test_database):
@@ -65,7 +68,7 @@ def test_dry_run_production_scenario(test_database):
 
     # Create strategy with real database store for integration test
     from ml.stores.strategy_store import StrategyStore
-    
+
     strategy = MLTradingStrategy(config)
     strategy.register_base(
         portfolio=portfolio,
@@ -73,7 +76,7 @@ def test_dry_run_production_scenario(test_database):
         cache=cache,
         clock=clock,
     )
-    
+
     # Mock store methods for tracking while keeping real store
     original_store = strategy.strategy_store
     if original_store:

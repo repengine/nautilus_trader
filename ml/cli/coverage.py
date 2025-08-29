@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 # Try to import tabulate for pretty table formatting
 try:
-    from tabulate import tabulate  # type: ignore[import-untyped]
+    from tabulate import tabulate
 
     HAS_TABULATE = True
 except ImportError:

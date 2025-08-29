@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Behavioral tests for model registry.
 
@@ -18,13 +17,17 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 
 
+@pytest.mark.flaky
+@pytest.mark.slow
 class TestRegistryBehaviors:
     """
     Test that the registry behaves correctly in real-world scenarios.

@@ -18,11 +18,19 @@ sudo apt install postgresql postgresql-client
 brew install postgresql
 brew services start postgresql
 
-# 3. Create database (if using PostgreSQL)
+# 3. Create database (PostgreSQL required) and apply canonical migrations
 createdb nautilus
-psql nautilus < ../schema/features.sql
-psql nautilus < ../schema/models.sql
-psql nautilus < ../schema/strategies.sql
+# Apply canonical migrations (order matters)
+psql nautilus -f ../stores/migrations/001_stores_schema.sql
+psql nautilus -f ../stores/migrations/002_auto_partitioning.sql
+psql nautilus -f ../stores/migrations/003_market_data.sql
+psql nautilus -f ../stores/migrations/004_data_registry.sql
+psql nautilus -f ../stores/migrations/005_schema_hardening.sql
+psql nautilus -f ../stores/migrations/005a_feature_values_dedupe.sql
+psql nautilus -f ../stores/migrations/006_disable_partition_triggers.sql
+
+# (Optional) Run DB preflight to verify functions/partitions
+python -c "from ml.stores.db_preflight import check_db_prereqs; import os; print(check_db_prereqs(os.getenv('DB_CONNECTION','postgresql://postgres:postgres@localhost:5432/nautilus')))"
 
 # 4. Run the system
 python run_local_dry_run.py
@@ -158,13 +166,13 @@ docker-compose logs -f ml_strategy
 psql postgresql://postgres:postgres@localhost:5432/nautilus
 
 # Check signals
-SELECT * FROM ml.strategy_signals ORDER BY ts_event DESC LIMIT 10;
+SELECT * FROM public.ml_strategy_signals ORDER BY ts_event DESC LIMIT 10;
 
 # Check features
-SELECT * FROM ml.features ORDER BY ts_event DESC LIMIT 10;
+SELECT * FROM public.ml_feature_values ORDER BY ts_event DESC LIMIT 10;
 
 # Check model predictions
-SELECT * FROM ml.model_predictions ORDER BY ts_event DESC LIMIT 10;
+SELECT * FROM public.ml_model_predictions ORDER BY ts_event DESC LIMIT 10;
 ```
 
 ### Metrics
@@ -251,10 +259,17 @@ Check your Databento API key and dataset access
 
 ### "Database schema not found"
 ```bash
-# Create schemas
-psql nautilus < ../schema/features.sql
-psql nautilus < ../schema/models.sql
-psql nautilus < ../schema/strategies.sql
+# Apply canonical migrations (not the legacy schema/ files)
+psql nautilus -f ../stores/migrations/001_stores_schema.sql
+psql nautilus -f ../stores/migrations/002_auto_partitioning.sql
+psql nautilus -f ../stores/migrations/003_market_data.sql
+psql nautilus -f ../stores/migrations/004_data_registry.sql
+psql nautilus -f ../stores/migrations/005_schema_hardening.sql
+psql nautilus -f ../stores/migrations/005a_feature_values_dedupe.sql
+psql nautilus -f ../stores/migrations/006_disable_partition_triggers.sql
+
+# Optional: verify
+python -c "from ml.stores.db_preflight import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5432/nautilus'))"
 ```
 
 ## Support

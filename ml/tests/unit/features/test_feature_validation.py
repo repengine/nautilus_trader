@@ -23,6 +23,8 @@ from ml.features.validation import FeatureParityValidator
 from ml.features.validation import validate_feature_parity
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestFeatureParityError:
     """
     Test FeatureParityError exception.
@@ -127,7 +129,7 @@ class TestFeatureParityValidator:
         assert "validation_range" in report
 
         # Should pass with tight tolerance
-        assert report["parity_passed"] == True  # noqa: E712
+        assert report["parity_passed"] == True
         assert report["n_failing_features"] == 0
         assert len(report["failing_features"]) == 0
         assert report["max_difference"] < validator.tolerance
@@ -165,7 +167,7 @@ class TestFeatureParityValidator:
             assert "passed" in diff
 
             # All should pass
-            assert diff["passed"] == True  # noqa: E712
+            assert diff["passed"] == True
             assert diff["max_difference"] < validator.tolerance
 
     def test_validate_parity_no_detailed_report(self) -> None:
@@ -182,7 +184,7 @@ class TestFeatureParityValidator:
         report = validator.validate_parity(df, start_idx=30, end_idx=60, detailed_report=False)
 
         # Should have basic info but empty feature differences
-        assert report["parity_passed"] == True  # noqa: E712
+        assert report["parity_passed"] == True
         assert report["feature_differences"] == {}
 
     def test_validate_parity_full_range(self) -> None:
@@ -454,7 +456,7 @@ class TestValidateFeatureParityFunction:
         )
 
         # Should return valid report
-        assert report["parity_passed"] == True  # noqa: E712
+        assert report["parity_passed"] == True
         assert report["n_samples_validated"] == 30
 
     def test_validate_feature_parity_function_custom_params(self) -> None:

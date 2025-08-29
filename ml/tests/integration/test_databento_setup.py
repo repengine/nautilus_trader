@@ -13,6 +13,8 @@ import sys
 import pytest
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.integration
 def test_databento_setup() -> None:
     """
     Test that Databento API key is configured and working.

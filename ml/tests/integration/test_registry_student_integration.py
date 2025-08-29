@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureManifest as _FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry as _FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
@@ -37,6 +37,8 @@ class DummyOrtSession:
         return [np.array([[0.25], [0.75]], dtype=np.float32)]
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_registry_registers_teacher_and_student_and_loads_onnx(
     test_database,

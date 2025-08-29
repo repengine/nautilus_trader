@@ -272,7 +272,7 @@ class FeatureParityValidator:
             If feature parity validation fails.
 
         """
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         if end_idx is None:
             end_idx = len(df)
@@ -328,7 +328,7 @@ class FeatureParityValidator:
         failing_feature_indices = np.where(max_differences_per_feature > self.tolerance)[0]
         failing_features = [feature_names[i] for i in failing_feature_indices]
 
-        validation_time = time.time() - start_time
+        validation_time = time.perf_counter() - start_time
 
         # Create report
         report = self._create_validation_report(

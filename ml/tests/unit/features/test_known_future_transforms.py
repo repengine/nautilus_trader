@@ -22,6 +22,9 @@ from ml.features.pipeline import _StaticCovariatesTransform
 from ml.registry.base import DataRequirements
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestCalendarTransform:
     """Test calendar-based known-future features."""
 

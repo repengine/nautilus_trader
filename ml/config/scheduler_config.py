@@ -41,6 +41,7 @@ class DatabentoConfig:
     use_temporary_files: bool = True
     temp_data_dir: str = "./temp_databento_data"
     price_precision: int | None = None
+    api_key: str | None = None
 
 
 @dataclass(frozen=True)

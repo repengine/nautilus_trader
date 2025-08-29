@@ -4,6 +4,25 @@
 
 The `ml/registry/` directory implements a comprehensive, production-ready ML lifecycle management system with self-describing manifests, configurable persistence backends, and automated compatibility validation. This system serves as the central orchestrator for all ML components in Nautilus Trader, ensuring type-safe model deployment, feature schema compatibility, strategy requirement validation, and data lineage tracking through a unified manifest-based architecture.
 
+### Migrations & DB Functions
+
+The registry relies on PostgreSQL-side functions for event emission and watermarks. Ensure migrations in `ml/stores/migrations/004_data_registry.sql` are applied in every environment so that:
+
+- `emit_data_event(...)` exists and records dataset events
+- `update_watermark(...)` exists and maintains freshness state
+
+You can validate presence via the DB preflight utility:
+
+```python
+from ml.stores.db_preflight import check_db_prereqs
+print(check_db_prereqs("$DB_CONNECTION"))  # ok=True indicates functions/partitions are present
+
+### Protocol-based Consumers
+
+- Callers of the registry in ML (stores, DataStore, scheduler) are typed against a `RegistryProtocol` to enforce interface drift at compile time.
+- This keeps emit/update usage consistent across JSON and Postgres backends while allowing the concrete `DataRegistry` to evolve behind the Protocol.
+```
+
 ### Key Architectural Principles
 
 1. **Self-Describing Manifests**: All components carry complete metadata for autonomous validation

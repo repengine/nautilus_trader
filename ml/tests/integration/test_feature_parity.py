@@ -33,6 +33,9 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.integration
 class TestFeatureParity:
     """
     Test suite for training/inference feature parity.
@@ -82,6 +85,8 @@ class TestFeatureParity:
 
         return bars
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_feature_engineer_batch_vs_online_parity(
         self,
         feature_config: FeatureConfig,
@@ -142,6 +147,8 @@ class TestFeatureParity:
             f"First 5 online features: {online_features_array[0][:5]}"
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_computation_consistency(
         self,
@@ -180,6 +187,8 @@ class TestFeatureParity:
         # Features should be identical for same input
         assert np.array_equal(features_1, features_2), "Same input produced different features!"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_indicator_state_consistency(
         self,
         feature_config: FeatureConfig,
@@ -229,6 +238,8 @@ class TestFeatureParity:
         assert engineer.indicators.ema_fast.value != ema_fast_value
         assert engineer.indicators.ema_slow.value != ema_slow_value
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_ml_signal_actor_uses_same_features(
         self,
@@ -270,6 +281,8 @@ class TestFeatureParity:
             # Verify returned features match
             assert np.array_equal(cast(npt.NDArray[np.float32], features), expected_features)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_versioning(self, feature_config: FeatureConfig, test_database: TestDatabase) -> None:
         """
@@ -296,6 +309,8 @@ class TestFeatureParity:
         # Versions should differ when config changes
         assert version1 != version2, "Feature versions must change when configuration changes"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_parity_across_feature_ranges(
         self,
         feature_config: FeatureConfig,
@@ -329,6 +344,8 @@ class TestFeatureParity:
                 np.isfinite(features),
             ), f"Non-finite features for inputs: close={close}, high={high}, low={low}, volume={volume}\nFeatures: {features}"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.parametrize("n_bars", [10, 50, 100, 500])
     def test_parity_at_different_sequence_lengths(
         self,
@@ -375,11 +392,15 @@ class TestFeatureParity:
             assert np.all(np.isfinite(last_features)), f"Non-finite features after {n_bars} bars"
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestParityFailureModes:
     """
     Test cases that should FAIL if parity is broken.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_detect_indicator_initialization_mismatch(self, feature_config: FeatureConfig) -> None:
         """
         Test that we detect when indicators are initialized differently.
@@ -417,6 +438,8 @@ class TestParityFailureModes:
             features2,
         ), "Features should differ when indicators have different history"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_detect_numerical_precision_issues(self, feature_config: FeatureConfig) -> None:
         """
         Test that we maintain numerical precision.

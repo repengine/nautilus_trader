@@ -12,7 +12,7 @@ import hashlib
 import logging
 from typing import TYPE_CHECKING
 
-import polars as pl
+from ml._imports import pl, check_ml_dependencies
 
 from ml.data.providers.base import BaseStaticProvider
 
@@ -88,6 +88,9 @@ class InstrumentMetadataProvider(BaseStaticProvider):
             If metadata format is invalid
 
         """
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
+
         # Generate cache key from sorted instruments
         cache_key = self._generate_cache_key(instruments)
 
@@ -237,6 +240,9 @@ class InstrumentMetadataProvider(BaseStaticProvider):
             DataFrame with default metadata values
 
         """
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
+
         return pl.DataFrame(
             {
                 "instrument_id": instruments,

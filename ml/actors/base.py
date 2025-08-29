@@ -16,7 +16,7 @@ from abc import abstractmethod
 from collections import deque
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -48,12 +48,30 @@ from ml.registry.strategy_registry import StrategyRegistry
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
-from nautilus_trader.common.actor import Actor
 from nautilus_trader.common.config import ActorConfig
-from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.identifiers import InstrumentId
+
+
+if TYPE_CHECKING:
+    from typing import Any as _Any
+    class NautilusActor:  # typing stub with minimal surface used in this module
+        log: _Any
+        id: str
+        clock: _Any
+        def __init__(self, *args: object, **kwargs: object) -> None: ...
+        def subscribe_bars(self, *args: object, **kwargs: object) -> None: ...
+        def publish_data(self, *args: object, **kwargs: object) -> None: ...
+    class NautilusData:  # typing stub
+        pass
+else:
+    from nautilus_trader.common.actor import Actor as NautilusActor
+    from nautilus_trader.core.data import Data as NautilusData
+
+if TYPE_CHECKING:
+    # Protocols for type safety without enforcing concrete implementations
+    from ml.stores.protocols import FeatureStoreProtocol, ModelStoreProtocol, StrategyStoreProtocol  # noqa: I001
 
 
 class HealthStatus(Enum):
@@ -442,10 +460,10 @@ class ONNXModelLoader(ModelLoader):
         stat = model_path.stat()
         # Create version hash from file size and modification time
         version_string = f"onnx_{stat.st_size}_{stat.st_mtime}"
-        return hashlib.md5(version_string.encode()).hexdigest()[:8]  # noqa: S324
+        return hashlib.sha256(version_string.encode()).hexdigest()[:8]
 
 
-class MLSignal(Data):  # type: ignore[misc]
+class MLSignal(NautilusData):
     """
     ML signal data class for signal generation.
 
@@ -549,7 +567,7 @@ ml_signal_confidence = Histogram(
 )
 
 
-class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
+class BaseMLInferenceActor(NautilusActor, ABC):
     """
     Base class for ML inference actors with production features.
 
@@ -576,9 +594,12 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
     """
 
     # Store attributes are initialized in _init_stores_and_registries
-    _feature_store: Any
-    _model_store: Any
-    _strategy_store: Any
+    _feature_store: FeatureStoreProtocol | Any  # Protocol-typed for mypy; DummyStore allowed
+    _model_store: ModelStoreProtocol | Any
+    _strategy_store: StrategyStoreProtocol | Any
+    _feature_registry: Any
+    _model_registry: Any
+    _strategy_registry: Any
 
     def __init__(self, config: MLActorConfig) -> None:
         """
@@ -673,10 +694,11 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
         if db_connection is None:
             # Try PostgreSQL first
             try:
-                from sqlalchemy import create_engine
                 from sqlalchemy import text
 
-                test_engine = create_engine(
+                from ml.core.db_engine import EngineManager
+
+                test_engine = EngineManager.get_engine(
                     "postgresql://postgres:postgres@localhost:5432/nautilus",
                 )
                 with test_engine.connect() as conn:
@@ -703,12 +725,21 @@ class BaseMLInferenceActor(Actor, ABC):  # type: ignore[misc]
 
         if use_dummy_stores:
             # Explicitly requested dummy stores for testing
+            from ml.registry.base import DummyRegistry
             from ml.stores.base import DummyStore
 
-            self.log.info("Using DummyStore for testing (no persistence)")
+            self.log.info("Using DummyStore and DummyRegistry for testing (no persistence)")
             self._feature_store = DummyStore()
             self._model_store = DummyStore()
             self._strategy_store = DummyStore()
+
+            # Also use dummy registries to avoid file I/O during tests
+            self._feature_registry = DummyRegistry()
+            self._model_registry = DummyRegistry()
+            self._strategy_registry = DummyRegistry()
+            self._persistence_manager = None
+
+            return  # Skip the rest of initialization
         else:
             # Production mode - stores MUST initialize successfully
             try:

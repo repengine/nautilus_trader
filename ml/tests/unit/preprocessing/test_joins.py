@@ -37,6 +37,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestAsofJoin:
     """Test point-in-time correct as-of joins."""
 

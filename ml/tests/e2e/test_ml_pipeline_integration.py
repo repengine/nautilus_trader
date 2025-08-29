@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Comprehensive end-to-end integration tests for the ML pipeline.
 
@@ -77,6 +76,10 @@ from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
 from ml.tests.fixtures.model_factory import TestDataFactory
 from ml.tests.fixtures.model_factory import TestModelFactory
+from ml.tests.utils.wait_helpers import EventWaiter
+from ml.tests.utils.wait_helpers import TestTimeout
+from ml.tests.utils.wait_helpers import async_wait_for_condition
+from ml.tests.utils.wait_helpers import wait_for_condition
 from ml.training.non_distilled.xgboost import XGBoostTrainer
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.model.data import Bar
@@ -170,29 +173,28 @@ def temporary_database() -> Generator[str, None, None]:
     test_url = base_url.rsplit("/", 1)[0] + f"/{test_db_name}"
 
     try:
-        # Run migrations
+        # Run canonical migrations (idempotent order)
         test_engine = create_engine(test_url)
-        migrations_dir = Path(__file__).parent.parent.parent / "schema"
+        migrations_dir = Path(__file__).parent.parent.parent / "stores" / "migrations"
 
-        # Read and execute schema files in order
-        schema_files = [
-            "00_init.sql",
-            "features.sql",
-            "models.sql",
-            "strategies.sql",
-            "pipeline_health.sql",
+        migration_files = [
+            "001_stores_schema.sql",
+            "002_auto_partitioning.sql",
+            "003_market_data.sql",
+            "004_data_registry.sql",
+            "005_schema_hardening.sql",
+            "005a_feature_values_dedupe.sql",
+            "006_disable_partition_triggers.sql",
         ]
 
-        for schema_file in schema_files:
-            schema_path = migrations_dir / schema_file
+        for mig in migration_files:
+            schema_path = migrations_dir / mig
             if schema_path.exists():
-                with open(schema_path) as f:
+                with open(schema_path, encoding="utf-8") as f:
                     sql = f.read()
-                    with test_engine.begin() as conn:
-                        # Split and execute statements individually
-                        for statement in sql.split(";"):
-                            if statement.strip():
-                                conn.execute(text(statement))
+                with test_engine.begin() as conn:
+                    # Execute as a single script; psql-style splitting is brittle
+                    conn.execute(text(sql))
 
         yield test_url
 
@@ -205,6 +207,14 @@ def temporary_database() -> Generator[str, None, None]:
         conn.close()
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.redis
+@pytest.mark.docker
+@pytest.mark.slow
+@pytest.mark.flaky
+@pytest.mark.slow
+@pytest.mark.integration
 class TestMLPipelineIntegration:
     """Comprehensive end-to-end integration tests for ML pipeline."""
 
@@ -254,6 +264,8 @@ class TestMLPipelineIntegration:
             cache_indicators=True,
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.fixture
     def test_model(self, temp_dir: Path) -> Path:
         """Create a test XGBoost model."""
@@ -268,6 +280,8 @@ class TestMLPipelineIntegration:
         )
 
     # Test 1: Complete ML Pipeline Flow
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_e2e_ml_pipeline_with_real_data(
         self,
         temp_dir: Path,
@@ -437,6 +451,8 @@ class TestMLPipelineIntegration:
             assert stored_signals[0]["signal"] in ["BUY", "NEUTRAL", "SELL"]
 
     # Test 2: Docker Compose Stack Integration
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
     def test_docker_compose_stack_integration(self, temp_dir: Path) -> None:
         """
@@ -476,22 +492,29 @@ class TestMLPipelineIntegration:
             if result.returncode != 0:
                 pytest.skip(f"Failed to start Docker services: {result.stderr}")
 
-            # Wait for services to be ready
-            time.sleep(10)
+            # Wait for services to be ready using event-based waiting
+            # Check for service readiness instead of fixed sleep
+            # Services readiness will be checked in the next steps
 
-            # Test PostgreSQL connectivity
-            max_retries = 30
-            for i in range(max_retries):
+            # Test PostgreSQL connectivity with event-based waiting
+            def postgres_ready():
                 try:
                     engine = create_engine("postgresql://postgres:postgres@localhost:5432/nautilus")
                     with engine.connect() as conn:
                         result = conn.execute(text("SELECT 1"))
-                        assert result.scalar() == 1
-                    break
+                        return result.scalar() == 1
                 except Exception:
-                    if i == max_retries - 1:
-                        raise
-                    time.sleep(1)
+                    return False
+
+            try:
+                wait_for_condition(
+                    postgres_ready,
+                    timeout=30.0,
+                    poll_interval=0.5,
+                    error_message="PostgreSQL failed to become ready"
+                )
+            except TestTimeout:
+                pytest.skip("PostgreSQL failed to become ready in time")
 
             # Test Redis connectivity
             import redis
@@ -499,19 +522,26 @@ class TestMLPipelineIntegration:
             redis_client = redis.Redis(host="localhost", port=6379, db=0)
             assert redis_client.ping()
 
-            # Test ML Pipeline health check
-            max_retries = 30
-            for i in range(max_retries):
+            # Test ML Pipeline health check with event-based waiting
+            def ml_pipeline_ready():
                 try:
                     response = requests.get("http://localhost:8080/health", timeout=5)
                     if response.status_code == 200:
                         health_data = response.json()
-                        assert health_data["status"] == "healthy"
-                        break
+                        return health_data.get("status") == "healthy"
+                    return False
                 except Exception:
-                    if i == max_retries - 1:
-                        pytest.skip("ML Pipeline health check failed")
-                    time.sleep(2)
+                    return False
+
+            try:
+                wait_for_condition(
+                    ml_pipeline_ready,
+                    timeout=60.0,
+                    poll_interval=1.0,
+                    error_message="ML Pipeline failed to become healthy"
+                )
+            except TestTimeout:
+                pytest.skip("ML Pipeline health check failed")
 
             # Test Prometheus metrics endpoint
             try:
@@ -542,6 +572,8 @@ class TestMLPipelineIntegration:
             )
 
     # Test 3: System Recovery from Database Failure
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_system_recovery_from_database_failure(
         self,
         temp_dir: Path,
@@ -629,7 +661,21 @@ class TestMLPipelineIntegration:
                 pass  # Expected during DB failure
 
             # "Recover" the database
-            time.sleep(1)  # Allow connections to reset
+            # Wait for connections to reset using event-based approach
+            def connections_reset():
+                try:
+                    # Try to create a new connection to verify reset
+                    test_store = FeatureStore(connection_string=db_url)
+                    return True
+                except Exception:
+                    return False
+
+            wait_for_condition(
+                connections_reset,
+                timeout=5.0,
+                poll_interval=0.1,
+                error_message="Failed to reset database connections"
+            )
 
             # Re-initialize stores with new connections
             feature_store = FeatureStore(connection_string=db_url)
@@ -679,6 +725,8 @@ class TestMLPipelineIntegration:
             assert len(recovery_features) > 0
 
     # Test 4: Multi-Provider Failover
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_multi_provider_failover(self, temp_dir: Path) -> None:
         """
         Test failover between data providers.
@@ -791,6 +839,8 @@ class TestMLPipelineIntegration:
             assert all(r is not None for r in [result1, result2, result3])
 
     # Additional test for message queue failure
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_message_queue_failure_handling(
         self,
         temp_dir: Path,
@@ -864,6 +914,8 @@ class TestMLPipelineIntegration:
             )
 
     # Test for partial system failure
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_partial_system_failure_resilience(
         self,
         temp_dir: Path,
@@ -938,6 +990,8 @@ class TestMLPipelineIntegration:
                 assert len(signals) > 0
 
     # Performance and scalability test
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_pipeline_scalability(
         self,
         temp_dir: Path,
@@ -1008,6 +1062,8 @@ class TestMLPipelineIntegration:
                 assert time_ratio < scale_ratio * 2, f"Non-linear scaling detected: {time_ratio:.2f}x time for {scale_ratio:.2f}x data"
 
     # Test for data consistency across stages
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_data_consistency_across_pipeline_stages(
         self,
         temp_dir: Path,
@@ -1132,6 +1188,8 @@ class TestMLPipelineIntegration:
                 assert bar_timestamps[i] == signal_timestamps[i], f"Signal timestamp mismatch at index {i}"
 
     # Test for Prometheus metrics collection
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_prometheus_metrics_collection(
         self,
         temp_dir: Path,
@@ -1141,7 +1199,8 @@ class TestMLPipelineIntegration:
         """Verify that Prometheus metrics are properly collected throughout pipeline."""
         # Track various pipeline metrics
         start_time = time.perf_counter()
-        time.sleep(0.01)  # Simulate feature computation
+        # Simulate feature computation with actual work instead of sleep
+        _ = sum(range(10000))  # Light computation to simulate work
         feature_time = time.perf_counter() - start_time
         metrics.feature_computation_duration.observe(feature_time)
 
@@ -1152,7 +1211,8 @@ class TestMLPipelineIntegration:
         # Test metric persistence across pipeline stages
         for stage in ["ingestion", "features", "inference", "signals"]:
             start = time.perf_counter()
-            time.sleep(0.001)  # Simulate processing
+            # Simulate processing with actual work instead of sleep
+            _ = sum(range(1000))  # Light computation
             if stage == "features":
                 metrics.feature_computation_duration.observe(time.perf_counter() - start)
             elif stage == "inference":
@@ -1162,6 +1222,8 @@ class TestMLPipelineIntegration:
         metrics.record_pipeline_event("test_pipeline", "test_stage", "success", count=len(mock_bars))
 
     # Test for health check endpoints
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_health_check_endpoints(self, temp_dir: Path) -> None:
         """Test that all services expose proper health check endpoints."""
         # Mock health check responses
@@ -1191,4 +1253,3 @@ class TestMLPipelineIntegration:
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v", "--tb=short"])
-

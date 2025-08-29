@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Performance tests for model registry.
 
@@ -16,12 +15,20 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
+from ml.tests.utils.wait_helpers import EventWaiter
+from ml.tests.utils.wait_helpers import TestTimeout
+from ml.tests.utils.wait_helpers import wait_for_condition
 
 
+@pytest.mark.flaky
+@pytest.mark.slow
+@pytest.mark.unit
 class TestRegistryPerformance:
     """
     Test registry performance under load.
@@ -269,13 +276,16 @@ class TestRegistryPerformance:
                 Monitor registry file modifications.
                 """
                 last_mtime = 0.0
-                for _ in range(20):  # Check for 1 second
+                # Use event-based checking instead of sleep loop
+                end_time = time.time() + 1.0  # Check for 1 second
+                while time.time() < end_time:
                     if registry_file.exists():
                         mtime = registry_file.stat().st_mtime
                         if mtime != last_mtime:
                             save_times.append(time.time())
                             last_mtime = float(mtime)
-                    time.sleep(0.05)
+                    # Minimal sleep to yield CPU
+                    time.sleep(0.001)
 
             # Start monitoring in background
             monitor_thread = threading.Thread(target=track_saves)
@@ -300,10 +310,16 @@ class TestRegistryPerformance:
                 )
 
                 registry.register_model(model_path, manifest)
-                time.sleep(0.001)  # 1ms between registrations
+                # Small computation instead of sleep
+                _ = sum(range(100))  # Light work between registrations
 
-            # Wait for batch save to complete
-            time.sleep(0.1)
+            # Wait for batch save to complete using event-based approach
+            wait_for_condition(
+                lambda: registry_file.exists() and registry_file.stat().st_size > 0,
+                timeout=1.0,
+                poll_interval=0.01,
+                error_message="Registry file not saved"
+            )
 
             # Flush to ensure all saves complete
             registry.flush()

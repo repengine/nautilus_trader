@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-import polars as pl
+from ml._imports import pl, check_ml_dependencies
 
 from ml.data.providers.base import BaseTimeSeriesProvider
 from ml.data.providers.utils import cyclic_encode
@@ -91,7 +91,10 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
             - days_to_month_end: int
 
         """
-        features = []
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensures helpful error if missing
+
+        features: list[dict[str, Any]] = []
 
         for ts in timestamps:
             # Convert nanoseconds to datetime
@@ -245,6 +248,9 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
             Calendar features, replicated for each instrument
 
         """
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensures helpful error if missing
+
         # Compute calendar features once
         calendar_df = self.compute_features(timestamps)
 

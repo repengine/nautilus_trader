@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import pytest
 
 from ml.actors.base import MLSignal
 from ml.actors.signal import AdaptiveSignal
@@ -25,13 +26,13 @@ from ml.actors.signal import ExtremesStrategy
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import MomentumStrategy
-from ml.config.actors import OptimizationConfig
 from ml.actors.signal import OptimizationLevel
 from ml.actors.signal import SignalGenerationStrategy
 from ml.actors.signal import SignalStrategy
-from ml.config.actors import StrategyConfig
 from ml.actors.signal import ThresholdSignalStrategy
 from ml.actors.signal import ThresholdStrategy
+from ml.config.actors import OptimizationConfig
+from ml.config.actors import StrategyConfig
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarSpecification
@@ -81,6 +82,8 @@ class CustomSignalStrategy(SignalGenerationStrategy):
         return None
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestSignalStrategies:
     """
     Test signal generation strategies.

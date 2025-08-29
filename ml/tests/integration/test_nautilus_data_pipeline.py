@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+import pytest
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
     from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 class TestNautilusDataPipeline:
     """
     Test suite for validating the complete ML data pipeline integration.

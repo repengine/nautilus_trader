@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Test that hot path fixes maintain data integrity while achieving zero allocation.
 """
@@ -7,6 +6,7 @@ Test that hot path fixes maintain data integrity while achieving zero allocation
 import logging
 
 import numpy as np
+import pytest
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
@@ -20,6 +20,7 @@ from ml.features.engineering import IndicatorManager
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.parallel_safe
 class TestHotPathFixes:
     """
     Test that hot path fixes maintain data integrity and zero allocation.

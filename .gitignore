@@ -19,6 +19,7 @@ logs/
 *.prof
 *.rdb
 *.sqlite
+ml/stores/*.db
 
 # Secrets and environment files
 *.key

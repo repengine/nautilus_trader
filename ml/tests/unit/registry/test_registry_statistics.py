@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Test statistical utilities for model comparison.
 """
@@ -7,11 +6,14 @@ Test statistical utilities for model comparison.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from ml.registry.statistics import calculate_sample_size
 from ml.registry.statistics import welch_t_test
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestStatisticalUtilities:
     """Test statistical functions for A/B testing."""
 

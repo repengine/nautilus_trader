@@ -158,6 +158,31 @@ Located in `ml/stores/migrations/`:
 - Creates core partitioned tables with helper functions
 - Establishes 36 months of initial partitions (2024-2026)
 - Defines optimized indexes for time-series queries
+
+### Timestamp Policy & Normalization
+
+All ML writes must use UNIX nanoseconds for `ts_event`/`ts_init`. To reduce operational risk, stores defensively normalize smaller-scale timestamps on write:
+
+- If values look like seconds/milliseconds/microseconds, they are upscaled to nanoseconds and a warning is logged.
+- This applies to FeatureStore, ModelStore, and StrategyStore write paths (including batch `_execute_write`).
+
+Producers should still emit nanoseconds directly; normalization is a safety net, not a contract change.
+
+### Query Safety
+
+Dynamic reads in FeatureStore (historical bars) and StrategyStore are parameterized using SQLAlchemy, avoiding string interpolation and aligning with security best practices.
+
+### Registry Interaction
+
+- Stores emit data events and update watermarks via a Protocol-typed registry interface (`RegistryProtocol`).
+- This enforces correct usage of `emit_event(...)`/`update_watermark(...)` across JSON and Postgres backends and prevents API drift from breaking callers.
+
+### DB Preflight
+
+Use `ml/stores/db_preflight.check_db_prereqs()` at startup or during ops to verify:
+
+- Required functions (`emit_data_event`, `update_watermark`) exist
+- Current-month partitions exist for ML tables
 - Creates metadata tracking tables:
   - `ml_feature_computation_stats` - Feature computation performance
   - `ml_feature_lineage` - Feature transformation tracking
@@ -679,6 +704,9 @@ ts_init: int   # Initialization timestamp in nanoseconds
 
 # Conversion utilities
 ts_event = int(datetime.utcnow().timestamp() * 1e9)
+
+Note on defensive normalization:
+- The stores defensively normalize incoming timestamps to nanoseconds when they appear to be in seconds, milliseconds, or microseconds. This is a safety net for integration edges; a warning is logged when normalization occurs. Production writers should still emit nanoseconds directly.
 ```
 
 ### 2. JSONB for Flexible Storage

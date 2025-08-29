@@ -43,6 +43,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.integration
 class TestL2L3RegistryStoreIntegration:
     """
     Test that L2/L3 features integrate properly with registry and store.
@@ -74,6 +77,8 @@ class TestL2L3RegistryStoreIntegration:
         assert "trade_intensity" in feature_names
         assert "avg_price_impact" in feature_names
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_feature_engineer_delegates_to_l2_calculator(self) -> None:
         """
         Test that FeatureEngineer properly delegates to L2MicrostructureFeatures.
@@ -114,7 +119,9 @@ class TestL2L3RegistryStoreIntegration:
             mock_l2.assert_called_once()
             mock_instance.compute_all_features.assert_called_once()
 
-    @pytest.mark.usefixtures("clean_postgres_db") 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_registry_manifest_with_l2_features(self, test_database) -> None:
         """
         Test creating feature manifest with L2/L3 capabilities.
@@ -189,6 +196,8 @@ class TestL2L3RegistryStoreIntegration:
             assert "spread_mean" in retrieved.feature_names
             assert retrieved.data_requirements == DataRequirements.L1_L2
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_computes_l2_features(
         self,
@@ -223,6 +232,8 @@ class TestL2L3RegistryStoreIntegration:
         # Features should include base + microstructure + trade flow
         assert n_features > 30  # At least 30 features with all enabled
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_pipeline_integration_with_l2_transforms(self) -> None:
         """
         Test that pipeline properly includes L2/L3 transforms.
@@ -259,6 +270,8 @@ class TestL2L3RegistryStoreIntegration:
         signature = runner.compute_signature()
         assert len(signature) == 64  # SHA256 hex digest
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_l2_feature_computation_with_real_data(self) -> None:
         """
         Test L2 feature computation with realistic order book data.
@@ -337,6 +350,8 @@ class TestL2L3RegistryStoreIntegration:
         assert any("bid" in k for k in shape_features.keys())
         assert any("ask" in k for k in shape_features.keys())
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_end_to_end_l2_feature_persistence(self, test_database) -> None:
         """

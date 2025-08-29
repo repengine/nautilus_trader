@@ -13,8 +13,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
-import polars as pl
+from ml._imports import HAS_PANDAS, HAS_POLARS, pd, pl, check_ml_dependencies
 
 from ml.config.base import MLFeatureConfig
 from ml.data.catalog_utils import bars_to_dataframe
@@ -109,6 +108,9 @@ class TFTDatasetBuilder:
         if not self.feature_store:
             msg = "FeatureStore not configured. Cannot load features from store."
             raise ValueError(msg)
+
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
 
         # Use provided instruments or default to configured symbols
         if instrument_ids is None:
@@ -558,6 +560,8 @@ class TFTDatasetBuilder:
         """
         Process single symbol with Pandas.
         """
+        if pd is None:
+            check_ml_dependencies(["pandas"])  # Ensure pandas present when used
         # Ensure we have required columns
         required_cols = ["open", "high", "low", "close", "volume"]
         if not all(col in df.columns for col in required_cols):

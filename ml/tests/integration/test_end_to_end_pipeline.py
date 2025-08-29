@@ -85,6 +85,10 @@ except ImportError:
     db = None  # type: ignore[assignment]
 
 
+@pytest.mark.property
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.integration
 class TestEndToEndPipeline:
     """
     Test complete end-to-end ML data pipeline.
@@ -207,6 +211,9 @@ class TestEndToEndPipeline:
 
         return bars
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     def test_pipeline_with_real_databento_data(self, temp_data_dir: Path) -> None:
         """
         Test pipeline with real Databento API if key available.
@@ -238,6 +245,9 @@ class TestEndToEndPipeline:
         assert collector.stats["total_symbols"] > 0
         assert collector.stats["l1_trades"]["count"] > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     def test_pipeline_with_mock_data(self, temp_data_dir: Path) -> None:
         """
         Test pipeline with mock data for CI/CD.
@@ -259,6 +269,9 @@ class TestEndToEndPipeline:
         assert "timestamp" in df.columns
         assert "close" in df.columns
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_computation_and_storage(self, test_database, temp_data_dir: Path) -> None:
         """
@@ -317,10 +330,13 @@ class TestEndToEndPipeline:
                 ts_event=mock_bars[i].ts_event,
                 features=row,
             )
-        
+
         # Verify storage by querying back
         # Features were stored successfully if no exception was raised
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     def test_signal_generation_from_features(self, temp_data_dir: Path) -> None:
         """
         Test ML signal generation from computed features.
@@ -379,6 +395,9 @@ class TestEndToEndPipeline:
         assert all(s["prediction"] in [-1, 0, 1] for s in signals)
         assert all(0 <= s["confidence"] <= 1 for s in signals)
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_persistence_verification(self, test_database, temp_data_dir: Path) -> None:
         """
@@ -388,7 +407,7 @@ class TestEndToEndPipeline:
         from ml.stores.feature_store import FeatureStore
         from ml.stores.model_store import ModelStore
         from ml.stores.strategy_store import StrategyStore
-        
+
         # Initialize stores with real database
         feature_store = FeatureStore(connection_string=test_database.connection_string)
         model_store = ModelStore(connection_string=test_database.connection_string)
@@ -424,10 +443,13 @@ class TestEndToEndPipeline:
 
         # Verify all stores successfully persisted data
         # If no exceptions were raised, persistence is successful
-        
+
         # Test retrieval (methods may vary based on actual store implementations)
         # For now, successful writes without exceptions indicate proper persistence
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     def test_pipeline_error_recovery(self, temp_data_dir: Path) -> None:
         """
         Test pipeline error handling and recovery.
@@ -477,6 +499,9 @@ class TestEndToEndPipeline:
         deadline=None,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     def test_pipeline_scalability(self, n_bars: int, n_features: int, temp_data_dir: Path) -> None:
         """Property test: pipeline handles various data scales."""
         # Generate scaled mock data
@@ -497,6 +522,9 @@ class TestEndToEndPipeline:
             assert features_df is not None
             assert len(features_df) > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     @pytest.mark.skip(reason="TFTDatasetBuilder API needs updating")
     def test_tft_dataset_integration(self, temp_data_dir: Path) -> None:
         """
@@ -541,6 +569,9 @@ class TestEndToEndPipeline:
         for col in expected_columns:
             assert col in dataset.columns, f"Missing TFT column: {col}"
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     @pytest.mark.skip(reason="Provider API needs updating")
     def test_provider_integration(self, temp_data_dir: Path) -> None:
         """
@@ -578,6 +609,9 @@ class TestEndToEndPipeline:
         assert "instrument_id" in metadata.columns
         assert "tick_size" in metadata.columns
 
+    @pytest.mark.database
+    @pytest.mark.serial
+    @pytest.mark.integration
     @pytest.mark.skip(reason="Online feature calculation needs Bar object handling fix")
     def test_online_feature_parity(self, temp_data_dir: Path) -> None:
         """
@@ -645,6 +679,9 @@ class TestEndToEndPipeline:
             )
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.integration
 def test_pipeline_smoke_test() -> None:
     """
     Quick smoke test to verify basic pipeline functionality.

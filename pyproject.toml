@@ -100,6 +100,8 @@ generate-setup-file = false
 
 [tool.poetry.group.dev.dependencies]
 pytest-benchmark = "^5.1.0"
+pandera = "^0.26.1"
+allpairspy = "^2.5.1"
 
 [project.optional-dependencies]
 betfair = [
@@ -236,6 +238,8 @@ filter_files = true
 [tool.black]
 target_version = ["py311", "py312"]
 line_length = 100
+
+# NOTE: mypy configuration exists above; do not duplicate keys. Strictness is enforced per overrides.
 
 [tool.docformatter]
 black = true
@@ -451,6 +455,16 @@ markers = [
     "flaky: Tests known to be flaky",
     "experimental: Tests for experimental features",
     "critical: Critical tests that must pass",
+    
+    # Execution control markers
+    "serial: Tests that must run sequentially (e.g., database tests)",
+    "parallel_safe: Tests that can safely run in parallel",
+    "mock_heavy: Tests with extensive mocking (>10 mocks)",
+    
+    # Infrastructure markers
+    "database: Tests requiring database connections",
+    "redis: Tests requiring Redis connections",
+    "docker: Tests requiring Docker containers",
 ]
 # ML test paths configuration
 python_files = ["test_*.py", "*_test.py"]

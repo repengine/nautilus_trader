@@ -35,6 +35,7 @@ from nautilus_trader.model.objects import Quantity
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.parallel_safe
 class TestZeroAllocationHotPath:
     """
     Test suite for verifying zero-allocation hot path.

@@ -258,13 +258,13 @@ class LiveDataRecorder:
         by_instrument: dict[InstrumentId, list[Bar]] = defaultdict(list)
         for bar in bars:
             by_instrument[bar.bar_type.instrument_id].append(bar)
-        
+
         # Write to parquet files
         for instrument_id, instrument_bars in by_instrument.items():
             date = datetime.fromtimestamp(metadata["ts_min"] / 1e9).date()
             path = self.storage_path / "bars" / str(date) / f"{instrument_id}.parquet"
             path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             # Convert to DataFrame and append to parquet
             # This is where you'd use the Catalog or DataStore
             # For now, this is a placeholder

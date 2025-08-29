@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -23,11 +24,16 @@ from ml.core.cache import PreAllocatedFeatureCache
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestEndToEndProperties:
     """
     Test properties that span the entire ML pipeline.
@@ -38,6 +44,8 @@ class TestEndToEndProperties:
         n_features=st.integers(min_value=5, max_value=50),
         train_ratio=st.floats(min_value=0.5, max_value=0.9),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=10000)
     def test_training_inference_consistency(
         self,
@@ -96,6 +104,8 @@ class TestEndToEndProperties:
         cache_size=st.integers(min_value=10, max_value=100),
         n_operations=st.integers(min_value=50, max_value=200),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=5000)
     def test_cache_memory_bounds(self, cache_size: int, n_operations: int) -> None:
         """
@@ -128,6 +138,8 @@ class TestEndToEndProperties:
         n_models=st.integers(min_value=2, max_value=10),
         selection_metric=st.sampled_from(["accuracy", "precision", "recall", "f1"]),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=5000)
     def test_model_selection_consistency(self, n_models: int, selection_metric: str) -> None:
         """
@@ -183,6 +195,8 @@ class TestEndToEndProperties:
         window_size=st.integers(min_value=10, max_value=100),
         n_updates=st.integers(min_value=100, max_value=500),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=5000)
     def test_rolling_window_invariants(self, window_size: int, n_updates: int) -> None:
         """
@@ -222,6 +236,8 @@ class TestEndToEndProperties:
         ),
         confidence_threshold=st.floats(min_value=0.5, max_value=0.95),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=5000)
     def test_signal_generation_properties(
         self,
@@ -271,6 +287,8 @@ class TestEndToEndProperties:
         n_bars=st.integers(min_value=50, max_value=200),
         latency_budget_ms=st.floats(min_value=1.0, max_value=10.0),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=5000)
     def test_latency_requirements(self, n_bars: int, latency_budget_ms: float) -> None:
         """
@@ -309,6 +327,8 @@ class TestEndToEndProperties:
         model_precision=st.floats(min_value=0.0, max_value=1.0),
         model_recall=st.floats(min_value=0.0, max_value=1.0),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=5000)
     def test_metric_validity(
         self,
@@ -352,6 +372,8 @@ class TestEndToEndProperties:
             max_size=50,
         ),
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     @settings(max_examples=10, deadline=5000)
     def test_state_machine_validity(self, state_sequence: list[str]) -> None:
         """

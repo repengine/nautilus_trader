@@ -26,6 +26,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestL2MicrostructureFeatures:
     """Test L2 order book microstructure features."""
 

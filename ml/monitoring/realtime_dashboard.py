@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ml.monitoring._config import DashboardConfig
+
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -27,12 +29,13 @@ from rich.text import Text
 class SystemMonitor:
     """Monitors system metrics and health."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: DashboardConfig | None = None) -> None:
         """Initialize system monitor."""
         self.console = Console()
         self.metrics: dict[str, Any] = {}
         self.alerts: list[dict[str, Any]] = []
         self.last_update = datetime.now()
+        self.config: DashboardConfig = config or DashboardConfig()
 
     def update_metrics(self) -> None:
         """Update system metrics."""
@@ -61,7 +64,7 @@ class SystemMonitor:
         }
 
         # Check L0 data
-        data_dir = Path("/home/nate/projects/nautilus_trader/data/tier1")
+        data_dir = Path(self.config.data_dir)
         if data_dir.exists():
             l0_dirs = list(data_dir.glob("*/"))
             metrics["l0_symbols"] = len(l0_dirs)
@@ -78,7 +81,7 @@ class SystemMonitor:
             metrics["total_size_gb"] = total_size / (1024**3)
 
         # Check ingestion progress
-        progress_file = Path("tier1_l1_progress.json")
+        progress_file = Path(self.config.l1_progress_file)
         if progress_file.exists():
             with open(progress_file) as f:
                 progress = json.load(f)
@@ -105,7 +108,7 @@ class SystemMonitor:
         }
 
         # Check feature progress
-        progress_file = Path("tier1_features_progress.json")
+        progress_file = Path(self.config.feature_progress_file)
         if progress_file.exists():
             with open(progress_file) as f:
                 progress = json.load(f)

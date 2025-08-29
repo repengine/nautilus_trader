@@ -35,6 +35,7 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 if TYPE_CHECKING:
     from ml.features.engineering import FeatureEngineer
+    from ml.registry.protocols import RegistryProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -181,11 +182,11 @@ def track_pipeline_stage(stage: str) -> Generator[None, None, None]:
         Name of the pipeline stage to track
 
     """
-    start_time = time.time()
+    start_time = time.perf_counter()
     try:
         yield
     finally:
-        duration = time.time() - start_time
+        duration = time.perf_counter() - start_time
         pipeline_stage_latency.labels(stage=stage).observe(duration)
 
 
@@ -240,7 +241,7 @@ class DataScheduler:
         self._current_run_id: str = ""  # Will be set during collection runs
 
         # Initialize DataRegistry for event tracking
-        self._data_registry: DataRegistry | None = None
+        self._data_registry: "RegistryProtocol" | None = None  # noqa: UP037
         self._init_data_registry()
 
         # Initialize feature store if configured
@@ -268,8 +269,8 @@ class DataScheduler:
         and tracking watermarks throughout the pipeline.
         """
         try:
-            # Check for PostgreSQL connection string for production backend
-            db_connection = os.getenv("NAUTILUS_DB_CONNECTION")
+            # Prefer scheduler config for DB connection; fall back to JSON backend
+            db_connection = self.config.feature_store_connection
 
             if db_connection:
                 # Use PostgreSQL backend in production
@@ -383,7 +384,7 @@ class DataScheduler:
 
         """
         logger.info("Starting daily data update...")
-        pipeline_start_time = time.time()
+        pipeline_start_time = time.perf_counter()
         pipeline_status = "success"
 
         try:
@@ -408,7 +409,7 @@ class DataScheduler:
             raise
         finally:
             # Record overall pipeline metrics
-            pipeline_duration = time.time() - pipeline_start_time
+            pipeline_duration = time.perf_counter() - pipeline_start_time
             pipeline_runs_total.labels(status=pipeline_status).inc()
             pipeline_stage_latency.labels(stage="complete_pipeline").observe(pipeline_duration)
 
@@ -439,8 +440,8 @@ class DataScheduler:
 
         logger.info(f"Collecting data for {start_date.date()}")
 
-        # Check for API key
-        api_key = os.getenv("DATABENTO_API_KEY")
+        # Check for API key (prefer config, fallback to env)
+        api_key = self.config.databento.api_key or os.getenv("DATABENTO_API_KEY")
         if not api_key:
             logger.error("DATABENTO_API_KEY environment variable not set")
             raise ValueError(
@@ -547,7 +548,7 @@ class DataScheduler:
 
         """
         logger.info(f"Collecting data for {symbol}")
-        collection_start_time = time.time()
+        collection_start_time = time.perf_counter()
 
         # Parse symbol format
         symbol_parts = symbol.split(".")
@@ -622,7 +623,7 @@ class DataScheduler:
 
                 if data:
                     # Write to catalog with metrics
-                    catalog_start_time = time.time()
+                    catalog_start_time = time.perf_counter()
                     logger.info(f"Writing {len(data)} records to catalog for {symbol_code}")
 
                     # Prepare low-cardinality metric labels ahead of time
@@ -642,7 +643,7 @@ class DataScheduler:
                     try:
                         self.catalog.write_data(data)
                         catalog_write_operations_total.labels(status="success").inc()
-                        catalog_write_latency.observe(time.time() - catalog_start_time)
+                        catalog_write_latency.observe(time.perf_counter() - catalog_start_time)
 
                         # Emit CATALOG_WRITTEN event to DataRegistry
                         if self._data_registry is not None:
@@ -745,7 +746,7 @@ class DataScheduler:
                         raise
 
                     # Record collection metrics
-                    collection_duration = time.time() - collection_start_time
+                    collection_duration = time.perf_counter() - collection_start_time
                     data_collected_total.labels(
                         source="databento",
                         instrument=symbol,
@@ -921,7 +922,7 @@ class DataScheduler:
         # Track metrics
         total_features_computed = 0
         failed_instruments = []
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         # Update active feature tasks gauge
         active_feature_tasks.set(len(self.config.symbols))
@@ -1008,14 +1009,21 @@ class DataScheduler:
 
                     # Compute features using the feature engineer (batch mode)
                     try:
-                        feature_start_time = time.time()
-                        features_df, feature_names = self.feature_engineer.calculate_features_batch(
+                        feature_start_time = time.perf_counter()
+                        features_df, _scaler = self.feature_engineer.calculate_features_batch(
                             bars_df,
                         )
 
-                        if features_df is None or (
-                            hasattr(features_df, "is_empty") and features_df.is_empty()
-                        ):
+                        # Normalize empty check across polars/pandas
+                        empty = False
+                        if features_df is None:
+                            empty = True
+                        elif hasattr(features_df, "is_empty"):
+                            attr = getattr(features_df, "is_empty")
+                            empty = bool(attr() if callable(attr) else attr)
+                        else:
+                            empty = bool(getattr(features_df, "empty", False))
+                        if empty:
                             logger.warning(f"No features computed for {instrument_id}")
                             feature_computation_errors_total.labels(
                                 instrument=str(instrument_id),
@@ -1031,7 +1039,7 @@ class DataScheduler:
                         )
 
                         # Record feature computation metrics
-                        feature_duration = time.time() - feature_start_time
+                        feature_duration = time.perf_counter() - feature_start_time
                         feature_computation_latency.labels(
                             instrument=str(instrument_id),
                             stage="compute",
@@ -1045,7 +1053,7 @@ class DataScheduler:
 
                         # Store features in FeatureStore for future training
                         # Using the FeatureStore's compute_and_store_historical method
-                        store_start_time = time.time()
+                        store_start_time = time.perf_counter()
                         try:
                             stored_count = self._feature_store.compute_and_store_historical(
                                 instrument_id=str(instrument_id),
@@ -1055,7 +1063,7 @@ class DataScheduler:
                             )
 
                             # Record feature store metrics
-                            store_duration = time.time() - store_start_time
+                            store_duration = time.perf_counter() - store_start_time
                             feature_store_operations_total.labels(
                                 operation="store_historical",
                                 status="success",
@@ -1100,7 +1108,7 @@ class DataScheduler:
                     continue
 
             # Calculate elapsed time
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.perf_counter() - start_time
 
             # Log summary statistics
             logger.info(
@@ -1143,7 +1151,7 @@ class DataScheduler:
         cutoff_date = datetime.now() - timedelta(days=self.config.retention_days)
 
         logger.info(f"Cleaning data older than {cutoff_date.date()}")
-        cleanup_start_time = time.time()
+        cleanup_start_time = time.perf_counter()
 
         try:
             # In production, this would:
@@ -1154,7 +1162,7 @@ class DataScheduler:
             # For now, record successful cleanup
             data_retention_cleanup_total.labels(status="success").inc()
 
-            cleanup_duration = time.time() - cleanup_start_time
+            cleanup_duration = time.perf_counter() - cleanup_start_time
             pipeline_stage_latency.labels(stage="data_cleanup").observe(cleanup_duration)
 
             logger.info("Data cleanup completed")

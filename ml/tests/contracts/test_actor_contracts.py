@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Functional tests defining actor behavior contracts.
 
@@ -16,6 +15,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import numpy as np
+import pytest
 
 from ml.actors.base import MLSignal
 from nautilus_trader.common.actor import Actor
@@ -25,6 +25,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
+@pytest.mark.parallel_safe
 class TestActorContracts:
     """
     Test suite for ML actor behavioral contracts.

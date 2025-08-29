@@ -9,15 +9,16 @@ connected and persisted.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import time
 from pathlib import Path
 from typing import Any, Protocol
 
-from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from ml.core.db_engine import EngineManager
 from ml.registry import FeatureRegistry
 from ml.registry import ModelRegistry
 from ml.registry import StrategyRegistry
@@ -27,6 +28,8 @@ from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.partition_manager import PartitionManager
 from ml.stores.strategy_store import StrategyStore
+
+logger = logging.getLogger(__name__)
 
 
 class HasDBConnection(Protocol):
@@ -196,7 +199,7 @@ class MLIntegrationManager:
         Check if PostgreSQL is accessible.
         """
         try:
-            engine = create_engine(self.db_connection)
+            engine = EngineManager.get_engine(self.db_connection)
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             return True
@@ -205,7 +208,7 @@ class MLIntegrationManager:
 
     def _start_postgres_container(self) -> None:
         """Start PostgreSQL using docker-compose if available, else docker run."""
-        print("Starting PostgreSQL (preferring docker-compose if available)...")
+        logger.info("Starting PostgreSQL (preferring docker-compose if available)...")
 
         import shutil
         compose_file = None
@@ -265,7 +268,7 @@ class MLIntegrationManager:
         # Wait for PostgreSQL to be ready
         for _ in range(30):
             if self._is_postgres_running():
-                print("PostgreSQL is ready!")
+                logger.info("PostgreSQL is ready!")
                 return
             time.sleep(1)
 
@@ -275,7 +278,7 @@ class MLIntegrationManager:
         """
         Run all database migrations.
         """
-        print("Running database migrations...")
+        logger.info("Running database migrations...")
 
         migrations = [
             "ml/registry/migrations/001_initial_schema.sql",
@@ -284,7 +287,7 @@ class MLIntegrationManager:
             "ml/stores/migrations/003_market_data.sql",
         ]
 
-        engine = create_engine(self.db_connection)
+        engine = EngineManager.get_engine(self.db_connection)
 
         for migration_path in migrations:
             migration_file = Path(migration_path)
@@ -303,7 +306,7 @@ class MLIntegrationManager:
                             except Exception as e:
                                 # Ignore errors for existing objects
                                 if "already exists" not in str(e):
-                                    print(f"Warning in migration {migration_path}: {e}")
+                                    logger.warning("Warning in migration %s: %s", migration_path, e)
 
     def ensure_healthy(self) -> None:
         """
@@ -315,7 +318,7 @@ class MLIntegrationManager:
         if unhealthy:
             raise RuntimeError(f"Unhealthy components: {unhealthy}")
 
-        print("All ML components are healthy!")
+        logger.info("All ML components are healthy!")
 
     def check_health(self) -> dict[str, bool]:
         """
@@ -429,7 +432,7 @@ class MLIntegrationManager:
         if hasattr(self.strategy_store, "flush"):
             self.strategy_store.flush()
 
-        print("ML integration manager shutdown complete")
+        logger.info("ML integration manager shutdown complete")
 
 
 class AutoIntegratedActor:

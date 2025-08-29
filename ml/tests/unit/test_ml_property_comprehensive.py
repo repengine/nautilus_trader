@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
+import pytest
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -24,13 +25,16 @@ from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestCatalogUtilsProperties:
     """
     Property tests for catalog utilities (replacing DataLoader tests).

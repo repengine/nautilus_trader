@@ -27,6 +27,8 @@ class _L2Only:
 register_transform(_L2Only())
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
 @given(include_l2=st.booleans())
 def test_student_contract_l1_only_property(include_l2: bool) -> None:
     tfs = [TransformSpec(name="returns", params={"periods": [1]})]

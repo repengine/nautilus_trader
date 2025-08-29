@@ -11,8 +11,8 @@ from hypothesis import strategies as st
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
@@ -27,6 +27,8 @@ from ml.registry.persistence import PersistenceConfig
     ),
     has_parent=st.booleans(),
 )
+@pytest.mark.database
+@pytest.mark.serial
 def test_auto_deploy_gates(
     test_database,
     tmp_path: Path,

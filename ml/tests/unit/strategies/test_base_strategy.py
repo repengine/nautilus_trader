@@ -123,6 +123,9 @@ class MockMLStrategy(BaseMLStrategy):
         """
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.unit
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestBaseMLStrategy:
     """
@@ -187,6 +190,8 @@ class TestBaseMLStrategy:
         instrument.max_quantity = Quantity.from_int(10000)
         return instrument
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_initialization_with_config(self, config: MLStrategyConfig) -> None:
         """
         Test strategy initialization with configuration.
@@ -204,6 +209,8 @@ class TestBaseMLStrategy:
         assert strategy._winning_trades == 0
         assert strategy._total_pnl == Decimal("0.0")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_on_start_subscribes_to_data(self, strategy: MockMLStrategy) -> None:
         """
         Test on_start subscribes to ML signals and instruments.
@@ -216,6 +223,8 @@ class TestBaseMLStrategy:
         # The first info call is the config log, get the actual message
         assert strategy._mocked_log.info.call_count >= 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_on_data_processes_ml_signal(
         self,
         strategy: MockMLStrategy,
@@ -236,6 +245,8 @@ class TestBaseMLStrategy:
         assert len(strategy.ml_signals_processed) == 1
         assert strategy.ml_signals_processed[0] == ml_signal
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_on_data_ignores_non_ml_signals(
         self,
         strategy: MockMLStrategy,
@@ -263,6 +274,8 @@ class TestBaseMLStrategy:
         assert strategy._signals_received == 0
         assert len(strategy.ml_signals_processed) == 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_handle_ml_signal_filters_wrong_instrument(
         self,
         strategy: MockMLStrategy,
@@ -288,6 +301,8 @@ class TestBaseMLStrategy:
         assert strategy._signals_received == 1
         assert len(strategy.ml_signals_processed) == 0  # Not processed
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_handle_ml_signal_filters_low_confidence(
         self,
         strategy: MockMLStrategy,
@@ -316,6 +331,8 @@ class TestBaseMLStrategy:
         assert len(strategy._signal_history) == 1  # Signal is still added to history
         strategy._mocked_log.debug.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_handle_ml_signal_respects_max_positions(
         self,
         strategy: MockMLStrategy,
@@ -337,6 +354,8 @@ class TestBaseMLStrategy:
         strategy._mocked_log.debug.assert_called_once()
         assert "Maximum positions reached" in strategy._mocked_log.debug.call_args[0][0]
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_calculate_position_size_with_account(
         self,
         strategy: MockMLStrategy,
@@ -376,6 +395,8 @@ class TestBaseMLStrategy:
         # 10000 * 0.1 / 100 = 10 shares
         assert position_size == Quantity.from_int(10)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_calculate_position_size_no_account(
         self,
         strategy: MockMLStrategy,
@@ -395,6 +416,8 @@ class TestBaseMLStrategy:
         assert position_size is None
         strategy._mocked_log.error.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_calculate_position_size_no_instrument(
         self,
         strategy: MockMLStrategy,
@@ -416,6 +439,8 @@ class TestBaseMLStrategy:
         assert position_size is None
         strategy._mocked_log.error.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_calculate_position_size_with_quote_tick_fallback(
         self,
         strategy: MockMLStrategy,
@@ -454,6 +479,8 @@ class TestBaseMLStrategy:
         # 10000 * 0.1 / 100 = 10 shares
         assert position_size == Quantity.from_int(10)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_calculate_position_size_no_price_data(
         self,
         strategy: MockMLStrategy,
@@ -481,6 +508,8 @@ class TestBaseMLStrategy:
         strategy._mocked_log.error.assert_called_once()
         assert "No price data available" in strategy._mocked_log.error.call_args[0][0]
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_place_market_order(
         self,
         strategy: MockMLStrategy,
@@ -509,6 +538,8 @@ class TestBaseMLStrategy:
         assert order.quantity == quantity
         assert order.is_reduce_only is False
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_place_market_order_reduce_only(
         self,
         strategy: MockMLStrategy,
@@ -529,6 +560,8 @@ class TestBaseMLStrategy:
         order = strategy._mocked_submit_order.call_args[0][0]
         assert order.is_reduce_only is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_place_stop_loss(
         self,
         strategy: MockMLStrategy,
@@ -557,6 +590,8 @@ class TestBaseMLStrategy:
         assert order.trigger_price == stop_price
         assert order.is_reduce_only is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_get_current_position_returns_first_open(
         self,
         strategy: MockMLStrategy,
@@ -582,6 +617,8 @@ class TestBaseMLStrategy:
         # Assert
         assert position == position1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_get_current_position_returns_none_when_no_positions(
         self,
         strategy: MockMLStrategy,
@@ -599,6 +636,8 @@ class TestBaseMLStrategy:
         # Assert
         assert position is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_on_stop_logs_statistics(self, strategy: MockMLStrategy) -> None:
         """
         Test on_stop logs final statistics.
@@ -622,6 +661,8 @@ class TestBaseMLStrategy:
         assert "Win rate: 60.0%" in log_message
         assert "Total PnL: 1500.00" in log_message
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_on_stop_with_zero_trades(self, strategy: MockMLStrategy) -> None:
         """
         Test on_stop handles zero trades gracefully.
@@ -639,6 +680,8 @@ class TestBaseMLStrategy:
         assert "Win rate: 0.0%" in log_message
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestSimpleMLStrategy:
     """
@@ -672,6 +715,8 @@ class TestSimpleMLStrategy:
         """
 
         # Create a mock that inherits from SimpleMLStrategy
+        @pytest.mark.database
+        @pytest.mark.serial
         class TestableSimpleMLStrategy(SimpleMLStrategy):
             def __init__(self, config: MLStrategyConfig) -> None:
                 # Set up mocks before calling super
@@ -712,6 +757,8 @@ class TestSimpleMLStrategy:
 
         return TestableSimpleMLStrategy(config)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_process_ml_signal_opens_long_position(
         self,
         strategy: SimpleMLStrategy,
@@ -741,6 +788,8 @@ class TestSimpleMLStrategy:
         strategy._place_market_order.assert_called_once_with(OrderSide.BUY, Quantity.from_int(100))  # type: ignore[attr-defined]
         assert strategy._active_positions == 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_process_ml_signal_opens_short_position(
         self,
         strategy: SimpleMLStrategy,
@@ -770,6 +819,8 @@ class TestSimpleMLStrategy:
         strategy._place_market_order.assert_called_once_with(OrderSide.SELL, Quantity.from_int(100))  # type: ignore[attr-defined]
         assert strategy._active_positions == 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_process_ml_signal_reverses_position(
         self,
         strategy: SimpleMLStrategy,
@@ -813,6 +864,8 @@ class TestSimpleMLStrategy:
         assert second_call[0][0] == OrderSide.SELL
         assert second_call[0][1] == Quantity.from_int(100)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_process_ml_signal_keeps_aligned_position(
         self,
         strategy: SimpleMLStrategy,
@@ -846,6 +899,8 @@ class TestSimpleMLStrategy:
         strategy.log.debug.assert_called_once()
         assert "Position aligns with signal" in strategy.log.debug.call_args[0][0]
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_process_ml_signal_no_entry_when_position_sizing_fails(
         self,
         strategy: SimpleMLStrategy,
@@ -879,6 +934,8 @@ class TestSimpleMLStrategy:
             in strategy.log.warning.call_args[0][0]
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_process_ml_signal_closes_but_no_new_entry_when_sizing_fails(
         self,
         strategy: SimpleMLStrategy,
@@ -924,6 +981,8 @@ class TestSimpleMLStrategy:
             in strategy.log.warning.call_args[0][0]
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_on_order_filled_updates_state(
         self,
         strategy: SimpleMLStrategy,

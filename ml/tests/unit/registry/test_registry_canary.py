@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Test canary deployment functionality.
 """
@@ -14,6 +13,8 @@ from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestCanaryDeployment:
     """Test canary deployment functionality."""
 

@@ -144,6 +144,10 @@ class DataEventTracer:
         return "\n".join(diagram_lines)
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.slow
+@pytest.mark.integration
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestDataEventTracing:
     """Test suite for tracing data events through the ML pipeline."""
@@ -232,6 +236,8 @@ class TestDataEventTracing:
             "test_database": test_database,
         }
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_full_pipeline_data_flow(self, setup_components: dict[str, Any], tracer: DataEventTracer) -> None:
         """Test data flow through the entire pipeline with detailed tracing."""
         components = setup_components
@@ -393,6 +399,8 @@ class TestDataEventTracing:
             assert tracer.checkpoints.get(checkpoint, False), \
                 f"Critical checkpoint '{checkpoint}' failed. See report above."
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_pipeline_with_deliberate_failures(self, setup_components: dict[str, Any], tracer: DataEventTracer) -> None:
         """Test pipeline behavior with deliberate failures at various stages."""
         components = setup_components
@@ -442,6 +450,8 @@ class TestDataEventTracing:
         assert tracer.checkpoints["store_write_error_caught"] == True
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_isolated_component_failures(test_database) -> None:
     """Test individual component failures in isolation."""

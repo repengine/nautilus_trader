@@ -29,6 +29,8 @@ def _make_actor() -> MLSignalActor:
     return MLSignalActor(acfg)
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_model_manifest_feature_dtype_mismatch_raises() -> None:
     actor = _make_actor()
     names = actor._feature_engineer.config.get_feature_names()
@@ -46,8 +48,8 @@ def test_model_manifest_feature_dtype_mismatch_raises() -> None:
         actual_names = actor._feature_engineer.config.get_feature_names()
         actual_dtypes = ["float32"] * len(actual_names)
         from ml.registry.base import DataRequirements
-        from ml.registry.model_registry import ModelManifest
         from ml.registry.base import ModelRole
+        from ml.registry.model_registry import ModelManifest
         from ml.registry.utils import assert_features_compatible
 
         tmp_manifest = ModelManifest(
@@ -73,8 +75,8 @@ def test_model_manifest_feature_dtype_match_passes() -> None:
     actual_names = actor._feature_engineer.config.get_feature_names()
     actual_dtypes = ["float32"] * len(actual_names)
     from ml.registry.base import DataRequirements
-    from ml.registry.model_registry import ModelManifest
     from ml.registry.base import ModelRole
+    from ml.registry.model_registry import ModelManifest
     from ml.registry.utils import assert_features_compatible
 
     tmp_manifest = ModelManifest(

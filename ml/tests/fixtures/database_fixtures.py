@@ -14,15 +14,20 @@ This module provides:
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import pandas as pd
-from sqlalchemy import MetaData, create_engine, event, text
+from sqlalchemy import MetaData
+from sqlalchemy import event
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
+
+from ml.core.db_engine import EngineManager
 
 
 class TestDatabase:
@@ -56,11 +61,17 @@ class TestDatabase:
         self.use_in_memory = use_in_memory
         self.auto_rollback = auto_rollback
         self.echo = echo
-        
+
         # Use provided engine if available
         if engine:
             self.engine = engine
-            self.connection_string = str(engine.url)
+            # Use provided connection_string if available, otherwise extract from engine
+            # Note: str(engine.url) masks the password with *** which breaks subsequent connections
+            if connection_string:
+                self.connection_string = connection_string
+            else:
+                # Fallback - this will have masked password
+                self.connection_string = str(engine.url)
         else:
             # Set up connection string
             if connection_string:
@@ -72,31 +83,32 @@ class TestDatabase:
                     "DATABASE_URL",
                     "postgresql://postgres:postgres@localhost:5432/nautilus_test"
                 )
-            
-            # Create engine with appropriate settings
+
+            # Use EngineManager to get or create engine
+            # This ensures proper connection pooling and prevents "too many clients" errors
             if "sqlite" in self.connection_string:
                 # SQLite-specific settings
                 connect_args = {"check_same_thread": False} if "memory" in self.connection_string else {}
-                self.engine = create_engine(
+                self.engine = EngineManager.get_engine(
                     self.connection_string,
                     echo=echo,
                     connect_args=connect_args,
-                    poolclass=StaticPool if use_in_memory else None,
                 )
                 # Enable foreign keys for SQLite
                 event.listen(self.engine, "connect", self._enable_sqlite_foreign_keys)
             else:
                 # PostgreSQL or other databases
-                self.engine = create_engine(
+                # Use conservative pool settings for tests
+                self.engine = EngineManager.get_engine(
                     self.connection_string,
                     echo=echo,
-                    pool_size=5,
-                    max_overflow=10,
+                    pool_size=2,  # Conservative for tests
+                    max_overflow=3,  # Conservative for tests
                 )
-        
+
         # Create session factory
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
-        
+
         # Track if schema is initialized
         self._schema_initialized = False
 
@@ -117,21 +129,21 @@ class TestDatabase:
         """
         if self._schema_initialized:
             return
-        
+
         # Get default schema files if not provided
         if schema_files is None:
             schema_files = self._get_default_schema_files()
-        
+
         # Execute schema files
         with self.engine.connect() as conn:
             for schema_file in schema_files:
                 if schema_file.exists():
                     sql = schema_file.read_text()
-                    
+
                     # Handle PostgreSQL-specific syntax for SQLite
                     if "sqlite" in self.connection_string:
                         sql = self._adapt_sql_for_sqlite(sql)
-                    
+
                     # Execute SQL statements
                     for statement in sql.split(";"):
                         statement = statement.strip()
@@ -146,22 +158,22 @@ class TestDatabase:
                                 ):
                                     continue
                                 raise
-            
+
             conn.commit()
-        
+
         self._schema_initialized = True
 
     def _get_default_schema_files(self) -> list[Path]:
         """Get default ML schema files."""
         migrations_dir = Path(__file__).parent.parent.parent.parent / "stores" / "migrations"
-        
+
         # Core schema files for testing
         schema_files = [
             migrations_dir / "001_stores_schema.sql",
             migrations_dir / "003_market_data.sql",
             migrations_dir / "004_data_registry.sql",
         ]
-        
+
         # Filter to existing files
         return [f for f in schema_files if f.exists()]
 
@@ -185,17 +197,17 @@ class TestDatabase:
             ("INHERITS", "-- INHERITS"),  # Comment out inheritance
             ("IF NOT EXISTS", ""),  # SQLite doesn't support for all statements
         ]
-        
+
         for old, new in replacements:
             sql = sql.replace(old, new)
-        
+
         # Remove CREATE EXTENSION statements
         lines = sql.split("\n")
         filtered_lines = []
         for line in lines:
             if not any(keyword in line.upper() for keyword in ["CREATE EXTENSION", "CREATE INDEX CONCURRENTLY"]):
                 filtered_lines.append(line)
-        
+
         return "\n".join(filtered_lines)
 
     def seed_test_data(self, data_type: str = "basic") -> None:
@@ -215,7 +227,7 @@ class TestDatabase:
                 self._seed_full_data(session)
             elif data_type == "minimal":
                 self._seed_minimal_data(session)
-            
+
             session.commit()
 
     def _seed_basic_data(self, session: Session) -> None:
@@ -224,18 +236,18 @@ class TestDatabase:
         session.execute(
             text("""
                 INSERT INTO ml_instruments (instrument_id, symbol, asset_type, tick_size, lot_size)
-                VALUES 
+                VALUES
                     ('EURUSD.SIM', 'EURUSD', 'FX', 0.00001, 1000),
                     ('SPY.XNAS', 'SPY', 'EQUITY', 0.01, 1),
                     ('BTCUSD.COINBASE', 'BTCUSD', 'CRYPTO', 0.01, 0.001)
                 ON CONFLICT DO NOTHING
             """)
         )
-        
+
         # Add sample feature values
         import time
         current_ns = int(time.time() * 1e9)
-        
+
         session.execute(
             text("""
                 INSERT INTO ml_feature_values (
@@ -258,14 +270,14 @@ class TestDatabase:
         """Seed comprehensive test data."""
         # Start with basic data
         self._seed_basic_data(session)
-        
+
         # Add more instruments
         instruments = [
             ("GBPUSD.SIM", "GBPUSD", "FX", 0.00001, 1000),
             ("QQQ.XNAS", "QQQ", "EQUITY", 0.01, 1),
             ("AAPL.XNAS", "AAPL", "EQUITY", 0.01, 1),
         ]
-        
+
         for inst_id, symbol, asset_type, tick_size, lot_size in instruments:
             session.execute(
                 text("""
@@ -281,14 +293,14 @@ class TestDatabase:
                     "lot_size": lot_size,
                 }
             )
-        
+
         # Add historical feature values
         import time
         base_ts = int(time.time() * 1e9)
-        
+
         for i in range(100):
             ts = base_ts - i * 60 * 1e9  # 1-minute intervals
-            
+
             for inst_id in ["EURUSD.SIM", "GBPUSD.SIM", "SPY.XNAS"]:
                 session.execute(
                     text("""
@@ -354,11 +366,11 @@ class TestDatabase:
             # Get all tables
             metadata = MetaData()
             metadata.reflect(bind=self.engine)
-            
+
             # Delete data from all tables (in reverse dependency order)
             for table in reversed(metadata.sorted_tables):
                 conn.execute(text(f"DELETE FROM {table.name}"))
-            
+
             conn.commit()
 
     def drop_all(self) -> None:
@@ -367,19 +379,19 @@ class TestDatabase:
             # Get all tables
             metadata = MetaData()
             metadata.reflect(bind=self.engine)
-            
+
             # Drop all tables
             metadata.drop_all(bind=self.engine)
-            
+
             conn.commit()
-        
+
         self._schema_initialized = False
 
     def cleanup(self) -> None:
         """Clean up test database resources."""
-        # Close all connections
-        self.engine.dispose()
-        
+        # Note: We don't dispose the engine here anymore as it's managed by EngineManager
+        # The engine will be disposed by the cleanup_engines fixture after each test
+
         # Remove temporary file if using file-based SQLite
         if hasattr(self, "db_path") and self.db_path.exists():
             try:
@@ -470,14 +482,14 @@ def temp_database(
 
     """
     db = TestDatabase(use_in_memory=use_in_memory)
-    
+
     try:
         if init_schema:
             db.init_schema()
-        
+
         if seed_data:
             db.seed_test_data(seed_data)
-        
+
         yield db
     finally:
         db.cleanup()
@@ -494,28 +506,28 @@ class DatabaseSnapshot:
     def take_snapshot(self, name: str = "default") -> None:
         """Take snapshot of current database state."""
         snapshot = {}
-        
+
         # Get all tables
         metadata = MetaData()
         metadata.reflect(bind=self.database.engine)
-        
+
         # Save data from each table
         for table in metadata.tables:
             df = self.database.get_table_data(table)
             snapshot[table] = df
-        
+
         self.snapshots[name] = snapshot
 
     def restore_snapshot(self, name: str = "default") -> None:
         """Restore database to snapshot state."""
         if name not in self.snapshots:
             raise ValueError(f"Snapshot '{name}' not found")
-        
+
         snapshot = self.snapshots[name]
-        
+
         # Clear all data
         self.database.clear_all_data()
-        
+
         # Restore data for each table
         with self.database.get_session() as session:
             for table_name, df in snapshot.items():

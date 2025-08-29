@@ -23,6 +23,9 @@ from ml.data.providers.utils import time_to_event
 from ml.data.providers.utils import validate_timestamps
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestCyclicEncode:
     """Test cyclic encoding function."""
 

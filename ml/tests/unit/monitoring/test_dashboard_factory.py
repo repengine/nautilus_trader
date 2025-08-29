@@ -13,10 +13,14 @@ from typing import Any
 from unittest.mock import mock_open
 from unittest.mock import patch
 
+import pytest
+
 from ml.monitoring.dashboard_factory import GrafanaDashboardFactory
 from ml.monitoring.dashboard_factory import GrafanaPanelFactory
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestGrafanaPanelFactory:
     """
     Test cases for GrafanaPanelFactory.

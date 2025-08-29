@@ -4,6 +4,8 @@ Tests for canonicalization of feature names between config, pipeline, and manife
 
 from __future__ import annotations
 
+import pytest
+
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import build_pipeline_spec_from_feature_config
@@ -22,6 +24,8 @@ def _pipeline_names(cfg: FeatureConfig) -> list[str]:
     return PipelineRunner(spec, allowable=allowable).compute_feature_names()
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_feature_names_parity_default() -> None:
     cfg = FeatureConfig()
     names_cfg = cfg.get_feature_names()

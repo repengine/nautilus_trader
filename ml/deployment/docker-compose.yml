@@ -13,7 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../schema:/docker-entrypoint-initdb.d:ro  # Auto-create schemas
+      - ../stores/migrations:/docker-entrypoint-initdb.d:ro  # Auto-apply canonical migrations on first init
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -174,7 +174,7 @@ services:
       - ../data:/app/data:rw  # Data catalog persistence
       - ../logs:/app/logs:rw  # Log persistence
       - ./configs:/app/configs:ro  # Configuration files
-      - ../schema:/app/schema:ro  # Database schemas
+      - ../stores/migrations:/app/migrations:ro  # Canonical migrations (optional)
     depends_on:
       postgres:
         condition: service_healthy

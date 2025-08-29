@@ -8,7 +8,6 @@ writes, risk tracking, and execution parameters.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 import uuid
@@ -24,11 +23,12 @@ from sqlalchemy import Index
 from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy import create_engine
 from sqlalchemy import text
+from typing_extensions import override
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
+from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
 
@@ -39,19 +39,23 @@ if TYPE_CHECKING:
     from ml.registry.data_registry import DataRegistry
     from ml.registry.persistence import PersistenceConfig
     from nautilus_trader.common.clock import Clock
+    from ml.registry.protocols import RegistryProtocol
 
 
 logger = logging.getLogger(__name__)
 
-from typing import Any as _AnyForMetrics
 
 
 # Prometheus metrics are optional; type as Any for strict typing compatibility
-data_events_total: _AnyForMetrics
+data_events_total: Any
 try:
     from ml.common.metrics import data_events_total as data_events_total
 except Exception:
     data_events_total = None
+
+# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+    return EngineManager.get_engine(connection_string, **kwargs)
 
 
 class StrategyStore(BaseStore):
@@ -80,26 +84,30 @@ class StrategyStore(BaseStore):
         Parameters
         ----------
         connection_string : str | None
-            PostgreSQL connection string (deprecated, use persistence_config)
+            PostgreSQL connection string (deprecated, prefer `persistence_config`).
         persistence_config : PersistenceConfig | None
-            Persistence configuration
+            Persistence backend configuration.
         batch_size : int
-            Maximum batch size before auto-flush
+            Maximum batch size before auto-flush.
         flush_interval_ms : int
-            Maximum time between flushes in milliseconds
+            Maximum time between flushes in milliseconds.
         clock : Clock | None
-            Nautilus clock for timestamps
-
+            Nautilus clock for timestamps.
+        persistence_manager : Any | None
+            Optional persistence manager (used in tests).
+        flush_interval_seconds : float | None
+            Alternative flush interval in seconds (overrides `flush_interval_ms`).
         """
         # Handle legacy connection string parameter
         if connection_string and not persistence_config:
             from ml.registry.persistence import BackendType
             from ml.registry.persistence import PersistenceConfig
 
-            persistence_config = PersistenceConfig(
-                backend=BackendType.POSTGRES,
-                connection_string=connection_string,
-            )
+            if "postgresql://" in connection_string or "postgres://" in connection_string:
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.POSTGRES,
+                    connection_string=connection_string,
+                )
 
         if persistence_config:
             from ml.registry.persistence import PersistenceManager
@@ -124,15 +132,21 @@ class StrategyStore(BaseStore):
         self._last_flush_ns = 0
 
         # DataRegistry for event emission (lazy initialization)
-        self._data_registry: DataRegistry | None = None
+        self._data_registry: "RegistryProtocol" | None = None
 
         # Create engine and setup tables
         if self.connection_string:
-            self.engine: Engine = create_engine(self.connection_string)
+            self.engine: Engine = EngineManager.get_engine(self.connection_string)
             self.metadata = MetaData()
             self._setup_tables()
+            try:
+                status = EngineManager.get_pool_status(self.connection_string)
+                if status:
+                    logger.debug("Engine pool status: %s", status)
+            except Exception as e:
+                logger.debug("Pool status unavailable: %s", e)
 
-    def _get_data_registry(self) -> DataRegistry | None:
+    def _get_data_registry(self) -> "RegistryProtocol" | None:
         """
         Lazily initialize and return the DataRegistry instance.
 
@@ -257,7 +271,18 @@ class StrategyStore(BaseStore):
             Whether this is live trading
 
         """
-        ts_init = self.clock.timestamp_ns() if self.clock else int(time.time() * 1e9)
+        ts_init_raw = (
+            self.clock.timestamp_ns() if self.clock else time.time_ns()
+        )
+
+        # Normalize timestamps via centralized sanitizer
+        from ml.common.timestamps import sanitize_timestamp_ns
+        ts_event_norm = sanitize_timestamp_ns(
+            int(ts_event), logger=logger, context="StrategyStore.write_signal:ts_event"
+        )
+        ts_init = sanitize_timestamp_ns(
+            int(ts_init_raw), logger=logger, context="StrategyStore.write_signal:ts_init"
+        )
 
         data = StrategySignal(
             strategy_id=strategy_id,
@@ -267,7 +292,7 @@ class StrategyStore(BaseStore):
             model_predictions=model_predictions,
             risk_metrics=risk_metrics,
             execution_params=execution_params,
-            _ts_event=ts_event,
+            _ts_event=ts_event_norm,
             _ts_init=ts_init,
         )
 
@@ -279,6 +304,7 @@ class StrategyStore(BaseStore):
         elif self.clock and self._should_flush_by_time():
             self.flush()
 
+    @override
     def write_batch(self, data: list[StrategySignal]) -> None:
         """
         Write batch of strategy signals.
@@ -292,62 +318,70 @@ class StrategyStore(BaseStore):
         if not data:
             return
 
-        session: Any = None
-        if self.persistence:
-            session = self.persistence.get_session()
-            if not session:
-                return
-        else:
-            # Direct connection for testing
-            session = self.engine.connect()
-
-        try:
-            # Bulk insert using VALUES for performance
-            values = []
-            for item in data:
-                values.append(
-                    {
-                        "strategy_id": item.strategy_id,
-                        "instrument_id": item.instrument_id,
-                        "ts_event": item.ts_event,
-                        "ts_init": item.ts_init,
-                        "signal_type": item.signal_type,
-                        "strength": item.strength,
-                        "model_predictions": (
-                            json.dumps(item.model_predictions) if item.model_predictions else None
-                        ),
-                        "risk_metrics": (
-                            json.dumps(item.risk_metrics) if item.risk_metrics else None
-                        ),
-                        "execution_params": (
-                            json.dumps(item.execution_params) if item.execution_params else None
-                        ),
-                        "is_live": getattr(item, "is_live", False),
-                        # created_at omitted: DB default will be used
-                    },
-                )
-
-            # Use INSERT with ON CONFLICT for upsert
-            stmt = insert(self.strategy_signals_table)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["strategy_id", "instrument_id", "ts_event"],
-                set_={
-                    "signal_type": stmt.excluded.signal_type,
-                    "strength": stmt.excluded.strength,
-                    "model_predictions": stmt.excluded.model_predictions,
-                    "risk_metrics": stmt.excluded.risk_metrics,
-                    "execution_params": stmt.excluded.execution_params,
-                    # created_at kept as existing/default
+        # Prepare values mapping
+        values: list[dict[str, Any]] = []
+        for item in data:
+            values.append(
+                {
+                    "strategy_id": item.strategy_id,
+                    "instrument_id": item.instrument_id,
+                    "ts_event": item.ts_event,
+                    "ts_init": item.ts_init,
+                    "signal_type": item.signal_type,
+                    "strength": item.strength,
+                    "model_predictions": item.model_predictions if item.model_predictions else None,
+                    "risk_metrics": item.risk_metrics if item.risk_metrics else None,
+                    "execution_params": item.execution_params if item.execution_params else None,
+                    "is_live": getattr(item, "is_live", False),
                 },
             )
 
-            if session:
-                session.execute(stmt, values)
-                if hasattr(session, "commit"):
-                    session.commit()
-        finally:
-            if session:
-                session.close()
+        self._execute_write(values)
+
+
+    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
+        """Upsert signals (patchable in tests)."""
+        if not values:
+            return
+        # Optional audit logging (sampled)
+        try:
+            import os
+            import random
+
+            sample = int(os.getenv("ML_AUDIT", "0"))
+            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311
+                logger.info(
+                    "AUDIT StrategyStore._execute_write: n=%d keys=%s",
+                    len(values),
+                    list(values[0].keys()) if values else [],
+                )
+        except Exception as e:
+            logger.debug("Audit logging skipped due to error: %s", e)
+        # Normalize timestamps in incoming values
+        from ml.common.timestamps import sanitize_timestamp_ns
+        for v in values:
+            if "ts_event" in v and isinstance(v["ts_event"], int):
+                v["ts_event"] = sanitize_timestamp_ns(int(v["ts_event"]), logger=logger, context="StrategyStore._execute_write")
+            if "ts_init" in v and isinstance(v["ts_init"], int):
+                v["ts_init"] = sanitize_timestamp_ns(int(v["ts_init"]), logger=logger, context="StrategyStore._execute_write")
+        stmt = insert(self.strategy_signals_table)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["strategy_id", "instrument_id", "ts_event"],
+            set_={
+                "signal_type": stmt.excluded.signal_type,
+                "strength": stmt.excluded.strength,
+                "model_predictions": stmt.excluded.model_predictions,
+                "risk_metrics": stmt.excluded.risk_metrics,
+                "execution_params": stmt.excluded.execution_params,
+            },
+        )
+        with self.engine.begin() as conn:
+            conn.execute(stmt, values)
+
+    # Backwards-compatible alias used in some tests
+    def write_signals(self, data: list[StrategySignal]) -> None:
+        self.write_batch(data)
+
 
     def read_signals(
         self,
@@ -376,35 +410,41 @@ class StrategyStore(BaseStore):
             Signals within range
 
         """
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
-        from ml._imports import pl
+        import pandas as pd
+        from sqlalchemy import text as _text
 
-        if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
+        table_name = (
+            "ml_strategy_signals"
+            if self.engine.dialect.name == "sqlite"
+            else "public.ml_strategy_signals"
+        )
+        sql = _text(
+            f"""
+            SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
+            FROM {table_name}
+            WHERE strategy_id = :strategy_id
+              AND instrument_id = :instrument_id
+              AND ts_event >= :start_ns
+              AND ts_event < :end_ns
+            ORDER BY ts_event
+            """,  # noqa: S608
+        )
+        with self.engine.connect() as conn:
+            from collections.abc import Mapping
+            from typing import cast
+            _params = cast(
+                Mapping[str, object],
+                {
+                    "strategy_id": strategy_id,
+                    "instrument_id": instrument_id,
+                    "start_ns": int(start_ns),
+                    "end_ns": int(end_ns),
+                },
+            )
+            df = pd.read_sql_query(sql, conn, params=_params)  # type: ignore[arg-type]
+        return df
 
-        query = f"""
-        SELECT
-            ts_event,
-            signal_type,
-            strength,
-            model_predictions,
-            risk_metrics,
-            execution_params
-        FROM public.ml_strategy_signals
-        WHERE strategy_id = '{strategy_id}'
-        AND instrument_id = '{instrument_id}'
-        AND ts_event >= {start_ns}
-        AND ts_event < {end_ns}
-        ORDER BY ts_event
-        """  # noqa: S608
-
-        # Use Polars for efficient reading
-        df = pl.read_database(query, self.connection_string or "")
-
-        # Convert to pandas for compatibility
-        return df.to_pandas()
-
+    @override
     def read_range(
         self,
         start_ns: int,
@@ -429,34 +469,29 @@ class StrategyStore(BaseStore):
             Signals within range
 
         """
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
-        from ml._imports import pl
+        import pandas as pd
+        from sqlalchemy import text as _text
 
-        if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
+        params: dict[str, Any] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
+        where_parts = ["ts_event >= :start_ns", "ts_event < :end_ns"]
+        if instrument_id is not None:
+            where_parts.append("instrument_id = :instrument_id")
+            params["instrument_id"] = instrument_id
 
-        where_clause = f"WHERE ts_event >= {start_ns} AND ts_event < {end_ns}"
-        if instrument_id:
-            where_clause += f" AND instrument_id = '{instrument_id}'"
+        sql = _text(
+            f"""
+            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+                   model_predictions, risk_metrics
+            FROM public.ml_strategy_signals
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY ts_event
+            """
+        )
+        with self.engine.connect() as conn:
+            df = pd.read_sql_query(sql, conn, params=params)
+        return df
 
-        query = f"""
-        SELECT
-            strategy_id,
-            instrument_id,
-            ts_event,
-            signal_type,
-            strength,
-            model_predictions,
-            risk_metrics
-        FROM public.ml_strategy_signals
-        {where_clause}
-        ORDER BY ts_event
-        """  # noqa: S608
-
-        df = pl.read_database(query, self.connection_string or "")
-        return df.to_pandas()
-
+    @override
     def get_latest(
         self,
         instrument_id: str,
@@ -478,29 +513,32 @@ class StrategyStore(BaseStore):
             Latest signals
 
         """
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
-        from ml._imports import pl
+        import pandas as pd
+        from sqlalchemy import text as _text
 
-        if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
+        table_name = (
+            "ml_strategy_signals"
+            if self.engine.dialect.name == "sqlite"
+            else "public.ml_strategy_signals"
+        )
+        sql = _text(
+            f"""
+            SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
+            FROM {table_name}
+            WHERE instrument_id = :instrument_id
+            ORDER BY ts_event DESC
+            LIMIT :limit
+            """,
+        )
+        with self.engine.connect() as conn:
+            df = pd.read_sql_query(
+                sql,
+                conn,
+                params={"instrument_id": instrument_id, "limit": int(limit)},  # type: ignore[arg-type]
+            )
+        return df
 
-        query = f"""
-        SELECT
-            strategy_id,
-            ts_event,
-            signal_type,
-            strength,
-            risk_metrics
-        FROM public.ml_strategy_signals
-        WHERE instrument_id = '{instrument_id}'
-        ORDER BY ts_event DESC
-        LIMIT {limit}
-        """  # noqa: S608
-
-        df = pl.read_database(query, self.connection_string or "")
-        return df.to_pandas()
-
+    @override
     def get_statistics(
         self,
         start_ns: int | None = None,
@@ -523,16 +561,12 @@ class StrategyStore(BaseStore):
 
         """
         with self.engine.connect() as conn:
-            # Build WHERE clause
-            where_parts = []
-            if start_ns:
-                where_parts.append(f"ts_event >= {start_ns}")
-            if end_ns:
-                where_parts.append(f"ts_event < {end_ns}")
-
-            where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-
-            # Get statistics
+            # Get statistics with optional filters
+            table_name = (
+                "ml_strategy_signals"
+                if self.engine.dialect.name == "sqlite"
+                else "public.ml_strategy_signals"
+            )
             query = text(
                 f"""
                 SELECT
@@ -545,12 +579,19 @@ class StrategyStore(BaseStore):
                     AVG(strength) as avg_strength,
                     MIN(ts_event) as min_ts,
                     MAX(ts_event) as max_ts
-                FROM public.ml_strategy_signals
-                {where_clause}
-            """,
+                FROM {table_name}
+                WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
+                  AND (:end_ns IS NULL OR ts_event < :end_ns)
+                """,
             )
 
-            result = conn.execute(query).fetchone()
+            result = conn.execute(
+                query,
+                {
+                    "start_ns": int(start_ns) if start_ns is not None else None,
+                    "end_ns": int(end_ns) if end_ns is not None else None,
+                },
+            ).fetchone()
 
             if result:
                 return {
@@ -775,17 +816,9 @@ class StrategyStore(BaseStore):
             Performance metrics
 
         """
-        where_parts = [f"strategy_id = '{strategy_id}'"]
-        if start_ns:
-            where_parts.append(f"ts_event >= {start_ns}")
-        if end_ns:
-            where_parts.append(f"ts_event < {end_ns}")
-
-        where_clause = f"WHERE {' AND '.join(where_parts)}"
-
         with self.engine.connect() as conn:
             query = text(
-                f"""
+                """
                 SELECT
                     COUNT(*) as signal_count,
                     SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
@@ -796,11 +829,19 @@ class StrategyStore(BaseStore):
                     MIN(strength) as min_strength,
                     MAX(strength) as max_strength
                 FROM public.ml_strategy_signals
-                {where_clause}
-            """,
+                WHERE strategy_id = :strategy_id
+                  AND (:start_ns IS NULL OR ts_event >= :start_ns)
+                  AND (:end_ns IS NULL OR ts_event < :end_ns)
+                """,
             )
-
-            result = conn.execute(query).fetchone()
+            result = conn.execute(
+                query,
+                {
+                    "strategy_id": strategy_id,
+                    "start_ns": int(start_ns) if start_ns is not None else None,
+                    "end_ns": int(end_ns) if end_ns is not None else None,
+                },
+            ).fetchone()
 
             if result:
                 return {
@@ -849,27 +890,26 @@ class StrategyStore(BaseStore):
             Signal type counts
 
         """
-        where_parts = []
-        if strategy_id:
-            where_parts.append(f"strategy_id = '{strategy_id}'")
-        if start_ns:
-            where_parts.append(f"ts_event >= {start_ns}")
-        if end_ns:
-            where_parts.append(f"ts_event < {end_ns}")
-
-        where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-
         with self.engine.connect() as conn:
             query = text(
-                f"""
+                """
                 SELECT signal_type, COUNT(*) as count
                 FROM public.ml_strategy_signals
-                {where_clause}
+                WHERE (:strategy_id IS NULL OR strategy_id = :strategy_id)
+                  AND (:start_ns IS NULL OR ts_event >= :start_ns)
+                  AND (:end_ns IS NULL OR ts_event < :end_ns)
                 GROUP BY signal_type
-            """,
+                """,
             )
 
-            result = conn.execute(query).fetchall()
+            result = conn.execute(
+                query,
+                {
+                    "strategy_id": strategy_id,
+                    "start_ns": int(start_ns) if start_ns is not None else None,
+                    "end_ns": int(end_ns) if end_ns is not None else None,
+                },
+            ).fetchall()
 
             distribution = {}
             for signal_type, count in result:
@@ -955,3 +995,7 @@ class StrategyStore(BaseStore):
                         # created_at omitted: DB default
                     },
                 )
+
+    def _get_connection(self) -> Any:  # pragma: no cover (test hook for patching)
+        """Return a connection context manager (patchable in tests)."""
+        return self.engine.connect()

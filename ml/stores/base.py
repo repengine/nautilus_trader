@@ -13,7 +13,12 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from nautilus_trader.core.data import Data
+if TYPE_CHECKING:  # pragma: no cover - typing stub for mypy
+    class NautilusData:
+        """Typing stub for Nautilus `Data` base class."""
+        pass
+else:  # Use real runtime base to preserve integration
+    from nautilus_trader.core.data import Data as NautilusData
 
 
 if TYPE_CHECKING:
@@ -21,7 +26,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class FeatureData(Data):  # type: ignore[misc]
+class FeatureData(NautilusData):
     """
     Nautilus-compatible feature data class.
 
@@ -47,6 +52,32 @@ class FeatureData(Data):  # type: ignore[misc]
     _ts_init: int  # nanoseconds
 
     @property
+    def feature_values(self) -> dict[str, float]:
+        """
+        Safe accessor for the feature values dict.
+
+        Avoids collisions with any inherited `values()` method on base classes by
+        reading the underlying mapping directly and normalizing to a plain dict.
+
+        Returns
+        -------
+        dict[str, float]
+            Mapping of feature name to value.
+        """
+        # Prefer raw attribute dict to bypass potential properties/methods
+        raw: dict[str, Any] = object.__getattribute__(self, "__dict__")
+        data = raw.get("values")
+        if data is None:
+            candidate = getattr(self, "values", {})
+            data = candidate() if callable(candidate) else candidate
+        # Defensive copy as a plain dict[str, float]
+        try:
+            return {str(k): float(v) for k, v in dict(data or {}).items()}
+        except Exception:
+            # Last-resort fallback
+            return {}
+
+    @property
     def ts_event(self) -> int:
         """
         Event timestamp in nanoseconds.
@@ -62,7 +93,7 @@ class FeatureData(Data):  # type: ignore[misc]
 
 
 @dataclass
-class ModelPrediction(Data):  # type: ignore[misc]
+class ModelPrediction(NautilusData):
     """
     Store model predictions and inference metadata.
 
@@ -112,7 +143,7 @@ class ModelPrediction(Data):  # type: ignore[misc]
 
 
 @dataclass
-class StrategySignal(Data):  # type: ignore[misc]
+class StrategySignal(NautilusData):
     """
     Store strategy decisions and execution signals.
 
@@ -278,36 +309,44 @@ class DummyStore:
 
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: object, **kwargs: object) -> None:
         """
         Initialize dummy store (accepts any arguments).
         """
 
-    def write_features(self, *args: Any, **kwargs: Any) -> None:
+    def write_features(self, *args: object, **kwargs: object) -> None:
         """
         Write features (dummy).
         """
 
-    def write_prediction(self, *args: Any, **kwargs: Any) -> None:
+    def write_prediction(self, *args: object, **kwargs: object) -> None:
         """
         Write prediction (dummy).
         """
 
-    def write_signal(self, *args: Any, **kwargs: Any) -> None:
+    def write_signal(self, *args: object, **kwargs: object) -> None:
         """
         Write signal (dummy).
         """
 
-    def flush(self, *args: Any, **kwargs: Any) -> None:
+    def flush(self, *args: object, **kwargs: object) -> None:
         """
         Flush buffered state (dummy).
         """
 
-    def get_stats(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    # Backward-compatible alias used in some tests
+    def get_stats(self, *args: object, **kwargs: object) -> dict[str, Any]:
+        """Deprecated alias for get_statistics (retained for compatibility)."""
+        return self.get_statistics()
+
+    def get_statistics(self, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, Any]:
         """
-        Get stats (dummy).
+        Get storage statistics (dummy implementation).
+
+        This method conforms to the BaseStore interface. For backward compatibility,
+        `get_stats` remains as a deprecated alias.
         """
-        return {"dummy": True}
+        return self.get_stats(start_ns=start_ns, end_ns=end_ns)
 
     def is_healthy(self) -> bool:
         """
@@ -315,18 +354,18 @@ class DummyStore:
         """
         return True
 
-    def get_latest(self, *args: Any, **kwargs: Any) -> None:
+    def get_latest(self, *args: object, **kwargs: object) -> None:
         """
         Get latest item (dummy).
         """
         return None
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> object:
         """
         Handle any other method calls.
         """
 
-        def dummy_method(*args: Any, **kwargs: Any) -> None:
+        def dummy_method(*args: object, **kwargs: object) -> None:
             return None
 
         return dummy_method

@@ -10,6 +10,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
+
 from ml.actors.base import MLSignal
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
@@ -22,6 +23,8 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 @pytest.mark.integration
 def test_strategy_store_integration_demo(test_database):
@@ -71,7 +74,7 @@ def test_strategy_store_integration_demo(test_database):
         cache=cache,
         clock=clock,
     )
-    
+
     # Override store for demo purposes to track calls
     original_store = strategy.strategy_store
     mock_store = MagicMock(spec=StrategyStore)
@@ -103,8 +106,8 @@ def test_strategy_store_integration_demo(test_database):
         print("\n📝 Decision 1 (BUY) persisted:")
         print(f"   - Signal Type: {call_args['signal_type']}")
         print(f"   - Strength: {call_args['strength']:.2f}")
-        print(f"   - Model: {list(call_args['model_predictions'].keys())[0]}")
-        print(f"   - Prediction: {list(call_args['model_predictions'].values())[0]:.2f}")
+        print(f"   - Model: {next(iter(call_args['model_predictions'].keys()))}")
+        print(f"   - Prediction: {next(iter(call_args['model_predictions'].values())):.2f}")
         print(f"   - Risk Metrics: {call_args['risk_metrics']}")
 
     # Signal 2: SELL signal (prediction < 0.5)
@@ -126,8 +129,8 @@ def test_strategy_store_integration_demo(test_database):
         print("\n📝 Decision 2 (SELL) persisted:")
         print(f"   - Signal Type: {call_args['signal_type']}")
         print(f"   - Strength: {call_args['strength']:.2f}")
-        print(f"   - Model: {list(call_args['model_predictions'].keys())[0]}")
-        print(f"   - Prediction: {list(call_args['model_predictions'].values())[0]:.2f}")
+        print(f"   - Model: {next(iter(call_args['model_predictions'].keys()))}")
+        print(f"   - Prediction: {next(iter(call_args['model_predictions'].values())):.2f}")
 
     # Signal 3: Neutral signal that may result in HOLD
     clock.advance_time(1000000000)  # 1 second

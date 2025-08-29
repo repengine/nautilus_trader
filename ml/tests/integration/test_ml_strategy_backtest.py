@@ -50,6 +50,8 @@ from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.model.objects import Money
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 class TestMLStrategyBacktest:
     """
     Test ML strategy execution in Nautilus BacktestEngine.

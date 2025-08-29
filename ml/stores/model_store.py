@@ -7,6 +7,7 @@ partitioned queries, and performance tracking.
 """
 
 from __future__ import annotations
+
 import logging
 import time
 import uuid
@@ -22,13 +23,14 @@ from sqlalchemy import Index
 from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
+from typing_extensions import override
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
 from ml.stores.base import ModelPrediction
 
@@ -39,9 +41,14 @@ if TYPE_CHECKING:
     from ml.registry.data_registry import DataRegistry
     from ml.registry.persistence import PersistenceConfig
     from nautilus_trader.common.clock import Clock
+    from ml.registry.protocols import RegistryProtocol
 
 
 logger = logging.getLogger(__name__)
+
+# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+    return EngineManager.get_engine(connection_string, **kwargs)
 
 # Prometheus metrics for prediction events (centralized)
 data_events_total: Counter | None = None
@@ -129,15 +136,21 @@ class ModelStore(BaseStore):
         self._last_flush_ns = 0
 
         # DataRegistry for event emission (lazy initialization)
-        self._data_registry: DataRegistry | None = None
+        self._data_registry: "RegistryProtocol" | None = None
 
         # Create engine and setup tables
         if self.connection_string:
-            self.engine: Engine = create_engine(self.connection_string)
+            self.engine: Engine = EngineManager.get_engine(self.connection_string)
             self.metadata = MetaData()
             self._setup_tables()
+            try:
+                status = EngineManager.get_pool_status(self.connection_string)
+                if status:
+                    logger.debug("Engine pool status: %s", status)
+            except Exception as e:
+                logger.debug("Pool status unavailable: %s", e)
 
-    def _get_data_registry(self) -> DataRegistry | None:
+    def _get_data_registry(self) -> "RegistryProtocol" | None:
         """
         Lazily initialize and return the DataRegistry instance.
 
@@ -240,7 +253,15 @@ class ModelStore(BaseStore):
             Whether this is live inference
 
         """
-        ts_init = self.clock.timestamp_ns() if self.clock else int(time.time() * 1e9)
+        from ml.common.timestamps import sanitize_timestamp_ns
+        ts_init = (
+            self.clock.timestamp_ns()
+            if self.clock
+            else sanitize_timestamp_ns(time.time_ns(), logger=logger, context="ModelStore.write_prediction:ts_init")
+        )
+
+        # Normalize timestamp defensively
+        ts_event_norm = sanitize_timestamp_ns(int(ts_event), logger=logger, context="ModelStore.write_prediction")
 
         data = ModelPrediction(
             model_id=model_id,
@@ -249,7 +270,7 @@ class ModelStore(BaseStore):
             confidence=confidence,
             features_used=features,
             inference_time_ms=inference_time_ms,
-            _ts_event=ts_event,
+            _ts_event=ts_event_norm,
             _ts_init=ts_init,
         )
 
@@ -261,6 +282,7 @@ class ModelStore(BaseStore):
         elif self.clock and self._should_flush_by_time():
             self.flush()
 
+    @override
     def write_batch(self, data: list[ModelPrediction], emit_events: bool = True) -> None:
         """
         Write batch of model predictions.
@@ -276,59 +298,72 @@ class ModelStore(BaseStore):
         if not data:
             return
 
-        session: Any = None
-        if self.persistence:
-            session = self.persistence.get_session()
-            if not session:
-                return
-        else:
-            # Direct connection for testing
-            session = self.engine.connect()
-
-        try:
-            # Bulk insert using VALUES for performance
-            values = []
-            for item in data:
-                values.append(
-                    {
-                        "model_id": item.model_id,
-                        "instrument_id": item.instrument_id,
-                        "ts_event": item.ts_event,
-                        "ts_init": item.ts_init,
-                        "prediction": item.prediction,
-                        "confidence": item.confidence,
-                        "features_used": item.features_used if item.features_used else None,
-                        "inference_time_ms": item.inference_time_ms,
-                        "is_live": getattr(item, "is_live", False),
-                        # created_at omitted: DB default will be used
-                    },
-                )
-
-            # Use INSERT with ON CONFLICT for upsert
-            stmt = insert(self.model_predictions_table)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["model_id", "instrument_id", "ts_event"],
-                set_={
-                    "prediction": stmt.excluded.prediction,
-                    "confidence": stmt.excluded.confidence,
-                    "features_used": stmt.excluded.features_used,
-                    "inference_time_ms": stmt.excluded.inference_time_ms,
-                    # created_at kept as existing/default
+        # Prepare values mapping
+        values: list[dict[str, Any]] = []
+        for item in data:
+            values.append(
+                {
+                    "model_id": item.model_id,
+                    "instrument_id": item.instrument_id,
+                    "ts_event": item.ts_event,
+                    "ts_init": item.ts_init,
+                    "prediction": item.prediction,
+                    "confidence": item.confidence,
+                    "features_used": item.features_used if item.features_used else None,
+                    "inference_time_ms": item.inference_time_ms,
+                    "is_live": getattr(item, "is_live", False),
                 },
             )
 
-            if session:
-                session.execute(stmt, values)
-                if hasattr(session, "commit"):
-                    session.commit()
+        # Allow tests to patch and short-circuit DB writes
+        self._execute_write(values)
 
-            # Emit events after successful write if this is a direct call (not from flush)
-            if emit_events:
-                self._emit_prediction_events(data)
+        # Emit events after successful write if this is a direct call (not from flush)
+        if emit_events:
+            self._emit_prediction_events(data)
 
-        finally:
-            if session:
-                session.close()
+    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
+        """Upsert predictions (patchable in tests)."""
+        if not values:
+            return
+        # Optional audit logging (sampled)
+        try:
+            import os
+            import random
+
+            sample = int(os.getenv("ML_AUDIT", "0"))
+            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311
+                logger.info(
+                    "AUDIT ModelStore._execute_write: n=%d keys=%s",
+                    len(values),
+                    list(values[0].keys()) if values else [],
+                )
+        except Exception as e:
+            logger.debug("Audit logging skipped due to error: %s", e)
+        # Normalize timestamps in incoming values
+        from ml.common.timestamps import sanitize_timestamp_ns
+        for v in values:
+            if "ts_event" in v and isinstance(v["ts_event"], int):
+                v["ts_event"] = sanitize_timestamp_ns(int(v["ts_event"]), logger=logger, context="ModelStore._execute_write")
+            if "ts_init" in v and isinstance(v["ts_init"], int):
+                v["ts_init"] = sanitize_timestamp_ns(int(v["ts_init"]), logger=logger, context="ModelStore._execute_write")
+        stmt = insert(self.model_predictions_table)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["model_id", "instrument_id", "ts_event"],
+            set_={
+                "prediction": stmt.excluded.prediction,
+                "confidence": stmt.excluded.confidence,
+                "features_used": stmt.excluded.features_used,
+                "inference_time_ms": stmt.excluded.inference_time_ms,
+            },
+        )
+        with self.engine.begin() as conn:
+            conn.execute(stmt, values)
+
+    # Backwards-compatible alias used in some tests
+    def write_predictions(self, data: list[ModelPrediction]) -> None:
+        self.write_batch(data)
+
 
     def read_predictions(
         self,
@@ -372,17 +407,16 @@ class ModelStore(BaseStore):
             """,
         )
 
+        from collections.abc import Mapping
+        from typing import cast
         with self.engine.connect() as conn:
-            return pd.read_sql_query(
-                sql,
-                conn,
-                params={
-                    "model_id": model_id,
-                    "instrument_id": instrument_id,
-                    "start_ns": int(start_ns),
-                    "end_ns": int(end_ns),
-                },
-            )
+            params: dict[str, int | str] = {
+                "model_id": model_id,
+                "instrument_id": instrument_id,
+                "start_ns": int(start_ns),
+                "end_ns": int(end_ns),
+            }
+            return pd.read_sql_query(sql, conn, params=cast(Mapping[str, int | str], params))
 
     def read_range(
         self,
@@ -420,7 +454,7 @@ class ModelStore(BaseStore):
                 ORDER BY ts_event
                 """,
             )
-            params = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
+            params: dict[str, int | str] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
         else:
             sql = _text(
                 """
@@ -433,9 +467,12 @@ class ModelStore(BaseStore):
             )
             params = {"start_ns": int(start_ns), "end_ns": int(end_ns), "instrument_id": instrument_id}
 
+        from collections.abc import Mapping
+        from typing import cast
         with self.engine.connect() as conn:
-            return pd.read_sql_query(sql, conn, params=params)
+            return pd.read_sql_query(sql, conn, params=cast(Mapping[str, int | str], params))
 
+    @override
     def get_latest(
         self,
         instrument_id: str,
@@ -470,9 +507,13 @@ class ModelStore(BaseStore):
             """,
         )
 
+        from collections.abc import Mapping
+        from typing import cast
         with self.engine.connect() as conn:
-            return pd.read_sql_query(sql, conn, params={"instrument_id": instrument_id, "limit": int(limit)})
+            params: dict[str, int | str] = {"instrument_id": instrument_id, "limit": int(limit)}
+            return pd.read_sql_query(sql, conn, params=cast(Mapping[str, int | str], params))
 
+    @override
     def get_statistics(
         self,
         start_ns: int | None = None,

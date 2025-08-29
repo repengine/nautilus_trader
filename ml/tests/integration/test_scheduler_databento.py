@@ -27,12 +27,16 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestDataSchedulerIntegration:
     """
     Test DataScheduler with Databento integration.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_scheduler_initialization(self, test_database) -> None:
         """
         Test scheduler initializes correctly with configuration.
@@ -54,7 +58,7 @@ class TestDataSchedulerIntegration:
                 config=config,
                 connection=test_database.connection_string,
             )
-            
+
             # Initialize DataStore
             scheduler._data_store = DataStore(connection_string=test_database.connection_string)
 
@@ -64,6 +68,8 @@ class TestDataSchedulerIntegration:
             assert scheduler.config.retention_days == 30
             assert scheduler._databento_loader is not None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_get_previous_trading_day(self, test_database) -> None:
         """
         Test getting previous trading day logic.
@@ -97,6 +103,8 @@ class TestDataSchedulerIntegration:
                 result = scheduler._get_previous_trading_day()
                 assert result.date() == datetime(2024, 1, 8).date()  # Monday
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_scheduler_status(self, test_database) -> None:
         """
         Test scheduler status reporting.
@@ -130,6 +138,8 @@ class TestDataSchedulerIntegration:
             assert status["databento_schema"] == "ohlcv-1m"
             assert status["has_feature_engineer"] is False
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.data.scheduler.db")
     def test_collect_symbol_data_success(self, mock_db: MagicMock, test_database) -> None:
         """
@@ -179,6 +189,8 @@ class TestDataSchedulerIntegration:
                 mock_client.timeseries.get_range.assert_called_once()
                 mock_loader.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.data.scheduler.db")
     def test_collect_symbol_data_retry_logic(self, mock_db: MagicMock, test_database) -> None:
         """
@@ -227,6 +239,8 @@ class TestDataSchedulerIntegration:
                 assert result is True
                 assert mock_client.timeseries.get_range.call_count == 3
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_load_from_dbn_file_venue_mapping(self, test_database) -> None:
         """
         Test venue code mapping in DBN file loading.
@@ -271,6 +285,8 @@ class TestDataSchedulerIntegration:
         not os.getenv("DATABENTO_API_KEY"),
         reason="DATABENTO_API_KEY not set",
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_collect_latest_data_with_real_api(self) -> None:
         """
         Test actual data collection with real Databento API (requires API key).
@@ -308,6 +324,8 @@ class TestDataSchedulerIntegration:
             bars = catalog.bars([spy_instrument])
             assert len(bars) > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_clean_old_data(self, test_database) -> None:
         """
         Test cleanup of old data (placeholder test).
@@ -328,6 +346,8 @@ class TestDataSchedulerIntegration:
             # Currently just logs, but test it doesn't error
             scheduler._clean_old_data()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_compute_features(self, test_database) -> None:
         """
         Test feature computation trigger (placeholder test).

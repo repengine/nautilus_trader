@@ -16,6 +16,9 @@ from hypothesis import strategies as st
 from ml.preprocessing.stationarity import PurgedCrossValidator
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestPurgedCrossValidator:
     """Test purged cross-validation functionality."""
 

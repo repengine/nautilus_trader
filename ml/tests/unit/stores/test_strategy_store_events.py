@@ -6,13 +6,16 @@ This test verifies that SIGNAL_EMITTED events are properly emitted after flush o
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock
 from unittest.mock import patch
+
+import pytest
 
 from ml.stores.strategy_store import StrategyStore
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_emits_signal_events(test_database):
     """Test that StrategyStore emits SIGNAL_EMITTED events after flush."""
@@ -71,6 +74,8 @@ def test_strategy_store_emits_signal_events(test_database):
         assert watermark_args["completeness_pct"] == 100.0
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database):
     """Test that signals are grouped by strategy_id and instrument_id for event emission."""
@@ -137,6 +142,8 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database)
         assert all(call[1]["dataset_id"] == "signals" for call in mock_registry.emit_event.call_args_list)
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_handles_event_emission_failure_gracefully(test_database):
     """Test that event emission failures don't break signal storage."""
@@ -170,6 +177,8 @@ def test_strategy_store_handles_event_emission_failure_gracefully(test_database)
         assert len(store._write_buffer) == 0
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_no_events_when_registry_unavailable(test_database):
     """Test that store works normally when DataRegistry is unavailable."""

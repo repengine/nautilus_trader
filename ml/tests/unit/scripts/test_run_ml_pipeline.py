@@ -25,6 +25,11 @@ from ml.scripts.run_ml_pipeline import load_config
 from ml.scripts.run_ml_pipeline import setup_logging
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.flaky
+@pytest.mark.slow
+@pytest.mark.unit
 class TestMLPipelineRunner:
     """
     Test the main pipeline runner class.
@@ -42,6 +47,8 @@ class TestMLPipelineRunner:
             "retention_days": 30,
         }
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_creates_runner_with_config(self):
         """
         Test that runner is initialized with proper configuration.
@@ -54,6 +61,8 @@ class TestMLPipelineRunner:
         assert runner.catalog is None
         assert runner.shutdown_requested is False
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.scripts.run_ml_pipeline.signal.signal")
     def test_signal_handlers_setup(self, mock_signal):
         """
@@ -71,6 +80,8 @@ class TestMLPipelineRunner:
             runner._setup_signal_handlers().__func__.__closure__[0].cell_contents,
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_signal_handler_sets_shutdown_flag(self):
         """
         Test that signal handler sets shutdown request flag.
@@ -84,6 +95,8 @@ class TestMLPipelineRunner:
 
         assert runner.shutdown_requested is True
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.scripts.run_ml_pipeline.ParquetDataCatalog")
     @patch("ml.scripts.run_ml_pipeline.DataScheduler")
     @patch("ml.scripts.run_ml_pipeline.DataCollector")
@@ -114,6 +127,8 @@ class TestMLPipelineRunner:
             assert runner.catalog == mock_catalog_instance
             assert runner.scheduler == mock_scheduler_instance
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_setup_ml_system_failure_raises_runtime_error(self):
         """
         Test that setup failure raises RuntimeError.
@@ -124,6 +139,8 @@ class TestMLPipelineRunner:
             with pytest.raises(RuntimeError, match="ML system setup failed"):
                 runner.setup_ml_system()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.dict(os.environ, {}, clear=True)
     def test_validate_environment_missing_databento_key(self):
         """
@@ -134,6 +151,8 @@ class TestMLPipelineRunner:
         with pytest.raises(ValueError, match="DATABENTO_API_KEY environment variable is required"):
             runner._validate_environment()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.dict(os.environ, {"DATABENTO_API_KEY": "test_key"})
     def test_validate_environment_dry_run_skips_api_key(self):
         """
@@ -145,6 +164,8 @@ class TestMLPipelineRunner:
         with patch.dict(os.environ, {}, clear=True):
             runner._validate_environment()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_create_scheduler_config_with_defaults(self):
         """
         Test scheduler configuration creation with default values.
@@ -167,6 +188,8 @@ class TestMLPipelineRunner:
             mock_databento_config.assert_called_once()
             mock_scheduler_config.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.scripts.run_ml_pipeline.FeatureEngineer")
     @patch("ml.scripts.run_ml_pipeline.FeatureConfig")
     def test_initialize_feature_engineer_success(self, mock_config_class, mock_engineer_class):
@@ -183,6 +206,8 @@ class TestMLPipelineRunner:
         mock_config_class.assert_called_once()
         mock_engineer_class.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_initialize_feature_engineer_import_error(self):
         """
         Test feature engineer initialization handles import errors gracefully.
@@ -197,6 +222,8 @@ class TestMLPipelineRunner:
 
             assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.scripts.run_ml_pipeline.psycopg2.connect")
     def test_run_health_checks_success(self, mock_connect):
         """
@@ -214,6 +241,8 @@ class TestMLPipelineRunner:
         mock_connect.assert_called_once()
         mock_conn.close.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_backfill_dry_run_mode(self):
         """
         Test backfill in dry run mode logs correctly without executing.
@@ -230,6 +259,8 @@ class TestMLPipelineRunner:
 
             mock_logger.info.assert_any_call("DRY RUN: Would process historical data")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_backfill_processes_trading_days_only(self):
         """
         Test that backfill skips weekends correctly.
@@ -247,6 +278,8 @@ class TestMLPipelineRunner:
             # Should call run_daily_update for Friday and Monday only (2 times)
             assert runner.scheduler.run_daily_update.call_count == 2
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_backfill_handles_shutdown_signal(self):
         """
         Test backfill respects shutdown signal.
@@ -263,6 +296,8 @@ class TestMLPipelineRunner:
 
             mock_logger.info.assert_any_call("Backfill interrupted by shutdown request")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_daily_dry_run_mode(self):
         """
         Test daily mode in dry run logs configuration.
@@ -277,6 +312,8 @@ class TestMLPipelineRunner:
 
             mock_logger.info.assert_any_call("DRY RUN: Would run daily update")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_daily_executes_update(self):
         """
         Test daily mode executes scheduler update.
@@ -288,6 +325,8 @@ class TestMLPipelineRunner:
 
         runner.scheduler.run_daily_update.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_daily_handles_scheduler_none(self):
         """
         Test daily mode raises error when scheduler is None.
@@ -298,6 +337,8 @@ class TestMLPipelineRunner:
         with pytest.raises(RuntimeError, match="Scheduler not initialized"):
             runner.run_daily()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_realtime_dry_run_mode(self):
         """
         Test realtime mode in dry run logs configuration.
@@ -309,6 +350,8 @@ class TestMLPipelineRunner:
 
             mock_logger.info.assert_any_call("DRY RUN: Would start real-time processing")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_run_realtime_handles_keyboard_interrupt(self):
         """
         Test realtime mode handles keyboard interrupt gracefully.
@@ -321,11 +364,15 @@ class TestMLPipelineRunner:
             # Should exit cleanly without raising exception
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestConfigurationLoading:
     """
     Test configuration loading functionality.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_load_config_yaml_file(self):
         """
         Test loading YAML configuration file.
@@ -353,6 +400,8 @@ class TestConfigurationLoading:
         finally:
             os.unlink(yaml_file)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_load_config_json_file(self):
         """
         Test loading JSON configuration file.
@@ -372,6 +421,8 @@ class TestConfigurationLoading:
         finally:
             os.unlink(json_file)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_load_config_file_not_found(self):
         """
         Test error handling when config file doesn't exist.
@@ -379,6 +430,8 @@ class TestConfigurationLoading:
         with pytest.raises(FileNotFoundError, match="Configuration file not found"):
             load_config("/nonexistent/config.yaml")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_load_config_unsupported_format(self):
         """
         Test error handling for unsupported config format.
@@ -392,6 +445,8 @@ class TestConfigurationLoading:
         finally:
             os.unlink(xml_file)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_load_config_yaml_import_error(self):
         """
         Test error when PyYAML is not available.
@@ -406,6 +461,8 @@ class TestConfigurationLoading:
         finally:
             os.unlink(yaml_file)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_load_config_none_returns_defaults(self):
         """
         Test that None config path returns default configuration.
@@ -431,11 +488,15 @@ class TestConfigurationLoading:
         assert result == expected_defaults
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestLoggingSetup:
     """
     Test logging configuration.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.scripts.run_ml_pipeline.logging.basicConfig")
     def test_setup_logging_default_level(self, mock_basic_config):
         """
@@ -447,6 +508,8 @@ class TestLoggingSetup:
         args, kwargs = mock_basic_config.call_args
         assert kwargs["level"] == 20  # logging.INFO
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.scripts.run_ml_pipeline.logging.basicConfig")
     def test_setup_logging_verbose_level(self, mock_basic_config):
         """
@@ -458,6 +521,8 @@ class TestLoggingSetup:
         args, kwargs = mock_basic_config.call_args
         assert kwargs["level"] == 10  # logging.DEBUG
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.scripts.run_ml_pipeline.logging.getLogger")
     def test_setup_logging_adjusts_third_party_loggers(self, mock_get_logger):
         """
@@ -473,11 +538,15 @@ class TestLoggingSetup:
         mock_logger.setLevel.assert_called()
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestValidationFunctions:
     """
     Test validation utility functions.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_validate_backfill_dates_valid_range(self):
         """
         Test validation with valid date range.
@@ -487,6 +556,8 @@ class TestValidationFunctions:
         assert start_dt == datetime(2024, 1, 1)
         assert end_dt == datetime(2024, 1, 31)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_validate_backfill_dates_missing_start(self):
         """
         Test validation fails when start date is missing.
@@ -495,6 +566,8 @@ class TestValidationFunctions:
             with patch("ml.scripts.run_ml_pipeline.logger"):
                 _validate_backfill_dates(None, "2024-01-31")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_validate_backfill_dates_missing_end(self):
         """
         Test validation fails when end date is missing.
@@ -503,6 +576,8 @@ class TestValidationFunctions:
             with patch("ml.scripts.run_ml_pipeline.logger"):
                 _validate_backfill_dates("2024-01-01", None)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_validate_backfill_dates_invalid_format(self):
         """
         Test validation fails with invalid date format.
@@ -511,6 +586,8 @@ class TestValidationFunctions:
             with patch("ml.scripts.run_ml_pipeline.logger"):
                 _validate_backfill_dates("2024/01/01", "2024-01-31")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_validate_backfill_dates_start_after_end(self):
         """
         Test validation fails when start date is after end date.
@@ -520,11 +597,15 @@ class TestValidationFunctions:
                 _validate_backfill_dates("2024-01-31", "2024-01-01")
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestPipelineModeExecution:
     """
     Test pipeline mode execution function.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_execute_pipeline_mode_backfill(self):
         """
         Test execution of backfill mode.
@@ -538,6 +619,8 @@ class TestPipelineModeExecution:
 
             runner.run_backfill.assert_called_once_with(datetime(2024, 1, 1), datetime(2024, 1, 31))
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_execute_pipeline_mode_daily(self):
         """
         Test execution of daily mode.
@@ -548,6 +631,8 @@ class TestPipelineModeExecution:
 
         runner.run_daily.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_execute_pipeline_mode_realtime(self):
         """
         Test execution of realtime mode.
@@ -558,6 +643,8 @@ class TestPipelineModeExecution:
 
         runner.run_realtime.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_execute_pipeline_mode_keyboard_interrupt(self):
         """
         Test execution handles keyboard interrupt.
@@ -569,6 +656,8 @@ class TestPipelineModeExecution:
             with patch("ml.scripts.run_ml_pipeline.logger"):
                 _execute_pipeline_mode(runner, "daily", None, None)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_execute_pipeline_mode_exception(self):
         """
         Test execution handles general exceptions.
@@ -581,11 +670,15 @@ class TestPipelineModeExecution:
                 _execute_pipeline_mode(runner, "daily", None, None)
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestProductionReadiness:
     """
     Test production readiness aspects.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_signal_handling_sigint(self):
         """
         Test SIGINT signal handling.
@@ -597,6 +690,8 @@ class TestProductionReadiness:
         os.kill(os.getpid(), signal.SIGUSR1)  # Use SIGUSR1 for testing
         # In a real test, we'd need to set up a proper signal handler test
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_environment_variable_handling(self):
         """
         Test proper environment variable handling.
@@ -611,6 +706,8 @@ class TestProductionReadiness:
             # Should use default database connection
             scheduler_config = runner._create_scheduler_config()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_error_recovery_and_logging(self):
         """
         Test error recovery and proper logging.
@@ -621,6 +718,8 @@ class TestProductionReadiness:
             with pytest.raises(RuntimeError):
                 runner.setup_ml_system()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_graceful_shutdown_during_backfill(self):
         """
         Test graceful shutdown during long-running backfill.
@@ -642,6 +741,8 @@ class TestProductionReadiness:
         # Should have processed only one day before shutdown
         assert runner.scheduler.run_daily_update.call_count == 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_configuration_validation(self):
         """
         Test comprehensive configuration validation.
@@ -666,6 +767,8 @@ class TestProductionReadiness:
             ):
                 scheduler_config = runner._create_scheduler_config()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_dry_run_mode_comprehensive(self):
         """
         Test that dry run mode doesn't execute actual operations.

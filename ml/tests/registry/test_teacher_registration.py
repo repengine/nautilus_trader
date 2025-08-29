@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 
 
+@pytest.mark.parallel_safe
 def test_register_non_serveable_teacher_artifact(tmp_path: Path) -> None:
     reg_dir = tmp_path / "models"
     reg = ModelRegistry(reg_dir)

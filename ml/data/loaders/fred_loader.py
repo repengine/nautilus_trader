@@ -20,12 +20,14 @@ from dataclasses import field
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
-from ml._imports import HAS_POLARS
-from ml._imports import HAS_PROMETHEUS
+from ml._imports import HAS_FREDAPI, HAS_POLARS, HAS_PROMETHEUS
+from ml._imports import Counter
+from ml._imports import check_ml_dependencies
+from ml._imports import fredapi as _fredapi
 from ml._imports import pl
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -42,69 +44,48 @@ if TYPE_CHECKING:
     from ml.registry.data_registry import DataRegistry
 
 if not HAS_POLARS:
-    raise ImportError("Polars is required for FRED loader")
+    check_ml_dependencies(["polars"])  # Ensure clear message
 
-# Try to import fredapi in a robust way without redefinitions
-try:
-    import fredapi as _fredapi
-    HAS_FREDAPI = True
-except ImportError:
-    # Try adding user site-packages to path
-    import sys
-    sys.path.append("/home/nate/.local/lib/python3.12/site-packages")
-    try:
-        import fredapi as _fredapi
-        HAS_FREDAPI = True
-    except ImportError:
-        HAS_FREDAPI = False
-        _fredapi = None
+if not HAS_FREDAPI:
+    # Defer hard failure until use, so dependent modules can import
+    _fredapi = None  # type: ignore[assignment]
 
 
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
 if HAS_PROMETHEUS:
-    try:
-        # Create FRED-specific metrics
-        from prometheus_client import Counter
+    # Create FRED-specific metrics using centralized Counter
+    from ml.common.metrics import data_collection_duration
 
-        from ml.common.metrics import data_collection_duration
+    fred_fetch_counter = Counter(
+        "nautilus_ml_fred_fetch_total",
+        "Total FRED API fetches",
+        ["series"],
+    )
+    fred_cache_hit_counter = Counter(
+        "nautilus_ml_fred_cache_hits_total",
+        "FRED cache hits",
+        ["series"],
+    )
+    fred_api_error_counter = Counter(
+        "nautilus_ml_fred_api_errors_total",
+        "FRED API errors",
+        ["error_type"],
+    )
 
-        fred_fetch_counter = Counter(
-            "nautilus_ml_fred_fetch_total",
-            "Total FRED API fetches",
-            ["series"],
-        )
-        fred_cache_hit_counter = Counter(
-            "nautilus_ml_fred_cache_hits_total",
-            "FRED cache hits",
-            ["series"],
-        )
-        fred_api_error_counter = Counter(
-            "nautilus_ml_fred_api_errors_total",
-            "FRED API errors",
-            ["error_type"],
-        )
+    class _CounterLike(Protocol):
+        def labels(self, **kwargs: Any) -> Any: ...
+        def inc(self, amount: float = 1) -> None: ...
 
-        # Define simple Protocol-like types for metric compatibility
-        from typing import Protocol
+    class _HistogramLike(Protocol):
+        def labels(self, **kwargs: Any) -> Any: ...
+        def observe(self, amount: float) -> None: ...
 
-        class _CounterLike(Protocol):
-            def labels(self, **kwargs: Any) -> Any: ...
-            def inc(self, amount: float = 1) -> None: ...
-
-        class _HistogramLike(Protocol):
-            def labels(self, **kwargs: Any) -> Any: ...
-            def observe(self, amount: float) -> None: ...
-
-        # Alias for compatibility with typed variables
-        data_fetch_counter: _CounterLike = fred_fetch_counter
-        data_fetch_duration_histogram: _HistogramLike = data_collection_duration
-        cache_hit_counter: _CounterLike = fred_cache_hit_counter
-        api_error_counter: _CounterLike = fred_api_error_counter
-
-    except ImportError:
-        HAS_PROMETHEUS = False
+    data_fetch_counter: _CounterLike = fred_fetch_counter
+    data_fetch_duration_histogram: _HistogramLike = data_collection_duration
+    cache_hit_counter: _CounterLike = fred_cache_hit_counter
+    api_error_counter: _CounterLike = fred_api_error_counter
 
 if not HAS_PROMETHEUS:
     # Create no-op metrics

@@ -27,6 +27,8 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 class TestStrategyStoreIntegration:
     """Test cases for StrategyStore integration."""
@@ -56,6 +58,8 @@ class TestStrategyStoreIntegration:
             output_path=self.temp_dir / "test_model.pkl"
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_strategy_store_initialization_with_config(self, test_database) -> None:
         """Test that StrategyStore is initialized when configured."""
         # Create config with StrategyStore enabled
@@ -92,6 +96,8 @@ class TestStrategyStoreIntegration:
 
             assert strategy.strategy_store is not None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_strategy_store_disabled_by_config(self) -> None:
         """Test that StrategyStore is not initialized when disabled."""
         config = MLStrategyConfig(
@@ -111,6 +117,8 @@ class TestStrategyStoreIntegration:
 
         assert strategy.strategy_store is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_persist_buy_decision(self, test_database) -> None:
         """Test persisting a BUY decision to StrategyStore."""
         config = MLStrategyConfig(
@@ -162,6 +170,8 @@ class TestStrategyStoreIntegration:
         assert call_args.kwargs["model_predictions"] == {"test_model": 0.8}
         assert call_args.kwargs["instrument_id"] == str(self.instrument_id)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_persist_sell_decision(self, test_database) -> None:
         """Test persisting a SELL decision to StrategyStore."""
         config = MLStrategyConfig(
@@ -212,6 +222,8 @@ class TestStrategyStoreIntegration:
         assert call_args.kwargs["strength"] == 0.85
         assert call_args.kwargs["model_predictions"] == {"test_model": 0.2}
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_persist_hold_decision_with_config(self, test_database) -> None:
         """Test that HOLD decisions are persisted when configured."""
         config = MLStrategyConfig(
@@ -266,6 +278,8 @@ class TestStrategyStoreIntegration:
         call_args = mock_store.write_signal.call_args
         assert call_args.kwargs["signal_type"] == "HOLD"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_skip_hold_decision_when_not_configured(self, test_database) -> None:
         """Test that HOLD decisions are not persisted when not configured."""
         config = MLStrategyConfig(
@@ -317,6 +331,8 @@ class TestStrategyStoreIntegration:
         from typing import Any as _Any
         cast(_Any, mock_store).write_signal.assert_not_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_error_handling_in_persistence(self, test_database) -> None:
         """Test that errors in persistence are handled gracefully."""
         config = MLStrategyConfig(
@@ -363,6 +379,8 @@ class TestStrategyStoreIntegration:
         # Verify error was handled
         mock_store.write_signal.assert_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_flush_on_stop(self, test_database) -> None:
         """Test that StrategyStore is flushed when strategy stops."""
         config = MLStrategyConfig(
@@ -397,6 +415,8 @@ class TestStrategyStoreIntegration:
         # Verify flush was called
         mock_store.flush.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_risk_metrics_calculation(self, test_database) -> None:
         """Test that risk metrics are properly calculated and persisted."""
         config = MLStrategyConfig(

@@ -3,11 +3,12 @@ from __future__ import annotations
 import pytest
 
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.utils import assert_features_compatible
 
 
+@pytest.mark.parallel_safe
 def test_assert_features_compatible_names_and_types() -> None:
     manifest = ModelManifest(
         model_id="m1",

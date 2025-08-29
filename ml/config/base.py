@@ -205,6 +205,52 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     log_commands: bool = True
 
 
+from typing import ClassVar
+
+
+class DataCollectorConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for the enhanced data collector.
+
+    Attributes
+    ----------
+    data_dir : str
+        Base directory to store collected data.
+    storage_limit_gb : PositiveFloat
+        Storage budget in gigabytes.
+    end_date_iso : str | None
+        Optional ISO8601 end date (YYYY-MM-DD). If None, uses current date.
+
+    Environment overrides
+    ----------------------
+    ML_DATA_ENHANCED_DIR -> data_dir
+    ML_STORAGE_LIMIT_GB  -> storage_limit_gb
+    ML_END_DATE          -> end_date_iso
+    """
+
+    data_dir: str = "./data/enhanced"
+    storage_limit_gb: PositiveFloat = 500.0
+    end_date_iso: str | None = None
+
+    _ENV_MAPPING: ClassVar[dict[str, str]] = {
+        "data_dir": "ML_DATA_ENHANCED_DIR",
+        "storage_limit_gb": "ML_STORAGE_LIMIT_GB",
+        "end_date_iso": "ML_END_DATE",
+    }
+
+    def __post_init__(self) -> None:
+        import os
+
+        for field, env_var in self._ENV_MAPPING.items():
+            if env_value := os.getenv(env_var):
+                current = getattr(self, field)
+                try:
+                    casted = type(current)(env_value) if current is not None else env_value
+                except Exception:
+                    casted = env_value
+                object.__setattr__(self, field, casted)
+
+
 class HealthMonitorConfig(NautilusConfig, kw_only=True, frozen=True):
     """
     Configuration thresholds for the ML actor health monitor.

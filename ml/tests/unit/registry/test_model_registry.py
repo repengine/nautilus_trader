@@ -11,8 +11,8 @@ import pytest
 
 from ml._imports import HAS_ONNX
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 
 

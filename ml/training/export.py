@@ -202,7 +202,7 @@ def _generate_version(model: Any) -> str:
             parts.append(f"params={len(params)}")
         except Exception:
             pass
-    return hashlib.md5("|".join(parts).encode()).hexdigest()[:8]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:8]
 
 
 def convert_to_onnx(
@@ -298,7 +298,7 @@ def convert_to_torchscript(
     model.eval()
     with torch.inference_mode():
         if sample_input is not None:
-            scripted = torch.jit.trace(model, torch.as_tensor(sample_input))  # type: ignore[no-untyped-call]
+            scripted = torch.jit.trace(model, torch.as_tensor(sample_input))
         else:
             scripted = torch.jit.script(model)
         scripted.save(str(output_path))

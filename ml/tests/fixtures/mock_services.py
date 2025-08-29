@@ -5,7 +5,7 @@ Mock service implementations for ML module testing.
 
 This module provides mock implementations of external services:
 - Databento API mock
-- FRED API mock  
+- FRED API mock
 - Yahoo Finance mock
 - Redis mock
 - PostgreSQL mock for unit tests
@@ -16,10 +16,13 @@ from __future__ import annotations
 import json
 import random
 from collections import defaultdict
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Callable
-from unittest.mock import MagicMock, Mock
+from typing import Any
+from unittest.mock import MagicMock
+from unittest.mock import Mock
 
 import numpy as np
 import pandas as pd
@@ -44,7 +47,7 @@ class MockDatabentoClient:
         self.fail_on_request = fail_on_request
         self.request_count = 0
         self.rate_limit_hits = 0
-        
+
         # Mock datasets
         self.datasets = {
             "XNAS.ITCH": {
@@ -53,7 +56,7 @@ class MockDatabentoClient:
                 "symbols": ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA"],
             },
             "GLBX.MDP3": {
-                "start": "2022-01-01T00:00:00Z", 
+                "start": "2022-01-01T00:00:00Z",
                 "end": "2024-12-31T23:59:59Z",
                 "symbols": ["ES", "NQ", "RTY", "CL", "GC", "ZB"],
             },
@@ -72,7 +75,7 @@ class MockDatabentoClient:
             raise ConnectionError("Mock connection error")
         if dataset not in self.datasets:
             raise ValueError(f"Dataset {dataset} not found")
-        
+
         self.request_count += 1
         return {
             "start": self.datasets[dataset]["start"],
@@ -91,13 +94,13 @@ class MockDatabentoClient:
         """Get mock market data."""
         if self.fail_on_request:
             raise ConnectionError("Mock connection error")
-        
+
         # Simulate rate limiting
         self.request_count += 1
         if self.request_count > 100:
             self.rate_limit_hits += 1
             raise Exception("Rate limit exceeded")
-        
+
         # Generate mock data based on schema
         if schema == "ohlcv-1m":
             return self._generate_ohlcv_data(symbols, start, end)
@@ -121,14 +124,14 @@ class MockDatabentoClient:
             start = pd.Timestamp(start)
         if isinstance(end, str):
             end = pd.Timestamp(end)
-        
+
         # Generate time index
         time_index = pd.date_range(start, end, freq="1min")
-        
+
         data = []
         for symbol in symbols:
             base_price = 100.0 + hash(symbol) % 400  # Deterministic base price
-            
+
             for ts in time_index:
                 # Random walk with mean reversion
                 price_change = np.random.normal(0, 0.001)
@@ -136,7 +139,7 @@ class MockDatabentoClient:
                 high_price = open_price * (1 + abs(np.random.normal(0, 0.0005)))
                 low_price = open_price * (1 - abs(np.random.normal(0, 0.0005)))
                 close_price = open_price * (1 + np.random.normal(0, 0.0003))
-                
+
                 data.append({
                     "symbol": symbol,
                     "timestamp": ts,
@@ -146,9 +149,9 @@ class MockDatabentoClient:
                     "close": close_price,
                     "volume": np.random.uniform(1000, 10000),
                 })
-                
+
                 base_price = close_price  # Update for next iteration
-        
+
         return pd.DataFrame(data)
 
     def _generate_trades_data(
@@ -162,23 +165,23 @@ class MockDatabentoClient:
             start = pd.Timestamp(start)
         if isinstance(end, str):
             end = pd.Timestamp(end)
-        
+
         data = []
         for symbol in symbols:
             base_price = 100.0 + hash(symbol) % 400
-            
+
             # Generate random trades
             n_trades = np.random.randint(100, 500)
             timestamps = pd.to_datetime(
                 np.random.uniform(start.value, end.value, n_trades),
                 unit="ns",
             ).sort_values()
-            
+
             for ts in timestamps:
                 price = base_price * (1 + np.random.normal(0, 0.001))
                 size = np.random.uniform(1, 1000)
                 side = np.random.choice(["buy", "sell"])
-                
+
                 data.append({
                     "symbol": symbol,
                     "timestamp": ts,
@@ -186,7 +189,7 @@ class MockDatabentoClient:
                     "size": size,
                     "side": side,
                 })
-        
+
         return pd.DataFrame(data)
 
     def _generate_l2_data(
@@ -200,24 +203,24 @@ class MockDatabentoClient:
             start = pd.Timestamp(start)
         if isinstance(end, str):
             end = pd.Timestamp(end)
-        
+
         data = []
         time_index = pd.date_range(start, end, freq="1s")  # L2 updates every second
-        
+
         for symbol in symbols:
             base_price = 100.0 + hash(symbol) % 400
             tick_size = 0.01
-            
+
             for ts in time_index:
                 mid_price = base_price * (1 + np.random.normal(0, 0.0005))
-                
+
                 # Generate 5 levels of bids and asks
                 for level in range(1, 6):
                     bid_price = mid_price - level * tick_size
                     ask_price = mid_price + level * tick_size
                     bid_size = np.random.uniform(100, 1000) * (6 - level)  # Larger at better prices
                     ask_size = np.random.uniform(100, 1000) * (6 - level)
-                    
+
                     data.append({
                         "symbol": symbol,
                         "timestamp": ts,
@@ -227,7 +230,7 @@ class MockDatabentoClient:
                         "ask_price": ask_price,
                         "ask_size": ask_size,
                     })
-        
+
         return pd.DataFrame(data)
 
     def _generate_tbbo_data(
@@ -241,17 +244,17 @@ class MockDatabentoClient:
             start = pd.Timestamp(start)
         if isinstance(end, str):
             end = pd.Timestamp(end)
-        
+
         data = []
         time_index = pd.date_range(start, end, freq="100ms")  # TBBO updates frequently
-        
+
         for symbol in symbols:
             base_price = 100.0 + hash(symbol) % 400
-            
+
             for ts in time_index:
                 mid_price = base_price * (1 + np.random.normal(0, 0.0002))
                 spread = np.random.uniform(0.01, 0.05)
-                
+
                 data.append({
                     "symbol": symbol,
                     "timestamp": ts,
@@ -260,9 +263,9 @@ class MockDatabentoClient:
                     "ask_price": mid_price + spread / 2,
                     "ask_size": np.random.uniform(100, 5000),
                 })
-                
+
                 base_price = mid_price
-        
+
         return pd.DataFrame(data)
 
 
@@ -273,7 +276,7 @@ class MockFredClient:
         """Initialize mock FRED client."""
         self.api_key = api_key
         self.request_count = 0
-        
+
         # Mock economic series data
         self.series_data = {
             "DGS10": self._generate_treasury_data(),  # 10-Year Treasury
@@ -286,18 +289,18 @@ class MockFredClient:
     def get_series(self, series_id: str, **kwargs: Any) -> pd.DataFrame:
         """Get economic series data."""
         self.request_count += 1
-        
+
         if series_id not in self.series_data:
             raise ValueError(f"Series {series_id} not found")
-        
+
         data = self.series_data[series_id]
-        
+
         # Apply date filters if provided
         if "start_date" in kwargs:
             data = data[data.index >= pd.Timestamp(kwargs["start_date"])]
         if "end_date" in kwargs:
             data = data[data.index <= pd.Timestamp(kwargs["end_date"])]
-        
+
         return data
 
     def _generate_treasury_data(self) -> pd.DataFrame:
@@ -309,7 +312,7 @@ class MockFredClient:
         noise = np.random.normal(0, 0.1, len(dates))
         rates = base_rate + trend + noise
         rates = np.clip(rates, 0.5, 5.0)  # Keep in realistic range
-        
+
         return pd.DataFrame({"value": rates}, index=dates)
 
     def _generate_exchange_rate_data(self) -> pd.DataFrame:
@@ -320,7 +323,7 @@ class MockFredClient:
         walk = np.random.normal(0, 0.005, len(dates)).cumsum()
         rates = base_rate + walk * 0.01
         rates = np.clip(rates, 1.05, 1.25)
-        
+
         return pd.DataFrame({"value": rates}, index=dates)
 
     def _generate_vix_data(self) -> pd.DataFrame:
@@ -333,7 +336,7 @@ class MockFredClient:
         spikes = np.random.choice([0, 20], len(dates), p=[0.95, 0.05])
         vix = base_vix + noise + spikes
         vix = np.clip(vix, 10, 80)
-        
+
         return pd.DataFrame({"value": vix}, index=dates)
 
     def _generate_unemployment_data(self) -> pd.DataFrame:
@@ -345,7 +348,7 @@ class MockFredClient:
         noise = np.random.normal(0, 0.3, len(dates))
         rates = base_rate + trend + noise
         rates = np.clip(rates, 3.0, 10.0)
-        
+
         return pd.DataFrame({"value": rates}, index=dates)
 
     def _generate_cpi_data(self) -> pd.DataFrame:
@@ -357,7 +360,7 @@ class MockFredClient:
         seasonal = np.sin(np.linspace(0, 20 * np.pi, len(dates))) * 2
         noise = np.random.normal(0, 0.5, len(dates))
         cpi = base_cpi + trend + seasonal + noise
-        
+
         return pd.DataFrame({"value": cpi}, index=dates)
 
 
@@ -378,29 +381,29 @@ class MockYahooClient:
     ) -> pd.DataFrame:
         """Get historical price data."""
         self.request_count += 1
-        
+
         if symbol not in self.symbols:
             raise ValueError(f"Symbol {symbol} not found")
-        
+
         # Generate daily data by default
         if start is None:
             start = datetime.now() - timedelta(days=365)
         if end is None:
             end = datetime.now()
-        
+
         if isinstance(start, str):
             start = pd.Timestamp(start)
         if isinstance(end, str):
             end = pd.Timestamp(end)
-        
+
         # Generate price data
         dates = pd.date_range(start, end, freq="D")
         base_price = 100.0 + hash(symbol) % 400
-        
+
         # Random walk with drift
         returns = np.random.normal(0.0005, 0.02, len(dates))
         prices = base_price * np.exp(np.cumsum(returns))
-        
+
         data = pd.DataFrame({
             "Open": prices * (1 + np.random.normal(0, 0.005, len(dates))),
             "High": prices * (1 + np.abs(np.random.normal(0, 0.01, len(dates)))),
@@ -409,20 +412,20 @@ class MockYahooClient:
             "Volume": np.random.uniform(1e6, 1e8, len(dates)),
             "Adj Close": prices,
         }, index=dates)
-        
+
         # Ensure high >= max(open, close) and low <= min(open, close)
         data["High"] = data[["Open", "High", "Close"]].max(axis=1)
         data["Low"] = data[["Open", "Low", "Close"]].min(axis=1)
-        
+
         return data
 
     def get_info(self, symbol: str) -> dict[str, Any]:
         """Get symbol information."""
         self.request_count += 1
-        
+
         if symbol not in self.symbols:
             raise ValueError(f"Symbol {symbol} not found")
-        
+
         return {
             "symbol": symbol,
             "longName": f"Mock Company {symbol}",
@@ -462,12 +465,12 @@ class MockRedis:
         if isinstance(value, str):
             value = value.encode()
         self.data[key] = value
-        
+
         if ex:
             self.expiry[key] = datetime.now() + timedelta(seconds=ex)
         elif px:
             self.expiry[key] = datetime.now() + timedelta(milliseconds=px)
-        
+
         return True
 
     def delete(self, *keys: str) -> int:
@@ -503,7 +506,7 @@ class MockRedis:
 
     def rpop(self, key: str) -> bytes | None:
         """Pop from right of list."""
-        if key in self.data and self.data[key]:
+        if self.data.get(key):
             return self.data[key].pop()
         return None
 
@@ -556,7 +559,7 @@ class MockPostgreSQL:
     def execute(self, query: str, params: tuple | None = None) -> Mock:
         """Execute SQL query."""
         query_lower = query.lower().strip()
-        
+
         if query_lower.startswith("create table"):
             return self._handle_create_table(query)
         elif query_lower.startswith("insert into"):
@@ -577,7 +580,7 @@ class MockPostgreSQL:
             if self.transaction_active:
                 self.tables = self.transaction_data.copy()
                 self.transaction_active = False
-        
+
         # Return mock result
         result = Mock()
         result.fetchall = Mock(return_value=[])
@@ -593,7 +596,7 @@ class MockPostgreSQL:
         if match:
             table_name = match.group(1)
             self.tables[table_name] = pd.DataFrame()
-        
+
         result = Mock()
         result.rowcount = 0
         return result
@@ -608,7 +611,7 @@ class MockPostgreSQL:
             if table_name not in self.tables:
                 self.tables[table_name] = pd.DataFrame()
             # Would need to parse columns and values properly in real implementation
-        
+
         result = Mock()
         result.rowcount = 1
         return result

@@ -4,6 +4,10 @@
 
 The ml/training/ directory implements a comprehensive model training infrastructure with both traditional and teacher-student knowledge distillation architectures. The system provides production-ready training pipelines with strict feature parity enforcement, ONNX export capabilities, and full registry integration.
 
+Operational notes:
+- Feature parity and persistence depend on `FeatureStore` reading/writing with UNIX nanosecond timestamps. Stores defensively normalize timestamp units to ns with warnings. See `context_stores.md` → "Timestamp Policy & Normalization".
+- For integration tests and pipelines that hit the DB, apply migrations and run the DB preflight. See `context_deployment.md`.
+
 ### Key Components
 
 - **Base Training Infrastructure**: Abstract trainer with MLflow, Optuna, and cross-validation support

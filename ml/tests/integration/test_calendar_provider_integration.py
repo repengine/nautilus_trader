@@ -20,6 +20,8 @@ from ml.data.sources.calendar import MockCalendarSource
 from ml.data.sources.calendar import PandasCalendarSource
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.integration
 class TestCalendarProviderIntegration:
     """
     Integration tests for calendar provider with real sources.

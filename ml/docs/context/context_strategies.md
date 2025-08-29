@@ -4,6 +4,10 @@
 
 The ml/strategies/ directory implements the core ML-driven trading strategy framework for Nautilus Trader. This framework provides a sophisticated architecture for integrating machine learning signals into trading execution while maintaining hot path performance requirements. The system supports both single-model and multi-model strategies with advanced aggregation capabilities, comprehensive performance tracking, and seamless integration with Nautilus Trader's execution engine.
 
+Operational notes:
+- Persistence: Strategy signals are stored with UNIX nanosecond timestamps; the `StrategyStore` will normalize smaller units to ns with a warning. See `context_stores.md` → "Timestamp Policy & Normalization".
+- DB readiness: Ensure canonical migrations are applied and run DB preflight checks prior to deployment. See `context_deployment.md`.
+
 ## Directory Structure
 
 ```

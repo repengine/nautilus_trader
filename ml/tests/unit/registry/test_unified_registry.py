@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Tests for unified model registry with self-describing models.
 
@@ -24,8 +23,8 @@ import pytest
 
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 from ml.tests.unit.registry.test_model_contracts import ModelContractValidator
 from ml.tests.unit.registry.test_model_contracts import create_valid_student_manifest
@@ -47,6 +46,9 @@ class DummyModel:
         return np.ones(X.shape[0])
 
 
+@pytest.mark.flaky
+@pytest.mark.slow
+@pytest.mark.unit
 class TestUnifiedRegistry:
     """
     Test suite for unified model registry.

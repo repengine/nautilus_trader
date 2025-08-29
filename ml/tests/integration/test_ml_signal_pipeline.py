@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Integration tests for ML signal pipeline verifying OBSERVABLE BEHAVIOR.
 
@@ -45,6 +44,8 @@ from nautilus_trader.model.objects import Money
 from .conftest import create_onnx_model_for_features
 
 
+@pytest.mark.slow
+@pytest.mark.integration
 class TestMLSignalPipeline:
     """
     Test the complete ML signal pipeline focusing on observable behavior.

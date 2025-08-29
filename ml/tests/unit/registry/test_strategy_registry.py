@@ -165,6 +165,9 @@ def run():
 # =================================================================================================
 
 
+@pytest.mark.property
+@pytest.mark.slow
+@pytest.mark.unit
 def test_strategy_registry_register_and_query() -> None:
     """
     Basic test for strategy registration and querying.

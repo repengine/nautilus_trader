@@ -25,6 +25,9 @@ from ml.data.sources.events import MockEventSource
 from ml.data.sources.events import SimpleEventSource
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestEconomicEvent:
     """
     Test economic event dataclass.

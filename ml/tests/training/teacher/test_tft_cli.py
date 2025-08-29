@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
@@ -35,6 +36,7 @@ def _make_feature_registry(tmp_path: Path, feature_names: list[str]) -> tuple[Pa
     return registry_dir, fid, schema
 
 
+@pytest.mark.parallel_safe
 def test_tft_cli_registry_calibration_with_z_val(tmp_path: Path) -> None:
     feature_names = ["f1", "f2", "f3"]
     registry_dir, feature_set_id, schema_hash = _make_feature_registry(tmp_path, feature_names)

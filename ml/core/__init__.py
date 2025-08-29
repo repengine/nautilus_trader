@@ -9,9 +9,11 @@ hot path operations in ML inference.
 from ml.core.cache import LockFreeRingBuffer
 from ml.core.cache import PreAllocatedFeatureCache
 from ml.core.cache import ReservoirSampler
+from ml.core.db_engine import EngineManager
 
 
 __all__ = [
+    "EngineManager",
     "LockFreeRingBuffer",
     "PreAllocatedFeatureCache",
     "ReservoirSampler",

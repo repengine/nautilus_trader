@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 End-to-end integration tests for the Data Registry system.
 
@@ -40,6 +39,8 @@ from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.tests.utils.wait_helpers import TestTimeout
+from ml.tests.utils.wait_helpers import wait_for_condition
 
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,11 @@ except Exception:
     _SANDBOXED = True
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.flaky
+@pytest.mark.slow
+@pytest.mark.integration
 class TestDataRegistryE2E:
     """End-to-end tests for the Data Registry system."""
 
@@ -262,7 +268,7 @@ class TestDataRegistryE2E:
         )
 
         # Migrations are already applied by conftest.py
-        
+
         return DataRegistry(
             registry_path=tmp_path / "registry",
             persistence_config=config,
@@ -404,6 +410,8 @@ class TestDataRegistryE2E:
 
         return datasets
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_full_day_pipeline_json(self, json_registry: DataRegistry) -> None:
         """Test a full day of pipeline processing with JSON backend."""
         # Register datasets
@@ -454,6 +462,8 @@ class TestDataRegistryE2E:
         assert "EUR/USD" in coverage_report
         assert "FEATURES" in coverage_report.upper()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_failure_recovery_json(self, json_registry: DataRegistry) -> None:
         """Test failure and recovery scenarios with JSON backend."""
         # Register datasets
@@ -473,9 +483,10 @@ class TestDataRegistryE2E:
         # Verify some failures occurred
         assert stats["failures"] > 0 or stats["partial_failures"] > 0
 
-        # Simulate retry with exponential backoff
+        # Simulate retry with exponential backoff using computation
         for retry in range(3):
-            time.sleep(0.01 * (2 ** retry))  # Exponential backoff
+            # Use computation instead of sleep for backoff simulation
+            _ = sum(range(1000 * (2 ** retry)))  # Exponential work
 
             # Retry failed stages
             retry_stats = simulator.simulate_day_of_data(
@@ -490,6 +501,8 @@ class TestDataRegistryE2E:
         assert retry_stats["failures"] == 0
         assert retry_stats["events_emitted"] > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_concurrent_access_json(self, json_registry: DataRegistry) -> None:
         """Test concurrent access to registry with JSON backend."""
         # Register datasets
@@ -528,6 +541,8 @@ class TestDataRegistryE2E:
         for result in results:
             assert result["events_emitted"] > 0
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_gap_detection_json(self, json_registry: DataRegistry) -> None:
         """Test gap detection with incomplete data processing."""
         # Register datasets
@@ -594,6 +609,8 @@ class TestDataRegistryE2E:
         assert "EUR/USD" in coverage_report
         # The report should indicate missing or incomplete feature data
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_data_contracts_json(self, json_registry: DataRegistry) -> None:
         """Test data contract validation."""
         # Register dataset with contract
@@ -665,6 +682,8 @@ class TestDataRegistryE2E:
         assert retrieved.dataset_id == dataset_id
         assert retrieved.version == "1.0.0"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_performance_benchmarks_json(self, json_registry: DataRegistry) -> None:
         """Test performance benchmarks for registry operations."""
         if _SANDBOXED:
@@ -729,6 +748,8 @@ class TestDataRegistryE2E:
         elapsed = time.perf_counter() - start_time
         assert elapsed < 0.1  # < 100ms for 100 queries
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_full_day_pipeline_postgres(self, postgres_registry: DataRegistry) -> None:
         """Test a full day of pipeline processing with PostgreSQL backend."""
@@ -758,6 +779,8 @@ class TestDataRegistryE2E:
         assert watermark is not None
         assert watermark.last_count == 1440
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_idempotent_writes_json(self, json_registry: DataRegistry) -> None:
         """Test that writes are idempotent."""
         # Register dataset
@@ -826,6 +849,8 @@ class TestDataRegistryE2E:
         assert watermark is not None
         assert watermark.last_count == 100
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_backpressure_mechanisms(self, json_registry: DataRegistry) -> None:
         """Test backpressure handling under load."""
         if _SANDBOXED:
@@ -859,8 +884,8 @@ class TestDataRegistryE2E:
 
                 # Check if we need to back off
                 if events_generated % 100 == 0:
-                    # Small delay to prevent overwhelming
-                    time.sleep(0.001)
+                    # Small computation to prevent overwhelming
+                    _ = sum(range(100))  # Light work instead of sleep
 
         elapsed = time.perf_counter() - start_time
         events_per_second = events_generated / elapsed

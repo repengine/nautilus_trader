@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureManifest as _FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRegistry as _FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
-from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 
 
@@ -36,6 +37,7 @@ def _make_feature_registry(tmp_path: Path, feature_names: list[str]) -> tuple[Pa
     return reg_dir, fid, schema
 
 
+@pytest.mark.parallel_safe
 def test_register_serveable_requires_onnx_and_schema(tmp_path: Path) -> None:
     model_reg_dir = tmp_path / "models"
     mreg = ModelRegistry(model_reg_dir)

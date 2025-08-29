@@ -4,6 +4,10 @@
 
 The ML actors framework provides a production-ready foundation for real-time machine learning inference and signal generation within Nautilus Trader. The architecture follows strict hot/cold path separation, ensuring sub-millisecond performance in production environments while maintaining comprehensive observability and fault tolerance.
 
+Operational notes:
+- Timestamps: Actors should emit UNIX nanoseconds for `ts_event`/`ts_init`. Stores defensively normalize smaller units (seconds/ms/us) to ns with a warning. See `context_stores.md` → "Timestamp Policy & Normalization".
+- DB preflight: Verify required DB functions and current partition exist before startup. See `context_deployment.md` → "DB Preflight (recommended)".
+
 **Key Components:**
 
 - **BaseMLInferenceActor**: Abstract foundation class with mandatory store integration and production features

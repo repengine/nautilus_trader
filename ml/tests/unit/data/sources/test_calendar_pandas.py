@@ -23,6 +23,8 @@ from ml.data.sources.calendar import PandasCalendarSource
 from ml.data.sources.calendar import SimpleCalendarSource
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestPandasCalendarSource:
     """
     Test suite for PandasCalendarSource.

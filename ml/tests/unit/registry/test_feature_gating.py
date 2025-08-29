@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
 from ml.registry.feature_registry import FeatureManifest
@@ -28,6 +30,8 @@ def _manifest_with_digests(names: list[str], dtypes: list[str]) -> FeatureManife
     )
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 def test_validate_and_promote(tmp_path: Path) -> None:
     reg = FeatureRegistry(tmp_path)
     names = ["a", "b"]

@@ -29,6 +29,9 @@ from ml.data.loaders import FREDIndicator
 from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.unit
 class TestFREDConfig:
     """Test FRED configuration."""
 
@@ -42,6 +45,8 @@ class TestFREDConfig:
         assert config.backfill_years == 10
         assert config.max_retries == 3
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_config_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading API key from environment."""
         monkeypatch.setenv("FRED_API_KEY", "env_test_key")
@@ -49,6 +54,8 @@ class TestFREDConfig:
         config = FREDConfig()
         assert config.api_key == "env_test_key"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_config_missing_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test error when API key is missing."""
         monkeypatch.delenv("FRED_API_KEY", raising=False)
@@ -56,6 +63,8 @@ class TestFREDConfig:
         with pytest.raises(ValueError, match="FRED API key not provided"):
             FREDConfig()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_cache_dir_creation(self, tmp_path: Path) -> None:
         """Test cache directory is created."""
         cache_dir = tmp_path / "fred_cache"
@@ -65,9 +74,13 @@ class TestFREDConfig:
         assert config.cache_dir == cache_dir
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestFREDIndicator:
     """Test FRED indicator dataclass."""
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_indicator_creation(self) -> None:
         """Test creating an indicator."""
         indicator = FREDIndicator(
@@ -84,6 +97,8 @@ class TestFREDIndicator:
         assert indicator.category == "interest_rates"
         assert indicator.frequency == "daily"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_indicator_defaults(self) -> None:
         """Test indicator default values."""
         indicator = FREDIndicator(
@@ -133,9 +148,13 @@ def fred_loader(tmp_path: Path, mock_fred_api: MagicMock) -> FREDDataLoader:
     return loader
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestFREDDataLoader:
     """Test FRED data loader."""
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_loader_initialization(self, tmp_path: Path) -> None:
         """Test loader initialization."""
         config = FREDConfig(api_key="test", cache_dir=tmp_path)
@@ -148,6 +167,8 @@ class TestFREDDataLoader:
                 assert len(loader.indicators) > 0
                 mock_fred.assert_called_once_with(api_key="test")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_custom_indicators(self, tmp_path: Path) -> None:
         """Test loader with custom indicators."""
         config = FREDConfig(api_key="test", cache_dir=tmp_path)
@@ -172,6 +193,8 @@ class TestFREDDataLoader:
                 assert len(loader.indicators) == 2
                 assert loader.indicators[0].series_id == "CUSTOM1"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_fetch_indicator(self, fred_loader: FREDDataLoader) -> None:
         """Test fetching a single indicator."""
         df = fred_loader.fetch_indicator("DGS10", use_cache=False)
@@ -188,6 +211,8 @@ class TestFREDDataLoader:
         # Check API was called
         fred_loader.fred.get_series.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_fetch_indicator_with_dates(self, fred_loader: FREDDataLoader) -> None:
         """Test fetching with specific date range."""
         start_date = datetime(2020, 1, 1)
@@ -207,6 +232,8 @@ class TestFREDDataLoader:
         assert call_args[1]["observation_start"] == start_date
         assert call_args[1]["observation_end"] == end_date
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_cache_functionality(self, fred_loader: FREDDataLoader) -> None:
         """Test caching of fetched data."""
         # First fetch - should call API
@@ -220,6 +247,8 @@ class TestFREDDataLoader:
         # Data should be identical
         assert df1.equals(df2)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_cache_expiry(self, fred_loader: FREDDataLoader) -> None:
         """Test cache expiry."""
         # Fetch and cache data
@@ -241,6 +270,8 @@ class TestFREDDataLoader:
         df2 = fred_loader.fetch_indicator("DGS10", use_cache=True)
         assert fred_loader.fred.get_series.call_count == 2
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_rate_limiting(self, fred_loader: FREDDataLoader) -> None:
         """Test rate limiting functionality."""
         # Set very low rate limit for testing
@@ -258,6 +289,8 @@ class TestFREDDataLoader:
         # Should have waited due to rate limit
         assert elapsed >= 0.1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_fetch_with_retry(self, fred_loader: FREDDataLoader) -> None:
         """Test retry logic on API failure."""
         # Make API fail twice, then succeed
@@ -273,6 +306,8 @@ class TestFREDDataLoader:
         assert len(df) == 3
         assert fred_loader.fred.get_series.call_count == 3
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_fetch_all_indicators(self, fred_loader: FREDDataLoader) -> None:
         """Test fetching all indicators."""
         # Set limited indicators for testing
@@ -300,6 +335,8 @@ class TestFREDDataLoader:
         assert len(data["DGS10"]) == 5
         assert len(data["DGS2"]) == 5
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_combine_indicators(self, fred_loader: FREDDataLoader) -> None:
         """Test combining multiple indicators."""
         # Create sample data
@@ -325,6 +362,8 @@ class TestFREDDataLoader:
         assert "DGS2" in combined.columns
         assert len(combined) == 5
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_combine_indicators_with_gaps(self, fred_loader: FREDDataLoader) -> None:
         """Test combining indicators with different date ranges."""
         dates1 = pd.date_range("2020-01-01", periods=5)
@@ -358,6 +397,8 @@ class TestFREDDataLoader:
         assert dgs10_values[1] is not None  # Has DGS10 data
         assert dgs2_values[1] is None  # No DGS2 data for second date
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_store_indicators(
         self,
@@ -384,7 +425,7 @@ class TestFREDDataLoader:
 
         # Mock data store write method to avoid actual DB write
         data_store.write_ingestion = MagicMock()
-        
+
         # Store indicators
         fred_loader.store_indicators(data_store, mock_registry, data)
 
@@ -397,6 +438,8 @@ class TestFREDDataLoader:
         # Check data store was called
         data_store.write_ingestion.assert_called()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_update_realtime(
         self,
@@ -410,7 +453,7 @@ class TestFREDDataLoader:
         # Create DataStore with test database
         data_store = DataStore(connection_string=test_database.connection_string)
         mock_registry = MagicMock(spec=DataRegistry)
-        
+
         # Mock data store write method to avoid actual DB write
         data_store.write_ingestion = MagicMock()
 
@@ -443,6 +486,8 @@ class TestFREDDataLoader:
         data_store.write_ingestion.assert_called()
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestFREDDataLoaderIntegration:
     """Integration tests for FRED loader (requires API key)."""
 
@@ -450,6 +495,8 @@ class TestFREDDataLoaderIntegration:
         not os.getenv("FRED_API_KEY"),
         reason="FRED_API_KEY not set",
     )
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_real_api_fetch(self, tmp_path: Path) -> None:
         """Test with real FRED API (requires API key)."""
         config = FREDConfig(cache_dir=tmp_path)

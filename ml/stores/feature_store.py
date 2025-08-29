@@ -20,7 +20,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,7 +34,6 @@ from sqlalchemy import Index
 from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy import create_engine
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
@@ -42,6 +41,7 @@ from sqlalchemy.engine import Engine
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml.config.base import MLFeatureConfig
+from ml.core.db_engine import EngineManager
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
@@ -55,9 +55,32 @@ from ml.registry.persistence import PersistenceConfig
 if TYPE_CHECKING:
     from ml._imports import pl
     from nautilus_trader.model.data import Bar
+    from ml.registry.protocols import RegistryProtocol
 
 
 logger = logging.getLogger(__name__)
+
+# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
+# This delegates to the centralized EngineManager.
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+    return EngineManager.get_engine(connection_string, **kwargs)
+
+
+# Backwards-compat: expose a module-level PersistenceManager symbol for tests to monkeypatch.
+try:  # pragma: no cover - used only in tests which patch this symbol
+    from ml.registry import persistence as _persistence
+    _RealPM = _persistence.PersistenceManager
+    PersistenceManager: type[Any] = _RealPM
+except Exception:  # pragma: no cover
+    class _StubPM:
+        """Test stub for patching."""
+
+
+    PersistenceManager = _StubPM
+
+
+
+
 
 # Prometheus metrics for feature computation events (centralized)
 data_events_total: Counter | None = None
@@ -104,7 +127,7 @@ class FeatureStore:
 
         """
         self.connection_string = connection_string
-        self._data_registry: DataRegistry | None = None
+        self._data_registry: "RegistryProtocol" | None = None
         # Accept both FeatureConfig and MLFeatureConfig; normalize to FeatureConfig
         if isinstance(feature_config, FeatureConfig):
             self.feature_config: FeatureConfig = feature_config
@@ -123,6 +146,12 @@ class FeatureStore:
         self.engine: Engine = create_engine(connection_string)
         self.metadata = MetaData()
         self._setup_tables()
+        try:
+            status = EngineManager.get_pool_status(self.connection_string)
+            if status:
+                logger.debug("Engine pool status: %s", status)
+        except Exception as e:
+            logger.debug("Pool status unavailable: %s", e)
 
         # Feature engineer for computation (ensures parity)
         self.feature_engineer = FeatureEngineer(self.feature_config)
@@ -144,7 +173,7 @@ class FeatureStore:
             self.pipeline_runner = None
             self.pipeline_hash = self._compute_config_hash()
 
-    def _get_data_registry(self) -> DataRegistry | None:
+    def _get_data_registry(self) -> "RegistryProtocol" | None:
         """
         Lazily initialize and return the DataRegistry instance.
 
@@ -184,6 +213,66 @@ class FeatureStore:
 
         return self._data_registry
 
+    def compute_historical_parallel(
+        self,
+        instrument_ids: list[str],
+        start: datetime | None = None,
+        end: datetime | None = None,
+        *,
+        force_recompute: bool = False,
+        max_workers: int = 4,
+    ) -> dict[str, int]:
+        """
+        Compute-and-store historical features for multiple instruments in parallel.
+
+        Parameters
+        ----------
+        instrument_ids : list[str]
+            Instruments to compute.
+        start : datetime, optional
+            Start time (inclusive).
+        end : datetime, optional
+            End time (exclusive).
+        force_recompute : bool, default False
+            Recompute even if features exist.
+        max_workers : int, default 4
+            Maximum concurrent workers (bounded to avoid pool exhaustion).
+
+        Returns
+        -------
+        dict[str, int]
+            Mapping instrument_id -> rows written (0 on failure).
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        results: dict[str, int] = {}
+
+        if not instrument_ids:
+            return results
+
+        # Cap workers to a reasonable limit to play nicely with DB pools
+        workers = max(1, min(max_workers, 8))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            fut_to_inst = {
+                ex.submit(
+                    self.compute_and_store_historical,
+                    instrument_id=inst,
+                    start=start or datetime.utcnow() - timedelta(days=1),
+                    end=end or datetime.utcnow(),
+                    force_recompute=force_recompute,
+                ): inst
+                for inst in instrument_ids
+            }
+            for fut in as_completed(fut_to_inst):
+                inst = fut_to_inst[fut]
+                try:
+                    results[inst] = int(fut.result())
+                except Exception as e:  # pragma: no cover - environment dependent
+                    logger.error("Parallel feature compute failed for %s: %s", inst, e)
+                    results[inst] = 0
+
+        return results
+
     def _setup_tables(self) -> None:
         """
         Reflect (preferred) or create a compatible ml_feature_values table.
@@ -209,10 +298,11 @@ class FeatureStore:
             )
         except Exception:
             # Fallback: create a non-partitioned compatible table for tests/dev
+            from sqlalchemy import Integer
             self.feature_values_table = Table(
                 "ml_feature_values",
                 self.metadata,
-                Column("id", BIGINT, primary_key=True, autoincrement=True),
+                Column("id", Integer, primary_key=True, autoincrement=True),
                 Column("feature_set_id", String(255), nullable=False),
                 Column("instrument_id", String(100), nullable=False),
                 Column("ts_event", BIGINT, nullable=False),
@@ -237,6 +327,12 @@ class FeatureStore:
                 Index("idx_ml_feature_values_live", "is_live"),
             )
             self.metadata.create_all(self.engine)
+
+    @staticmethod
+    def _normalize_ts_ns(ts_value: int) -> tuple[int, bool]:
+        """Delegate to centralized timestamp normalization utility."""
+        from ml.common.timestamps import normalize_timestamp_ns
+        return normalize_timestamp_ns(ts_value)
 
     # Present for test monkeypatching and future extension; no-op here.
     def _store_to_postgres(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
@@ -321,7 +417,10 @@ class FeatureStore:
         # features_df is a DataFrame (polars or pandas). Use row-wise access safely.
         if hasattr(features_df, "iter_rows"):
             # Polars
-            for i, row_vals in enumerate(features_df.iter_rows()):
+            from typing import cast
+            from ml.typing import PolarsDF, PandasDF
+            pf = cast(PolarsDF, features_df)
+            for i, row_vals in enumerate(pf.iter_rows()):
                 ts_event = int(timestamps[i])
                 values_map = {name: float(row_vals[idx]) for idx, name in enumerate(feature_names)}
                 rows.append(
@@ -338,9 +437,12 @@ class FeatureStore:
                 )
         else:
             # Pandas path
-            for i in range(len(features_df)):
+            from typing import cast
+            from ml.typing import PandasDF
+            pdf = cast(PandasDF, features_df)
+            for i in range(len(pdf)):
                 ts_event = int(timestamps[i])
-                row = features_df.iloc[i]
+                row = pdf.iloc[i]
                 values_map = {name: float(row[name]) for name in feature_names}
                 rows.append(
                     {
@@ -357,9 +459,8 @@ class FeatureStore:
 
         # Bulk upsert into partitioned table
         with self.engine.begin() as conn:
-            from typing import Any as _Any
 
-            stmt: _Any = insert(self.feature_values_table)
+            stmt: Any = insert(self.feature_values_table)
             # Upsert on (feature_set_id, instrument_id, ts_event)
             stmt = stmt.on_conflict_do_update(
                 index_elements=[
@@ -513,6 +614,10 @@ class FeatureStore:
                 for idx, name in enumerate(feature_names)
                 if idx < features.size
             }
+            from ml.common.timestamps import sanitize_timestamp_ns
+            tse_norm = sanitize_timestamp_ns(int(bar.ts_event), logger=logger, context="FeatureStore.realtime")
+            tsi_norm = sanitize_timestamp_ns(int(bar.ts_init), logger=logger, context="FeatureStore.realtime")
+
             row = {
                 "feature_set_id": self._get_feature_set_id(),
                 "instrument_id": str(
@@ -522,8 +627,8 @@ class FeatureStore:
                         else getattr(bar, "instrument_id", "unknown")
                     ),
                 ),
-                "ts_event": int(bar.ts_event),
-                "ts_init": int(bar.ts_init),
+                "ts_event": tse_norm,
+                "ts_init": tsi_norm,
                 "values": values_map,
                 "is_live": True,
                 "source": "live",
@@ -531,9 +636,8 @@ class FeatureStore:
             }
 
             with self.engine.begin() as conn:
-                from typing import Any as _Any
 
-                stmt: _Any = insert(self.feature_values_table)
+                stmt: Any = insert(self.feature_values_table)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["feature_set_id", "instrument_id", "ts_event"],
                     set_={
@@ -704,37 +808,34 @@ class FeatureStore:
             Bars dataframe with Nautilus schema.
 
         """
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
-        from ml._imports import pl
+        import pandas as pd
+        from sqlalchemy import text as _text
 
-        if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
+        from ml._imports import pl
 
         start_ns = int(start.timestamp() * 1e9)
         end_ns = int(end.timestamp() * 1e9)
-
-        # Query Nautilus bar table
-        # NOTE: This query uses f-strings for simplicity in example form; values are
-        # controlled inputs from the application. If taking user input, parameterize.
-        query = f"""  # noqa: S608
-        SELECT
-            ts_event,
-            open,
-            high,
-            low,
-            close,
-            volume
-        FROM bar
-        WHERE instrument_id = '{instrument_id}'
-        AND ts_event >= {start_ns}
-        AND ts_event <= {end_ns}
-        ORDER BY ts_event
-        """
-
-        # Use Polars for efficient reading
-        df = pl.read_database(query, self.connection_string)
-        return df
+        sql = _text(
+            """
+            SELECT ts_event, open, high, low, close, volume
+            FROM public.bar
+            WHERE instrument_id = :instrument_id
+              AND ts_event >= :start_ns
+              AND ts_event <= :end_ns
+            ORDER BY ts_event
+            """,
+        )
+        with self.engine.connect() as conn:
+            pdf = pd.read_sql_query(
+                sql,
+                conn,
+                params={  # type: ignore[arg-type]
+                    "instrument_id": instrument_id,
+                    "start_ns": start_ns,
+                    "end_ns": end_ns,
+                },
+            )
+        return pl.from_pandas(pdf)
 
     def _features_exist(
         self,
@@ -818,65 +919,144 @@ class FeatureStore:
 
     def write_features(
         self,
-        feature_set_id: str,
-        instrument_id: str,
-        features: dict[str, float],
-        ts_event: int,
-        ts_init: int,
+        feature_set_id: str | None = None,
+        instrument_id: str | None = None,
+        features: dict[str, float] | None = None,
+        ts_event: int | None = None,
+        ts_init: int | None = None,
+        data: Any | None = None,
     ) -> None:
         """
         Write computed features to storage.
 
-        This method stores features that have already been computed by an actor.
-        It ensures data persistence for training/inference parity tracking.
+        Supports both the explicit-args signature and a backwards-compatible
+        form where callers pass a FeatureData or list[FeatureData]. This helps
+        legacy tests which call `write_features([FeatureData])`.
 
         Parameters
         ----------
-        feature_set_id : str
-            Feature set identifier
-        instrument_id : str
-            Instrument identifier
-        features : dict[str, float]
-            Feature name to value mapping
-        ts_event : int
-            Event timestamp in nanoseconds
-        ts_init : int
-            Initialization timestamp in nanoseconds
-
+        feature_set_id : str | None
+            Feature set identifier (explicit mode)
+        instrument_id : str | None
+            Instrument identifier (explicit mode)
+        features : dict[str, float] | None
+            Feature name to value mapping (explicit mode)
+        ts_event : int | None
+            Event timestamp in nanoseconds (explicit mode)
+        ts_init : int | None
+            Initialization timestamp in nanoseconds (explicit mode)
+        data : Any | None
+            Backwards-compat: a FeatureData or list[FeatureData]
         """
-        # Convert features dict to JSON for storage
-        features_json = json.dumps(features)
+        # Backwards compatibility: support write_features([FeatureData]) / (batch)
+        batch_data: list[Any] | None = None
+        if data is None and feature_set_id is not None and isinstance(feature_set_id, list):
+            # Called as write_features([FeatureData])
+            batch_data = feature_set_id
+            feature_set_id = None
+        elif data is not None:
+            if isinstance(data, list):
+                batch_data = data
+            elif hasattr(data, "feature_values") and hasattr(data, "feature_set_id"):
+                batch_data = [data]
+            else:
+                msg = "Unsupported data type for write_features"
+                raise TypeError(msg)
 
-        # Use feature set ID as version identifier
-        feature_version = (
-            self._get_feature_set_id() if hasattr(self, "pipeline_hash") else feature_set_id
-        )
+        if batch_data is not None:
+            batch: list[Any] = batch_data
 
-        # Prepare data for insertion
-        data = {
-            "feature_set_id": feature_set_id,
-            "feature_version": feature_version,
-            "instrument_id": instrument_id,
-            "ts_event": ts_event,
-            "ts_init": ts_init,
-            "features": features_json,
-            "computed_at": int(datetime.utcnow().timestamp() * 1e9),
+            # Perform upserts per item
+            for item in batch:
+                fs_id = getattr(item, "feature_set_id")
+                inst = getattr(item, "instrument_id")
+                # Use safe accessor to avoid collisions with base class methods
+                try:
+                    vals: dict[str, float] = item.feature_values
+                except Exception:
+                    vals = {}
+                tse = int(getattr(item, "ts_event"))
+                tsi = int(getattr(item, "ts_init", tse))
+
+                row = {
+                    "feature_set_id": fs_id,
+                    "instrument_id": inst,
+                    "ts_event": tse,
+                    "ts_init": tsi,
+                    "values": vals,
+                    "is_live": False,
+                    "source": "computed",
+                }
+                self._execute_write(row)
+            return
+
+        # Explicit-args mode
+        if (
+            feature_set_id is None
+            or instrument_id is None
+            or features is None
+            or ts_event is None
+        ):
+            raise TypeError(
+                "write_features requires explicit arguments or a FeatureData batch",
+            )
+
+        ts_init_val = int(ts_init) if ts_init is not None else int(ts_event)
+
+        # Normalize features mapping defensively
+        features_payload: dict[str, float] = {
+            str(k): float(v) for k, v in dict(features or {}).items()
         }
 
         # Insert with ON CONFLICT for idempotency
-        with self.engine.begin() as conn:
-            from typing import Any as _Any
+        row = {
+            "feature_set_id": feature_set_id,
+            "instrument_id": instrument_id,
+            "ts_event": int(ts_event),
+            "ts_init": ts_init_val,
+            "values": features_payload,
+            "is_live": False,
+            "source": "computed",
+        }
+        self._execute_write(row)
 
-            stmt: _Any = insert(self.feature_values_table).values(data)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["feature_set_id", "instrument_id", "ts_event"],
-                set_={
-                    "features": stmt.excluded.features,
-                    "ts_init": stmt.excluded.ts_init,
-                    "computed_at": stmt.excluded.computed_at,
-                },
-            )
+    def _execute_write(self, row: dict[str, Any]) -> None:  # pragma: no cover (exercised in integration)
+        """Upsert a single feature row (patchable in tests)."""
+        # Optional audit logging (sampled)
+        try:
+            import os
+            import random
+
+            sample = int(os.getenv("ML_AUDIT", "0"))
+            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311
+                logger.info("AUDIT FeatureStore._execute_write: keys=%s", list(row.keys()))
+        except Exception as e:
+            logger.debug("Audit logging skipped due to error: %s", e)
+        # Final guard: normalize any incoming timestamps
+        from ml.common.timestamps import sanitize_timestamp_ns
+        if "ts_event" in row:
+            row["ts_event"] = sanitize_timestamp_ns(int(row["ts_event"]), logger=logger, context="FeatureStore._execute_write")
+        if "ts_init" in row:
+            row["ts_init"] = sanitize_timestamp_ns(int(row["ts_init"]), logger=logger, context="FeatureStore._execute_write")
+
+        stmt = insert(self.feature_values_table).values(row)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["feature_set_id", "instrument_id", "ts_event"],
+            set_={
+                "values": stmt.excluded["values"],
+                "ts_init": stmt.excluded.ts_init,
+                "source": stmt.excluded.source,
+            },
+        )
+        with self.engine.begin() as conn:
             conn.execute(stmt)
+
+    def _execute_query(self, sql: str) -> list[Any]:  # pragma: no cover (test hook)
+        """Execute a SQL query and return rows (patchable)."""
+        from sqlalchemy import text as _text
+        with self.engine.connect() as conn:
+            result = conn.execute(_text(sql))
+            return list(result.fetchall())
 
     def flush(self) -> None:
         """
@@ -908,3 +1088,7 @@ class FeatureStore:
                 return result is not None
         except Exception:
             return False
+
+    def _get_connection(self) -> Any:  # pragma: no cover (test hook for patching)
+        """Return a connection context manager (patchable in tests)."""
+        return self.engine.connect()

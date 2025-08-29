@@ -170,6 +170,12 @@ def process_data(data):  # Missing type annotation
     return data.values   # Implicit Any
 ```
 
+### Protocols and Interfaces
+
+- Define structural interfaces with `typing.Protocol` (see `ml/stores/protocols.py`).
+- Type higher layers (actors/strategies) against protocols instead of concrete stores to prevent interface drift.
+- Dummy and alternate implementations must conform (e.g., implement `get_statistics`, not ad‑hoc `get_stats`).
+
 ---
 
 ## C. Testing Requirements
@@ -217,6 +223,19 @@ def test_moving_average_properties(data: list[float], window: int) -> None:
     assert np.all(result >= min(data))
     assert np.all(result <= max(data))
 ```
+
+### Test Profiles & Hooks
+
+- Profiles:
+  - PR gate: `make pytest-ml-fast`
+  - Integration-fast (DB‑backed subset): `make pytest-ml-db FAST=1`
+  - Full suite: run locally or in generous CI runners
+- Heavy tests should patch the provided hooks instead of internals:
+  - FeatureStore: `_execute_write`, `_execute_query`, `_get_connection`
+  - ModelStore: `_execute_write`
+  - StrategyStore: `_execute_write`, `_get_connection`
+  - DataStore: `_begin_transaction`, `_update_watermark`
+- Hypothesis: For function‑scoped fixtures, use `@settings(..., suppress_health_check=[HealthCheck.function_scoped_fixture])`.
 
 ### Parity Testing
 
@@ -414,6 +433,20 @@ class DatabaseConfig(NautilusConfig, kw_only=True, frozen=True):
         for field, env_var in self._ENV_MAPPING.items():
             if env_value := os.getenv(env_var):
                 object.__setattr__(self, field, type(getattr(self, field))(env_value))
+
+### Database & Migrations
+
+- Canonical migrations: use `ml/stores/migrations/*.sql`; avoid legacy `ml/schema/*.sql`.
+- Preflight: run `ml/stores/db_preflight.check_db_prereqs()` at startup and in CI to verify required DB functions and current‑month partitions.
+- Pooling: obtain engines exclusively via `ml.core.db_engine.EngineManager.get_engine()`; do not instantiate engines directly.
+- SQL: parameterize all dynamic queries via `sqlalchemy.text()` with bind parameters; avoid f‑strings in SQL.
+ - Indexes: for large range scans, add BRIN on `ts_event` in addition to composite BTREE lookup indexes; see `ml/stores/migrations/007_brin_indexes.sql`.
+
+### Timestamp Policy
+
+- All timestamps are UNIX nanoseconds.
+- Use `ml/common/timestamps.{normalize_timestamp_ns,sanitize_timestamp_ns}` in write paths.
+- Policy via env: `ML_TS_NORMALIZATION_MODE` in {`warn` (default), `normalize`, `reject`}.
 ```
 
 ---
@@ -640,6 +673,16 @@ pytest ml/ --cov=ml --cov-report=term-missing
 # Verify coverage threshold
 coverage report --fail-under=90  # For ML modules
 ```
+
+### Sanity Sweep (Advisory)
+
+- `make sanity` runs fast advisory checks:
+  - ruff (S608/C901 on `ml/`)
+  - mypy strict (`ml/`)
+  - legacy schema refs (`ml/schema/*`)
+  - SQL f‑strings and broad `except`
+  - layering (stores importing actors)
+- Included as a non‑blocking pre‑commit hook to surface issues early.
 
 ### Ruff Configuration
 

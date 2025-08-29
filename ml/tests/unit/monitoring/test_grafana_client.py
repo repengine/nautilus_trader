@@ -17,20 +17,26 @@ import requests
 from ml.monitoring.grafana_client import GrafanaAPIError
 from ml.monitoring.grafana_client import GrafanaClient
 
+
 # Import test database fixture if not already available
 try:
-    from ml.tests.conftest import clean_postgres_db, test_database
+    from ml.tests.conftest import clean_postgres_db
+    from ml.tests.conftest import test_database
 except ImportError:
     # Fixtures should be available via pytest
     pass
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")  # Ensure clean PostgreSQL state for integration tests
 class TestGrafanaClient:
     """
     Test cases for GrafanaClient.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_with_api_token(self) -> None:
         """
         Test initialization with API token authentication.
@@ -42,6 +48,8 @@ class TestGrafanaClient:
         assert client.timeout == 30
         assert "Authorization" in client.session.headers
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_with_basic_auth(self) -> None:
         """
         Test initialization with username/password authentication.
@@ -57,6 +65,8 @@ class TestGrafanaClient:
         assert hasattr(client, "auth")
         assert client.auth == ("admin", "admin")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_invalid_url(self) -> None:
         """
         Test initialization with invalid URL raises ValueError.
@@ -64,6 +74,8 @@ class TestGrafanaClient:
         with pytest.raises(ValueError, match="Invalid base URL"):
             GrafanaClient("invalid-url", api_token="test-token")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_no_auth(self) -> None:
         """
         Test initialization without authentication raises ValueError.
@@ -71,6 +83,8 @@ class TestGrafanaClient:
         with pytest.raises(ValueError, match="Must provide either API token or username/password"):
             GrafanaClient("http://localhost:3000")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_strips_trailing_slash(self) -> None:
         """
         Test initialization strips trailing slash from base URL.
@@ -78,6 +92,8 @@ class TestGrafanaClient:
         client = GrafanaClient("http://localhost:3000/", api_token="test-token")
         assert client.base_url == "http://localhost:3000"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_success_200(self, mock_request: MagicMock) -> None:
         """
@@ -95,6 +111,8 @@ class TestGrafanaClient:
         assert result == {"test": "data"}
         mock_request.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_success_200_no_content(self, mock_request: MagicMock) -> None:
         """
@@ -110,6 +128,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_success_201(self, mock_request: MagicMock) -> None:
         """
@@ -126,6 +146,8 @@ class TestGrafanaClient:
 
         assert result == {"id": 123}
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_success_201_no_content(self, mock_request: MagicMock) -> None:
         """
@@ -141,6 +163,8 @@ class TestGrafanaClient:
 
         assert result == {}
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_success_204(self, mock_request: MagicMock) -> None:
         """
@@ -155,6 +179,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_not_found_404(self, mock_request: MagicMock) -> None:
         """
@@ -169,6 +195,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_error_with_json_response(self, mock_request: MagicMock) -> None:
         """
@@ -187,6 +215,8 @@ class TestGrafanaClient:
         assert exc_info.value.status_code == 400
         assert "Bad request" in str(exc_info.value)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_error_without_json_response(self, mock_request: MagicMock) -> None:
         """
@@ -206,6 +236,8 @@ class TestGrafanaClient:
         assert exc_info.value.status_code == 500
         assert "Internal Server Error" in str(exc_info.value)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch("ml.monitoring.grafana_client.requests.Session.request")
     def test_make_request_connection_error(self, mock_request: MagicMock) -> None:
         """
@@ -218,6 +250,8 @@ class TestGrafanaClient:
         with pytest.raises(GrafanaAPIError, match="Request failed"):
             client._make_request("GET", "/api/test")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_health_check_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -231,6 +265,8 @@ class TestGrafanaClient:
         assert result is True
         mock_make_request.assert_called_once_with("GET", "/api/health")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_health_check_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -243,6 +279,8 @@ class TestGrafanaClient:
 
         assert result is False
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_server_info_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -256,6 +294,8 @@ class TestGrafanaClient:
         assert result == {"version": "9.0.0", "commit": "abc123"}
         mock_make_request.assert_called_once_with("GET", "/api/admin/stats")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_server_info_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -268,6 +308,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     @patch("time.strftime")
     @patch("time.gmtime")
@@ -289,6 +331,8 @@ class TestGrafanaClient:
         assert result == "2025-01-01T12:00:00Z"
         mock_make_request.assert_called_once_with("GET", "/api/health")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_server_time_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -301,6 +345,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_search_dashboards_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -322,6 +368,8 @@ class TestGrafanaClient:
             params={"query": "test", "tag": "ml", "starred": "true", "limit": "10"},
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_search_dashboards_empty_params(self, mock_make_request: MagicMock) -> None:
         """
@@ -335,6 +383,8 @@ class TestGrafanaClient:
         assert result == []
         mock_make_request.assert_called_once_with("GET", "/api/search", params={})
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_search_dashboards_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -347,6 +397,8 @@ class TestGrafanaClient:
 
         assert result == []
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_search_dashboards_non_list_response(self, mock_make_request: MagicMock) -> None:
         """
@@ -359,6 +411,8 @@ class TestGrafanaClient:
 
         assert result == []
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -376,6 +430,8 @@ class TestGrafanaClient:
         assert result["dashboard"]["uid"] == "test-uid"
         mock_make_request.assert_called_once_with("GET", "/api/dashboards/uid/test-uid")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_dashboard_not_found(self, mock_make_request: MagicMock) -> None:
         """
@@ -388,6 +444,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_dashboard_other_error(self, mock_make_request: MagicMock) -> None:
         """
@@ -400,6 +458,8 @@ class TestGrafanaClient:
         with pytest.raises(GrafanaAPIError):
             client.get_dashboard("test-uid")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_create_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -419,6 +479,8 @@ class TestGrafanaClient:
         assert result["uid"] == "new-uid"
         mock_make_request.assert_called_once_with("POST", "/api/dashboards/db", data=dashboard_data)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_create_dashboard_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -431,6 +493,8 @@ class TestGrafanaClient:
         with pytest.raises(GrafanaAPIError):
             client.create_dashboard({})
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_update_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -449,6 +513,8 @@ class TestGrafanaClient:
         assert result["version"] == 2
         mock_make_request.assert_called_once_with("POST", "/api/dashboards/db", data=dashboard_data)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_update_dashboard_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -461,6 +527,8 @@ class TestGrafanaClient:
         with pytest.raises(GrafanaAPIError):
             client.update_dashboard({})
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_delete_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -474,6 +542,8 @@ class TestGrafanaClient:
         assert result is True
         mock_make_request.assert_called_once_with("DELETE", "/api/dashboards/uid/test-uid")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_delete_dashboard_not_found(self, mock_make_request: MagicMock) -> None:
         """
@@ -486,6 +556,8 @@ class TestGrafanaClient:
 
         assert result is True  # Already doesn't exist
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_delete_dashboard_other_error(self, mock_make_request: MagicMock) -> None:
         """
@@ -498,6 +570,8 @@ class TestGrafanaClient:
 
         assert result is False
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_import_dashboard_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -517,6 +591,8 @@ class TestGrafanaClient:
         assert result["uid"] == "imported-uid"
         mock_make_request.assert_called_once_with("POST", "/api/dashboards/db", data=import_data)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_import_dashboard_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -529,6 +605,8 @@ class TestGrafanaClient:
         with pytest.raises(GrafanaAPIError):
             client.import_dashboard({})
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_folders_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -546,6 +624,8 @@ class TestGrafanaClient:
         assert result[0]["uid"] == "folder1"
         mock_make_request.assert_called_once_with("GET", "/api/folders")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_folders_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -558,6 +638,8 @@ class TestGrafanaClient:
 
         assert result == []
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_folders_non_list_response(self, mock_make_request: MagicMock) -> None:
         """
@@ -570,6 +652,8 @@ class TestGrafanaClient:
 
         assert result == []
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_create_folder_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -585,6 +669,8 @@ class TestGrafanaClient:
         assert result["uid"] == "new-folder"
         mock_make_request.assert_called_once_with("POST", "/api/folders", data=folder_data)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_create_folder_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -597,6 +683,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_folder_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -611,6 +699,8 @@ class TestGrafanaClient:
         assert result["uid"] == "test-folder"
         mock_make_request.assert_called_once_with("GET", "/api/folders/test-folder")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_folder_not_found(self, mock_make_request: MagicMock) -> None:
         """
@@ -623,6 +713,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_folder_other_error(self, mock_make_request: MagicMock) -> None:
         """
@@ -635,6 +727,8 @@ class TestGrafanaClient:
         with pytest.raises(GrafanaAPIError):
             client.get_folder("test-folder")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_datasources_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -652,6 +746,8 @@ class TestGrafanaClient:
         assert result[0]["name"] == "Prometheus"
         mock_make_request.assert_called_once_with("GET", "/api/datasources")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_datasources_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -664,6 +760,8 @@ class TestGrafanaClient:
 
         assert result == []
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_test_datasource_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -678,6 +776,8 @@ class TestGrafanaClient:
         assert result["status"] == "success"
         mock_make_request.assert_called_once_with("POST", "/api/datasources/1/health")
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_test_datasource_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -690,6 +790,8 @@ class TestGrafanaClient:
 
         assert result is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_annotations_success(self, mock_make_request: MagicMock) -> None:
         """
@@ -725,6 +827,8 @@ class TestGrafanaClient:
             },
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_annotations_minimal_params(self, mock_make_request: MagicMock) -> None:
         """
@@ -742,6 +846,8 @@ class TestGrafanaClient:
             params={"limit": "100"},
         )
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @patch.object(GrafanaClient, "_make_request")
     def test_get_annotations_failure(self, mock_make_request: MagicMock) -> None:
         """
@@ -754,6 +860,8 @@ class TestGrafanaClient:
 
         assert result == []
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_context_manager(self) -> None:
         """
         Test client as context manager.
@@ -763,6 +871,8 @@ class TestGrafanaClient:
                 assert isinstance(client, GrafanaClient)
             mock_close.assert_called_once()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_close_session(self) -> None:
         """
         Test session closing.
@@ -774,11 +884,15 @@ class TestGrafanaClient:
             mock_close.assert_called_once()
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestGrafanaAPIError:
     """
     Test cases for GrafanaAPIError.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_basic(self) -> None:
         """
         Test basic error initialization.
@@ -789,6 +903,8 @@ class TestGrafanaAPIError:
         assert error.status_code is None
         assert error.response_data == {}
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_with_status_code(self) -> None:
         """
         Test error initialization with status code.
@@ -799,6 +915,8 @@ class TestGrafanaAPIError:
         assert error.status_code == 400
         assert error.response_data == {}
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_with_response_data(self) -> None:
         """
         Test error initialization with response data.
@@ -810,6 +928,8 @@ class TestGrafanaAPIError:
         assert error.status_code is None
         assert error.response_data == response_data
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_init_with_all_params(self) -> None:
         """
         Test error initialization with all parameters.
@@ -822,6 +942,8 @@ class TestGrafanaAPIError:
         assert error.response_data == response_data
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_main_function(test_database) -> None:
     """

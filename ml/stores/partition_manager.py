@@ -15,8 +15,9 @@ from datetime import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import create_engine
 from sqlalchemy import text
+
+from ml.core.db_engine import EngineManager
 
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ class PartitionManager:
             Optional logger instance
 
         """
-        self.engine: Engine = create_engine(connection_string)
+        self.engine: Engine = EngineManager.get_engine(connection_string)
         self.tables = tables or [
             "ml_feature_values",
             "ml_model_predictions",
@@ -325,6 +326,100 @@ class PartitionManager:
                 return True
 
         return False
+
+    def create_test_partitions(
+        self,
+        start_year: int = 2023,
+        start_month: int = 1,
+        end_year: int = 2026,
+        end_month: int = 12,
+    ) -> int:
+        """
+        Create partitions for a specific date range (used for testing).
+
+        Parameters
+        ----------
+        start_year : int
+            Starting year for partitions
+        start_month : int
+            Starting month for partitions
+        end_year : int
+            Ending year for partitions
+        end_month : int
+            Ending month for partitions
+
+        Returns
+        -------
+        int
+            Number of partitions created
+
+        """
+        created_count = 0
+
+        with self.engine.connect() as conn:
+            for table_name in self.tables:
+                # Iterate through the date range
+                current_year = start_year
+                current_month = start_month
+
+                while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+                    partition_name = f"{table_name}_{current_year:04d}_{current_month:02d}"
+
+                    # Check if partition exists
+                    exists_result = conn.execute(
+                        text(
+                            """
+                            SELECT EXISTS (
+                                SELECT 1 FROM pg_tables
+                                WHERE schemaname = 'public'
+                                AND tablename = :name
+                            )
+                        """,
+                        ),
+                        {"name": partition_name},
+                    )
+
+                    if not exists_result.scalar():
+                        # Calculate nanosecond timestamps
+                        start_date = datetime(current_year, current_month, 1)
+                        start_ns = int(start_date.timestamp() * 1e9)
+
+                        # Calculate end of month
+                        if current_month == 12:
+                            end_date = datetime(current_year + 1, 1, 1)
+                        else:
+                            end_date = datetime(current_year, current_month + 1, 1)
+                        end_ns = int(end_date.timestamp() * 1e9)
+
+                        try:
+                            # Create partition
+                            conn.execute(
+                                text(
+                                    f"""
+                                    CREATE TABLE IF NOT EXISTS {partition_name}
+                                    PARTITION OF {table_name}
+                                    FOR VALUES FROM ({start_ns}) TO ({end_ns})
+                                """,
+                                ),
+                            )
+                            conn.commit()
+                            self.logger.info(f"Created test partition {partition_name}")
+                            created_count += 1
+                        except Exception as e:
+                            # Ignore duplicate partition errors
+                            if "already exists" not in str(e) and "overlap" not in str(e):
+                                self.logger.warning(f"Failed to create partition {partition_name}: {e}")
+                            conn.rollback()
+
+                    # Move to next month
+                    if current_month == 12:
+                        current_month = 1
+                        current_year += 1
+                    else:
+                        current_month += 1
+
+        self.logger.info(f"Created {created_count} test partitions")
+        return created_count
 
     def run_maintenance(self) -> dict[str, int | str]:
         """

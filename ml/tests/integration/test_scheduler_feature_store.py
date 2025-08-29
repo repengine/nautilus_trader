@@ -10,18 +10,20 @@ from __future__ import annotations
 
 import os
 import tempfile
-import pytest
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import pytest
+
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.scheduler import DataScheduler
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
+from ml.tests.fixtures.database_fixtures import TestDatabase
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
@@ -32,7 +34,6 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-from ml.tests.fixtures.database_fixtures import TestDatabase
 
 
 def create_test_bars(
@@ -99,6 +100,9 @@ def create_test_bars(
     return bars
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.integration
 class TestSchedulerFeatureStoreIntegration:
     """
     Test DataScheduler with FeatureStore integration.
@@ -147,6 +151,8 @@ class TestSchedulerFeatureStoreIntegration:
         if self.temp_dir and Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_computation_with_catalog_data(
         self,
@@ -163,7 +169,7 @@ class TestSchedulerFeatureStoreIntegration:
             mock_feature_store = MagicMock()
             mock_feature_store.compute_and_store_historical.return_value = 100
             mock_feature_store_class.return_value = mock_feature_store
-            
+
             scheduler = DataScheduler(
                 catalog=self.catalog,
                 config=self.config,
@@ -191,6 +197,8 @@ class TestSchedulerFeatureStoreIntegration:
         # Verify compute_and_store_historical was called for each symbol
         assert mock_feature_store.compute_and_store_historical.call_count >= 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_feature_computation_disabled(self) -> None:
         """
         Test that feature computation is skipped when disabled.
@@ -214,6 +222,8 @@ class TestSchedulerFeatureStoreIntegration:
         # Verify feature store was not initialized
         assert scheduler._feature_store is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_feature_computation_without_engineer(self) -> None:
         """
         Test that feature computation is skipped without feature engineer.
@@ -231,6 +241,8 @@ class TestSchedulerFeatureStoreIntegration:
         # Verify feature store was not initialized
         assert scheduler._feature_store is None
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_initialization_failure(self, test_database: TestDatabase) -> None:
         """
@@ -242,7 +254,7 @@ class TestSchedulerFeatureStoreIntegration:
         # Create scheduler - should handle failure gracefully
         with patch("ml.stores.feature_store.create_engine") as mock_create_engine:
             mock_create_engine.side_effect = Exception("Database connection failed")
-            
+
             scheduler = DataScheduler(
                 catalog=self.catalog,
                 config=self.config,
@@ -256,6 +268,8 @@ class TestSchedulerFeatureStoreIntegration:
         assert scheduler.enabled
         assert len(scheduler.config.symbols) == 2
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_symbol_parsing_and_mapping(self) -> None:
         """
         Test correct parsing and mapping of symbol formats.
@@ -283,6 +297,8 @@ class TestSchedulerFeatureStoreIntegration:
         assert venue_map["XNYS"] == "NYSE"
         assert venue_map.get("UNKNOWN", "UNKNOWN") == "UNKNOWN"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_connection_from_env(self, test_database: TestDatabase) -> None:
         """
@@ -314,6 +330,8 @@ class TestSchedulerFeatureStoreIntegration:
                 call_args = mock_feature_store_class.call_args
                 assert test_database.connection_string in str(call_args)
 
+    @pytest.mark.database
+    @pytest.mark.serial
     @pytest.mark.usefixtures("clean_postgres_db")
     def test_metrics_tracking(self, test_database: TestDatabase) -> None:
         """

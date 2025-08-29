@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
-import polars as pl
+from ml._imports import pl, check_ml_dependencies
 
 from ml.data.providers.base import BaseStaticProvider
 from ml.data.providers.base import BaseTimeSeriesProvider
@@ -327,6 +327,9 @@ class TransformProviderAdapter:
             Data for the transform
 
         """
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
+
         # Get provider for transform
         provider = self.get_provider_for_transform(transform)
 

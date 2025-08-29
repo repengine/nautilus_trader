@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pytest
 
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
@@ -19,6 +20,8 @@ from .test_utils import compute_nautilus_indicators
 from .test_utils import validate_feature_parity
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.integration
 class TestInfrastructure:
     """
     Test integration test infrastructure components.

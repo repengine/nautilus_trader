@@ -12,6 +12,7 @@ from datetime import datetime
 from datetime import timedelta
 
 import polars as pl
+import pytest
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
@@ -22,6 +23,9 @@ from ml.features.pipeline import PipelineSpec
 from ml.features.pipeline import TransformSpec
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.integration
 class TestTransformProviderIntegration:
     """
     Test integration between transforms and providers.

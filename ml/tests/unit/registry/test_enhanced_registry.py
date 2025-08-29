@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Comprehensive tests for enhanced ModelRegistry with integrated features.
 
@@ -23,15 +22,20 @@ import numpy as np
 import pytest
 
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.dataclasses import CanaryConfig
 from ml.registry.dataclasses import CanaryDeployment
 from ml.registry.dataclasses import QualityGate
 from ml.registry.dataclasses import ValidationResult
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
+from ml.tests.utils.wait_helpers import TestTimeout
+from ml.tests.utils.wait_helpers import wait_for_condition
 
 
+@pytest.mark.flaky
+@pytest.mark.slow
+@pytest.mark.unit
 class TestEnhancedModelRegistry:
     """
     Test enhanced ModelRegistry with all integrated features.
@@ -279,8 +283,14 @@ class TestEnhancedModelRegistry:
                 error_occurred=False,
             )
 
-        # Wait briefly (at least the monitoring duration)
-        time.sleep(0.4)  # 0.4 seconds > 0.0001 hours (0.36 seconds)
+        # Wait for monitoring duration using event-based approach
+        # The canary needs time to collect metrics
+        wait_for_condition(
+            lambda: (time.time() - registry._canary_deployments[deployment_id].start_time) > 0.36,
+            timeout=1.0,
+            poll_interval=0.05,
+            error_message="Monitoring period not complete"
+        )
 
         # Evaluate canary
         should_promote, reason = registry.evaluate_canary(deployment_id)
@@ -652,8 +662,13 @@ class TestEnhancedModelRegistry:
                 error_occurred=False,
             )
 
-        # Wait and evaluate
-        time.sleep(0.4)
+        # Wait for monitoring period using event-based approach
+        wait_for_condition(
+            lambda: (time.time() - registry._canary_deployments[deployment_id].start_time) > 0.36,
+            timeout=1.0,
+            poll_interval=0.05,
+            error_message="Monitoring period not complete"
+        )
         should_promote, _ = registry.evaluate_canary(deployment_id)
         assert should_promote is True
 

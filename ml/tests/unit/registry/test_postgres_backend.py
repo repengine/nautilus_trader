@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Unit tests for PostgreSQL-backed registries.
 
@@ -20,12 +19,12 @@ import pytest
 
 SUFFIX_ONNX = ".onnx"  # Define directly to avoid import issues
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
@@ -81,6 +80,9 @@ def postgres_persistence_config() -> PersistenceConfig | None:
     return None
 
 
+@pytest.mark.database
+@pytest.mark.serial
+@pytest.mark.unit
 class TestModelRegistryBackends:
     """
     Test model registry with different backends.
@@ -127,6 +129,8 @@ class TestModelRegistryBackends:
         assert model_info.manifest.role == ModelRole.TEACHER
         assert model_info.manifest.architecture == "XGBoost"
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_postgres_backend_register_and_retrieve(
         self,
         temp_dir: Path,
@@ -182,11 +186,15 @@ class TestModelRegistryBackends:
         assert model_info2.manifest.version == "2.0.0"
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestFeatureRegistryBackends:
     """
     Test feature registry with different backends.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_json_backend_register_and_retrieve(
         self,
         temp_dir: Path,
@@ -228,6 +236,8 @@ class TestFeatureRegistryBackends:
         assert feature_info.manifest.role == FeatureRole.TEACHER
         assert len(feature_info.manifest.feature_names) == 2
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_postgres_backend_with_lifecycle(
         self,
         temp_dir: Path,
@@ -277,11 +287,15 @@ class TestFeatureRegistryBackends:
         assert feature_info.manifest.stage == FeatureStage.PROD
 
 
+@pytest.mark.database
+@pytest.mark.serial
 class TestStrategyRegistryBackends:
     """
     Test strategy registry with different backends.
     """
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_json_backend_register_and_retrieve(
         self,
         temp_dir: Path,
@@ -339,6 +353,8 @@ class TestStrategyRegistryBackends:
         assert strategy_info.manifest.strategy_type == StrategyType.MOMENTUM
         assert MarketRegime.TRENDING_UP in strategy_info.manifest.suitable_regimes
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_postgres_backend_with_compatibility(
         self,
         temp_dir: Path,
@@ -397,6 +413,8 @@ class TestStrategyRegistryBackends:
         assert is_compatible
 
 
+@pytest.mark.database
+@pytest.mark.serial
 def test_backend_switching(temp_dir: Path) -> None:
     """
     Test switching between JSON and PostgreSQL backends.

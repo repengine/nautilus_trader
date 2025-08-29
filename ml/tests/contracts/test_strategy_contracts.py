@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Functional tests for strategy signal handling.
 
@@ -17,6 +16,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import numpy as np
+import pytest
 
 from ml.actors.base import MLSignal
 from ml.strategies.base import BaseMLStrategy
@@ -24,6 +24,7 @@ from nautilus_trader.core.data import Data
 from nautilus_trader.model.identifiers import InstrumentId
 
 
+@pytest.mark.parallel_safe
 class TestStrategyContracts:
     """
     Test suite for strategy signal handling contracts.

@@ -291,8 +291,8 @@ class MetricsServer:
         if not self._running:
             return False
 
-        start_time = time.time()
-        while time.time() - start_time < timeout:
+        start_time = time.perf_counter()
+        while time.perf_counter() - start_time < timeout:
             if self._is_port_open():
                 return True
             time.sleep(0.1)

@@ -19,6 +19,8 @@ from nautilus_trader.model.identifiers import ComponentId
 from nautilus_trader.model.identifiers import InstrumentId
 
 
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestMLActorConfiguration:
     """
     Tests for ML actor configuration handling.

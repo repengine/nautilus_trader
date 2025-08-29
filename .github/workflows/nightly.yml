@@ -1,0 +1,45 @@
+name: Nightly Integration (DB FAST)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  db-fast:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: nautilus
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        run: pip install uv
+      - name: Install project
+        run: uv pip install -e .
+      - name: Apply canonical migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nautilus
+        run: |
+          psql "$DATABASE_URL" -f ml/stores/migrations/001_stores_schema.sql
+          psql "$DATABASE_URL" -f ml/stores/migrations/002_auto_partitioning.sql
+          psql "$DATABASE_URL" -f ml/stores/migrations/003_market_data.sql
+          psql "$DATABASE_URL" -f ml/stores/migrations/004_data_registry.sql
+          psql "$DATABASE_URL" -f ml/stores/migrations/005_schema_hardening.sql
+          psql "$DATABASE_URL" -f ml/stores/migrations/005a_feature_values_dedupe.sql
+          psql "$DATABASE_URL" -f ml/stores/migrations/006_disable_partition_triggers.sql
+      - name: DB FAST tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nautilus
+          NAUTILUS_REGISTRY_DB_URL: postgresql://postgres:postgres@localhost:5432/nautilus
+        run: make pytest-ml-db FAST=1

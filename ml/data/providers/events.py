@@ -13,7 +13,7 @@ from datetime import datetime
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-import polars as pl
+from ml._imports import pl, check_ml_dependencies
 
 from ml.data.providers.base import BaseTimeSeriesProvider
 
@@ -98,6 +98,9 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
             - event_clustering_score: float
 
         """
+        if pl is None:
+            check_ml_dependencies(["polars"])  # Ensure Polars present when used
+
         if instruments is None:
             instruments = []
 

@@ -26,6 +26,8 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
+@pytest.mark.database
+@pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db")
 @pytest.mark.integration
 class TestStrategyStoreE2E:
@@ -62,7 +64,7 @@ class TestStrategyStoreE2E:
 
         # Create unique strategy ID for each test
         self.strategy_id = f"E2E-{int(time.time() * 1000)}"
-        
+
         # Store test database reference
         self.engine = test_database.engine
         self.connection_string = test_database.connection_string
@@ -71,8 +73,10 @@ class TestStrategyStoreE2E:
         """
         Clean up handled by clean_postgres_db fixture.
         """
-        pass  # Database cleanup handled by fixture
+        # Database cleanup handled by fixture
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_full_pipeline_with_real_database(self) -> None:
         """
         Test complete flow from signal to database persistence.
@@ -164,6 +168,8 @@ class TestStrategyStoreE2E:
                 # Verify model predictions
                 assert f"model_{i}" in row[4]  # model_predictions JSON
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_batch_persistence(self, test_database) -> None:
         """
         Test that batching works correctly with real database.
@@ -233,6 +239,8 @@ class TestStrategyStoreE2E:
             )
             conn.commit()
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_error_recovery(self, test_database) -> None:
         """
         Test that the system recovers from database errors.
@@ -313,6 +321,8 @@ class TestStrategyStoreE2E:
             # At least the recovery signal should be there
             assert count >= 1
 
+    @pytest.mark.database
+    @pytest.mark.serial
     def test_concurrent_strategies(self, test_database) -> None:
         """
         Test multiple strategies writing to the same database.

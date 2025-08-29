@@ -499,7 +499,10 @@ class ModelRegistry:
                 # Allow non-ONNX for non-serveable models (e.g., cold-path teachers)
                 if getattr(manifest, "serveable", True):
                     raise ValueError(
-                        f"Only ONNX models are supported for serveable models. Got: {model_path.suffix}.",
+                        (
+                            "Only ONNX models are supported for serveable models. Got: "
+                            f"{model_path.suffix}."
+                        ),
                     )
 
             # Security: Validate path is safe
@@ -519,7 +522,10 @@ class ModelRegistry:
                 feature_registry_file = self.registry_path / "feature_registry.json"
                 if not feature_registry_file.exists():
                     raise ValueError(
-                        "FeatureRegistry not found alongside ModelRegistry; cannot validate feature parity",
+                        (
+                            "FeatureRegistry not found alongside ModelRegistry; "
+                            "cannot validate feature parity"
+                        ),
                     )
                 from ml.registry.feature_registry import FeatureRegistry
 
@@ -577,7 +583,10 @@ class ModelRegistry:
                         if not result["passed"] and result["required"]
                     ]
                     raise ValueError(
-                        f"Quality gates not met for model {manifest.model_id}. Failed gates: {failed_gates}",
+                        (
+                            "Quality gates not met for model "
+                            f"{manifest.model_id}. Failed gates: {failed_gates}"
+                        ),
                     )
 
             # Create model info
@@ -624,7 +633,10 @@ class ModelRegistry:
             )
 
             logger.info(
-                f"Registered {manifest.role.value} model {manifest.model_id} (version {manifest.version}) at {model_path}",
+                (
+                    f"Registered {manifest.role.value} model {manifest.model_id} "
+                    f"(version {manifest.version}) at {model_path}"
+                ),
             )
 
             # Auto-deploy if requested and validation passes
@@ -653,7 +665,10 @@ class ModelRegistry:
                         ):
                             is_valid = False
                             errors.append(
-                                f"Student inference must be under {self._policy.max_inference_latency_ms}ms",
+                                (
+                                    "Student inference must be under "
+                                    f"{self._policy.max_inference_latency_ms}ms"
+                                ),
                             )
 
                 if is_valid:

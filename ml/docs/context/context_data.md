@@ -4,6 +4,10 @@
 
 The `ml/data/` module provides a comprehensive data pipeline infrastructure for machine learning workflows within Nautilus Trader. The module has been refactored to eliminate redundant components and use Nautilus native components directly, following a clean architecture with clear separation of concerns.
 
+Operational notes:
+- Timestamps: All pipeline timestamps are UNIX nanoseconds. Store write paths perform defensive normalization from seconds/ms/us to ns and log a warning if triggered. See `context_stores.md` → "Timestamp Policy & Normalization".
+- DB readiness: Apply canonical migrations and run a DB preflight before running ingestion/backfills to ensure required functions and partitions exist. See `context_deployment.md`.
+
 **Key Components:**
 
 - **Data Collection**: Enhanced `DataCollector` for Databento API integration with multi-tier data collection strategy

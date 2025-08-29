@@ -11,16 +11,20 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pytest
 from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
 from ml.registry.base import DataRequirements
-from ml.registry.model_registry import ModelManifest
 from ml.registry.base import ModelRole
+from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 
 
+@pytest.mark.property
+@pytest.mark.parallel_safe
+@pytest.mark.unit
 class TestRegistryProperties:
     """
     Test algebraic properties of the registry.
