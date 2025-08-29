@@ -37,7 +37,7 @@ This log records notable decisions in the ML integration layer.
 - Decision: Default `MLIntegrationManager` `auto_start_postgres` and `auto_migrate` to False; allow env flags `ML_AUTO_START_DB` and `ML_AUTO_MIGRATE` to opt-in.
 - Consequences: Safer behavior by default; explicit opt-in for local convenience.
 
-## 2025-08-29: Universal ML Component Protocol (Task 2.2)
+## 2025-08-29: Universal ML Component Protocol
 
 - Problem: Health, metrics, and configuration validation patterns varied across actors, stores, and registries, making it hard to reason about component state and enforce consistency.
 - Decision: Introduce a runtime-checkable `MLComponentProtocol` with three methods:
