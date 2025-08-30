@@ -707,7 +707,7 @@ class DataStore(MLComponentMixin):
             )
 
             # Emit event to registry
-            correlation_id = self._make_correlation_id(
+            correlation_id = make_correlation_id(
                 run_id=run_id,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
@@ -765,7 +765,7 @@ class DataStore(MLComponentMixin):
             )
 
             # Emit failure event
-            correlation_id = self._make_correlation_id(
+            correlation_id = make_correlation_id(
                 run_id=run_id,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
@@ -1071,28 +1071,7 @@ class DataStore(MLComponentMixin):
     # Internal helpers
     # ---------------------------------------------------------------------
 
-    @staticmethod
-    def _make_correlation_id(
-        run_id: str,
-        dataset_id: str,
-        instrument_id: str,
-        ts_min: int,
-        ts_max: int,
-        count: int,
-    ) -> str:
-        h = hashlib.sha256()
-        h.update(run_id.encode("utf-8"))
-        h.update(b"|")
-        h.update(dataset_id.encode("utf-8"))
-        h.update(b"|")
-        h.update(instrument_id.encode("utf-8"))
-        h.update(b"|")
-        h.update(str(ts_min).encode("utf-8"))
-        h.update(b"|")
-        h.update(str(ts_max).encode("utf-8"))
-        h.update(b"|")
-        h.update(str(count).encode("utf-8"))
-        return h.hexdigest()
+    
 
     def _emit_success_event_and_update(
         self,
@@ -1111,7 +1090,7 @@ class DataStore(MLComponentMixin):
         Emit a success event and update registry watermark for the dataset.
         """
         try:
-            correlation_id = self._make_correlation_id(
+            correlation_id = make_correlation_id(
                 run_id=run_id,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,

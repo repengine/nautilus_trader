@@ -790,3 +790,7 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 - **Deployment**: See `context_deployment.md` for containerization
 - **Actors**: See `context_actors.md` for inference actors
 - **Models**: See `context_models.md` for model implementations
+### Health Summary
+
+- `MLIntegrationManager.aggregate_health()` aggregates per-component health into domain and system summaries using the universal protocol.
+- CLI utility: `python -m ml.cli.health [--db-connection <url>] [--strict]` prints a JSON summary suitable for dashboards or checks.

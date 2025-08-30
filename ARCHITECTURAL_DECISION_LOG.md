@@ -64,3 +64,9 @@ This log records notable decisions in the ML integration layer.
 - Problem: Stage names were hardcoded across modules, risking drift and typos that break DB constraints and analytics.
 - Decision: Add `ml/config/events.py` with a typed `Stage` enum (values persisted to DB). Refactor core emitters (DataStore, DataScheduler) to use constants. Add a lightweight validator script to flag raw stage literals.
 - Consequences: Consistent event stage usage across codebase; easier refactors and safer migrations. Prevents accidental string drift.
+
+## 2025-08-29: Aggregated Health Summaries
+
+- Problem: Health checks were ad-hoc per component; no canonical, typed summary for domains or the system as a whole.
+- Decision: Add `MLIntegrationManager.aggregate_health()` returning per-component health/metrics (via `MLComponentProtocol`), aggregated to domain (data/features/model/strategy) and overall system status.
+- Consequences: Single entry point for ops and CI to assess ML system health. Enables simple CLI tooling and integration with monitoring/alerts.

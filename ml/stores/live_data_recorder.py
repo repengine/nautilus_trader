@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ml.registry.data_registry import DataRegistry
-from ml.config.events import Stage
+from ml.config.events import Stage, Source
 from ml.stores.data_store import DataStore
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
@@ -50,7 +50,7 @@ class LiveDataRecorder:
         buffer_size: int = 1000,
         flush_interval_ms: int = 1000,
         storage_path: Path | None = None,
-    ):
+    ) -> None:
         self.data_store = data_store
         self.data_registry = data_registry
         self.buffer_size = buffer_size
@@ -197,7 +197,7 @@ class LiveDataRecorder:
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
                     stage=Stage.CATALOG_WRITTEN.value,
-                    source="live",
+                    source=Source.LIVE.value,
                     run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
                     ts_min=metadata["ts_min"],
                     ts_max=metadata["ts_max"],
@@ -209,7 +209,7 @@ class LiveDataRecorder:
                 self.data_registry.update_watermark(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    source="live",
+                    source=Source.LIVE.value,
                     last_success_ns=metadata["ts_max"],
                     count=metadata["count"],
                     completeness_pct=100.0,
@@ -221,7 +221,7 @@ class LiveDataRecorder:
                 dataset_id=dataset_id,
                 instrument_id="unknown",
                 stage=Stage.CATALOG_WRITTEN.value,
-                source="live",
+                source=Source.LIVE.value,
                 run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
                 ts_min=0,
                 ts_max=0,
@@ -290,7 +290,7 @@ class LiveDataInterceptor:
 
     """
 
-    def __init__(self, recorder: LiveDataRecorder):
+    def __init__(self, recorder: LiveDataRecorder) -> None:
         self.recorder = recorder
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
