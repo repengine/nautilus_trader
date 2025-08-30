@@ -29,6 +29,7 @@ from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from ml.config.events import Stage as _stage
+from ml.config.events import Source as _source
 
 
 if TYPE_CHECKING:
@@ -666,7 +667,7 @@ class DataScheduler:
                                     dataset_id=dataset_id,
                                     instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
                                     stage=_stage.CATALOG_WRITTEN.value,
-                                    source="historical",
+                                    source=_source.HISTORICAL.value,
                                     run_id=run_id,
                                     ts_min=ts_min,
                                     ts_max=ts_max,
@@ -678,7 +679,7 @@ class DataScheduler:
                                 self._data_registry.update_watermark(
                                     dataset_id=dataset_id,
                                     instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
-                                    source="historical",
+                                    source=_source.HISTORICAL.value,
                                     last_success_ns=ts_max,
                                     count=len(data),
                                     completeness_pct=100.0,  # Assume complete for successful writes
@@ -690,7 +691,7 @@ class DataScheduler:
                                         dataset_type=dataset_type_label,
                                         component=schema_name,
                                         stage=_stage.CATALOG_WRITTEN.value,
-                                        source="historical",
+                                        source=_source.HISTORICAL.value,
                                         status="success",
                                     ).inc()
 
@@ -706,7 +707,7 @@ class DataScheduler:
                                         dataset_type=dataset_type_label,
                                         component=schema_name,
                                         stage=_stage.CATALOG_WRITTEN.value,
-                                        source="historical",
+                                        source=_source.HISTORICAL.value,
                                         status="failed",
                                     ).inc()
                     except Exception as catalog_error:
@@ -723,7 +724,7 @@ class DataScheduler:
                                     dataset_id=dataset_id,
                                     instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
                                     stage=_stage.CATALOG_WRITTEN.value,
-                                    source="historical",
+                                    source=_source.HISTORICAL.value,
                                     run_id=run_id,
                                     ts_min=0,
                                     ts_max=0,
@@ -737,7 +738,7 @@ class DataScheduler:
                                         dataset_type=dataset_type_label,
                                         component=schema_name,
                                         stage=_stage.CATALOG_WRITTEN.value,
-                                        source="historical",
+                                        source=_source.HISTORICAL.value,
                                         status="failed",
                                     ).inc()
                             except Exception as e:

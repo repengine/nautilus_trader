@@ -715,11 +715,12 @@ class DataStore(MLComponentMixin):
                 ts_max=ts_max,
                 count=len(df),
             )
+            source_norm = source if source in {"live", "historical", "backfill"} else "live"
             self.registry.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 stage=stage,
-                source=source,
+                source=source_norm,
                 run_id=run_id,
                 ts_min=ts_min,
                 ts_max=ts_max,
@@ -772,11 +773,12 @@ class DataStore(MLComponentMixin):
                 ts_max=0,
                 count=0,
             )
+            source_norm = source if source in {"live", "historical", "backfill"} else "live"
             self.registry.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 stage=stage,
-                source=source,
+                source=source_norm,
                 run_id=run_id,
                 ts_min=0,
                 ts_max=0,
@@ -1117,11 +1119,13 @@ class DataStore(MLComponentMixin):
                 ts_max=ts_max,
                 count=count,
             )
+            # Normalize source to allowed set for registry persistence
+            source_norm = source if source in {"live", "historical", "backfill"} else "live"
             self.registry.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 stage=stage,
-                source=source,
+                source=source_norm,
                 run_id=run_id,
                 ts_min=ts_min,
                 ts_max=ts_max,
@@ -1132,7 +1136,7 @@ class DataStore(MLComponentMixin):
             self.registry.update_watermark(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
-                source=source,
+                source=source_norm,
                 last_success_ns=ts_max,
                 count=count,
                 completeness_pct=completeness_pct,

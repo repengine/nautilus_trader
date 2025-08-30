@@ -48,7 +48,7 @@ from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.registry.data_registry import DataRegistry
-from ml.config.events import Stage
+from ml.config.events import Stage, Source
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 
@@ -498,7 +498,7 @@ class FeatureStore:
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
                     stage=Stage.FEATURE_COMPUTED.value,
-                    source="historical",
+                    source=Source.HISTORICAL.value,
                     run_id=run_id,
                     ts_min=ts_min,
                     ts_max=ts_max,
@@ -510,7 +510,7 @@ class FeatureStore:
                 registry.update_watermark(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    source="historical",
+                    source=Source.HISTORICAL.value,
                     last_success_ns=ts_max,
                     count=len(rows),
                     completeness_pct=100.0,  # Historical data is considered complete
@@ -522,7 +522,7 @@ class FeatureStore:
                         dataset_type="features",
                         component=feature_set_id,
                         stage=Stage.FEATURE_COMPUTED.value,
-                        source="historical",
+                        source=Source.HISTORICAL.value,
                         status="success",
                     ).inc()
 

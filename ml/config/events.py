@@ -24,5 +24,14 @@ class Stage(str, Enum):
     SIGNAL_EMITTED = "SIGNAL_EMITTED"
 
 
-__all__ = ["Stage"]
+class Source(str, Enum):
+    """
+    Allowed event sources persisted by the registry.
+    """
 
+    LIVE = "live"
+    HISTORICAL = "historical"
+    BACKFILL = "backfill"
+
+
+__all__ = ["Stage", "Source"]
