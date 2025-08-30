@@ -769,8 +769,9 @@ dataset_id = data_registry.register_dataset(manifest)
 data_registry.emit_event(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    stage="CATALOG_WRITTEN",
-    source="historical",
+    from ml.config.events import Stage, Source
+    stage=Stage.CATALOG_WRITTEN.value,
+    source=Source.HISTORICAL.value,
     run_id="run_123",
     ts_min=1234567890000000000,
     ts_max=1234567900000000000,
@@ -782,7 +783,8 @@ data_registry.emit_event(
 data_registry.update_watermark(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    source="live",
+    from ml.config.events import Source
+    source=Source.LIVE.value,
     last_success_ns=1234567900000000000,
     count=1000,
     completeness_pct=98.5

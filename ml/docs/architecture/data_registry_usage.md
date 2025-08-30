@@ -172,8 +172,9 @@ import time
 registry.emit_event(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    stage="CATALOG_WRITTEN",
-    source="historical",
+    from ml.config.events import Stage, Source
+    stage=Stage.CATALOG_WRITTEN.value,
+    source=Source.HISTORICAL.value,
     run_id="run_20240115_001",
     ts_min=int(time.time() * 1e9),
     ts_max=int((time.time() + 3600) * 1e9),
@@ -185,8 +186,9 @@ registry.emit_event(
 registry.emit_event(
     dataset_id="features_v1",
     instrument_id="EUR/USD",
-    stage="FEATURE_COMPUTED",
-    source="live",
+    from ml.config.events import Stage, Source
+    stage=Stage.FEATURE_COMPUTED.value,
+    source=Source.LIVE.value,
     run_id="run_20240115_002",
     ts_min=int(time.time() * 1e9),
     ts_max=int((time.time() + 3600) * 1e9),
@@ -676,8 +678,9 @@ class MLPipelineActor(BaseMLInferenceActor):
         self.registry.emit_event(
             dataset_id="features_v1",
             instrument_id=data.instrument_id,
-            stage="FEATURE_COMPUTED",
-            source="live",
+            from ml.config.events import Stage, Source
+            stage=Stage.FEATURE_COMPUTED.value,
+            source=Source.LIVE.value,
             run_id=self.run_id,
             ts_min=data.ts_min,
             ts_max=data.ts_max,

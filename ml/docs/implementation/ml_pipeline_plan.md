@@ -1,13 +1,28 @@
-# ML Data Pipeline Implementation Plan
+# ML Pipeline Implementation Plan: Data Pipeline & Domain Bookkeeping
 
 ## Executive Summary
 
-This document provides a complete implementation plan to establish an end-to-end data pipeline from Databento market data ingestion through feature computation to TFT dataset creation. The pipeline currently has excellent individual components but lacks critical integration layers.
+This document provides comprehensive implementation plans for:
 
-**Current State**: 40% complete (components 80-90% ready, integration 10% working)
+1. **ML Data Pipeline**: End-to-end data pipeline from Databento market data ingestion through feature computation to TFT dataset creation
+2. **Domain Bookkeeping & Unified Observability**: Enterprise-grade observability and intelligent automation systems
+
+**Current State**: 
+- Data Pipeline: 40% complete (components 80-90% ready, integration 10% working)
+- Domain Bookkeeping: 75% complete (infrastructure ready, integration needed)
+
+**Target State**: Production-ready pipeline with automated daily updates and enterprise observability
+**Key Principle**: Leverage existing Nautilus components rather than building custom solutions
+
+---
+
+# PART I: ML DATA PIPELINE
+
+## Current State Assessment
+
+**Data Pipeline Status**: 40% complete (components 80-90% ready, integration 10% working)
 **Target State**: Production-ready pipeline with automated daily updates
 **Estimated Timeline**: 8-9 days with one developer
-**Key Principle**: Leverage existing Nautilus components rather than building custom solutions
 
 ## Architecture Decisions
 
@@ -1716,7 +1731,4 @@ The implementation is complete when:
 
 ---
 
-**Document Version**: 1.0.0
-**Last Updated**: 2024-12-19
-**Author**: ML Pipeline Team
-**Status**: Ready for Implementation
+

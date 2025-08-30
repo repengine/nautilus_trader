@@ -44,6 +44,7 @@ import numpy as np
 from sqlalchemy import text
 
 from ml.registry.data_registry import DataRegistry
+from ml.config.events import Stage, Source
 from ml.registry.dataclasses import DatasetType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
@@ -1253,8 +1254,8 @@ def apply_backfill(
                             registry.emit_event(
                                 dataset_id=source_dataset.lower(),
                                 instrument_id=instrument_id,
-                                stage="CATALOG_WRITTEN",
-                                source="databento_backfill",
+                                stage=Stage.CATALOG_WRITTEN.value,
+                                source=Source.BACKFILL.value,
                                 run_id=job_id,
                                 ts_min=start_ns,
                                 ts_max=end_ns,

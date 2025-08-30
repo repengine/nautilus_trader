@@ -115,6 +115,12 @@ jobs:
       - name: Run tests
         run: |
           uv run --no-sync pytest --ignore=tests/performance_tests -n logical --dist=loadgroup
+      - name: Validate metrics bootstrap usage
+        run: |
+          make validate-metrics
+      - name: Validate event stage constants
+        run: |
+          make validate-events
 
       - name: Upload wheel artifact
         uses: ./.github/actions/upload-artifact-wheel
@@ -204,6 +210,12 @@ jobs:
       - name: Run tests
         run: |
           uv run --no-sync pytest --ignore=tests/performance_tests
+      - name: Validate metrics bootstrap usage
+        run: |
+          make validate-metrics
+      - name: Validate event stage constants
+        run: |
+          make validate-events
 
       - name: Upload wheel artifact
         uses: ./.github/actions/upload-artifact-wheel
