@@ -414,6 +414,79 @@ class MLIntegrationManager:
                 raise RuntimeError(msg)
             logger.warning(msg)
 
+    def aggregate_health(self) -> dict[str, object]:
+        """
+        Aggregate component health into domain and system summaries.
+
+        Returns
+        -------
+        dict[str, object]
+            A structured health summary with keys:
+            - components: per-component health and metrics (when available)
+            - domains: aggregated health per domain (data, features, model, strategy)
+            - system: overall status with list of unhealthy components
+        """
+        def _comp_health(comp: object) -> dict[str, object]:
+            healthy = True
+            health: dict[str, object] | None = None
+            metrics: dict[str, float] | None = None
+            if isinstance(comp, MLComponentProtocol):
+                try:
+                    health = comp.get_health_status()
+                except Exception:
+                    healthy = False
+                try:
+                    metrics = comp.get_performance_metrics()
+                except Exception:
+                    metrics = None
+            return {"healthy": healthy, "health": health or {}, "metrics": metrics or {}}
+
+        components: dict[str, dict[str, object]] = {}
+        comp_map: dict[str, object] = {
+            "feature_store": getattr(self, "feature_store", None),
+            "model_store": getattr(self, "model_store", None),
+            "strategy_store": getattr(self, "strategy_store", None),
+            "data_store": getattr(self, "data_store", None),
+            "feature_registry": getattr(self, "feature_registry", None),
+            "model_registry": getattr(self, "model_registry", None),
+            "strategy_registry": getattr(self, "strategy_registry", None),
+            "data_registry": getattr(self, "data_registry", None),
+        }
+
+        for name, comp in comp_map.items():
+            components[name] = _comp_health(comp) if comp is not None else {
+                "healthy": False,
+                "health": {},
+                "metrics": {},
+            }
+
+        def _domain_healthy(keys: list[str]) -> bool:
+            return all(components[k]["healthy"] for k in keys if k in components)
+
+        domains = {
+            "data": {
+                "components": ["data_store", "data_registry"],
+                "healthy": _domain_healthy(["data_store", "data_registry"]),
+            },
+            "features": {
+                "components": ["feature_store", "feature_registry"],
+                "healthy": _domain_healthy(["feature_store", "feature_registry"]),
+            },
+            "model": {
+                "components": ["model_store", "model_registry"],
+                "healthy": _domain_healthy(["model_store", "model_registry"]),
+            },
+            "strategy": {
+                "components": ["strategy_store", "strategy_registry"],
+                "healthy": _domain_healthy(["strategy_store", "strategy_registry"]),
+            },
+        }
+
+        unhealthy_components = [name for name, info in components.items() if not info["healthy"]]
+        system = {"healthy": len(unhealthy_components) == 0, "unhealthy": unhealthy_components}
+
+        return {"components": components, "domains": domains, "system": system}
+
     def check_health(self) -> dict[str, bool]:
         """
         Check health of all components.
