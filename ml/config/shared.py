@@ -82,59 +82,7 @@ class OptunaConfig(msgspec.Struct, kw_only=True, frozen=True):
             raise ValueError(msg)
 
 
-class MLflowConfig(msgspec.Struct, kw_only=True, frozen=True):
-    """
-    MLflow experiment tracking configuration.
-
-    Parameters
-    ----------
-    enabled : bool, default False
-        Enable MLflow experiment tracking.
-    tracking_uri : str, default "http://localhost:5000"
-        MLflow tracking server URI.
-    experiment_name : str, default "ml_experiment"
-        Name of the MLflow experiment.
-    register_model : bool, default True
-        Register model in MLflow model registry after training.
-    model_name : str, default "ml_model"
-        Registered model name in MLflow.
-    log_artifacts : bool, default True
-        Log training artifacts (feature importance, SHAP values, etc.).
-    log_model : bool, default True
-        Log the trained model to MLflow.
-    auto_log : bool, default False
-        Enable MLflow autologging for the ML framework.
-
-    """
-
-    enabled: bool = False
-    tracking_uri: str = "http://localhost:5000"
-    experiment_name: str = "ml_experiment"
-    register_model: bool = True
-    model_name: str = "ml_model"
-    log_artifacts: bool = True
-    log_model: bool = True
-    auto_log: bool = False
-
-    def __post_init__(self) -> None:
-        """
-        Validate MLflow configuration.
-        """
-        if not self.experiment_name.strip():
-            msg = "experiment_name cannot be empty"
-            raise ValueError(msg)
-
-        if self.register_model and not self.model_name.strip():
-            msg = "model_name cannot be empty when register_model is True"
-            raise ValueError(msg)
-
-        # Basic URL validation
-        if not (
-            self.tracking_uri.startswith(("http://", "https://", "file://"))
-            or self.tracking_uri.startswith("sqlite://")
-        ):
-            msg = f"tracking_uri must start with http://, https://, file://, or sqlite://, got {self.tracking_uri}"
-            raise ValueError(msg)
+# MLflowConfig removed - deprecated in favor of ModelRegistry
 
 
 class BaseGPUConfig(msgspec.Struct, kw_only=True, frozen=True):
@@ -284,7 +232,6 @@ __all__ = [
     "AdvancedTrainingConfig",
     "BaseGPUConfig",
     "LightGBMGPUConfig",
-    "MLflowConfig",
     "OptunaConfig",
     "XGBoostGPUConfig",
 ]

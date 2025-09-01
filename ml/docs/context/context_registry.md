@@ -344,11 +344,14 @@ def check_compatibility(
 
 #### JSON Backend (Development)
 
-- **Storage**: Local filesystem with JSON serialization
+- **Storage**: Local filesystem with JSON serialization (writes an empty registry on initialization for determinism)
 - **Schema**: Manual JSON structure maintenance
 - **Transactions**: File-level atomicity
 - **Audit**: JSONL append log
 - **Performance**: Fast for small datasets, limited scalability
+
+Deterministic persistence for tests/tools:
+- The JSON backend persists immediately on initialization and provides a `flush()` method to force immediate persistence of pending changes. This improves assertions on file presence/content immediately after registry operations.
 
 #### PostgreSQL Backend (Production)
 
@@ -667,6 +670,11 @@ Each bootstrapped dataset includes:
    - ONNX-only serving for safety
    - Feature registry linkage (recommended for production)
    - Schema hash enforcement
+
+### Development-Time Relaxed Parity
+
+- For unit/property tests and lightweight dev setups, strict feature parity validation can be disabled by omitting `feature_set_id` or a colocated FeatureRegistry. The registry logs a warning and proceeds when the environment variable `ML_STRICT_FEATURE_PARITY` is unset or `0`.
+- Set `ML_STRICT_FEATURE_PARITY=1` to enforce production-grade parity checks (feature_set_id presence, FeatureRegistry availability, schema hash match). When enabled, violations raise errors.
 
 ### Integration Points 🔄
 

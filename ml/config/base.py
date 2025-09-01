@@ -128,6 +128,16 @@ class CircuitBreakerConfig(NautilusConfig, kw_only=True, frozen=True):
     failure_threshold: PositiveInt = 5
     recovery_timeout: PositiveInt = 60
     success_threshold: PositiveInt = 3
+    # Legacy alias (deprecated): allow tests/configs using `half_open_attempts`
+    half_open_attempts: PositiveInt | None = None
+
+    def __post_init__(self) -> None:
+        """
+        Normalize legacy aliases while preserving immutability.
+        """
+        # Map legacy `half_open_attempts` to `success_threshold` if provided.
+        if self.half_open_attempts is not None and self.half_open_attempts != self.success_threshold:
+            object.__setattr__(self, "success_threshold", int(self.half_open_attempts))
 
 
 class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):

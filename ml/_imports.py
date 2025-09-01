@@ -117,18 +117,11 @@ except ImportError as e:
     torch = None  # type: ignore[assignment,unused-ignore]
 
 
-# MLflow
-try:
-    import mlflow
-    import mlflow.lightgbm
-    import mlflow.xgboost
-
-    HAS_MLFLOW = True
-    MLFLOW_IMPORT_ERROR = None
-except ImportError as e:
-    HAS_MLFLOW = False
-    MLFLOW_IMPORT_ERROR = e
-    mlflow = None  # type: ignore[assignment,unused-ignore]
+# MLflow (DEPRECATED - use ModelRegistry instead)
+# Removed direct imports to prevent telemetry activation
+HAS_MLFLOW = False
+MLFLOW_IMPORT_ERROR = ImportError("MLflow deprecated - use ModelRegistry")
+mlflow = None  # type: ignore[assignment,unused-ignore]
 
 
 # Scikit-learn

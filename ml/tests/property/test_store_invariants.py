@@ -183,16 +183,15 @@ class TestFeatureStoreInvariants:
         start_timestamp = int(datetime(year, 1, 1).timestamp() * 1e9)
         end_timestamp = int(datetime(year, 12, 31, 23, 59, 59).timestamp() * 1e9)
 
-        # Create partitions (monthly)
+        # Create non-overlapping partitions that cover the entire year
+        partition_size = (end_timestamp - start_timestamp) // n_partitions
         partition_boundaries = []
-        for month in range(1, min(n_partitions + 1, 13)):
-            month_start = int(datetime(year, month, 1).timestamp() * 1e9)
-            if month == 12:
-                month_end = end_timestamp
-            else:
-                next_month = datetime(year, month + 1, 1)
-                month_end = int((next_month - timedelta(seconds=1)).timestamp() * 1e9)
-            partition_boundaries.append((month_start, month_end))
+        for i in range(n_partitions):
+            part_start = start_timestamp + (i * partition_size)
+            part_end = start_timestamp + ((i + 1) * partition_size) - 1
+            if i == n_partitions - 1:  # Last partition extends to year end
+                part_end = end_timestamp
+            partition_boundaries.append((part_start, part_end))
 
         # Distribute features across partitions
         timestamps = np.random.randint(start_timestamp, end_timestamp, n_features)

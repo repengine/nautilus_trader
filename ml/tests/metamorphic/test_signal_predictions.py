@@ -169,7 +169,8 @@ class TestSignalPredictionMetamorphic:
 
         # 2. Relative ordering should be preserved
         sorted_scales = sorted(scale_factors)
-        sorted_preds = sorted([base_prediction * s for s in sorted_scales])
+        # Preserve the mapping order (do not sort predictions themselves)
+        sorted_preds = [base_prediction * s for s in sorted_scales]
         clipped_sorted = [np.clip(p, -1, 1) for p in sorted_preds]
 
         # Check monotonicity (considering clipping)

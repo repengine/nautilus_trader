@@ -27,7 +27,7 @@ from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.shared import AdvancedTrainingConfig
 from ml.config.shared import BaseGPUConfig
 from ml.config.shared import LightGBMGPUConfig
-from ml.config.shared import MLflowConfig
+# MLflowConfig removed - deprecated
 from ml.config.shared import OptunaConfig
 from ml.config.shared import XGBoostGPUConfig
 from ml.config.xgboost import UnifiedXGBoostConfig  # Backward compatibility
@@ -50,7 +50,6 @@ __all__ = [
     "MLSignalActorConfig",
     "MLStrategyConfig",
     "MLTrainingConfig",
-    "MLflowConfig",
     "ModelDeploymentConfig",
     "ModelRegistryConfig",
     "MultiModelStrategyConfig",

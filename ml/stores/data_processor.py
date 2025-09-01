@@ -8,26 +8,36 @@ complete ML trading pipeline.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
-import logging
 from enum import IntFlag
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from sqlalchemy import text
-from ml.common.timestamps import sanitize_timestamp_ns
-logger = logging.getLogger(__name__)
 
+from ml.common.timestamps import sanitize_timestamp_ns
 from ml.core.db_engine import EngineManager
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
 
 
+logger = logging.getLogger(__name__)
+
+
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
+
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+    """
+    Module-level factory for tests to monkeypatch.
+
+    Delegates to EngineManager in production; tests patch this symbol.
+    """
+    return EngineManager.get_engine(connection_string, **kwargs)
 
 class QualityFlags(IntFlag):
     """
@@ -91,7 +101,8 @@ class DataProcessor:
             Enable caching of metadata and statistics
 
         """
-        self.engine: Engine = EngineManager.get_engine(connection_string)
+        # Module-level create_engine for easy monkeypatching in tests
+        self.engine: Engine = create_engine(connection_string)
         self.outlier_threshold = outlier_threshold
         self.staleness_threshold_ns = staleness_threshold_seconds * 1_000_000_000
         self.enable_caching = enable_caching
@@ -261,6 +272,7 @@ class DataProcessor:
                 quality_flags |= QualityFlags.INF_VALUES
                 # Cap at reasonable bounds
                 cleaned_features[name] = np.sign(value) * 1e6
+                metrics.missing_imputed += 1
             else:
                 cleaned_features[name] = value
 
@@ -278,6 +290,7 @@ class DataProcessor:
             values=cleaned_features,
             _ts_event=ts_event,
             _ts_init=sanitize_timestamp_ns(time.time_ns()),
+            quality_flags=int(quality_flags),
         )
 
         # 5. Store additional metadata separately

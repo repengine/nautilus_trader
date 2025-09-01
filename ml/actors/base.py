@@ -475,8 +475,7 @@ class MLSignal(NautilusData):
     """
     ML signal data class for signal generation.
 
-    Clean, simple data class with required model_id field for tracking.
-    No confusing aliases or "unified" terminology.
+    Simple data class with required model_id field for tracking.
 
     Parameters
     ----------

@@ -211,7 +211,17 @@ class DataRegistry(MLComponentMixin):
         self._watermarks = {}
         self._lineage = []
         if self.backend == BackendType.JSON:
-            self._save_registry()
+            # Save immediately to ensure the backing file exists for callers/tests
+            # which verify presence directly after initialization.
+            self._save_registry(immediate=True)
+
+    # Public flush for tests and tooling
+    def flush(self) -> None:
+        """
+        Persist any pending batched changes immediately (JSON backend only).
+        """
+        if self.backend == BackendType.JSON:
+            self._save_registry(immediate=True)
 
     def _dict_to_manifest(self, data: dict[str, Any]) -> DatasetManifest:
         """
@@ -948,7 +958,7 @@ class DataRegistry(MLComponentMixin):
                                 "count": count,
                                 "status": status,
                                 "error": error,
-                                "metadata": metadata or {},
+                                "metadata": json.dumps(metadata or {}),
                             },
                         )
                     except Exception:

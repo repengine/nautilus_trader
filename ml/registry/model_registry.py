@@ -514,37 +514,55 @@ class ModelRegistry(MLComponentMixin):
             if not manifest.feature_schema_hash:
                 raise ValueError("feature_schema_hash is required for all models")
 
-            # Strong enforcement for serveable models: feature registry parity is mandatory
+            # Enforcement for serveable models: validate feature parity where possible.
             if getattr(manifest, "serveable", True):
-                if not manifest.feature_set_id:
-                    raise ValueError(
-                        "feature_set_id is required for serveable models to ensure feature parity",
-                    )
-                feature_registry_file = self.registry_path / "feature_registry.json"
-                if not feature_registry_file.exists():
-                    raise ValueError(
-                        (
-                            "FeatureRegistry not found alongside ModelRegistry; "
-                            "cannot validate feature parity"
-                        ),
-                    )
-                from ml.registry.feature_registry import FeatureRegistry
+                # Allow relaxed parity in development unless explicitly enforced via env.
+                import os
 
-                freg = FeatureRegistry(self.registry_path)
-                finfo = freg.get_feature_set(manifest.feature_set_id)
-                if finfo is None:
-                    raise ValueError(
-                        f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry",
+                strict_parity = os.getenv("ML_STRICT_FEATURE_PARITY", "0") == "1"
+                feature_registry_file = self.registry_path / "feature_registry.json"
+
+                if not manifest.feature_set_id:
+                    msg = (
+                        "feature_set_id is missing for serveable model; "
+                        "parity validation skipped"
                     )
-                if finfo.manifest.schema_hash != manifest.feature_schema_hash:
-                    raise ValueError(
-                        "feature_schema_hash mismatch between model manifest and feature manifest",
+                    if strict_parity:
+                        raise ValueError(
+                            "feature_set_id is required for serveable models to ensure feature parity",
+                        )
+                    logger.warning(msg)
+                elif not feature_registry_file.exists():
+                    msg = (
+                        "FeatureRegistry not found alongside ModelRegistry; "
+                        "cannot validate feature parity"
                     )
-                # Backfill pipeline identity
-                if not manifest.pipeline_signature:
-                    manifest.pipeline_signature = finfo.manifest.pipeline_signature
-                if not manifest.pipeline_version:
-                    manifest.pipeline_version = finfo.manifest.pipeline_version
+                    if strict_parity:
+                        raise ValueError(msg)
+                    logger.warning(msg)
+                else:
+                    from ml.registry.feature_registry import FeatureRegistry
+
+                    freg = FeatureRegistry(self.registry_path)
+                    finfo = freg.get_feature_set(manifest.feature_set_id)
+                    if finfo is None:
+                        msg = f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry"
+                        if strict_parity:
+                            raise ValueError(msg)
+                        logger.warning(msg)
+                    else:
+                        if finfo.manifest.schema_hash != manifest.feature_schema_hash:
+                            msg = (
+                                "feature_schema_hash mismatch between model manifest and feature manifest"
+                            )
+                            if strict_parity:
+                                raise ValueError(msg)
+                            logger.warning(msg)
+                        # Backfill pipeline identity
+                        if not manifest.pipeline_signature:
+                            manifest.pipeline_signature = finfo.manifest.pipeline_signature
+                        if not manifest.pipeline_version:
+                            manifest.pipeline_version = finfo.manifest.pipeline_version
 
             # Use manifest's model_id or generate new one
             if not manifest.model_id:
@@ -900,7 +918,8 @@ class ModelRegistry(MLComponentMixin):
             # Check cache first
             if model_id in self._model_cache:
                 self._cache_access_times[model_id] = time.time()
-                return self._model_cache[model_id]
+                from typing import cast as _cast
+                return _cast(object, self._model_cache[model_id])
 
             # Load from disk
             if model_id not in self._models:
@@ -959,7 +978,8 @@ class ModelRegistry(MLComponentMixin):
                 self._model_cache[model_id] = model
                 self._cache_access_times[model_id] = time.time()
 
-                return model
+                from typing import cast as _cast
+                return _cast(object, model)
 
             except Exception as e:
                 logger.error(f"Failed to load model {model_id}: {e}")

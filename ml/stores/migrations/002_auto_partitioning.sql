@@ -109,39 +109,51 @@ $$ LANGUAGE plpgsql;
 -- ============================================================================
 
 -- Function to check and create partition on insert
+-- Note: Triggers on partitioned tables are expanded to child partitions by PostgreSQL.
+--       Use TG_RELID to resolve the root partitioned table, not the child name.
 CREATE OR REPLACE FUNCTION ensure_partition_exists()
 RETURNS TRIGGER AS $$
 DECLARE
     partition_date DATE;
     partition_name TEXT;
+    root_table REGCLASS;
     table_name TEXT;
     start_ns BIGINT;
     end_ns BIGINT;
 BEGIN
-    -- Get the table name from trigger
-    table_name := TG_TABLE_NAME;
+    -- Resolve the root partitioned table if this trigger fired on a child partition
+    SELECT inhparent::REGCLASS
+      INTO root_table
+      FROM pg_inherits
+     WHERE inhrelid = TG_RELID
+     LIMIT 1;
+
+    IF root_table IS NULL THEN
+        table_name := TG_TABLE_NAME;  -- Trigger on root table
+    ELSE
+        table_name := root_table::TEXT;  -- Trigger fired on a partition; use root
+    END IF;
 
     -- Calculate partition date from ts_event
-    partition_date := DATE_TRUNC('month',
-        TO_TIMESTAMP(NEW.ts_event / 1000000000.0));
+    partition_date := DATE_TRUNC('month', TO_TIMESTAMP(NEW.ts_event / 1000000000.0));
 
-    -- Generate partition name
+    -- Generate partition name under the root table
     partition_name := table_name || '_' || TO_CHAR(partition_date, 'YYYY_MM');
 
-    -- Check if partition exists
+    -- Check if partition exists (in current schema)
     IF NOT EXISTS (
-        SELECT 1 FROM pg_tables
-        WHERE schemaname = TG_TABLE_SCHEMA
-        AND tablename = partition_name
+        SELECT 1
+          FROM pg_tables
+         WHERE schemaname = TG_TABLE_SCHEMA
+           AND tablename = partition_name
     ) THEN
         -- Calculate boundaries
         start_ns := EXTRACT(EPOCH FROM partition_date) * 1000000000;
-        end_ns := EXTRACT(EPOCH FROM partition_date + INTERVAL '1 month') * 1000000000;
+        end_ns := EXTRACT(EPOCH FROM (partition_date + INTERVAL '1 month')) * 1000000000;
 
-        -- Create partition
-        EXECUTE format('
-            CREATE TABLE IF NOT EXISTS %I PARTITION OF %I
-            FOR VALUES FROM (%L) TO (%L)',
+        -- Create partition on the root table
+        EXECUTE format(
+            'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
             partition_name, table_name, start_ns, end_ns
         );
 

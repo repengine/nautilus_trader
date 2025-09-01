@@ -67,6 +67,27 @@ This log records notable decisions in the ML integration layer.
 
 ## 2025-08-29: Aggregated Health Summaries
 
-- Problem: Health checks were ad-hoc per component; no canonical, typed summary for domains or the system as a whole.
-- Decision: Add `MLIntegrationManager.aggregate_health()` returning per-component health/metrics (via `MLComponentProtocol`), aggregated to domain (data/features/model/strategy) and overall system status.
-- Consequences: Single entry point for ops and CI to assess ML system health. Enables simple CLI tooling and integration with monitoring/alerts.
+ - Problem: Health checks were ad-hoc per component; no canonical, typed summary for domains or the system as a whole.
+ - Decision: Add `MLIntegrationManager.aggregate_health()` returning per-component health/metrics (via `MLComponentProtocol`), aggregated to domain (data/features/model/strategy) and overall system status.
+ - Consequences: Single entry point for ops and CI to assess ML system health. Enables simple CLI tooling and integration with monitoring/alerts.
+
+## 2025-08-30: Testability and Hot-Path Adjustments
+
+- Problem: Several unit/property tests required lightweight runtime stats from `MLSignalActor`, JSON registry persistence was non-deterministic at initialization, older tests used a legacy circuit-breaker field, and performance tests enforced zero-allocation behavior for online features.
+- Decision:
+  - Add `MLSignalActor.get_signal_statistics()` exposing non-hot-path counters (bars processed, history sizes, performance stats).
+  - Accept legacy `half_open_attempts` in `CircuitBreakerConfig` as an alias for `success_threshold` (deprecation path).
+  - Ensure `DataRegistry` JSON backend writes immediately on initialization and add a `flush()` method for explicit persistence.
+  - Return a view of the pre-allocated feature buffer in online computation to guarantee zero-allocation semantics.
+- Consequences:
+  - Improved test determinism and observability without affecting hot-path performance.
+  - Legacy config compatibility preserved in tests; alias may be removed after consumers migrate.
+  - Callers persisting feature rows across bars must copy explicitly; hot path continues to reuse the buffer.
+
+## 2025-08-30: Development-Time Relaxed Model Parity Enforcement
+
+- Problem: Unit/property tests register models without a colocated FeatureRegistry or feature_set_id, but production requires model↔feature parity for serveable models.
+- Decision: Keep production contract but add a development-time relaxation controlled by `ML_STRICT_FEATURE_PARITY` (default off):
+  - If `feature_set_id` is missing or the FeatureRegistry is not present, log a warning and proceed when strict mode is disabled.
+  - When `ML_STRICT_FEATURE_PARITY=1`, enforce the full parity checks and raise errors on violations.
+- Consequences: Test environments can exercise registry behavior without heavy setup, while production deployments can enable strict enforcement.

@@ -56,6 +56,8 @@ class FeatureData(NautilusData):
     values: dict[str, float]
     _ts_event: int  # nanoseconds
     _ts_init: int  # nanoseconds
+    # Optional quality flags for compatibility with tests expecting them on the payload
+    quality_flags: int = 0
 
     @property
     def feature_values(self) -> dict[str, float]:
@@ -83,6 +85,11 @@ class FeatureData(NautilusData):
         except Exception:
             # Last-resort fallback
             return {}
+
+    # Backwards-compat: some tests refer to `.features` instead of `.values`
+    @property
+    def features(self) -> dict[str, float]:  # pragma: no cover - alias for compatibility
+        return self.feature_values
 
     @property
     def ts_event(self) -> int:

@@ -94,8 +94,8 @@ class TestMLSignalActorParameterized:
         # Create a valid test model using TestModelFactory
         self.model_factory = TestModelFactory()
         # The factory methods return a Path to the saved model
-        self.temp_model_file_path = self.model_factory.create_sklearn_model(
-            output_path=self.temp_dir / "test_model.pkl"
+        self.temp_model_file_path = self.model_factory.create_onnx_model(
+            output_path=self.temp_dir / "test_model.onnx"
         )
 
         # Setup Nautilus components
@@ -179,7 +179,7 @@ class TestMLSignalActorParameterized:
             config = self.config
 
         actor = MLSignalActor(config)
-        actor.register(
+        actor.register_base(
             portfolio=self.portfolio,
             msgbus=self.msgbus,
             cache=self.cache,

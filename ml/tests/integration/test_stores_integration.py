@@ -14,6 +14,7 @@ import json
 import time
 from unittest.mock import MagicMock
 from unittest.mock import patch
+from sqlalchemy import text
 
 import numpy as np
 import pytest
@@ -37,7 +38,7 @@ def mock_persistence_manager(test_database):
 
 
 @pytest.fixture
-def feature_store(test_database):
+def feature_store(test_database, mock_persistence_manager):
     """
     Create feature store with PostgreSQL connection.
     """
@@ -45,6 +46,7 @@ def feature_store(test_database):
         connection_string=test_database.connection_string,
         batch_size=10,
         flush_interval_seconds=1.0,
+        persistence_manager=mock_persistence_manager,
     )
     yield store
     # Cleanup
@@ -53,7 +55,7 @@ def feature_store(test_database):
 
 
 @pytest.fixture
-def model_store(test_database):
+def model_store(test_database, mock_persistence_manager):
     """
     Create model store with PostgreSQL connection.
     """
@@ -61,6 +63,7 @@ def model_store(test_database):
         connection_string=test_database.connection_string,
         batch_size=10,
         flush_interval_seconds=1.0,
+        persistence_manager=mock_persistence_manager,
     )
     yield store
     # Cleanup
@@ -69,7 +72,7 @@ def model_store(test_database):
 
 
 @pytest.fixture
-def strategy_store(test_database):
+def strategy_store(test_database, mock_persistence_manager):
     """
     Create strategy store with PostgreSQL connection.
     """
@@ -77,6 +80,7 @@ def strategy_store(test_database):
         connection_string=test_database.connection_string,
         batch_size=10,
         flush_interval_seconds=1.0,
+        persistence_manager=mock_persistence_manager,
     )
     yield store
     # Cleanup
@@ -168,10 +172,25 @@ class TestFeatureStore:
         """
         Test reading features by time range.
         """
-        # Mock database response
-        mock_persistence_manager.session.execute.return_value.fetchall.return_value = [
-            ("test_features", "AAPL", json.dumps({"sma_20": 150.5}), 1000, 1001),
-        ]
+        # Insert a test row into the DB for the queried range
+        with feature_store.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO ml_feature_values (feature_set_id, instrument_id, ts_event, ts_init, values)
+                    VALUES (:fsid, :iid, :tse, :tsi, :vals)
+                    ON CONFLICT (feature_set_id, instrument_id, ts_event)
+                    DO UPDATE SET values = EXCLUDED.values
+                    """,
+                ),
+                {
+                    "fsid": "test_features",
+                    "iid": "AAPL",
+                    "tse": 1000,
+                    "tsi": 1001,
+                    "vals": json.dumps({"sma_20": 150.5}),
+                },
+            )
 
         result = feature_store.read_range(
             start_ns=900,
@@ -225,19 +244,29 @@ class TestModelStore:
         """
         Test reading latest predictions.
         """
-        mock_persistence_manager.session.execute.return_value.fetchall.return_value = [
-            (
-                "xgboost_v1",
-                "AAPL",
-                0.75,
-                0.85,
-                json.dumps({"sma_20": 150.5}),
-                2.5,
-                True,
-                1000,
-                1001,
-            ),
-        ]
+        # Insert a recent prediction row
+        with model_store.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO ml_model_predictions (model_id, instrument_id, ts_event, ts_init, prediction, confidence, features_used, inference_time_ms, is_live)
+                    VALUES (:mid, :iid, :tse, :tsi, :pred, :conf, :feats, :lat, :live)
+                    ON CONFLICT (model_id, instrument_id, ts_event)
+                    DO UPDATE SET prediction = EXCLUDED.prediction
+                    """,
+                ),
+                {
+                    "mid": "xgboost_v1",
+                    "iid": "AAPL",
+                    "tse": 1000,
+                    "tsi": 1001,
+                    "pred": 0.75,
+                    "conf": 0.85,
+                    "feats": json.dumps({"sma_20": 150.5}),
+                    "lat": 2.5,
+                    "live": True,
+                },
+            )
 
         result = model_store.read_latest_predictions(
             model_id="xgboost_v1",
@@ -254,12 +283,33 @@ class TestModelStore:
         """
         Test getting model performance metrics.
         """
-        mock_persistence_manager.session.execute.return_value.fetchone.return_value = (
-            100,  # count
-            0.75,  # avg_confidence
-            2.5,  # avg_inference_time
-            5.0,  # max_inference_time
-        )
+        # Insert multiple rows for performance stats
+        import time as _time
+        now_ns = int(_time.time() * 1e9)
+        with model_store.engine.begin() as conn:
+            for i in range(100):
+                ts = now_ns - i  # ensure within the last 24 hours
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO ml_model_predictions (model_id, instrument_id, ts_event, ts_init, prediction, confidence, features_used, inference_time_ms, is_live)
+                        VALUES (:mid, :iid, :tse, :tsi, :pred, :conf, :feats, :lat, :live)
+                        ON CONFLICT (model_id, instrument_id, ts_event)
+                        DO NOTHING
+                        """,
+                    ),
+                    {
+                        "mid": "xgboost_v1",
+                        "iid": "AAPL",
+                        "tse": ts,
+                        "tsi": ts,
+                        "pred": 0.5 + (i % 2) * 0.1,
+                        "conf": 0.75,
+                        "feats": json.dumps({"sma_20": 150.5}),
+                        "lat": 2.5,
+                        "live": True,
+                    },
+                )
 
         metrics = model_store.get_model_performance(
             model_id="xgboost_v1",
@@ -312,19 +362,32 @@ class TestStrategyStore:
         """
         Test reading active signals.
         """
-        mock_persistence_manager.session.execute.return_value.fetchall.return_value = [
-            (
-                "momentum_v1",
-                "AAPL",
-                "BUY",
-                0.8,
-                json.dumps({"xgboost": 0.75}),
-                json.dumps({"position_size": 100}),
-                json.dumps({"order_type": "LIMIT"}),
-                1000,
-                1001,
-            ),
-        ]
+        # Insert a recent signal row
+        import time as _time
+        now_ns = int(_time.time() * 1e9)
+        with strategy_store.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO ml_strategy_signals (strategy_id, instrument_id, ts_event, ts_init, signal_type, strength, model_predictions, risk_metrics, execution_params, is_live)
+                    VALUES (:sid, :iid, :tse, :tsi, :stype, :str, :mp, :rm, :ep, :live)
+                    ON CONFLICT (strategy_id, instrument_id, ts_event)
+                    DO UPDATE SET strength = EXCLUDED.strength
+                    """,
+                ),
+                {
+                    "sid": "momentum_v1",
+                    "iid": "AAPL",
+                    "tse": now_ns,
+                    "tsi": now_ns,
+                    "stype": "BUY",
+                    "str": 0.8,
+                    "mp": json.dumps({"xgboost": 0.75}),
+                    "rm": json.dumps({"position_size": 100}),
+                    "ep": json.dumps({"order_type": "LIMIT"}),
+                    "live": True,
+                },
+            )
 
         result = strategy_store.read_active_signals(
             strategy_id="momentum_v1",

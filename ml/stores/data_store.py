@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ContextManager, cast
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml._imports import Histogram
+from ml.common.correlation import make_correlation_id
 from ml.common.protocols import MLComponentMixin
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest

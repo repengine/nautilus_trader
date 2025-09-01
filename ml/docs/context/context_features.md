@@ -158,6 +158,8 @@ self.feature_buffer = np.zeros(buffer_size, dtype=np.float32)
 return self.feature_buffer[:feature_idx]
 ```
 
+Note: Because a view is returned, callers that need to persist a snapshot across bars must explicitly copy (`features.copy()`). This keeps the hot path allocation‑free while preserving correctness for cold‑path consumers.
+
 ### 3. Memory Management
 
 - **Price History**: Limited to `PRICE_HISTORY_MAXLEN` (default: 1000)

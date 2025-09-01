@@ -907,3 +907,11 @@ Notes:
 
 - These methods must not be called in the hot path; use them in setup, health endpoints, or scheduled checks.
 - Protocol compliance is validated by the Integration Manager (warn by default; strict mode via `ML_STRICT_PROTOCOL_VALIDATION`).
+### Runtime Statistics
+
+The MLSignalActor exposes a lightweight, non–hot‑path method `get_signal_statistics()` for tests and diagnostics. It returns:
+- bars_processed: total bars seen by the actor
+- prediction_history_size, confidence_history_size: current lengths of rolling histories
+- PerformanceMonitor summary: prediction_count, signal_count, error_count, average and p99 latencies
+
+This method is safe to call outside the hot path and is intended for assertions in tests and sanity checks.

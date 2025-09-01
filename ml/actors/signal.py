@@ -1041,6 +1041,10 @@ class MLSignalActor(BaseMLInferenceActor):
         # Model swapping for hot reload
         self._model_swapper = ModelSwapper() if config.enable_hot_reload else None
         self._last_reload_check = 0
+        # Hot-reload tracking
+        self._last_model_check: float = 0.0
+        self._model_mtime: float | None = None
+        self._last_close_price: float | None = None
 
         # Metrics
         self._signal_generation_time_metric = _signal_generation_time_metric
@@ -1059,6 +1063,29 @@ class MLSignalActor(BaseMLInferenceActor):
         self.log.info(
             f"Initialized MLSignalActor with strategy: {strategy_name}, optimization: {self._opt_config.level}, features: {n_features}",
         )
+
+    def get_signal_statistics(self) -> dict[str, Any]:
+        """
+        Return lightweight runtime statistics for testing and diagnostics.
+
+        Returns
+        -------
+        dict[str, Any]
+            A dictionary including bars processed and performance counters.
+        """
+        stats: dict[str, Any] = {}
+        # Bars processed is tracked by the base class; fall back to 0 if missing
+        stats["bars_processed"] = int(getattr(self, "_bars_processed", 0))
+        # Include recent window sizes for sanity checks
+        stats["prediction_history_size"] = len(getattr(self, "_prediction_history", []))
+        stats["confidence_history_size"] = len(getattr(self, "_confidence_history", []))
+        # Merge performance monitor stats if available
+        if hasattr(self, "_performance_monitor") and self._performance_monitor is not None:
+            pm_stats = self._performance_monitor.get_current_stats()
+            # Ensure plain types for strict typing
+            for k, v in pm_stats.items():
+                stats[k] = v
+        return stats
 
     def _create_strategy(self) -> SignalGenerationStrategy:
         """
@@ -1563,8 +1590,155 @@ class MLSignalActor(BaseMLInferenceActor):
                 inference_time_ns,
                 total_time_ns,
             )
-        return base_stats
+        return None
 
+    def _should_hot_reload(self) -> bool:
+        """
+        Check if hot reload should be performed.
+        
+        Returns
+        -------
+        bool
+            True if hot reload is enabled and it's time to check for updates.
+        """
+        if not self._config.enable_hot_reload:
+            return False
+
+        # Check if enough time has passed since last check
+        current_time = time.time()
+        # Use signal config hot-reload interval (seconds)
+        if current_time - self._last_model_check < float(self._signal_config.hot_reload_interval):
+            return False
+
+        self._last_model_check = current_time
+        return True
+
+    def _execute_hot_reload(self) -> None:
+        """
+        Execute hot reload of the model if a new version is available.
+        """
+        try:
+            # Check if new model exists at the configured path
+            if not Path(self._config.model_path).exists():
+                return
+
+            # Get current model modification time
+            current_mtime = Path(self._config.model_path).stat().st_mtime
+            if self._model_mtime is not None and current_mtime <= self._model_mtime:
+                return
+
+            # Load new model
+            self.log.info("Hot reloading model from %s", self._config.model_path)
+            self._load_model_with_metadata()
+            self._model_mtime = current_mtime
+
+        except Exception as e:
+            self.log.error(f"Failed to hot reload model: {e}")
+    
+    def _handle_prediction_error(self, error: Exception) -> None:
+        """
+        Handle errors during prediction generation.
+        
+        Parameters
+        ----------
+        error : Exception
+            The error that occurred during prediction.
+        """
+        self.log.error(f"Prediction error: {error}")
+        
+        # Update health monitor if available
+        if self._health_monitor:
+            self._health_monitor.update_prediction_failure()
+            
+        # Update circuit breaker if available
+        if self._circuit_breaker:
+            self._circuit_breaker.record_failure()
+            
+        # Record failure metrics
+        self._record_failure()
+    
+    def _record_success(self) -> None:
+        """
+        Record successful prediction in metrics.
+        """
+        if self._health_monitor:
+            self._health_monitor.update_prediction_success()
+            
+        if self._circuit_breaker:
+            self._circuit_breaker.record_success()
+    
+    def _record_failure(self) -> None:
+        """
+        Record failed prediction in metrics.
+        """
+        # Increment failure counter if metrics are enabled
+        if hasattr(self, "_failed_predictions"):
+            self._failed_predictions += 1
+    
+    def _detect_market_regime(self, bar: Bar) -> None:
+        """
+        Detect the current market regime based on recent price action.
+        
+        Parameters
+        ----------
+        bar : Bar
+            The current bar.
+        """
+        # Simple regime detection based on volatility
+        if hasattr(self, "_volatility_window"):
+            avg_volatility = np.mean(self._volatility_window)
+            
+            if avg_volatility < 0.001:
+                self._market_regime = "low_volatility"
+            elif avg_volatility < 0.005:
+                self._market_regime = "normal"
+            else:
+                self._market_regime = "high_volatility"
+        else:
+            self._market_regime = "unknown"
+    
+    def _update_prediction_history(self, prediction: float, confidence: float, bar: Bar) -> None:
+        """
+        Update prediction history for adaptive strategies.
+        
+        Parameters
+        ----------
+        prediction : float
+            The prediction value.
+        confidence : float
+            The confidence score.
+        bar : Bar
+            The current bar.
+        """
+        # Update prediction window
+        if hasattr(self, "_prediction_window"):
+            self._prediction_window[self._window_index] = prediction
+            
+        # Update confidence window
+        if hasattr(self, "_confidence_window"):
+            self._confidence_window[self._window_index] = confidence
+            
+        # Update volatility window with price change
+        if hasattr(self, "_volatility_window") and hasattr(self, "_last_close_price"):
+            price_change = (
+                abs(bar.close.as_double() - self._last_close_price) if self._last_close_price is not None else 0.0
+            )
+            self._volatility_window[self._window_index] = price_change
+            
+        # Store current close price
+        self._last_close_price = float(bar.close.as_double())
+        
+        # Update window index
+        if hasattr(self, "_window_index"):
+            self._window_index = (self._window_index + 1) % int(self._signal_config.adaptive_window)
+            
+        # Add to history lists
+        if hasattr(self, "_prediction_history"):
+            self._prediction_history.append(prediction)
+            
+        if hasattr(self, "_confidence_history"):
+            self._confidence_history.append(confidence)
+    
     def reset_signal_state(self) -> None:
         """
         Reset signal generation state.

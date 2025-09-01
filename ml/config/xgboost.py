@@ -13,7 +13,7 @@ from typing import Any
 
 from ml.config.base import MLTrainingConfig
 from ml.config.shared import AdvancedTrainingConfig
-from ml.config.shared import MLflowConfig
+# MLflowConfig deprecated - use ModelRegistry
 from ml.config.shared import OptunaConfig
 from ml.config.shared import XGBoostGPUConfig
 from nautilus_trader.common.config import NonNegativeFloat
@@ -84,7 +84,7 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
         GPU acceleration settings.
     optuna_config : OptunaConfig, optional
         Optuna hyperparameter optimization settings.
-    mlflow_config : MLflowConfig, optional
+    mlflow_config : deprecated, use ModelRegistry instead
         MLflow experiment tracking settings.
     advanced_config : AdvancedTrainingConfig, optional
         Advanced training features like cross-validation and ONNX export.
@@ -133,7 +133,7 @@ class XGBoostTrainingConfig(MLTrainingConfig, kw_only=True, frozen=True):
     # Advanced configuration components
     gpu_config: XGBoostGPUConfig | None = None
     optuna_config: OptunaConfig | None = None
-    mlflow_config: MLflowConfig | None = None
+    mlflow_config: None = None  # deprecated
     advanced_config: AdvancedTrainingConfig | None = None
 
     # Convenience properties for backward compatibility
