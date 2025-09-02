@@ -416,18 +416,18 @@ docker-down-test:  #-- Stop PostgreSQL test container and remove volumes
 
 .PHONY: pytest-ml-db
 pytest-ml-db:  #-- Run ML tests requiring DB with coverage (FAST=1 skips heavy/legacy)
-    $(info $(M) Running ML DB tests with coverage...)
-    DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
-        uv run --active --no-sync pytest -n logical --dist=loadgroup \
-        --cov=ml --cov=nautilus_trader --cov-report=term-missing \
-        $(if $(FAST),-k "not tft and not stores_concurrency and not stores_integration",-k "not tft") \
-        -v ml/tests
+	$(info $(M) Running ML DB tests with coverage...)
+	DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
+		uv run --active --no-sync pytest -n logical --dist=loadgroup \
+		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
+		$(if $(FAST),-k "not tft and not stores_concurrency and not stores_integration",-k "not tft") \
+		-v ml/tests
 
 .PHONY: pytest-ml-fast
 pytest-ml-fast:  #-- Quick ML test run (smoke + unit + core + actors + features)
-    $(info $(M) Running fast ML test subset...)
-    uv run --active --no-sync pytest -n auto --dist=loadfile \
-        -k "smoke or unit or actors or features or core or EngineManagerIntegration" -v ml/tests
+	$(info $(M) Running fast ML test subset...)
+	uv run --active --no-sync pytest -n auto --dist=loadfile \
+		-k "smoke or unit or actors or features or core or EngineManagerIntegration" -v ml/tests
 
 .PHONY: pytest-ml-coverage
 pytest-ml-coverage:  #-- Run all ML tests with coverage (no DB startup)

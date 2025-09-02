@@ -773,3 +773,28 @@ __all__ = [
     "postgres_connection",
     "temp_database",
 ]
+
+
+# ============================================================================
+# Deployment fixtures used by entrypoint tests
+# ============================================================================
+
+
+@pytest.fixture
+def valid_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide a minimal valid environment for deployment entrypoint tests.
+
+    Mirrors the per-test fixture to make it available module-wide.
+    """
+    monkeypatch.setenv("DB_CONNECTION", "postgresql://test:test@localhost:5432/test")
+    monkeypatch.setenv("STRATEGY_ID", "MLStrategy-TEST-001")
+    monkeypatch.setenv("ML_SIGNAL_SOURCE", "MLSignalActor-001")
+    monkeypatch.setenv("INSTRUMENT_ID", "BTC-USDT.DATABENTO")
+    monkeypatch.setenv("EXECUTE_TRADES", "false")
+    monkeypatch.setenv("POSITION_SIZE_PCT", "0.02")
+    monkeypatch.setenv("MIN_CONFIDENCE", "0.6")
+    monkeypatch.setenv("MAX_POSITIONS", "3")
+    monkeypatch.setenv("STOP_LOSS_PCT", "0.02")
+    monkeypatch.setenv("TAKE_PROFIT_PCT", "0.04")
+    monkeypatch.setenv("USE_STRATEGY_STORE", "true")
+    monkeypatch.setenv("PERSIST_ALL_SIGNALS", "true")

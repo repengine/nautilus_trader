@@ -6,6 +6,17 @@ AFTER: Single parameterized test
 """
 
 import pytest
+from typing import Any
+from dataclasses import dataclass
+
+from ml.features.engineering import FeatureConfig
+
+# Minimal helpers used in examples to keep tests executable
+data: dict[str, Any] = {"close": [1.0, 1.1, 1.2]}
+
+def calculate_features(_data: dict[str, Any], feature_type: str) -> dict[str, float]:
+    # In real code, this would call FeatureEngineer; here we just return the key to validate wiring
+    return {feature_type: 1.0}
 
 
 # ============================================================================
@@ -17,27 +28,27 @@ class TestValidationRedundant:
 
     def test_config_validation_rsi_period_too_small(self):
         with pytest.raises(ValueError):
-            config = {"rsi_period": 1}  # Too small
+            FeatureConfig(rsi_period=1)  # Too small
 
     def test_config_validation_rsi_period_too_large(self):
         with pytest.raises(ValueError):
-            config = {"rsi_period": 101}  # Too large
+            FeatureConfig(rsi_period=101)  # Too large
 
     def test_config_validation_bb_period_too_small(self):
         with pytest.raises(ValueError):
-            config = {"bb_period": 1}  # Too small
+            FeatureConfig(bb_period=1)  # Too small
 
     def test_config_validation_bb_period_too_large(self):
         with pytest.raises(ValueError):
-            config = {"bb_period": 101}  # Too large
+            FeatureConfig(bb_period=101)  # Too large
 
     def test_config_validation_atr_period_too_small(self):
         with pytest.raises(ValueError):
-            config = {"atr_period": 1}  # Too small
+            FeatureConfig(atr_period=1)  # Too small
 
     def test_config_validation_atr_period_too_large(self):
         with pytest.raises(ValueError):
-            config = {"atr_period": 101}  # Too large
+            FeatureConfig(atr_period=101)  # Too large
 
 
 # ============================================================================
@@ -58,8 +69,7 @@ class TestValidationParameterized:
     def test_config_validation_bounds(self, param, value, expected_error):
         """Single test covers all validation cases."""
         with pytest.raises(expected_error):
-            config = {param: value}
-            # Validate config here
+            FeatureConfig(**{param: value})
 
 
 # ============================================================================
@@ -88,13 +98,12 @@ class TestValidationProperty:
         ]:
             if 2 <= value <= 100:
                 # Should not raise
-                config = {param_name: value}
-                assert config[param_name] == value
+                cfg = FeatureConfig(**{param_name: value})
+                assert getattr(cfg, param_name) == value
             else:
                 # Should raise ValueError
                 with pytest.raises(ValueError):
-                    config = {param_name: value}
-                    # Validate config
+                    FeatureConfig(**{param_name: value})
 
 
 # ============================================================================

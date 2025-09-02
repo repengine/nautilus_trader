@@ -360,6 +360,14 @@ class ModelStore(BaseStore):
                 v["ts_event"] = sanitize_timestamp_ns(int(v["ts_event"]), logger=logger, context="ModelStore._execute_write")
             if "ts_init" in v and isinstance(v["ts_init"], int):
                 v["ts_init"] = sanitize_timestamp_ns(int(v["ts_init"]), logger=logger, context="ModelStore._execute_write")
+        # De-duplicate within the same batch to avoid ON CONFLICT updating the same
+        # row twice in a single INSERT .. ON CONFLICT statement.
+        dedup: dict[tuple[str, str, int], dict[str, Any]] = {}
+        for v in values:
+            key = (str(v["model_id"]), str(v["instrument_id"]), int(v["ts_event"]))
+            dedup[key] = v
+        values = list(dedup.values())
+
         stmt = insert(self.model_predictions_table)
         stmt = stmt.on_conflict_do_update(
             index_elements=["model_id", "instrument_id", "ts_event"],
@@ -597,6 +605,45 @@ class ModelStore(BaseStore):
         from typing import cast
         with self.engine.connect() as conn:
             return pd.read_sql_query(sql, conn, params=cast(Mapping[str, int | str], params))
+
+    # Backwards-compatible public API used in some tests
+    def get_predictions(
+        self,
+        model_id: str,
+        start_ns: int,
+        end_ns: int,
+        instrument_id: str | None = None,
+    ) -> "pd.DataFrame":
+        """
+        Return predictions for a model within a time range.
+
+        This is a compatibility shim delegating to read_predictions.
+        """
+        import pandas as pd
+        # Accept seconds or nanoseconds; normalize to ns
+        from ml.common.timestamps import sanitize_timestamp_ns
+        start_ns = sanitize_timestamp_ns(int(start_ns), logger=logger, context="ModelStore.get_predictions:start")
+        end_ns = sanitize_timestamp_ns(int(end_ns), logger=logger, context="ModelStore.get_predictions:end")
+
+        if instrument_id is None:
+            # Return across instruments by unioning results
+            sql = text(
+                """
+                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+                FROM public.ml_model_predictions
+                WHERE model_id = :model_id
+                  AND ts_event >= :start_ns AND ts_event < :end_ns
+                ORDER BY instrument_id, ts_event
+                """,
+            )
+            with self.engine.connect() as conn:
+                return pd.read_sql_query(
+                    sql,
+                    conn,
+                    params={"model_id": model_id, "start_ns": int(start_ns), "end_ns": int(end_ns)},
+                )
+        else:
+            return self.read_predictions(model_id=model_id, instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns)
 
     @override
     def get_latest(

@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass
 from dataclasses import field
 from typing import TYPE_CHECKING, Any, ContextManager, cast
+from pathlib import Path
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
@@ -243,8 +244,8 @@ class DataStore(MLComponentMixin):
 
     def __init__(
         self,
-        registry: RegistryProtocol,
         connection_string: str,
+        registry: "RegistryProtocol" | None = None,
         feature_store: FeatureStore | None = None,
         model_store: ModelStore | None = None,
         strategy_store: StrategyStore | None = None,
@@ -278,7 +279,27 @@ class DataStore(MLComponentMixin):
             Hours to allow dual-write during schema migration
 
         """
-        self.registry = registry
+        # Allow registry to be optional for convenience in tests/integration
+        if registry is None:
+            try:
+                from ml.registry.data_registry import DataRegistry
+                from ml.registry.persistence import BackendType, PersistenceConfig
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.POSTGRES,
+                    connection_string=connection_string,
+                )
+                self.registry = DataRegistry(registry_path=Path.home() / ".nautilus" / "ml" / "registry", persistence_config=persistence_config)  # type: ignore[name-defined]
+            except Exception:
+                # Fallback to JSON registry if DB not available
+                from ml.registry.data_registry import DataRegistry
+                from ml.registry.persistence import BackendType, PersistenceConfig
+                persistence_config = PersistenceConfig(
+                    backend=BackendType.JSON,
+                    json_path=Path("./data/registry"),  # type: ignore[name-defined]
+                )
+                self.registry = DataRegistry(registry_path=Path("./data/registry"), persistence_config=persistence_config)  # type: ignore[name-defined]
+        else:
+            self.registry = registry
         self.connection_string = connection_string
         self.fail_on_validation_error = fail_on_validation_error
         self.batch_size = batch_size

@@ -391,6 +391,13 @@ class StrategyStore(BaseStore):
                     logger=logger,
                     context="StrategyStore._execute_write",
                 )
+        # De-duplicate within the same batch by unique key
+        dedup: dict[tuple[str, str, int], dict[str, Any]] = {}
+        for v in values:
+            key = (str(v["strategy_id"]), str(v["instrument_id"]), int(v["ts_event"]))
+            dedup[key] = v
+        values = list(dedup.values())
+
         stmt = insert(self.strategy_signals_table)
         stmt = stmt.on_conflict_do_update(
             index_elements=["strategy_id", "instrument_id", "ts_event"],
@@ -1152,9 +1159,54 @@ class StrategyStore(BaseStore):
                 with self.engine.connect() as conn:
                     return pd.read_sql_query(sql, conn, params=params)
             return df
-        else:
-            with self.engine.connect() as conn:
-                return pd.read_sql_query(sql, conn, params=params)
+
+    # Backwards-compatible public API used in some tests
+    def get_signals(
+        self,
+        strategy_id: str,
+        start_ns: int,
+        end_ns: int,
+        instrument_id: str | None = None,
+    ) -> "pd.DataFrame":
+        """
+        Return strategy signals in a time range.
+
+        This is a compatibility shim delegating to read_signals when instrument is provided,
+        and otherwise reading across instruments.
+        """
+        import pandas as pd
+        from sqlalchemy import text as _text
+
+        # Accept seconds or nanoseconds; normalize to ns
+        from ml.common.timestamps import sanitize_timestamp_ns
+        start_ns = sanitize_timestamp_ns(int(start_ns), logger=logger, context="StrategyStore.get_signals:start")
+        end_ns = sanitize_timestamp_ns(int(end_ns), logger=logger, context="StrategyStore.get_signals:end")
+
+        if instrument_id is not None:
+            return self.read_signals(
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            )
+
+        sql = _text(
+            """
+            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+                   model_predictions, risk_metrics
+            FROM public.ml_strategy_signals
+            WHERE strategy_id = :strategy_id
+              AND ts_event >= :start_ns
+              AND ts_event < :end_ns
+            ORDER BY instrument_id, ts_event
+            """,
+        )
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(
+                sql,
+                conn,
+                params={"strategy_id": strategy_id, "start_ns": int(start_ns), "end_ns": int(end_ns)},
+            )
 
     def store_decision(self, *args: Any, **kwargs: Any) -> None:
         """Backward-compatible alias for write_signal."""

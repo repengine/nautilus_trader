@@ -1202,7 +1202,7 @@ class FeatureStore:
             f"""
             SELECT feature_set_id,
                    instrument_id,
-                   "values" AS values,
+                   values,
                    ts_event,
                    ts_init
             FROM {table_name}

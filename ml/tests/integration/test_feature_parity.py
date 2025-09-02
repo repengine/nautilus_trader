@@ -22,6 +22,12 @@ from numpy.random import default_rng
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.features.engineering import FeatureConfig
+
+
+# Module-level fixture so all classes can use it
+@pytest.fixture
+def feature_config() -> FeatureConfig:
+    return FeatureConfig()
 from ml.features.engineering import FeatureEngineer
 from ml.stores.feature_store import FeatureStore
 from ml.tests.fixtures.database_fixtures import TestDatabase

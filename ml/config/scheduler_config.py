@@ -100,6 +100,8 @@ class SchedulerConfig:
     retry_delay_seconds: float = 5.0
     feature_store_enabled: bool = True
     feature_store_connection: str | None = None
+    # Backward-compat alias used in some tests
+    connection_string: str | None = None
 
 
 @dataclass(frozen=True)

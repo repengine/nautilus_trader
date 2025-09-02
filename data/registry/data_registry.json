@@ -211,6 +211,66 @@
       "status": "failed",
       "error": "",
       "created_at": 1756215317.1181183
+    },
+    {
+      "dataset_id": "ohlcv_spy_xnas",
+      "instrument_id": "SPY.XNAS",
+      "stage": "CATALOG_WRITTEN",
+      "source": "historical",
+      "run_id": "",
+      "ts_min": 0,
+      "ts_max": 0,
+      "ts_event": 0,
+      "count": 0,
+      "status": "failed",
+      "error": "Cannot serialize object `<class 'unittest.mock.MagicMock'>`. Register a serialization method via `nautilus_trader.serialization.arrow.serializer.register_arrow()`",
+      "created_at": 1756768926.3781195,
+      "metadata": {}
+    },
+    {
+      "dataset_id": "ohlcv_spy_xnas",
+      "instrument_id": "SPY.XNAS",
+      "stage": "CATALOG_WRITTEN",
+      "source": "historical",
+      "run_id": "",
+      "ts_min": 0,
+      "ts_max": 0,
+      "ts_event": 0,
+      "count": 0,
+      "status": "failed",
+      "error": "Cannot serialize object `<class 'unittest.mock.MagicMock'>`. Register a serialization method via `nautilus_trader.serialization.arrow.serializer.register_arrow()`",
+      "created_at": 1756768931.380284,
+      "metadata": {}
+    },
+    {
+      "dataset_id": "ohlcv_spy_xnas",
+      "instrument_id": "SPY.XNAS",
+      "stage": "CATALOG_WRITTEN",
+      "source": "historical",
+      "run_id": "",
+      "ts_min": 0,
+      "ts_max": 0,
+      "ts_event": 0,
+      "count": 0,
+      "status": "failed",
+      "error": "Cannot serialize object `<class 'unittest.mock.MagicMock'>`. Register a serialization method via `nautilus_trader.serialization.arrow.serializer.register_arrow()`",
+      "created_at": 1756768936.382896,
+      "metadata": {}
+    },
+    {
+      "dataset_id": "ohlcv_spy_xnas",
+      "instrument_id": "SPY.XNAS",
+      "stage": "CATALOG_WRITTEN",
+      "source": "historical",
+      "run_id": "",
+      "ts_min": 0,
+      "ts_max": 0,
+      "ts_event": 0,
+      "count": 0,
+      "status": "failed",
+      "error": "Cannot serialize object `<class 'unittest.mock.MagicMock'>`. Register a serialization method via `nautilus_trader.serialization.arrow.serializer.register_arrow()`",
+      "created_at": 1756768961.0572805,
+      "metadata": {}
     }
   ],
   "watermarks": {
@@ -226,5 +286,5 @@
     }
   },
   "lineage": [],
-  "last_updated": 1756215317.1971285
+  "last_updated": 1756768961.1578412
 }

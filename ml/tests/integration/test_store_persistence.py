@@ -120,7 +120,8 @@ class TestStorePersistence:
             end_ns=2000000000,
         )
 
-        assert len(predictions) >= 11  # Should have all predictions
+        # There are 11 writes but one duplicate timestamp; unique rows should be at least 10
+        assert len(predictions) >= 10
 
         # Check health
         assert store2.is_healthy()
@@ -176,7 +177,8 @@ class TestStorePersistence:
             end_ns=2000000000,
         )
 
-        assert len(signals) >= 6  # Should have all signals
+        # There are 6 writes but one duplicate timestamp; unique rows should be at least 5
+        assert len(signals) >= 5
 
         # Check health
         assert store2.is_healthy()
