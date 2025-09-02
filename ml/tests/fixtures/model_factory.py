@@ -430,6 +430,9 @@ class TestModelFactory:
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Coerce to .joblib extension for safety
+        if output_path.suffix.lower() != ".joblib":
+            output_path = output_path.with_suffix(".joblib")
 
         # Save model using joblib (safer than pickle)
         joblib.dump(model, output_path)

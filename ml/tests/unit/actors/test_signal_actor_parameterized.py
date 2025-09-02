@@ -193,12 +193,16 @@ class TestMLSignalActorParameterized:
         ts_event = self.clock.timestamp_ns()
         ts_init = ts_event + 1
 
+        # Clamp precision to avoid exceeding nautilus max precision (16)
+        def p(v: float) -> str:
+            return f"{v:.9f}"
+
         return Bar(
             bar_type=self.bar_type,
-            open=Price.from_str(str(close_price)),
-            high=Price.from_str(str(close_price + 0.0002)),
-            low=Price.from_str(str(close_price - 0.0002)),
-            close=Price.from_str(str(close_price)),
+            open=Price.from_str(p(close_price)),
+            high=Price.from_str(p(close_price + 0.0002)),
+            low=Price.from_str(p(close_price - 0.0002)),
+            close=Price.from_str(p(close_price)),
             volume=Quantity.from_int(100000),
             ts_event=ts_event,
             ts_init=ts_init,
