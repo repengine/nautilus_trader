@@ -30,6 +30,8 @@ from typing_extensions import override
 
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
+from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.message_topics import build_topic, map_stage_to_topic_segments
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
 
@@ -76,6 +78,8 @@ class StrategyStore(BaseStore):
         clock: Clock | None = None,
         persistence_manager: object | None = None,
         flush_interval_seconds: float | None = None,
+        enable_publishing: bool = False,
+        publisher: MessagePublisherProtocol | None = None,
         **_: object,
     ) -> None:
         """
@@ -127,6 +131,9 @@ class StrategyStore(BaseStore):
         if flush_interval_seconds is not None:
             self.flush_interval_ms = int(flush_interval_seconds * 1000)
         self.clock = clock
+        # Optional message publishing
+        self._enable_publishing = bool(enable_publishing)
+        self.publisher: MessagePublisherProtocol | None = publisher
 
         # Allow tests to inject a mock persistence manager directly
         if persistence_manager is not None:
@@ -411,6 +418,31 @@ class StrategyStore(BaseStore):
         )
         with self.engine.begin() as conn:
             conn.execute(stmt, values)
+
+        # Optional publish summary event per batch (off hot-path)
+        batch_list = list(values)
+        if self._enable_publishing and self.publisher is not None and batch_list:
+            try:
+                stage = Stage.SIGNAL_EMITTED
+                domain, operation = map_stage_to_topic_segments(stage)
+                instrument_id = str(batch_list[0]["instrument_id"]) if batch_list else "UNKNOWN"
+                topic = build_topic(domain, operation, instrument_id)
+                ts_min = min(int(v["ts_event"]) for v in batch_list)
+                ts_max = max(int(v["ts_event"]) for v in batch_list)
+                payload: dict[str, Any] = {
+                    "dataset_id": "signals",
+                    "instrument_id": instrument_id,
+                    "stage": stage.value,
+                    "source": "strategy",
+                    "run_id": "strategy_store_write",
+                    "ts_min": ts_min,
+                    "ts_max": ts_max,
+                    "count": len(batch_list),
+                    "status": "success",
+                }
+                self.publisher.publish(topic, payload)
+            except Exception:
+                logger.debug("StrategyStore publish failed", exc_info=True)
 
     # Backwards-compatible alias used in some tests
     def write_signals(self, data: list[StrategySignal]) -> None:

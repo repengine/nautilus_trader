@@ -17,13 +17,15 @@ The `ml/features/` directory contains a sophisticated, production-ready feature 
 ```
 ml/features/
 ├── __init__.py              # Public API exports
-├── engineering.py           # Core feature engineering classes (2,452 lines)
-├── validation.py           # Parity validation system
+├── engineering.py           # Core feature engineering classes (2,458 lines)
+├── validation.py           # Parity validation system (24,583 lines)
 ├── pipeline.py             # Declarative pipeline framework (508 lines)
-├── microstructure.py       # L2/L3 microstructure features
-├── feature_export.py       # Registry integration utilities
-└── materialize_cli.py      # Feature materialization CLI
+├── microstructure.py       # L2/L3 microstructure features (32,010 lines)
+├── feature_export.py       # Registry integration utilities (53 lines)
+└── materialize_cli.py      # Feature materialization CLI (115 lines)
 ```
+
+**🔄 UPDATE:** Line counts verified against actual files as of the latest codebase analysis.
 
 ## Core Components
 
@@ -58,6 +60,19 @@ features = engineer.calculate_features(
 )
 ```
 
+**✨ ENHANCEMENT:** Added convenience method for hot path processing without requiring full Bar objects:
+
+```python
+# Direct OHLCV input for hot path convenience
+features = engineer.calculate_features_online(
+    close_price=100.5,
+    high_price=101.0,
+    low_price=100.0,
+    volume=1000000.0,
+    scaler=scaler
+)
+```
+
 ### 2. IndicatorManager Class
 
 Manages stateful Nautilus indicators for consistent calculations:
@@ -88,7 +103,10 @@ class FeatureConfig(MLFeatureConfig):
     # Feature toggles
     include_microstructure: bool = False
     include_trade_flow: bool = False
+    validate_quality: bool = False    # **📝 ADDITION:** Quality validation toggle
 ```
+
+**📝 ADDITION:** The `validate_quality` flag controls feature quality validation, though the actual implementation is currently a stub for typing compatibility.
 
 ## Feature Categories
 

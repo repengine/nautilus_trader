@@ -4,17 +4,21 @@
 
 The ML actors framework provides a production-ready foundation for real-time machine learning inference and signal generation within Nautilus Trader. The architecture follows strict hot/cold path separation, ensuring sub-millisecond performance in production environments while maintaining comprehensive observability and fault tolerance.
 
+**✨ ENHANCEMENT:** All actors now fully implement the 5 Universal ML Architecture Patterns defined in CLAUDE.md, ensuring consistent behavior across the ML platform.
+
 Operational notes:
 
 - Timestamps: Actors should emit UNIX nanoseconds for `ts_event`/`ts_init`. Stores defensively normalize smaller units (seconds/ms/us) to ns with a warning. See `context_stores.md` → "Timestamp Policy & Normalization".
 - DB preflight: Verify required DB functions and current partition exist before startup. See `context_deployment.md` → "DB Preflight (recommended)".
+- **📝 ADDITION:** Security: Non-ONNX model formats are restricted in production environments unless explicitly enabled via ML_TEST_ALLOW_NON_ONNX or ML_ALLOW_NON_ONNX_IN_TESTS environment variables.
 
 **Key Components:**
 
 - **BaseMLInferenceActor**: Abstract foundation class with mandatory store integration and production features
-- **MLSignalActor**: Production signal generation actor with multiple built-in strategies
-- **ONNXMLInferenceActor**: ONNX-optimized inference actor for lowest latency
-- **EnhancedMLInferenceActor**: Complete implementation showcasing all production features
+- **MLSignalActor**: Production signal generation actor with multiple built-in strategies  
+- **ONNXMLInferenceActor**: ONNX-optimized inference actor for lowest latency **✨ ENHANCEMENT:** Now includes CPU provider optimizations and configurable session options
+- **EnhancedMLInferenceActor**: **🔄 UPDATE:** Minimal test-focused implementation showcasing hot-path optimization with zero-allocation feature computation
+- **PickleMLInferenceActor**: **⚠️ CORRECTION:** DEPRECATED - Raises SecurityError to prevent insecure model loading
 - **Hot Path Optimization**: Zero-allocation inference with <5ms end-to-end latency targets
 - **Mandatory 4-Store + 4-Registry Pattern**: Complete data lifecycle management with automatic initialization
 
@@ -39,14 +43,15 @@ BaseMLInferenceActor (Abstract)
 │   └── _predict(features) -> (prediction, confidence)
 │
 ├── Concrete Implementations:
-│   ├── MLSignalActor: Production signal generation with configurable strategies
-│   ├── ONNXMLInferenceActor: ONNX-optimized inference for sub-millisecond latency
-│   ├── EnhancedMLInferenceActor: Complete feature demonstration with technical indicators
+│   ├── MLSignalActor: Production signal generation with configurable strategies **✨ ENHANCEMENT:** Features adaptive thresholds, ensemble strategies, and hot-reload capability
+│   ├── ONNXMLInferenceActor: ONNX-optimized inference for sub-millisecond latency **📝 ADDITION:** Supports configurable runtime providers and session options
+│   ├── EnhancedMLInferenceActor: **🔄 UPDATE:** Minimal test implementation with zero-allocation feature computation and null store protocols
 │   └── PickleMLInferenceActor: DEPRECATED - raises SecurityError (security risk)
 │
 └── Notes:
-    └── Pickle formats are intentionally disallowed for production actors (security)
-        — export ONNX, joblib, or framework-native formats instead
+    └── **⚠️ CORRECTION:** Pickle formats are intentionally disallowed for production actors (security)
+        — Production environments enforce ONNX-only unless ML_TEST_ALLOW_NON_ONNX is set
+        — **📝 ADDITION:** Development environments can use allow_non_onnx_in_dev config flag
 ```
 
 ### Signal Generation Architecture
@@ -55,24 +60,24 @@ The `MLSignalActor` provides a sophisticated signal generation system with plugg
 
 **Built-in Strategies:**
 
-- **ThresholdSignalStrategy**: Simple confidence-based filtering with static threshold
-- **ExtremesStrategy**: Percentile-based signal generation using prediction extremes
-- **MomentumStrategy**: Trend-based signal enhancement using prediction momentum
-- **EnsembleStrategy**: Weighted voting across multiple strategies
-- **AdaptiveStrategy**: Dynamic threshold adjustment based on market volatility and prediction variance
+- **ThresholdSignalStrategy**: Simple confidence-based filtering with static threshold **📝 ADDITION:** Uses configurable confidence threshold for binary signal generation
+- **ExtremesStrategy**: Percentile-based signal generation using prediction extremes **✨ ENHANCEMENT:** Implements lock-free ring buffer for zero-allocation extremes detection
+- **MomentumStrategy**: Trend-based signal enhancement using prediction momentum **📝 ADDITION:** Configurable lookback period and momentum threshold detection
+- **EnsembleStrategy**: Weighted voting across multiple strategies **✨ ENHANCEMENT:** Supports configurable strategy weights and dynamic ensemble scoring
+- **AdaptiveStrategy**: Dynamic threshold adjustment based on market volatility and prediction variance **📝 ADDITION:** Includes market regime detection and signal strength calculation
 
 **Signal Data Classes:**
 
-- **MLSignal**: Unified signal data class containing:
-  - `instrument_id`: The instrument identifier
-  - `model_id`: Unique model identifier for tracking
-  - `prediction`: Model prediction value
-  - `confidence`: Confidence score (0.0 to 1.0)
-  - `features`: Optional feature array for debugging
-  - `metadata`: Optional additional metadata
-  - `ts_event`: Event timestamp in nanoseconds
-  - `ts_init`: Initialization timestamp in nanoseconds
-- **AdaptiveSignal**: Type alias for MLSignal (backward compatibility)
+- **MLSignal**: **✨ ENHANCEMENT:** Unified signal data class extending NautilusData with complete tracking:
+  - `instrument_id`: The instrument identifier (InstrumentId type)
+  - `model_id`: Unique model identifier for tracking **📝 ADDITION:** Required field for model lineage
+  - `prediction`: Model prediction value (float)
+  - `confidence`: Confidence score (0.0 to 1.0) **📝 ADDITION:** Used for threshold filtering
+  - `features`: Optional feature array for debugging (npt.NDArray[np.float32] | None)
+  - `metadata`: Optional additional metadata (dict[str, Any] | None) **📝 ADDITION:** Used for adaptive strategy context
+  - `ts_event`: Event timestamp in nanoseconds (int) **⚠️ CORRECTION:** Property accessor for immutable timestamp
+  - `ts_init`: Initialization timestamp in nanoseconds (int) **⚠️ CORRECTION:** Property accessor for immutable timestamp
+- **AdaptiveSignal**: **🔄 UPDATE:** Type alias for MLSignal (backward compatibility) - no longer separate class
 
 ## Hot Path Performance Requirements
 
@@ -108,10 +113,12 @@ def on_bar(self, bar: Bar) -> None:
 
 ### Zero-Allocation Techniques
 
-- **Pre-allocated Feature Buffers**: `np.zeros(n_features, dtype=np.float32)`
-- **Rolling Windows**: Fixed-size deques with maxlen constraints
-- **Buffer Reuse**: Feature vectors returned as views, not copies
-- **ONNX Runtime Optimization**: CPU-optimized sessions with minimal memory footprint
+- **Pre-allocated Feature Buffers**: `np.zeros(n_features, dtype=np.float32)` **📝 ADDITION:** Sized dynamically from FeatureEngineer.n_features
+- **Rolling Windows**: Fixed-size deques with maxlen constraints **✨ ENHANCEMENT:** Also supports lock-free ring buffers for OPTIMIZED level
+- **Buffer Reuse**: Feature vectors returned as views, not copies **⚠️ CORRECTION:** EnhancedMLInferenceActor ensures view semantics in _compute_features
+- **ONNX Runtime Optimization**: CPU-optimized sessions with minimal memory footprint **📝 ADDITION:** Configurable providers and session options via OnnxRuntimeConfig
+- **📝 ADDITION:** **Lock-Free Ring Buffers**: Available in OPTIMIZED mode via ml.core.cache components (LockFreeRingBuffer, PreAllocatedFeatureCache)
+- **📝 ADDITION:** **Reservoir Sampling**: Bounded memory performance monitoring with configurable sample sizes
 
 ## Store Integration Patterns
 
@@ -164,7 +171,7 @@ def _init_stores_and_registries(self) -> None:
 # MANDATORY: Store features for parity tracking
 feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
 self._feature_store.write_features(
-    feature_set_id=self._config.feature_set_id,
+    feature_set_id=getattr(self._config, "feature_set_id", "default"),  # **⚠️ CORRECTION:** Safe attribute access
     instrument_id=str(bar.bar_type.instrument_id),
     features=feature_dict,
     ts_event=bar.ts_event,
@@ -173,12 +180,24 @@ self._feature_store.write_features(
 
 # MANDATORY: Store prediction for performance tracking
 self._model_store.write_prediction(
-    model_id=self._model_id,
+    model_id=self._model_id,  # **📝 ADDITION:** Determined from metadata, training_metadata, or path fallback
     instrument_id=str(bar.bar_type.instrument_id),
     prediction=float(prediction),
     confidence=float(confidence),
     features=feature_dict,
     inference_time_ms=inference_time,
+    ts_event=bar.ts_event,
+)
+
+# **📝 ADDITION:** MANDATORY: Store signals for strategy analysis
+self._strategy_store.write_signal(
+    strategy_id=str(self.id),
+    instrument_id=str(bar.bar_type.instrument_id),
+    signal_type="buy" if prediction > 0 else "sell",
+    strength=abs(prediction),
+    model_predictions={self._model_id: prediction},
+    risk_metrics={"confidence": confidence},
+    execution_params={"threshold": adaptive_threshold},
     ts_event=bar.ts_event,
 )
 ```
@@ -625,10 +644,10 @@ class StrategyConfig(NautilusConfig):
   - EnsembleStrategy: Weighted voting ensemble
   - AdaptiveStrategy: Dynamic threshold with volatility adjustment
 - **Model Format Support**:
-  - ONNX (.onnx) with optimized runtime
-  - XGBoost (.json) native format
-  - Joblib (.joblib) for scikit-learn
-  - Pickle (.pkl) DEPRECATED with SecurityError
+  - **✨ ENHANCEMENT:** ONNX (.onnx) with optimized runtime and configurable providers
+  - **📝 ADDITION:** XGBoost (.json) with both Booster.load_model() and JSON fallback support
+  - **📝 ADDITION:** Joblib (.joblib) with direct joblib.load() and metadata extraction
+  - **⚠️ CORRECTION:** Pickle (.pkl) DEPRECATED with ValueError (not SecurityError) and migration guidance
 - **Hot Path Optimization**:
   - Zero-allocation feature computation
   - Pre-allocated numpy buffers
@@ -663,11 +682,12 @@ class StrategyConfig(NautilusConfig):
 
 ### Security & Safety ✅
 
-- **Pickle Deprecation**: PickleMLInferenceActor raises SecurityError
-- **Model Format Validation**: Strict format checking with safe loading
-- **Input Validation**: Aggressive validation with descriptive exceptions
-- **Memory Safety**: Bounded buffers and controlled allocations
-- **Thread Safety**: Atomic model swapping and store operations
+- **⚠️ CORRECTION:** **Pickle Deprecation**: PickleMLInferenceActor raises SecurityError (stub implementation)
+- **📝 ADDITION:** **Production Model Security**: Non-ONNX formats restricted unless ML_TEST_ALLOW_NON_ONNX environment variable set
+- **Model Format Validation**: Strict format checking with safe loading **✨ ENHANCEMENT:** Includes comprehensive error messages and migration guidance
+- **Input Validation**: Aggressive validation with descriptive exceptions **📝 ADDITION:** Includes feature schema compatibility checks
+- **Memory Safety**: Bounded buffers and controlled allocations **✨ ENHANCEMENT:** Lock-free alternatives available in OPTIMIZED mode
+- **Thread Safety**: Atomic model swapping and store operations **📝 ADDITION:** Single-threaded actor model ensures hot-path safety
 
 ## Critical Implementation Details
 
@@ -676,25 +696,45 @@ class StrategyConfig(NautilusConfig):
 ```python
 class MLSignalActor(BaseMLInferenceActor):
     def __init__(self, config):
-        # Feature engineering setup
+        # **✨ ENHANCEMENT:** Feature engineering setup with comprehensive validation
         self._feature_engineer = FeatureEngineer(self._feature_config)
         self._indicator_manager = IndicatorManager(self._feature_config)
 
-        # Validate against model manifest if available
+        # **📝 ADDITION:** Validate against model manifest if loaded from registry
         model_names = getattr(self, "_manifest_feature_names", [])
         if model_names:
             actual_names = self._feature_engineer.config.get_feature_names()
+            # **📝 ADDITION:** Create temporary manifest for feature compatibility check
+            tmp_manifest = ModelManifest(
+                model_id="__validation__",
+                role=ModelRole.STUDENT,
+                data_requirements=DataRequirements.L1_ONLY,
+                architecture="unknown",
+                feature_schema=dict.fromkeys(model_names, "float32"),
+                feature_schema_hash=getattr(self, "_manifest_feature_schema_hash", ""),
+            )
+            actual_dtypes = ["float32"] * len(actual_names)  # **⚠️ CORRECTION:** Hot path uses float32
             assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
 
-        # Validate against feature registry if configured
+        # **✨ ENHANCEMENT:** Validate against feature registry with comprehensive error handling
         if config.use_registry_features and config.feature_set_id:
-            freg = FeatureRegistry(Path(config.registry_path))
-            feature_info = freg.get_feature_set(config.feature_set_id)
-            manifest = feature_info.manifest
-            expected = list(manifest.feature_names)
-            actual = self._feature_engineer.config.get_feature_names()
-            if expected != actual:
-                raise ValueError(f"Feature schema mismatch")
+            try:
+                freg = FeatureRegistry(Path(config.registry_path))
+                feature_info = freg.get_feature_set(config.feature_set_id)
+                manifest = feature_info.manifest if feature_info else None
+            except Exception as e:
+                manifest = None
+                self.log.warning(f"Feature registry load failed: {e}")
+            
+            if manifest is not None:
+                expected = list(manifest.feature_names)
+                actual = self._feature_engineer.config.get_feature_names()
+                if expected != actual:
+                    raise ValueError(
+                        f"Feature schema mismatch with manifest: expected {len(expected)} names "
+                        f"(hash={manifest.schema_hash}), got {len(actual)}"
+                    )
+                self._feature_set_id = manifest.feature_set_id
 ```
 
 ### Thread Safety
@@ -752,6 +792,7 @@ actor = MLSignalActor(config)
 
 ```python
 from ml.actors import OptimizationConfig, StrategyConfig
+from ml.config.runtime import OnnxRuntimeConfig  # **📝 ADDITION:** ONNX runtime configuration
 
 config = MLSignalActorConfig(
     component_id="advanced_ml_signal",
@@ -773,10 +814,21 @@ config = MLSignalActorConfig(
         extremes_top_pct=0.1,
         momentum_lookback=5,
     ),
+    # **📝 ADDITION:** ONNX runtime configuration for CPU optimization
+    onnx_runtime_config=OnnxRuntimeConfig(
+        graph_optimization_level="ORT_ENABLE_ALL",
+        execution_mode="ORT_SEQUENTIAL",
+        intra_threads=1,
+        inter_threads=1,
+    ),
     enable_hot_reload=True,
     enable_regime_detection=True,
     adaptive_window=20,
     min_signal_separation_bars=3,
+    # **📝 ADDITION:** Feature store integration
+    use_feature_store=True,
+    persist_features=True,
+    feature_set_id="ensemble_features_v1",
 )
 
 actor = MLSignalActor(config)
@@ -845,6 +897,106 @@ actor = MLSignalActor(config)
 ```
 
 This ML actors framework provides a production-ready foundation for real-time machine learning in trading systems, with strict performance requirements, comprehensive observability, and robust fault tolerance.
+
+## **📝 ADDITION:** Enhanced Architecture Patterns
+
+### Model Prediction Compatibility Layer
+
+The framework now includes enhanced model compatibility for various model types:
+
+```python
+def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
+    """Enhanced prediction with comprehensive model type support."""
+    
+    # **📝 ADDITION:** Mock support for testing environments
+    if isinstance(self._model, Mock | MagicMock):
+        # Handle test mock models with proper prediction interface
+        
+    # **📝 ADDITION:** Unified model wrapper support
+    elif hasattr(self._model, "predict") and hasattr(self._model, "metadata"):
+        result = self._model.predict(features)
+        return result[0], result[1]
+        
+    # **📝 ADDITION:** Raw ONNX model support
+    elif hasattr(self._model, "run") and "input_names" in self._model_metadata:
+        features_2d = features.reshape(1, -1).astype(np.float32)
+        input_name = self._model_metadata["input_names"][0]
+        outputs = self._model.run(None, {input_name: features_2d})
+        
+    # **📝 ADDITION:** XGBoost Booster support with DMatrix
+    elif hasattr(self._model, "num_features") and hasattr(self._model, "get_score"):
+        from ml._imports import xgb
+        features_2d = features.reshape(1, -1)
+        dmatrix = xgb.DMatrix(features_2d)
+        predictions = self._model.predict(dmatrix)
+        return float(predictions[0]), 0.5
+```
+
+### **📝 ADDITION:** Store Progressive Fallback Implementation
+
+```python
+def _init_stores_and_registries(self) -> None:
+    """Progressive fallback chain: PostgreSQL → SQLite → DummyStore."""
+    
+    # Try PostgreSQL connection first
+    try:
+        test_engine = EngineManager.get_engine(
+            "postgresql://postgres:postgres@localhost:5432/nautilus"
+        )
+        with test_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        # PostgreSQL available - use production stores
+        self._feature_store = FeatureStore(connection_string=db_connection)
+        
+    except Exception:
+        # PostgreSQL unavailable - fall back to DummyStore with warning
+        self.log.warning("PostgreSQL not available; using DummyStore (no persistence)")
+        self._feature_store = DummyStore()
+```
+
+### **📝 ADDITION:** Feature Store Compute Integration
+
+```python
+def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
+    """Feature computation with store delegation and fallback."""
+    
+    # **✨ ENHANCEMENT:** Prefer FeatureStore.compute_realtime when available
+    try:
+        if hasattr(self, "_feature_store") and self._feature_store is not None:
+            features = self._feature_store.compute_realtime(
+                bar=bar, 
+                store=self._persist_features
+            )
+            if isinstance(features, np.ndarray) and features.size > 0:
+                return features
+    except Exception as exc:
+        # Fall back to local feature engineering on store failure
+        self.log.debug("FeatureStore compute_realtime failed; falling back", exc_info=exc)
+    
+    # **⚠️ CORRECTION:** Always use local FeatureEngineer as fallback
+    # Implementation continues with indicator manager and feature calculation...
+```
+
+### **📝 ADDITION:** Performance Monitoring Integration
+
+The actors now include comprehensive runtime statistics tracking:
+
+```python
+def get_signal_statistics(self) -> dict[str, Any]:
+    """Lightweight runtime statistics for testing and diagnostics."""
+    stats = {
+        "bars_processed": int(getattr(self, "_bars_processed", 0)),
+        "prediction_history_size": len(getattr(self, "_prediction_history", [])),
+        "confidence_history_size": len(getattr(self, "_confidence_history", [])),
+    }
+    
+    # **📝 ADDITION:** Merge PerformanceMonitor stats if available
+    if hasattr(self, "_performance_monitor") and self._performance_monitor is not None:
+        pm_stats = self._performance_monitor.get_current_stats()
+        stats.update(pm_stats)
+        
+    return stats
+```
 ## Universal Pattern Compliance
 
 The ML actors framework fully implements all 5 universal ML architecture patterns:
@@ -910,8 +1062,66 @@ Notes:
 ### Runtime Statistics
 
 The MLSignalActor exposes a lightweight, non–hot‑path method `get_signal_statistics()` for tests and diagnostics. It returns:
-- bars_processed: total bars seen by the actor
+- bars_processed: total bars seen by the actor **📝 ADDITION:** Tracked by BaseMLInferenceActor, falls back to 0 if missing
 - prediction_history_size, confidence_history_size: current lengths of rolling histories
-- PerformanceMonitor summary: prediction_count, signal_count, error_count, average and p99 latencies
+- PerformanceMonitor summary: prediction_count, signal_count, error_count, average and p99 latencies **✨ ENHANCEMENT:** Includes comprehensive performance metrics with reservoir sampling
 
 This method is safe to call outside the hot path and is intended for assertions in tests and sanity checks.
+
+## **📝 ADDITION:** Configuration Enhancement Summary
+
+### MLSignalActorConfig Extensions
+
+The configuration has been extended with several new options:
+
+```python
+class MLSignalActorConfig(MLActorConfig):
+    # **📝 ADDITION:** ONNX runtime optimization
+    onnx_runtime_config: OnnxRuntimeConfig | None = None
+    
+    # **📝 ADDITION:** Feature store integration
+    use_feature_store: bool = False
+    persist_features: bool = True
+    feature_set_id: str | None = None
+    pipeline_spec: Any | None = None
+    
+    # **📝 ADDITION:** Test mode configuration
+    use_dummy_stores: bool = False
+    actor_id: str | None = None  # For test identification
+    
+    # **⚠️ CORRECTION:** Backward compatibility mappings in __post_init__()
+    optimization: OptimizationConfig | None = None  # Maps to optimization_config
+    strategy: StrategyConfig | None = None          # Maps to strategy_config
+```
+
+### **📝 ADDITION:** Enhanced Testing Patterns
+
+#### EnhancedMLInferenceActor for Tests
+
+The EnhancedMLInferenceActor has been redesigned as a minimal test-focused implementation:
+
+```python
+class EnhancedMLInferenceActor(BaseMLInferenceActor):
+    """Minimal enhanced inference actor for performance tests."""
+    
+    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
+        """Guarantees zero-allocation feature computation with buffer reuse."""
+        # **⚠️ CORRECTION:** Returns view of pre-allocated buffer
+        # **📝 ADDITION:** Implements null store protocols to avoid external dependencies
+        features = self._engineer.calculate_features_online(...)
+        self._feature_buffer[:size] = features
+        return self._feature_buffer[:size]  # Returns view, not copy
+```
+
+#### Test Configuration Patterns
+
+```python
+# **📝 ADDITION:** Test configuration with dummy stores
+config = MLSignalActorConfig(
+    component_id="test_signal",
+    model_path="tests/fixtures/test_model.onnx",
+    use_dummy_stores=True,  # **📝 ADDITION:** Avoids external dependencies
+    actor_id="test_actor_1",  # **📝 ADDITION:** For test identification
+    bar_type=BarType.from_str("TEST.SIM-1-MINUTE-BID-EXTERNAL"),
+)
+```

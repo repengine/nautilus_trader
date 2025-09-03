@@ -881,27 +881,17 @@ class DataStore(MLComponentMixin):
                 },
             )
 
-            # Emit event to registry
-            correlation_id = make_correlation_id(
-                run_id=run_id,
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                ts_min=ts_min,
-                ts_max=ts_max,
-                count=len(df),
-            )
-            source_norm = source if source in {"live", "historical", "backfill"} else "live"
-            self.registry.emit_event(
+            # Emit event via façade (adds correlation_id and optional publish)
+            self.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 stage=stage,
-                source=source_norm,
+                source=source,
                 run_id=run_id,
                 ts_min=ts_min,
                 ts_max=ts_max,
                 count=len(df),
                 status="success",
-                metadata={"correlation_id": correlation_id},
             )
 
             # Update watermark (test hook patchable via _update_watermark)
@@ -939,28 +929,18 @@ class DataStore(MLComponentMixin):
                 error_message=str(e),
             )
 
-            # Emit failure event
-            correlation_id = make_correlation_id(
-                run_id=run_id,
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                ts_min=0,
-                ts_max=0,
-                count=0,
-            )
-            source_norm = source if source in {"live", "historical", "backfill"} else "live"
-            self.registry.emit_event(
+            # Emit failure event via façade
+            self.emit_event(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 stage=stage,
-                source=source_norm,
+                source=source,
                 run_id=run_id,
                 ts_min=0,
                 ts_max=0,
                 count=0,
                 status="failed",
                 error=str(e),
-                metadata={"correlation_id": correlation_id},
             )
 
             logger.error("Failed to write data to %s: %s", dataset_id, e)
@@ -1295,6 +1275,30 @@ class DataStore(MLComponentMixin):
                 count=count,
                 completeness_pct=completeness_pct,
             )
+
+            # Optionally publish to message bus using canonical topic mapping
+            if self.publisher is not None:
+                try:
+                    domain, operation = map_stage_to_topic_segments(Stage(stage))
+                except Exception:
+                    domain, operation = ("data", "updated")
+                topic = build_topic(domain, operation, instrument_id)
+                payload: dict[str, Any] = {
+                    "dataset_id": dataset_id,
+                    "instrument_id": instrument_id,
+                    "stage": stage,
+                    "source": source_norm,
+                    "run_id": run_id,
+                    "ts_min": ts_min,
+                    "ts_max": ts_max,
+                    "count": count,
+                    "status": "success",
+                    "metadata": {"correlation_id": correlation_id},
+                }
+                try:
+                    self.publisher.publish(topic, payload)
+                except Exception:
+                    logger.exception("Message bus publish failed for topic %s", topic)
         except Exception as e:
             logger.warning("Failed to emit event/update watermark: %s", e)
 

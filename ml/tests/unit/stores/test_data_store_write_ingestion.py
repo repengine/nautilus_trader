@@ -87,7 +87,14 @@ class TestDataStoreWriteIngestion:
             instrument_id="EURUSD.SIM",
         )
 
-        # Publisher call is optional for write_ingestion (not wired yet); registry is authoritative
+        # Publisher should have been called with canonical topic
+        assert len(pub.calls) >= 1
+        topic, payload = pub.calls[0]
+        assert topic == "ml.features.updated.EURUSD.SIM"
+        assert payload["dataset_id"] == manifest.dataset_id
+        assert payload["instrument_id"] == "EURUSD.SIM"
+        assert payload["stage"] == Stage.FEATURE_COMPUTED.value
+        assert payload["status"] == "success"
 
         # Verify JSON registry has persisted events
         data = json.loads((reg_dir / "data_registry.json").read_text())

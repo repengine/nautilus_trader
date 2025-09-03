@@ -96,7 +96,7 @@ class PipelineRunner:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-    def _signal_handler(self, signum: int, frame: object | None) -> None:
+    def _signal_handler(self, signum: int, _frame: object | None) -> None:
         """
         Handle shutdown signals gracefully.
         """

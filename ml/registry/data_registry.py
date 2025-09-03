@@ -23,6 +23,8 @@ from typing import Any
 from sqlalchemy import text
 
 from ml.common.protocols import MLComponentMixin
+from ml.common.correlation import make_correlation_id
+from ml.config.events import Stage
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -494,6 +496,31 @@ class DataRegistry(MLComponentMixin):
                 changes={"manifest": self._manifest_to_dict(manifest)},
             )
 
+            # Emit ops event (catalog written) with correlation id
+            try:
+                corr = make_correlation_id(
+                    run_id="registry_register",
+                    dataset_id=manifest.dataset_id,
+                    instrument_id="*",
+                    ts_min=0,
+                    ts_max=0,
+                    count=0,
+                )
+                self.emit_event(
+                    dataset_id=manifest.dataset_id,
+                    instrument_id="*",
+                    stage=Stage.CATALOG_WRITTEN.value,
+                    source="historical",
+                    run_id="registry_register",
+                    ts_min=0,
+                    ts_max=0,
+                    count=0,
+                    status="success",
+                    metadata={"correlation_id": corr},
+                )
+            except Exception:
+                logger.debug("Failed to emit registry register event", exc_info=True)
+
             logger.info("Registered dataset '%s' version %s", manifest.dataset_id, manifest.version)
             return manifest.dataset_id
 
@@ -626,6 +653,31 @@ class DataRegistry(MLComponentMixin):
                 changes=changes,
             )
 
+            # Emit ops event (catalog written) with correlation id
+            try:
+                corr = make_correlation_id(
+                    run_id="registry_update",
+                    dataset_id=dataset_id,
+                    instrument_id="*",
+                    ts_min=0,
+                    ts_max=0,
+                    count=0,
+                )
+                self.emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id="*",
+                    stage=Stage.CATALOG_WRITTEN.value,
+                    source="historical",
+                    run_id="registry_update",
+                    ts_min=0,
+                    ts_max=0,
+                    count=0,
+                    status="success",
+                    metadata={"correlation_id": corr},
+                )
+            except Exception:
+                logger.debug("Failed to emit registry update event", exc_info=True)
+
             logger.info("Updated dataset '%s' with changes: %s", dataset_id, list(changes.keys()))
 
     def deprecate(self, dataset_id: str) -> None:
@@ -652,6 +704,31 @@ class DataRegistry(MLComponentMixin):
                 dataset_id,
                 {"metadata": {"deprecated": True, "deprecated_at": time.time_ns()}},
             )
+
+            # Emit ops event (deprecated) with correlation id
+            try:
+                corr = make_correlation_id(
+                    run_id="registry_deprecate",
+                    dataset_id=dataset_id,
+                    instrument_id="*",
+                    ts_min=0,
+                    ts_max=0,
+                    count=0,
+                )
+                self.emit_event(
+                    dataset_id=dataset_id,
+                    instrument_id="*",
+                    stage=Stage.CATALOG_WRITTEN.value,
+                    source="historical",
+                    run_id="registry_deprecate",
+                    ts_min=0,
+                    ts_max=0,
+                    count=0,
+                    status="deprecated",
+                    metadata={"correlation_id": corr},
+                )
+            except Exception:
+                logger.debug("Failed to emit registry deprecate event", exc_info=True)
 
             logger.info("Deprecated dataset '%s'", dataset_id)
 

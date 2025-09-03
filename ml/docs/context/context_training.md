@@ -4,18 +4,22 @@
 
 The ml/training/ directory implements a comprehensive model training infrastructure with both traditional and teacher-student knowledge distillation architectures. The system provides production-ready training pipelines with strict feature parity enforcement, ONNX export capabilities, and full registry integration.
 
+**✨ ENHANCEMENT:** The infrastructure is now fully type-safe (mypy --strict passes with zero errors) and follows a clean cold-path architecture with minimal dependencies for hot-path inference.
+
 Operational notes:
 - Feature parity and persistence depend on `FeatureStore` reading/writing with UNIX nanosecond timestamps. Stores defensively normalize timestamp units to ns with warnings. See `context_stores.md` → "Timestamp Policy & Normalization".
 - For integration tests and pipelines that hit the DB, apply migrations and run the DB preflight. See `context_deployment.md`.
+- **📝 ADDITION:** All heavy dependencies (pytorch-forecasting, onnxmltools) are lazily imported and guarded by feature flags from ml._imports
 
 ### Key Components
 
 - **Base Training Infrastructure**: Abstract trainer with MLflow, Optuna, and cross-validation support
 - **Teacher Models**: TFT (Temporal Fusion Transformer) for generating high-quality soft labels
-- **Student Models**: LightGBM students trained via knowledge distillation
+- **Student Models**: LightGBM students trained via knowledge distillation  
 - **Non-Distilled Models**: Traditional XGBoost and LightGBM trainers
 - **Export System**: Unified ONNX/TorchScript export with production compatibility
 - **Registry Integration**: Feature and model registry integration for lifecycle management
+- **📝 ADDITION:** **Hyperparameter Optimization**: Sophisticated XGBoost-specific Optuna optimizer with financial-optimized ranges
 
 ## Architecture Overview
 
@@ -33,6 +37,9 @@ The foundational abstract base class providing a complete training framework:
 - MLflow experiment tracking with automatic parameter logging
 - ONNX model export via framework-specific converters
 - Trading-specific performance metrics (Sharpe, Information ratio, drawdown)
+- **✨ ENHANCEMENT:** Fully typed with numpy.typing for strict type safety
+- **📝 ADDITION:** Built-in label generation for simple forward-return targets
+- **📝 ADDITION:** Comprehensive error handling for missing dependencies and failed trials
 
 **Critical Methods:**
 
@@ -44,6 +51,9 @@ The foundational abstract base class providing a complete training framework:
 - `evaluate()`: Model evaluation with classification/regression metrics
 - `calculate_trading_metrics()`: Trading performance evaluation
 - `get_feature_importance()`: Feature importance extraction
+- **📝 ADDITION:** `_generate_labels()`: Virtual method for simple label generation (override in subclasses)
+- **📝 ADDITION:** `_suggest_hyperparameters()`: Abstract method for Optuna parameter suggestions
+- **📝 ADDITION:** `_is_classification_problem()`: Automatic detection of classification vs regression tasks
 
 **Integration Points:**
 
@@ -86,6 +96,8 @@ Unified model export infrastructure ensuring production compatibility:
 
 ### Teacher-Student Distillation Architecture
 
+**📝 ADDITION:** The distillation architecture now includes comprehensive CLI tooling and registry integration for production workflows.
+
 #### Teacher Models (teacher/)
 
 **BaseTeacher (teacher/base.py):**
@@ -106,9 +118,13 @@ Unified model export infrastructure ensuring production compatibility:
   - `hidden_size`: Network width (default: 16)
   - `lstm_layers`: Recurrent depth (default: 1)
   - `attention_head_size`: Multi-head attention (default: 2)
+  - **📝 ADDITION:** `dropout`: Dropout rate for regularization (default: 0.1)
 - Automatic train/validation split (80/20)
 - Static and time-varying feature support
 - Raw logits output with optional Platt calibration
+- **✨ ENHANCEMENT:** Robust prediction output handling with fallback parsing for different pytorch-forecasting versions
+- **📝 ADDITION:** Automatic feature schema detection from time_varying_unknown_reals
+- **⚠️ CORRECTION:** Uses `max_epochs=1` by default for fast training, not production-scale training
 
 **TFT CLI (teacher/tft_cli.py):**
 
@@ -157,23 +173,29 @@ Unified model export infrastructure ensuring production compatibility:
 - `predict_proba()`: Calibrated probability predictions
 - `export_onnx()`: Production ONNX export with metadata sidecar
 
-**Student CLI (student/lightgbm_cli.py):**
+**Student CLI (distillation/cli.py):**
 
+- **⚠️ CORRECTION:** Actual implementation location (not student/lightgbm_cli.py)
 - Complete CLI for student distillation workflow
 - Required inputs:
-  - `--features_npz`: Features with train/val splits
-  - `--teacher_npz`: Teacher predictions and optional true labels
-  - `--feature_registry_dir`: Feature registry path
-  - `--model_registry_dir`: Model registry path
+  - `--features_npz`: Features with train/val splits (X_train, X_val, feature_names)
+  - `--teacher_npz`: Teacher predictions (q_train) and optional true labels (y_val_true)
+  - `--feature_registry_dir`: Feature registry path for schema validation
+  - `--model_registry_dir`: Model registry path for artifact storage
+  - `--feature_set_id`: Required for schema hash validation and pipeline lineage
 - Registry integration:
-  - Feature schema validation via FeatureRegistry
-  - Parent model lineage tracking
+  - **📝 ADDITION:** Mandatory FeatureRegistry integration for schema hash validation
+  - Feature schema validation and pipeline signature tracking
+  - Parent model lineage tracking via `--parent_id`
   - Automatic model registration with `auto_deploy=True`
 - Output artifacts:
-  - student.onnx: Production model
-  - student.meta.json: Metadata sidecar
+  - student.onnx: Production model with baked-in calibration
+  - student.meta.json: Comprehensive metadata sidecar
+- **📝 ADDITION:** Configurable distillation objectives: logit_mse, soft_ce, hybrid
 
 ### Non-Distilled Trainers (non_distilled/)
+
+**📝 ADDITION:** Both trainers now implement ModelExportMixin for consistent production exports and include comprehensive Optuna hyperparameter optimization support.
 
 #### LightGBMTrainer (non_distilled/lightgbm.py)
 
@@ -189,6 +211,9 @@ Unified model export infrastructure ensuring production compatibility:
 - Feature importance analysis with gain-based ranking
 - Early stopping with configurable rounds
 - Visualization support via matplotlib
+- **📝 ADDITION:** Comprehensive Optuna hyperparameter suggestions with financial-optimized ranges
+- **📝 ADDITION:** Support for binary and multiclass classification with automatic label conversion
+- **📝 ADDITION:** Polars DataFrame preprocessing with categorical encoding
 
 **Key Methods:**
 
@@ -253,31 +278,10 @@ Unified model export infrastructure ensuring production compatibility:
 - GPU-aware optimization with memory-efficient settings
 - Study persistence via RDBStorage with connection pooling
 - Comprehensive study summary with parameter importance analysis
-
-### Distillation CLI (distillation/)
-
-**CLI Interface (distillation/cli.py):**
-
-- Streamlined student training from NPZ files (cold-path only)
-- Required inputs:
-  - `--features_npz`: X_train, X_val, feature_names arrays
-  - `--teacher_npz`: q_train (probabilities), optional y_val_true
-  - `--feature_registry_dir`: Feature registry location
-  - `--model_registry_dir`: Model registry location
-- Configurable distillation:
-  - `--objective`: Choice of logit_mse, soft_ce, hybrid
-  - `--kd_lambda`: Hybrid objective weighting (default: 0.5)
-  - `--early_stopping`: Rounds for early stopping (default: 200)
-  - `--opset`: ONNX opset version (default: 17)
-- Registry integration:
-  - Feature schema validation via FeatureRegistry
-  - Parent model lineage tracking via `--parent_id`
-  - Automatic model manifest generation
-  - Pipeline signature and version tracking
-- Output structure:
-  - student.onnx: Production model
-  - student.meta.json: Technical metadata
-  - Registry entry with auto_deploy flag
+- **📝 ADDITION:** XGBoost-specific pruning callback integration with validation metrics
+- **📝 ADDITION:** Robust error handling for failed trials (returns worst possible score)
+- **📝 ADDITION:** Parameter importance analysis using Optuna's built-in functionality
+- **✨ ENHANCEMENT:** Full type safety with proper generic typing for callbacks and objectives
 
 ## Training Pipeline Specifications
 
@@ -376,6 +380,9 @@ Unified model export infrastructure ensuring production compatibility:
 - Optuna hyperparameter optimization with custom objectives
 - Trading-specific metrics (Sharpe, Information ratio, drawdown)
 - FeatureStore integration for train-serve parity
+- **📝 ADDITION:** Full type safety compliance (mypy --strict passes)
+- **📝 ADDITION:** Comprehensive error handling and dependency management
+- **📝 ADDITION:** Support for both time-series and standard K-fold cross-validation
 
 ✅ **Teacher Architecture**
 
@@ -411,25 +418,31 @@ Unified model export infrastructure ensuring production compatibility:
 ### Module Organization
 
 | Module | Location | Purpose |
-|--------|----------|---------|
+|--------|---------|---------| 
 | BaseMLTrainer | training/base.py | Abstract training framework |
 | Export System | training/export.py | Model export and contracts |
 | XGBoostOptunaOptimizer | training/optuna_optimizer.py | HPO for XGBoost |
 | TFT Teacher | training/teacher/tft_teacher.py | Teacher implementation |
 | TFT CLI | training/teacher/tft_cli.py | Teacher training CLI |
 | Student Distiller | training/student/lightgbm.py | Student training |
-| Student CLI | training/student/lightgbm_cli.py | Student CLI |
+| **⚠️ CORRECTION:** Distillation CLI | training/distillation/cli.py | **Actual student CLI location** |
 | LightGBMTrainer | training/non_distilled/lightgbm.py | Traditional LightGBM |
 | XGBoostTrainer | training/non_distilled/xgboost.py | Traditional XGBoost |
-| Distillation CLI | training/distillation/cli.py | Unified distillation |
+| **📝 ADDITION:** Teacher Base | training/teacher/base.py | Abstract teacher interface with Platt calibration |
+| **📝 ADDITION:** TFT Model Placeholder | training/teacher/tft_model.py | Lightweight TFT placeholder for testing |
+| **📝 ADDITION:** TFT TorchScript Export | training/teacher/tft_torchscript.py | TFT production export utilities |
+| **📝 ADDITION:** Teacher CLI Compatibility | training/teacher/cli.py | Legacy CLI compatibility shim |
 
 ### Integration Health
 
-🟢 **Registry Integration**: Full FeatureRegistry and ModelRegistry integration
-🟢 **Export System**: Complete ONNX/TorchScript/native format support
-🟢 **Distillation Pipeline**: End-to-end teacher→student workflow
+🟢 **Registry Integration**: Full FeatureRegistry and ModelRegistry integration with schema validation
+🟢 **Export System**: Complete ONNX/TorchScript/native format support with metadata sidecars
+🟢 **Distillation Pipeline**: End-to-end teacher→student workflow with CLI tooling
 🟢 **Configuration System**: Config classes with validation and defaults
-🟢 **Import Management**: Centralized imports via ml/_imports.py
+🟢 **Import Management**: Centralized imports via ml._imports.py with lazy loading
+🟢 **📝 ADDITION:** **Type Safety**: Full mypy --strict compliance with comprehensive type annotations
+🟢 **📝 ADDITION:** **Error Handling**: Robust dependency checking and graceful fallbacks
+🟢 **📝 ADDITION:** **Console Scripts**: Properly configured entry points for CLI tools
 
 ## Critical Implementation Notes
 
@@ -439,80 +452,110 @@ Unified model export infrastructure ensuring production compatibility:
    - Always use FeatureStore for training data preparation
    - Validate schema hashes between training and inference
    - Test float32 parity with np.testing.assert_allclose(rtol=1e-10)
+   - **📝 ADDITION:** Use feature_set_id for mandatory pipeline signature tracking
 
 2. **Model Calibration**
    - Apply Platt calibration to all classification models
    - Use validation data disjoint from training
    - Bake calibration into ONNX graphs for production
+   - **📝 ADDITION:** Student models automatically include Sigmoid layer in ONNX export
+   - **📝 ADDITION:** Calibration parameters are stored in metadata for reproducibility
 
 3. **Registry Integration**
    - Always register models with proper manifests
    - Include parent_id for student models
    - Set appropriate data_requirements and serveable flags
+   - **📝 ADDITION:** Use build_student_manifest for consistent student registration
+   - **📝 ADDITION:** Mandatory FeatureRegistry validation for schema hash enforcement
 
 4. **Performance Validation**
    - Benchmark inference latency (target: <5ms P99)
    - Validate ONNX Runtime compatibility
    - Test memory usage under load
+   - **📝 ADDITION:** Use validate_inference_compatibility for ONNX smoke tests
+   - **📝 ADDITION:** All trainers support ModelExportMixin for consistent production exports
 
 ### Error Handling Patterns
 
 1. **Dependency Management**
-   - Use ml.*imports feature flags (HAS**)
+   - Use ml._imports feature flags (HAS_*) with proper typing guards
    - Graceful degradation when optional deps missing
    - Clear error messages with installation instructions
+   - **📝 ADDITION:** Lazy imports for heavy dependencies (pytorch-forecasting, onnxmltools)
+   - **📝 ADDITION:** check_ml_dependencies for consistent error messaging
 
 2. **Training Failures**
    - Comprehensive try-catch in objective functions
-   - Return worst possible scores for failed trials
+   - Return worst possible scores for failed trials (inf/-inf based on direction)
    - Log errors for debugging without breaking optimization
+   - **📝 ADDITION:** XGBoost Optuna optimizer handles NaN/infinite values gracefully
+   - **📝 ADDITION:** Student distillation handles missing calibration gracefully
 
 3. **Export Validation**
    - Smoke test ONNX models post-export
    - Validate metadata completeness
    - Check file integrity and permissions
+   - **📝 ADDITION:** ModelExportMixin provides validate_inference_compatibility
+   - **📝 ADDITION:** Fallback to native formats when ONNX conversion fails
+   - **📝 ADDITION:** Comprehensive metadata sidecars with technical details
 
 ### Production Deployment Checklist
 
 1. **Model Artifacts**
    - [ ] ONNX format with correct opset (17 default)
    - [ ] Metadata sidecar with feature schema
-   - [ ] Calibration parameters embedded
+   - [ ] Calibration parameters embedded (for classification models)
    - [ ] Performance benchmarks available
+   - [ ] **📝 ADDITION:** Schema hash validation completed
+   - [ ] **📝 ADDITION:** Pipeline signature tracking in place
 
 2. **Registry State**
-   - [ ] Model manifest registered
-   - [ ] Feature schema hash validated
+   - [ ] Model manifest registered with proper role (TEACHER/STUDENT/PRODUCTION)
+   - [ ] Feature schema hash validated against FeatureRegistry
    - [ ] Parent lineage established (for students)
-   - [ ] Deployment status set correctly
+   - [ ] Deployment status set correctly (auto_deploy=True for students)
+   - [ ] **📝 ADDITION:** Feature set ID properly linked
+   - [ ] **📝 ADDITION:** Pipeline version consistency verified
 
 3. **Compatibility**
    - [ ] ONNX Runtime validation passed
-   - [ ] Float32 parity confirmed
-   - [ ] Feature ordering verified
+   - [ ] Float32 parity confirmed (use rtol=1e-10)
+   - [ ] Feature ordering verified (matches FeatureRegistry manifest)
    - [ ] Input/output shapes documented
+   - [ ] **📝 ADDITION:** validate_inference_compatibility smoke test passed
+   - [ ] **📝 ADDITION:** Type safety verified (mypy --strict clean)
+   - [ ] **📝 ADDITION:** Dependency requirements documented and tested
 
 ## Additional Components
 
 ### Teacher Model Variations
 
 **TFT Model Placeholder (teacher/tft_model.py):**
-- Simplified TFTTeacher implementation for testing
-- Placeholder for when pytorch-forecasting unavailable
-- Pass-through predict_logits for pre-computed values
+- **⚠️ CORRECTION:** This file exists but is minimal - not a complete implementation
+- **📝 ADDITION:** Serves as import stub when pytorch-forecasting is unavailable
+- **📝 ADDITION:** Maintains consistent import paths for testing environments
 
 **CLI Compatibility Shim (teacher/cli.py):**
 - CalibratingTeacher for simple calibration workflows
-- Dual-mode operation:
-  - Legacy mode: Direct calibration from NPZ files
-  - Registry mode: Forwards to tft_cli.py for full integration
-- Backward compatibility for existing pipelines
+- **📝 ADDITION:** Comprehensive argument parsing for multiple training modes:
+  - NPZ-based calibration mode
+  - CSV-based full TFT training mode
+  - ONNX inference mode for pre-trained models
+- **📝 ADDITION:** Full registry integration with feature schema validation
+- **📝 ADDITION:** Support for static/dynamic feature specifications
+- Backward compatibility for existing pipelines with forward compatibility to tft_cli.py
+
+**📝 ADDITION:** **TFT TorchScript Export (teacher/tft_torchscript.py):**
+- TFTScriptAdapter for converting dict inputs to tensor inputs
+- Production-ready TorchScript export utilities
+- Support for both tracing and scripting export modes
 
 ### Console Script Entry Points
 
 Defined in `pyproject.toml`:
 - `ml-teacher-tft` → `ml.training.teacher.tft_cli:main`
-- `ml-student-lightgbm` → `ml.training.student.lightgbm_cli:main`
+- **⚠️ CORRECTION:** `ml-student-lightgbm` → `ml.training.distillation.cli:main` (actual implementation location)
+- **📝 ADDITION:** Both CLIs support comprehensive argument validation and registry integration
 
 ### Export Format Specifications
 
@@ -533,6 +576,7 @@ Defined in `pyproject.toml`:
 - TFTScriptAdapter for dict→tensor conversion
 
 This training infrastructure provides a robust foundation for ML model development in the Nautilus ecosystem, with strong emphasis on production readiness, reproducibility, and performance optimization.
+
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection

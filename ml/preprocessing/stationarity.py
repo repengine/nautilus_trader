@@ -743,7 +743,7 @@ class PurgedCrossValidator:
         self,
         X: npt.NDArray[np.float64] | Any,
         y: npt.NDArray[np.float64] | None = None,
-        groups: npt.NDArray[np.int64] | None = None,
+        _groups: npt.NDArray[np.int64] | None = None,
     ) -> list[tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]]:
         """
         Generate indices for train/test splits with purging and embargo.
@@ -805,7 +805,7 @@ class PurgedCrossValidator:
         self,
         X: Any | None = None,
         y: Any | None = None,
-        groups: Any | None = None,
+        _groups: Any | None = None,
     ) -> int:
         """
         Get number of splits.

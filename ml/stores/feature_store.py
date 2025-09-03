@@ -38,6 +38,9 @@ from sqlalchemy import Table
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
+from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.message_topics import build_topic, map_stage_to_topic_segments
+from ml.config.events import Stage
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
@@ -115,6 +118,8 @@ class FeatureStore:
         feature_config: FeatureConfig | MLFeatureConfig | None = None,
         pipeline_spec: PipelineSpec | None = None,
         persistence_manager: object | None = None,
+        enable_publishing: bool = False,
+        publisher: MessagePublisherProtocol | None = None,
         # Accept extra kwargs for compatibility
         **_: Any,
     ) -> None:
@@ -168,19 +173,27 @@ class FeatureStore:
         # Internal indicator managers (fallback for online computation when actor does not pass one)
         self._indicator_managers: dict[str, IndicatorManager] = {}
 
-        # Pipeline runner for declarative features
-        self.pipeline_runner: PipelineRunner | None
+        # Pipeline runners for declarative features (offline vs online)
+        self.pipeline_runner_offline: PipelineRunner | None
+        self.pipeline_runner_online: PipelineRunner | None
         self.pipeline_hash: str
         if self.pipeline_spec:
             from ml.registry.base import DataRequirements
 
-            self.pipeline_runner = PipelineRunner(
+            # Offline (batch/teacher): allow L1_L2 to include microstructure/trade-flow
+            self.pipeline_runner_offline = PipelineRunner(
                 self.pipeline_spec,
-                DataRequirements.L1_L2,  # Adjust based on available data
+                DataRequirements.L1_L2,
             )
-            self.pipeline_hash = self.pipeline_runner.compute_signature()
+            # Online (student/runtime): limit to L1 until actors are available
+            self.pipeline_runner_online = PipelineRunner(
+                self.pipeline_spec,
+                DataRequirements.L1_ONLY,
+            )
+            self.pipeline_hash = self.pipeline_runner_offline.compute_signature()
         else:
-            self.pipeline_runner = None
+            self.pipeline_runner_offline = None
+            self.pipeline_runner_online = None
             self.pipeline_hash = self._compute_config_hash()
 
         # Lightweight write buffer for compatibility with older tests
@@ -190,6 +203,9 @@ class FeatureStore:
         self._write_buffer: list[FeatureData] = []
         # Back-compat alias expected by tests
         self._buffer: list[FeatureData] = self._write_buffer
+        # Optional message publishing
+        self._enable_publishing = bool(enable_publishing)
+        self.publisher: MessagePublisherProtocol | None = publisher
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         """
@@ -630,7 +646,7 @@ class FeatureStore:
 
         # Optionally store for future training
         if store and features.size > 0:
-            feature_names = self._get_feature_names()
+            feature_names = self._get_feature_names_online()
             values_map = {
                 name: float(features[idx])
                 for idx, name in enumerate(feature_names)
@@ -763,6 +779,9 @@ class FeatureStore:
             Features array, timestamps array, and feature names.
 
         """
+        # Currently training data loading returns feature arrays only; bars can be joined
+        # by caller if required. Consume flag to avoid unused parameter warnings.
+        _ = include_bars
         start_ns = int(start.timestamp() * 1e9)
         end_ns = int(end.timestamp() * 1e9)
 
@@ -889,13 +908,26 @@ class FeatureStore:
 
     def _get_feature_names(self) -> list[str]:
         """
-        Get feature names from pipeline or config.
+        Get OFFLINE feature names from pipeline or config.
         """
-        if self.pipeline_runner:
-            return self.pipeline_runner.compute_feature_names()
+        if self.pipeline_runner_offline:
+            return self.pipeline_runner_offline.compute_feature_names()
         else:
             # Get from FeatureEngineer
             return self.feature_engineer.get_feature_names()
+
+    def _get_feature_names_online(self) -> list[str]:
+        """
+        Get ONLINE (hot-path) feature names from pipeline or config with L1_ONLY gating.
+        """
+        if self.pipeline_runner_online:
+            return self.pipeline_runner_online.compute_feature_names()
+        # Derive from current FeatureEngineer configuration if no pipeline_spec provided
+        from ml.features.pipeline import PipelineRunner as _PR
+        from ml.registry.base import DataRequirements as _DR
+
+        spec = self.feature_engineer.build_pipeline_spec_from_config()
+        return _PR(spec, allowable=_DR.L1_ONLY).compute_feature_names()
 
     def _get_feature_set_id(self) -> str:
         """
@@ -1010,6 +1042,29 @@ class FeatureStore:
                     "source": "computed",
                 }
                 self._execute_write(row)
+            # Optional publish per-batch summary
+            if self._enable_publishing and self.publisher is not None and batch:
+                try:
+                    stage = Stage.FEATURE_COMPUTED
+                    domain, operation = map_stage_to_topic_segments(stage)
+                    inst_any = getattr(batch[0], "instrument_id", "UNKNOWN")
+                    topic = build_topic(domain, operation, str(inst_any))
+                    ts_min = min(int(getattr(b, "ts_event", 0)) for b in batch)
+                    ts_max = max(int(getattr(b, "ts_event", 0)) for b in batch)
+                    payload: dict[str, Any] = {
+                        "dataset_id": "features",
+                        "instrument_id": str(inst_any),
+                        "stage": stage.value,
+                        "source": "computed",
+                        "run_id": "feature_store_write",
+                        "ts_min": ts_min,
+                        "ts_max": ts_max,
+                        "count": len(batch),
+                        "status": "success",
+                    }
+                    self.publisher.publish(topic, payload)
+                except Exception:
+                    logger.debug("FeatureStore publish failed", exc_info=True)
             return
 
         # Explicit-args mode
@@ -1041,6 +1096,26 @@ class FeatureStore:
             "source": "computed",
         }
         self._execute_write(row)
+        # Optional publish single-row event
+        if self._enable_publishing and self.publisher is not None and instrument_id is not None and ts_event is not None:
+            try:
+                stage = Stage.FEATURE_COMPUTED
+                domain, operation = map_stage_to_topic_segments(stage)
+                topic = build_topic(domain, operation, instrument_id)
+                payload2: dict[str, Any] = {
+                    "dataset_id": "features",
+                    "instrument_id": instrument_id,
+                    "stage": stage.value,
+                    "source": "computed",
+                    "run_id": "feature_store_write",
+                    "ts_min": int(ts_event),
+                    "ts_max": int(ts_event),
+                    "count": 1,
+                    "status": "success",
+                }
+                self.publisher.publish(topic, payload2)
+            except Exception:
+                logger.debug("FeatureStore publish failed", exc_info=True)
 
     def _execute_write(self, row: dict[str, Any]) -> None:  # pragma: no cover (exercised in integration)
         """Upsert a single feature row (patchable in tests)."""
@@ -1135,6 +1210,28 @@ class FeatureStore:
 
         # Clear buffer after successful write
         self._write_buffer.clear()
+        if self._enable_publishing and self.publisher is not None and data:
+            try:
+                stage = Stage.FEATURE_COMPUTED
+                domain, operation = map_stage_to_topic_segments(stage)
+                inst_any = getattr(data[0], "instrument_id", "UNKNOWN")
+                topic = build_topic(domain, operation, str(inst_any))
+                ts_min = min(int(getattr(b, "ts_event", 0)) for b in data)
+                ts_max = max(int(getattr(b, "ts_event", 0)) for b in data)
+                payload: dict[str, Any] = {
+                    "dataset_id": "features",
+                    "instrument_id": str(inst_any),
+                    "stage": stage.value,
+                    "source": "computed",
+                    "run_id": "feature_store_write",
+                    "ts_min": ts_min,
+                    "ts_max": ts_max,
+                    "count": len(data),
+                    "status": "success",
+                }
+                self.publisher.publish(topic, payload)
+            except Exception:
+                logger.debug("FeatureStore publish failed", exc_info=True)
 
     def is_healthy(self) -> bool:
         """

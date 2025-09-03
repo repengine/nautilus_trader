@@ -13,7 +13,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TYPE_CHECKING, runtime_checkable
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -69,6 +69,16 @@ class MLIntegrationManager:
     >>> integration.model_registry.register_model(...)
 
     """
+
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        from ml.observability.service import ObservabilityService
+        from ml.observability.scheduler import ObservabilityFlusher
+        from threading import Event, Thread
+
+        observability_service: ObservabilityService | None
+        _obs_flusher: ObservabilityFlusher | None
+        _obs_stop_event: Event | None
+        _obs_thread: Thread | None
 
     def __init__(
         self,
@@ -632,6 +642,7 @@ class MLIntegrationManager:
         max_size_mb: int | None = None,
     ) -> None:
         """No-op configuration stub for message bus (for tests)."""
+        _ = (backend, topic_prefix, retention_hours, max_size_mb)
         return None
 
     def configure_event_emission(
@@ -643,6 +654,7 @@ class MLIntegrationManager:
         correlation_strategy: str | None = None,
     ) -> None:
         """No-op configuration stub for event emission (for tests)."""
+        _ = (batching_enabled, batch_size, flush_interval_ms, correlation_strategy)
         return None
 
     def configure_event_system(self, **_: object) -> None:
@@ -654,8 +666,133 @@ class MLIntegrationManager:
         return None
 
     def initialize_observability_pipeline(self) -> None:
-        """No-op initializer for observability pipeline (for tests)."""
+        """Initialize a lightweight observability service (off hot-path)."""
+        try:
+            from ml.observability.service import ObservabilityService
+
+            # Attach service lazily; safe if re-called
+            self.observability_service = getattr(self, "observability_service", None)
+            if self.observability_service is None:
+                self.observability_service = ObservabilityService()
+        except Exception:  # pragma: no cover - defensive
+            # Keep method non-fatal to avoid coupling in environments lacking optional deps
+            try:
+                # Ensure attribute exists for callers checking presence
+                self.observability_service = None
+            except Exception:
+                pass
+            return None
+
+    def start_end_to_end_tracking(self) -> None:
+        """No-op start of E2E tracking (for tests)."""
         return None
+
+    def start_health_checks(self) -> None:
+        """No-op start of health monitoring (for tests)."""
+        return None
+
+    def collect_observability_dataframes(self) -> dict[str, object]:
+        """
+        Materialize observability DataFrames from the service, if available.
+
+        Returns a mapping of table name -> DataFrame. When the service is not
+        initialized, returns empty DataFrames.
+        """
+        try:
+            svc = getattr(self, "observability_service", None)
+            if svc is None:
+                return {
+                    "latency": None,
+                    "metrics": None,
+                    "correlation": None,
+                    "health": None,
+                }
+            return {
+                "latency": svc.latency_watermarks_df(),
+                "metrics": svc.metrics_collection_df(),
+                "correlation": svc.event_correlation_df(),
+                "health": svc.health_scores_df(),
+            }
+        except Exception:  # pragma: no cover - defensive
+            # Keep integration resilient
+            return {
+                "latency": None,
+                "metrics": None,
+                "correlation": None,
+                "health": None,
+            }
+
+    def flush_observability_to_path(self, *, base_path: Path, file_format: str = "jsonl") -> dict[str, Path]:
+        """
+        Persist current observability tables to disk (off hot-path).
+
+        Writes non-empty tables under `base_path` using the specified format
+        ("jsonl" or "csv"). Returns a mapping of table name to file path for
+        written tables.
+        """
+        from typing import cast
+
+        try:
+            from ml.observability.persistence import ObservabilityPersistor
+
+            tables = self.collect_observability_dataframes()
+            # Collect returns DataFrame | None; persist accepts Mapping[str, DataFrame | None]
+            sink = ObservabilityPersistor(base_path=base_path, file_format=file_format)
+            return sink.persist(tables)  # type: ignore[arg-type]
+        except Exception:  # pragma: no cover - defensive
+            return {}
+
+    def start_observability_flush(
+        self,
+        *,
+        base_path: Path,
+        interval_seconds: float | None = 60.0,
+        file_format: str = "jsonl",
+    ) -> dict[str, Path] | None:
+        """
+        Start periodic flush of observability tables. When ``interval_seconds`` is
+        None or <= 0, performs a single flush and returns the written mapping.
+        Otherwise, starts a background thread managed by the integration instance.
+        """
+        # Ensure service exists
+        self.initialize_observability_pipeline()
+
+        if interval_seconds is None or interval_seconds <= 0:
+            return self.flush_observability_to_path(base_path=base_path, file_format=file_format)
+
+        # Background scheduler (off hot-path)
+        from threading import Event
+
+        from ml.observability.scheduler import ObservabilityFlusher
+
+        svc = getattr(self, "observability_service", None)
+        if svc is None:
+            return None
+
+        self._obs_stop_event = Event()
+        self._obs_flusher = ObservabilityFlusher(
+            service=svc,
+            base_path=base_path,
+            file_format=file_format,
+            interval_seconds=float(interval_seconds),
+        )
+        self._obs_thread = self._obs_flusher.start_background(self._obs_stop_event)
+        return None
+
+    def stop_observability_flush(self) -> None:
+        """Stop background flush if running (idempotent)."""
+        stop = getattr(self, "_obs_stop_event", None)
+        thread = getattr(self, "_obs_thread", None)
+        if stop is not None:
+            try:
+                stop.set()
+            except Exception:
+                pass
+        if thread is not None:
+            try:
+                thread.join(timeout=1.0)
+            except Exception:
+                pass
 
     def emit_cross_domain_event(self, _event: dict[str, object]) -> None:
         """No-op cross-domain event emitter stub (for tests)."""
@@ -693,100 +830,15 @@ class MLIntegrationManager:
         out = _emit_cascade(ev, target_domain, delay_ns)
         return dict(out)
 
+    def set_message_publisher(self, publisher: object) -> None:
+        """Configure the message publisher for ML stores which support it.
 
-class AutoIntegratedActor:
-    """
-    DEPRECATED: Use BaseMLInferenceActor from ml.actors.base instead.
-
-    This class is kept for backward compatibility only.
-    All new actors should inherit from BaseMLInferenceActor which has
-    automatic store integration built-in.
-    """
-
-    def __init__(self, config: object, integration: MLIntegrationManager | None = None) -> None:
+        Currently applies to ``DataStore`` only. Safe to call at any time; if
+        the store is not initialized yet, this method is a no-op.
         """
-        Initialize actor with automatic integration.
-
-        Parameters
-        ----------
-        config : Any
-            Actor configuration
-        integration : MLIntegrationManager, optional
-            Integration manager (creates one if not provided)
-
-        """
-        # Get or create integration manager
-        self.integration = integration or MLIntegrationManager(
-            config if isinstance(config, HasDBConnection) else None,
-        )
-
-        # Wire all stores
-        self.feature_store = self.integration.feature_store
-        self.model_store = self.integration.model_store
-        self.strategy_store = self.integration.strategy_store
-        self.data_store = self.integration.data_store
-
-        # Wire all registries
-        self.feature_registry = self.integration.feature_registry
-        self.model_registry = self.integration.model_registry
-        self.strategy_registry = self.integration.strategy_registry
-        self.data_registry = self.integration.data_registry
-
-    def write_features(self, features: dict[str, float], **kwargs: object) -> None:
-        """
-        Automatically write features to store.
-        """
-        self.feature_store.write_features(
-            feature_set_id=getattr(self, "feature_set_id", "default"),
-            instrument_id=getattr(self, "instrument_id", "unknown"),
-            features=features,
-            ts_event=getattr(self, "ts_event", None),
-            ts_init=getattr(self, "ts_init", None),
-        )
-
-    def write_prediction(
-        self,
-        prediction: float,
-        confidence: float,
-        features: dict[str, float],
-        **kwargs: object,
-    ) -> None:
-        """
-        Automatically write prediction to store.
-        """
-        self.model_store.write_prediction(
-            model_id=getattr(self, "model_id", "default"),
-            instrument_id=getattr(self, "instrument_id", "unknown"),
-            prediction=prediction,
-            confidence=confidence,
-            features=features,
-            inference_time_ms=float(getattr(self, "inference_time_ms", 0.0)),
-            ts_event=int(getattr(self, "ts_event", 0)),
-            is_live=bool(getattr(self, "is_live", False)),
-        )
-
-    def write_signal(
-        self,
-        signal_type: str,
-        strength: float,
-        model_predictions: dict[str, float],
-        **kwargs: object,
-    ) -> None:
-        """
-        Automatically write signal to store.
-        """
-        self.strategy_store.write_signal(
-            strategy_id=getattr(self, "strategy_id", "default"),
-            instrument_id=getattr(self, "instrument_id", "unknown"),
-            signal_type=signal_type,
-            strength=strength,
-            model_predictions=model_predictions,
-            risk_metrics={},
-            execution_params={},
-            ts_event=int(getattr(self, "ts_event", 0)),
-            is_live=bool(getattr(self, "is_live", False)),
-        )
-
+        if hasattr(self, "data_store") and isinstance(self.data_store, DataStore):
+            # Avoid strict typing dependency here; DataStore expects a compatible publisher.
+            self.data_store.publisher = publisher  # type: ignore[assignment]
 
 # Singleton instance for global access
 _integration_manager: MLIntegrationManager | None = None

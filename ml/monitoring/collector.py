@@ -337,8 +337,8 @@ class PredictionTimer:
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None,
+        _exc_val: BaseException | None,
+        _exc_tb: types.TracebackType | None,
     ) -> None:
         latency = time.perf_counter() - self._start_time
         self._success = exc_type is None
@@ -409,8 +409,8 @@ class FeatureTimer:
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: types.TracebackType | None,
+        _exc_val: BaseException | None,
+        _exc_tb: types.TracebackType | None,
     ) -> None:
         latency = time.perf_counter() - self._start_time
         self._collector.record_feature_computation(

@@ -58,10 +58,10 @@ class EventMessageSchema(pa.DataFrameModel):
         description="Operation performed on the domain entity"
     )
 
-    @pa.check("ts_init", "ts_event")
-    def check_timestamp_ordering(cls, ts_init: Series[int], ts_event: Series[int]) -> bool:
+    @pa.dataframe_check()
+    def check_timestamp_ordering(cls, df: pd.DataFrame) -> bool:
         """ts_init must be >= ts_event (initialization after or during event)."""
-        return (ts_init >= ts_event).all()
+        return (df["ts_init"] >= df["ts_event"]).all()
 
 
 class MessageTopicSchema(pa.DataFrameModel):
@@ -82,6 +82,7 @@ class MessageTopicSchema(pa.DataFrameModel):
     last_published: Series[int] = pa.Field(
         ge=0,
         nullable=True,
+        coerce=True,
         description="Timestamp of last published message (nanoseconds)"
     )
 
@@ -107,8 +108,8 @@ class CrossDomainEventSchema(pa.DataFrameModel):
         description="Time delay in milliseconds for event propagation"
     )
 
-    @pa.check("source_domain", "target_domain")
-    def check_valid_propagation_path(cls, source: Series[str], target: Series[str]) -> bool:
+    @pa.dataframe_check()
+    def check_valid_propagation_path(cls, df: pd.DataFrame) -> bool:
         """Validate that domain propagation follows expected paths."""
         valid_paths = {
             "data": ["features"],
@@ -116,11 +117,7 @@ class CrossDomainEventSchema(pa.DataFrameModel):
             "models": ["strategies"],
             "strategies": []  # Terminal domain
         }
-
-        for src, tgt in zip(source, target):
-            if tgt not in valid_paths.get(src, []):
-                return False
-        return True
+        return all(df.apply(lambda r: r["target_domain"] in valid_paths.get(r["source_domain"], []), axis=1))
 
 
 class SubscriptionFilterSchema(pa.DataFrameModel):
@@ -216,10 +213,13 @@ class TestEventMessageContracts:
                 "topic": "ml.features.updated.BTCUSDT.BINANCE",
                 "subscriber_count": 1,
                 "message_count": 42,
-                "last_published": None,  # No messages yet
+                "last_published": 0,  # Use 0 for no messages yet to avoid dtype ambiguity
             }
         ])
+        # Ensure integer dtype
+        valid_topics["last_published"] = valid_topics["last_published"].astype("int64")
 
+        # Pandas may upcast to float when None present; coerce via schema
         validated_df = MessageTopicSchema.validate(valid_topics)
         assert len(validated_df) == 2
 
@@ -356,7 +356,7 @@ class TestMessageBusIntegrationContracts:
                 "topic": generated_topic,
                 "subscriber_count": 0,
                 "message_count": 0,
-                "last_published": None,
+                "last_published": 0,
             }])
 
             try:

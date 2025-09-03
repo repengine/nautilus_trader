@@ -59,17 +59,17 @@ class LatencyWatermarkSchema(pa.DataFrameModel):
         description="Cumulative pipeline latency in nanoseconds"
     )
 
-    @pa.check("ts_stage_end", "ts_stage_start")
-    def check_stage_timestamp_ordering(cls, ts_end: Series[int], ts_start: Series[int]) -> bool:
+    @pa.dataframe_check()
+    def check_stage_timestamp_ordering(cls, df: pd.DataFrame) -> bool:
         """Stage end timestamp must be >= stage start timestamp."""
-        return (ts_end >= ts_start).all()
+        return (df["ts_stage_end"] >= df["ts_stage_start"]).all()
 
-    @pa.check("stage_latency_ns", "ts_stage_end", "ts_stage_start")
-    def check_stage_latency_consistency(cls, latency: Series[int], ts_end: Series[int], ts_start: Series[int]) -> bool:
+    @pa.dataframe_check()
+    def check_stage_latency_consistency(cls, df: pd.DataFrame) -> bool:
         """Stage latency must match timestamp difference."""
-        calculated_latency = ts_end - ts_start
+        calculated_latency = df["ts_stage_end"] - df["ts_stage_start"]
         # Allow small discrepancies due to measurement precision
-        return (abs(latency - calculated_latency) <= 1000).all()
+        return (abs(df["stage_latency_ns"] - calculated_latency) <= 1000).all()
 
 
 class MetricsCollectionSchema(pa.DataFrameModel):
@@ -102,10 +102,10 @@ class MetricsCollectionSchema(pa.DataFrameModel):
         description="JSON-encoded metric labels (instrument_id, domain, etc.)"
     )
 
-    @pa.check("metric_name", "metric_type")
-    def check_metric_type_consistency(cls, names: Series[str], types: Series[str]) -> bool:
+    @pa.dataframe_check()
+    def check_metric_type_consistency(cls, df: pd.DataFrame) -> bool:
         """Verify metric names align with expected types."""
-        expected_types = {
+        expected_types: dict[str, str] = {
             "ml_predictions_total": "counter",
             "ml_features_computed_total": "counter",
             "ml_signals_generated_total": "counter",
@@ -118,11 +118,13 @@ class MetricsCollectionSchema(pa.DataFrameModel):
             "ml_event_correlation_success_rate": "gauge",
             "ml_watermark_progression_rate": "gauge"
         }
-
-        for name, type_val in zip(names, types):
-            if name in expected_types and expected_types[name] != type_val:
-                return False
-        return True
+        return all(
+            df.apply(
+                lambda r: (r["metric_name"] not in expected_types)
+                or (expected_types[r["metric_name"]] == r["metric_type"]),
+                axis=1,
+            )
+        )
 
 
 class EventCorrelationSchema(pa.DataFrameModel):
@@ -163,15 +165,12 @@ class EventCorrelationSchema(pa.DataFrameModel):
         description="JSON array of domains in propagation path"
     )
 
-    @pa.check("lineage_depth", "parent_event_id")
-    def check_root_event_consistency(cls, depth: Series[int], parent_id: Series[str]) -> bool:
+    @pa.dataframe_check()
+    def check_root_event_consistency(cls, df: pd.DataFrame) -> bool:
         """Root events (depth=0) must have null parent_event_id."""
-        for d, pid in zip(depth, parent_id):
-            if d == 0 and pd.notna(pid):
-                return False
-            if d > 0 and pd.isna(pid):
-                return False
-        return True
+        cond_root = (df["lineage_depth"] == 0) & df["parent_event_id"].isna()
+        cond_child = (df["lineage_depth"] > 0) & df["parent_event_id"].notna()
+        return bool((cond_root | cond_child).all())
 
 
 class HealthScoreAggregationSchema(pa.DataFrameModel):
@@ -205,11 +204,10 @@ class HealthScoreAggregationSchema(pa.DataFrameModel):
         description="Health score threshold below which alerts are triggered"
     )
 
-    @pa.check("health_score", "alert_threshold")
-    def check_alert_threshold_logic(cls, health: Series[float], threshold: Series[float]) -> bool:
-        """Alert threshold should be <= current health score for stable systems."""
-        # This is more of a guideline - unhealthy systems may violate this
-        return True  # Allow all combinations, let monitoring logic handle alerts
+    @pa.dataframe_check()
+    def check_alert_threshold_logic(cls, df: pd.DataFrame) -> bool:
+        """Guideline: schema does not enforce alert vs health thresholds."""
+        return True
 
 
 class PipelineLineageSchema(pa.DataFrameModel):
@@ -252,17 +250,16 @@ class PipelineLineageSchema(pa.DataFrameModel):
         description="Lineage completion timestamp (null if in progress)"
     )
 
-    @pa.check("completed_at", "created_at", "completion_status")
-    def check_completion_timestamp_consistency(cls, completed: Series[int], created: Series[int], status: Series[str]) -> bool:
+    @pa.dataframe_check()
+    def check_completion_timestamp_consistency(cls, df: pd.DataFrame) -> bool:
         """Completed lineages must have completion timestamp >= creation timestamp."""
-        for comp, cr, st in zip(completed, created, status):
-            if st == "completed":
-                if pd.isna(comp) or comp < cr:
-                    return False
-            elif st == "in_progress":
-                if pd.notna(comp):
-                    return False
-        return True
+        completed = df["completion_status"] == "completed"
+        in_progress = df["completion_status"] == "in_progress"
+        cond_completed = (~df.loc[completed, "completed_at"].isna()) & (
+            df.loc[completed, "completed_at"] >= df.loc[completed, "created_at"]
+        )
+        cond_in_progress = df.loc[in_progress, "completed_at"].isna()
+        return bool(cond_completed.all() and cond_in_progress.all())
 
 
 @pytest.mark.contracts
@@ -516,6 +513,8 @@ class TestPipelineLineageContracts:
                 "completed_at": None,  # Not completed yet
             }
         ])
+        # Ensure nullable integer dtype for completed_at to satisfy schema
+        valid_lineages["completed_at"] = valid_lineages["completed_at"].astype("Int64")
 
         validated_df = PipelineLineageSchema.validate(valid_lineages)
         assert len(validated_df) == 2
@@ -603,9 +602,16 @@ class TestObservabilityPipelineIntegrationContracts:
             }
             correlations.append(correlation)
 
-            # Create metrics entry
+            # Create metrics entry using canonical names
+            domain_metric_map = {
+                "data": "ml_data_ingestion_latency_seconds",
+                "features": "ml_feature_computation_latency_seconds",
+                "models": "ml_model_inference_latency_seconds",
+                "strategies": "ml_signal_generation_latency_seconds",
+            }
+            metric_name = domain_metric_map.get(domain, "ml_data_ingestion_latency_seconds")
             metric = {
-                "metric_name": f"ml_{domain}_processing_latency_seconds",
+                "metric_name": metric_name,
                 "metric_type": "histogram",
                 "value": stage_latency / 1e9,  # Convert to seconds
                 "timestamp": stage_end,

@@ -98,6 +98,7 @@ class MLPipelineRunner:
             """
             Handle shutdown signals.
             """
+            _ = frame
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
             self.shutdown_requested = True
 

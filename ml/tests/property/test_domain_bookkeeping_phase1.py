@@ -198,9 +198,9 @@ class TestMessageTopicRoutingInvariant:
         Topic routing depends on consistent naming for subscription filters and
         event routing logic across the message bus infrastructure.
         """
-        # Clean instrument_id of invalid characters
+        # Clean instrument_id of reserved characters (canonical sanitizer)
         clean_instrument_id = instrument_id
-        for char in invalid_chars:
+        for char in ["/", "*", "#", "+", "$"]:
             clean_instrument_id = clean_instrument_id.replace(char, "_")
 
         expected_topic = f"ml.{domain}.{operation}.{clean_instrument_id}"

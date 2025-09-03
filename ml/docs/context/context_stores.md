@@ -4,6 +4,8 @@
 
 The Nautilus Trader ML stores infrastructure implements a sophisticated four-tier storage architecture consisting of FeatureStore, ModelStore, StrategyStore, and DataStore. This system provides mandatory data persistence for all ML actors with advanced PostgreSQL partitioning, comprehensive data processing pipelines, contract validation, and event tracking. The architecture enforces strict adherence to Nautilus conventions while delivering enterprise-grade performance and reliability.
 
+**📝 ADDITION:** The stores architecture has been enhanced with centralized database engine management through EngineManager, improved message bus integration, and advanced protocol-based interfaces for better type safety and testing.
+
 ## Core Architecture
 
 ### The Store Quartet
@@ -11,12 +13,13 @@ The Nautilus Trader ML stores infrastructure implements a sophisticated four-tie
 The ML infrastructure is built around four stores that form the backbone of the data persistence layer:
 
 ```python
-# Every ML actor MUST use these three mandatory stores
+# Every ML actor MUST use these four mandatory stores
 class BaseMLInferenceActor:
     def __init__(self):
         self.feature_store = FeatureStore(connection_string)
         self.model_store = ModelStore(persistence_config)
         self.strategy_store = StrategyStore(persistence_config)
+        self.data_store = DataStore(connection_string, registry)  # **✨ ENHANCEMENT:** Added missing data_store
 
 # DataStore provides unified facade with validation
 class DataStore:
@@ -35,6 +38,9 @@ class DataStore:
 - **Schema**: Feature values stored as JSONB with instrument_id, ts_event, ts_init (nanoseconds)
 - **Pipeline Integration**: Supports PipelineSpec for declarative feature transformations
 - **Data Registry**: Lazy initialization of DataRegistry for event emission
+- **✨ ENHANCEMENT:** Uses centralized EngineManager for database connections
+- **📝 ADDITION:** Supports both PersistenceConfig and connection_string initialization patterns
+- **📝 ADDITION:** Integrated with message bus publishing for real-time feature updates
 
 #### ModelStore (`ml/stores/model_store.py`)
 
@@ -43,6 +49,9 @@ class DataStore:
 - **Storage**: PostgreSQL table `ml_model_predictions` with time-based partitioning
 - **Schema**: Predictions with features_used, inference_time_ms, confidence metrics
 - **Persistence**: Supports both connection_string and PersistenceConfig initialization
+- **📝 ADDITION:** Configurable batch_size and flush_interval_ms for performance tuning
+- **📝 ADDITION:** Optional Clock integration for Nautilus timestamp consistency
+- **✨ ENHANCEMENT:** Message bus publishing support with configurable publisher
 
 #### StrategyStore (`ml/stores/strategy_store.py`)
 
@@ -50,6 +59,9 @@ class DataStore:
 - **Key Capability**: Signal attribution, risk tracking, execution parameter calculation
 - **Storage**: PostgreSQL table `ml_strategy_signals` with time-based partitioning
 - **Schema**: Signals with model_predictions mapping, risk_metrics, execution_params
+- **📝 ADDITION:** Configurable batch_size and flush_interval_ms for performance optimization
+- **📝 ADDITION:** Optional Clock integration for timestamp synchronization
+- **✨ ENHANCEMENT:** Message bus publishing support for real-time signal distribution
 
 #### DataStore (`ml/stores/data_store.py`)
 
@@ -61,6 +73,9 @@ class DataStore:
   - Automatic event emission to DataRegistry
   - Schema migration support with dual-write windows
   - Quality scoring and violation tracking
+- **📝 ADDITION:** Comprehensive event emission with correlation_id for lineage tracking
+- **📝 ADDITION:** Message bus integration for event publishing to external systems
+- **✨ ENHANCEMENT:** Advanced preflight validation with type compatibility checking
 
 ### Base Classes and Data Models
 
@@ -75,6 +90,21 @@ class FeatureData(Data):
     values: dict[str, float]
     _ts_event: int  # nanoseconds
     _ts_init: int   # nanoseconds
+    quality_flags: int = 0  # **📝 ADDITION:** Quality tracking support
+
+    @property
+    def feature_values(self) -> dict[str, float]:
+        """**📝 ADDITION:** Safe accessor for feature values dict avoiding inheritance conflicts."""
+        # Defensive copy as a plain dict[str, float]
+        raw: dict[str, Any] = object.__getattribute__(self, "__dict__")
+        data = raw.get("values")
+        if data is None:
+            candidate = getattr(self, "values", {})
+            data = candidate() if callable(candidate) else candidate
+        try:
+            return {str(k): float(v) for k, v in dict(data or {}).items()}
+        except Exception:
+            return {}
 
     @property
     def ts_event(self) -> int:
@@ -109,7 +139,7 @@ class StrategySignal(Data):
     _ts_event: int
     _ts_init: int
 
-class BaseStore(ABC):
+class BaseStore(MLComponentMixin, ABC):
     """Abstract base class for all store implementations."""
     @abstractmethod
     def write_batch(self, data: list[Any]) -> None: ...
@@ -124,13 +154,46 @@ class BaseStore(ABC):
 
 class DummyStore:
     """Dummy store for testing when database is not available."""
+    # **✨ ENHANCEMENT:** Comprehensive protocol compliance for all store methods
     # Accepts all method calls but doesn't persist anything
+```
+
+**📝 ADDITION:** Advanced Protocol Support (`ml/stores/protocols.py`)
+
+```python
+# Protocol interfaces for structural type checking and test compatibility
+class BaseStoreProtocol(Protocol):
+    def write_batch(self, data: list[Any]) -> None: ...
+    def read_range(self, start_ns: int, end_ns: int, instrument_id: str | None = None) -> Any: ...
+    def flush(self) -> None: ...
+    def get_latest(self, instrument_id: str, limit: int = 1) -> Any: ...
+    def get_statistics(self, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, Any]: ...
+
+class FeatureStoreProtocol(Protocol):
+    def write_features(self, ...) -> None: ...
+    def compute_realtime(self, bar: Any, store: bool = ..., indicator_manager: Any | None = ...) -> Any: ...
+
+class ModelStoreProtocol(Protocol):
+    def write_prediction(self, ...) -> None: ...
+    def read_predictions(self, ...) -> Any: ...
+    def get_model_performance(self, ...) -> dict[str, Any]: ...
+
+class StrategyStoreProtocol(Protocol):
+    def write_signal(self, ...) -> None: ...
+    def read_signals(self, ...) -> Any: ...
+    def get_strategy_performance(self, ...) -> dict[str, Any]: ...
+    def get_signal_distribution(self, ...) -> dict[str, int]: ...
 ```
 
 ## Database Schema Architecture
 
-**Important**: Migrations under `ml/stores/migrations/` are the canonical source of schema.
+**✨ ENHANCEMENT:** Migrations under `ml/stores/migrations/` are the canonical source of schema.
 Legacy SQL files under `ml/schema/` are retained for reference only.
+
+**📝 ADDITION:** Recent schema enhancements include:
+- **006_disable_partition_triggers.sql**: Disables race-prone automatic partition triggers
+- **007_add_event_metadata.sql**: Adds JSONB metadata column to events table
+- **007_brin_indexes.sql**: BRIN indexes for efficient time-range queries
 
 ### Partitioning Strategy
 
@@ -139,19 +202,26 @@ All ML tables use sophisticated time-based partitioning managed by PostgreSQL na
 #### Core Tables
 
 1. **ml_feature_values** - Partitioned by ts_event (monthly partitions)
-2. **ml_model_predictions** - Partitioned by ts_event (monthly partitions)
+2. **ml_model_predictions** - Partitioned by ts_event (monthly partitions)  
 3. **ml_strategy_signals** - Partitioned by ts_event (monthly partitions)
 
 #### Partition Management
 
-- **Automatic Creation**: Triggers create partitions on-demand during inserts
-- **Future Planning**: PartitionManager creates 3 months of partitions ahead
+- **Automatic Creation**: PartitionManager creates 3 months of partitions ahead
+- **Future Planning**: Configurable months_ahead parameter (default: 3)
 - **Retention**: Automatic cleanup of partitions older than 24 months (configurable)
 - **Naming Convention**: `{table_name}_{YYYY}_{MM}` (e.g., `ml_feature_values_2024_03`)
+- **⚠️ CORRECTION:** Automatic partition triggers have been disabled due to race conditions
 
 ### Migration System
 
 Located in `ml/stores/migrations/`:
+
+#### Recent Migration Files **📝 ADDITION:**
+
+- **006_disable_partition_triggers.sql**: Removes problematic automatic partition triggers
+- **007_add_event_metadata.sql**: Extends events table with JSONB metadata support
+- **007_brin_indexes.sql**: Adds BRIN indexes for efficient time-range queries
 
 #### 001_stores_schema.sql
 
@@ -188,7 +258,7 @@ All stores implement the universal component interface defined in `ml/common/pro
 
 These methods are not used in hot write paths; use them for health endpoints and startup checks. Integration Manager validates protocol compliance (warn by default; strict via `ML_STRICT_PROTOCOL_VALIDATION`).
 
-### DB Preflight
+### DB Preflight **📝 ADDITION:** (`ml/stores/db_preflight.py`)
 
 Use `ml/stores/db_preflight.check_db_prereqs()` at startup or during ops to verify:
 
@@ -199,12 +269,26 @@ Use `ml/stores/db_preflight.check_db_prereqs()` at startup or during ops to veri
   - `ml_feature_lineage` - Feature transformation tracking
   - `ml_strategy_performance` - Strategy signal statistics
 
+```python
+REQUIRED_FUNCTIONS = [
+    "emit_data_event",
+    "update_watermark",
+]
+
+PARTITIONED_TABLES = [
+    "ml_feature_values",
+    "ml_model_predictions", 
+    "ml_strategy_signals",
+]
+```
+
 #### 002_auto_partitioning.sql
 
 - Implements automatic partition creation functions
-- Sets up triggers for on-demand partition creation
+- Sets up triggers for on-demand partition creation  
 - Provides cleanup functions for old partitions
 - Optional pg_cron integration for scheduled maintenance
+- **⚠️ CORRECTION:** Triggers have been disabled in favor of pre-created partitions
 
 #### 003_market_data.sql
 
@@ -246,6 +330,14 @@ CREATE INDEX idx_ml_feature_values_live
 -- Signal type analysis
 CREATE INDEX idx_ml_strategy_signals_type
     ON ml_strategy_signals (signal_type);
+
+-- **📝 ADDITION:** BRIN indexes for efficient range scans
+CREATE INDEX IF NOT EXISTS brin_ml_feature_values_ts
+    ON ml_feature_values USING BRIN (ts_event);
+CREATE INDEX IF NOT EXISTS brin_ml_model_predictions_ts  
+    ON ml_model_predictions USING BRIN (ts_event);
+CREATE INDEX IF NOT EXISTS brin_ml_strategy_signals_ts
+    ON ml_strategy_signals USING BRIN (ts_event);
 ```
 
 ## Data Processing Pipeline
@@ -316,11 +408,19 @@ The DataProcessor implements intelligent caching for:
 - Quality metrics
 - With configurable TTL and LRU eviction
 
+**📝 ADDITION:** Centralized Database Engine Management
+
+```python
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+    """Module-level factory for tests to monkeypatch."""
+    return EngineManager.get_engine(connection_string, **kwargs)
+```
+
+All stores now use centralized EngineManager for connection pooling and lifecycle management.
+
 ## Live Data Recording
 
-### LiveDataRecorder
-
-Located in `ml/stores/live_data_recorder.py`:
+### LiveDataRecorder **📝 ADDITION:** (`ml/stores/live_data_recorder.py`)
 
 The LiveDataRecorder automatically captures all live market data flowing through the system:
 
@@ -334,6 +434,7 @@ class LiveDataRecorder:
         data_registry: DataRegistry,
         buffer_size: int = 1000,
         flush_interval_ms: int = 1000,
+        storage_path: Path | None = None,
     ):
         # Intercepts and records quotes, trades, bars
         # Automatic buffering and periodic flushing
@@ -350,7 +451,7 @@ class LiveDataRecorder:
 
 ## Advanced Partitioning Management
 
-### PartitionManager
+### PartitionManager **📝 ADDITION:** (`ml/stores/partition_manager.py`)
 
 Located in `ml/stores/partition_manager.py`:
 
@@ -381,7 +482,7 @@ stats = manager.get_partition_stats()
 
 ### Automated Scheduling
 
-The scheduler (`/home/nate/projects/nautilus_trader/ml/stores/schedule_partitions.py`) provides:
+The scheduler (`ml/stores/schedule_partitions.py`) provides:
 
 #### Command-Line Interface
 
@@ -496,7 +597,7 @@ class ValidationRuleType(Enum):
     LATENESS = "lateness"          # Data freshness validation
 ```
 
-### Quality Reporting
+### Quality Reporting **✨ ENHANCEMENT:**
 
 ```python
 @dataclass
@@ -508,6 +609,16 @@ class QualityReport:
     quality_score: float  # 0-1 score
     violations: list[ValidationViolation]
     validation_time_ms: float
+    metadata: dict[str, Any] = field(default_factory=dict)  # **📝 ADDITION:** Metadata support
+
+@dataclass
+class ValidationViolation:
+    rule_type: ValidationRuleType
+    field_name: str
+    severity: QualityFlag
+    violation_count: int
+    sample_values: list[Any]
+    description: str
 ```
 
 ### Enforcement Modes
@@ -515,6 +626,8 @@ class QualityReport:
 - **strict**: Reject any data with violations
 - **lenient**: Log warnings but allow data through
 - **monitor_only**: Track violations without blocking
+
+**📝 ADDITION:** DataStore includes fail-closed behavior for critical violations regardless of enforcement mode.
 
 ## Cache Implementation
 
@@ -606,6 +719,21 @@ model_store = ModelStore(persistence_config=persistence_config)
 strategy_store = StrategyStore(persistence_config=persistence_config)
 ```
 
+**📝 ADDITION:** Message Bus Integration
+
+```python
+# Stores support configurable message bus publishing
+store = ModelStore(
+    connection_string=conn_str,
+    enable_publishing=True,
+    publisher=message_publisher
+)
+
+# Events published to topics derived from processing stage
+# Topic format: {domain}.{operation}.{instrument_id}
+# Example: "ml.prediction.emitted.EURUSD"
+```
+
 ## Performance Characteristics
 
 ### Write Performance
@@ -629,8 +757,8 @@ model_store.flush()  # Force immediate write
 #### Time-Series Optimizations
 
 - **Partition Pruning**: Queries automatically target specific monthly partitions
-- **BRIN Indexes**: Block-range indexes for timestamp columns provide compression
-- **Connection Pooling**: Reuse connections for reduced latency
+- **BRIN Indexes**: Block-range indexes for timestamp columns provide compression **📝 ADDITION:**
+- **Connection Pooling**: Reuse connections for reduced latency via EngineManager **✨ ENHANCEMENT:**
 
 #### Typical Performance
 
@@ -657,7 +785,7 @@ elif self.clock and self._should_flush_by_time():
 
 #### Connection Management
 
-- **Engine per store**: Separate connection pools
+- **Engine per store**: Separate connection pools via EngineManager **✨ ENHANCEMENT:**
 - **Auto-reconnection**: Handles database disconnections gracefully
 - **Transaction boundaries**: Each batch write is atomic
 
@@ -666,7 +794,7 @@ elif self.clock and self._should_flush_by_time():
 ### Completed Components ✅
 
 1. **Core Store Classes**: FeatureStore, ModelStore, StrategyStore, DataStore fully implemented
-2. **Database Schema**: Complete migration system with partitioning (7 migration files)
+2. **Database Schema**: Complete migration system with partitioning (9 migration files) **🔄 UPDATE:**
 3. **Data Processing**: Comprehensive DataProcessor with quality tracking and validation
 4. **Contract Validation**: DataStore with preflight checks, quality reporting, enforcement modes
 5. **Live Recording**: LiveDataRecorder for automatic market data capture
@@ -674,12 +802,16 @@ elif self.clock and self._should_flush_by_time():
 7. **Integration Layer**: DataRegistry integration, PersistenceConfig support
 8. **Performance Optimizations**: Batch writing, intelligent caching, optimized indexing
 9. **Event Tracking**: Full event emission and watermark management
+10. **📝 ADDITION:** Protocol-based interfaces for type safety and testing
+11. **📝 ADDITION:** Centralized database engine management via EngineManager
+12. **📝 ADDITION:** Message bus integration for real-time event publishing
+13. **📝 ADDITION:** Advanced preflight validation with comprehensive type checking
 
 ### Production Readiness ✅
 
 - **Type Safety**: Complete type annotations with strict mypy compliance
 - **Error Handling**: Comprehensive exception handling and logging
-- **Testing**: Unit tests covering core functionality
+- **Testing**: Unit tests covering core functionality with protocol-based mocking **✨ ENHANCEMENT:**
 - **Configuration**: Environment-based configuration support
 - **Monitoring**: Health checks, statistics endpoints, Prometheus metrics
 - **Schema Migration**: Support for dual-write windows during migrations
@@ -691,6 +823,9 @@ elif self.clock and self._should_flush_by_time():
 3. **Event-Driven Architecture**: DataRegistry integration for observability
 4. **Async Support**: LiveDataRecorder with async flush tasks
 5. **Schema Evolution**: Migration windows and version tracking
+6. **📝 ADDITION:** BRIN indexes for efficient time-range queries
+7. **📝 ADDITION:** Disabled partition triggers for race condition prevention
+8. **📝 ADDITION:** Enhanced event metadata support with JSONB storage
 
 ### Planned Enhancements 🔄
 
@@ -717,8 +852,11 @@ ts_init: int   # Initialization timestamp in nanoseconds
 # Conversion utilities
 ts_event = int(datetime.utcnow().timestamp() * 1e9)
 
-Note on defensive normalization:
-- The stores defensively normalize incoming timestamps to nanoseconds when they appear to be in seconds, milliseconds, or microseconds. This is a safety net for integration edges; a warning is logged when normalization occurs. Production writers should still emit nanoseconds directly.
+# **✨ ENHANCEMENT:** Defensive normalization with warning logging
+# The stores defensively normalize incoming timestamps to nanoseconds when they appear 
+# to be in seconds, milliseconds, or microseconds. This is a safety net for integration 
+# edges; a warning is logged when normalization occurs. Production writers should still 
+# emit nanoseconds directly.
 ```
 
 ### 2. JSONB for Flexible Storage
@@ -773,6 +911,27 @@ if np.isnan(value):
 
 **Rationale**: Explicit quality tracking enables debugging, monitoring, and data lineage analysis.
 
+**📝 ADDITION:** 6. Centralized Engine Management
+
+```python
+# All stores use EngineManager for connection lifecycle
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
+    return EngineManager.get_engine(connection_string, **kwargs)
+```
+
+**Rationale**: Centralizes connection pooling, reduces resource usage, and simplifies testing through unified mock points.
+
+**📝 ADDITION:** 7. Protocol-First Design
+
+```python
+# Structural typing prevents implementation drift
+class ModelStoreProtocol(Protocol):
+    def write_prediction(...) -> None: ...
+    def read_predictions(...) -> Any: ...
+```
+
+**Rationale**: Enables duck typing, simplifies testing with DummyStore, and prevents API drift between implementations.
+
 ## Configuration and Deployment
 
 ### Environment Configuration
@@ -792,6 +951,10 @@ ML_PARTITION_RETENTION_MONTHS=24
 # Data processing
 ML_OUTLIER_THRESHOLD=5.0
 ML_STALENESS_THRESHOLD_SECONDS=300
+
+# **📝 ADDITION:** Message bus configuration
+ML_ENABLE_PUBLISHING=true
+ML_MESSAGE_BUS_URL=redis://localhost:6379
 ```
 
 ### PostgreSQL Tuning
@@ -828,31 +991,42 @@ graph TB
         MA[ML Actors] --> FS[FeatureStore]
         MA --> MS[ModelStore]
         MA --> SS[StrategyStore]
+        MA --> DS[DataStore]
     end
 
     subgraph "Processing Layer"
         FS --> DP[DataProcessor]
         MS --> DP
         SS --> DP
+        DS --> DP
     end
 
     subgraph "Storage Layer"
         DP --> PG[(PostgreSQL)]
         PM[PartitionManager] --> PG
+        EM[EngineManager] --> PG
     end
 
     subgraph "Management Layer"
         SC[Scheduler] --> PM
         MON[Monitoring] --> PG
+        LDR[LiveDataRecorder] --> DS
+    end
+
+    subgraph "Integration Layer"
+        MB[MessageBus] --> MA
+        DR[DataRegistry] --> DS
     end
 ```
+
+**✨ ENHANCEMENT:** Added EngineManager, MessageBus, and LiveDataRecorder to architecture diagram.
 
 ## Future Enhancements
 
 ### Near-Term (Next 3 months)
 
 1. **Store-Level Circuit Breakers**: While actors have circuit breakers, add dedicated database-level circuit breakers
-2. **Streaming Ingestion**: Real-time market data processing
+2. **Streaming Ingestion**: Real-time market data processing (partially complete via LiveDataRecorder)
 3. **Advanced Analytics**: Cross-store query optimization
 4. **Monitoring Dashboard**: Grafana integration for operations
 
@@ -876,7 +1050,7 @@ The ML stores infrastructure provides a production-ready, scalable foundation fo
 
 Key strengths:
 
-- **Mandatory Integration**: All ML actors must use the three-store architecture
+- **Mandatory Integration**: All ML actors must use the four-store architecture **🔄 UPDATE:**
 - **Contract Validation**: DataStore provides schema validation, quality scoring, and enforcement modes
 - **Sophisticated Partitioning**: Automatic partition management with PostgreSQL native features
 - **Comprehensive Processing**: Quality tracking, validation, enrichment, and event emission
@@ -884,8 +1058,15 @@ Key strengths:
 - **Production Ready**: Complete error handling, monitoring, Prometheus metrics, and configuration
 - **Event-Driven**: Full integration with DataRegistry for observability and watermark tracking
 - **Live Recording**: Automatic capture of all market data with LiveDataRecorder
+- **✨ ENHANCEMENT:** Protocol-based interfaces for type safety and testing compatibility
+- **✨ ENHANCEMENT:** Centralized engine management for resource optimization  
+- **✨ ENHANCEMENT:** Message bus integration for real-time event distribution
+- **📝 ADDITION:** Advanced preflight validation with comprehensive type checking
+- **📝 ADDITION:** BRIN indexes for efficient time-range query performance
+- **📝 ADDITION:** Enhanced event metadata support for better observability
 
 The implementation successfully provides a robust, validated, and observable foundation for both research and production ML trading systems, with comprehensive data quality controls and full lifecycle management.
+
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection

@@ -628,12 +628,21 @@ class FeatureEngineer:
         self._metrics = metrics_collector
 
         # Pre-allocate feature buffer for hot path performance
-        feature_names = self.config.get_feature_names()
-        self.n_features = len(feature_names)
+        # IMPORTANT: Online (hot-path) schema must reflect L1-only capability until
+        # microstructure/trade-flow actors are available. Compute online feature names
+        # with DataRequirements.L1_ONLY to size buffers and ensure index↔name parity.
+        spec = self.build_pipeline_spec_from_config()
+        runner = PipelineRunner(spec, allowable=DataRequirements.L1_ONLY)
+        self._online_feature_names = runner.compute_feature_names()
+        self.n_features = len(self._online_feature_names)
         # Add some extra space for potential additional features in online calculation
         from ml.config.constants import SystemConstants
 
         buffer_size = self.n_features + SystemConstants.FEATURE_BUFFER_PAD
+
+        # One-time advisory when online flags request microstructure/trade_flow which
+        # are currently disabled in hot path (batch-only until actors exist).
+        self._online_warning_emitted: bool = False
 
         # Internal indicator manager for convenience (hot path)
         self._indicator_manager = IndicatorManager(self.config)
@@ -745,12 +754,121 @@ class FeatureEngineer:
             last_modified=now,
         )
 
-    # Minimal quality calculator stub for strict typing; extended in teacher pipelines
+    # Quality metrics (batch-only; off hot path)
     def _calculate_feature_qualities(
         self: Self,
         df: DataFrameLike,
-    ) -> dict[str, Any]:  # pragma: no cover - typing stub
-        return {}
+    ) -> dict[str, dict[str, float]]:
+        """
+        Calculate simple quality metrics per feature column for batch outputs.
+
+        This runs off the hot path and is used for monitoring/validation in
+        teacher pipelines. Metrics include null_rate, zero_rate, unique_ratio,
+        inf_rate, and outlier_rate (IQR-based) for numeric columns.
+        """
+        if not getattr(self.config, "validate_quality", False):
+            return {}
+
+        pdf_or_pl = self._convert_to_polars(df)
+        if pdf_or_pl is None or len(pdf_or_pl) == 0:
+            return {}
+
+        features_df = pdf_or_pl
+        quality_metrics: dict[str, dict[str, float]] = {}
+        total_rows = len(features_df)
+
+        for col in features_df.columns:
+            if col in ("timestamp", "entity_id", "symbol"):
+                continue
+            try:
+                metrics = self._calculate_column_metrics(features_df[col], total_rows)
+                quality_metrics[col] = metrics
+            except Exception:
+                # Skip non-numeric or problematic columns gracefully
+                continue
+
+        return quality_metrics
+
+    def validate_feature_quality(self, features_df: DataFrameLike) -> dict[str, dict[str, float]]:
+        """
+        Public helper to compute quality metrics for a batch features DataFrame.
+        """
+        return self._calculate_feature_qualities(features_df)
+
+    def _convert_to_polars(self, features_df: DataFrameLike) -> PolarsDF | None:
+        """
+        Convert DataFrame to Polars if possible; return None on failure.
+        """
+        if not HAS_POLARS:
+            return None
+        # Already polars?
+        if hasattr(features_df, "select") and "polars" in str(type(features_df)):
+            return cast(PolarsDF, features_df)
+        # Try pandas → polars
+        try:
+            if pd is not None and hasattr(features_df, "__class__") and "pandas" in str(type(features_df)):
+                return pl.from_pandas(features_df)  # type: ignore[arg-type]
+        except Exception:
+            return None
+        return None
+
+    def _calculate_column_metrics(
+        self,
+        col_data: PolarsSeries,
+        total_rows: int,
+    ) -> dict[str, float]:
+        """
+        Calculate quality metrics for a single numeric column.
+        """
+        # Basic metrics
+        null_count = col_data.null_count()
+        zero_count = (col_data == 0.0).sum()
+        unique_count = col_data.n_unique()
+
+        metrics = {
+            "null_rate": float(null_count) / float(total_rows) if total_rows else 0.0,
+            "zero_rate": float(zero_count) / float(total_rows) if total_rows else 0.0,
+            "unique_ratio": float(unique_count) / float(total_rows) if total_rows else 0.0,
+            "inf_rate": 0.0,
+            "outlier_rate": 0.0,
+        }
+
+        # Additional metrics for numeric columns only
+        import polars as _pl  # local import for type/attr checks
+        if col_data.dtype in (_pl.Float32, _pl.Float64):
+            inf_count = col_data.is_infinite().sum()
+            metrics["inf_rate"] = float(inf_count) / float(total_rows) if total_rows else 0.0
+            metrics["outlier_rate"] = self._calculate_outlier_rate(col_data, total_rows)
+
+        return metrics
+
+    def _calculate_outlier_rate(
+        self,
+        col_data: PolarsSeries,
+        total_rows: int,
+    ) -> float:
+        """
+        Calculate outlier rate using the IQR rule-of-thumb.
+        """
+        try:
+            q1 = col_data.quantile(0.25)
+            q3 = col_data.quantile(0.75)
+            if q1 is None or q3 is None:
+                return 0.0
+            if np.isnan(q1) or np.isnan(q3):
+                return 0.0
+            iqr = q3 - q1
+            if iqr <= 0:
+                return 0.0
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            outlier_count = ((col_data < lower) | (col_data > upper)).sum()
+            return float(outlier_count) / float(total_rows) if total_rows else 0.0
+        except Exception:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug("Outlier ratio calculation failed", exc_info=True)
+            return 0.0
 
     def _extract_price_arrays(self: Self, df: DataFrameLike) -> tuple[npt.NDArray[np.float64], ...]:
         """
@@ -1071,6 +1189,19 @@ class FeatureEngineer:
             timer = None
 
         with timer if timer is not None else _dummy_context_manager():
+            # Warn once if configuration requests advanced features which are
+            # disabled in the hot path (until actors provide them at runtime).
+            if (
+                (self.config.include_microstructure or self.config.include_trade_flow)
+                and not self._online_warning_emitted
+            ):
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "Hot-path microstructure/trade_flow disabled; batch pipelines compute them. "
+                    "Actors not yet wired for online features.",
+                )
+                self._online_warning_emitted = True
             return self._calculate_features_batch_impl(
                 df,
                 fit_scaler,
@@ -2422,321 +2553,6 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
         transforms.append(TransformSpec(name="trade_flow", params={}))
 
     return PipelineSpec(transforms=transforms)
-
-    def _calculate_microstructure_features_online(
-        self: object,
-        current_bar: dict[str, float],
-        indicator_manager: IndicatorManager,
-        feature_idx: int,
-    ) -> int:
-        """
-        Calculate microstructure features for online inference (hot path).
-
-        In the hot path, we delegate to the appropriate calculator based on
-        available data, or use cached values from a MicrostructureActor.
-
-        Parameters
-        ----------
-        current_bar : dict[str, float]
-            Current OHLCV data with optional L2/L3 fields.
-        indicator_manager : IndicatorManager
-            Indicator manager with state.
-        feature_idx : int
-            Current feature buffer index.
-
-        Returns
-        -------
-        int
-            Updated feature buffer index.
-
-        """
-        # Check if we have L2 depth data in current bar
-        if "bid_price_0" in current_bar:
-            # Hot path with L2 data - use cached calculator
-            if not hasattr(self, "_l2_calculator"):
-                from ml.features.microstructure import L2MicrostructureFeatures
-
-                self._l2_calculator = L2MicrostructureFeatures(n_levels=5, lookback_window=20)
-
-            # For hot path, compute only essential features
-            # Full computation should be done by MicrostructureActor
-
-        # Spread features - estimate from high/low spread
-        hl_spread = current_bar["high"] - current_bar["low"]
-        close = current_bar["close"]
-
-        # Estimated spread mean (as fraction of price)
-        self.feature_buffer[feature_idx] = safe_divide(hl_spread, close, 0.0)
-        feature_idx += 1
-
-        # Spread std - would need historical data, use 0 for hot path
-        self.feature_buffer[feature_idx] = 0.0
-        feature_idx += 1
-
-        # Relative spread (same as spread mean in this approximation)
-        self.feature_buffer[feature_idx] = safe_divide(hl_spread, close, 0.0)
-        feature_idx += 1
-
-        # Size imbalance features - default to neutral
-        self.feature_buffer[feature_idx] = 0.0  # size_imbalance_mean
-        feature_idx += 1
-        self.feature_buffer[feature_idx] = 0.0  # size_imbalance_std
-        feature_idx += 1
-
-        # Mid-price return volatility - estimate from recent price changes
-        closes = indicator_manager.price_history["closes"]
-        if len(closes) > 1:
-            recent_returns = []
-            for i in range(max(0, len(closes) - 5), len(closes)):
-                if i > 0 and closes[i - 1] > 0:
-                    ret = (closes[i] - closes[i - 1]) / closes[i - 1]
-                    recent_returns.append(ret)
-
-            if recent_returns:
-                self.feature_buffer[feature_idx] = float(np.std(recent_returns))
-            else:
-                self.feature_buffer[feature_idx] = 0.0
-        else:
-            self.feature_buffer[feature_idx] = 0.0
-        feature_idx += 1
-
-        # Mid-price return autocorrelation - default to 0 for hot path
-        self.feature_buffer[feature_idx] = 0.0
-        feature_idx += 1
-
-        return feature_idx
-
-    def _calculate_trade_flow_features_online(
-        self: object,
-        current_bar: dict[str, float],
-        indicator_manager: IndicatorManager,
-        feature_idx: int,
-    ) -> int:
-        """
-        Calculate trade flow features for online inference (hot path).
-
-        Parameters
-        ----------
-        current_bar : dict[str, float]
-            Current OHLCV data.
-        indicator_manager : IndicatorManager
-            Indicator manager with state.
-        feature_idx : int
-            Current feature buffer index.
-
-        Returns
-        -------
-        int
-            Updated feature buffer index.
-
-        """
-        # For hot path, use simplified calculations or default values
-        # In production, these would be provided by a TradeFlowActor
-
-        close = current_bar["close"]
-        volume = current_bar["volume"]
-
-        # Trade flow imbalance - default to neutral (no directional bias)
-        self.feature_buffer[feature_idx] = 0.0
-        feature_idx += 1
-
-        # VWAP - use current close as approximation
-        # In practice, this would be maintained by a separate VWAP calculator
-        self.feature_buffer[feature_idx] = close
-        feature_idx += 1
-
-        # Trade intensity - estimate from volume
-        # Higher volume typically indicates more trades
-        # Normalize to reasonable range
-        volumes = indicator_manager.price_history["volumes"]
-        if len(volumes) > 1:
-            avg_volume = sum(volumes[-min(20, len(volumes)) :]) / min(20, len(volumes))
-            intensity = safe_divide(volume, avg_volume, 1.0)
-            # Cap intensity to reasonable range
-            self.feature_buffer[feature_idx] = min(intensity, 5.0)
-        else:
-            self.feature_buffer[feature_idx] = 1.0
-        feature_idx += 1
-
-        # Average price impact - estimate from price movement vs volume
-        if volume > 0:
-            hl_spread = current_bar["high"] - current_bar["low"]
-            # Normalize by volume - higher volume should have lower per-unit impact
-            impact = safe_divide(hl_spread / close, volume / 1000, 0.0)
-            self.feature_buffer[feature_idx] = min(impact, 0.01)  # Cap at 1%
-        else:
-            self.feature_buffer[feature_idx] = 0.0
-        feature_idx += 1
-
-        return feature_idx
-
-    def validate_feature_quality(
-        self,
-        features_df: DataFrameLike,
-    ) -> dict[str, dict[str, float]]:
-        """
-        Validate feature quality metrics (cold path only).
-
-        Parameters
-        ----------
-        features_df : pl.DataFrame or pd.DataFrame
-            Features DataFrame to validate.
-
-        Returns
-        -------
-        dict[str, dict[str, float]]
-            Quality metrics per feature.
-
-        """
-        if not self.config.validate_quality or not POLARS_AVAILABLE:
-            return {}
-
-        features_df = self._convert_to_polars(features_df)
-        if features_df is None or len(features_df) == 0:
-            return {}
-
-        quality_metrics = {}
-        total_rows = len(features_df)
-
-        for col in features_df.columns:
-            if col in ["timestamp", "entity_id", "symbol"]:
-                continue
-
-            try:
-                metrics = self._calculate_column_metrics(features_df[col], total_rows)
-                quality_metrics[col] = metrics
-            except Exception:
-                # Skip columns that fail validation - expected for non-numeric columns
-                continue
-
-        return quality_metrics
-
-    def _convert_to_polars(self, features_df: DataFrameLike) -> PolarsDF | None:
-        """
-        Convert DataFrame to Polars format.
-        """
-        if not hasattr(features_df, "columns") or "polars" not in str(type(features_df)):
-            try:
-                if pd is not None and isinstance(features_df, pd.DataFrame):
-                    return pl.from_pandas(features_df)
-            except Exception:
-                return None
-        return features_df
-
-    def _calculate_column_metrics(
-        self,
-        col_data: PolarsSeries,
-        total_rows: int,
-    ) -> dict[str, float]:
-        """
-        Calculate quality metrics for a single column.
-        """
-        # Basic metrics
-        null_count = col_data.null_count()
-        zero_count = (col_data == 0.0).sum()
-        unique_count = col_data.n_unique()
-
-        metrics = {
-            "null_rate": float(null_count / total_rows),
-            "zero_rate": float(zero_count / total_rows),
-            "unique_ratio": float(unique_count / total_rows),
-            "inf_rate": 0.0,
-            "outlier_rate": 0.0,
-        }
-
-        # Additional metrics for numeric columns
-        if col_data.dtype in [pl.Float32, pl.Float64]:
-            inf_count = col_data.is_infinite().sum()
-            metrics["inf_rate"] = float(inf_count / total_rows)
-            metrics["outlier_rate"] = self._calculate_outlier_rate(col_data, total_rows)
-
-        return metrics
-
-    def _calculate_outlier_rate(
-        self,
-        col_data: PolarsSeries,
-        total_rows: int,
-    ) -> float:
-        """
-        Calculate outlier rate using IQR method.
-        """
-        try:
-            q1 = col_data.quantile(0.25)
-            q3 = col_data.quantile(0.75)
-
-            if q1 is not None and q3 is not None and not (np.isnan(q1) or np.isnan(q3)):
-                iqr = q3 - q1
-                if iqr > 0:
-                    lower_bound = q1 - 1.5 * iqr
-                    upper_bound = q3 + 1.5 * iqr
-                    outlier_count = ((col_data < lower_bound) | (col_data > upper_bound)).sum()
-                    return float(outlier_count / total_rows)
-        except Exception:
-            import logging as _logging
-            _logging.getLogger(__name__).debug("Outlier ratio calculation failed", exc_info=True)
-        return 0.0
-
-    def reset(self) -> None:
-        """
-        Reset the feature engineer state.
-        """
-        if hasattr(self, "feature_buffer"):
-            self.feature_buffer.fill(0.0)
-
-    def _calculate_feature_qualities(
-        self,
-        features_df: DataFrameLike,
-    ) -> dict[str, dict[str, float]]:
-        """
-        Calculate feature quality metrics for monitoring.
-
-        Parameters
-        ----------
-        features_df : pl.DataFrame or pd.DataFrame
-            Features to analyze.
-
-        Returns
-        -------
-        dict[str, dict[str, float]]
-            Quality metrics per feature.
-
-        """
-        if not HAS_POLARS or not hasattr(features_df, "select"):
-            return {}
-
-        qualities = {}
-
-        try:
-            for col in features_df.columns:
-                if col in ["timestamp", "entity_id", "symbol"]:
-                    continue
-
-                col_data = features_df.select(col).to_numpy().flatten()
-                total_rows = len(col_data)
-
-                if total_rows == 0:
-                    qualities[col] = {"null_ratio": 1.0, "infinite_ratio": 1.0}
-                    continue
-
-                # Calculate null ratio
-                null_count = np.sum(np.isnan(col_data))
-                null_ratio = null_count / total_rows
-
-                # Calculate infinite ratio
-                inf_count = np.sum(np.isinf(col_data))
-                inf_ratio = inf_count / total_rows
-
-                qualities[col] = {
-                    "null_ratio": float(null_ratio),
-                    "infinite_ratio": float(inf_ratio),
-                }
-
-        except Exception:
-            # Graceful degradation
-            import logging as _logging
-            _logging.getLogger(__name__).debug("Quality metrics calculation failed", exc_info=True)
-
-        return qualities
 
 
 class _dummy_context_manager:

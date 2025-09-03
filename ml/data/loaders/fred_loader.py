@@ -84,11 +84,11 @@ if HAS_PROMETHEUS:
 
     class _CounterLike(Protocol):
         def labels(self, **kwargs: object) -> object: ...
-        def inc(self, amount: float = 1) -> None: ...
+        def inc(self, _amount: float = 1) -> None: ...
 
     class _HistogramLike(Protocol):
         def labels(self, **kwargs: object) -> object: ...
-        def observe(self, amount: float) -> None: ...
+        def observe(self, _amount: float) -> None: ...
 
     # Assign external metric objects (prometheus)
     data_fetch_counter = fred_fetch_counter
@@ -102,10 +102,10 @@ if not HAS_PROMETHEUS:
         def labels(self, **kwargs: object) -> object:
             return self
 
-        def inc(self, amount: float = 1) -> None:
+        def inc(self, _amount: float = 1) -> None:
             pass
 
-        def observe(self, amount: float) -> None:
+        def observe(self, _amount: float) -> None:
             pass
 
     data_fetch_counter = NoOpMetric()

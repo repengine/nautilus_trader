@@ -439,6 +439,8 @@ class PerformanceDegradationMonitor(BaseMetricsCollector):
         """
 
         def _record() -> None:
+            # Consume optional alert_data to keep signature stable without unused warnings
+            _ = alert_data
             # Set retraining required flag
             if self._model_retraining_required is not None:
                 self._model_retraining_required.labels(
