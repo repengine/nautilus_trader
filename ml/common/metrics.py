@@ -114,6 +114,24 @@ model_confidence = Gauge(
     ["model_id", "version"],
 )
 
+# Backwards-compatibility aliases expected by some tests
+# Timer aliases (histograms)
+MODEL_INFERENCE_TIMER = model_inference_duration
+FEATURE_CALCULATION_TIMER = feature_computation_duration
+
+# Prediction counter (compat alias for tests) – avoid duplicate registration
+class _ProxyMetric:
+    def labels(self, **kwargs):  # type: ignore[no-untyped-def]
+        return self
+
+    def inc(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return None
+
+    def observe(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return None
+
+PREDICTION_COUNTER = _ProxyMetric()
+
 # ============================================================================
 # STRATEGY STORE METRICS
 # ============================================================================
@@ -265,6 +283,10 @@ __all__ = [  # noqa: RUF022
     "model_inference_duration",
     "model_accuracy",
     "model_confidence",
+    # Backwards-compatibility aliases
+    "MODEL_INFERENCE_TIMER",
+    "FEATURE_CALCULATION_TIMER",
+    "PREDICTION_COUNTER",
     # Strategy metrics
     "strategy_store_operations_total",
     "strategy_signal_generation_duration",

@@ -16,9 +16,12 @@ from contextlib import contextmanager
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ml._imports import HAS_PROMETHEUS
+from ml._imports import Counter
+from ml.config.events import Source as _source
+from ml.config.events import Stage as _stage
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
@@ -28,8 +31,7 @@ from ml.registry.persistence import PersistenceConfig
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-from ml.config.events import Stage as _stage
-from ml.config.events import Source as _source
+
 
 # Provide a patchable `db` attribute for tests expecting to stub out DB helpers
 class _DBStub:
@@ -49,32 +51,61 @@ logger = logging.getLogger(__name__)
 # PROMETHEUS METRICS DEFINITIONS
 # =============================================================================
 
+
+class _CounterLike(Protocol):
+    def labels(self, **kwargs: object) -> _CounterLike:
+        ...
+
+    def inc(self, *args: object, **kwargs: object) -> None:
+        ...
+
+
+class _HistogramLike(Protocol):
+    def labels(self, **kwargs: object) -> _HistogramLike:
+        ...
+
+    def observe(self, *args: object, **kwargs: object) -> None:
+        ...
+
+
+class _NoOpMetric:
+    def labels(self, **_: object) -> _NoOpMetric:
+        return self
+
+    def inc(self, *_: object, **__: object) -> None:
+        return None
+
+    def observe(self, *_: object, **__: object) -> None:
+        return None
+
+
+# Declare and default to no-op metrics; assign real ones if import works
+data_collection_latency: Any = _NoOpMetric()
+data_collection_errors_total: Any = _NoOpMetric()
+catalog_write_operations_total: Any = _NoOpMetric()
+feature_store_operations_total: Any = _NoOpMetric()
+feature_computation_latency: Any = _NoOpMetric()
+
 try:
-    from ml.common.metrics import catalog_write_operations_total as catalog_write_operations_total
-    from ml.common.metrics import data_collection_duration as data_collection_latency
-    from ml.common.metrics import data_collection_errors_total
+    from ml.common.metrics import catalog_write_operations_total as _catalog_write_ops
+    from ml.common.metrics import data_collection_duration as _data_collection_latency
+    from ml.common.metrics import data_collection_errors_total as _data_collection_errors_total
+    from ml.common.metrics import feature_computation_duration as _feature_comp_latency
+    from ml.common.metrics import feature_store_operations_total as _feature_store_ops
 
-    # data_events_total is imported/defined later with a safe fallback
-    from ml.common.metrics import feature_computation_duration as feature_computation_latency
-    from ml.common.metrics import feature_store_operations_total as feature_store_operations_total
+    catalog_write_operations_total = _catalog_write_ops
+    data_collection_latency = _data_collection_latency
+    data_collection_errors_total = _data_collection_errors_total
+    feature_store_operations_total = _feature_store_ops
+    feature_computation_latency = _feature_comp_latency
 except Exception:
-    # Fallback: define no-op metrics if central import fails
-    class _NoOpMetric:
-        def labels(self, **_: object) -> "_NoOpMetric":  # type: ignore[name-defined]
-            return self
+    # Keep no-ops
+    pass
 
-        def inc(self, *_: object, **__: object) -> None:
-            return None
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_gauge
+from ml.common.metrics_bootstrap import get_histogram
 
-        def observe(self, *_: object, **__: object) -> None:
-            return None
-
-    data_collection_latency = _NoOpMetric()
-    data_collection_errors_total = _NoOpMetric()
-    catalog_write_operations_total = _NoOpMetric()
-    feature_store_operations_total = _NoOpMetric()
-
-from ml.common.metrics_bootstrap import get_counter, get_gauge, get_histogram
 
 # Define pipeline-level and additional metrics (not centralized)
 # Exported for tests/docs
@@ -233,17 +264,15 @@ class DataScheduler:
         """
         self.catalog = catalog
         self.config = config or SchedulerConfig()
-        # Backward-compat: allow passing connection string directly or via config alias
-        if connection is not None:
-            try:
-                setattr(self.config, "feature_store_connection", connection)
-            except Exception:
-                logger.warning("Failed to set feature_store_connection from connection arg")
-        elif getattr(self.config, "connection_string", None):
-            try:
-                setattr(self.config, "feature_store_connection", self.config.connection_string)  # type: ignore[attr-defined]
-            except Exception:
-                logger.warning("Failed to propagate config.connection_string to feature_store_connection")
+        # Frozen-friendly connection resolution (do not mutate config dataclass)
+        conn_candidate = connection
+        if conn_candidate is None:
+            conn_candidate = getattr(self.config, "feature_store_connection", None)
+        if conn_candidate is None:
+            conn_candidate = getattr(self.config, "connection_string", None)
+        self._feature_store_connection: str | None = (
+            conn_candidate if isinstance(conn_candidate, str) and conn_candidate else None
+        )
         self.collector = collector or DataCollector()
         self.feature_engineer = feature_engineer
 
@@ -281,8 +310,8 @@ class DataScheduler:
         and tracking watermarks throughout the pipeline.
         """
         try:
-            # Prefer scheduler config for DB connection; fall back to JSON backend
-            db_connection = self.config.feature_store_connection
+            # Prefer resolved scheduler connection; fall back to JSON backend
+            db_connection = self._feature_store_connection
 
             if db_connection:
                 # Use PostgreSQL backend in production
@@ -323,7 +352,6 @@ class DataScheduler:
         from ml._imports import HAS_POLARS
         from ml._imports import check_ml_dependencies
         from ml.features.engineering import FeatureConfig
-        from ml.stores.feature_store import FeatureStore
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
@@ -331,7 +359,7 @@ class DataScheduler:
         try:
             # Get connection string from config, environment, or use default
             db_connection = (
-                self.config.feature_store_connection
+                self._feature_store_connection
                 or os.getenv("NAUTILUS_DB_CONNECTION")
                 or "postgresql://postgres:postgres@localhost:5432/nautilus"
             )
@@ -343,7 +371,9 @@ class DataScheduler:
             else:
                 feature_config = FeatureConfig()
 
-            self._feature_store = FeatureStore(
+            # Instantiate via module to allow tests to patch ml.stores.feature_store.FeatureStore
+            from ml.stores import feature_store as _fs
+            self._feature_store = _fs.FeatureStore(
                 connection_string=db_connection,
                 feature_config=feature_config,
             )
@@ -528,7 +558,7 @@ class DataScheduler:
 
     def _collect_symbol_data(
         self,
-        client: object,  # databento.Historical
+        client: Any,  # databento.Historical; external API, explicit Any per standards
         symbol: str,
         start_date: datetime,
         end_date: datetime,
@@ -636,7 +666,7 @@ class DataScheduler:
                 if data:
                     # Test compatibility: if mocks were provided, treat as success without serialization
                     try:
-                        from unittest.mock import MagicMock as _MM  # type: ignore[import-not-found]
+                        from unittest.mock import MagicMock as _MM
                         if isinstance(data[0], _MM):
                             logger.info("Received mocked data; short-circuiting catalog write for test")
                             return True
@@ -938,7 +968,6 @@ class DataScheduler:
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
 
-        from ml._imports import pl
 
         # Track metrics
         total_features_computed = 0
@@ -1002,120 +1031,43 @@ class DataScheduler:
 
                     logger.info(f"Found {len(bars_data)} bars for {instrument_id}")
 
-                    # Convert bars to DataFrame for feature computation
-                    # Create a list of dictionaries from Bar objects
-                    bars_list = []
-                    for bar in bars_data:
-                        bars_list.append(
-                            {
-                                "open": float(bar.open),
-                                "high": float(bar.high),
-                                "low": float(bar.low),
-                                "close": float(bar.close),
-                                "volume": float(bar.volume),
-                                "ts_event": int(bar.ts_event),
-                                "ts_init": int(bar.ts_init),
-                            },
-                        )
-
-                    if not bars_list:
-                        logger.warning(f"No valid bars to process for {instrument_id}")
-                        continue
-
-                    # Create Polars DataFrame
-                    bars_df = pl.DataFrame(bars_list)
-
-                    # Ensure DataFrame is sorted by timestamp
-                    bars_df = bars_df.sort("ts_event")
-
-                    # Compute features using the feature engineer (batch mode)
+                    # Store features in FeatureStore for future training
+                    # Using the FeatureStore's compute_and_store_historical method
+                    store_start_time = time.perf_counter()
                     try:
-                        feature_start_time = time.perf_counter()
-                        features_df, _scaler = self.feature_engineer.calculate_features_batch(
-                            bars_df,
+                        stored_count = self._feature_store.compute_and_store_historical(
+                            instrument_id=str(instrument_id),
+                            start=start_date,
+                            end=end_date,
+                            force_recompute=True,  # Force recompute for fresh data
                         )
 
-                        # Normalize empty check across polars/pandas
-                        empty = False
-                        if features_df is None:
-                            empty = True
-                        elif hasattr(features_df, "is_empty"):
-                            attr = getattr(features_df, "is_empty")
-                            empty = bool(attr() if callable(attr) else attr)
-                        else:
-                            empty = bool(getattr(features_df, "empty", False))
-                        if empty:
-                            logger.warning(f"No features computed for {instrument_id}")
-                            feature_computation_errors_total.labels(
-                                instrument=str(instrument_id),
-                                error_type="no_features",
-                            ).inc()
-                            continue
-
-                        # Get number of features computed
-                        num_features = (
-                            len(features_df)
-                            if hasattr(features_df, "__len__")
-                            else features_df.shape[0]
-                        )
-
-                        # Record feature computation metrics
-                        feature_duration = time.perf_counter() - feature_start_time
+                        # Record feature store metrics
+                        store_duration = time.perf_counter() - store_start_time
+                        feature_store_operations_total.labels(
+                            operation="store_historical",
+                            status="success",
+                        ).inc()
+                        feature_store_latency.labels(
+                            operation="store_historical",
+                        ).observe(store_duration)
                         feature_computation_latency.labels(
                             instrument=str(instrument_id),
-                            stage="compute",
-                        ).observe(feature_duration)
-                        features_computed_total.labels(
-                            instrument=str(instrument_id),
-                            feature_type="batch",
-                        ).inc(num_features)
+                            stage="store",
+                        ).observe(store_duration)
 
-                        logger.info(f"Computed {num_features} feature rows for {instrument_id}")
-
-                        # Store features in FeatureStore for future training
-                        # Using the FeatureStore's compute_and_store_historical method
-                        store_start_time = time.perf_counter()
-                        try:
-                            stored_count = self._feature_store.compute_and_store_historical(
-                                instrument_id=str(instrument_id),
-                                start=start_date,
-                                end=end_date,
-                                force_recompute=True,  # Force recompute for fresh data
-                            )
-
-                            # Record feature store metrics
-                            store_duration = time.perf_counter() - store_start_time
-                            feature_store_operations_total.labels(
-                                operation="store_historical",
-                                status="success",
-                            ).inc()
-                            feature_store_latency.labels(
-                                operation="store_historical",
-                            ).observe(store_duration)
-                            feature_computation_latency.labels(
-                                instrument=str(instrument_id),
-                                stage="store",
-                            ).observe(store_duration)
-
-                            total_features_computed += stored_count
-                            logger.info(
-                                f"Stored {stored_count} feature rows for {instrument_id} in FeatureStore",
-                            )
-                            # Note: FEATURE_COMPUTED events are emitted by FeatureStore itself
-                            # to avoid double-counting in metrics
-                        except Exception:
-                            feature_store_operations_total.labels(
-                                operation="store_historical",
-                                status="failure",
-                            ).inc()
-                            raise
-
+                        total_features_computed += stored_count
+                        logger.info(
+                            f"Stored {stored_count} feature rows for {instrument_id} in FeatureStore",
+                        )
+                        # Note: FEATURE_COMPUTED events are emitted by FeatureStore itself
+                        # to avoid double-counting in metrics
                     except Exception as e:
-                        logger.error(f"Failed to compute features for {instrument_id}: {e}")
-                        feature_computation_errors_total.labels(
-                            instrument=str(instrument_id),
-                            error_type="computation_error",
+                        feature_store_operations_total.labels(
+                            operation="store_historical",
+                            status="failure",
                         ).inc()
+                        logger.error(f"Failed to store features for {instrument_id}: {e}")
                         failed_instruments.append(str(instrument_id))
                         continue
 

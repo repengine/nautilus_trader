@@ -55,6 +55,12 @@ if not HAS_FREDAPI:
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
+# Declare metric variables with explicit Any type; assign within branches below
+data_fetch_counter: Any
+data_fetch_duration_histogram: Any
+cache_hit_counter: Any
+api_error_counter: Any
+
 if HAS_PROMETHEUS:
     # Create FRED-specific metrics using bootstrap + centralized histogram
     from ml.common.metrics import data_collection_duration
@@ -84,10 +90,11 @@ if HAS_PROMETHEUS:
         def labels(self, **kwargs: object) -> object: ...
         def observe(self, amount: float) -> None: ...
 
-    data_fetch_counter: _CounterLike = fred_fetch_counter
-    data_fetch_duration_histogram: _HistogramLike = data_collection_duration
-    cache_hit_counter: _CounterLike = fred_cache_hit_counter
-    api_error_counter: _CounterLike = fred_api_error_counter
+    # Assign external metric objects (prometheus)
+    data_fetch_counter = fred_fetch_counter
+    data_fetch_duration_histogram = data_collection_duration
+    cache_hit_counter = fred_cache_hit_counter
+    api_error_counter = fred_api_error_counter
 
 if not HAS_PROMETHEUS:
     # Create no-op metrics

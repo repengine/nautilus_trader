@@ -5,11 +5,13 @@ BEFORE: Multiple similar tests
 AFTER: Single parameterized test
 """
 
-import pytest
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
+
+import pytest
 
 from ml.features.engineering import FeatureConfig
+
 
 # Minimal helpers used in examples to keep tests executable
 data: dict[str, Any] = {"close": [1.0, 1.1, 1.2]}

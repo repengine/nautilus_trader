@@ -16,10 +16,12 @@ Environment Variables:
     DATABASE_URL: PostgreSQL connection string (default: postgresql://postgres:postgres@localhost:5432/nautilus_test)
 """
 
-import os
-import psycopg2
-from datetime import datetime
 import logging
+import os
+from datetime import datetime
+
+import psycopg2
+
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -33,37 +35,37 @@ DATABASE_URL = os.getenv(
 
 def parse_database_url(url: str) -> dict[str, any]:
     """Parse PostgreSQL connection URL into components."""
-    if url.startswith('postgresql://'):
-        conn_params = url.replace('postgresql://', '').split('/')
-        user_pass_host = conn_params[0].split('@')
+    if url.startswith("postgresql://"):
+        conn_params = url.replace("postgresql://", "").split("/")
+        user_pass_host = conn_params[0].split("@")
         if len(user_pass_host) == 2:
-            user_pass = user_pass_host[0].split(':')
-            host_port = user_pass_host[1].split(':')
+            user_pass = user_pass_host[0].split(":")
+            host_port = user_pass_host[1].split(":")
             host = host_port[0]
             port = host_port[1] if len(host_port) > 1 else 5432
             user = user_pass[0]
-            password = user_pass[1] if len(user_pass) > 1 else ''
-            database = conn_params[1] if len(conn_params) > 1 else 'postgres'
+            password = user_pass[1] if len(user_pass) > 1 else ""
+            database = conn_params[1] if len(conn_params) > 1 else "postgres"
         else:
             # Fallback
-            user, password, host, port, database = 'postgres', 'postgres', 'localhost', 5432, 'nautilus_test'
+            user, password, host, port, database = "postgres", "postgres", "localhost", 5432, "nautilus_test"
     else:
-        user, password, host, port, database = 'postgres', 'postgres', 'localhost', 5432, 'nautilus_test'
-    
+        user, password, host, port, database = "postgres", "postgres", "localhost", 5432, "nautilus_test"
+
     return {
-        'host': host,
-        'port': int(port),
-        'database': database,
-        'user': user,
-        'password': password
+        "host": host,
+        "port": int(port),
+        "database": database,
+        "user": user,
+        "password": password
     }
 
 
 def create_partitions_for_test_years(cursor) -> None:
     """Create partitions for years commonly used in tests (1970, 2001, 2025)."""
     logger.info("Creating partitions for test years (1970, 2001, 2025)...")
-    
-    create_test_partitions_sql = '''
+
+    create_test_partitions_sql = """
 DO $$
 DECLARE
     v_tables TEXT[] := ARRAY['ml_feature_values', 'ml_model_predictions', 'ml_strategy_signals', 'ml_data_events'];
@@ -137,17 +139,17 @@ BEGIN
     
     RAISE NOTICE 'Created % test partitions total', v_partitions_created;
 END $$;
-'''
-    
+"""
+
     cursor.execute(create_test_partitions_sql)
 
 
 def create_missing_functions(cursor) -> None:
     """Create missing database functions required by the ML system."""
     logger.info("Creating missing database functions...")
-    
+
     # Create update_watermark function
-    update_watermark_sql = '''
+    update_watermark_sql = """
 CREATE OR REPLACE FUNCTION update_watermark(
     p_dataset_id VARCHAR(255),
     p_instrument_id VARCHAR(100),
@@ -187,10 +189,10 @@ BEGIN
         updated_at = NOW();
 END;
 $FUNC$ LANGUAGE plpgsql;
-'''
-    
+"""
+
     # Create emit_data_event function
-    emit_data_event_sql = '''
+    emit_data_event_sql = """
 CREATE OR REPLACE FUNCTION emit_data_event(
     p_dataset_id VARCHAR(255),
     p_instrument_id VARCHAR(100),
@@ -241,10 +243,10 @@ BEGIN
     RETURN v_event_id;
 END;
 $FUNC$ LANGUAGE plpgsql;
-'''
+"""
 
     # Create emit_data_event_ext function with metadata support
-    emit_data_event_ext_sql = '''
+    emit_data_event_ext_sql = """
 CREATE OR REPLACE FUNCTION emit_data_event_ext(
     p_dataset_id VARCHAR(255),
     p_instrument_id VARCHAR(100),
@@ -294,8 +296,8 @@ BEGIN
     RETURN v_event_id;
 END;
 $FUNC$ LANGUAGE plpgsql;
-'''
-    
+"""
+
     cursor.execute(update_watermark_sql)
     cursor.execute(emit_data_event_sql)
     cursor.execute(emit_data_event_ext_sql)
@@ -304,8 +306,8 @@ $FUNC$ LANGUAGE plpgsql;
 def relax_constraints_for_testing(cursor) -> None:
     """Relax database constraints to allow test values."""
     logger.info("Relaxing constraints for testing...")
-    
-    relax_constraints_sql = '''
+
+    relax_constraints_sql = """
 -- Allow test source values in addition to production ones
 ALTER TABLE ml_data_events DROP CONSTRAINT IF EXISTS check_source;
 ALTER TABLE ml_data_events ADD CONSTRAINT check_source 
@@ -314,16 +316,16 @@ ALTER TABLE ml_data_events ADD CONSTRAINT check_source
 ALTER TABLE ml_data_watermarks DROP CONSTRAINT IF EXISTS check_source_watermark;
 ALTER TABLE ml_data_watermarks ADD CONSTRAINT check_source_watermark 
   CHECK (source IN ('live', 'historical', 'backfill', 'unit', 'test', 'computed'));
-'''
-    
+"""
+
     cursor.execute(relax_constraints_sql)
 
 
 def create_test_datasets(cursor) -> None:
     """Create test datasets required by tests."""
     logger.info("Creating test datasets in registry...")
-    
-    create_test_datasets_sql = '''
+
+    create_test_datasets_sql = """
 -- Insert test datasets that tests reference
 INSERT INTO ml_dataset_registry (
     dataset_id, name, version, dataset_type, storage_kind,
@@ -340,40 +342,40 @@ VALUES
     ('test_strategy', 'Test Strategy Signals', '1.0.0', 'SIGNALS', 'postgres',
      'ml_strategy_signals', '{}', 90, '{}', 'test_strategy_hash', '{}', '[]', 'test_pipeline')
 ON CONFLICT (dataset_id) DO NOTHING;
-'''
-    
+"""
+
     cursor.execute(create_test_datasets_sql)
 
 
 def verify_fixes(cursor) -> None:
     """Verify that all fixes have been applied correctly."""
     logger.info("Verifying database fixes...")
-    
+
     # Check functions exist
-    cursor.execute('''
+    cursor.execute("""
         SELECT proname FROM pg_proc 
         WHERE proname IN ('emit_data_event', 'update_watermark', 'emit_data_event_ext')
         ORDER BY proname;
-    ''')
+    """)
     functions = [row[0] for row in cursor.fetchall()]
     logger.info(f"Functions available: {functions}")
-    
+
     # Check partitions exist for test years
-    cursor.execute('''
+    cursor.execute("""
         SELECT COUNT(*) FROM pg_tables 
         WHERE tablename ~ '^ml_(feature_values|model_predictions|strategy_signals|data_events)_(1970_01|2001_|2025_)';
-    ''')
+    """)
     partition_count = cursor.fetchone()[0]
     logger.info(f"Test partitions created: {partition_count}")
-    
+
     # Check test datasets exist
-    cursor.execute('''
+    cursor.execute("""
         SELECT COUNT(*) FROM ml_dataset_registry 
         WHERE dataset_id IN ('features', 'test_features_v1', 'test_model', 'test_strategy');
-    ''')
+    """)
     dataset_count = cursor.fetchone()[0]
     logger.info(f"Test datasets created: {dataset_count}")
-    
+
     logger.info("Database fixes verification complete")
 
 
@@ -381,26 +383,26 @@ def main() -> None:
     """Apply all database fixes for ML tests."""
     logger.info("Starting database fixes for ML tests...")
     logger.info(f"Using database: {DATABASE_URL}")
-    
+
     try:
         conn_params = parse_database_url(DATABASE_URL)
         conn = psycopg2.connect(**conn_params)
         conn.autocommit = True
         cursor = conn.cursor()
-        
+
         # Apply all fixes
         create_partitions_for_test_years(cursor)
         create_missing_functions(cursor)
         relax_constraints_for_testing(cursor)
         create_test_datasets(cursor)
         verify_fixes(cursor)
-        
+
         cursor.close()
         conn.close()
-        
+
         logger.info("All database fixes applied successfully!")
         logger.info("ML tests should now pass database-related validations")
-        
+
     except Exception as e:
         logger.error(f"Error applying database fixes: {e}")
         raise

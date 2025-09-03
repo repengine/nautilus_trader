@@ -46,7 +46,7 @@ class TestDeploymentIntegration:
         """Set up complete deployment environment with PostgreSQL."""
         # Create necessary directories and files
         from ml.tests.fixtures.model_factory import TestModelFactory
-        
+
         model_factory = TestModelFactory()
         model_path = model_factory.create_onnx_model(
             output_path=tmp_path / "models" / "model.onnx"
@@ -311,7 +311,7 @@ class TestDeploymentIntegration:
 
         mock_scheduler.run_daily_update.side_effect = [
             RuntimeError("First failure"),
-            RuntimeError("Second failure"), 
+            RuntimeError("Second failure"),
             stop_after_third,  # Call the function to trigger shutdown
         ]
 
@@ -321,21 +321,21 @@ class TestDeploymentIntegration:
                 mock_scheduler.run_daily_update()  # First failure
             except RuntimeError as e:
                 pipeline_status["errors"].append(str(e))
-            
+
             try:
                 mock_scheduler.run_daily_update()  # Second failure
             except RuntimeError as e:
                 pipeline_status["errors"].append(str(e))
-                
+
             try:
                 mock_scheduler.run_daily_update()  # Third call - shutdown
             except Exception:
                 pass
-        
+
         # Replace the method temporarily
         original_run_realtime = runner._run_realtime
         runner._run_realtime = test_run_realtime
-        
+
         try:
             runner._run_realtime()
         finally:

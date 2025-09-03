@@ -56,17 +56,25 @@ class TestStorePersistence:
 
         # Read back features
         with test_database.get_session() as session:
-            result = session.execute(
-                text("""
-                    SELECT * FROM ml_feature_values
-                    WHERE feature_set_id = :feature_set_id
-                """ ),
-                {"feature_set_id": "test_set"}
-            ).fetchone()
+            row = (
+                session.execute(
+                    text(
+                        """
+                        SELECT * FROM ml_feature_values
+                        WHERE feature_set_id = :feature_set_id
+                        """,
+                    ),
+                    {"feature_set_id": "test_set"},
+                )
+                .fetchone()
+            )
 
-        assert result is not None
-        assert result["instrument_id"] == "EUR/USD"
-        assert result["ts_event"] == 1000000000
+        assert row is not None
+        instrument_id = row._mapping["instrument_id"] if hasattr(row, "_mapping") else row[1]
+        ts_event = row._mapping["ts_event"] if hasattr(row, "_mapping") else row[3]
+        assert instrument_id == "EUR/USD"
+        # Timestamps are normalized to nanoseconds in the store
+        assert int(ts_event) == 1000000000000000000
 
         # Check health
         assert store2.is_healthy()

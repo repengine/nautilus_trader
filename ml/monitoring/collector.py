@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 import types
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from ml._imports import HAS_PROMETHEUS
 from ml.monitoring._config import MonitoringConfig
@@ -18,7 +18,7 @@ from ml.monitoring.collectors.base import BaseMetricsCollector
 
 
 if TYPE_CHECKING:
-    from prometheus_client import Gauge  # pragma: no cover
+    pass  # pragma: no cover
 
 
 class MLMetricsCollector(BaseMetricsCollector):
@@ -48,11 +48,12 @@ class MLMetricsCollector(BaseMetricsCollector):
         super().__init__(config)
 
         # Core metrics
-        self._ml_predictions_total: object | None = None
-        self._ml_prediction_latency_seconds: object | None = None
-        self._ml_model_confidence: object | None = None
-        self._ml_feature_computation_latency_seconds: object | None = None
-        self._ml_model_errors_total: object | None = None
+        # Metrics are external objects; type as Any to satisfy strict typing
+        self._ml_predictions_total: Any | None = None
+        self._ml_prediction_latency_seconds: Any | None = None
+        self._ml_model_confidence: Any | None = None
+        self._ml_feature_computation_latency_seconds: Any | None = None
+        self._ml_model_errors_total: Any | None = None
 
     def _initialize_metrics(self) -> None:
         """
@@ -61,11 +62,9 @@ class MLMetricsCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
-        from ml.common.metrics_bootstrap import (
-            get_counter,
-            get_gauge,
-            get_histogram,
-        )
+        from ml.common.metrics_bootstrap import get_counter
+        from ml.common.metrics_bootstrap import get_gauge
+        from ml.common.metrics_bootstrap import get_histogram
 
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()

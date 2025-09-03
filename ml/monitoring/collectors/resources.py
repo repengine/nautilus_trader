@@ -62,10 +62,8 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
-        from ml.common.metrics_bootstrap import (
-            get_counter,
-            get_gauge,
-        )
+        from ml.common.metrics_bootstrap import get_counter
+        from ml.common.metrics_bootstrap import get_gauge
 
         prefix = self._config.metrics_prefix
 

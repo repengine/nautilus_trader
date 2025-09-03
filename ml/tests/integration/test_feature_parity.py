@@ -32,6 +32,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.stores.feature_store import FeatureStore
 from ml.tests.fixtures.database_fixtures import TestDatabase
 from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
@@ -78,10 +79,11 @@ class TestFeatureParity:
 
             # Use a lightweight object with the required attributes
             from types import SimpleNamespace
+            # Clamp decimal precision to avoid exceeding Nautilus Price precision constraints
             bar = SimpleNamespace(
-                close=Price.from_str(str(close_price)),
-                high=Price.from_str(str(high_price)),
-                low=Price.from_str(str(low_price)),
+                close=Price.from_str(f"{close_price:.5f}"),
+                high=Price.from_str(f"{high_price:.5f}"),
+                low=Price.from_str(f"{low_price:.5f}"),
                 volume=float(base_volume + int(_rng.integers(-100000, 100000))),
                 ts_event=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),
             )
@@ -131,7 +133,7 @@ class TestFeatureParity:
             batch_features = batch_features.to_numpy()
 
         # Compute features online (inference path)
-        online_features = []
+        online_features: list[npt.NDArray[np.float32]] = []
         for bar in mock_bars:
             features = online_engineer.calculate_features_online(
                 close_price=float(bar.close),
@@ -139,7 +141,8 @@ class TestFeatureParity:
                 low_price=float(bar.low),
                 volume=float(bar.volume),
             )
-            online_features.append(features)
+            # Important: copy to avoid aliasing the engineer's hot-path buffer
+            online_features.append(features.copy())
 
         online_features_array = np.array(online_features)
 
@@ -218,9 +221,19 @@ class TestFeatureParity:
             )
 
         # Check indicator states
-        assert engineer.indicators.rsi.is_initialized, "RSI not initialized after 50 bars"
-        assert engineer.indicators.ema_fast.is_initialized, "EMA fast not initialized"
-        assert engineer.indicators.ema_slow.is_initialized, "EMA slow not initialized"
+        # Robust init checks across indicator implementations
+        assert (
+            getattr(engineer.indicators.rsi, "is_initialized", getattr(engineer.indicators.rsi, "initialized", False))
+            is True
+        ), "RSI not initialized after 50 bars"
+        assert (
+            getattr(engineer.indicators.ema_fast, "is_initialized", getattr(engineer.indicators.ema_fast, "initialized", False))
+            is True
+        ), "EMA fast not initialized"
+        assert (
+            getattr(engineer.indicators.ema_slow, "is_initialized", getattr(engineer.indicators.ema_slow, "initialized", False))
+            is True
+        ), "EMA slow not initialized"
 
         # Get current indicator values
         rsi_value = engineer.indicators.rsi.value
@@ -273,6 +286,7 @@ class TestFeatureParity:
             # Mock the feature store compute method
             expected_features = default_rng(0).random(50).astype(np.float32)
             actor._feature_store.compute_realtime = MagicMock(return_value=expected_features)
+            mock_feature_store = actor._feature_store  # alias for assertions
 
             # Process a bar
             bar = mock_bars[0]
@@ -363,13 +377,17 @@ class TestFeatureParity:
         """
         # Generate bars
         bars = []
+        bt = BarType.from_str("EURUSD.SIM-1-MINUTE-BID-EXTERNAL")
         for i in range(n_bars):
+            close_val = 1.1000 + i * 0.0001
+            high_val = max(close_val, 1.1010)
+            low_val = min(1.0990, close_val - 0.0001)
             bar = Bar(
-                bar_type=MagicMock(),
+                bar_type=bt,
                 open=Price.from_str("1.1000"),
-                high=Price.from_str("1.1010"),
-                low=Price.from_str("1.0990"),
-                close=Price.from_str(str(1.1000 + i * 0.0001)),
+                high=Price.from_str(f"{high_val:.5f}"),
+                low=Price.from_str(f"{low_val:.5f}"),
+                close=Price.from_str(f"{close_val:.5f}"),
                 volume=Quantity.from_int(1000000),
                 ts_event=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),
                 ts_init=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),

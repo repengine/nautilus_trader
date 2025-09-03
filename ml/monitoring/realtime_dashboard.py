@@ -16,14 +16,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ml.monitoring._config import DashboardConfig
-
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+from ml.monitoring._config import DashboardConfig
 
 
 class SystemMonitor:

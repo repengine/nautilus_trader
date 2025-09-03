@@ -161,8 +161,9 @@ class TestSchedulerFeatureStoreIntegration:
         """
         Test feature computation when bars are available in catalog.
         """
-        # Update config with test database connection
-        self.config.feature_store_connection = test_database.connection_string
+        # Update config with test database connection (frozen dataclass -> replace)
+        from dataclasses import replace as _replace
+        self.config = _replace(self.config, feature_store_connection=test_database.connection_string)
         # Create scheduler
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
             # Set up mock feature store
@@ -249,7 +250,8 @@ class TestSchedulerFeatureStoreIntegration:
         Test graceful handling of feature store initialization failure.
         """
         # Set an invalid connection string to trigger failure
-        self.config.feature_store_connection = "invalid://connection"
+        from dataclasses import replace as _replace
+        self.config = _replace(self.config, feature_store_connection="invalid://connection")
 
         # Create scheduler - should handle failure gracefully
         with patch("ml.stores.feature_store.create_engine") as mock_create_engine:
@@ -338,7 +340,8 @@ class TestSchedulerFeatureStoreIntegration:
         Test that feature computation tracks metrics correctly.
         """
         # Update config with test database connection
-        self.config.feature_store_connection = test_database.connection_string
+        from dataclasses import replace as _replace
+        self.config = _replace(self.config, feature_store_connection=test_database.connection_string)
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
             mock_feature_store = MagicMock()
             mock_feature_store.compute_and_store_historical.return_value = 50

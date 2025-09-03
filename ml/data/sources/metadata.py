@@ -15,7 +15,8 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ml._imports import pl, check_ml_dependencies
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
 
 
 if TYPE_CHECKING:

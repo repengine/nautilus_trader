@@ -321,18 +321,24 @@ class TestFeatureStoreIntegration:
         # Test online computation (should match batch)
         online_features = []
         for i in range(len(bars_df)):
-            row = bars_df[i]
+            # Robust scalar extraction across DataFrame types
+            close_val = float(bars_df["close"][i])
+            high_val = float(bars_df["high"][i])
+            low_val = float(bars_df["low"][i])
+            volume_val = float(bars_df["volume"][i])
             features = feature_store.feature_engineer.calculate_features_online(
-                close_price=float(cast(Any, row)["close"]),
-                high_price=float(cast(Any, row)["high"]),
-                low_price=float(cast(Any, row)["low"]),
-                volume=float(cast(Any, row)["volume"]),
+                close_price=close_val,
+                high_price=high_val,
+                low_price=low_val,
+                volume=volume_val,
             )
-            online_features.append(features)
+            online_features.append(features.copy())
 
         online_features_array = np.array(online_features)
 
         # Verify parity (within tolerance)
+        if hasattr(batch_features, "to_numpy"):
+            batch_features = batch_features.to_numpy()
         max_diff = np.max(np.abs(batch_features - online_features_array))
         assert max_diff < 1e-10, f"Parity violation: max diff = {max_diff}"
 

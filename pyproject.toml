@@ -56,6 +56,8 @@ dependencies = [
     "torchmetrics (>=1.8.1,<2.0.0)",
     "tabulate (>=0.9.0,<0.10.0)",
     "dotenv (>=0.9.9,<0.10.0)",
+    "pandas-market-calendars (>=5.1.1,<6.0.0)",
+    "databento (>=0.62.0,<0.63.0)",
 ]
 
 [project.urls]
@@ -465,6 +467,11 @@ markers = [
     "database: Tests requiring database connections",
     "redis: Tests requiring Redis connections",
     "docker: Tests requiring Docker containers",
+    # Additional test taxonomy markers (TDD prototypes / non-blocking)
+    "contracts: Contract tests (alias for 'contract')",
+    "metamorphic: Metamorphic relationship tests",
+    "combinatorial: Pairwise/Combinatorial configuration tests",
+    "stateful: Stateful property-based tests",
 ]
 # ML test paths configuration
 python_files = ["test_*.py", "*_test.py"]

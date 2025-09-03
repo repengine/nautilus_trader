@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -1078,7 +1078,10 @@ class FeatureStore:
         from sqlalchemy import text as _text
         with self.engine.connect() as conn:
             result = conn.execute(_text(sql))
-            return list(result.fetchall())
+            try:
+                return [dict(row) for row in result.mappings().all()]
+            except Exception:
+                return list(result.fetchall())
 
     def flush(self) -> None:
         """
@@ -1256,5 +1259,31 @@ class FeatureStore:
                 return pd.read_sql_query(sql, conn, params=params)
 
     def store_features(self, *args: Any, **kwargs: Any) -> None:
-        """Backward-compatible alias for write_features."""
-        self.write_features(*args, **kwargs)
+        """
+        Backward-compatible alias for write_features with relaxed argument requirements.
+
+        Accepts minimal explicit args used in integration tests: instrument_id,
+        ts_event, and features. Fills feature_set_id from current pipeline/config and
+        ts_init with ts_event when not provided.
+        """
+        if args or set(kwargs.keys()) & {"feature_set_id", "data"}:
+            # Delegate when full signature or batch data is supplied
+            self.write_features(*args, **kwargs)
+            return
+
+        instrument_id = kwargs.get("instrument_id")
+        ts_event = kwargs.get("ts_event")
+        features = kwargs.get("features")
+        ts_init = kwargs.get("ts_init", ts_event)
+        if instrument_id is None or ts_event is None or features is None:
+            # Fallback to strict path
+            self.write_features(*args, **kwargs)
+            return
+
+        self.write_features(
+            feature_set_id=self._get_feature_set_id(),
+            instrument_id=str(instrument_id),
+            features=features,
+            ts_event=int(cast(int, ts_event)),
+            ts_init=int(cast(int, ts_init)),
+        )

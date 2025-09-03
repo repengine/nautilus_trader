@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies

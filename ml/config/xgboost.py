@@ -13,6 +13,7 @@ from typing import Any
 
 from ml.config.base import MLTrainingConfig
 from ml.config.shared import AdvancedTrainingConfig
+
 # MLflowConfig deprecated - use ModelRegistry
 from ml.config.shared import OptunaConfig
 from ml.config.shared import XGBoostGPUConfig

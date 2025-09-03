@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from ml.features.engineering import FeatureConfig
 from ml.stores.feature_store import FeatureStore

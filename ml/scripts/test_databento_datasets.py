@@ -6,6 +6,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 
 # Add parent to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -15,9 +17,9 @@ def test_datasets():
     # Setup
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
-        print("ERROR: DATABENTO_API_KEY not set")
-        return
+        pytest.skip("databento API key not set; skipping")
 
+    pytest.importorskip("databento", reason="databento package not installed")
     import databento as db
     client = db.Historical(api_key)
 

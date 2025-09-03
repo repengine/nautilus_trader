@@ -420,10 +420,11 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit(f"Failed to load teacher model {args.teacher_model_id} from registry")
             # Run inference
             try:
+                session_any: Any = session
                 input_name = (
-                    session.get_inputs()[0].name if hasattr(session, "get_inputs") else ONNX_INPUT_NAME
+                    session_any.get_inputs()[0].name if hasattr(session_any, "get_inputs") else ONNX_INPUT_NAME
                 )
-                outputs: list[Any] = session.run(None, {input_name: X_val})
+                outputs: list[Any] = session_any.run(None, {input_name: X_val})
                 raw_out = outputs[0]
                 raw = np.asarray(raw_out, dtype=np.float64).reshape(-1)
                 if args.onnx_output_is_logits:

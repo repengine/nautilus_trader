@@ -927,7 +927,8 @@ class DataRegistry(MLComponentMixin):
                 if len(self._events) > 10000:
                     self._events = self._events[-10000:]
 
-                self._save_registry()
+                # Tests expect persistence immediately after emit_event
+                self._save_registry(immediate=True)
 
             elif self.backend == BackendType.POSTGRES:
                 session = self.persistence.get_session()
@@ -1058,7 +1059,8 @@ class DataRegistry(MLComponentMixin):
 
             if self.backend == BackendType.JSON:
                 self._watermarks[watermark_key] = watermark
-                self._save_registry()
+                # Persist immediately to satisfy conformance tests
+                self._save_registry(immediate=True)
 
             elif self.backend == BackendType.POSTGRES:
                 session = self.persistence.get_session()

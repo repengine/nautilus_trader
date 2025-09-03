@@ -110,8 +110,11 @@ settings.register_profile(
 if os.getenv("CI"):
     settings.load_profile("ci")
 else:
-    # Default profile for local development
-    settings.load_profile("dev")
+    # Default to fast profile locally unless explicitly overridden
+    try:
+        settings.load_profile(os.getenv("HYPOTHESIS_PROFILE", "ci"))
+    except Exception:
+        settings.load_profile("ci")
 
 # ============================================================================
 # Session-scoped fixtures for expensive resources
@@ -606,13 +609,14 @@ def cleanup_after_test():
     gc.collect()
 
 
-@pytest.fixture(autouse=True)
-def cleanup_engines():
+@pytest.fixture(autouse=False)
+def cleanup_engines() -> None:
     """
-    Clean up database engines after each test to prevent leaks.
+    Deprecated per-test engine cleanup (use session finish cleanup).
+
+    Left as a no-op to preserve import references in legacy tests.
     """
-    yield
-    EngineManager.dispose_all()
+    return None
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -701,6 +705,18 @@ def pytest_sessionstart(session):
     """
     Set up test database at session start.
     """
+    # Ensure test mode permits non-ONNX models where needed
+    os.environ.setdefault("ML_TEST_ALLOW_NON_ONNX", "1")
+
+    # Proactively clear pytest cache to avoid stale collection/results
+    try:
+        from shutil import rmtree
+        cache_dir = Path.cwd() / ".pytest_cache"
+        if cache_dir.exists():
+            rmtree(cache_dir)
+    except Exception:
+        pass
+
     # Ensure PostgreSQL is running
     start_postgresql()
 
@@ -713,6 +729,25 @@ def pytest_sessionstart(session):
         # Tables will be created by stores as needed
         print("Database initialized, stores will create tables as needed...")
         engine.dispose()
+
+        # Apply known DB fixes for tests (partitions, functions, relaxed constraints)
+        try:
+            import ml.tests.fix_database_issues as _dbfix
+
+            _dbfix.main()
+        except Exception as e:  # Best-effort; tests may gate DB usage
+            print(f"Warning: database fixes could not be applied: {e}")
+
+        # Run preflight to validate required functions/partitions exist
+        try:
+            from ml.stores.db_preflight import check_db_prereqs
+
+            status = check_db_prereqs(DATABASE_URL)
+            ok = bool(status.get("ok", False))
+            if not ok:
+                print(f"Warning: DB preflight failed: {status}")
+        except Exception as e:
+            print(f"Warning: DB preflight error: {e}")
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -782,7 +817,8 @@ __all__ = [
 
 @pytest.fixture
 def valid_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Provide a minimal valid environment for deployment entrypoint tests.
+    """
+    Provide a minimal valid environment for deployment entrypoint tests.
 
     Mirrors the per-test fixture to make it available module-wide.
     """

@@ -10,8 +10,11 @@ import pytest
 
 from ml.actors import EnhancedMLInferenceActor
 from ml.actors.base import BaseMLInferenceActor
-from ml.config.base import MLActorConfig, MLFeatureConfig
-from ml.features.engineering import FeatureConfig, FeatureEngineer, IndicatorManager
+from ml.config.base import MLActorConfig
+from ml.config.base import MLFeatureConfig
+from ml.features.engineering import FeatureConfig
+from ml.features.engineering import FeatureEngineer
+from ml.features.engineering import IndicatorManager
 
 
 # Configure module logger

@@ -14,10 +14,10 @@ import json
 import time
 from unittest.mock import MagicMock
 from unittest.mock import patch
-from sqlalchemy import text
 
 import numpy as np
 import pytest
+from sqlalchemy import text
 
 from ml.stores.data_processor import DataProcessor
 from ml.stores.data_processor import QualityFlags

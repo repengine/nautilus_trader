@@ -56,7 +56,7 @@ def event_sequences(draw, min_length=1, max_length=10):
     length = draw(st.integers(min_value=min_length, max_value=max_length))
     correlation_id = str(uuid.uuid4())
     base_timestamp = int(datetime.now().timestamp() * 1e9)
-    
+
     events = []
     for i in range(length):
         event = {
@@ -69,7 +69,7 @@ def event_sequences(draw, min_length=1, max_length=10):
             "count": draw(st.integers(min_value=1, max_value=1000)),
         }
         events.append(event)
-    
+
     return events
 
 
@@ -96,27 +96,27 @@ class TestEventPublishingMetamorphic:
         db_active = []
         bus_shadow = Mock()
         bus_active = Mock()
-        
+
         def shadow_publisher(db, bus, event):
             """Publisher with bus disabled (shadow mode)."""
             db.append(copy.deepcopy(event))
             # Bus is None or disabled - no publishing
-            
+
         def active_publisher(db, bus, event):
             """Publisher with bus enabled (active mode)."""
             db.append(copy.deepcopy(event))
             bus.publish(f"events.ml.data.{event['stage']}", event)
-        
+
         # Process same events in both modes
         for event in events:
             shadow_publisher(db_shadow, None, event)  # Shadow mode
             active_publisher(db_active, bus_active, event)  # Active mode
-        
+
         # Metamorphic Property: Database states should be identical
         assert len(db_shadow) == len(db_active)
         for shadow_event, active_event in zip(db_shadow, db_active):
             assert shadow_event == active_event
-        
+
         # Different property: Bus activity should differ
         if events:  # Only check if we had events to process
             bus_active.publish.assert_called()
@@ -136,35 +136,35 @@ class TestEventPublishingMetamorphic:
         processed_sequential = []
         processed_concurrent = []
         lock = threading.Lock()
-        
+
         def sequential_processor(events):
             for event in sorted(events, key=lambda e: e["timestamp"]):
                 processed_sequential.append(event["correlation_id"])
                 time.sleep(0.001)  # Simulate processing time
-        
+
         def concurrent_processor(events):
             def process_event(event):
                 with lock:
                     processed_concurrent.append(event["correlation_id"])
                 time.sleep(0.001)
-                
+
             # Sort first to ensure deterministic ordering expectation
             sorted_events = sorted(events, key=lambda e: e["timestamp"])
             with ThreadPoolExecutor(max_workers=3) as executor:
                 for event in sorted_events:
                     executor.submit(process_event, event)
-        
+
         # Process same sequence both ways
         sequential_processor(event_sequence)
         concurrent_processor(event_sequence)
-        
+
         # Wait for concurrent processing to complete
         time.sleep(0.1)
-        
+
         # Metamorphic Property: Both should process all events
         assert len(processed_sequential) == len(event_sequence)
         assert len(processed_concurrent) == len(event_sequence)
-        
+
         # Note: Concurrent processing may have different order due to thread scheduling
         # The invariant is that all events are processed, not necessarily in same order
         assert set(processed_sequential) == set(processed_concurrent)
@@ -185,11 +185,11 @@ class TestEventPublishingMetamorphic:
         # Mock backpressure-aware event processor
         processed_normal = []
         processed_backpressure = []
-        
+
         def normal_processor(events):
             for event in events:
                 processed_normal.append(event)
-        
+
         def backpressure_processor(events, threshold):
             queue_size = 0
             for event in events:
@@ -202,22 +202,22 @@ class TestEventPublishingMetamorphic:
                         processed_backpressure.append(event)
                         queue_size += 1
                     # DROP non-essential events (FAILED, IN_PROGRESS)
-                
+
                 # Simulate processing reducing queue
                 if queue_size > 0:
                     queue_size -= 1
-        
+
         # Split events into manageable vs high-load scenarios
         normal_load = events[:min(len(events), backpressure_threshold - 1)]
         high_load = events
-        
+
         normal_processor(normal_load)
         backpressure_processor(high_load, backpressure_threshold)
-        
+
         # Metamorphic Properties
         # 1. Under normal load, all events processed
         assert len(processed_normal) == len(normal_load)
-        
+
         # 2. Under backpressure, at least SUCCESS events are processed
         success_events = [e for e in high_load if e["status"] == "SUCCESS"]
         processed_success = [e for e in processed_backpressure if e["status"] == "SUCCESS"]
@@ -235,7 +235,7 @@ class TestEventPublishingMetamorphic:
         """
         # Mock stateful system (e.g., model registry)
         initial_state = {"models": {}, "versions": {}}
-        
+
         def apply_events(state, events):
             new_state = copy.deepcopy(state)
             for event in events:
@@ -244,7 +244,7 @@ class TestEventPublishingMetamorphic:
                     new_state["models"][model_id] = event
                     new_state["versions"][model_id] = event["timestamp"]
             return new_state
-        
+
         def rollback_state(state, events):
             """Remove all models that were added by events."""
             rolled_back = copy.deepcopy(state)
@@ -254,12 +254,12 @@ class TestEventPublishingMetamorphic:
                     rolled_back["models"].pop(model_id, None)
                     rolled_back["versions"].pop(model_id, None)
             return rolled_back
-        
+
         # Apply transformation sequence
         state_after_events = apply_events(initial_state, events)
         state_after_rollback = rollback_state(state_after_events, events)
         state_after_rollforward = apply_events(state_after_rollback, events)
-        
+
         # Metamorphic Property: Rollback -> Rollforward should restore state
         assert state_after_rollback == initial_state
         assert state_after_rollforward == state_after_events
@@ -267,7 +267,7 @@ class TestEventPublishingMetamorphic:
     @given(
         events=st.lists(event_payloads(), min_size=2, max_size=20),
         duplicate_factor=st.integers(min_value=2, max_value=5)
-    )  
+    )
     @settings(max_examples=15, deadline=10000)
     def test_duplicate_event_idempotency(self, events, duplicate_factor):
         """
@@ -280,21 +280,21 @@ class TestEventPublishingMetamorphic:
         # Mock idempotent event processor
         processed_single = set()
         processed_duplicated = set()
-        
+
         def idempotent_processor(events, processed_set):
             for event in events:
                 # Use correlation_id for idempotency
                 correlation_id = event["correlation_id"]
                 if correlation_id not in processed_set:
                     processed_set.add(correlation_id)
-        
+
         # Process events once
         idempotent_processor(events, processed_single)
-        
+
         # Process events with duplicates
         duplicated_events = events * duplicate_factor  # Multiply events
         idempotent_processor(duplicated_events, processed_duplicated)
-        
+
         # Metamorphic Property: Same correlation_ids processed regardless of duplicates
         assert processed_single == processed_duplicated
 
@@ -319,21 +319,21 @@ class TestEventPublishingMetamorphic:
             perturbation_ns = int(noise_factor * 1_000_000_000 * (0.5 - hash(event["correlation_id"]) % 1000 / 1000))
             perturbed_event["timestamp"] += perturbation_ns
             perturbed_events.append(perturbed_event)
-        
+
         # Process both versions
         def extract_processing_order(events):
             return [e["correlation_id"] for e in sorted(events, key=lambda x: x["timestamp"])]
-        
-        original_order = extract_processing_order(events)  
+
+        original_order = extract_processing_order(events)
         perturbed_order = extract_processing_order(perturbed_events)
-        
+
         # Metamorphic Property: Small perturbations shouldn't drastically change ordering
         # Allow some reordering but correlation should remain high
         if len(original_order) > 1:
             # Calculate order correlation (simplified)
             matching_positions = sum(1 for o, p in zip(original_order, perturbed_order) if o == p)
             correlation_ratio = matching_positions / len(original_order)
-            
+
             # With small perturbations, most positions should remain similar
             assert correlation_ratio >= 0.5, f"Too much reordering: {correlation_ratio} < 0.5"
 
@@ -356,14 +356,14 @@ class TestEventPublishingMetamorphic:
                 count = event["count"]
                 aggregates[dataset_id] = aggregates.get(dataset_id, 0) + count
             return aggregates
-        
+
         def aggregate_counts_reverse_order(events):
             """Aggregate in reverse order."""
             return aggregate_counts(reversed(events))
-        
+
         # Process in different orders
         forward_result = aggregate_counts(events)
         reverse_result = aggregate_counts_reverse_order(events)
-        
+
         # Metamorphic Property: Aggregation should be commutative (same result)
         assert forward_result == reverse_result

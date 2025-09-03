@@ -16,6 +16,7 @@ import msgspec
 from ml.config.base import MLTrainingConfig
 from ml.config.shared import AdvancedTrainingConfig
 from ml.config.shared import LightGBMGPUConfig
+
 # MLflowConfig deprecated - use ModelRegistry
 from ml.config.shared import OptunaConfig
 from nautilus_trader.common.config import NonNegativeFloat

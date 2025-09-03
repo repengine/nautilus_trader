@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """
 Internal typing aliases to keep runtime dependencies optional while providing
 precise static types for mypy/ruff.
@@ -9,6 +10,7 @@ This module should contain ONLY type aliases and imports guarded by
 """
 
 from typing import TYPE_CHECKING
+
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as _pd

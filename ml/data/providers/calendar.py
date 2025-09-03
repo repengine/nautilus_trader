@@ -13,8 +13,8 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from ml._imports import pl, check_ml_dependencies
-
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
 from ml.data.providers.base import BaseTimeSeriesProvider
 from ml.data.providers.utils import cyclic_encode
 

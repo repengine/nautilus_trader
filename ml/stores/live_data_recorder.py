@@ -11,8 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ml.config.events import Source
+from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
-from ml.config.events import Stage, Source
 from ml.stores.data_store import DataStore
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar

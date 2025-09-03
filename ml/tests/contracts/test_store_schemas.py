@@ -458,7 +458,7 @@ class TestStoreSchemaContracts:
         assert signal_df["signal_strength"].iloc[0] == prediction_df["prediction"].iloc[0]
 
 
-@pytest.mark.skip(reason="Schema evolution tests will be rebuilt for event-driven architecture")  
+@pytest.mark.skip(reason="Schema evolution tests will be rebuilt for event-driven architecture")
 class TestSchemaEvolution:
     """Test schema evolution and backwards compatibility."""
 

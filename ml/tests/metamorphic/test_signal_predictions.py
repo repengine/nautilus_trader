@@ -162,8 +162,13 @@ class TestSignalPredictionMetamorphic:
 
         # Metamorphic relations:
         # 1. Sign should be preserved (unless clipped)
+        tiny = np.finfo(np.float64).tiny
         for pred, clipped in zip(scaled_predictions, clipped_predictions):
             if abs(pred) <= 1:
+                # Guard against IEEE-754 underflow to 0.0 when scaling subnormal values
+                if abs(base_prediction) < tiny or abs(pred) < tiny:
+                    # Treat as effectively zero; sign is not meaningful
+                    continue
                 assert np.sign(pred) == np.sign(base_prediction) or base_prediction == 0, \
                     "Scaling should preserve prediction sign"
 

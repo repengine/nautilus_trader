@@ -34,4 +34,4 @@ class Source(str, Enum):
     BACKFILL = "backfill"
 
 
-__all__ = ["Stage", "Source"]
+__all__ = ["Source", "Stage"]

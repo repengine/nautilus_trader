@@ -13,8 +13,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
-from ml._imports import HAS_PANDAS, HAS_POLARS, pd, pl, check_ml_dependencies
 
+from ml._imports import check_ml_dependencies
+from ml._imports import pd
+from ml._imports import pl
 from ml.config.base import MLFeatureConfig
 from ml.data.catalog_utils import bars_to_dataframe
 from ml.data.providers.utils import cyclic_encode

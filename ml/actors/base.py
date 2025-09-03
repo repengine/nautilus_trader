@@ -827,35 +827,35 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         return self._strategy_store
 
     @property
-    def data_store(self) -> DataStore:
+    def data_store(self) -> object:
         """
         Get the data store facade instance.
         """
         return self._data_store
 
     @property
-    def feature_registry(self) -> FeatureRegistry:
+    def feature_registry(self) -> object:
         """
         Get the feature registry instance.
         """
         return self._feature_registry
 
     @property
-    def model_registry(self) -> ModelRegistry:
+    def model_registry(self) -> object:
         """
         Get the model registry instance.
         """
         return self._model_registry
 
     @property
-    def strategy_registry(self) -> StrategyRegistry:
+    def strategy_registry(self) -> object:
         """
         Get the strategy registry instance.
         """
         return self._strategy_registry
 
     @property
-    def data_registry(self) -> DataRegistry:
+    def data_registry(self) -> object:
         """
         Get the data registry instance.
         """
@@ -1208,13 +1208,18 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             loaded_from_registry = self._try_load_from_registry()
             if not loaded_from_registry:
                 # Enforce ONNX-only in production unless explicitly allowed
-                from pathlib import Path as _Path
                 import os as _os
+                from pathlib import Path as _Path
 
                 model_ext = _Path(self._config.model_path).suffix.lower()
                 # Detect test/dev environments where non-ONNX may be acceptable
+                # Allow non-ONNX formats strictly for tests when explicitly enabled.
+                # Accepted env flags (either):
+                # - ML_TEST_ALLOW_NON_ONNX
+                # - ML_ALLOW_NON_ONNX_IN_TESTS (back-compat)
                 is_test_env = (
                     _os.getenv("PYTEST_CURRENT_TEST") is not None
+                    or _os.getenv("ML_TEST_ALLOW_NON_ONNX", "").lower() in {"1", "true", "yes"}
                     or _os.getenv("ML_ALLOW_NON_ONNX_IN_TESTS", "").lower() in {"1", "true", "yes"}
                 )
                 allow_dev = getattr(self._config, "allow_non_onnx_in_dev", False)

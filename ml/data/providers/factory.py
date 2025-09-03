@@ -11,8 +11,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
-from ml._imports import pl, check_ml_dependencies
-
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
 from ml.data.providers.base import BaseStaticProvider
 from ml.data.providers.base import BaseTimeSeriesProvider
 from ml.data.providers.calendar import MarketCalendarProvider

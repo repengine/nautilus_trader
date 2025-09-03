@@ -18,6 +18,12 @@ from pathlib import Path
 # Add parent to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
+# Skip if optional dependency is not available
+import pytest
+
+
+pytest.importorskip("databento", reason="databento package not installed")
+
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.scheduler import DataScheduler

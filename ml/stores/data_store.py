@@ -19,18 +19,16 @@ import logging
 import time
 from dataclasses import dataclass
 from dataclasses import field
-from typing import TYPE_CHECKING, Any, ContextManager, cast
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, ContextManager, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
-from ml._imports import Histogram
 from ml.common.correlation import make_correlation_id
 from ml.common.protocols import MLComponentMixin
+from ml.config.events import Stage
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
-from ml.config.events import Stage
 from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
@@ -54,29 +52,56 @@ logger = logging.getLogger(__name__)
 # Prometheus Metrics
 # ========================================================================
 
+
+class _CounterLike(Protocol):
+    def labels(self, **kwargs: object) -> _CounterLike:
+        ...
+
+    def inc(self, *args: object, **kwargs: object) -> None:
+        ...
+
+
+class _HistogramLike(Protocol):
+    def labels(self, **kwargs: object) -> _HistogramLike:
+        ...
+
+    def observe(self, *args: object, **kwargs: object) -> None:
+        ...
+
+
+class _NoOpMetric:
+    def labels(self, **_: object) -> _NoOpMetric:
+        return self
+
+    def inc(self, *_: object, **__: object) -> None:
+        return None
+
+    def observe(self, *_: object, **__: object) -> None:
+        return None
+
+
+# Declare metric variables once; assign real or no-op implementations below
+validation_violations_counter: Any = _NoOpMetric()
+validation_duration_histogram: Any = _NoOpMetric()
+schema_mismatch_counter: Any = _NoOpMetric()
+write_rejection_counter: Any = _NoOpMetric()
+quality_score_histogram: Any = _NoOpMetric()
+
 try:
-    from ml.common.metrics import quality_score_histogram
-    from ml.common.metrics import schema_mismatch_counter
-    from ml.common.metrics import validation_duration_histogram
-    from ml.common.metrics import validation_violations_counter
-    from ml.common.metrics import write_rejection_counter
+    from ml.common.metrics import quality_score_histogram as _qsh
+    from ml.common.metrics import schema_mismatch_counter as _smc
+    from ml.common.metrics import validation_duration_histogram as _vd
+    from ml.common.metrics import validation_violations_counter as _vvc
+    from ml.common.metrics import write_rejection_counter as _wrc
+
+    quality_score_histogram = _qsh
+    schema_mismatch_counter = _smc
+    validation_duration_histogram = _vd
+    validation_violations_counter = _vvc
+    write_rejection_counter = _wrc
 except Exception:
-    # Final fallback: no-op metrics to avoid crashes if metrics unavailable
-    class _NoOpMetric:
-        def labels(self, **_: object) -> "_NoOpMetric":  # type: ignore[name-defined]
-            return self
-
-        def inc(self, *_: object, **__: object) -> None:
-            return None
-
-        def observe(self, *_: object, **__: object) -> None:
-            return None
-
-    validation_violations_counter = _NoOpMetric()
-    validation_duration_histogram = _NoOpMetric()
-    schema_mismatch_counter = _NoOpMetric()
-    write_rejection_counter = _NoOpMetric()
-    quality_score_histogram = _NoOpMetric()
+    # Keep no-ops assigned
+    pass
 
 
 # ========================================================================
@@ -245,7 +270,7 @@ class DataStore(MLComponentMixin):
     def __init__(
         self,
         connection_string: str,
-        registry: "RegistryProtocol" | None = None,
+        registry: RegistryProtocol | None = None,
         feature_store: FeatureStore | None = None,
         model_store: ModelStore | None = None,
         strategy_store: StrategyStore | None = None,
@@ -279,25 +304,42 @@ class DataStore(MLComponentMixin):
             Hours to allow dual-write during schema migration
 
         """
+        # Explicit attribute annotation for protocol conformance
+        self.registry: RegistryProtocol
+
         # Allow registry to be optional for convenience in tests/integration
         if registry is None:
             try:
                 from ml.registry.data_registry import DataRegistry
-                from ml.registry.persistence import BackendType, PersistenceConfig
+                from ml.registry.persistence import BackendType
+                from ml.registry.persistence import PersistenceConfig
                 persistence_config = PersistenceConfig(
                     backend=BackendType.POSTGRES,
                     connection_string=connection_string,
                 )
-                self.registry = DataRegistry(registry_path=Path.home() / ".nautilus" / "ml" / "registry", persistence_config=persistence_config)  # type: ignore[name-defined]
+                self.registry = cast(
+                    "RegistryProtocol",
+                    DataRegistry(
+                        registry_path=Path.home() / ".nautilus" / "ml" / "registry",
+                        persistence_config=persistence_config,
+                    ),
+                )
             except Exception:
                 # Fallback to JSON registry if DB not available
                 from ml.registry.data_registry import DataRegistry
-                from ml.registry.persistence import BackendType, PersistenceConfig
+                from ml.registry.persistence import BackendType
+                from ml.registry.persistence import PersistenceConfig
                 persistence_config = PersistenceConfig(
                     backend=BackendType.JSON,
-                    json_path=Path("./data/registry"),  # type: ignore[name-defined]
+                    json_path=Path("./data/registry"),
                 )
-                self.registry = DataRegistry(registry_path=Path("./data/registry"), persistence_config=persistence_config)  # type: ignore[name-defined]
+                self.registry = cast(
+                    "RegistryProtocol",
+                    DataRegistry(
+                        registry_path=Path("./data/registry"),
+                        persistence_config=persistence_config,
+                    ),
+                )
         else:
             self.registry = registry
         self.connection_string = connection_string
@@ -1093,7 +1135,7 @@ class DataStore(MLComponentMixin):
     # Internal helpers
     # ---------------------------------------------------------------------
 
-    
+
 
     def _emit_success_event_and_update(
         self,

@@ -117,10 +117,10 @@ class MLTradingStrategy(BaseMLStrategy):
             else:
                 self._dry_run_trades += 1
                 self.log.info(
-                    (
+
                         f"[DRY RUN] Would enter {target_side.name} position "
                         f"(execute_trades=False) - Total dry run trades: {self._dry_run_trades}"
-                    )
+
                 )
 
         elif self._should_reverse_position(current_position, target_side):
@@ -139,11 +139,11 @@ class MLTradingStrategy(BaseMLStrategy):
             else:
                 self._dry_run_trades += 1
                 self.log.info(
-                    (
+
                         f"[DRY RUN] Would reverse position from {current_position.side.name} "
                         f"to {target_side.name} (execute_trades=False) - "
                         f"Total dry run trades: {self._dry_run_trades}"
-                    )
+
                 )
 
         else:

@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import BIGINT
 from sqlalchemy import BOOLEAN
@@ -1156,9 +1156,13 @@ class StrategyStore(BaseStore):
                 ],
             )
             if not len(df.index):
+                # Pandas typing: external API expects diverse scalar types; use explicit Any per standards
                 with self.engine.connect() as conn:
-                    return pd.read_sql_query(sql, conn, params=params)
+                    return pd.read_sql_query(sql, conn, params=cast(Any, params))
             return df
+        else:
+            with self.engine.connect() as conn:
+                return pd.read_sql_query(sql, conn, params=cast(Any, params))
 
     # Backwards-compatible public API used in some tests
     def get_signals(
@@ -1167,7 +1171,7 @@ class StrategyStore(BaseStore):
         start_ns: int,
         end_ns: int,
         instrument_id: str | None = None,
-    ) -> "pd.DataFrame":
+    ) -> pd.DataFrame:
         """
         Return strategy signals in a time range.
 
@@ -1202,12 +1206,44 @@ class StrategyStore(BaseStore):
             """,
         )
         with self.engine.connect() as conn:
-            return pd.read_sql_query(
-                sql,
-                conn,
-                params={"strategy_id": strategy_id, "start_ns": int(start_ns), "end_ns": int(end_ns)},
-            )
+            params2: dict[str, int | str] = {
+                "strategy_id": strategy_id,
+                "start_ns": int(start_ns),
+                "end_ns": int(end_ns),
+            }
+            return pd.read_sql_query(sql, conn, params=params2)
 
     def store_decision(self, *args: Any, **kwargs: Any) -> None:
-        """Backward-compatible alias for write_signal."""
-        self.write_signal(*args, **kwargs)
+        """
+        Backward-compatible alias for write_signal.
+
+        Accepts legacy fields like action/confidence/features and maps them to
+        the current write_signal signature.
+        """
+        if args:
+            self.write_signal(*args, **kwargs)
+            return
+        strategy_id = kwargs.get("strategy_id")
+        instrument_id = kwargs.get("instrument_id")
+        ts_event = kwargs.get("ts_event")
+        action = kwargs.get("action", "")
+        confidence = kwargs.get("confidence", 0.0)
+        features = kwargs.get("features", {})
+        if None in {strategy_id, instrument_id, ts_event}:
+            self.write_signal(*args, **kwargs)
+            return
+        signal_type = str(action).lower() if action else "neutral"
+        strength = float(confidence)
+        model_predictions: dict[str, float] = {}
+        risk_metrics: dict[str, float] = {}
+        execution_params = {"features": features}
+        self.write_signal(
+            strategy_id=str(strategy_id),
+            instrument_id=str(instrument_id),
+            signal_type=signal_type,
+            strength=strength,
+            model_predictions=model_predictions,
+            risk_metrics=risk_metrics,
+            execution_params=execution_params,
+            ts_event=int(cast(int, ts_event)),
+        )

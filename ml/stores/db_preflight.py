@@ -9,11 +9,12 @@ or in operational scripts.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import text
 
 from ml.core.db_engine import EngineManager
+
 
 logger = logging.getLogger(__name__)
 

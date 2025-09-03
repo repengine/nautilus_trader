@@ -11,8 +11,9 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import BIGINT
 from sqlalchemy import BOOLEAN
@@ -428,7 +429,6 @@ class ModelStore(BaseStore):
             """,
         )
 
-        from collections.abc import Mapping
         from typing import cast
         with self.engine.connect() as conn:
             params: dict[str, int | str] = {
@@ -546,11 +546,12 @@ class ModelStore(BaseStore):
             )
             if not len(df.index):
                 with self.engine.connect() as conn:
-                    return pd.read_sql_query(sql, conn, params=params)
+                    return pd.read_sql_query(sql, conn, params=cast(Any, params))
             return df
         else:
+            # External API typing variance; use explicit Any per standards
             with self.engine.connect() as conn:
-                return pd.read_sql_query(sql, conn, params=params)
+                return pd.read_sql_query(sql, conn, params=cast(Any, params))
 
     def read_range(
         self,
@@ -601,10 +602,8 @@ class ModelStore(BaseStore):
             )
             params = {"start_ns": int(start_ns), "end_ns": int(end_ns), "instrument_id": instrument_id}
 
-        from collections.abc import Mapping
-        from typing import cast
         with self.engine.connect() as conn:
-            return pd.read_sql_query(sql, conn, params=cast(Mapping[str, int | str], params))
+            return pd.read_sql_query(sql, conn, params=cast(Any, params))
 
     # Backwards-compatible public API used in some tests
     def get_predictions(
@@ -613,13 +612,14 @@ class ModelStore(BaseStore):
         start_ns: int,
         end_ns: int,
         instrument_id: str | None = None,
-    ) -> "pd.DataFrame":
+    ) -> pd.DataFrame:
         """
         Return predictions for a model within a time range.
 
         This is a compatibility shim delegating to read_predictions.
         """
         import pandas as pd
+
         # Accept seconds or nanoseconds; normalize to ns
         from ml.common.timestamps import sanitize_timestamp_ns
         start_ns = sanitize_timestamp_ns(int(start_ns), logger=logger, context="ModelStore.get_predictions:start")
@@ -637,11 +637,12 @@ class ModelStore(BaseStore):
                 """,
             )
             with self.engine.connect() as conn:
-                return pd.read_sql_query(
-                    sql,
-                    conn,
-                    params={"model_id": model_id, "start_ns": int(start_ns), "end_ns": int(end_ns)},
-                )
+                params2: dict[str, int | str] = {
+                    "model_id": model_id,
+                    "start_ns": int(start_ns),
+                    "end_ns": int(end_ns),
+                }
+                return pd.read_sql_query(sql, conn, params=params2)
         else:
             return self.read_predictions(model_id=model_id, instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns)
 
@@ -680,11 +681,9 @@ class ModelStore(BaseStore):
             """,
         )
 
-        from collections.abc import Mapping
-        from typing import cast
         with self.engine.connect() as conn:
-            params: dict[str, int | str] = {"instrument_id": instrument_id, "limit": int(limit)}
-            return pd.read_sql_query(sql, conn, params=cast(Mapping[str, int | str], params))
+            params2: dict[str, int | str] = {"instrument_id": instrument_id, "limit": int(limit)}
+            return pd.read_sql_query(sql, conn, params=params2)
 
     @override
     def get_statistics(
@@ -1028,5 +1027,31 @@ class ModelStore(BaseStore):
         }
 
     def store_prediction(self, *args: Any, **kwargs: Any) -> None:
-        """Backward-compatible alias for write_prediction."""
-        self.write_prediction(*args, **kwargs)
+        """
+        Backward-compatible alias that accepts minimal explicit args.
+
+        Allows calling with model_id, instrument_id, ts_event, prediction, confidence
+        and fills features={} and inference_time_ms=0.0 when not provided.
+        """
+        if args:
+            self.write_prediction(*args, **kwargs)
+            return
+        model_id = kwargs.get("model_id")
+        instrument_id = kwargs.get("instrument_id")
+        ts_event = kwargs.get("ts_event")
+        prediction = kwargs.get("prediction")
+        confidence = kwargs.get("confidence")
+        features = kwargs.get("features", {})
+        inference_time_ms = kwargs.get("inference_time_ms", 0.0)
+        if None in {model_id, instrument_id, ts_event, prediction, confidence}:
+            self.write_prediction(*args, **kwargs)
+            return
+        self.write_prediction(
+            model_id=str(model_id),
+            instrument_id=str(instrument_id),
+            prediction=float(cast(float, prediction)),
+            confidence=float(cast(float, confidence)),
+            features=dict(cast(dict[str, float], features)),
+            inference_time_ms=float(cast(float, inference_time_ms)),
+            ts_event=int(cast(int, ts_event)),
+        )

@@ -1,4 +1,5 @@
-"""Parameterized tests for MLSignalActor following testing strategy.
+"""
+Parameterized tests for MLSignalActor following testing strategy.
 
 This refactored version consolidates repetitive tests using pytest.mark.parametrize
 and property-based testing approaches as outlined in TESTING_STRATEGY.md.
@@ -17,41 +18,39 @@ from unittest.mock import Mock
 import numpy as np
 import numpy.typing as npt
 import pytest
-from hypothesis import given, strategies as st, settings, HealthCheck
+from hypothesis import HealthCheck
+from hypothesis import given
+from hypothesis import settings
+from hypothesis import strategies as st
 
-from ml.actors.base import CircuitBreakerState, MLSignal
-from ml.actors.signal import (
-    AdaptiveSignal,
-    MLSignalActor,
-    MLSignalActorConfig,
-    SignalStrategy,
-)
+from ml.actors.base import CircuitBreakerState
+from ml.actors.base import MLSignal
+from ml.actors.signal import AdaptiveSignal
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
+from ml.actors.signal import SignalStrategy
 from ml.config.actors import StrategyConfig
 from ml.config.base import CircuitBreakerConfig
 from ml.features.engineering import FeatureConfig
 from ml.tests.fixtures.model_factory import TestModelFactory
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
-from nautilus_trader.common.component import MessageBus, TestClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.enums import ComponentState
 from nautilus_trader.data.engine import DataEngine
 from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.model.data import (
-    Bar,
-    BarSpecification,
-    BarType,
-    DataType,
-)
-from nautilus_trader.model.enums import (
-    AggressorSide,
-    BarAggregation,
-    PriceType,
-)
-from nautilus_trader.model.identifiers import (
-    ClientId,
-    InstrumentId,
-    TraderId,
-)
-from nautilus_trader.model.objects import Price, Quantity
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.enums import AggressorSide
+from nautilus_trader.model.enums import BarAggregation
+from nautilus_trader.model.enums import PriceType
+from nautilus_trader.model.identifiers import ClientId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
@@ -78,6 +77,7 @@ class TestMLSignalActorParameterized:
         # Clear Prometheus metrics registry to avoid duplicates
         try:
             import gc
+
             from prometheus_client import REGISTRY
 
             collectors = list(REGISTRY._collector_to_names.keys())
@@ -310,11 +310,11 @@ class TestMLSignalActorParameterized:
         """Test different model types and their prediction methods."""
         # Create model using factory - it returns the path
         model_path = self.temp_dir / f"test_{model_type}.pkl"
-        
+
         # Special handling for ONNX
         if model_type == "onnx":
             model_path = model_path.with_suffix(".onnx")
-        
+
         # Call the factory method which creates and saves the model
         model_path = getattr(self.model_factory, model_factory_method)(
             output_path=model_path

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from collections.abc import Generator
 from datetime import datetime
 from datetime import timedelta
@@ -418,7 +419,7 @@ class TestEndToEndPipeline:
         # 1. Store features
         feature_store.store_features(
             instrument_id="SPY.NYSE",
-            ts_event=1234567890,
+            ts_event=int(time.time_ns()),
             features={"rsi": 50.0, "volume_ratio": 1.2},
         )
 
@@ -426,7 +427,7 @@ class TestEndToEndPipeline:
         model_store.store_prediction(
             model_id="xgb_v1",
             instrument_id="SPY.NYSE",
-            ts_event=1234567890,
+            ts_event=int(time.time_ns()),
             prediction=1,
             confidence=0.85,
         )
@@ -435,7 +436,7 @@ class TestEndToEndPipeline:
         strategy_store.store_decision(
             strategy_id="ml_strategy_v1",
             instrument_id="SPY.NYSE",
-            ts_event=1234567890,
+            ts_event=int(time.time_ns()),
             action="BUY",
             confidence=0.85,
             features={"rsi": 50.0},

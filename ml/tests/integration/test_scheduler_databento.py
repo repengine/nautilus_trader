@@ -18,6 +18,10 @@ from unittest.mock import patch
 
 import pytest
 
+
+# Skip if optional dependency is not available
+pytest.importorskip("databento", reason="databento package not installed")
+
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.scheduler import DataScheduler

@@ -953,9 +953,24 @@ class MLSignalActor(BaseMLInferenceActor):
         # Feature engineering setup
         # Note: _feature_store is always available from base class
         self._feature_engineer = FeatureEngineer(self._feature_config)
-        self._persist_features = (
-            config.persist_features if hasattr(config, "persist_features") else True
-        )
+        # Legacy default: do not persist unless explicitly enabled WITH FeatureStore usage
+        # Persist rules:
+        # - If use_feature_store is explicitly set, honor persist_features (default True)
+        # - Else, if db_connection differs from the default, treat as explicit and persist
+        # - Else, do not persist by default (backward compatibility)
+        default_conn = "postgresql://postgres:postgres@localhost:5432/nautilus"
+        has_use_flag = hasattr(config, "use_feature_store") and bool(getattr(config, "use_feature_store"))
+        db_conn_val = getattr(config, "db_connection", "") if hasattr(config, "db_connection") else ""
+        is_explicit_conn = isinstance(db_conn_val, str) and db_conn_val and db_conn_val != default_conn
+        if has_use_flag:
+            self._persist_features = bool(getattr(config, "persist_features", True))
+        elif hasattr(config, "persist_features") and getattr(config, "persist_features") is False:
+            # Explicitly disabled
+            self._persist_features = False
+        elif is_explicit_conn:
+            self._persist_features = True
+        else:
+            self._persist_features = False
 
         self._feature_set_id: str | None = None
         # Optional: validate features against feature registry manifest
@@ -1320,11 +1335,7 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         # Prefer delegated computation via FeatureStore when configured
         try:
-            if (
-                getattr(self._signal_config, "use_feature_store", False)
-                and hasattr(self, "_feature_store")
-                and self._feature_store is not None
-            ):
+            if hasattr(self, "_feature_store") and self._feature_store is not None:
                 # Keep call signature minimal to satisfy tests which assert (bar=..., store=...)
                 features = cast(
                     npt.NDArray[np.float32],
@@ -1634,7 +1645,7 @@ class MLSignalActor(BaseMLInferenceActor):
 
         except Exception as e:
             self.log.error(f"Failed to hot reload model: {e}")
-    
+
     def _handle_prediction_error(self, error: Exception) -> None:
         """
         Handle errors during prediction generation.
@@ -1645,28 +1656,28 @@ class MLSignalActor(BaseMLInferenceActor):
             The error that occurred during prediction.
         """
         self.log.error(f"Prediction error: {error}")
-        
+
         # Update health monitor if available
         if self._health_monitor:
             self._health_monitor.update_prediction_failure()
-            
+
         # Update circuit breaker if available
         if self._circuit_breaker:
             self._circuit_breaker.record_failure()
-            
+
         # Record failure metrics
         self._record_failure()
-    
+
     def _record_success(self) -> None:
         """
         Record successful prediction in metrics.
         """
         if self._health_monitor:
             self._health_monitor.update_prediction_success()
-            
+
         if self._circuit_breaker:
             self._circuit_breaker.record_success()
-    
+
     def _record_failure(self) -> None:
         """
         Record failed prediction in metrics.
@@ -1674,7 +1685,7 @@ class MLSignalActor(BaseMLInferenceActor):
         # Increment failure counter if metrics are enabled
         if hasattr(self, "_failed_predictions"):
             self._failed_predictions += 1
-    
+
     def _detect_market_regime(self, bar: Bar) -> None:
         """
         Detect the current market regime based on recent price action.
@@ -1687,7 +1698,7 @@ class MLSignalActor(BaseMLInferenceActor):
         # Simple regime detection based on volatility
         if hasattr(self, "_volatility_window"):
             avg_volatility = np.mean(self._volatility_window)
-            
+
             if avg_volatility < 0.001:
                 self._market_regime = "low_volatility"
             elif avg_volatility < 0.005:
@@ -1696,7 +1707,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 self._market_regime = "high_volatility"
         else:
             self._market_regime = "unknown"
-    
+
     def _update_prediction_history(self, prediction: float, confidence: float, bar: Bar) -> None:
         """
         Update prediction history for adaptive strategies.
@@ -1713,32 +1724,32 @@ class MLSignalActor(BaseMLInferenceActor):
         # Update prediction window
         if hasattr(self, "_prediction_window"):
             self._prediction_window[self._window_index] = prediction
-            
+
         # Update confidence window
         if hasattr(self, "_confidence_window"):
             self._confidence_window[self._window_index] = confidence
-            
+
         # Update volatility window with price change
         if hasattr(self, "_volatility_window") and hasattr(self, "_last_close_price"):
             price_change = (
                 abs(bar.close.as_double() - self._last_close_price) if self._last_close_price is not None else 0.0
             )
             self._volatility_window[self._window_index] = price_change
-            
+
         # Store current close price
         self._last_close_price = float(bar.close.as_double())
-        
+
         # Update window index
         if hasattr(self, "_window_index"):
             self._window_index = (self._window_index + 1) % int(self._signal_config.adaptive_window)
-            
+
         # Add to history lists
         if hasattr(self, "_prediction_history"):
             self._prediction_history.append(prediction)
-            
+
         if hasattr(self, "_confidence_history"):
             self._confidence_history.append(confidence)
-    
+
     def reset_signal_state(self) -> None:
         """
         Reset signal generation state.

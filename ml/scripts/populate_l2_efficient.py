@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 """
-Efficient L2 data population script.
+Efficient L2 data population script with gap detection and filling.
 
 Handles large L2 data volumes by:
 - Downloading day by day
 - Processing one symbol at a time
+- Checking for missing data gaps
+- Merging new data with existing files
 - Showing progress and data sizes
 
 Usage:
+    # Download 7 days for specific symbols
     python ml/scripts/populate_l2_efficient.py --symbols SPY AAPL --days 7
-    python ml/scripts/populate_l2_efficient.py --tier 1 --days 7
+    
+    # Download tier 1 symbols for date range, fill gaps automatically
+    python ml/scripts/populate_l2_efficient.py --tier 1 --start-date 2025-07-26 --end-date 2025-08-29
+    
+    # Force re-download all data (ignoring existing)
+    python ml/scripts/populate_l2_efficient.py --tier 1 --days 7 --force
+    
+    # Check and fill gaps in existing data
+    python ml/scripts/populate_l2_efficient.py --tier 1 --start-date 2025-07-26 --end-date 2025-08-29 --check-gaps
 """
 
 import argparse
@@ -22,6 +33,8 @@ from datetime import timedelta
 from pathlib import Path
 
 import databento as db
+import polars as pl
+import pandas as pd
 import psutil
 import pyarrow.parquet as pq
 
@@ -32,6 +45,120 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def get_business_dates(start_date: datetime, end_date: datetime) -> list[datetime]:
+    """Get list of business dates (Monday-Friday) in the range."""
+    dates = []
+    current = start_date
+    while current <= end_date:
+        if current.weekday() < 5:  # Monday-Friday
+            dates.append(current)
+        current += timedelta(days=1)
+    return dates
+
+
+def detect_data_gaps(symbol: str, output_dir: Path, start_date: datetime, end_date: datetime) -> list[datetime]:
+    """Detect missing dates in existing L2 data for a symbol."""
+    final_file = output_dir / f"{symbol}_mbp-10.parquet"
+    
+    if not final_file.exists():
+        # No existing data - need all dates
+        return get_business_dates(start_date, end_date)
+    
+    try:
+        # Read existing data to find covered dates
+        df = pl.read_parquet(final_file)
+        if df.is_empty():
+            return get_business_dates(start_date, end_date)
+            
+        # Get unique dates from existing data
+        existing_dates = df.select(
+            pl.from_epoch('ts_event', time_unit='ns').dt.date().alias('date')
+        ).unique().sort('date')
+        
+        dates_in_data = set(existing_dates.to_series().to_list())
+        
+        # Find missing business dates in the requested range
+        expected_dates = get_business_dates(start_date, end_date)
+        missing_dates = []
+        
+        for date in expected_dates:
+            if date.date() not in dates_in_data:
+                missing_dates.append(date)
+                
+        return missing_dates
+        
+    except Exception as e:
+        logger.warning(f"Error reading existing data for {symbol}: {e}")
+        # If we can't read existing data, assume we need all dates
+        return get_business_dates(start_date, end_date)
+
+
+def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
+    """Merge new daily files with existing L2 data, maintaining chronological order."""
+    daily_files = sorted(output_dir.glob(f"{symbol}_mbp10_*.parquet"))
+    if not daily_files:
+        return
+        
+    final_file = output_dir / f"{symbol}_mbp-10.parquet"
+    existing_data = None
+    
+    # Load existing data if it exists
+    if final_file.exists():
+        try:
+            existing_data = pl.read_parquet(final_file)
+            logger.info(f"Found existing data: {len(existing_data):,} records")
+        except Exception as e:
+            logger.warning(f"Could not read existing data: {e}")
+            existing_data = None
+    
+    # Load new daily data
+    new_data_frames = []
+    for daily_file in daily_files:
+        try:
+            df = pl.read_parquet(daily_file)
+            if not df.is_empty():
+                new_data_frames.append(df)
+        except Exception as e:
+            logger.warning(f"Could not read {daily_file}: {e}")
+    
+    if not new_data_frames:
+        logger.info("No new data to merge")
+        return
+        
+    # Combine all data
+    all_frames = []
+    if existing_data is not None and not existing_data.is_empty():
+        all_frames.append(existing_data)
+    all_frames.extend(new_data_frames)
+    
+    # Concatenate and sort by timestamp
+    combined_df = pl.concat(all_frames).sort('ts_event').unique()
+    
+    # Write back to final file
+    tmp_file = output_dir / f"{symbol}_mbp-10.tmp.parquet"
+    try:
+        combined_df.write_parquet(tmp_file)
+        tmp_file.replace(final_file)
+        
+        # Clean up daily files
+        for daily_file in daily_files:
+            try:
+                daily_file.unlink()
+            except OSError:
+                pass
+                
+        size_mb = final_file.stat().st_size / (1024 * 1024)
+        logger.info(f"Merged data: {len(combined_df):,} records, {size_mb:.1f} MB")
+        
+    except Exception as e:
+        if tmp_file.exists():
+            try:
+                tmp_file.unlink()
+            except OSError:
+                pass
+        raise e
 
 
 def get_tier1_symbols() -> list[str]:
@@ -201,6 +328,12 @@ def main():
                        help="Data directory")
     parser.add_argument("--resume", action="store_true", default=True,
                        help="Resume from existing data")
+    parser.add_argument("--start-date", type=str, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, help="End date (YYYY-MM-DD)")
+    parser.add_argument("--check-gaps", action="store_true", default=True,
+                       help="Check for and fill data gaps")
+    parser.add_argument("--force", action="store_true",
+                       help="Re-download all data, ignoring existing files")
 
     args = parser.parse_args()
 
@@ -221,9 +354,18 @@ def main():
 
     client = db.Historical(api_key)
 
-    # Calculate date range (account for EQUS.MINI delay)
-    end_date = datetime.now() - timedelta(days=1)
-    start_date = end_date - timedelta(days=args.days - 1)
+    # Calculate date range
+    if args.start_date and args.end_date:
+        try:
+            start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
+            end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
+        except ValueError as e:
+            logger.error(f"Invalid date format: {e}")
+            return 1
+    else:
+        # Default: account for EQUS.MINI delay
+        end_date = datetime.now() - timedelta(days=1)
+        start_date = end_date - timedelta(days=args.days - 1)
 
     logger.info(f"Downloading L2 data for {len(symbols)} symbols")
     logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
@@ -239,32 +381,63 @@ def main():
         output_dir = args.data_dir / symbol / "l2"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Check if already exists
         final_file = output_dir / f"{symbol}_mbp-10.parquet"
-        if final_file.exists() and args.resume:
-            size_mb = final_file.stat().st_size / (1024 * 1024)
-            logger.info(f"  Already exists: {size_mb:.1f} MB - skipping")
-            total_size_mb += size_mb
-            continue
 
-        # Download day by day
+        # Handle force mode or gap detection
+        dates_to_download = []
+        
+        if args.force:
+            # Force mode: download all dates
+            dates_to_download = get_business_dates(start_date, end_date)
+            if final_file.exists():
+                logger.info(f"  Force mode: removing existing data")
+                try:
+                    final_file.unlink()
+                except OSError:
+                    pass
+        elif args.check_gaps:
+            # Gap detection mode: find missing dates
+            dates_to_download = detect_data_gaps(symbol, output_dir, start_date, end_date)
+            if not dates_to_download:
+                if final_file.exists():
+                    size_mb = final_file.stat().st_size / (1024 * 1024)
+                    logger.info(f"  No gaps found: {size_mb:.1f} MB - complete")
+                    total_size_mb += size_mb
+                else:
+                    logger.info(f"  No existing data and no gaps to fill")
+                continue
+            else:
+                logger.info(f"  Found {len(dates_to_download)} missing dates to download")
+        else:
+            # Resume mode: skip if exists, otherwise download all
+            if final_file.exists() and args.resume:
+                size_mb = final_file.stat().st_size / (1024 * 1024)
+                logger.info(f"  Already exists: {size_mb:.1f} MB - skipping")
+                total_size_mb += size_mb
+                continue
+            dates_to_download = get_business_dates(start_date, end_date)
+
+        # Download only the dates we need
         symbol_records = 0
-        current_date = start_date
-
-        while current_date <= end_date:
-            records = download_l2_daily(client, symbol, current_date, output_dir)
+        for date in dates_to_download:
+            records = download_l2_daily(client, symbol, date, output_dir)
             symbol_records += records
-            current_date += timedelta(days=1)
 
-        # Combine daily files
+        # Combine/merge files
         if symbol_records > 0:
-            combine_daily_files(symbol, output_dir)
+            if args.check_gaps and final_file.exists():
+                # Merge new data with existing
+                merge_new_with_existing(symbol, output_dir)
+            else:
+                # Fresh download - combine daily files normally
+                combine_daily_files(symbol, output_dir)
+                
             if final_file.exists():
                 size_mb = final_file.stat().st_size / (1024 * 1024)
                 total_size_mb += size_mb
 
         total_records += symbol_records
-        logger.info(f"  Total: {symbol_records:,} records")
+        logger.info(f"  Downloaded: {symbol_records:,} new records")
 
     logger.info("\n" + "=" * 50)
     logger.info(f"COMPLETE: {total_records:,} total records, {total_size_mb:.1f} MB")

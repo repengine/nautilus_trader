@@ -974,9 +974,11 @@ class TestPropertyBased:
         mock_registry.get_contract.return_value = contract
 
         # Create data store inside the test
+        # Use a static connection string to avoid function-scoped fixtures with Hypothesis
+        conn_str = "postgresql://postgres:postgres@localhost:5432/nautilus"
         data_store = DataStore(
             registry=mock_registry,
-            connection_string=test_database.connection_string,
+            connection_string=conn_str,
             feature_store=MagicMock(),
             model_store=MagicMock(),
             strategy_store=MagicMock(),
@@ -1044,7 +1046,6 @@ class TestPropertyBased:
         close_max: float,
         volume_min: float,
         volume_max: float,
-        test_database,
     ) -> None:
         """Test range validation with fuzzy boundaries."""
         # Create mock registry inside the test
@@ -1108,9 +1109,10 @@ class TestPropertyBased:
         )
         mock_registry.get_contract.return_value = contract
 
+        conn_str = "postgresql://postgres:postgres@localhost:5432/nautilus"
         store = DataStore(
             registry=mock_registry,
-            connection_string=test_database.connection_string,
+            connection_string=conn_str,
             feature_store=MagicMock(),
             model_store=MagicMock(),
             strategy_store=MagicMock(),

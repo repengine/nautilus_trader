@@ -20,8 +20,8 @@ from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import Mock
 
-import pandera as pa
 import pandas as pd
+import pandera as pa
 import pytest
 from pandera.typing import DataFrame
 from pandera.typing import Series
@@ -37,7 +37,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 class MLDataEventSchema(pa.DataFrameModel):
     """Schema for events.ml.data.* payloads."""
-    
+
     dataset_id: Series[str] = pa.Field(nullable=False)
     instrument_id: Series[str] = pa.Field(nullable=False, regex=r"^[A-Z0-9]+\.[A-Z]+$")
     stage: Series[str] = pa.Field(nullable=False, isin=[s.value for s in Stage])
@@ -48,7 +48,7 @@ class MLDataEventSchema(pa.DataFrameModel):
     ts_max: Series[int] = pa.Field(nullable=False, ge=0)
     count: Series[int] = pa.Field(nullable=False, ge=0)
     correlation_id: Series[str] = pa.Field(nullable=False)
-    
+
     @pa.dataframe_check()
     def check_timestamp_ordering(cls, df: DataFrame[Any]) -> Series[bool]:
         """Ensure ts_max >= ts_min."""
@@ -57,12 +57,12 @@ class MLDataEventSchema(pa.DataFrameModel):
 
 class MLRegistryEventSchema(pa.DataFrameModel):
     """Schema for events.ml.{features|models|strategies}.* payloads."""
-    
+
     operation: Series[str] = pa.Field(nullable=False, isin=["REGISTER", "UPDATE", "DEPLOY", "ROLLBACK"])
     registry_type: Series[str] = pa.Field(nullable=False, isin=["features", "models", "strategies"])
     entity_id: Series[str] = pa.Field(nullable=False)
     version: Series[str] = pa.Field(nullable=False)
-    status: Series[str] = pa.Field(nullable=False, isin=["SUCCESS", "FAILED"]) 
+    status: Series[str] = pa.Field(nullable=False, isin=["SUCCESS", "FAILED"])
     correlation_id: Series[str] = pa.Field(nullable=False)
     timestamp: Series[int] = pa.Field(nullable=False, ge=0)
 
@@ -89,7 +89,7 @@ class TestEventBusContracts:
             "count": [1000],
             "correlation_id": [str(uuid.uuid4())],
         })
-        
+
         # Should pass validation
         validated = MLDataEventSchema.validate(valid_event)
         assert len(validated) == 1
@@ -105,7 +105,7 @@ class TestEventBusContracts:
             "correlation_id": [str(uuid.uuid4())],
             "timestamp": [int(datetime.now().timestamp() * 1e9)],
         })
-        
+
         # Should pass validation
         validated = MLRegistryEventSchema.validate(valid_event)
         assert len(validated) == 1
@@ -116,29 +116,29 @@ class TestEventBusContracts:
         mock_msgbus = Mock()
         mock_actor = Mock()
         mock_actor.thread_id = 12345
-        
+
         # Contract: All bus.publish() calls must happen from actor thread
         def assert_actor_thread(*args, **kwargs):
             # In real implementation, this would check threading.current_thread().ident
-            assert hasattr(mock_actor, 'thread_id'), "MessageBus publish must be called from actor thread"
-            
+            assert hasattr(mock_actor, "thread_id"), "MessageBus publish must be called from actor thread"
+
         mock_msgbus.publish.side_effect = assert_actor_thread
-        
+
         # Simulate actor publishing event
         mock_msgbus.publish(
             topic="events.ml.data.INGESTED",
             payload={"correlation_id": str(uuid.uuid4())},
         )
-        
+
         mock_msgbus.publish.assert_called_once()
 
     def test_idempotency_contract_via_correlation_id(self):
         """Test that events are idempotent using correlation_id."""
         correlation_id = str(uuid.uuid4())
-        
+
         # Mock consumer that tracks processed correlation_ids
         processed_correlations = set()
-        
+
         def idempotent_consumer(topic: str, payload: dict[str, Any]) -> bool:
             """Returns True if event was processed, False if already seen."""
             corr_id = payload.get("correlation_id")
@@ -146,11 +146,11 @@ class TestEventBusContracts:
                 return False  # Already processed
             processed_correlations.add(corr_id)
             return True  # New event
-        
+
         # First event should be processed
         event1 = {"correlation_id": correlation_id, "data": "test"}
         assert idempotent_consumer("events.ml.data.INGESTED", event1) is True
-        
+
         # Duplicate event should be ignored
         event2 = {"correlation_id": correlation_id, "data": "test_duplicate"}
         assert idempotent_consumer("events.ml.data.INGESTED", event2) is False
@@ -159,7 +159,7 @@ class TestEventBusContracts:
         """Test that watermarks progress monotonically."""
         # Mock watermark tracking
         watermarks = {}
-        
+
         def update_watermark(dataset_id: str, new_watermark: int) -> bool:
             """Update watermark if it progresses. Return True if updated."""
             current = watermarks.get(dataset_id, 0)
@@ -167,14 +167,14 @@ class TestEventBusContracts:
                 watermarks[dataset_id] = new_watermark
                 return True
             return False  # Watermark regression - reject
-        
+
         dataset_id = "eurusd_bars_2024"
-        
+
         # Progressive watermarks should succeed
         assert update_watermark(dataset_id, 1000) is True
         assert update_watermark(dataset_id, 2000) is True
         assert update_watermark(dataset_id, 2000) is True  # Same is OK
-        
+
         # Regressive watermark should fail
         assert update_watermark(dataset_id, 1500) is False
 
@@ -182,14 +182,14 @@ class TestEventBusContracts:
         """Test that msgbus=None means no-op publishing."""
         # When msgbus is None, publishing should be a no-op
         msgbus = None
-        
+
         def safe_publish(bus, topic: str, payload: dict[str, Any]) -> bool:
             """Safe publish that handles None bus."""
             if bus is None:
                 return False  # No-op
             bus.publish(topic, payload)
             return True
-        
+
         # Should not raise exception
         result = safe_publish(msgbus, "events.ml.data.INGESTED", {"test": "data"})
         assert result is False
@@ -201,7 +201,7 @@ class TestEventBusContracts:
             "events.ml.data.*": ["consumer1", "consumer2"],
             "events.ml.models.DEPLOY": ["consumer3"],
         }
-        
+
         def find_matching_consumers(topic: str) -> list[str]:
             """Find consumers that match topic pattern."""
             consumers = []
@@ -213,13 +213,13 @@ class TestEventBusContracts:
                 elif pattern == topic:
                     consumers.extend(consumer_list)
             return consumers
-        
+
         # Test wildcard matching
         consumers = find_matching_consumers("events.ml.data.INGESTED")
         assert "consumer1" in consumers
         assert "consumer2" in consumers
         assert "consumer3" not in consumers
-        
+
         # Test exact matching
         consumers = find_matching_consumers("events.ml.models.DEPLOY")
         assert "consumer3" in consumers
@@ -228,29 +228,29 @@ class TestEventBusContracts:
     def test_event_payload_immutability_contract(self):
         """Test that event payloads are immutable after publishing."""
         import copy
-        
+
         original_payload = {
             "dataset_id": "test",
             "correlation_id": str(uuid.uuid4()),
             "count": 100,
         }
-        
+
         # Simulate publisher creating immutable copy
         published_payload = copy.deepcopy(original_payload)
-        
+
         # Modify original after "publishing"
         original_payload["count"] = 999
         original_payload["dataset_id"] = "modified"
-        
+
         # Published payload should remain unchanged
         assert published_payload["count"] == 100
         assert published_payload["dataset_id"] == "test"
 
 
-@pytest.mark.parallel_safe  
+@pytest.mark.parallel_safe
 class TestEventOrdering:
     """Test event ordering contracts for the ML pipeline."""
-    
+
     def test_stage_transition_ordering(self):
         """Test that events follow correct stage transitions."""
         # Define allowed stage transitions
@@ -261,15 +261,15 @@ class TestEventOrdering:
             Stage.PREDICTION_EMITTED: [Stage.SIGNAL_EMITTED],
             Stage.SIGNAL_EMITTED: [],  # Terminal stage
         }
-        
+
         def validate_transition(from_stage: Stage, to_stage: Stage) -> bool:
             """Validate stage transition is allowed."""
             return to_stage in allowed_transitions.get(from_stage, [])
-        
+
         # Valid transitions
         assert validate_transition(Stage.DATA_INGESTED, Stage.FEATURE_COMPUTED) is True
         assert validate_transition(Stage.FEATURE_COMPUTED, Stage.PREDICTION_EMITTED) is True
-        
+
         # Invalid transitions
         assert validate_transition(Stage.SIGNAL_EMITTED, Stage.DATA_INGESTED) is False
         assert validate_transition(Stage.PREDICTION_EMITTED, Stage.DATA_INGESTED) is False
@@ -277,32 +277,32 @@ class TestEventOrdering:
     def test_correlation_lineage_tracing(self):
         """Test that correlation_id enables lineage tracing across stages."""
         correlation_id = str(uuid.uuid4())
-        
+
         # Mock event log
         event_log = []
-        
+
         def log_event(stage: Stage, correlation_id: str, timestamp: int):
             event_log.append({
                 "stage": stage,
                 "correlation_id": correlation_id,
                 "timestamp": timestamp,
             })
-        
+
         # Simulate pipeline flow with same correlation_id
         base_ts = int(datetime.now().timestamp() * 1e9)
         log_event(Stage.DATA_INGESTED, correlation_id, base_ts)
         log_event(Stage.FEATURE_COMPUTED, correlation_id, base_ts + 1000)
         log_event(Stage.PREDICTION_EMITTED, correlation_id, base_ts + 2000)
         log_event(Stage.SIGNAL_EMITTED, correlation_id, base_ts + 3000)
-        
+
         # Query by correlation_id should return full pipeline trace
         lineage = [event for event in event_log if event["correlation_id"] == correlation_id]
         assert len(lineage) == 4
-        
+
         # Events should be in timestamp order
         timestamps = [event["timestamp"] for event in lineage]
         assert timestamps == sorted(timestamps)
-        
+
         # Should cover full pipeline
         stages = {event["stage"] for event in lineage}
         expected_stages = {Stage.DATA_INGESTED, Stage.FEATURE_COMPUTED, Stage.PREDICTION_EMITTED, Stage.SIGNAL_EMITTED}

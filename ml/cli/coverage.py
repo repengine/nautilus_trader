@@ -38,13 +38,13 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from ml.config.events import Stage
 
 import numpy as np
 from sqlalchemy import text
 
+from ml.config.events import Source
+from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
-from ml.config.events import Stage, Source
 from ml.registry.dataclasses import DatasetType
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig

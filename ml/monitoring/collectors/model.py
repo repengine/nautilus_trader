@@ -58,11 +58,9 @@ class ModelLifecycleCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
-        from ml.common.metrics_bootstrap import (
-            get_counter,
-            get_gauge,
-            get_histogram,
-        )
+        from ml.common.metrics_bootstrap import get_counter
+        from ml.common.metrics_bootstrap import get_gauge
+        from ml.common.metrics_bootstrap import get_histogram
 
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()
