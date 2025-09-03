@@ -108,7 +108,7 @@ class PipelineRunner:
                 # Scheduler implements cooperative stop
                 self.scheduler.stop()
             except Exception:
-                pass
+                logger.debug("Scheduler.stop() failed during shutdown", exc_info=True)
 
     def _create_config(self) -> SchedulerConfig:
         """

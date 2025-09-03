@@ -589,7 +589,7 @@ class DataRegistry(MLComponentMixin):
 
                     # Safe query with parameterized values
                     query = text(
-                        f"""
+                        f"""  # noqa: S608 - set_parts constructed from trusted column names
                         UPDATE ml_dataset_registry
                         SET {', '.join(set_parts)}, last_modified = NOW()
                         WHERE dataset_id = :dataset_id

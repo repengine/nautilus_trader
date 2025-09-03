@@ -61,21 +61,24 @@ def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
         if HAS_ONNX and hasattr(model, "run") and hasattr(model, "get_inputs"):
             return ModelType.ONNX
     except Exception:
-        pass
+        import logging as _logging
+        _logging.getLogger(__name__).debug("ONNX detection failed", exc_info=True)
 
     if HAS_XGBOOST and xgb is not None:
         try:
             if isinstance(model, xgb.Booster) or model.__class__.__name__.startswith("XGB"):
                 return ModelType.XGBOOST
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("XGBoost detection failed", exc_info=True)
 
     if HAS_LIGHTGBM and lgb is not None:
         try:
             if isinstance(model, lgb.Booster) or model.__class__.__name__.startswith("LGBM"):
                 return ModelType.LIGHTGBM
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("LightGBM detection failed", exc_info=True)
 
     # Fallback: sklearn-like
     if hasattr(model, "predict"):
@@ -167,7 +170,8 @@ def _save_lightgbm_model(model: Any, path: Path) -> Path:
             booster.save_model(str(model_path))
             return model_path
     except Exception:
-        pass
+        import logging as _logging
+        _logging.getLogger(__name__).debug("LightGBM save_model (primary) failed", exc_info=True)
     # Fallback: try common save_model API or pickle
     try:
         booster.save_model(str(model_path))
@@ -201,7 +205,8 @@ def _generate_version(model: Any) -> str:
             params = model.get_params()
             parts.append(f"params={len(params)}")
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("get_params failed for version generation", exc_info=True)
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:8]
 
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 from typing import Final
+from ml.config.events import Stage
 
 
 _DOMAIN_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z]+$")
@@ -80,8 +81,6 @@ def build_topic(domain: str, operation: str, instrument_id: str) -> str:
     instrument_norm = _normalize_instrument_id(instrument_id)
     return f"ml.{domain}.{operation}.{instrument_norm}"
 
-
-from ml.config.events import Stage
 
 
 def map_stage_to_topic_segments(stage: Stage) -> tuple[str, str]:

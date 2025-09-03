@@ -483,7 +483,7 @@ class ModelStore(BaseStore):
             params["instrument_id"] = instrument_id
 
         sql = _text(
-            f"""
+            f"""  # noqa: S608 - table_name and WHERE parts derived from controlled schema/filters
             SELECT model_id,
                    instrument_id,
                    prediction,

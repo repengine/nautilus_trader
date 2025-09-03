@@ -1,3 +1,4 @@
+# ruff: noqa: E402 - allow module docstring before imports in CLI script
 from __future__ import annotations
 
 

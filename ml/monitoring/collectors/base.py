@@ -180,7 +180,12 @@ class BaseMetricsCollector(ABC):
 
         except Exception:
             # Graceful degradation - don't fail if reset fails
-            pass
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "Failed to reset metrics; continuing",
+                exc_info=True,
+            )
 
     def get_metric_count(self) -> int:
         """
@@ -273,7 +278,12 @@ class BaseMetricsCollector(ABC):
         except Exception:
             # In production, we might want to log this error
             # For now, graceful degradation means we silently continue
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Metric operation '%s' failed; continuing",
+                operation_name,
+                exc_info=True,
+            )
 
     def __repr__(self) -> str:
         """

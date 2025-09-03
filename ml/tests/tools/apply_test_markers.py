@@ -90,8 +90,12 @@ def detect_test_characteristics(filepath: Path) -> dict[str, bool]:
                 # Check for concurrent/async tests
                 if "concurrent" in node.name or "async" in node.name or "thread" in node.name:
                     characteristics["flaky"] = True
-    except:
-        pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "AST parse failed while detecting test characteristics",
+            exc_info=True,
+        )
 
     return characteristics
 

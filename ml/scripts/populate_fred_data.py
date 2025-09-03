@@ -309,7 +309,7 @@ def main() -> None:
     if not args.dry_run:
         logger.info("\nNext steps:")
         logger.info("1. Verify data in database:")
-        logger.info(f"   sqlite3 {args.db_path} 'SELECT COUNT(*) FROM ingestion_data;'")
+        logger.info(f"   sqlite3 {args.db_path} 'SELECT COUNT(*) FROM ingestion_data;'")  # noqa: S608 - printing help text only
         logger.info("2. Schedule regular updates:")
         logger.info("   python ml/scripts/populate_fred_data.py --update-only")
         logger.info("3. Use data in ML pipeline:")

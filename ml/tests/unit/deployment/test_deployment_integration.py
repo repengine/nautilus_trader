@@ -330,7 +330,11 @@ class TestDeploymentIntegration:
             try:
                 mock_scheduler.run_daily_update()  # Third call - shutdown
             except Exception:
-                pass
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Third update call raised as expected in test",
+                    exc_info=True,
+                )
 
         # Replace the method temporarily
         original_run_realtime = runner._run_realtime

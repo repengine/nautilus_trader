@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from ml.features.engineering import FeatureConfig
 
@@ -78,8 +80,6 @@ class TestValidationParameterized:
 # BETTER: Property-based test (even more coverage)
 # ============================================================================
 
-from hypothesis import given
-from hypothesis import strategies as st
 
 
 class TestValidationProperty:

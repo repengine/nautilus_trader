@@ -4,6 +4,7 @@ Actor-related configuration classes.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from ml.config.base import MLActorConfig
@@ -101,15 +102,20 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
             try:
                 object.__setattr__(self, "optimization_config", self.optimization)
             except Exception:
-                # If the underlying object forbids __setattr__ (e.g., msgspec strict freeze), skip mapping
-                pass
+                logging.getLogger(__name__).debug(
+                    "Optimization mapping skipped in __post_init__ (frozen config)",
+                    exc_info=True,
+                )
 
         # Map strategy -> strategy_config
         if self.strategy is not None and getattr(self, "strategy_config", None) is None:
             try:
                 object.__setattr__(self, "strategy_config", self.strategy)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug(
+                    "Strategy mapping skipped in __post_init__ (frozen config)",
+                    exc_info=True,
+                )
 
         # Map legacy strategy parameters to canonical fields when provided
         legacy_strat: StrategyConfig | None = self.strategy if self.strategy is not None else None
@@ -121,8 +127,10 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
                     if isinstance(stype, str):
                         object.__setattr__(self, "signal_strategy", stype)
                 except Exception:
-                    # Ignore if not settable
-                    pass
+                    logging.getLogger(__name__).debug(
+                        "signal_strategy mapping skipped in __post_init__",
+                        exc_info=True,
+                    )
 
             # Thresholds → single prediction_threshold using a conservative merge
             if legacy_strat.threshold_long is not None or legacy_strat.threshold_short is not None:
@@ -133,7 +141,10 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
                 try:
                     object.__setattr__(self, "prediction_threshold", merged)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug(
+                        "prediction_threshold mapping skipped in __post_init__",
+                        exc_info=True,
+                    )
 
 
 __all__ = [

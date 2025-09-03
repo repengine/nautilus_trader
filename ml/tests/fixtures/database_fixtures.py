@@ -369,7 +369,7 @@ class TestDatabase:
 
             # Delete data from all tables (in reverse dependency order)
             for table in reversed(metadata.sorted_tables):
-                conn.execute(text(f"DELETE FROM {table.name}"))
+                conn.execute(text(f"DELETE FROM {table.name}"))  # noqa: S608 - table name from reflection
 
             conn.commit()
 
@@ -397,7 +397,11 @@ class TestDatabase:
             try:
                 self.db_path.unlink()
             except Exception:
-                pass  # Ignore cleanup errors
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Failed to unlink temp DB path; ignoring",
+                    exc_info=True,
+                )
 
     def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> Any:
         """
@@ -436,7 +440,7 @@ class TestDatabase:
             Table data
 
         """
-        return pd.read_sql(f"SELECT * FROM {table_name}", self.engine)
+        return pd.read_sql(f"SELECT * FROM {table_name}", self.engine)  # noqa: S608 - test helper, table_name controlled
 
 
 def create_test_database(**kwargs: Any) -> TestDatabase:

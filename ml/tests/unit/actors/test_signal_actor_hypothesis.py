@@ -46,7 +46,8 @@ class TestMLSignalActorProperties:
         try:
             self.dummy_model_path.unlink()
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("Failed to unlink dummy model path", exc_info=True)
 
     @given(
         warm_up_period=st.integers(min_value=5, max_value=100),
@@ -421,7 +422,8 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
             if hasattr(self, "dummy_model_path") and self.dummy_model_path.exists():
                 self.dummy_model_path.unlink()
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("Failed to unlink dummy model path (teardown)", exc_info=True)
 
 
 # Create the stateful test

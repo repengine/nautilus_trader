@@ -1,4 +1,5 @@
 from __future__ import annotations
+# ruff: noqa: E402 - allow module docstring before imports in CLI script
 
 
 """
@@ -150,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
                 _torch.manual_seed(args.seed)
                 _torch.cuda.manual_seed_all(args.seed)
             except Exception:
-                pass
+                import logging as _logging
+                _logging.getLogger(__name__).debug("Torch seeding failed; continuing", exc_info=True)
             random.seed(args.seed)
             _np.random.seed(args.seed)
         # Enforce feature column order
@@ -244,7 +246,11 @@ def main(argv: list[str] | None = None) -> int:
                     interp_path = Path(args.out_dir) / "interpretability.npz"
                     np.savez_compressed(interp_path, feature_relevance=relevance)
             except Exception:
-                pass
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Interpretability save failed; continuing",
+                    exc_info=True,
+                )
 
         # Optionally register teacher as non-serveable with artifact saved under registry
         if args.register_teacher and args.model_registry_dir:

@@ -78,8 +78,6 @@ DATABASE_URL = os.getenv(
 # Mark TDD prototype suites for default exclusion
 # ============================================================================
 
-import pytest
-
 
 _PROTOTYPE_PATH_SUFFIXES = [
     # Domain bookkeeping prototypes (Phase 1 & 2)
@@ -432,7 +430,12 @@ def test_database() -> Generator[TestDatabase, None, None]:
                 conn.execute(text(f"TRUNCATE TABLE {table_name} CASCADE"))
             except Exception:
                 # Ignore per-table errors; migrations may not be applied yet
-                pass
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "TRUNCATE failed for table %s; ignoring in test cleanup",
+                    table_name,
+                    exc_info=True,
+                )
         conn.commit()
 
     db = TestDatabase(engine=engine, connection_string=DATABASE_URL, auto_rollback=False)
@@ -441,7 +444,11 @@ def test_database() -> Generator[TestDatabase, None, None]:
         db.init_schema()
     except Exception:
         # If migrations fail due to environment, let tests surface specifics
-        pass
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Database init_schema failed; continuing",
+            exc_info=True,
+        )
 
     try:
         yield db
@@ -749,7 +756,11 @@ def pytest_sessionstart(session):
         if cache_dir.exists():
             rmtree(cache_dir)
     except Exception:
-        pass
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Failed to clear pytest cache; continuing",
+            exc_info=True,
+        )
 
     # Ensure PostgreSQL is running
     start_postgresql()
@@ -806,8 +817,8 @@ def pytest_sessionfinish(session, exitstatus):
 # ============================================================================
 
 # Import existing fixtures to maintain compatibility
-from ml.tests.fixtures.database_fixtures import *
-from ml.tests.fixtures.mock_services import *
+from ml.tests.fixtures.database_fixtures import *  # noqa: E402,F401,F403 - test re-exports
+from ml.tests.fixtures.mock_services import *  # noqa: E402,F401,F403 - test re-exports
 
 
 # Re-export test utilities

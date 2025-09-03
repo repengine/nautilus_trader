@@ -8,7 +8,7 @@ and training components, following Nautilus conventions.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from msgspec import ValidationError
 
@@ -215,9 +215,6 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     log_commands: bool = True
     # Security: enforce ONNX-only in production by default
     allow_non_onnx_in_dev: bool = False
-
-
-from typing import ClassVar
 
 
 class DataCollectorConfig(NautilusConfig, kw_only=True, frozen=True):

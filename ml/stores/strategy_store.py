@@ -452,16 +452,16 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-            f"""
-            SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
-            FROM {table_name}
-            WHERE strategy_id = :strategy_id
-              AND instrument_id = :instrument_id
-              AND ts_event >= :start_ns
-              AND ts_event < :end_ns
-            ORDER BY ts_event
-            """,
-        )
+                f"""  # noqa: S608 - table_name is validated; WHERE parts controlled
+                SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
+                FROM {table_name}
+                WHERE strategy_id = :strategy_id
+                  AND instrument_id = :instrument_id
+                  AND ts_event >= :start_ns
+                  AND ts_event < :end_ns
+                ORDER BY ts_event
+                """,
+            )
         with self.engine.connect() as conn:
             from collections.abc import Mapping
             from typing import cast
@@ -512,15 +512,15 @@ class StrategyStore(BaseStore):
             where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
 
-        sql = _text(
-            f"""
-            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
-                   model_predictions, risk_metrics
-            FROM public.ml_strategy_signals
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event
-            """,
-        )
+            sql = _text(
+                f"""  # noqa: S608 - WHERE parts composed from controlled filters
+                SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+                       model_predictions, risk_metrics
+                FROM public.ml_strategy_signals
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY ts_event
+                """,
+            )
         with self.engine.connect() as conn:
             df = pd.read_sql_query(sql, conn, params=params)
         return df
@@ -556,14 +556,14 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-            f"""
-            SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
-            FROM {table_name}
-            WHERE instrument_id = :instrument_id
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """,
-        )
+                f"""  # noqa: S608 - table_name validated; safe identifier interpolation
+                SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
+                FROM {table_name}
+                WHERE instrument_id = :instrument_id
+                ORDER BY ts_event DESC
+                LIMIT :limit
+                """,
+            )
         with self.engine.connect() as conn:
             df = pd.read_sql_query(
                 sql,
@@ -602,22 +602,22 @@ class StrategyStore(BaseStore):
                 else "public.ml_strategy_signals"
             )
             query = text(
-                f"""
-                SELECT
-                    COUNT(*) as total_signals,
-                    COUNT(DISTINCT strategy_id) as unique_strategies,
-                    COUNT(DISTINCT instrument_id) as unique_instruments,
-                    SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_signals,
-                    SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_signals,
-                    SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_signals,
-                    AVG(strength) as avg_strength,
-                    MIN(ts_event) as min_ts,
-                    MAX(ts_event) as max_ts
-                FROM {table_name}
-                WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
-                  AND (:end_ns IS NULL OR ts_event < :end_ns)
-                """,
-            )
+                    f"""  # noqa: S608 - table_name validated; expression assembled from constants/params
+                    SELECT
+                        COUNT(*) as total_signals,
+                        COUNT(DISTINCT strategy_id) as unique_strategies,
+                        COUNT(DISTINCT instrument_id) as unique_instruments,
+                        SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_signals,
+                        SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_signals,
+                        SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_signals,
+                        AVG(strength) as avg_strength,
+                        MIN(ts_event) as min_ts,
+                        MAX(ts_event) as max_ts
+                    FROM {table_name}
+                    WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
+                      AND (:end_ns IS NULL OR ts_event < :end_ns)
+                    """,
+                )
 
             result = conn.execute(
                 query,
@@ -1092,22 +1092,22 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-            f"""
-            SELECT strategy_id,
-                   instrument_id,
-                   signal_type,
-                   strength,
-                   model_predictions,
-                   risk_metrics,
-                   execution_params,
-                   ts_event,
-                   ts_init
-            FROM {table_name}
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """,
-        )
+                f"""  # noqa: S608 - WHERE parts composed from controlled filters
+                SELECT strategy_id,
+                       instrument_id,
+                       signal_type,
+                       strength,
+                       model_predictions,
+                       risk_metrics,
+                       execution_params,
+                       ts_event,
+                       ts_init
+                FROM {table_name}
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY ts_event DESC
+                LIMIT :limit
+                """,
+            )
 
         # Prefer a mock-friendly session when available; else engine
         sess: Any | None = None

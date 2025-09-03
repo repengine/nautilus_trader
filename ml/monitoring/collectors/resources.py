@@ -456,7 +456,11 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
                 self._collect_system_metrics()
             except Exception:
                 # Graceful degradation - don't fail if monitoring fails
-                pass
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "System metrics collection failed; continuing",
+                    exc_info=True,
+                )
 
     def _collect_system_metrics(self) -> None:
         """
@@ -491,7 +495,11 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
             pass
         except Exception:
             # Graceful degradation
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "CPU/memory metrics collection failed; continuing",
+                exc_info=True,
+            )
 
         # Try to collect GPU metrics if available
         self._collect_gpu_metrics()
@@ -530,7 +538,11 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
             pass
         except Exception:
             # Graceful degradation
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "GPU metrics collection failed; continuing",
+                exc_info=True,
+            )
 
     def get_resource_summary(self) -> dict[str, Any]:
         """

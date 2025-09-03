@@ -31,6 +31,9 @@ from ml.registry.persistence import PersistenceConfig
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_gauge
+from ml.common.metrics_bootstrap import get_histogram
 
 
 # Provide a patchable `db` attribute for tests expecting to stub out DB helpers
@@ -99,12 +102,8 @@ try:
     feature_store_operations_total = _feature_store_ops
     feature_computation_latency = _feature_comp_latency
 except Exception:
-    # Keep no-ops
-    pass
-
-from ml.common.metrics_bootstrap import get_counter
-from ml.common.metrics_bootstrap import get_gauge
-from ml.common.metrics_bootstrap import get_histogram
+    # Keep no-ops and log at debug level for traceability
+    logger.debug("Prometheus metrics unavailable; using no-op metrics", exc_info=True)
 
 
 # Define pipeline-level and additional metrics (not centralized)
@@ -671,7 +670,7 @@ class DataScheduler:
                             logger.info("Received mocked data; short-circuiting catalog write for test")
                             return True
                     except Exception:
-                        pass
+                        logger.debug("Mock detection failed; proceeding with catalog write", exc_info=True)
 
                     # Write to catalog with metrics
                     catalog_start_time = time.perf_counter()

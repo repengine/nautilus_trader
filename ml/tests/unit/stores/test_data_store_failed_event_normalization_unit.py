@@ -27,9 +27,6 @@ class _FailStore:
         raise RuntimeError("store failed")
 
 
-import pytest
-
-
 @pytest.mark.skip(reason="write_features does not emit failure events in current implementation")
 def test_failed_event_source_normalized_to_live() -> None:
     ds = object.__new__(DataStore)  # type: ignore[misc]

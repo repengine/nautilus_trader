@@ -105,7 +105,7 @@ try:
     write_rejection_counter = _wrc
 except Exception:
     # Keep no-ops assigned
-    pass
+    logger.debug("Metrics import failed; using no-op counters/histograms", exc_info=True)
 
 
 # ========================================================================
@@ -1757,8 +1757,8 @@ class DataStore(MLComponentMixin):
                             violating = col[below_min]
                             if hasattr(violating, "head"):
                                 sample_values.extend(violating.head(5).to_list())
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Failed to compute min-bound violations sample", exc_info=True)
 
         # Check max
         if "max" in params:
@@ -1786,8 +1786,8 @@ class DataStore(MLComponentMixin):
                                 sample_values.extend(
                                     violating.head(5 - len(sample_values)).to_list(),
                                 )
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Failed to compute max-bound violations sample", exc_info=True)
 
         if violations > 0:
             return ValidationViolation(

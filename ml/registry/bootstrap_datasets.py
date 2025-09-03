@@ -314,7 +314,11 @@ def bootstrap_datasets(
                 print(f"  ✓ {manifest.dataset_id} already exists (v{existing.version})")
                 continue
         except Exception:
-            pass  # Doesn't exist, we'll create it
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Manifest lookup failed (expected if new); proceeding to register",
+                exc_info=True,
+            )
 
         # Register new manifest
         dataset_id = registry.register_dataset(manifest)

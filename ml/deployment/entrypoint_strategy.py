@@ -136,7 +136,12 @@ class MLStrategyNode:
             self.node.trader.add_strategy(strategy)
         except Exception:
             # In tests, trader may be a mock without async context
-            pass
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "add_strategy failed; continuing in test context",
+                exc_info=True,
+            )
 
         print("\nML Trading Strategy configured and ready")
         print(f"Listening for signals from {ml_signal_source}...")

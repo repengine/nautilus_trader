@@ -1,4 +1,5 @@
 from __future__ import annotations
+# ruff: noqa: E402 - allow module docstring before imports in typing stubs
 
 
 """
@@ -47,4 +48,3 @@ SeriesLike = PandasSeries | PolarsSeries
 
 # Sklearn scaler alias (type-only)
 StandardScaler = _StandardScaler
-

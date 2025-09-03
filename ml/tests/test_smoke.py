@@ -54,7 +54,7 @@ def test_can_compute_basic_features():
         # If this doesn't work, we'll need to adjust
         features = engineer.compute_features(bars)
         assert features is not None
-    except:
+    except Exception:
         # Alternative: try with raw prices
         prices = np.array([100.0, 101.0, 102.0, 101.0])
         # This is a smoke test - we just care that it doesn't crash
@@ -90,8 +90,12 @@ def test_can_initialize_feature_store(postgres_connection):
     try:
         # This might fail but that's OK for smoke test
         store.initialize_tables()
-    except:
-        pass  # We just care that it doesn't crash catastrophically
+    except Exception:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "FeatureStore.initialize_tables failed in smoke test; continuing",
+            exc_info=True,
+        )
 
 
 @pytest.mark.database
@@ -107,9 +111,13 @@ def test_registry_can_initialize():
         try:
             registry = ModelRegistry(backend="json", path=tmpdir)
             assert registry is not None
-        except:
+        except Exception:
             # If that doesn't work, just check import
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "ModelRegistry init failed in smoke test; continuing",
+                exc_info=True,
+            )
 
 
 @pytest.mark.database

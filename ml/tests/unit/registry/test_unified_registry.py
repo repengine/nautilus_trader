@@ -249,7 +249,11 @@ class TestUnifiedRegistry:
                 model = self.registry.load_model(f"model_{i}")
             except Exception:
                 # Expected - our test data isn't valid ONNX
-                pass
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Expected ONNX load failure in test",
+                    exc_info=True,
+                )
 
         # Cache should only have last 5 models
         assert len(self.registry._model_cache) == 5

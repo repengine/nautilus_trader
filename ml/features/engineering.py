@@ -2321,7 +2321,8 @@ class FeatureEngineer:
                 out["rsi"] = round((rsi_val / 100.0 - 0.5) * 2.0, 8)
         except Exception:
             # Fall back silently; this is a compatibility helper for tests
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("Fallback RSI calculation failed", exc_info=True)
 
         # Improve numerical stability for spread-related metamorphic tests by
         # rounding tiny differences introduced by price rounding.
@@ -2671,7 +2672,8 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
                     outlier_count = ((col_data < lower_bound) | (col_data > upper_bound)).sum()
                     return float(outlier_count / total_rows)
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("Outlier ratio calculation failed", exc_info=True)
         return 0.0
 
     def reset(self) -> None:
@@ -2731,7 +2733,8 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 
         except Exception:
             # Graceful degradation
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug("Quality metrics calculation failed", exc_info=True)
 
         return qualities
 

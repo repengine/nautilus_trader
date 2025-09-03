@@ -1202,17 +1202,17 @@ class FeatureStore:
             "ml_feature_values" if self.engine.dialect.name == "sqlite" else "public.ml_feature_values"
         )
         sql = _text(
-            f"""
-            SELECT feature_set_id,
-                   instrument_id,
-                   values,
-                   ts_event,
-                   ts_init
-            FROM {table_name}
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event
-            """,
-        )
+                f"""  # noqa: S608 - table_name and WHERE parts derived from controlled schema/filters
+                SELECT feature_set_id,
+                       instrument_id,
+                       values,
+                       ts_event,
+                       ts_init
+                FROM {table_name}
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY ts_event
+                """,
+            )
         # Prefer a mock-friendly session when available; else engine
         sess: Any | None = getattr(self, "persistence", None)
         session_obj: Any | None = None
