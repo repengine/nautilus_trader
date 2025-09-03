@@ -15,15 +15,15 @@ class _RegistryCap:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
 
-    def emit_event(self, **kwargs: Any) -> None:  # noqa: D401
+    def emit_event(self, **kwargs: Any) -> None:
         self.events.append(kwargs)
 
-    def update_watermark(self, **kwargs: Any) -> None:  # noqa: D401
+    def update_watermark(self, **kwargs: Any) -> None:
         return None
 
 
 class _FailStore:
-    def write_features(self, *a: Any, **k: Any) -> None:  # noqa: D401
+    def write_features(self, *a: Any, **k: Any) -> None:
         raise RuntimeError("store failed")
 
 

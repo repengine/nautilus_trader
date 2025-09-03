@@ -519,8 +519,8 @@ class TestUnifiedFeatureCalculation:
             unified_array = features_unified.to_numpy()
             direct_array = features_direct.to_numpy()
         else:
-            unified_array = features_unified.values
-            direct_array = features_direct.values
+            unified_array = features_unified.to_numpy()
+            direct_array = features_direct.to_numpy()
 
         np.testing.assert_allclose(unified_array, direct_array, rtol=1e-10)
 

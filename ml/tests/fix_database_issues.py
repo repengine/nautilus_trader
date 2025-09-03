@@ -11,7 +11,7 @@ This script fixes critical database issues that block ML tests:
 
 Usage:
     python ml/tests/fix_database_issues.py
-    
+
 Environment Variables:
     DATABASE_URL: PostgreSQL connection string (default: postgresql://postgres:postgres@localhost:5432/nautilus_test)
 """
@@ -85,10 +85,10 @@ BEGIN
                 v_partition_name := v_table || '_1970_01';
                 v_start_ts := 0;  -- January 1, 1970
                 v_end_ts := 2678400000000000; -- February 1, 1970
-                
+
                 IF NOT EXISTS (
-                    SELECT 1 FROM pg_tables 
-                    WHERE schemaname = 'public' 
+                    SELECT 1 FROM pg_tables
+                    WHERE schemaname = 'public'
                     AND tablename = v_partition_name
                 ) THEN
                     BEGIN
@@ -107,17 +107,17 @@ BEGIN
                 -- Create all months for other years
                 FOR v_month IN 1..12 LOOP
                     v_partition_name := v_table || '_' || v_year || '_' || LPAD(v_month::TEXT, 2, '0');
-                    
+
                     v_start_ts := EXTRACT(EPOCH FROM DATE(v_year || '-' || LPAD(v_month::TEXT, 2, '0') || '-01')) * 1000000000;
                     IF v_month = 12 THEN
                         v_end_ts := EXTRACT(EPOCH FROM DATE((v_year + 1) || '-01-01')) * 1000000000;
                     ELSE
                         v_end_ts := EXTRACT(EPOCH FROM DATE(v_year || '-' || LPAD((v_month + 1)::TEXT, 2, '0') || '-01')) * 1000000000;
                     END IF;
-                    
+
                     IF NOT EXISTS (
-                        SELECT 1 FROM pg_tables 
-                        WHERE schemaname = 'public' 
+                        SELECT 1 FROM pg_tables
+                        WHERE schemaname = 'public'
                         AND tablename = v_partition_name
                     ) THEN
                         BEGIN
@@ -136,7 +136,7 @@ BEGIN
             END IF;
         END LOOP;
     END LOOP;
-    
+
     RAISE NOTICE 'Created % test partitions total', v_partitions_created;
 END $$;
 """
@@ -310,11 +310,11 @@ def relax_constraints_for_testing(cursor) -> None:
     relax_constraints_sql = """
 -- Allow test source values in addition to production ones
 ALTER TABLE ml_data_events DROP CONSTRAINT IF EXISTS check_source;
-ALTER TABLE ml_data_events ADD CONSTRAINT check_source 
+ALTER TABLE ml_data_events ADD CONSTRAINT check_source
   CHECK (source IN ('live', 'historical', 'backfill', 'unit', 'test', 'computed'));
 
 ALTER TABLE ml_data_watermarks DROP CONSTRAINT IF EXISTS check_source_watermark;
-ALTER TABLE ml_data_watermarks ADD CONSTRAINT check_source_watermark 
+ALTER TABLE ml_data_watermarks ADD CONSTRAINT check_source_watermark
   CHECK (source IN ('live', 'historical', 'backfill', 'unit', 'test', 'computed'));
 """
 
@@ -353,7 +353,7 @@ def verify_fixes(cursor) -> None:
 
     # Check functions exist
     cursor.execute("""
-        SELECT proname FROM pg_proc 
+        SELECT proname FROM pg_proc
         WHERE proname IN ('emit_data_event', 'update_watermark', 'emit_data_event_ext')
         ORDER BY proname;
     """)
@@ -362,7 +362,7 @@ def verify_fixes(cursor) -> None:
 
     # Check partitions exist for test years
     cursor.execute("""
-        SELECT COUNT(*) FROM pg_tables 
+        SELECT COUNT(*) FROM pg_tables
         WHERE tablename ~ '^ml_(feature_values|model_predictions|strategy_signals|data_events)_(1970_01|2001_|2025_)';
     """)
     partition_count = cursor.fetchone()[0]
@@ -370,7 +370,7 @@ def verify_fixes(cursor) -> None:
 
     # Check test datasets exist
     cursor.execute("""
-        SELECT COUNT(*) FROM ml_dataset_registry 
+        SELECT COUNT(*) FROM ml_dataset_registry
         WHERE dataset_id IN ('features', 'test_features_v1', 'test_model', 'test_strategy');
     """)
     dataset_count = cursor.fetchone()[0]

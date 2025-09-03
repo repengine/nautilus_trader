@@ -13,8 +13,10 @@ from typing import Any
 import numpy as np
 
 from ml.stores.feature_store import FeatureStore
-from ml.stores.model_store import ModelPrediction, ModelStore
-from ml.stores.strategy_store import StrategySignal, StrategyStore
+from ml.stores.model_store import ModelPrediction
+from ml.stores.model_store import ModelStore
+from ml.stores.strategy_store import StrategySignal
+from ml.stores.strategy_store import StrategyStore
 
 
 def test_feature_store_write_explicit_args(monkeypatch: Any) -> None:
@@ -70,7 +72,7 @@ def test_model_store_write_batch_and_events(monkeypatch: Any) -> None:
         ts_event=2,
     )
     # Invoke write_batch explicitly (avoid timing-based flush)
-    ms.write_batch(list(ms._write_buffer))  # noqa: SLF001
+    ms.write_batch(list(ms._write_buffer))
 
     assert len(written) == 2
     assert written[0]["model_id"] == "m1"
@@ -108,7 +110,7 @@ def test_strategy_store_write_batch(monkeypatch: Any) -> None:
         execution_params={"side": "SELL"},
         ts_event=2,
     )
-    ss.write_batch(list(ss._write_buffer))  # noqa: SLF001
+    ss.write_batch(list(ss._write_buffer))
 
     assert len(out) == 2
     assert out[0]["strategy_id"] == "s1"

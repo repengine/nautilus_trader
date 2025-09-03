@@ -9,7 +9,6 @@ appropriate markers based on imports, fixtures, and content.
 import ast
 import re
 from pathlib import Path
-from typing import Dict, List, Set
 
 import click
 

@@ -10,15 +10,18 @@ Handles large L2 data volumes by:
 - Showing progress and data sizes
 
 Usage:
-    # Download 7 days for specific symbols
-    python ml/scripts/populate_l2_efficient.py --symbols SPY AAPL --days 7
-    
+    # Download last 30 days for specific symbols (default)
+    python ml/scripts/populate_l2_efficient.py --symbols SPY AAPL
+
     # Download tier 1 symbols for date range, fill gaps automatically
     python ml/scripts/populate_l2_efficient.py --tier 1 --start-date 2025-07-26 --end-date 2025-08-29
-    
+
+    # Download last 7 days with custom period
+    python ml/scripts/populate_l2_efficient.py --tier 1 --days 7
+
     # Force re-download all data (ignoring existing)
-    python ml/scripts/populate_l2_efficient.py --tier 1 --days 7 --force
-    
+    python ml/scripts/populate_l2_efficient.py --tier 1 --days 30 --force
+
     # Check and fill gaps in existing data
     python ml/scripts/populate_l2_efficient.py --tier 1 --start-date 2025-07-26 --end-date 2025-08-29 --check-gaps
 """
@@ -33,8 +36,8 @@ from datetime import timedelta
 from pathlib import Path
 
 import databento as db
-import polars as pl
 import pandas as pd
+import polars as pl
 import psutil
 import pyarrow.parquet as pq
 
@@ -45,6 +48,51 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def validate_data_integrity(file_path: Path, symbol: str, expected_date: datetime) -> bool:
+    """Validate that a data file contains reasonable data for the given date."""
+    if not file_path.exists():
+        return False
+
+    try:
+        df = pl.read_parquet(file_path)
+
+        if df.is_empty():
+            logger.warning(f"  {expected_date.date()}: File exists but is empty")
+            return False
+
+        # Check if data is from the expected date
+        min_ts = df["ts_event"].min()
+        max_ts = df["ts_event"].max()
+
+        min_date = pd.to_datetime(min_ts, unit="ns").date()
+        max_date = pd.to_datetime(max_ts, unit="ns").date()
+
+        if min_date != expected_date.date() or max_date != expected_date.date():
+            logger.warning(f"  {expected_date.date()}: Data spans {min_date} to {max_date} (date mismatch)")
+            return False
+
+        # Check for reasonable amount of L2 data
+        record_count = len(df)
+        if record_count < 1000:  # Very low for a full trading day
+            logger.warning(f"  {expected_date.date()}: Only {record_count:,} records (likely incomplete)")
+            return False
+
+        # Check for data during market hours (rough validation)
+        market_hours_data = df.filter(
+            (pl.from_epoch("ts_event", time_unit="ns").dt.hour() >= 9) &
+            (pl.from_epoch("ts_event", time_unit="ns").dt.hour() <= 16)
+        )
+
+        if len(market_hours_data) < record_count * 0.8:  # Most data should be during market hours
+            logger.warning(f"  {expected_date.date()}: Low market hours coverage ({len(market_hours_data)}/{record_count} records)")
+
+        return True
+
+    except Exception as e:
+        logger.warning(f"  {expected_date.date()}: Error validating file: {e}")
+        return False
 
 
 def get_business_dates(start_date: datetime, end_date: datetime) -> list[datetime]:
@@ -59,36 +107,46 @@ def get_business_dates(start_date: datetime, end_date: datetime) -> list[datetim
 
 
 def detect_data_gaps(symbol: str, output_dir: Path, start_date: datetime, end_date: datetime) -> list[datetime]:
-    """Detect missing dates in existing L2 data for a symbol."""
+    """Detect missing dates in existing L2 data for a symbol, including integrity validation."""
     final_file = output_dir / f"{symbol}_mbp-10.parquet"
-    
+
     if not final_file.exists():
         # No existing data - need all dates
         return get_business_dates(start_date, end_date)
-    
+
+    # Validate the existing file integrity first
+    if not validate_data_integrity(final_file, symbol, start_date):
+        logger.warning("Existing data file failed integrity check - will re-download affected dates")
+
     try:
         # Read existing data to find covered dates
         df = pl.read_parquet(final_file)
         if df.is_empty():
             return get_business_dates(start_date, end_date)
-            
+
         # Get unique dates from existing data
         existing_dates = df.select(
-            pl.from_epoch('ts_event', time_unit='ns').dt.date().alias('date')
-        ).unique().sort('date')
-        
+            pl.from_epoch("ts_event", time_unit="ns").dt.date().alias("date")
+        ).unique().sort("date")
+
         dates_in_data = set(existing_dates.to_series().to_list())
-        
+
         # Find missing business dates in the requested range
         expected_dates = get_business_dates(start_date, end_date)
         missing_dates = []
-        
+
         for date in expected_dates:
             if date.date() not in dates_in_data:
                 missing_dates.append(date)
-                
+            else:
+                # Date exists in data, but validate daily integrity if we have daily files
+                daily_file = output_dir / f"{symbol}_mbp10_{date.strftime('%Y%m%d')}.parquet"
+                if daily_file.exists() and not validate_data_integrity(daily_file, symbol, date):
+                    logger.info(f"Re-downloading {date.date()} due to integrity issues")
+                    missing_dates.append(date)
+
         return missing_dates
-        
+
     except Exception as e:
         logger.warning(f"Error reading existing data for {symbol}: {e}")
         # If we can't read existing data, assume we need all dates
@@ -100,10 +158,10 @@ def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
     daily_files = sorted(output_dir.glob(f"{symbol}_mbp10_*.parquet"))
     if not daily_files:
         return
-        
+
     final_file = output_dir / f"{symbol}_mbp-10.parquet"
     existing_data = None
-    
+
     # Load existing data if it exists
     if final_file.exists():
         try:
@@ -112,7 +170,7 @@ def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
         except Exception as e:
             logger.warning(f"Could not read existing data: {e}")
             existing_data = None
-    
+
     # Load new daily data
     new_data_frames = []
     for daily_file in daily_files:
@@ -122,36 +180,36 @@ def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
                 new_data_frames.append(df)
         except Exception as e:
             logger.warning(f"Could not read {daily_file}: {e}")
-    
+
     if not new_data_frames:
         logger.info("No new data to merge")
         return
-        
+
     # Combine all data
     all_frames = []
     if existing_data is not None and not existing_data.is_empty():
         all_frames.append(existing_data)
     all_frames.extend(new_data_frames)
-    
+
     # Concatenate and sort by timestamp
-    combined_df = pl.concat(all_frames).sort('ts_event').unique()
-    
+    combined_df = pl.concat(all_frames).sort("ts_event").unique()
+
     # Write back to final file
     tmp_file = output_dir / f"{symbol}_mbp-10.tmp.parquet"
     try:
         combined_df.write_parquet(tmp_file)
         tmp_file.replace(final_file)
-        
+
         # Clean up daily files
         for daily_file in daily_files:
             try:
                 daily_file.unlink()
             except OSError:
                 pass
-                
+
         size_mb = final_file.stat().st_size / (1024 * 1024)
         logger.info(f"Merged data: {len(combined_df):,} records, {size_mb:.1f} MB")
-        
+
     except Exception as e:
         if tmp_file.exists():
             try:
@@ -205,16 +263,33 @@ def download_l2_daily(
     last_err: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            df = client.timeseries.get_range(
+            # Get the data stream first
+            data_stream = client.timeseries.get_range(
                 dataset="XNAS.ITCH",
                 symbols=[symbol],
                 schema="mbp-10",
                 start=start,
                 end=end,
-            ).to_df()
+            )
 
-            if df.empty:
+            # Handle empty data cases before conversion
+            try:
+                df = data_stream.to_df()
+            except Exception as pandas_err:
+                # Handle pandas processing errors on empty/malformed data
+                if "No data found" in str(pandas_err):
+                    logger.info(f"  {date.date()}: No data available")
+                    return 0
+                # Re-raise other pandas errors
+                raise pandas_err
+
+            if df is None or df.empty:
+                logger.info(f"  {date.date()}: No data available")
                 return 0
+
+            # Validate data integrity
+            if len(df) < 100:  # Suspiciously small for L2 data
+                logger.warning(f"  {date.date()}: Only {len(df)} records (may be incomplete)")
 
             date_str = date.strftime("%Y%m%d")
             output_file = output_dir / f"{symbol}_mbp10_{date_str}.parquet"
@@ -257,22 +332,53 @@ def _clean_stale_temp_files(symbol: str, output_dir: Path) -> None:
                 pass
 
 
+def _validate_daily_file(file_path: Path) -> bool:
+    """Validate that a daily parquet file is readable and not corrupted."""
+    try:
+        # Quick validation - try to read parquet metadata
+        pf = pq.ParquetFile(file_path)
+        if pf.metadata is None or pf.metadata.num_rows == 0:
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"  Corrupted file detected: {file_path.name} - {e}")
+        return False
+
+
 def _stream_merge_daily_files(daily_files: list[Path], tmp_output: Path) -> None:
     """Stream row groups from daily files into a single Parquet file."""
     writer: pq.ParquetWriter | None = None
+    valid_files = []
+
+    # Pre-validate all files
+    for file in daily_files:
+        if _validate_daily_file(file):
+            valid_files.append(file)
+        else:
+            logger.warning(f"  Skipping corrupted file: {file.name} (will be re-downloaded on next run)")
+            # Don't auto-delete here - let the main script handle re-downloading
+
+    if not valid_files:
+        raise ValueError("No valid daily files found to combine")
+
     try:
-        for idx, file in enumerate(daily_files, 1):
-            pf = pq.ParquetFile(file)
-            if writer is None:
-                writer = pq.ParquetWriter(tmp_output, pf.schema_arrow)
-            for rg in range(pf.num_row_groups or 1):
-                table = pf.read_row_group(rg) if pf.num_row_groups else pf.read()
-                if writer.schema and table.schema != writer.schema:
-                    table = table.select(writer.schema.names)
-                writer.write_table(table)
-            if idx % 3 == 0 or idx == len(daily_files):
-                mem_percent = psutil.virtual_memory().percent
-                logger.info(f"  Appended {idx}/{len(daily_files)} daily files (Memory: {mem_percent:.1f}%)")
+        for idx, file in enumerate(valid_files, 1):
+            try:
+                pf = pq.ParquetFile(file)
+                if writer is None:
+                    writer = pq.ParquetWriter(tmp_output, pf.schema_arrow)
+                for rg in range(pf.num_row_groups or 1):
+                    table = pf.read_row_group(rg) if pf.num_row_groups else pf.read()
+                    if writer.schema and table.schema != writer.schema:
+                        table = table.select(writer.schema.names)
+                    writer.write_table(table)
+                if idx % 3 == 0 or idx == len(valid_files):
+                    mem_percent = psutil.virtual_memory().percent
+                    logger.info(f"  Appended {idx}/{len(valid_files)} daily files (Memory: {mem_percent:.1f}%)")
+            except Exception as e:
+                logger.error(f"  Error processing {file.name}: {e}")
+                # Don't fail entire operation for one bad file
+                continue
     finally:
         if writer is not None:
             writer.close()
@@ -323,7 +429,7 @@ def main():
 
     parser.add_argument("--symbols", nargs="+", help="Specific symbols to download")
     parser.add_argument("--tier", type=int, choices=[1], help="Use Tier 1 symbols")
-    parser.add_argument("--days", type=int, default=7, help="Number of days to download")
+    parser.add_argument("--days", type=int, default=30, help="Number of days to download")
     parser.add_argument("--data-dir", type=Path, default=Path("data/tier1"),
                        help="Data directory")
     parser.add_argument("--resume", action="store_true", default=True,
@@ -385,12 +491,12 @@ def main():
 
         # Handle force mode or gap detection
         dates_to_download = []
-        
+
         if args.force:
             # Force mode: download all dates
             dates_to_download = get_business_dates(start_date, end_date)
             if final_file.exists():
-                logger.info(f"  Force mode: removing existing data")
+                logger.info("  Force mode: removing existing data")
                 try:
                     final_file.unlink()
                 except OSError:
@@ -404,7 +510,7 @@ def main():
                     logger.info(f"  No gaps found: {size_mb:.1f} MB - complete")
                     total_size_mb += size_mb
                 else:
-                    logger.info(f"  No existing data and no gaps to fill")
+                    logger.info("  No existing data and no gaps to fill")
                 continue
             else:
                 logger.info(f"  Found {len(dates_to_download)} missing dates to download")
@@ -431,7 +537,7 @@ def main():
             else:
                 # Fresh download - combine daily files normally
                 combine_daily_files(symbol, output_dir)
-                
+
             if final_file.exists():
                 size_mb = final_file.stat().st_size / (1024 * 1024)
                 total_size_mb += size_mb

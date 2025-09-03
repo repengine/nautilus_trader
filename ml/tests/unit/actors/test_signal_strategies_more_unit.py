@@ -12,8 +12,11 @@ from types import SimpleNamespace
 import numpy as np
 
 from ml.actors.base import MLSignal
-from ml.actors.signal import ExtremesStrategy, MomentumStrategy
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from ml.actors.signal import ExtremesStrategy
+from ml.actors.signal import MomentumStrategy
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 def _stub_bar() -> object:

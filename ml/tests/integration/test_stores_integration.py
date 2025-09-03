@@ -484,7 +484,7 @@ class TestDataProcessor:
         )
 
         # NaN should be imputed
-        assert feature_data.values["rsi_14"] == 0.0
+        assert feature_data.values["rsi_14"] == 0.0  # noqa: PD011 - not a pandas object
         assert metrics.missing_imputed == 1
 
     @pytest.mark.database

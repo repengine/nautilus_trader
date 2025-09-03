@@ -8,7 +8,7 @@ and behavioral invariants.
 Key relationships tested:
 - Shadow mode vs active publishing equivalence
 - Event ordering preservation under load
-- Backpressure behavior consistency  
+- Backpressure behavior consistency
 - Rollback/rollforward symmetry
 """
 
@@ -87,7 +87,7 @@ class TestEventPublishingMetamorphic:
         """
         Metamorphic Relation: Shadow publishing and active publishing should
         produce identical database state while differing only in bus activity.
-        
+
         Transformation: Enable/disable MessageBus publishing
         Invariant: Database writes identical, bus activity differs
         """
@@ -128,7 +128,7 @@ class TestEventPublishingMetamorphic:
         """
         Metamorphic Relation: Event ordering should be preserved regardless
         of processing load/concurrency.
-        
+
         Transformation: Sequential vs concurrent event processing
         Invariant: Final ordering matches input ordering by timestamp
         """
@@ -178,7 +178,7 @@ class TestEventPublishingMetamorphic:
         """
         Metamorphic Relation: System behavior should be consistent under
         backpressure conditions.
-        
+
         Transformation: Normal load vs high load (backpressure triggered)
         Invariant: Essential events still processed, non-essential may be dropped
         """
@@ -229,7 +229,7 @@ class TestEventPublishingMetamorphic:
         """
         Metamorphic Relation: Rollback followed by rollforward should
         restore original state.
-        
+
         Transformation: Apply operations -> rollback -> rollforward
         Invariant: Final state equals initial state after operations
         """
@@ -273,7 +273,7 @@ class TestEventPublishingMetamorphic:
         """
         Metamorphic Relation: Processing duplicate events should yield
         same result as processing them once.
-        
+
         Transformation: Single processing vs duplicate processing
         Invariant: Final state identical regardless of duplicates
         """
@@ -307,8 +307,8 @@ class TestEventPublishingMetamorphic:
         """
         Metamorphic Relation: Small timestamp perturbations should not
         affect processing logic significantly.
-        
-        Transformation: Original timestamps vs slightly perturbed timestamps  
+
+        Transformation: Original timestamps vs slightly perturbed timestamps
         Invariant: Event ordering and processing outcomes remain stable
         """
         # Create perturbed version of events
@@ -343,7 +343,7 @@ class TestEventPublishingMetamorphic:
         """
         Metamorphic Relation: Event aggregation should be commutative
         for associative operations.
-        
+
         Transformation: Different aggregation orders
         Invariant: Final aggregated result identical
         """

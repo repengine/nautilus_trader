@@ -13,19 +13,19 @@ class _FlakyRegistry:
     def __init__(self, fail_on: str) -> None:
         self.fail_on = fail_on
 
-    def emit_event(self, **kwargs: Any) -> None:  # noqa: D401
+    def emit_event(self, **kwargs: Any) -> None:
         """Raise on demand"""
         if self.fail_on == "emit":
             raise RuntimeError("emit fail")
 
-    def update_watermark(self, **kwargs: Any) -> None:  # noqa: D401
+    def update_watermark(self, **kwargs: Any) -> None:
         """Raise on demand"""
         if self.fail_on == "wm":
             raise RuntimeError("wm fail")
 
 
 class _NoOpStore:
-    def write_features(self, *a: Any, **k: Any) -> None:  # noqa: D401
+    def write_features(self, *a: Any, **k: Any) -> None:
         return None
 
 

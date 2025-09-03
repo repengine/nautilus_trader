@@ -14,7 +14,9 @@ import numpy as np
 
 from ml.actors.base import MLSignal
 from ml.actors.signal import ThresholdSignalStrategy
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 def _stub_bar() -> object:

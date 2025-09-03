@@ -50,19 +50,19 @@ class _StubRegistry:
 
 
 class _NoOpStore:
-    def write_features(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def write_features(self, *args: Any, **kwargs: Any) -> None:
         """No-op write_features"""
         return None
 
-    def write_prediction(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def write_prediction(self, *args: Any, **kwargs: Any) -> None:
         """No-op write_prediction"""
         return None
 
-    def write_signal(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def write_signal(self, *args: Any, **kwargs: Any) -> None:
         """No-op write_signal"""
         return None
 
-    def write_batch(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def write_batch(self, *args: Any, **kwargs: Any) -> None:
         """No-op batch write for stores expecting it."""
         return None
 

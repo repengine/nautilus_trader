@@ -408,7 +408,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "ml/tests"]
-addopts = "-ra --new-first --failed-first --doctest-modules --doctest-glob=\"*.pyx\" --strict-markers"
+addopts = "-ra --new-first --failed-first --doctest-modules --doctest-glob=\"*.pyx\" --strict-markers -m 'not prototype'"
 asyncio_mode = "strict"
 filterwarnings = [
     "ignore::UserWarning",
@@ -472,6 +472,7 @@ markers = [
     "metamorphic: Metamorphic relationship tests",
     "combinatorial: Pairwise/Combinatorial configuration tests",
     "stateful: Stateful property-based tests",
+    "prototype: TDD prototypes to be excluded by default",
 ]
 # ML test paths configuration
 python_files = ["test_*.py", "*_test.py"]

@@ -454,7 +454,7 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         while not self._monitoring_stop_event.wait(self._monitoring_interval):
             try:
                 self._collect_system_metrics()
-            except Exception:  # noqa: S110
+            except Exception:
                 # Graceful degradation - don't fail if monitoring fails
                 pass
 
@@ -489,7 +489,7 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         except ImportError:
             # psutil not available - skip system monitoring
             pass
-        except Exception:  # noqa: S110
+        except Exception:
             # Graceful degradation
             pass
 
@@ -528,7 +528,7 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         except ImportError:
             # GPU libraries not available
             pass
-        except Exception:  # noqa: S110
+        except Exception:
             # Graceful degradation
             pass
 

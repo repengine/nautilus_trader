@@ -306,7 +306,7 @@ class ReservoirSampler:
             self._count += 1
         else:
             # Reservoir full, randomly replace
-            j = random.randint(0, self._total_seen - 1)  # noqa: S311 (not cryptographic)
+            j = random.randint(0, self._total_seen - 1)
             if j < self._reservoir_size:
                 self._reservoir[j] = value
 

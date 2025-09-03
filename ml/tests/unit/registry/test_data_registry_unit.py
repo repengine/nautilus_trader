@@ -15,6 +15,9 @@ from typing import Any
 
 import pytest
 
+from ml.registry.base import DataRequirements
+from ml.registry.base import ModelManifest
+from ml.registry.base import ModelRole
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -23,9 +26,8 @@ from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
-from ml.registry.base import DataRequirements, ModelRole
-from ml.registry.base import ModelManifest
-from ml.registry.persistence import BackendType, PersistenceConfig
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 
 
 def _mk_dataset_manifest(dataset_id: str) -> DatasetManifest:
@@ -78,7 +80,7 @@ def test_data_registry_json_emit_event_and_watermark(tmp_path: Path) -> None:
         metadata={"foo": "bar"},
     )
     # The JSON backend stores events in memory and flushes to file immediately
-    assert len(reg._events) >= 1  # noqa: SLF001 - internal for focused unit test
+    assert len(reg._events) >= 1
 
     # Update watermark and verify retrieval
     reg.update_watermark(
@@ -102,7 +104,7 @@ def test_data_registry_json_emit_event_and_watermark(tmp_path: Path) -> None:
         ts_range={"start_ns": 1, "end_ns": 2},
         params={"lookback": 20},
     )
-    assert len(reg._lineage) >= 1  # noqa: SLF001
+    assert len(reg._lineage) >= 1
 
 
 def test_model_feature_schema_enforcement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

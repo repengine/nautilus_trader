@@ -36,6 +36,39 @@ def get_expected_trading_days(start_date: datetime, end_date: datetime) -> list[
     return trading_days
 
 
+def validate_daily_file_integrity(file_path: Path) -> bool:
+    """Check if a daily file is readable and not corrupted."""
+    if not file_path.exists():
+        return False
+    try:
+        import pyarrow.parquet as pq
+        pf = pq.ParquetFile(file_path)
+        return pf.metadata is not None and pf.metadata.num_rows > 0
+    except Exception:
+        return False
+
+
+def find_corrupted_daily_files(output_dir: Path, symbol: str, expected_days: list[datetime]) -> list[datetime]:
+    """Find corrupted daily files that need re-download."""
+    corrupted_dates = []
+    
+    for day in expected_days:
+        date_str = day.strftime("%Y%m%d")
+        daily_file = output_dir / f"{symbol}_mbp10_{date_str}.parquet"
+        
+        if daily_file.exists() and not validate_daily_file_integrity(daily_file):
+            logger.info(f"  Found corrupted daily file: {daily_file.name}")
+            corrupted_dates.append(day)
+            # Remove corrupted file immediately
+            try:
+                daily_file.unlink()
+                logger.info(f"  Removed corrupted file: {daily_file.name}")
+            except OSError as e:
+                logger.warning(f"  Could not remove corrupted file {daily_file.name}: {e}")
+    
+    return corrupted_dates
+
+
 def validate_existing_data(symbol: str, output_dir: Path, expected_days: list[datetime]) -> tuple[bool, list[str]]:
     """Validate existing data completeness and return (is_complete, issues)."""
     final_file = output_dir / f"{symbol}_mbp-10.parquet"
@@ -44,6 +77,13 @@ def validate_existing_data(symbol: str, output_dir: Path, expected_days: list[da
         return False, ["File does not exist"]
 
     try:
+        # Check for corrupted daily files first
+        corrupted_dates = find_corrupted_daily_files(output_dir, symbol, expected_days)
+        if corrupted_dates:
+            # If we have corrupted daily files, the final file is suspect too
+            logger.info(f"  Found {len(corrupted_dates)} corrupted daily files - final file needs rebuild")
+            return False, [f"Corrupted daily files found: {len(corrupted_dates)} files need re-download"]
+
         # Quick validation using parquet metadata
         import polars as pl
         df = pl.scan_parquet(final_file)
@@ -191,13 +231,13 @@ def main():
         logger.error("Specify either --symbols or --tier")
         return 1
 
-    # Calculate fixed date range
+    # Calculate date range
     if args.start_date and args.end_date:
         start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
         end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
     else:
-        # Use fixed range to avoid drift across runs
-        end_date = datetime(2025, 8, 29)  # Last available trading day based on analysis
+        # Dynamic range: last N days including yesterday (avoid today due to data delays)
+        end_date = datetime.now() - timedelta(days=1)  # Yesterday
         start_date = end_date - timedelta(days=args.days - 1)
 
     expected_days = get_expected_trading_days(start_date, end_date)

@@ -346,7 +346,7 @@ class ModelStore(BaseStore):
             import random
 
             sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311
+            if sample > 0 and random.randint(1, sample) == 1:
                 logger.info(
                     "AUDIT ModelStore._execute_write: n=%d keys=%s",
                     len(values),

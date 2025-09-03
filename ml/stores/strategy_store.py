@@ -367,7 +367,7 @@ class StrategyStore(BaseStore):
             import random
 
             sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311
+            if sample > 0 and random.randint(1, sample) == 1:
                 logger.info(
                     "AUDIT StrategyStore._execute_write: n=%d keys=%s",
                     len(values),
@@ -460,7 +460,7 @@ class StrategyStore(BaseStore):
               AND ts_event >= :start_ns
               AND ts_event < :end_ns
             ORDER BY ts_event
-            """,  # noqa: S608
+            """,
         )
         with self.engine.connect() as conn:
             from collections.abc import Mapping

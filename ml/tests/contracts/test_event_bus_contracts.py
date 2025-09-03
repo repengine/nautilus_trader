@@ -5,7 +5,7 @@ These tests define the contracts for event publishing and consumption
 in the ML pipeline's event-driven architecture. They validate:
 
 1. MessageBus payload validation for events.ml.* topics
-2. Actor single-thread boundary guarantees  
+2. Actor single-thread boundary guarantees
 3. Idempotency via correlation_id
 4. Watermark progression consistency
 

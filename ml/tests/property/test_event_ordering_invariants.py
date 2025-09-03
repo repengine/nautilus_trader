@@ -5,7 +5,7 @@ These tests verify mathematical properties and invariants for event-driven
 architecture that must hold regardless of specific event content.
 
 Key invariants tested:
-- Stage progression monotonicity  
+- Stage progression monotonicity
 - Watermark non-decreasing progression
 - Correlation ID uniqueness within time windows
 - Event timestamp causality
@@ -105,7 +105,7 @@ class TestEventOrderingInvariants:
     def test_stage_progression_monotonicity_invariant(self, stage_sequence):
         """
         Property: Stage transitions must follow allowed progression paths.
-        
+
         Invariant: Each stage transition in a sequence must be valid according
         to the stage transition graph.
         """
@@ -135,7 +135,7 @@ class TestEventOrderingInvariants:
     def test_watermark_progression_invariant(self, events, dataset_id):
         """
         Property: Watermarks must progress monotonically (non-decreasing).
-        
+
         Invariant: For any dataset, watermark updates must never decrease.
         """
         # Filter events for our dataset and sort by timestamp
@@ -171,7 +171,7 @@ class TestEventOrderingInvariants:
     def test_correlation_id_uniqueness_invariant(self, correlation_id, event_count, time_window_hours):
         """
         Property: Correlation IDs must be unique within processing time windows.
-        
+
         Invariant: No two event sequences should have the same correlation_id
         within a time window.
         """
@@ -201,7 +201,7 @@ class TestEventOrderingInvariants:
     def test_event_timestamp_causality_invariant(self, stage_sequence):
         """
         Property: Events with same correlation_id must have causal timestamp ordering.
-        
+
         Invariant: For events in same pipeline sequence (same correlation_id),
         timestamps must increase with stage progression.
         """
@@ -237,7 +237,7 @@ class TestEventOrderingInvariants:
     def test_concurrent_pipeline_isolation_invariant(self, events, max_concurrent_pipelines):
         """
         Property: Concurrent pipelines with different correlation_ids must not interfere.
-        
+
         Invariant: Events from different correlation_ids should be processable
         independently without order dependencies.
         """
@@ -283,7 +283,7 @@ class TestEventOrderingInvariants:
     def test_event_timing_distribution_invariant(self, base_timestamp, event_intervals_ms):
         """
         Property: Event timing distributions must respect processing constraints.
-        
+
         Invariant: Events in a sequence should have realistic timing intervals
         that respect processing latency constraints.
         """

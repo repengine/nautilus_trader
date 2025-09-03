@@ -407,7 +407,7 @@ class ModelRegistry(ABC):
 class DummyRegistry:
     """
     Dummy registry for testing purposes.
-    
+
     This registry does nothing and returns safe defaults for all operations,
     avoiding any file I/O or database operations during tests.
     """

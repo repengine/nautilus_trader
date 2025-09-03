@@ -1,6 +1,6 @@
 """
 ML actors for real-time inference in Nautilus Trader.
-"""  # ruff: noqa: I001
+"""
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal

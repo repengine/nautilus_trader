@@ -178,7 +178,7 @@ class BaseMetricsCollector(ABC):
                         metric._value.set(0)
                     # Note: Counter metrics can't be reset to 0, they only increment
 
-        except Exception:  # noqa: S110
+        except Exception:
             # Graceful degradation - don't fail if reset fails
             pass
 
@@ -270,7 +270,7 @@ class BaseMetricsCollector(ABC):
         try:
             with self._lock:
                 operation_func()
-        except Exception:  # noqa: S110
+        except Exception:
             # In production, we might want to log this error
             # For now, graceful degradation means we silently continue
             pass

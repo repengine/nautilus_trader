@@ -262,8 +262,8 @@ class YahooDataLoader:
                     "date": corr.index,
                     "base_symbol": base,
                     "corr_symbol": symbol,
-                    "correlation": corr.values,
-                    f"corr_{window}d": corr.values
+                    "correlation": corr.to_numpy(),
+                    f"corr_{window}d": corr.to_numpy(),
                 })
 
                 correlations.append(corr_df)

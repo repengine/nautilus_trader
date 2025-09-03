@@ -6,9 +6,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ml.registry.base import DataRequirements, ModelManifest, ModelRole
+from ml.registry.base import DataRequirements
+from ml.registry.base import ModelManifest
+from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
-from ml.registry.persistence import BackendType, PersistenceConfig
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 
 
 def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:

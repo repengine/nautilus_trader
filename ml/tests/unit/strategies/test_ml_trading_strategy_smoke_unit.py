@@ -14,19 +14,21 @@ from typing import Any
 from ml.actors.base import MLSignal
 from ml.strategies.ml_strategy import MLTradingStrategy
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 class _Log:
-    def info(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def info(self, *args: Any, **kwargs: Any) -> None:
         """No-op info"""
         return None
 
-    def warning(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def warning(self, *args: Any, **kwargs: Any) -> None:
         """No-op warning"""
         return None
 
-    def debug(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def debug(self, *args: Any, **kwargs: Any) -> None:
         """No-op debug"""
         return None
 

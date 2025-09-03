@@ -74,7 +74,7 @@ class SimpleMLActor(BaseMLInferenceActor):
             self._model = DummyModel()
         else:
             with open(model_path, "rb") as f:
-                self._model = pickle.load(f)  # noqa: S301
+                self._model = pickle.load(f)
             self.log.info(f"Loaded model from {model_path}")
 
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:

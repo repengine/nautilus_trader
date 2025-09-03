@@ -8,8 +8,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from ml.actors.signal import EnsembleStrategy, ThresholdSignalStrategy
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from ml.actors.signal import EnsembleStrategy
+from ml.actors.signal import ThresholdSignalStrategy
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 def _stub_bar() -> object:

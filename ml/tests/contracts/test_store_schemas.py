@@ -254,7 +254,7 @@ class WatermarkSchema(pa.DataFrameModel):
         # Group by pipeline and check monotonicity
         for pipeline_id in df["pipeline_id"].unique():
             pipeline_df = df[df["pipeline_id"] == pipeline_id].sort_values("update_ts")
-            watermarks = pipeline_df["watermark_ts"].values
+            watermarks = pipeline_df["watermark_ts"].to_numpy()
             if not all(watermarks[i] <= watermarks[i+1] for i in range(len(watermarks)-1)):
                 return pd.Series([False] * len(df))
 

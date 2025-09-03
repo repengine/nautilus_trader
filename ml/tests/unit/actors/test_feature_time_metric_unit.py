@@ -20,7 +20,7 @@ class _DummyHist:
     def __init__(self) -> None:
         self.observed: list[tuple[dict[str, str], float]] = []
 
-    def labels(self, **labels: str) -> "_DummyHist":  # noqa: D401
+    def labels(self, **labels: str) -> _DummyHist:
         """Return self to allow .observe() chaining"""
         self._labels = labels
         return self

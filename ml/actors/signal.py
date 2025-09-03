@@ -1606,7 +1606,7 @@ class MLSignalActor(BaseMLInferenceActor):
     def _should_hot_reload(self) -> bool:
         """
         Check if hot reload should be performed.
-        
+
         Returns
         -------
         bool
@@ -1649,7 +1649,7 @@ class MLSignalActor(BaseMLInferenceActor):
     def _handle_prediction_error(self, error: Exception) -> None:
         """
         Handle errors during prediction generation.
-        
+
         Parameters
         ----------
         error : Exception
@@ -1689,7 +1689,7 @@ class MLSignalActor(BaseMLInferenceActor):
     def _detect_market_regime(self, bar: Bar) -> None:
         """
         Detect the current market regime based on recent price action.
-        
+
         Parameters
         ----------
         bar : Bar
@@ -1711,7 +1711,7 @@ class MLSignalActor(BaseMLInferenceActor):
     def _update_prediction_history(self, prediction: float, confidence: float, bar: Bar) -> None:
         """
         Update prediction history for adaptive strategies.
-        
+
         Parameters
         ----------
         prediction : float

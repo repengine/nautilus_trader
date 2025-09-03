@@ -9,7 +9,9 @@ from typing import Any
 
 from ml.actors.base import MLSignal
 from ml.strategies.ml_strategy import MLTradingStrategy
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 def _sig(pred: float, conf: float = 0.8) -> MLSignal:

@@ -175,7 +175,7 @@ def calculate_correlations(data: pd.DataFrame, base_symbols: list[str]) -> pd.Da
                 "timestamp": corr.index,
                 "base_symbol": base,
                 "corr_symbol": symbol,
-                "correlation_60d": corr.values
+                "correlation_60d": corr.to_numpy(),
             })
 
             correlations.append(corr_df)

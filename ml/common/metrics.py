@@ -260,47 +260,37 @@ def update_pipeline_health(component: str, score: float) -> None:
     pipeline_health.labels(component=component).set(score)
 
 
-__all__ = [  # noqa: RUF022
-    # Core Prometheus types
+__all__ = [
+    "FEATURE_CALCULATION_TIMER",
+    "MODEL_INFERENCE_TIMER",
+    "PREDICTION_COUNTER",
     "Counter",
     "Gauge",
     "Histogram",
-    # Event metrics
-    "data_events_total",
-    "watermark_lag_seconds",
-    "stage_coverage_pct",
+    "catalog_write_operations_total",
     "contract_violations_total",
-    # Collection metrics
     "data_collection_duration",
     "data_collection_errors_total",
-    "catalog_write_operations_total",
-    # Feature metrics
-    "feature_store_operations_total",
+    "data_events_total",
     "feature_computation_duration",
     "feature_drift_score",
-    # Model metrics
-    "model_store_operations_total",
-    "model_inference_duration",
+    "feature_store_operations_total",
     "model_accuracy",
     "model_confidence",
-    # Backwards-compatibility aliases
-    "MODEL_INFERENCE_TIMER",
-    "FEATURE_CALCULATION_TIMER",
-    "PREDICTION_COUNTER",
-    # Strategy metrics
-    "strategy_store_operations_total",
-    "strategy_signal_generation_duration",
-    "strategy_pnl",
-    # Validation metrics
-    "validation_violations_counter",
-    "validation_duration_histogram",
-    "schema_mismatch_counter",
-    "write_rejection_counter",
-    "quality_score_histogram",
-    # Health metrics
+    "model_inference_duration",
+    "model_store_operations_total",
     "pipeline_health",
-    "system_ready",
-    # Helper functions
+    "quality_score_histogram",
     "record_pipeline_event",
+    "schema_mismatch_counter",
+    "stage_coverage_pct",
+    "strategy_pnl",
+    "strategy_signal_generation_duration",
+    "strategy_store_operations_total",
+    "system_ready",
     "update_pipeline_health",
+    "validation_duration_histogram",
+    "validation_violations_counter",
+    "watermark_lag_seconds",
+    "write_rejection_counter",
 ]

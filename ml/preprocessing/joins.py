@@ -268,7 +268,7 @@ def _embargo_window_pandas(
 
     # Check each event
     # Normalize to numpy array of int64 to avoid ExtensionArray typing issues
-    _ts_values = df[timestamp_col].values
+    _ts_values = df[timestamp_col].to_numpy()
     timestamps = np.asarray(_ts_values, dtype=np.int64)
     embargo_mask = np.zeros(len(df), dtype=bool)
 

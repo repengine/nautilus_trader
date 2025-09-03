@@ -497,7 +497,7 @@ class DataRegistry(MLComponentMixin):
             logger.info("Registered dataset '%s' version %s", manifest.dataset_id, manifest.version)
             return manifest.dataset_id
 
-    def update_manifest(self, dataset_id: str, changes: dict[str, Any]) -> None:  # noqa: C901
+    def update_manifest(self, dataset_id: str, changes: dict[str, Any]) -> None:
         """
         Update an existing dataset manifest.
 

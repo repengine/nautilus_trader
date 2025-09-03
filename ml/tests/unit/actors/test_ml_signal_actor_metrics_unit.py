@@ -11,20 +11,23 @@ from typing import Any
 
 import numpy as np
 
-from ml.actors.signal import MLSignalActor, ThresholdSignalStrategy
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import ThresholdSignalStrategy
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 class _DummyCounter:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[str, ...], str]] = []
 
-    def labels(self, **labels: Any) -> "_DummyCounter":  # noqa: D401
+    def labels(self, **labels: Any) -> _DummyCounter:
         """Return self for chained inc()"""
         self.calls.append((tuple(sorted(labels.keys())), "labels"))
         return self
 
-    def inc(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
+    def inc(self, *args: Any, **kwargs: Any) -> None:
         """Record inc call"""
         self.calls.append(((), "inc"))
 

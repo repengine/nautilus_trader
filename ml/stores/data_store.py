@@ -24,7 +24,11 @@ from typing import TYPE_CHECKING, Any, ContextManager, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
+from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.message_topics import build_topic
+from ml.common.message_topics import map_stage_to_topic_segments
 from ml.common.protocols import MLComponentMixin
+from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -274,6 +278,7 @@ class DataStore(MLComponentMixin):
         feature_store: FeatureStore | None = None,
         model_store: ModelStore | None = None,
         strategy_store: StrategyStore | None = None,
+        publisher: MessagePublisherProtocol | None = None,
         fail_on_validation_error: bool = True,
         batch_size: int = 10000,
         allow_schema_migration: bool = False,
@@ -352,6 +357,8 @@ class DataStore(MLComponentMixin):
         self.feature_store = feature_store or FeatureStore(connection_string)
         self.model_store = model_store or ModelStore(connection_string)
         self.strategy_store = strategy_store or StrategyStore(connection_string)
+        # Optional message bus publisher (no-op by default if None)
+        self.publisher: MessagePublisherProtocol | None = publisher
 
         # Initialize data processor for validation
         self.data_processor = DataProcessor(connection_string)
@@ -371,6 +378,110 @@ class DataStore(MLComponentMixin):
     # =========================================================================
     # Write Operations
     # =========================================================================
+
+    def emit_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage | str,
+        source: Source | str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: str = "success",
+        error: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Emit a dataset processing event via the registry with correlation_id.
+
+        This façade centralizes event emission from the ML layer and ensures
+        that a deterministic ``correlation_id`` is attached to the event metadata
+        for end-to-end lineage.
+
+        Parameters
+        ----------
+        dataset_id : str
+            Dataset identifier.
+        instrument_id : str
+            Instrument identifier.
+        stage : Stage | str
+            Processing stage. If a ``Stage`` enum is provided, its value is used.
+        source : Source | str
+            Event source (live/historical/backfill). If not a known value, it is
+            normalized to ``live`` for safety.
+        run_id : str
+            Unique identifier for this processing run.
+        ts_min : int
+            Minimum timestamp (ns) for covered data.
+        ts_max : int
+            Maximum timestamp (ns) for covered data.
+        count : int
+            Number of records processed.
+        status : str
+            Status string ("success", "failed", or "partial").
+        error : str | None
+            Error message if status is failed.
+        metadata : dict[str, Any] | None
+            Additional metadata to attach to the event.
+        """
+        stage_val = stage.value if isinstance(stage, Stage) else str(stage)
+        # Normalize source to allowed values
+        if isinstance(source, Source):
+            source_val = source.value
+        else:
+            src = str(source).lower()
+            source_val = src if src in {"live", "historical", "backfill"} else "live"
+
+        corr_id = make_correlation_id(
+            run_id=run_id,
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+        )
+        event_metadata: dict[str, Any] = {"correlation_id": corr_id}
+        if metadata:
+            # Do not overwrite correlation_id if provided explicitly
+            event_metadata.update({k: v for k, v in metadata.items() if k != "correlation_id"})
+
+        self.registry.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage_val,
+            source=source_val,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status,
+            error=error,
+            metadata=event_metadata,
+        )
+
+        # Optionally publish to message bus using canonical topic
+        if self.publisher is not None:
+            domain, operation = map_stage_to_topic_segments(Stage(stage_val))
+            topic = build_topic(domain, operation, instrument_id)
+            payload: dict[str, Any] = {
+                "dataset_id": dataset_id,
+                "instrument_id": instrument_id,
+                "stage": stage_val,
+                "source": source_val,
+                "run_id": run_id,
+                "ts_min": ts_min,
+                "ts_max": ts_max,
+                "count": count,
+                "status": status,
+                "metadata": event_metadata,
+            }
+            try:
+                self.publisher.publish(topic, payload)
+            except Exception:
+                logger.exception("Message bus publish failed for topic %s", topic)
 
     def preflight_check(
         self,

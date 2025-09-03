@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Any
 
 
 # Database-related imports and fixtures that indicate a test needs database access

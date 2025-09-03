@@ -2604,7 +2604,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
             try:
                 metrics = self._calculate_column_metrics(features_df[col], total_rows)
                 quality_metrics[col] = metrics
-            except Exception:  # noqa: S112
+            except Exception:
                 # Skip columns that fail validation - expected for non-numeric columns
                 continue
 
@@ -2670,7 +2670,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
                     upper_bound = q3 + 1.5 * iqr
                     outlier_count = ((col_data < lower_bound) | (col_data > upper_bound)).sum()
                     return float(outlier_count / total_rows)
-        except Exception:  # noqa: S110
+        except Exception:
             pass
         return 0.0
 
@@ -2729,7 +2729,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
                     "infinite_ratio": float(inf_ratio),
                 }
 
-        except Exception:  # noqa: S110
+        except Exception:
             # Graceful degradation
             pass
 

@@ -161,7 +161,7 @@ class TestFeatureEngineerProperties:
                     rsi_values = features.select(rsi_col).to_numpy().flatten()
                 else:
                     # Pandas DataFrame
-                    rsi_values = features[rsi_col].values
+                    rsi_values = features[rsi_col].to_numpy()
 
                 # Skip NaN values from warmup period
                 valid_rsi = rsi_values[~np.isnan(rsi_values)]
@@ -224,7 +224,7 @@ class TestFeatureEngineerProperties:
                 if hasattr(features, "select"):
                     ema_values = features.select(ema_col).to_numpy().flatten()
                 else:
-                    ema_values = features[ema_col].values
+                    ema_values = features[ema_col].to_numpy()
 
                 # Check trend after warmup (skip NaN values)
                 valid_ema = ema_values[20 * 2 :]  # Fixed window size since this is skipped
@@ -297,8 +297,8 @@ class TestFeatureEngineerProperties:
                     base_returns = features_base.select(ret_col).to_numpy().flatten()
                     scaled_returns = features_scaled.select(ret_col).to_numpy().flatten()
                 else:
-                    base_returns = features_base[ret_col].values
-                    scaled_returns = features_scaled[ret_col].values
+                    base_returns = features_base[ret_col].to_numpy()
+                    scaled_returns = features_scaled[ret_col].to_numpy()
 
                 # Skip NaN values
                 valid_mask = ~(np.isnan(base_returns) | np.isnan(scaled_returns))
@@ -401,8 +401,8 @@ class TestFeatureEngineerProperties:
             array1 = features1.to_numpy()
             array2 = features2.to_numpy()
         else:
-            array1 = features1.values
-            array2 = features2.values
+            array1 = features1.to_numpy()
+            array2 = features2.to_numpy()
 
         # Property: Should be identical
         np.testing.assert_array_equal(

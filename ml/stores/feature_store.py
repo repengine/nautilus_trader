@@ -491,7 +491,7 @@ class FeatureStore:
                     "ts_event",
                 ],
                 set_={
-                    "values": stmt.excluded.values,
+                    "values": stmt.excluded.values,  # noqa: PD011 - SQLAlchemy attribute, not pandas
                     "ts_init": stmt.excluded.ts_init,
                     "source": stmt.excluded.source,
                     # created_at left as existing/default
@@ -663,7 +663,7 @@ class FeatureStore:
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["feature_set_id", "instrument_id", "ts_event"],
                     set_={
-                        "values": stmt.excluded.values,
+                        "values": stmt.excluded.values,  # noqa: PD011 - SQLAlchemy attribute, not pandas
                         "ts_init": stmt.excluded.ts_init,
                         "is_live": stmt.excluded.is_live,
                         "source": stmt.excluded.source,
@@ -1050,7 +1050,7 @@ class FeatureStore:
             import random
 
             sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311
+            if sample > 0 and random.randint(1, sample) == 1:
                 logger.info("AUDIT FeatureStore._execute_write: keys=%s", list(row.keys()))
         except Exception as e:
             logger.debug("Audit logging skipped due to error: %s", e)

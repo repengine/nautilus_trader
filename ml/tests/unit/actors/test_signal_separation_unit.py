@@ -11,8 +11,11 @@ from typing import Any
 
 import numpy as np
 
-from ml.actors.signal import MLSignalActor, ThresholdSignalStrategy
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import ThresholdSignalStrategy
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 def _stub_bar() -> object:

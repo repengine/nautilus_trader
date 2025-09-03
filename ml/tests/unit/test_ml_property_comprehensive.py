@@ -537,7 +537,7 @@ class TestFeatureEngineeringExtended:
         if hasattr(features, "to_numpy"):
             feature_array = features.to_numpy()
         else:
-            feature_array = features.values
+            feature_array = features.to_numpy()
 
         # Properties
         # NaN values should only appear in warmup period

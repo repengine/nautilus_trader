@@ -9,15 +9,18 @@ from typing import Any
 
 import numpy as np
 
-from ml.actors.signal import MLSignalActor, ThresholdSignalStrategy
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import ThresholdSignalStrategy
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
 
 
 class _StubStrategyStore:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def write_signal(self, **kwargs: Any) -> None:  # noqa: D401
+    def write_signal(self, **kwargs: Any) -> None:
         """Capture persisted decision"""
         self.calls.append(kwargs)
 

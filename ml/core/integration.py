@@ -619,6 +619,80 @@ class MLIntegrationManager:
 
         logger.info("ML integration manager shutdown complete")
 
+    # ---------------------------------------------------------------------
+    # TDD prototype convenience hooks (no-op stubs)
+    # ---------------------------------------------------------------------
+
+    def configure_message_bus(
+        self,
+        *,
+        backend: str | None = None,
+        topic_prefix: str | None = None,
+        retention_hours: int | None = None,
+        max_size_mb: int | None = None,
+    ) -> None:
+        """No-op configuration stub for message bus (for tests)."""
+        return None
+
+    def configure_event_emission(
+        self,
+        *,
+        batching_enabled: bool | None = None,
+        batch_size: int | None = None,
+        flush_interval_ms: int | None = None,
+        correlation_strategy: str | None = None,
+    ) -> None:
+        """No-op configuration stub for event emission (for tests)."""
+        return None
+
+    def configure_event_system(self, **_: object) -> None:
+        """No-op aggregate configuration for event system (for tests)."""
+        return None
+
+    def configure_domain_bookkeeping(self, _config: object) -> None:
+        """No-op configuration stub for domain bookkeeping (for tests)."""
+        return None
+
+    def initialize_observability_pipeline(self) -> None:
+        """No-op initializer for observability pipeline (for tests)."""
+        return None
+
+    def emit_cross_domain_event(self, _event: dict[str, object]) -> None:
+        """No-op cross-domain event emitter stub (for tests)."""
+        return None
+
+    def emit_cascade(
+        self,
+        source_event: dict[str, object],
+        target_domain: str,
+        *,
+        delay_ns: int | None = None,
+    ) -> dict[str, object]:
+        """
+        Create a cascaded event preserving correlation and timestamp order.
+
+        This adapter delegates to a light helper in ``ml.common.cascade`` to
+        avoid deep coupling and keep hot paths unaffected.
+        """
+        from typing import Any, cast
+
+        from ml.common.cascade import EventDict  # Local import to avoid cycles
+        from ml.common.cascade import emit_cascade as _emit_cascade  # Local import to avoid cycles
+
+        ev: EventDict = EventDict(
+            domain=cast(str, source_event.get("domain", "")),
+            event_type=cast(str, source_event.get("event_type", "")),
+            correlation_id=cast(str, source_event.get("correlation_id", "")),
+            instrument_id=cast(str, source_event.get("instrument_id", "")),
+            ts_event=int(cast(Any, source_event.get("ts_event", 0))),
+            source_event_id=cast(
+                str, source_event.get("event_id", source_event.get("source_event_id", "unknown"))
+            ),
+            payload=cast(dict[str, Any], source_event.get("payload", {}) or {}),
+        )
+        out = _emit_cascade(ev, target_domain, delay_ns)
+        return dict(out)
+
 
 class AutoIntegratedActor:
     """

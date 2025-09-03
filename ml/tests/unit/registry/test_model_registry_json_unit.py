@@ -9,10 +9,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ml.registry.base import DataRequirements, ModelManifest, ModelRole
-from ml.registry.feature_registry import FeatureManifest, FeatureRegistry, FeatureRole, compute_schema_hash
+from ml.registry.base import DataRequirements
+from ml.registry.base import ModelManifest
+from ml.registry.base import ModelRole
+from ml.registry.feature_registry import FeatureManifest
+from ml.registry.feature_registry import FeatureRegistry
+from ml.registry.feature_registry import FeatureRole
+from ml.registry.feature_registry import compute_schema_hash
 from ml.registry.model_registry import ModelRegistry
-from ml.registry.persistence import BackendType, PersistenceConfig
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 
 
 def test_model_registry_register_happy_path(tmp_path: Path) -> None:
