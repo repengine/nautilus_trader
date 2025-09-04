@@ -14,7 +14,9 @@ from ml.observability.migrations import ensure_monthly_partitions
 
 
 @pytest.mark.skipif(
-    os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test").startswith("sqlite"),
+    os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+    ).startswith("sqlite"),
     reason="PostgreSQL not available",
 )
 def test_partition_creation_on_empty_table() -> None:
@@ -37,9 +39,12 @@ def test_partition_creation_on_empty_table() -> None:
 
     with eng.begin() as conn:
         # Table should be partitioned
-        is_partitioned = conn.execute(text(
-            "SELECT EXISTS (SELECT 1 FROM pg_partitioned_table pt JOIN pg_class c ON pt.partrelid=c.oid WHERE c.relname=:t)"
-        ), {"t": table}).scalar_one()
+        is_partitioned = conn.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM pg_partitioned_table pt JOIN pg_class c ON pt.partrelid=c.oid WHERE c.relname=:t)",
+            ),
+            {"t": table},
+        ).scalar_one()
         assert bool(is_partitioned)
 
         # At least one monthly partition exists
@@ -51,7 +56,9 @@ def test_partition_creation_on_empty_table() -> None:
 
 
 @pytest.mark.skipif(
-    os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test").startswith("sqlite"),
+    os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+    ).startswith("sqlite"),
     reason="PostgreSQL not available",
 )
 def test_skip_partition_when_not_empty() -> None:
@@ -68,8 +75,11 @@ def test_skip_partition_when_not_empty() -> None:
     ensure_monthly_partitions(eng, table, ts_col)
 
     with eng.begin() as conn:
-        is_partitioned = conn.execute(text(
-            "SELECT EXISTS (SELECT 1 FROM pg_partitioned_table pt JOIN pg_class c ON pt.partrelid=c.oid WHERE c.relname=:t)"
-        ), {"t": table}).scalar_one()
+        is_partitioned = conn.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM pg_partitioned_table pt JOIN pg_class c ON pt.partrelid=c.oid WHERE c.relname=:t)",
+            ),
+            {"t": table},
+        ).scalar_one()
         # Should not partition non-empty table
         assert not bool(is_partitioned)

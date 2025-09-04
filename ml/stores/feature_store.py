@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -38,12 +38,12 @@ from sqlalchemy import Table
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
-from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic, map_stage_to_topic_segments
-from ml.config.events import Stage
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.message_topics import build_topic
+from ml.common.message_topics import map_stage_to_topic_segments
 from ml.config.base import MLFeatureConfig
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -120,6 +120,7 @@ class FeatureStore:
         persistence_manager: object | None = None,
         enable_publishing: bool = False,
         publisher: MessagePublisherProtocol | None = None,
+        publish_mode: Literal["batch", "row", "both"] = "batch",
         # Accept extra kwargs for compatibility
         **_: Any,
     ) -> None:
@@ -137,6 +138,12 @@ class FeatureStore:
             Pipeline specification for feature computation.
         persistence_manager : object | None
             Optional persistence/session provider (used by tests for mocking).
+        enable_publishing : bool, optional
+            When True, publish store events to the optional message bus.
+        publisher : MessagePublisherProtocol | None, optional
+            Publisher implementation used when `enable_publishing` is True.
+        publish_mode : {"batch", "row", "both"}, optional
+            Controls whether to publish batch summaries, per-row events, or both. Defaults to "batch".
 
         """
         self.connection_string = connection_string
@@ -206,6 +213,7 @@ class FeatureStore:
         # Optional message publishing
         self._enable_publishing = bool(enable_publishing)
         self.publisher: MessagePublisherProtocol | None = publisher
+        self._publish_mode: Literal["batch", "row", "both"] = publish_mode
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         """
@@ -1043,7 +1051,12 @@ class FeatureStore:
                 }
                 self._execute_write(row)
             # Optional publish per-batch summary
-            if self._enable_publishing and self.publisher is not None and batch:
+            if (
+                self._enable_publishing
+                and self.publisher is not None
+                and batch
+                and self._publish_mode in ("batch", "both")
+            ):
                 try:
                     stage = Stage.FEATURE_COMPUTED
                     domain, operation = map_stage_to_topic_segments(stage)
@@ -1097,7 +1110,13 @@ class FeatureStore:
         }
         self._execute_write(row)
         # Optional publish single-row event
-        if self._enable_publishing and self.publisher is not None and instrument_id is not None and ts_event is not None:
+        if (
+            self._enable_publishing
+            and self.publisher is not None
+            and instrument_id is not None
+            and ts_event is not None
+            and self._publish_mode in ("batch", "both")
+        ):
             try:
                 stage = Stage.FEATURE_COMPUTED
                 domain, operation = map_stage_to_topic_segments(stage)
@@ -1147,6 +1166,29 @@ class FeatureStore:
         )
         with self.engine.begin() as conn:
             conn.execute(stmt)
+
+        # Optional per-row publish when enabled
+        if self._enable_publishing and self.publisher is not None and self._publish_mode in ("row", "both"):
+            try:
+                stage = Stage.FEATURE_COMPUTED
+                domain, operation = map_stage_to_topic_segments(stage)
+                inst = str(row.get("instrument_id", "UNKNOWN"))
+                topic = build_topic(domain, operation, inst)
+                ts_e = int(row.get("ts_event", 0))
+                payload: dict[str, Any] = {
+                    "dataset_id": "features",
+                    "instrument_id": inst,
+                    "stage": stage.value,
+                    "source": str(row.get("source", "computed")),
+                    "run_id": "feature_store_row",
+                    "ts_min": ts_e,
+                    "ts_max": ts_e,
+                    "count": 1,
+                    "status": "success",
+                }
+                self.publisher.publish(topic, payload)
+            except Exception:
+                logger.debug("FeatureStore per-row publish failed", exc_info=True)
 
     def _execute_query(self, sql: str) -> list[Any]:  # pragma: no cover (test hook)
         """Execute a SQL query and return rows (patchable)."""

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-End-to-end pipeline to build a TFT dataset, train/calibrate a TFT teacher, and distill a student.
+End-to-end pipeline to build a TFT dataset, train/calibrate a TFT teacher, and distill a
+student.
 
 This composes existing CLIs to keep responsibilities single-purpose.
 
@@ -9,6 +10,7 @@ Steps
 1. Build dataset: ml/scripts/build_tft_dataset.py
 2. Train teacher: ml/training/teacher/tft_cli.py (optional if --train is set)
 3. Distill student: ml/training/distillation/cli.py
+
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--include_macro", action="store_true")
     ap.add_argument("--macro_lag_days", type=int, default=1)
     ap.add_argument("--include_micro", action="store_true")
+    ap.add_argument("--include_l2", action="store_true")
     ap.add_argument("--horizon_minutes", type=int, default=15)
     ap.add_argument("--threshold", type=float, default=0.001)
     ap.add_argument("--lookback_periods", type=int, default=30)
@@ -61,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
         build_args += ["--include_macro", "--macro_lag_days", str(args.macro_lag_days)]
     if args.include_micro:
         build_args += ["--include_micro"]
+    if args.include_l2:
+        build_args += ["--include_l2"]
     rc = build_main(build_args)
     if rc != 0:
         return rc
@@ -121,4 +126,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

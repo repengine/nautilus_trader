@@ -11,7 +11,9 @@ from ml.observability.migrations import apply_observability_indices
 
 
 @pytest.mark.skipif(
-    os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test").startswith("sqlite"),
+    os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+    ).startswith("sqlite"),
     reason="PostgreSQL not available",
 )
 def test_apply_observability_indices_creates_brin_and_composites() -> None:
@@ -21,41 +23,60 @@ def test_apply_observability_indices_creates_brin_and_composites() -> None:
     # Ensure tables exist (empty frames are fine)
     with eng.begin() as conn:
         pd.DataFrame(
-            [{
-                "correlation_id": "c1",
-                "instrument_id": "EURUSD.SIM",
-                "pipeline_stage": "data_ingestion",
-                "ts_stage_start": 1,
-                "ts_stage_end": 2,
-                "stage_latency_ns": 1,
-                "cumulative_latency_ns": 1,
-            }]
+            [
+                {
+                    "correlation_id": "c1",
+                    "instrument_id": "EURUSD.SIM",
+                    "pipeline_stage": "data_ingestion",
+                    "ts_stage_start": 1,
+                    "ts_stage_end": 2,
+                    "stage_latency_ns": 1,
+                    "cumulative_latency_ns": 1,
+                }
+            ],
         ).to_sql("obs_latency_watermarks", conn, if_exists="append", index=False)
-        pd.DataFrame([{ "metric_name": "m", "metric_type": "counter", "value": 1.0, "timestamp": 1, "labels": "{}" }]).to_sql(
-            "obs_metrics", conn, if_exists="append", index=False,
+        pd.DataFrame(
+            [
+                {
+                    "metric_name": "m",
+                    "metric_type": "counter",
+                    "value": 1.0,
+                    "timestamp": 1,
+                    "labels": "{}",
+                }
+            ]
+        ).to_sql(
+            "obs_metrics",
+            conn,
+            if_exists="append",
+            index=False,
         )
-        pd.DataFrame([
-            {
-                "correlation_id": "c1",
-                "event_id": "e1",
-                "parent_event_id": None,
-                "instrument_id": "EURUSD.SIM",
-                "domain": "data",
-                "lineage_depth": 0,
-                "ts_event": 1,
-                "propagation_path": "[]",
-            }
-        ]).to_sql("obs_event_correlation", conn, if_exists="append", index=False)
-        pd.DataFrame([
-            {
-                "component_id": "data_store",
-                "health_score": 1.0,
-                "subsystem_scores": "{}",
-                "timestamp": 1,
-                "measurement_window_ms": 1000,
-                "alert_threshold": 0.8,
-            }
-        ]).to_sql("obs_health_scores", conn, if_exists="append", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "correlation_id": "c1",
+                    "event_id": "e1",
+                    "parent_event_id": None,
+                    "instrument_id": "EURUSD.SIM",
+                    "domain": "data",
+                    "lineage_depth": 0,
+                    "ts_event": 1,
+                    "propagation_path": "[]",
+                },
+            ]
+        ).to_sql("obs_event_correlation", conn, if_exists="append", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "component_id": "data_store",
+                    "health_score": 1.0,
+                    "subsystem_scores": "{}",
+                    "timestamp": 1,
+                    "measurement_window_ms": 1000,
+                    "alert_threshold": 0.8,
+                },
+            ]
+        ).to_sql("obs_health_scores", conn, if_exists="append", index=False)
 
     apply_observability_indices(eng)
 

@@ -1,15 +1,15 @@
 """
 Observability persistence adapters (off hot-path).
 
-Provides a small, typed sink for writing observability DataFrames to disk in
-JSONL or CSV formats. Intended for background tasks; hot loops should not call
-this directly.
+Provides a small, typed sink for writing observability DataFrames to disk in JSONL or
+CSV formats. Intended for background tasks; hot loops should not call this directly.
+
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +28,7 @@ class ObservabilityPersistor:
         Directory where output files will be written.
     file_format : str
         One of {"jsonl", "csv"}. Defaults to "jsonl".
+
     """
 
     base_path: Path
@@ -37,18 +38,21 @@ class ObservabilityPersistor:
     max_file_bytes: int | None = None
 
     # Mapping of table -> time column (ns) used for daily rotation
-    _time_cols: Mapping[str, str] = {
-        "latency": "ts_stage_end",
-        "metrics": "timestamp",
-        "correlation": "ts_event",
-        "health": "timestamp",
-    }
+    _time_cols: Mapping[str, str] = field(
+        default_factory=lambda: {
+            "latency": "ts_stage_end",
+            "metrics": "timestamp",
+            "correlation": "ts_event",
+            "health": "timestamp",
+        },
+    )
 
     def persist(self, tables: Mapping[str, pd.DataFrame | None]) -> dict[str, Path]:
         """
         Persist non-empty DataFrames to disk.
 
         Returns mapping of table name to written file path.
+
         """
         self.base_path.mkdir(parents=True, exist_ok=True)
         written: dict[str, Path] = {}
@@ -75,7 +79,11 @@ class ObservabilityPersistor:
             unique_tag = None
             base_name = f"{name}.{suffix}"
             out = out_dir / base_name
-            if self.max_file_bytes is not None and out.exists() and out.stat().st_size >= self.max_file_bytes:
+            if (
+                self.max_file_bytes is not None
+                and out.exists()
+                and out.stat().st_size >= self.max_file_bytes
+            ):
                 unique_tag = datetime.now(UTC).strftime("%H%M%S%f")
             if self.rotate_daily and unique_tag is None:
                 # Avoid overwriting when rotating by day: include a time tag
@@ -97,6 +105,7 @@ class ObservabilityPersistor:
         Writes compacted files under `<base_path>/<day>/compacted/<name>.jsonl` and
         returns a mapping of table name to compacted file path. Only applicable to
         JSONL; CSV users should rely on external compaction.
+
         """
         out: dict[str, Path] = {}
         day_dir = self.base_path / day

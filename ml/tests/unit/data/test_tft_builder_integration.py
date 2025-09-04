@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 
 import polars as pl
@@ -29,6 +31,7 @@ def _fake_bars_to_dataframe(catalog, instrument_ids, start=None, end=None) -> pl
 def test_tft_builder_macro_and_micro(monkeypatch, tmp_path) -> None:
     # Monkeypatch bars loader
     monkeypatch.setattr(builder_mod, "bars_to_dataframe", _fake_bars_to_dataframe)
+
     # Monkeypatch micro aggregator
     class _FakeAgg:
         def __init__(self, base_dir: Path) -> None:
@@ -37,9 +40,11 @@ def test_tft_builder_macro_and_micro(monkeypatch, tmp_path) -> None:
         def compute_for_symbol(self, symbol: str) -> pl.DataFrame:
             base2 = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
             ts2 = [base2 + timedelta(minutes=i) for i in range(5)]
-            return pl.DataFrame({"timestamp": ts2, "midprice": [100.05, 100.1, 100.2, 100.3, 100.4]})
+            return pl.DataFrame(
+                {"timestamp": ts2, "midprice": [100.05, 100.1, 100.2, 100.3, 100.4]}
+            )
 
-    import ml.features.microstructure as micro_mod
+    import ml.features.micro_aggregate as micro_mod
 
     monkeypatch.setattr(micro_mod, "MicrostructureAggregator", _FakeAgg)
 

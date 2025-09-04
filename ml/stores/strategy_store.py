@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
 from sqlalchemy import BOOLEAN
@@ -28,10 +28,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 from typing_extensions import override
 
+from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.message_topics import build_topic
+from ml.common.message_topics import map_stage_to_topic_segments
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
-from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic, map_stage_to_topic_segments
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
 
@@ -80,6 +81,7 @@ class StrategyStore(BaseStore):
         flush_interval_seconds: float | None = None,
         enable_publishing: bool = False,
         publisher: MessagePublisherProtocol | None = None,
+        publish_mode: Literal["batch", "row", "both"] = "batch",
         **_: object,
     ) -> None:
         """
@@ -101,6 +103,12 @@ class StrategyStore(BaseStore):
             Optional persistence manager (used in tests).
         flush_interval_seconds : float | None
             Alternative flush interval in seconds (overrides `flush_interval_ms`).
+        enable_publishing : bool, optional
+            When True, publish store events to the optional message bus.
+        publisher : MessagePublisherProtocol | None, optional
+            Publisher implementation used when `enable_publishing` is True.
+        publish_mode : {"batch", "row", "both"}, optional
+            Controls whether to publish batch summaries, per-row events, or both. Defaults to "batch".
 
         """
         # Handle legacy connection string parameter
@@ -134,6 +142,7 @@ class StrategyStore(BaseStore):
         # Optional message publishing
         self._enable_publishing = bool(enable_publishing)
         self.publisher: MessagePublisherProtocol | None = publisher
+        self._publish_mode: Literal["batch", "row", "both"] = publish_mode
 
         # Allow tests to inject a mock persistence manager directly
         if persistence_manager is not None:
@@ -421,7 +430,12 @@ class StrategyStore(BaseStore):
 
         # Optional publish summary event per batch (off hot-path)
         batch_list = list(values)
-        if self._enable_publishing and self.publisher is not None and batch_list:
+        if (
+            self._enable_publishing
+            and self.publisher is not None
+            and batch_list
+            and self._publish_mode in ("batch", "both")
+        ):
             try:
                 stage = Stage.SIGNAL_EMITTED
                 domain, operation = map_stage_to_topic_segments(stage)
@@ -443,6 +457,30 @@ class StrategyStore(BaseStore):
                 self.publisher.publish(topic, payload)
             except Exception:
                 logger.debug("StrategyStore publish failed", exc_info=True)
+
+        # Optional per-row publish when enabled
+        if self._enable_publishing and self.publisher is not None and self._publish_mode in ("row", "both"):
+            try:
+                stage = Stage.SIGNAL_EMITTED
+                domain, operation = map_stage_to_topic_segments(stage)
+                for v in batch_list:
+                    instrument_id = str(v.get("instrument_id", "UNKNOWN"))
+                    topic = build_topic(domain, operation, instrument_id)
+                    ts_e = int(v.get("ts_event", 0))
+                    payload: dict[str, Any] = {
+                        "dataset_id": "signals",
+                        "instrument_id": instrument_id,
+                        "stage": stage.value,
+                        "source": "strategy",
+                        "run_id": "strategy_store_row",
+                        "ts_min": ts_e,
+                        "ts_max": ts_e,
+                        "count": 1,
+                        "status": "success",
+                    }
+                    self.publisher.publish(topic, payload)
+            except Exception:
+                logger.debug("StrategyStore per-row publish failed", exc_info=True)
 
     # Backwards-compatible alias used in some tests
     def write_signals(self, data: list[StrategySignal]) -> None:

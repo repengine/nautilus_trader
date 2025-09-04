@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
 
 import polars as pl
 
-from ml.features.microstructure import MICRO_COLUMNS, aggregate_microstructure_minute_pl
+from ml.features.micro_aggregate import MICRO_COLUMNS
+from ml.features.micro_aggregate import aggregate_microstructure_minute_pl
 
 
 def test_aggregate_microstructure_minute_pl_basic() -> None:

@@ -45,6 +45,11 @@ class TFTDatasetBuilder:
         include_macro: bool = False,
         macro_lag_days: int = 1,
         fred_path: str | None = None,
+        include_micro: bool = False,
+        micro_base_dir: str | None = None,
+        include_events: bool = False,
+        include_l2: bool = False,
+        l2_base_dir: str | None = None,
     ) -> None:
         """
         Initialize TFT dataset builder.
@@ -68,6 +73,11 @@ class TFTDatasetBuilder:
         self.include_macro = include_macro
         self.macro_lag_days = macro_lag_days
         self.fred_path = fred_path
+        self.include_micro = include_micro
+        self.micro_base_dir = micro_base_dir
+        self.include_events = include_events
+        self.include_l2 = include_l2
+        self.l2_base_dir = l2_base_dir
 
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
@@ -203,6 +213,55 @@ class TFTDatasetBuilder:
                 # Add TFT-specific features
                 dataset = self._add_static_features_polars(dataset)
                 dataset = self._add_known_future_features_polars(dataset)
+
+                # Optionally join microstructure features (per-minute)
+                if self.include_micro:
+                    try:
+                        from pathlib import Path as _Path
+                        from ml.features.micro_aggregate import MicrostructureAggregator
+
+                        base_dir = self.micro_base_dir or "data/tier1"
+                        agg = MicrostructureAggregator(_Path(base_dir))
+                        sym = instrument_id.split(".")[0]
+                        micro = agg.compute_for_symbol(sym)
+                        if not micro.is_empty():
+                            if micro["timestamp"].dtype != pl.Datetime:
+                                micro = micro.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                            dataset = dataset.join(micro, on="timestamp", how="left")
+                    except Exception as exc:  # pragma: no cover - best-effort path
+                        logger.debug(f"Microstructure join failed for {instrument_id}: {exc}")
+
+                # Optionally join L2 features (per-minute)
+                if self.include_l2:
+                    try:
+                        from pathlib import Path as _Path
+                        from ml.features.l2_aggregate import L2Aggregator
+
+                        base_dir = self.l2_base_dir or "data/tier1"
+                        agg_l2 = L2Aggregator(_Path(base_dir))
+                        sym = instrument_id.split(".")[0]
+                        l2 = agg_l2.compute_for_symbol(sym)
+                        if not l2.is_empty():
+                            if l2["timestamp"].dtype != pl.Datetime:
+                                l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                            dataset = dataset.join(l2, on="timestamp", how="left")
+                    except Exception as exc:  # pragma: no cover
+                        logger.debug(f"L2 feature join failed for {instrument_id}: {exc}")
+
+                # Optionally add event-based known-future features
+                if self.include_events:
+                    try:
+                        from ml.data.providers.events import EventScheduleProvider
+                        from ml.data.sources.events import MockEventSource
+
+                        provider = EventScheduleProvider(MockEventSource())
+                        ts_series = dataset.select(pl.col("timestamp").cast(pl.Int64))["timestamp"]
+                        ev = provider.compute_features(ts_series, [instrument_id])
+                        if not ev.is_empty():
+                            ev = ev.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                            dataset = dataset.join(ev, on="timestamp", how="left")
+                    except Exception as exc:  # pragma: no cover - best-effort path
+                        logger.debug(f"Event feature join failed for {instrument_id}: {exc}")
 
                 all_data.append(dataset)
 
@@ -580,6 +639,53 @@ class TFTDatasetBuilder:
         dataset = self._add_static_features_polars(dataset)
         dataset = self._add_known_future_features_polars(dataset)
 
+        # Optionally join microstructure features (per-minute)
+        if self.include_micro:
+            try:
+                from pathlib import Path as _Path
+                from ml.features.micro_aggregate import MicrostructureAggregator
+
+                base_dir = self.micro_base_dir or "data/tier1"
+                agg = MicrostructureAggregator(_Path(base_dir))
+                micro = agg.compute_for_symbol(symbol)
+                if not micro.is_empty():
+                    if micro["timestamp"].dtype != pl.Datetime:
+                        micro = micro.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    dataset = dataset.join(micro, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Microstructure join failed for {symbol}: {exc}")
+
+        # Optionally join L2 features (per-minute)
+        if self.include_l2:
+            try:
+                from pathlib import Path as _Path
+                from ml.features.l2_aggregate import L2Aggregator
+
+                base_dir = self.l2_base_dir or "data/tier1"
+                agg_l2 = L2Aggregator(_Path(base_dir))
+                l2 = agg_l2.compute_for_symbol(symbol)
+                if not l2.is_empty():
+                    if l2["timestamp"].dtype != pl.Datetime:
+                        l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    dataset = dataset.join(l2, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"L2 feature join failed for {symbol}: {exc}")
+
+        # Optionally add event-based known-future features
+        if self.include_events:
+            try:
+                from ml.data.providers.events import EventScheduleProvider
+                from ml.data.sources.events import MockEventSource
+
+                provider = EventScheduleProvider(MockEventSource())
+                ts_series = dataset.select(pl.col("timestamp").cast(pl.Int64))["timestamp"]
+                ev = provider.compute_features(ts_series, [symbol])
+                if not ev.is_empty():
+                    ev = ev.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    dataset = dataset.join(ev, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Event feature join failed for {symbol}: {exc}")
+
         return dataset
 
     def _process_symbol_pandas(
@@ -635,37 +741,85 @@ class TFTDatasetBuilder:
         dataset = self._add_static_features_pandas(dataset)
         dataset = self._add_known_future_features_pandas(dataset)
 
+        # Optionally join microstructure features (per-minute)
+        if self.include_micro:
+            try:
+                from pathlib import Path as _Path
+                from ml.features.micro_aggregate import MicrostructureAggregator
+
+                base_dir = self.micro_base_dir or "data/tier1"
+                agg = MicrostructureAggregator(_Path(base_dir))
+                micro_pl = agg.compute_for_symbol(symbol)
+                if micro_pl.shape[0] > 0:
+                    micro_pd = micro_pl.to_pandas()
+                    dataset = dataset.merge(micro_pd, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Microstructure join failed for {symbol}: {exc}")
+
+        # Optionally join L2 features (per-minute)
+        if self.include_l2:
+            try:
+                from pathlib import Path as _Path
+                from ml.features.l2_aggregate import L2Aggregator
+
+                base_dir = self.l2_base_dir or "data/tier1"
+                agg_l2 = L2Aggregator(_Path(base_dir))
+                l2_pl = agg_l2.compute_for_symbol(symbol)
+                if l2_pl.shape[0] > 0:
+                    l2_pl = l2_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    l2_pd = l2_pl.to_pandas()
+                    dataset = dataset.merge(l2_pd, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"L2 feature join failed for {symbol}: {exc}")
+
+        # Optionally add event-based known-future features
+        if self.include_events:
+            try:
+                from ml.data.providers.events import EventScheduleProvider
+                from ml.data.sources.events import MockEventSource
+
+                provider = EventScheduleProvider(MockEventSource())
+                if "timestamp" in dataset.columns:
+                    ts_series = pl.Series("timestamp", dataset["timestamp"].astype("datetime64[ns]")).cast(pl.Int64)
+                    ev_pl = provider.compute_features(ts_series, [symbol])
+                    ev_pl = ev_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    ev_pd = ev_pl.to_pandas()
+                    dataset = dataset.merge(ev_pd, on="timestamp", how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Event feature join failed for {symbol}: {exc}")
+
         return dataset
 
     def _compute_features_polars(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Compute technical features using Polars.
         """
-        # Simple technical indicators (can be enhanced with full FeatureEngineer)
-        features = df.select(
+        base = df.with_columns(
             [
-                # Price-based features
                 (pl.col("close") / pl.col("close").shift(1) - 1).alias("return_1"),
                 (pl.col("close") / pl.col("close").shift(5) - 1).alias("return_5"),
                 (pl.col("close") / pl.col("close").shift(20) - 1).alias("return_20"),
-                # Volume features
                 (pl.col("volume") / pl.col("volume").rolling_mean(20)).alias("volume_ratio"),
-                # Volatility
-                pl.col("return_1").rolling_std(20).alias("volatility_20"),
-                # Simple moving averages
                 pl.col("close").rolling_mean(5).alias("sma_5"),
                 pl.col("close").rolling_mean(20).alias("sma_20"),
-                # Price position
                 (
                     (pl.col("close") - pl.col("low").rolling_min(20))
                     / (pl.col("high").rolling_max(20) - pl.col("low").rolling_min(20))
                 ).alias("price_position"),
             ],
         )
-
-        # Fill NaN values
-        features = features.fill_null(0)
-
+        features = base.select(
+            [
+                "return_1",
+                "return_5",
+                "return_20",
+                "volume_ratio",
+                pl.col("return_1").rolling_std(20).alias("volatility_20"),
+                "sma_5",
+                "sma_20",
+                "price_position",
+            ],
+        ).fill_null(0)
         return features
 
     def _compute_features_pandas(self, df: pd.DataFrame) -> pd.DataFrame:

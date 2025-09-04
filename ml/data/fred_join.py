@@ -5,21 +5,25 @@ Provides helpers to join long- or wide-format FRED data to a time-indexed
 market DataFrame using as-of semantics with a configurable publication lag.
 """
 
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from ml._imports import pd
-from ml._imports import pl
-from ml._imports import check_ml_dependencies
+import ml._imports as _ml_imports
 
-if TYPE_CHECKING:
-    import pandas as _pd
-    import polars as _pl
+pd = _ml_imports.pd
+pl = _ml_imports.pl
+check_ml_dependencies = _ml_imports.check_ml_dependencies
+
+if TYPE_CHECKING:  # pragma: no cover
+    import pandas as pd
+    import polars as pl
 
 
-def _load_fred_ml_pl(fred_path: str | Path | None = None) -> "_pl.DataFrame":
+def _load_fred_ml_pl(fred_path: str | Path | None = None) -> pl.DataFrame:
     """
     Load FRED ML-format parquet (timestamp, series_id, value) as a Polars DataFrame.
 
@@ -46,13 +50,13 @@ def _load_fred_ml_pl(fred_path: str | Path | None = None) -> "_pl.DataFrame":
     return pl.DataFrame({"timestamp": [], "series_id": [], "value": []})
 
 
-def join_fred_asof(
-    df: "_pl.DataFrame | _pd.DataFrame",
+def join_fred_asof(  # noqa: C901
+    df: pl.DataFrame | pd.DataFrame,
     *,
     timestamp_col: str = "timestamp",
     lag_days: int = 1,
     fred_path: str | Path | None = None,
-) -> "_pl.DataFrame | _pd.DataFrame":
+) -> pl.DataFrame | pd.DataFrame:
     """
     Join FRED macro features to a time-indexed market DataFrame using as-of semantics.
 
@@ -78,7 +82,7 @@ def join_fred_asof(
             return df
 
         # Wide pivot for efficient as-of join (cast due to stub signature variance)
-        fred_wide = cast(Any, fred).pivot(values="value", index="timestamp", columns="series_id").sort("timestamp")
+        fred_wide = cast(Any, fred).pivot(values="value", index="timestamp", columns="series_id").sort("timestamp")  # noqa: PD010
         if fred_wide.is_empty():
             return df
 
@@ -105,13 +109,13 @@ def join_fred_asof(
 
         if fred_path_ml.exists():
             fred_ml = pd.read_parquet(str(fred_path_ml))
-            wide = fred_ml.pivot(index="timestamp", columns="series_id", values="value")
+            wide = fred_ml.pivot_table(index="timestamp", columns="series_id", values="value")
         elif fred_path_wide.exists():
             wide_src = pd.read_parquet(str(fred_path_wide))
             value_cols = [c for c in wide_src.columns if c not in {"date", "timestamp_ns"}]
             wide = wide_src.rename(columns={"date": "timestamp"})["timestamp"].to_frame()
             for c in value_cols:
-                wide[c] = wide_src[c].values
+                wide[c] = wide_src[c].to_numpy()
             wide = wide.set_index("timestamp")
         else:
             return df

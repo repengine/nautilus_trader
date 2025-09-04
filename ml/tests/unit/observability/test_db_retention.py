@@ -39,18 +39,20 @@ def test_apply_retention_deletes_old_rows(tmp_path: Path) -> None:
                 "stage_latency_ns": 1_000,
                 "cumulative_latency_ns": 2_000,
             },
-        ]
+        ],
     )
 
     db = tmp_path / "obs.db"
     per = ObservabilityDBPersistor(connection_string=f"sqlite:///{db}")
     # Seed with two rows
-    per.persist({
-        "latency": lat,
-        "metrics": pd.DataFrame(),
-        "correlation": pd.DataFrame(),
-        "health": pd.DataFrame(),
-    })
+    per.persist(
+        {
+            "latency": lat,
+            "metrics": pd.DataFrame(),
+            "correlation": pd.DataFrame(),
+            "health": pd.DataFrame(),
+        }
+    )
 
     # Apply retention keeping last 5 days
     out = per.apply_retention(retention_days=5)
@@ -65,4 +67,3 @@ def test_apply_retention_deletes_old_rows(tmp_path: Path) -> None:
         remaining = pd.read_sql("select * from obs_latency_watermarks", conn)
         assert len(remaining) == 1
         assert remaining["ts_stage_end"].iloc[0] >= _ns(now - timedelta(days=5))
-

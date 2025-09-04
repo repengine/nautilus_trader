@@ -5,6 +5,7 @@
 The ml/strategies/ directory implements the core ML-driven trading strategy framework for Nautilus Trader. This framework provides a sophisticated architecture for integrating machine learning signals into trading execution while maintaining hot path performance requirements. The system supports both single-model and multi-model strategies with advanced aggregation capabilities, comprehensive performance tracking, and seamless integration with Nautilus Trader's execution engine.
 
 Operational notes:
+
 - Persistence: Strategy signals are stored with UNIX nanosecond timestamps; the `StrategyStore` will normalize smaller units to ns with a warning. See `context_stores.md` → "Timestamp Policy & Normalization".
 - DB readiness: Ensure canonical migrations are applied and run DB preflight checks prior to deployment. See `context_deployment.md`.
 
@@ -38,6 +39,7 @@ All strategies inherit from `BaseMLStrategy` and extend Nautilus Trader's `Strat
 The foundational abstract class that all ML strategies inherit from. Extends Nautilus Trader's `Strategy` class with ML-specific capabilities.
 
 **Enhanced Production Features:**
+
 - **✨ ENHANCEMENT:** DRY RUN MODE by default with execute_trades=False for safety
 - **📝 ADDITION:** Signal consumption from MLSignalActor via ml_signal_source
 - **📝 ADDITION:** Risk management parameters via environment variables
@@ -113,6 +115,7 @@ A basic implementation demonstrating binary signal trading logic.
 - **✨ ENHANCEMENT:** Intelligent position reversal with error handling
 
 **Key Methods**:
+
 - `_process_ml_signal()`: Implements simple binary trading logic
 - `on_order_filled()`: Updates position and pending order counts
 
@@ -179,14 +182,17 @@ Extends MLTradingStrategy with dynamic model weighting and performance-based ada
 - `_aggregate_signal()`: Overrides parent to use dynamic weights when `use_dynamic_weights=True`
 
 **Weight Calculation Formula**:
+
 ```python
 weight = accuracy * (1.0 + np.tanh(profit_per_trade / 100.0))
 ```
+
 - Combines accuracy with normalized profit per trade
 - Minimum weight of 0.1 to prevent complete exclusion
 - Weights are normalized to sum to 1.0
 
 **Dynamic Weighting Enhancements:**
+
 - **✨ ENHANCEMENT:** Performance-Based Weighting: Automatic model weight adjustment based on historical performance
 - **📝 ADDITION:** Adaptive Learning: Model weights evolve with observed accuracy and profitability
 - **📝 ADDITION:** Minimum Weight Constraints: Prevents complete model exclusion (0.1 minimum weight)
@@ -262,6 +268,7 @@ avg_confidence = np.mean([s.confidence for s in self._model_signals.values()])
 ```
 
 **Key Features**:
+
 - Requires minimum number of models (`required_models` parameter)
 - Validates signals are within time window (`time_window_ms` parameter)
 - Automatically clears old signals outside time window
@@ -372,6 +379,7 @@ if self._config.use_strategy_store:
 ```
 
 **Flush on Stop**:
+
 - StrategyStore is automatically flushed when strategy stops
 - Ensures all pending decisions are persisted
 - Handles exceptions gracefully to prevent data loss
@@ -544,16 +552,19 @@ config = MLStrategyConfig(
 ### Trading Utilities
 
 **`_place_market_order()`**: Places market orders with proper initialization
+
 - Supports reduce_only flag for position closing
 - Increments pending_orders and trades_executed counters
 - Returns ClientOrderId for tracking
 
 **`_place_stop_loss()`**: Places stop-loss orders
+
 - Automatically sets reduce_only=True
 - Uses StopMarketOrder with configurable trigger price
 - Logs order placement for audit trail
 
 **`_get_current_position()`**: Retrieves current open position
+
 - Searches across all venues for the configured instrument
 - Returns first open position or None
 - Used for position management decisions
@@ -561,6 +572,7 @@ config = MLStrategyConfig(
 ### Performance Tracking
 
 **`_update_model_performance()`**: Tracks per-model trading performance
+
 - Records total trades, profit, wins/losses
 - Calculates running accuracy percentage
 - Used by MultiModelMLStrategy for dynamic weighting
@@ -568,6 +580,7 @@ config = MLStrategyConfig(
 ### Stub Methods for Compatibility
 
 **`_process_signal()`**, **`_make_decision()`**, **`_execute_trade()`**: Empty stubs
+
 - Maintained for backward compatibility with tests
 - Called during aggregation for extensibility
 - Can be overridden in subclasses if needed
@@ -733,12 +746,14 @@ The current implementation provides a solid foundation for these advanced capabi
 ### When to Use Each Strategy
 
 **SimpleMLStrategy**:
+
 - Single model deployments
 - Binary classification signals
 - Basic position management needs
 - Proof of concept implementations
 
 **MLTradingStrategy**:
+
 - Production deployments
 - Need for comprehensive decision persistence
 - Dry-run testing requirements
@@ -746,6 +761,7 @@ The current implementation provides a solid foundation for these advanced capabi
 - Position reversal support required
 
 **MultiModelMLStrategy**:
+
 - Multiple ML models in ensemble
 - Dynamic weight adjustment needed
 - Performance-based model selection
@@ -768,11 +784,13 @@ The current implementation provides a solid foundation for these advanced capabi
 The ml/strategies/ directory provides a comprehensive, production-ready framework for ML-driven trading strategies. The architecture successfully balances sophistication with performance, providing powerful multi-model capabilities while maintaining the sub-5ms latency requirements of high-frequency trading. The optional store integrations ensure complete audit trails and enable sophisticated post-trade analysis and model improvement workflows.
 
 Key strengths:
+
 - Flexible architecture supporting single to multi-model deployments
 - Production-grade features (dry-run, persistence, monitoring)
 - Performance optimized for hot-path execution
 - Extensible design ready for meta-learning evolution
 - Comprehensive error handling and logging
+
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection

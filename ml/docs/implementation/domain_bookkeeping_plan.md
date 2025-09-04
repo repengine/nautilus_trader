@@ -5,6 +5,7 @@
 This plan delivers a production-grade Domain Bookkeeping and Unified Observability system through a TDD-first approach. It integrates strongly with the existing 4-Store + 4-Registry architecture, leverages idempotent metrics bootstrap, and standardizes event models with correlation IDs. The work lands in two phases, with a small pre‑phase coverage uplift to de-risk core components.
 
 Highlights
+
 - Phase 1: Message bus integration, event flow, and cross-domain propagation.
 - Phase 2: Unified observability pipeline for latency, metrics, and lineage.
 - TDD prototypes authored (property, contract, metamorphic, pairwise, stateful) and marked `prototype` to avoid blocking CI until implementation lands.
@@ -13,12 +14,14 @@ Highlights
 ## Current State Assessment
 
 ✅ Foundation
+
 - 4-store + 4-registry initialized by `MLIntegrationManager`; partitioning and migrations available.
 - `MLComponentProtocol` implemented; health/metrics/config validation standardized.
 - Idempotent metrics via `ml.common.metrics_bootstrap` adopted in actors/strategies.
 - DataRegistry supports JSON/PG backends, events, watermarks, and metadata including correlation_id.
 
 🔄 Needs Integration/Hardening
+
 - ML-side message bus façade and canonical topic naming; DataStore lacks `emit_event` façade.
 - Unified observability pipeline entity (latency watermarks, metrics collection, lineage/correlation DTOs).
 - A few repo tests import external adapters (non-ML) and can fail at collection; addressed via targeting/markers.
@@ -42,6 +45,7 @@ Quality gates for this work:
 - Tests: `make pytest` targeted to ML scopes; ≥90% coverage for new modules.
 
 ## Pre‑Phase Coverage Uplift (Targeted, High ROI)
+
 - DataRegistry (JSON backend): event emission success/failure, metadata persistence (correlation_id), trimming/flush behavior.
 - DataStore `write_ingestion`: happy-path and failure-path emission + watermark update (mock DataProcessor; assert registry interactions).
 - IntegrationManager: init/health/protocol validation (strict vs warn), `create_integrated_actor` db_connection propagation, and existence of no‑op config hooks.
@@ -52,6 +56,7 @@ Rationale: Raises confidence in core areas Phase 1 builds upon without writing t
 ## Testing Strategy & Prototypes
 
 Categories (already authored)
+
 - Property (Phase 1/2): ordering, correlation, delivery retries; latency watermarks, concurrent isolation, metrics and health invariants.
 - Contract: Pandera schema models for event payloads/topics/cross-domain propagation and observability watermarks/metrics/correlation/health.
 - Metamorphic: time-shift/duplication/reversal; health scaling; label cardinality; pruning effects on connectivity.
@@ -59,6 +64,7 @@ Categories (already authored)
 - Stateful: pipeline execution, recovery scenarios, correlation/lineage invariants.
 
 Execution Notes
+
 - Prototypes are marked `prototype` and excluded by default (`-m 'not prototype'`). Run with `-m prototype` when implementing Phase 1/2.
 - Pandera compatibility: normalize checks to installed version (0.26.x). Prefer `@pa.dataframe_check` with `def check(cls, df): ...` or validate multi-arg checks per version. Use pandas nullable `Int64` for optional integer fields (e.g., `last_published`).
 - Metamorphic tolerances: use ratio/percentile thresholds (e.g., ≥70% edges inverted) and bounded epsilon checks for numerical relations to reduce flakiness from random inputs.
@@ -74,9 +80,11 @@ Execution Notes
 ### Phase 1 — Message Bus Integration & Event Flow (4–6 weeks)
 
 Objectives
+
 - Wire domain bookkeepers into the message bus; unify event models and topics; preserve correlation_id across domains.
 
 Scope & Tasks
+
 1) Event Emission Infrastructure
    - Add `DataStore.emit_event(...)` façade: forwards to `DataRegistry.emit_event`, attaches deterministic `correlation_id` from `ml.common.correlation.make_correlation_id`, and optionally publishes a bus payload.
    - Ensure registry operations (register/update/deprecate) emit events with metadata and stage constants (`ml.config.events.Stage`).
@@ -92,11 +100,13 @@ Scope & Tasks
    - Preserve `correlation_id` and timestamp causality across cascades.
 
 Deliverables
+
 - Canonical ML topic builder + tests (contract-compliant).
 - `DataStore.emit_event` façade instrumented with correlation metadata.
 - Documented cascade model and example publishers/subscribers.
 
 Acceptance (Phase 1)
+
 - Prototype suites for Phase 1 pass when run with `-m prototype and phase1` selection (property/contract/metamorphic relevant to bus and event flow).
 - Topic and payload schemas validated via Pandera and helper unit tests.
 - Performance: P99 publish path < 100 ms (including routing and optional retry), with retry logic proven in property tests.
@@ -104,9 +114,11 @@ Acceptance (Phase 1)
 ### Phase 2 — Unified Observability Pipeline (6–8 weeks)
 
 Objectives
+
 - Implement a unified observability layer that captures end‑to‑end latency, metrics, and lineage across domains.
 
 Scope & Tasks
+
 1) Latency Watermarks
    - Define DTOs and builders for latency watermarks per stage (`ts_start`, `ts_end`, `stage_latency_ns`, `cumulative_latency_ns`).
    - Export histograms via `metrics_bootstrap` with consistent buckets.
@@ -120,20 +132,24 @@ Scope & Tasks
    - Support “time travel” debugging by reconstructing slices by correlation and time window.
 
 Deliverables
+
 - Minimal `ml/observability/pipeline.py` module producing DataFrames that satisfy contract schemas.
 - Prometheus integration for latency/health metrics via `metrics_bootstrap`.
 - Documentation and examples for lineage queries.
 
 Acceptance (Phase 2)
+
 - Prototype suites for Phase 2 pass (property/contract/metamorphic related to latency, metrics, correlation).
 - Grafana/Prometheus dashboard recipes validated (smoke level).
 
 ## PART B: Intelligent Automation (Prereqs: Training/Deployment)
 
 Prerequisites
+
 - Automated model training and deployment, versioning, canary/A‑B testing, SLA metrics, and rollback mechanisms.
 
 Scope (High Level)
+
 1) Anomaly detection & auto‑recovery for gaps/drift/degradation.
 2) Dynamic circuit breakers with context‑aware halting and graceful degradation.
 3) Real‑time attribution (PnL to data/features/models/strategies) and auto‑rebalancing suggestions.
@@ -141,6 +157,7 @@ Scope (High Level)
 ## Interfaces & Contracts (Authoritative)
 
 APIs to Implement/Validate
+
 - `ml/stores/data_store.py::emit_event(...)` — façade around registry emission + optional publish.
 - `ml/common/message_topics.py` — topic construction and normalization.
 - `ml/core/integration.py` — configuration surfaces:
@@ -148,22 +165,26 @@ APIs to Implement/Validate
   - Note: These exist as no‑ops to support TDD prototypes; they will be wired during Phase 1/2.
 
 Schema Guidance (Pandera)
+
 - Prefer `@pa.dataframe_check` with `def check(cls, df)` consistent with `pandera~=0.26`.
 - Use pandas nullable `Int64` for optional integer fields (e.g., `last_published`) to avoid float upcasting.
 - Keep Stage/Source values aligned with `ml.config.events` enums.
 
 ## Performance Budgets
+
 - Event publish (incl. routing & retry): P99 < 100 ms.
 - Feature compute P99 < 0.5 ms; Inference P99 < 2 ms; End‑to‑end signal P99 < 5 ms (unchanged).
 - Observability pipeline operations off hot path; only metric observations occur in hot loops.
 
 ## Risks & Mitigations
+
 - Pandera version drift: normalize checks as above; pin version in pyproject if needed.
 - Randomized metamorphic brittleness: apply ratio/epsilon thresholds and consistent seeds.
 - External adapter imports breaking collection: constrain testpaths/markers when running ML scope.
 - Hot‑path regressions: keep logging out of tight loops; reuse labels/objects; pre‑allocate buffers.
 
 ## Milestones & Success Criteria
+
 - M0 (1–2d): Pre‑phase tests green (DataRegistry JSON, DataStore ingestion, IntegrationManager, topic helper).
 - M1 (2–3w): Phase 1 scaffolding complete; prototype Phase‑1 tests green.
 - M2 (3–4w): Phase 2 DTOs + metrics; prototype Phase‑2 tests green.
@@ -197,7 +218,7 @@ Schema Guidance (Pandera)
   - DataStore now publishes bus events for predictions/signals via internal success path
     (stage→domain mapping + canonical topic); registry remains source of truth.
   - Tightened ingestion unit test to assert publish call and canonical topic/payload invariants.
-- [ ] Phase‑2 observability DTOs (latency, metrics, lineage) — pending.
+- [x] Phase‑2 observability DTOs (latency, metrics, lineage) — DONE.
 - [x] Phase‑2 DTO scaffolding added with unit tests:
   - `ml/observability/pipeline.py` with builders for latency watermarks, metrics collection, event correlation, and health scores.
   - Tests under `ml/tests/unit/observability/test_pipeline_builders.py` verifying invariants (monotonicity, encoding, bounds).
@@ -227,12 +248,13 @@ Schema Guidance (Pandera)
   - Topic naming property aligned with canonical sanitizer (reserved chars replacement).
   - Metamorphic reversal checks made robust to degenerate/palindromic sequences and self-edges.
   - Config integration test satisfied via no-op stubs (`start_end_to_end_tracking`, `start_health_checks`).
- - [x] Standards checks aligned:
-   - CODING_STANDARDS: imports/typing/timestamps/events/hot‑cold separation.
-   - TESTING_STRATEGY: categories mapped (properties, contracts, metamorphic, combinatorial, stateful).
-   - CLAUDE rules: ns timestamps; instrument/ts fields; centralized imports.
+- [x] Standards checks aligned:
+  - CODING_STANDARDS: imports/typing/timestamps/events/hot‑cold separation.
+  - TESTING_STRATEGY: categories mapped (properties, contracts, metamorphic, combinatorial, stateful).
+  - CLAUDE rules: ns timestamps; instrument/ts fields; centralized imports.
 
 ## Traceability (Tests ↔ Features)
+
 - Topics & Bus
   - Builders: `ml/common/message_topics.py` ↔ `ml/tests/unit/common/test_message_topics.py`, contract schemas in `test_domain_bookkeeping_schemas.py`.
   - Publisher Protocol: `ml/common/message_bus.py` ↔ `ml/tests/unit/common/test_message_bus.py`.
@@ -246,6 +268,7 @@ Schema Guidance (Pandera)
   - Contracts: normalized Pandera checks in `ml/tests/contracts/test_observability_pipeline_schemas.py`.
 
 ## Remaining Work (Near‑Term)
+
 - Phase‑1
   - Consider wiring publisher into additional emit points as needed (features/models/strategy store events) once bus infrastructure is configured (optional; no hot-path cost expected).
 - Phase‑2
@@ -255,6 +278,7 @@ Schema Guidance (Pandera)
   - Note: A couple of Phase‑2 property/metamorphic tests surface generation‑related brittleness (e.g., duplicate stage matching and aggressive pruning thresholds). Proposed follow‑up: align stage instance matching on ts_start for latency checks, and relax pruning connectivity ratios per TESTING_STRATEGY guidance (ratio/epsilon thresholds).
 
 ## Phase‑2 Progress (WIP)
+
 - Aggregators (off hot‑path):
   - `aggregate_metrics_by_window(rows, window_ns)` to group metrics by fixed windows while preserving totals.
   - `scale_health_scores(rows, factor)` to uniformly scale and clip health scores.
@@ -279,11 +303,12 @@ Schema Guidance (Pandera)
   - Added `ml/config/observability.py` with `ObservabilityConfig` (env overrides supported) to configure sink/interval/paths.
   - Integration helper `MLIntegrationManager.start_observability_from_config(cfg)` to start background flushing from config.
   - Test: `ml/tests/unit/observability/test_observability_config_integration.py` ensures integration honors config.
- - CLI tooling:
-   - `ml/cli/observability.py` provides `flush-jsonl`, `flush-db`, and `start` commands with optional `--seed-sample` to demo end-to-end.
-   - Tests: `ml/tests/unit/observability/test_cli_observability.py` validate basic CLI flows.
+- CLI tooling:
+  - `ml/cli/observability.py` provides `flush-jsonl`, `flush-db`, and `start` commands with optional `--seed-sample` to demo end-to-end.
+  - Tests: `ml/tests/unit/observability/test_cli_observability.py` validate basic CLI flows.
 
 ## Phase‑1 Signoff
+
 - Scope: Message bus integration, canonical topics, DataStore emit façade with correlation IDs, registry ops emission, cross‑domain cascades, optional store publishers, observability scaffolding (DTOs, service, persistence, scheduler) off hot‑path.
 - Tests (green):
   - Property: `ml/tests/property/test_domain_bookkeeping_phase1.py` + topic fuzz (`test_message_topics_property.py`).
@@ -295,8 +320,8 @@ Schema Guidance (Pandera)
 - Gates: mypy `ml --strict` clean; ruff clean on changed files; targeted ML pytest suites pass.
 - Performance: All publisher/observability work is off hot‑path; DataStore/events follow Stage mapping; metrics remain centralized.
 
-
 ## Appendix — Prototype Suites Mapping
+
 - Phase 1
   - Property: `ml/tests/property/test_domain_bookkeeping_phase1.py`
   - Contract: `ml/tests/contracts/test_domain_bookkeeping_schemas.py`
@@ -310,6 +335,7 @@ Schema Guidance (Pandera)
   - Stateful: `ml/tests/property/test_domain_bookkeeping_stateful.py`
 
 **Deliverables**:
+
 - Self-healing ML pipeline with automated recovery
 - Intelligent circuit breakers with context awareness
 - Real-time performance attribution system
@@ -321,6 +347,7 @@ Schema Guidance (Pandera)
 **Prerequisites**: Phase 3 completion + mature MLOps workflows
 
 **Tasks**:
+
 1. **Predictive Maintenance**
    - Forecast model degradation before it impacts performance
    - Proactive feature drift detection with lead time
@@ -337,6 +364,7 @@ Schema Guidance (Pandera)
    - Alert management with automated resolution tracking
 
 **Deliverables**:
+
 - Predictive maintenance system for proactive issue prevention
 - Self-optimizing ML pipelines with automated experimentation
 - Enterprise-grade monitoring and alerting dashboards
@@ -346,18 +374,21 @@ Schema Guidance (Pandera)
 ## Integration Points & Dependencies
 
 ### **External Systems**
+
 - Nautilus Message Bus for event distribution
 - PostgreSQL for persistent storage (with JSON fallback)
 - Prometheus for metrics collection and alerting
 - Grafana for visualization dashboards
 
 ### **Key Interfaces**
+
 - MLIntegrationManager as the central orchestrator
 - BaseMLInferenceActor for automatic component integration
 - DataStore as the unified facade with event emission
 - ExtendedMetricsManager for comprehensive monitoring
 
 ### **Training/Deployment Dependencies for Part B**
+
 - Automated model training orchestration
 - Model artifact versioning and storage
 - Deployment automation with canary/blue-green strategies
@@ -367,12 +398,14 @@ Schema Guidance (Pandera)
 ## Success Metrics
 
 ### **Part A Success Criteria**
+
 - End-to-end event tracing from data → signal
 - <100ms P99 event publishing latency
 - 100% message delivery reliability with retries
 - Complete observability coverage across all domains
 
-### **Part B Success Criteria** 
+### **Part B Success Criteria**
+
 - <5 minute recovery time for automated incident resolution
 - >99.9% system uptime with automated recovery
 - <5% false positive rate on anomaly detection
@@ -381,16 +414,19 @@ Schema Guidance (Pandera)
 ## Risk Mitigation
 
 ### **Performance Impact**
+
 - All metrics collection asynchronous with batching
 - Event publishing non-blocking with circuit breakers
 - Progressive fallback to dummy implementations
 
-### **Operational Complexity**  
+### **Operational Complexity**
+
 - Extensive monitoring of the monitoring systems
 - Clear operational runbooks for each automation
 - Feature flags for disabling automation during issues
 
 ### **Part A/B Dependency Risk**
+
 - Part A delivers immediate value independent of training systems
 - Clear interfaces defined for Part B integration
 - Fallback modes ensure system stability without automation features
@@ -433,21 +469,25 @@ The ultimate goal is to combine 5 systems into a unified "Power Stack":
 ## The Ultimate Benefits
 
 ### 1. **Complete Observability**
+
 - Every event tracked (Registries)
 - Every metric measured (Prometheus)
 - Every message traced (Message Bus)
 
 ### 2. **Intelligent Automation**
+
 - Self-healing pipelines
 - Auto-scaling based on load
 - Automatic model retraining
 
 ### 3. **Real-Time Decision Making**
+
 - Circuit breakers with context
 - Dynamic risk adjustment
 - Performance attribution
 
 ### 4. **Time Travel Debugging**
+
 ```python
 # Reconstruct exact state at any moment
 state = pipeline.reconstruct_state(
@@ -464,11 +504,13 @@ print(f"Messages in flight: {state.msgbus}")
 ## References
 
 ### Architecture Documents
+
 - [Domain Bookkeeping Architecture](../architecture/domain_bookkeeping.md)
 - [Unified Observability Architecture](../architecture/unified_observability.md)
 - [ML Health Sprint Progress](../ml_health_sprint.md)
 
 ### Key Implementation Files
+
 - `ml/core/integration.py` - MLIntegrationManager
 - `ml/stores/data_store.py` - Unified DataStore facade
 - `ml/registry/data_registry.py` - DataRegistry with watermarks
@@ -476,14 +518,15 @@ print(f"Messages in flight: {state.msgbus}")
 - `ml/actors/base.py` - BaseMLInferenceActor integration
 
 This implementation plan builds incrementally on the solid foundation already established, focusing on integration and intelligence rather than rebuilding core components.
+
 - [x] Registry ops emission:
   - Registry now emits events on register/update/deprecate with Stage and correlation metadata; JSON backend persists to `data_registry.json`.
   - Tests: `ml/tests/unit/registry/test_data_registry_ops_events_json_unit.py`.
 - [x] Topic invariants fuzzed:
   - Added property test `ml/tests/property/test_message_topics_property.py` to fuzz `build_topic` across domains/operations/instruments and assert canonical form and sanitizer.
- - [x] Optional store publishers:
-   - FeatureStore/ModelStore/StrategyStore accept `enable_publishing` + `publisher` and publish a summary event per batch write.
-   - Tests: `ml/tests/unit/stores/test_store_publishers_optional.py` verify topics/stages for each store.
+- [x] Optional store publishers:
+  - FeatureStore/ModelStore/StrategyStore accept `enable_publishing` + `publisher` and publish a summary event per batch write.
+  - Tests: `ml/tests/unit/stores/test_store_publishers_optional.py` verify topics/stages for each store.
 
 ## Phase‑2 Sprint Updates (rolling)
 
@@ -502,13 +545,7 @@ This implementation plan builds incrementally on the solid foundation already es
 
 ## Next Steps
 
-- CI gate ≥90% ML coverage (ML scope):
-  - Keep new modules ≥90% and raise aggregate close to target; ensure `-m 'not prototype'` default remains stable. Gate on PRs for `ml/` paths.
-- DB partitioning migrations:
-  - Implemented initial monthly partitioning utilities and tests:
-    - `ml/observability/migrations.py::ensure_monthly_partitions(engine, table, ts_col)` creates partitioned parents when empty and ensures current/next-month partitions with BRIN on child tables.
-    - `apply_observability_monthly_partitions(engine)` applies to canonical observability tables.
-    - Tests: `ml/tests/unit/observability/test_db_partitioning_postgres.py` (skips if PostgreSQL unavailable).
-  - Note: For non-empty, non-partitioned tables, function is conservative (no-op). A future migration can perform data movement if needed.
-- Optional store publisher expansion:
-  - Evaluate enabling publishers at additional emit points behind a toggle; extend unit tests if new points are added.
+- Optional store publisher expansion: DONE
+  - Added `publish_mode` toggle to Feature/Model/Strategy stores supporting `"batch" | "row" | "both"` with default `"batch"`.
+  - Per-row publish events now available (off hot path) when enabled; maintains existing batch summaries.
+  - Tests: `ml/tests/unit/stores/test_store_publishers_per_row.py` verify per-row publishing across all three stores; existing batch-summary test remains.

@@ -20,6 +20,7 @@ See `ml/cli/observability.py` for all options.
 Apps can automatically start background flushing at startup by setting environment variables and calling the bootstrap helper. This keeps code changes minimal and avoids hot-path coupling.
 
 Environment variables (subset):
+
 - `ML_OBS_SINK`: `file` or `db` (default `file`)
 - `ML_OBS_BASE_PATH`: base directory for file sinks (default `./observability`)
 - `ML_OBS_FILE_FORMAT`: `jsonl` or `csv` (default `jsonl`)
@@ -38,6 +39,7 @@ auto_start_if_configured(mgr)
 ```
 
 Where this is called
+
 - `ml/deployment/entrypoint_actor.py`
 - `ml/deployment/entrypoint_strategy.py`
 - `ml/deployment/entrypoint_pipeline.py`
@@ -47,11 +49,13 @@ This call is safe and a no-op when observability env variables are not set or mi
 ## ObservabilityConfig
 
 `ml/config/observability.py` defines `ObservabilityConfig` and `from_env()` so you can compose configuration explicitly in tests or custom runners. The integration manager exposes convenience methods:
+
 - `start_observability_from_config(cfg)`
 - `start_observability_from_env()`
 - `start_observability_flush(..., sink=\"file|db\", ...)`
 
 ## Notes
+
 - Keep hot-path code free from heavy logic; the service, persistence, and scheduler run off-path.
 - All timestamps are in ns; schemas validated by Pandera in contract tests.
 - See README “Unified Observability” section for additional examples.

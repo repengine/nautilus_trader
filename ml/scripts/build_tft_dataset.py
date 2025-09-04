@@ -7,6 +7,7 @@ Outputs:
 - features_npz.npz with {X_train, X_val, feature_names}
 
 This CLI avoids heavy training dependencies and focuses on dataset preparation.
+
 """
 
 from __future__ import annotations
@@ -50,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--include_macro", action="store_true")
     ap.add_argument("--macro_lag_days", type=int, default=1)
     ap.add_argument("--include_micro", action="store_true")
+    ap.add_argument("--include_l2", action="store_true")
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir)
@@ -65,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         include_macro=args.include_macro,
         macro_lag_days=args.macro_lag_days,
         include_micro=args.include_micro,
+        include_l2=args.include_l2,
         micro_base_dir=str(data_dir),
     )
 
@@ -100,12 +103,18 @@ def main(argv: list[str] | None = None) -> int:
     X_train = X[:cutoff]
     X_val = X[cutoff:]
 
-    np.savez_compressed(out_dir / "features_npz.npz", X_train=X_train, X_val=X_val, feature_names=np.array(feature_names))
+    np.savez_compressed(
+        out_dir / "features_npz.npz",
+        X_train=X_train,
+        X_val=X_val,
+        feature_names=np.array(feature_names),
+    )
 
-    print(f"Saved dataset to {dataset_parquet} and {dataset_csv}\nSaved features to {out_dir / 'features_npz.npz'}")
+    print(
+        f"Saved dataset to {dataset_parquet} and {dataset_csv}\nSaved features to {out_dir / 'features_npz.npz'}"
+    )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
