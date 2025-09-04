@@ -55,4 +55,4 @@ This call is safe and a no-op when observability env variables are not set or mi
 - Keep hot-path code free from heavy logic; the service, persistence, and scheduler run off-path.
 - All timestamps are in ns; schemas validated by Pandera in contract tests.
 - See README “Unified Observability” section for additional examples.
-
+- Example Grafana dashboards: import `ml/deployment/grafana/ml_pipeline_health.json` and point the datasource to your Prometheus instance.

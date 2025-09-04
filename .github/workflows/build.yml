@@ -115,6 +115,9 @@ jobs:
       - name: Run tests
         run: |
           uv run --no-sync pytest --ignore=tests/performance_tests -n logical --dist=loadgroup
+      - name: ML coverage gate (exclude prototypes)
+        run: |
+          uv run --no-sync pytest -n logical --dist=loadgroup -m 'not prototype' --cov=ml --cov-report=term-missing --cov-fail-under=90
       - name: Validate metrics bootstrap usage
         run: |
           make validate-metrics

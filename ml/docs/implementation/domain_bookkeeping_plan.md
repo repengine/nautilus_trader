@@ -499,3 +499,16 @@ This implementation plan builds incrementally on the solid foundation already es
   - Finalized persisted contracts with a JSONL schema test: `ml/tests/contracts/test_observability_persisted_schemas.py` reads JSONL files and validates against the Pandera models used for in‑memory DTOs.
   - DB contract coverage already present in `ml/tests/unit/observability/test_db_persistor.py` and `ml/tests/unit/observability/test_integration_db_flush.py`.
   - DTO builders ensure correct typing/normalization (labels JSON, int ns timestamps, clamped ranges). No hot‑path changes.
+
+## Next Steps
+
+- CI gate ≥90% ML coverage (ML scope):
+  - Keep new modules ≥90% and raise aggregate close to target; ensure `-m 'not prototype'` default remains stable. Gate on PRs for `ml/` paths.
+- DB partitioning migrations:
+  - Implemented initial monthly partitioning utilities and tests:
+    - `ml/observability/migrations.py::ensure_monthly_partitions(engine, table, ts_col)` creates partitioned parents when empty and ensures current/next-month partitions with BRIN on child tables.
+    - `apply_observability_monthly_partitions(engine)` applies to canonical observability tables.
+    - Tests: `ml/tests/unit/observability/test_db_partitioning_postgres.py` (skips if PostgreSQL unavailable).
+  - Note: For non-empty, non-partitioned tables, function is conservative (no-op). A future migration can perform data movement if needed.
+- Optional store publisher expansion:
+  - Evaluate enabling publishers at additional emit points behind a toggle; extend unit tests if new points are added.

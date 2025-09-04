@@ -37,6 +37,13 @@ All strategies inherit from `BaseMLStrategy` and extend Nautilus Trader's `Strat
 
 The foundational abstract class that all ML strategies inherit from. Extends Nautilus Trader's `Strategy` class with ML-specific capabilities.
 
+**Enhanced Production Features:**
+- **✨ ENHANCEMENT:** DRY RUN MODE by default with execute_trades=False for safety
+- **📝 ADDITION:** Signal consumption from MLSignalActor via ml_signal_source
+- **📝 ADDITION:** Risk management parameters via environment variables
+- **📝 ADDITION:** Strategy store persistence with configurable batch sizes
+- **📝 ADDITION:** Final statistics reporting on shutdown
+
 **Key Features**:
 
 - **Signal Subscription**: Automatically subscribes to MLSignal data types (with optional client_id filtering)
@@ -102,6 +109,8 @@ A basic implementation demonstrating binary signal trading logic.
 - Position reversal on opposite signals
 - Basic position management (one position at a time)
 - Implements `on_order_filled` for position tracking
+- **⚠️ CORRECTION:** Position alignment check prevents unnecessary trades
+- **✨ ENHANCEMENT:** Intelligent position reversal with error handling
 
 **Key Methods**:
 - `_process_ml_signal()`: Implements simple binary trading logic
@@ -122,6 +131,10 @@ Production-ready strategy with advanced multi-model support and comprehensive de
 - **Risk Management**: Advanced risk metrics calculation and tracking
 - **Performance Attribution**: Per-model performance tracking via `_order_to_model` mapping
 - **Position Reversal Logic**: Sophisticated position management with reversal detection
+- **✨ ENHANCEMENT:** DRY RUN MODE by default with execute_trades=False for safety
+- **📝 ADDITION:** Risk management parameters via environment variables
+- **📝 ADDITION:** Strategy store persistence with configurable batch sizes
+- **📝 ADDITION:** Test-safe initialization with graceful error handling
 
 **Decision Types**:
 
@@ -172,6 +185,12 @@ weight = accuracy * (1.0 + np.tanh(profit_per_trade / 100.0))
 - Combines accuracy with normalized profit per trade
 - Minimum weight of 0.1 to prevent complete exclusion
 - Weights are normalized to sum to 1.0
+
+**Dynamic Weighting Enhancements:**
+- **✨ ENHANCEMENT:** Performance-Based Weighting: Automatic model weight adjustment based on historical performance
+- **📝 ADDITION:** Adaptive Learning: Model weights evolve with observed accuracy and profitability
+- **📝 ADDITION:** Minimum Weight Constraints: Prevents complete model exclusion (0.1 minimum weight)
+- **📝 ADDITION:** Normalized Weighting: Ensures total weights sum to 1.0 for proper aggregation
 
 ## Signal Generation Architecture
 

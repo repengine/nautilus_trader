@@ -11,9 +11,12 @@ This runbook summarizes operational procedures for the ML Observability pipeline
 - Manual start: use `ml.cli.observability start` for ad-hoc sessions.
 
 ## Health and alerts
-- Prometheus: ensure metric scraping of ML processes (see `ml/common/metrics_bootstrap.py`). Suggested starters:
-  - Latency: alert on P99 > SLO per pipeline stage.
-  - Health: alert when component `health_score` < threshold (e.g., 0.8) or drops >20% over 5m.
+- Prometheus: ensure metric scraping of ML processes (see `ml/common/metrics_bootstrap.py`).
+- Alert rules: sample rules are provided in `ml/deployment/alerts.yml`.
+  - Latency: `MLModelInferenceLatencyHighP99` triggers when P99 inference latency >200ms for 5m.
+  - Health: `MLPipelineHealthLow` triggers when `nautilus_ml_pipeline_health` < 0.8 for 5m.
+  - To enable, add to Prometheus config:
+    - `rule_files:` section including `/etc/prometheus/alerts.yml` and mount `ml/deployment/alerts.yml` into the container.
 - Grafana: dashboards for latency watermarks, component health, and correlation summaries (example JSON dashboards forthcoming).
 
 ## Common errors
@@ -24,8 +27,8 @@ This runbook summarizes operational procedures for the ML Observability pipeline
 ## Validation
 - Contract tests validate Pandera schemas for in-memory and persisted tables.
 - Quick checks: run `uv run -m ml.cli.observability flush-jsonl --seed-sample` and inspect outputs.
+ - Persisted JSONL contract: `ml/tests/contracts/test_observability_persisted_schemas.py` validates JSONL against Pandera models.
 
 ## Troubleshooting
 - Enable more logging via `LOG_LEVEL=DEBUG`.
 - For background flusher issues, run a single-shot flush with `interval=0` using the CLI to isolate persistence problems.
-
