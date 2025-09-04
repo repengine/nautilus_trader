@@ -334,14 +334,21 @@ class DataStore(MLComponentMixin):
                 from ml.registry.data_registry import DataRegistry
                 from ml.registry.persistence import BackendType
                 from ml.registry.persistence import PersistenceConfig
+
+                default_registry_dir = Path.home() / ".nautilus" / "ml" / "registry"
+                try:
+                    default_registry_dir.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass  # Safe to ignore; DataRegistry may handle creation
+
                 persistence_config = PersistenceConfig(
                     backend=BackendType.JSON,
-                    json_path=Path("./data/registry"),
+                    json_path=default_registry_dir,
                 )
                 self.registry = cast(
                     "RegistryProtocol",
                     DataRegistry(
-                        registry_path=Path("./data/registry"),
+                        registry_path=default_registry_dir,
                         persistence_config=persistence_config,
                     ),
                 )

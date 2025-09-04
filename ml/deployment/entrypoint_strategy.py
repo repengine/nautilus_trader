@@ -2,17 +2,20 @@
 """
 Entrypoint for ML Trading Strategy container.
 
-This script runs the ML Trading Strategy that consumes signals
-from the ML Signal Actor and makes trading decisions (in dry run mode).
+Run the ML Trading Strategy that consumes signals from the ML Signal Actor
+and makes trading decisions (dry run by default).
 """
 
 import asyncio
+import logging
 import os
 import signal
 import sys
 from typing import Any, cast
 
 from ml.config.base import MLStrategyConfig
+from ml.core.integration import MLIntegrationManager
+from ml.observability.bootstrap import auto_start_if_configured
 from ml.strategies.ml_strategy import MLTradingStrategy
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.config import TradingNodeConfig
@@ -231,6 +234,16 @@ def main() -> None:
     # Create and run the strategy node
     strategy_node = MLStrategyNode()
     strategy_node.setup()
+
+    # Auto-start observability flushing if configured via env
+    try:
+        mgr: MLIntegrationManager = MLIntegrationManager.__new__(MLIntegrationManager)
+        auto_start_if_configured(mgr)
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "Observability auto-start skipped due to configuration or environment",
+            exc_info=True,
+        )
 
     # Run async event loop
     try:

@@ -232,26 +232,44 @@ class DataCollectorConfig(NautilusConfig, kw_only=True, frozen=True):
 
     Environment overrides
     ----------------------
-    ML_DATA_ENHANCED_DIR -> data_dir
+    ML_DATA_TIER1_DIR    -> data_dir
+    (legacy) ML_DATA_ENHANCED_DIR -> data_dir
     ML_STORAGE_LIMIT_GB  -> storage_limit_gb
     ML_END_DATE          -> end_date_iso
 
     """
 
-    data_dir: str = "./data/enhanced"
+    data_dir: str = "./data/tier1"
     storage_limit_gb: PositiveFloat = 500.0
     end_date_iso: str | None = None
 
     _ENV_MAPPING: ClassVar[dict[str, str]] = {
-        "data_dir": "ML_DATA_ENHANCED_DIR",
+        "data_dir": "ML_DATA_TIER1_DIR",
         "storage_limit_gb": "ML_STORAGE_LIMIT_GB",
         "end_date_iso": "ML_END_DATE",
+    }
+    # Backward-compatibility for older environments
+    _LEGACY_ENV_MAPPING: ClassVar[dict[str, str]] = {
+        "data_dir": "ML_DATA_ENHANCED_DIR",
     }
 
     def __post_init__(self) -> None:
         import os
 
+        # Primary env overrides
         for field, env_var in self._ENV_MAPPING.items():
+            if env_value := os.getenv(env_var):
+                current = getattr(self, field)
+                try:
+                    casted = type(current)(env_value) if current is not None else env_value
+                except Exception:
+                    casted = env_value
+                object.__setattr__(self, field, casted)
+
+        # Legacy env overrides (only if primary not provided)
+        for field, env_var in self._LEGACY_ENV_MAPPING.items():
+            if os.getenv(self._ENV_MAPPING[field]):
+                continue  # Prefer primary var when set
             if env_value := os.getenv(env_var):
                 current = getattr(self, field)
                 try:

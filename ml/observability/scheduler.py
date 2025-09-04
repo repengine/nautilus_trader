@@ -11,7 +11,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Union, Dict
 
 from ml.observability.persistence import ObservabilityPersistor
 from ml.observability.service import ObservabilityService
@@ -34,26 +34,40 @@ class ObservabilityFlusher:
     interval_seconds: float = 60.0
     now: NowFunc = field(default=lambda: time.time())
     _last_flush: float = field(default=0.0, init=False)
+    sink: str = "file"  # one of {"file", "db"}
+    db_connection_string: str | None = None
 
-    def flush_once(self) -> dict[str, Path]:
+    def flush_once(self) -> dict[str, Path] | dict[str, int]:
         tables = {
             "latency": self.service.latency_watermarks_df(),
             "metrics": self.service.metrics_collection_df(),
             "correlation": self.service.event_correlation_df(),
             "health": self.service.health_scores_df(),
         }
-        sink = ObservabilityPersistor(base_path=self.base_path, file_format=self.file_format)
-        out = sink.persist(tables)
-        self._last_flush = self.now()
-        return out
+        if self.sink == "db":
+            from ml.observability.db_persistence import ObservabilityDBPersistor
 
-    def tick(self) -> dict[str, Path]:
+            if not self.db_connection_string:
+                return {}
+            per = ObservabilityDBPersistor(connection_string=self.db_connection_string)
+            written = per.persist(tables)
+            self._last_flush = self.now()
+            # Return a normalized dict[str, Path] | dict[str, int]; choose int map for DB sink
+            return written
+        else:
+            sink = ObservabilityPersistor(base_path=self.base_path, file_format=self.file_format)
+            out = sink.persist(tables)
+            self._last_flush = self.now()
+            return out
+
+    def tick(self) -> Union[Dict[str, Path], Dict[str, int]]:
         """Flush if interval has elapsed; return mapping of written files."""
         if self.interval_seconds <= 0:
             return self.flush_once()
         if self.now() - self._last_flush >= self.interval_seconds:
             return self.flush_once()
-        return {}
+        # Return consistent type depending on sink
+        return {} if self.sink == "db" else {}
 
     def start_background(self, stop_event: threading.Event) -> threading.Thread:
         """
@@ -77,4 +91,3 @@ class ObservabilityFlusher:
 
 
 __all__ = ["ObservabilityFlusher"]
-

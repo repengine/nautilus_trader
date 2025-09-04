@@ -535,3 +535,39 @@ For more information, visit <https://nautilustrader.io>.
 
 ![nautechsystems](https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/ns-logo.png "nautechsystems")
 <img src="https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/ferris.png" width="128">
+# Nautilus Trader ML (Observability excerpt)
+
+This repository adds a teacher–student ML architecture and domain bookkeeping on top of Nautilus Trader.
+See `ml/docs/implementation/domain_bookkeeping_plan.md` for the current plan and status.
+
+## Observability (Domain Bookkeeping)
+
+The ML layer includes unified observability with DTO builders, a registry-backed event flow, and optional persistence to JSONL/CSV or SQL. Observability runs off the hot path.
+
+### CLI (flush and background)
+
+Flush observability tables to JSONL/CSV or a SQL DB, or start background flushing:
+
+```
+uv run -m ml.cli.observability flush-jsonl --base-path ./observability --format jsonl --seed-sample
+uv run -m ml.cli.observability flush-db --db-url sqlite:///./observability.db --seed-sample
+uv run -m ml.cli.observability start --sink db --db-url sqlite:///./observability.db --interval 10 --duration 30 --seed-sample
+```
+
+`--seed-sample` generates a minimal set of rows across latency, metrics, correlation, and health to demo end-to-end.
+
+### Env-driven background flushing
+
+Apps can auto-start background flushing by setting environment variables and calling bootstrap at startup:
+
+```
+export ML_OBS_SINK=db
+export ML_OBS_DB_URL=sqlite:///./observability.db
+export ML_OBS_INTERVAL_SECONDS=10
+
+from ml.core.integration import MLIntegrationManager
+from ml.observability.bootstrap import auto_start_if_configured
+
+mgr = MLIntegrationManager()
+auto_start_if_configured(mgr)
+```

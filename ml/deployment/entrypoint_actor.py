@@ -2,11 +2,12 @@
 """
 Entrypoint for ML Signal Actor container.
 
-This script runs the ML Signal Actor with Databento data feed
-and PostgreSQL persistence in a containerized environment.
+Run the ML Signal Actor with Databento data feed and optional PostgreSQL
+persistence in a containerized environment.
 """
 
 import asyncio
+import logging
 import os
 import signal
 import sys
@@ -16,6 +17,8 @@ from typing import Any, cast
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.config.base import MLFeatureConfig
+from ml.core.integration import MLIntegrationManager
+from ml.observability.bootstrap import auto_start_if_configured
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
@@ -190,6 +193,16 @@ def main() -> None:
     # Create and run the actor node
     actor_node = MLSignalActorNode()
     actor_node.setup()
+
+    # Auto-start observability flushing if configured via env
+    try:
+        mgr: MLIntegrationManager = MLIntegrationManager.__new__(MLIntegrationManager)
+        auto_start_if_configured(mgr)
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "Observability auto-start skipped due to configuration or environment",
+            exc_info=True,
+        )
 
     # Run async event loop
     try:

@@ -1,0 +1,37 @@
+name: ml-prototype-phase2
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 06:00 UTC
+  pull_request:
+    types: [labeled]
+
+jobs:
+  run-prototype-tests:
+    if: github.event_name == 'schedule' || contains(toJson(github.event.pull_request.labels), 'run-prototype')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          free-disk-space: "true"
+
+      - name: Cached test data
+        uses: ./.github/actions/common-test-data
+
+      - name: Install test dependencies
+        run: |
+          make install-just-deps
+
+      - name: Run Phase-2 prototype suite
+        run: |
+          uv run --no-sync pytest -n logical --dist=loadgroup -m prototype ml/tests
+

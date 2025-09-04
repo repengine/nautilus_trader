@@ -41,6 +41,10 @@ class TFTDatasetBuilder:
         symbols: list[str],
         feature_config: MLFeatureConfig | None = None,
         feature_store: FeatureStore | None = None,
+        *,
+        include_macro: bool = False,
+        macro_lag_days: int = 1,
+        fred_path: str | None = None,
     ) -> None:
         """
         Initialize TFT dataset builder.
@@ -61,6 +65,9 @@ class TFTDatasetBuilder:
         self.symbols = symbols
         self.feature_config = feature_config or MLFeatureConfig()
         self.feature_store = feature_store
+        self.include_macro = include_macro
+        self.macro_lag_days = macro_lag_days
+        self.fred_path = fred_path
 
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
@@ -164,12 +171,10 @@ class TFTDatasetBuilder:
                     logger.warning(f"No bar data found for {instrument_id}")
                     continue
 
-                # Join features with bars on timestamp
-                combined_df = bars_df.join(
-                    feature_df,
-                    on="ts_event",
-                    how="inner",
-                )
+                # Align column names and join features with bars
+                # bars_to_dataframe provides 'timestamp'; features use 'ts_event'
+                bars_df = bars_df.rename({"timestamp": "ts_event"})
+                combined_df = bars_df.join(feature_df, on="ts_event", how="inner")
 
                 # Add instrument identifier
                 combined_df = combined_df.with_columns(
@@ -211,6 +216,20 @@ class TFTDatasetBuilder:
 
         # Combine all instruments
         final_df = pl.concat(all_data, how="vertical")
+        # Optionally join macro features (as-of with lag)
+        if self.include_macro:
+            from ml.data.fred_join import join_fred_asof
+            from typing import cast
+
+            final_df = cast(
+                pl.DataFrame,
+                join_fred_asof(
+                final_df,
+                timestamp_col="ts_event",
+                lag_days=self.macro_lag_days,
+                fred_path=self.fred_path,
+                ),
+            )
         logger.info(
             f"Loaded {len(final_df)} rows from FeatureStore with {len(final_df.columns)} columns",
         )
@@ -307,6 +326,18 @@ class TFTDatasetBuilder:
             lookback_periods=lookback_periods,
             use_polars=use_polars,
         )
+
+        # Optionally join macro features
+        if self.include_macro:
+            from ml.data.fred_join import join_fred_asof
+
+            ts_col = "timestamp" if use_polars else "timestamp"
+            direct_df = join_fred_asof(
+                direct_df,
+                timestamp_col=ts_col,
+                lag_days=self.macro_lag_days,
+                fred_path=self.fred_path,
+            )
 
         logger.info(
             f"Successfully computed {len(direct_df) if hasattr(direct_df, '__len__') else 'N/A'} rows using {source}",
@@ -532,10 +563,10 @@ class TFTDatasetBuilder:
         # Generate targets
         targets = self._generate_targets_polars(df, horizon_minutes, threshold)
 
-        # Combine
+        # Combine (retain timestamp for macro joins)
         dataset = pl.concat(
             [
-                df.select(["time_index", "instrument_id"]),
+                df.select(["timestamp", "time_index", "instrument_id"]),
                 features,
                 targets,
             ],
@@ -587,10 +618,10 @@ class TFTDatasetBuilder:
         # Generate targets
         targets = self._generate_targets_pandas(df, horizon_minutes, threshold)
 
-        # Combine
+        # Combine (retain timestamp for macro joins)
         dataset = pd.concat(
             [
-                df[["time_index", "instrument_id"]],
+                df[["timestamp", "time_index", "instrument_id"]],
                 features,
                 targets,
             ],

@@ -1,0 +1,27 @@
+groups:
+  - name: ml-observability
+    interval: 30s
+    rules:
+      - alert: MLModelInferenceLatencyHighP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(nautilus_ml_model_inference_duration_seconds_bucket[5m])) by (le)
+          ) > 0.200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High model inference latency (P99 > 200ms)"
+          description: |
+            P99 model inference latency is above 200ms for 5m.
+
+      - alert: MLPipelineHealthLow
+        expr: nautilus_ml_pipeline_health < 0.8
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pipeline health below threshold"
+          description: |
+            One or more components report health < 0.8 for 5m.
+

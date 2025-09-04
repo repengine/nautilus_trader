@@ -320,8 +320,12 @@ class DataScheduler:
                 )
                 registry_path = Path("/tmp/ml_registry")  # Path for JSON fallback
             else:
-                # Use JSON backend for development
-                registry_path = Path("./data/registry")
+                # Use JSON backend for development (standardized location)
+                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+                try:
+                    registry_path.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
                 persistence_config = PersistenceConfig(
                     backend=BackendType.JSON,
                     json_path=registry_path,

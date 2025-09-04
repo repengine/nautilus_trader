@@ -96,7 +96,7 @@ graph TB
   - `data_dir`: Output directory for collected data
   - Databento API key via `DATABENTO_API_KEY` environment variable
 - **Output**: Raw market data files in Parquet format
-- **Storage**: Organized by symbol and data type under `data/enhanced/`
+- **Storage**: Organized by symbol and data type under `data/tier1/`
 
 **Key Features**:
 

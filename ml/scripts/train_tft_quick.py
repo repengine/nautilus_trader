@@ -42,11 +42,11 @@ def main() -> int:
     min_return_threshold = 0.002  # 0.2% threshold for binary classification
     lookback_periods = 50  # Ensure enough history for features
 
-    # Data directories to check
+    # Data directories to check (prefer curated tier1)
     data_dirs = [
-        Path("/home/nate/projects/nautilus_trader/data/enhanced"),
-        Path("/home/nate/projects/nautilus_trader/data/universe"),
-        Path("/home/nate/projects/nautilus_trader/data"),
+        Path("data/tier1"),
+        Path("/home/nate/projects/nautilus_trader/data/tier1"),
+        Path("data"),
     ]
 
     # Find valid data directory

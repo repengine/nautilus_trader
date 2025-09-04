@@ -30,7 +30,9 @@ from ml._imports import check_ml_dependencies
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.config.scheduler_config import UniverseConfig
+from ml.core.integration import MLIntegrationManager
 from ml.data.scheduler import DataScheduler
+from ml.observability.bootstrap import auto_start_if_configured
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -278,19 +280,27 @@ class PipelineRunner:
 
 
 def main() -> None:
-    """
-    Main entry point.
-    """
+    """Run main entry point."""
     # Start health check server in background
     health_thread = threading.Thread(
         target=lambda: app.run(
-            host="0.0.0.0",
+            host="0.0.0.0",  # noqa: S104 - container health endpoint
             port=int(os.environ.get("HEALTH_CHECK_PORT", "8080")),
             debug=False,
         ),
     )
     health_thread.daemon = True
     health_thread.start()
+
+    # Auto-start observability flushing if configured via env
+    try:
+        mgr: MLIntegrationManager = MLIntegrationManager.__new__(MLIntegrationManager)
+        auto_start_if_configured(mgr)
+    except Exception:
+        logger.debug(
+            "Observability auto-start skipped due to configuration or environment",
+            exc_info=True,
+        )
 
     # Run pipeline
     runner = PipelineRunner()

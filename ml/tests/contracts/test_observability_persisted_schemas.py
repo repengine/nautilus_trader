@@ -3,102 +3,96 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-import pandera as pa
 
 from ml.observability.persistence import ObservabilityPersistor
-from ml.observability.service import ObservabilityService
-from ml.tests.contracts.test_observability_pipeline_schemas import (
-    EventCorrelationSchema,
-    HealthScoreAggregationSchema,
-    LatencyWatermarkSchema,
-    MetricsCollectionSchema,
-)
-from nautilus_trader.core.uuid import UUID4
+from ml.observability.pipeline import build_event_correlation
+from ml.observability.pipeline import build_health_scores
+from ml.observability.pipeline import build_latency_watermarks
+from ml.observability.pipeline import build_metrics_collection
+from ml.tests.contracts.test_observability_pipeline_schemas import EventCorrelationSchema
+from ml.tests.contracts.test_observability_pipeline_schemas import HealthScoreAggregationSchema
+from ml.tests.contracts.test_observability_pipeline_schemas import LatencyWatermarkSchema
+from ml.tests.contracts.test_observability_pipeline_schemas import MetricsCollectionSchema
 
 
-class TestPersistedObservabilityContracts:
-    def test_persisted_jsonl_files_conform_to_contracts(self, tmp_path: Path) -> None:
-        svc = ObservabilityService()
+def _read_jsonl(path: Path) -> pd.DataFrame:
+    df = pd.read_json(path, orient="records", lines=True)
+    # Normalize integer timestamp-like columns for schema validation
+    for col in (
+        "timestamp",
+        "ts_event",
+        "ts_stage_start",
+        "ts_stage_end",
+        "measurement_window_ms",
+    ):
+        if col in df.columns:
+            df[col] = df[col].astype("int64")
+    return df
 
-        # Latency stages (schema expects these canonical stage names)
-        svc.add_latency_stage(
-            correlation_id=str(UUID4()),
-            instrument_id="EURUSD.SIM",
-            pipeline_stage="data_ingestion",
-            ts_stage_start=1609459200000000000,
-            ts_stage_end=1609459200001000000,  # +1ms
-        )
-        svc.add_latency_stage(
-            correlation_id=str(UUID4()),
-            instrument_id="BTCUSDT.BINANCE",
-            pipeline_stage="feature_computation",
-            ts_stage_start=1609459200001000000,
-            ts_stage_end=1609459200003000000,  # +2ms
-        )
 
-        # Metrics
-        svc.add_metric(
-            metric_name="ml_model_inference_latency_seconds",
-            metric_type="histogram",
-            value=0.002,
-            timestamp=1609459200002000000,
-            labels={"actor_id": "a1", "model_id": "m1"},
-        )
+def test_persisted_jsonl_conforms_to_contracts(tmp_path: Path) -> None:
+    # Build contract-compliant frames using canonical names
+    lat = build_latency_watermarks(
+        [
+            {
+                "correlation_id": "00000000-0000-0000-0000-000000000001",
+                "instrument_id": "EURUSD.SIM",
+                "pipeline_stage": "data_ingestion",
+                "ts_stage_start": 1609459200000000000,
+                "ts_stage_end": 1609459200001000000,
+            }
+        ]
+    )
+    met = build_metrics_collection(
+        [
+            {
+                "metric_name": "ml_feature_computation_latency_seconds",
+                "metric_type": "histogram",
+                "value": 0.001,
+                "timestamp": 1609459200001000000,
+                "labels": {"instrument_id": "EURUSD.SIM", "domain": "features"},
+            }
+        ]
+    )
+    cor = build_event_correlation(
+        [
+            {
+                "correlation_id": "00000000-0000-0000-0000-000000000001",
+                "event_id": "00000000-0000-0000-0000-000000000002",
+                "parent_event_id": None,
+                "instrument_id": "EURUSD.SIM",
+                "domain": "features",
+                "lineage_depth": 0,
+                "ts_event": 1609459200000000000,
+                "propagation_path": ["data", "features"],
+            }
+        ]
+    )
+    hea = build_health_scores(
+        [
+            {
+                "component_id": "feature_store",
+                "health_score": 0.95,
+                "subsystem_scores": {"db": 1.0},
+                "timestamp": 1609459200002000000,
+                "measurement_window_ms": 1000,
+            }
+        ]
+    )
 
-        # Correlation: root and child
-        root_event = str(UUID4())
-        child_event = str(UUID4())
-        corr_id = str(UUID4())
-        svc.add_correlation(
-            correlation_id=corr_id,
-            event_id=root_event,
-            parent_event_id=None,
-            instrument_id="EURUSD.SIM",
-            domain="data",
-            lineage_depth=0,
-            ts_event=1609459200000000000,
-            propagation_path=["data"],
-        )
-        svc.add_correlation(
-            correlation_id=corr_id,
-            event_id=child_event,
-            parent_event_id=root_event,
-            instrument_id="EURUSD.SIM",
-            domain="features",
-            lineage_depth=1,
-            ts_event=1609459200001000000,
-            propagation_path=["data", "features"],
-        )
+    sink = ObservabilityPersistor(base_path=tmp_path, file_format="jsonl")
+    out = sink.persist({
+        "latency": lat,
+        "metrics": met,
+        "correlation": cor,
+        "health": hea,
+    })
 
-        # Health
-        svc.add_health(
-            component_id="feature_store",
-            health_score=0.95,
-            subsystem_scores={"connection": 1.0, "query_performance": 0.9},
-            timestamp=1609459200005000000,
-            measurement_window_ms=60000,
-        )
+    # All files written
+    assert set(out.keys()) == {"latency", "metrics", "correlation", "health"}
 
-        # Persist as JSONL
-        tables = {
-            "latency": svc.latency_watermarks_df(),
-            "metrics": svc.metrics_collection_df(),
-            "correlation": svc.event_correlation_df(),
-            "health": svc.health_scores_df(),
-        }
-        sink = ObservabilityPersistor(base_path=tmp_path, file_format="jsonl")
-        written = sink.persist(tables)
-
-        # Validate with Pandera contracts by reading JSONL
-        def _read_jsonl(path: Path) -> pd.DataFrame:
-            # Avoid pandas auto-date conversion on columns named 'timestamp'
-            return pd.read_json(path, lines=True, convert_dates=False)
-
-        if "latency" in written:
-            LatencyWatermarkSchema.validate(_read_jsonl(written["latency"]))
-        if "metrics" in written:
-            MetricsCollectionSchema.validate(_read_jsonl(written["metrics"]))
-        if "correlation" in written:
-            EventCorrelationSchema.validate(_read_jsonl(written["correlation"]))
-        if "health" in written:
-            HealthScoreAggregationSchema.validate(_read_jsonl(written["health"]))
+    # Validate JSONL contents against Pandera schemas
+    LatencyWatermarkSchema.validate(_read_jsonl(out["latency"]))
+    MetricsCollectionSchema.validate(_read_jsonl(out["metrics"]))
+    EventCorrelationSchema.validate(_read_jsonl(out["correlation"]))
+    HealthScoreAggregationSchema.validate(_read_jsonl(out["health"]))

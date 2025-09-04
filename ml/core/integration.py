@@ -742,12 +742,31 @@ class MLIntegrationManager:
         except Exception:  # pragma: no cover - defensive
             return {}
 
+    def flush_observability_to_db(self, *, connection_string: str) -> dict[str, int]:
+        """
+        Persist current observability tables to a SQL database (off hot-path).
+
+        Uses `ObservabilityDBPersistor` to write non-empty tables to a relational
+        store (e.g., SQLite/PostgreSQL) and returns a mapping of table name to
+        number of rows written.
+        """
+        try:
+            from ml.observability.db_persistence import ObservabilityDBPersistor
+
+            tables = self.collect_observability_dataframes()
+            per = ObservabilityDBPersistor(connection_string=connection_string)
+            return per.persist(tables)  # type: ignore[arg-type]
+        except Exception:  # pragma: no cover - defensive
+            return {}
+
     def start_observability_flush(
         self,
         *,
         base_path: Path,
         interval_seconds: float | None = 60.0,
         file_format: str = "jsonl",
+        sink: str = "file",
+        db_connection_string: str | None = None,
     ) -> dict[str, Path] | None:
         """
         Start periodic flush of observability tables. When ``interval_seconds`` is
@@ -775,6 +794,8 @@ class MLIntegrationManager:
             base_path=base_path,
             file_format=file_format,
             interval_seconds=float(interval_seconds),
+            sink=sink,
+            db_connection_string=db_connection_string,
         )
         self._obs_thread = self._obs_flusher.start_background(self._obs_stop_event)
         return None
@@ -793,6 +814,36 @@ class MLIntegrationManager:
                 thread.join(timeout=1.0)
             except Exception:
                 pass
+
+    def start_observability_from_config(self, cfg: object) -> None:
+        """
+        Start observability flushing based on an ObservabilityConfig.
+
+        Accepts any object with attributes matching ObservabilityConfig fields to
+        avoid hard dependencies in call sites.
+        """
+        base_path = Path(getattr(cfg, "base_path", "./observability"))
+        sink = str(getattr(cfg, "sink", "file"))
+        file_format = str(getattr(cfg, "file_format", "jsonl"))
+        interval_seconds = float(getattr(cfg, "interval_seconds", 60.0))
+        db_url = getattr(cfg, "db_connection_string", None)
+        self.start_observability_flush(
+            base_path=base_path,
+            interval_seconds=interval_seconds,
+            file_format=file_format,
+            sink=sink,
+            db_connection_string=db_url,
+        )
+
+    def start_observability_from_env(self) -> None:
+        """Start observability flushing using environment-driven config."""
+        try:
+            from ml.config.observability import ObservabilityConfig
+
+            cfg = ObservabilityConfig.from_env()
+            self.start_observability_from_config(cfg)
+        except Exception:  # pragma: no cover - defensive
+            return None
 
     def emit_cross_domain_event(self, _event: dict[str, object]) -> None:
         """No-op cross-domain event emitter stub (for tests)."""

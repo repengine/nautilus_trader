@@ -122,3 +122,60 @@ __all__ = [
     "build_event_correlation",
     "build_health_scores",
 ]
+
+
+def aggregate_metrics_by_window(
+    rows: Iterable[dict[str, Any]],
+    *,
+    window_ns: int,
+) -> pd.DataFrame:
+    """Aggregate metric rows by fixed windows while preserving totals.
+
+    Groups by (metric_name, domain, instrument_id, window_start). The `labels`
+    field is not carried through to avoid exponential cardinality; callers can
+    join if needed. Returns a DataFrame with columns:
+      - metric_name, domain, instrument_id, window_start, total_value, sample_count
+    """
+    df = pd.DataFrame(list(rows))
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "metric_name",
+                "domain",
+                "instrument_id",
+                "window_start",
+                "total_value",
+                "sample_count",
+            ],
+        )
+    # Ensure types
+    df = df.copy()
+    df["timestamp"] = df["timestamp"].astype("int64")
+    df["value"] = df["value"].astype(float)
+    # Window floor
+    df["window_start"] = (df["timestamp"] // int(window_ns)) * int(window_ns)
+    group_cols = ["metric_name", "domain", "instrument_id", "window_start"]
+    out = (
+        df.groupby(group_cols, dropna=False)["value"]
+        .agg(total_value="sum", sample_count="count")
+        .reset_index()
+    )
+    return out
+
+
+def scale_health_scores(
+    rows: Iterable[dict[str, Any]],
+    *,
+    factor: float,
+) -> pd.DataFrame:
+    """Scale health scores uniformly and clip to [0, 1].
+
+    Returns a DataFrame with same columns as input, where `health_score` is
+    multiplied by `factor` and then clipped to [0, 1].
+    """
+    df = pd.DataFrame(list(rows))
+    if df.empty:
+        return df
+    df = df.copy()
+    df["health_score"] = (df["health_score"].astype(float) * float(factor)).clip(lower=0.0, upper=1.0)
+    return df
