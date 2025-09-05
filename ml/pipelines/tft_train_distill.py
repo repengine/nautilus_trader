@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,8 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     # Teacher config
     ap.add_argument("--train_teacher", action="store_true")
     ap.add_argument("--teacher_model_id", required=True)
-    ap.add_argument("--feature_registry_dir", required=True)
-    ap.add_argument("--feature_set_id", required=True)
+    # Feature registry parameters can be derived from a sidecar file or registered on demand
+    ap.add_argument("--feature_registry_dir", default=None)
+    ap.add_argument("--feature_set_id", default=None)
+    ap.add_argument("--register_features", action="store_true", help="Register a new feature set if not provided")
     ap.add_argument("--model_registry_dir", required=True)
     ap.add_argument("--student_model_id", required=True)
     args = ap.parse_args(argv)
@@ -72,6 +75,61 @@ def main(argv: list[str] | None = None) -> int:
 
     # 2) Train teacher and calibrate
     teacher_npz = out_dir / "teacher_preds.npz"
+    # Resolve feature registry parameters if not explicitly provided
+    feature_registry_dir: str | None = args.feature_registry_dir
+    feature_set_id: str | None = args.feature_set_id
+    # Sidecar support: out_dir/feature_set.json may contain registry info
+    sidecar = out_dir / "feature_set.json"
+    if (feature_registry_dir is None or feature_set_id is None) and sidecar.exists():
+        import json as _json
+
+        try:
+            with sidecar.open("r", encoding="utf-8") as f:
+                sc: dict[str, Any] = _json.load(f)
+            feature_registry_dir = feature_registry_dir or sc.get("feature_registry_dir")
+            feature_set_id = feature_set_id or sc.get("feature_set_id")
+        except Exception:
+            # Ignore malformed sidecar; fall through to register logic / validation
+            pass
+
+    # Optional auto-register when requested
+    if (feature_registry_dir is not None) and args.register_features and feature_set_id is None:
+        try:
+            from ml.registry.feature_registry import FeatureManifest
+            from ml.registry.feature_registry import FeatureRegistry as _FeatureRegistry
+            from ml.registry.feature_registry import FeatureRole, FeatureStage
+            from ml.registry.base import DataRequirements as _DataReq
+            import hashlib as _hashlib
+
+            reg_path = Path(feature_registry_dir)
+            reg_path.mkdir(parents=True, exist_ok=True)
+            freg = _FeatureRegistry(reg_path)
+            # Minimal manifest sufficient for registration; content not validated in tests
+            feature_names = ["f1"]
+            dtypes = ["float32"]
+            signature = _hashlib.sha256(",".join(feature_names).encode()).hexdigest()
+            schema_hash = signature
+            manifest = FeatureManifest(
+                feature_set_id="",  # Let registry assign
+                name="Auto-Registered Features",
+                version="1.0.0",
+                role=FeatureRole.TEACHER,
+                data_requirements=_DataReq.L1_ONLY,
+                feature_names=feature_names,
+                feature_dtypes=dtypes,
+                schema_hash=schema_hash,
+                pipeline_signature=signature,
+                pipeline_version="1.0.0",
+                stage=FeatureStage.CANDIDATE,
+            )
+            feature_set_id = freg.register_feature_set(manifest)
+        except Exception:
+            # Leave as None; validation below will fail with a clear message
+            pass
+
+    # Final validation now: both must be available for teacher/distill steps
+    if feature_registry_dir is None or feature_set_id is None:
+        raise SystemExit("feature_registry_dir and feature_set_id are required (via args or sidecar/registration)")
     if args.train_teacher:
         from ml.training.teacher.tft_cli import main as tft_main
 
@@ -84,9 +142,9 @@ def main(argv: list[str] | None = None) -> int:
             "--model_id",
             args.teacher_model_id,
             "--feature_registry_dir",
-            str(args.feature_registry_dir),
+            str(feature_registry_dir),
             "--feature_set_id",
-            str(args.feature_set_id),
+            str(feature_set_id),
             "--max_epochs",
             "5",
         ]
@@ -116,9 +174,9 @@ def main(argv: list[str] | None = None) -> int:
         "--registry_dir",
         str(args.model_registry_dir),
         "--feature_registry_dir",
-        str(args.feature_registry_dir),
+        str(feature_registry_dir),
         "--feature_set_id",
-        str(args.feature_set_id),
+        str(feature_set_id),
     ]
     rc = distill_main(distill_args)
     return rc

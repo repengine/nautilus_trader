@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from nautilus_trader.common.config import NautilusConfig, PositiveFloat
+from nautilus_trader.common.config import NautilusConfig
+from nautilus_trader.common.config import PositiveFloat
 
 
 class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -39,7 +40,7 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
     }
 
     @classmethod
-    def from_env(cls) -> "ObservabilityConfig":
+    def from_env(cls) -> ObservabilityConfig:
         """Build ObservabilityConfig from environment variables if present."""
         import os
 
@@ -60,7 +61,8 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
                 else:
                     kwargs[field] = val
         # Construct with explicit typing for msgspec/NautilusConfig
-        from typing import cast, Literal as _Lit
+        from typing import Literal as _Lit
+        from typing import cast
 
         sink_obj = kwargs.get("sink", "file")
         sink_val: _Lit["file", "db"] = cast(_Lit["file", "db"], sink_obj if sink_obj in {"file", "db"} else "file")

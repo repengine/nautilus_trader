@@ -22,8 +22,8 @@ from typing import Any
 
 from sqlalchemy import text
 
-from ml.common.protocols import MLComponentMixin
 from ml.common.correlation import make_correlation_id
+from ml.common.protocols import MLComponentMixin
 from ml.config.events import Stage
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -616,7 +616,7 @@ class DataRegistry(MLComponentMixin):
 
                     # Safe query with parameterized values
                     query = text(
-                        f"""  # noqa: S608 - set_parts constructed from trusted column names
+                        f"""
                         UPDATE ml_dataset_registry
                         SET {', '.join(set_parts)}, last_modified = NOW()
                         WHERE dataset_id = :dataset_id

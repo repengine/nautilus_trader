@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from ml.observability.pipeline import aggregate_metrics_by_window, scale_health_scores
+from ml.observability.pipeline import aggregate_metrics_by_window
+from ml.observability.pipeline import scale_health_scores
 
 
 def test_aggregate_metrics_by_window_preserves_totals() -> None:

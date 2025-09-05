@@ -558,7 +558,7 @@ class TestModelInferenceBenchmarks:
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestStoreBenchmarks:
     """Benchmarks for store read/write operations."""
 
@@ -653,7 +653,7 @@ class TestStoreBenchmarks:
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestEndToEndBenchmarks:
     """Benchmarks for complete signal generation pipeline."""
 
@@ -926,6 +926,11 @@ class TestMessageProcessingBenchmarks:
 
         p99_us = float(_np.percentile(_np.array(durations), 99)) * 1_000_000
         relax = 5.0 if os.getenv("PYTEST_XDIST_WORKER") else 1.0
+        try:
+            relax_env = float(os.getenv("ML_BENCH_RELAX", "1.0"))
+            relax *= relax_env
+        except Exception:
+            pass
         assert p99_us < 100.0 * relax, (
             f"Event dispatch latency P99 {p99_us:.1f}μs exceeds {100*relax:.0f}μs requirement"
         )

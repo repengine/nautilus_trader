@@ -26,6 +26,7 @@ from nautilus_trader.model.data import Bar
 
 @pytest.mark.database
 @pytest.mark.serial
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestFeatureStoreIntegration:
     """
     Test FeatureStore integration with existing components.
@@ -39,9 +40,6 @@ class TestFeatureStoreIntegration:
         # Use a MagicMock with Bar spec to avoid strict C-extension type checks
         return MagicMock(spec=Bar)
 
-    @pytest.mark.database
-    @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_ml_signal_actor_with_feature_store(self, mock_bar: Bar, test_database: TestDatabase) -> None:
         """
         Test that MLSignalActor uses FeatureStore when configured.
@@ -97,9 +95,6 @@ class TestFeatureStoreIntegration:
                         expected_features,
                     )
 
-    @pytest.mark.database
-    @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_ml_signal_actor_without_feature_store(self, mock_bar: Bar, test_database: TestDatabase) -> None:
         """
         Test that MLSignalActor works without FeatureStore (backward compatibility).
@@ -129,9 +124,6 @@ class TestFeatureStoreIntegration:
             # Verify actor still has FeatureEngineer
             assert actor._feature_engineer is not None
 
-    @pytest.mark.database
-    @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_training_with_feature_store(self, test_database: TestDatabase) -> None:
         """
         Test training pipeline with FeatureStore integration.
@@ -251,7 +243,6 @@ class TestFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_config_propagation(self, test_database: TestDatabase) -> None:
         """
         Test that FeatureStore configuration is properly propagated.
@@ -286,7 +277,6 @@ class TestFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_parity_validation_in_training(self, test_database: TestDatabase) -> None:
         """
         Test that training pipeline can validate parity.

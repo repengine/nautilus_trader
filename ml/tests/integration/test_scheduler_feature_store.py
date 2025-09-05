@@ -103,6 +103,7 @@ def create_test_bars(
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestSchedulerFeatureStoreIntegration:
     """
     Test DataScheduler with FeatureStore integration.
@@ -153,7 +154,6 @@ class TestSchedulerFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_computation_with_catalog_data(
         self,
         test_database: TestDatabase,
@@ -244,7 +244,6 @@ class TestSchedulerFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_initialization_failure(self, test_database: TestDatabase) -> None:
         """
         Test graceful handling of feature store initialization failure.
@@ -301,7 +300,6 @@ class TestSchedulerFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_connection_from_env(self, test_database: TestDatabase) -> None:
         """
         Test that feature store uses connection string from environment.
@@ -334,7 +332,6 @@ class TestSchedulerFeatureStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_metrics_tracking(self, test_database: TestDatabase) -> None:
         """
         Test that feature computation tracks metrics correctly.

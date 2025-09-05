@@ -90,6 +90,7 @@ except ImportError:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestEndToEndPipeline:
     """
     Test complete end-to-end ML data pipeline.
@@ -273,7 +274,6 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_computation_and_storage(self, test_database, temp_data_dir: Path) -> None:
         """
         Test feature computation and storage in FeatureStore.
@@ -399,7 +399,6 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_persistence_verification(self, test_database, temp_data_dir: Path) -> None:
         """
         Test that all data is correctly persisted to stores.

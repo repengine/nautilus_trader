@@ -5,12 +5,10 @@ from typing import Any
 
 import pandas as pd
 
-from ml.observability.pipeline import (
-    build_event_correlation,
-    build_health_scores,
-    build_latency_watermarks,
-    build_metrics_collection,
-)
+from ml.observability.pipeline import build_event_correlation
+from ml.observability.pipeline import build_health_scores
+from ml.observability.pipeline import build_latency_watermarks
+from ml.observability.pipeline import build_metrics_collection
 
 
 class TestLatencyWatermarks:

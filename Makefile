@@ -553,3 +553,16 @@ ml-coverage:  #-- Generate ML module coverage report with property tests
 sanity:
 	@echo "Running ML codebase sanity sweep (advisory)..."
 	@python ml/scripts/sanity_check.py || true
+
+.PHONY: pytest-ml
+pytest-ml:  #-- Run ML tests optimized for speed (parallel non-integration + serial integration)
+	$(info $(M) Running ML tests: parallel non-integration, then serial integration...)
+	uv run --active --no-sync pytest ml -m "not integration" -q -n auto --dist=loadscope || exit $$?
+	uv run --active --no-sync pytest ml -m integration -q -n 1 || exit $$?
+	@echo "$(GREEN)ML tests completed$(RESET)"
+
+.PHONY: pytest-ml-perf
+pytest-ml-perf:  #-- Run ML performance tests with optional relax factor (ML_BENCH_RELAX)
+	$(info $(M) Running ML performance tests...) \
+	&& echo "Relax factor: $${ML_BENCH_RELAX:-1.0}" 
+	ML_BENCH_RELAX=$${ML_BENCH_RELAX:-1.0} uv run --active --no-sync pytest ml/tests/performance -q

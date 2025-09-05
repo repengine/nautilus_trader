@@ -6,7 +6,8 @@ from typing import Any, cast
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.core.integration import MLIntegrationManager
 from ml.registry.data_registry import DataRegistry
-from ml.registry.persistence import BackendType, PersistenceConfig
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 from ml.stores.data_store import DataStore
 
 

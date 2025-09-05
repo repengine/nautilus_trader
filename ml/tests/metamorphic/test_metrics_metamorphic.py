@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from ml.evaluation.metrics import binary_logloss, roc_auc
+from ml.evaluation.metrics import binary_logloss
+from ml.evaluation.metrics import roc_auc
 
 
 def test_roc_auc_monotonic_transform_invariant() -> None:

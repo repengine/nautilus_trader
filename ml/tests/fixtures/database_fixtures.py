@@ -19,6 +19,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+# Track schema initialization per connection URL to avoid re-running migrations
+_SCHEMA_INITIALIZED: dict[str, bool] = {}
+
 import pandas as pd
 from sqlalchemy import MetaData
 from sqlalchemy import event
@@ -127,7 +130,13 @@ class TestDatabase:
             SQL schema files to execute (uses default ML schema if not provided)
 
         """
-        if self._schema_initialized:
+        # Short-circuit when schema already initialized for this engine URL
+        try:
+            engine_key = str(self.engine.url)
+        except Exception:
+            engine_key = "default"
+        if self._schema_initialized or _SCHEMA_INITIALIZED.get(engine_key, False):
+            self._schema_initialized = True
             return
 
         # Get default schema files if not provided
@@ -162,6 +171,7 @@ class TestDatabase:
             conn.commit()
 
         self._schema_initialized = True
+        _SCHEMA_INITIALIZED[engine_key] = True
 
     def _get_default_schema_files(self) -> list[Path]:
         """Get default ML schema files."""

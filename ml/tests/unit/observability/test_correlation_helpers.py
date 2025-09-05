@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from ml.observability.correlation import connected_components, prune_edges
+from ml.observability.correlation import connected_components
+from ml.observability.correlation import prune_edges
 
 
 def test_prune_edges_and_components() -> None:

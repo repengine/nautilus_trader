@@ -42,6 +42,7 @@ def feature_config() -> FeatureConfig:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestFeatureParity:
     """
     Test suite for training/inference feature parity.
@@ -157,7 +158,6 @@ class TestFeatureParity:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_computation_consistency(
         self,
         feature_config: FeatureConfig,
@@ -258,7 +258,6 @@ class TestFeatureParity:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_ml_signal_actor_uses_same_features(
         self,
         feature_config: FeatureConfig,
@@ -302,7 +301,6 @@ class TestFeatureParity:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_versioning(self, feature_config: FeatureConfig, test_database: TestDatabase) -> None:
         """
         Test that feature versions change when pipeline changes.

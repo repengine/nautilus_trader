@@ -5,18 +5,14 @@ from pathlib import Path
 import pandas as pd
 
 from ml.observability.db_persistence import ObservabilityDBPersistor
-from ml.observability.pipeline import (
-    build_event_correlation,
-    build_health_scores,
-    build_latency_watermarks,
-    build_metrics_collection,
-)
-from ml.tests.contracts.test_observability_pipeline_schemas import (
-    EventCorrelationSchema,
-    HealthScoreAggregationSchema,
-    LatencyWatermarkSchema,
-    MetricsCollectionSchema,
-)
+from ml.observability.pipeline import build_event_correlation
+from ml.observability.pipeline import build_health_scores
+from ml.observability.pipeline import build_latency_watermarks
+from ml.observability.pipeline import build_metrics_collection
+from ml.tests.contracts.test_observability_pipeline_schemas import EventCorrelationSchema
+from ml.tests.contracts.test_observability_pipeline_schemas import HealthScoreAggregationSchema
+from ml.tests.contracts.test_observability_pipeline_schemas import LatencyWatermarkSchema
+from ml.tests.contracts.test_observability_pipeline_schemas import MetricsCollectionSchema
 
 
 def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:

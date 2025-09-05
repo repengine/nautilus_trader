@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
-from typing import Callable, Union, Dict
 
 from ml.observability.persistence import ObservabilityPersistor
 from ml.observability.service import ObservabilityService
@@ -22,7 +23,8 @@ NowFunc = Callable[[], float]
 
 @dataclass(slots=True)
 class ObservabilityFlusher:
-    """Flush observability tables to disk periodically.
+    """
+    Flush observability tables to disk periodically.
 
     Prefer using ``tick`` in tests for determinism. For background operation,
     use ``start_background`` with a caller-managed ``threading.Event`` to stop.
@@ -60,7 +62,7 @@ class ObservabilityFlusher:
             self._last_flush = self.now()
             return out
 
-    def tick(self) -> Union[Dict[str, Path], Dict[str, int]]:
+    def tick(self) -> dict[str, Path] | dict[str, int]:
         """Flush if interval has elapsed; return mapping of written files."""
         if self.interval_seconds <= 0:
             return self.flush_once()

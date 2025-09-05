@@ -1341,7 +1341,7 @@ class FeatureStore:
             "ml_feature_values" if self.engine.dialect.name == "sqlite" else "public.ml_feature_values"
         )
         sql = _text(
-                f"""  # noqa: S608 - table_name and WHERE parts derived from controlled schema/filters
+                f"""
                 SELECT feature_set_id,
                        instrument_id,
                        values,

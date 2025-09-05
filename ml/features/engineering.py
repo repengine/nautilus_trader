@@ -632,7 +632,14 @@ class FeatureEngineer:
         # microstructure/trade-flow actors are available. Compute online feature names
         # with DataRequirements.L1_ONLY to size buffers and ensure index↔name parity.
         spec = self.build_pipeline_spec_from_config()
-        runner = PipelineRunner(spec, allowable=DataRequirements.L1_ONLY)
+        # Choose allowable data requirements based on configured features.
+        # If microstructure or trade flow are enabled, allow L1_L2; otherwise L1_ONLY.
+        allowable = (
+            DataRequirements.L1_L2
+            if (self.config.include_microstructure or self.config.include_trade_flow)
+            else DataRequirements.L1_ONLY
+        )
+        runner = PipelineRunner(spec, allowable=allowable)
         self._online_feature_names = runner.compute_feature_names()
         self.n_features = len(self._online_feature_names)
         # Add some extra space for potential additional features in online calculation

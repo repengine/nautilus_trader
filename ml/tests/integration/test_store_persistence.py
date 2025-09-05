@@ -14,7 +14,7 @@ from ml.stores.strategy_store import StrategyStore
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestStorePersistence:
     """
     Test that stores actually persist data with PostgreSQL.

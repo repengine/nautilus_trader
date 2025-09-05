@@ -52,6 +52,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--macro_lag_days", type=int, default=1)
     ap.add_argument("--include_micro", action="store_true")
     ap.add_argument("--include_l2", action="store_true")
+    # Optional FeatureRegistry export
+    ap.add_argument("--register_features", action="store_true")
+    ap.add_argument("--feature_registry_dir", required=False)
+    ap.add_argument(
+        "--feature_role",
+        choices=["teacher", "student", "inference_support"],
+        default="teacher",
+    )
     args = ap.parse_args(argv)
 
     data_dir = Path(args.data_dir)
@@ -103,12 +111,42 @@ def main(argv: list[str] | None = None) -> int:
     X_train = X[:cutoff]
     X_val = X[cutoff:]
 
-    np.savez_compressed(
-        out_dir / "features_npz.npz",
-        X_train=X_train,
-        X_val=X_val,
-        feature_names=np.array(feature_names),
-    )
+    np.savez_compressed(out_dir / "features_npz.npz", X_train=X_train, X_val=X_val, feature_names=np.array(feature_names))
+
+    # Optionally export feature manifest
+    if args.register_features:
+        if not args.feature_registry_dir:
+            raise SystemExit("--feature_registry_dir is required when --register_features is set")
+        from ml.data.feature_manifest_export import FeatureExportConfig
+        from ml.data.feature_manifest_export import export_feature_manifest
+        from ml.registry.base import DataRequirements
+        from ml.registry.feature_registry import FeatureRole
+
+        role_map = {
+            "teacher": FeatureRole.TEACHER,
+            "student": FeatureRole.STUDENT,
+            "inference_support": FeatureRole.INFERENCE_SUPPORT,
+        }
+        data_req = DataRequirements.L1_ONLY if not args.include_l2 else DataRequirements.L1_L2
+        cfg = FeatureExportConfig(
+            registry_path=Path(args.feature_registry_dir),
+            role=role_map[args.feature_role],
+            data_requirements=data_req,
+        )
+        flags = {
+            "include_macro": args.include_macro,
+            "include_micro": args.include_micro,
+            "include_l2": args.include_l2,
+            "horizon_minutes": args.horizon_minutes,
+            "lookback_periods": args.lookback_periods,
+        }
+        fid = export_feature_manifest(
+            feature_names=feature_names,
+            feature_dtypes=["float32"] * len(feature_names),
+            flags=flags,
+            cfg=cfg,
+        )
+        print(f"Registered feature set: {fid} in {args.feature_registry_dir}")
 
     print(
         f"Saved dataset to {dataset_parquet} and {dataset_csv}\nSaved features to {out_dir / 'features_npz.npz'}"

@@ -1,27 +1,27 @@
 # ML Tests Context Documentation
 
-**Version**: 4.1  
-**Last Updated**: 2024-01-10  
-**Status**: Optimized test infrastructure with markers, consolidation, and verification
+**Version**: 4.2  
+**Last Updated**: 2025-09-05  
+**Status**: Optimized and parallel-ready test infrastructure with DB-safe scoping and two‑phase execution
 
 ## ⚠️ Important Database Requirement
 
 **The ML system requires PostgreSQL.** The SQL migrations use PostgreSQL-specific features (partitioning, PL/pgSQL functions, triggers) that are incompatible with SQLite. This is a fundamental architectural requirement.
 
+For speed and stability under parallel execution, DB‑heavy tests run with class/module‑scoped cleanup and integration tests run serially.
+
 ## Executive Summary
 
 This document summarizes the ML testing architecture and conventions. The test infrastructure has been consolidated into a single, comprehensive `conftest.py` that uses the `EngineManager` singleton for proper connection pooling. Multiple testing approaches (property-based, metamorphic, contract, and pairwise) ensure thorough coverage while minimizing test count.
 
-### Current State (January 2024)
+### Current State (September 2025)
 
-- **Infrastructure**: Consolidated conftest.py with session-scoped fixtures and proper cleanup
-- **Connection Management**: EngineManager prevents pool exhaustion (2 connections + 3 overflow)
-- **Test Organization**: Well-structured directories with pytest markers for categorization
-- **Test Optimization**: 57% reduction in PostgreSQL tests through consolidation
-- **Testing Approaches**: Property-based (Hypothesis), metamorphic, contract (Pandera), pairwise
-- **Pass Rate**: Significantly improved from 45-50% to >95% after infrastructure fixes
-- **Type Safety**: Zero mypy errors after comprehensive type annotation fixes
-- **Test Markers**: All 131 test files properly marked for optimal execution strategies
+- **Infrastructure**: Consolidated `ml/tests/conftest.py` with session‑scoped engine and class/module‑scoped DB cleanup fixtures.
+- **Connection Management**: EngineManager prevents pool exhaustion (2 base + 3 overflow) and reuses engines per URL.
+- **Parallel Readiness**: Non‑integration tests are safe in parallel; integration tests run serially to avoid DDL/DML deadlocks.
+- **Performance Stability**: Benchmarks accept optional relax factor `ML_BENCH_RELAX` for CI variance.
+- **Testing Approaches**: Property‑based (Hypothesis), metamorphic, contract (Pandera), pairwise.
+- **Markers**: `database`, `serial`, and `integration` used consistently for optimal execution strategies.
 
 ## Test Infrastructure
 
@@ -50,7 +50,7 @@ def database_session(database_session_factory):
     # Uses nested transactions for complete isolation
 ```
 
-### Hypothesis Profiles
+### DB Cleanup Scopes & Hypothesis Profiles
 
 Three testing profiles for different environments:
 
@@ -170,19 +170,29 @@ HYPOTHESIS_PROFILE=ci python -m pytest ml/tests/property -x
 HYPOTHESIS_PROFILE=dev python -m pytest ml/tests/property
 ```
 
-### Integration Tests
-```bash
-# Fast integration tests
-python -m pytest ml/tests/integration -x -m "not slow"
+### Parallel + Serial Mix (Recommended)
 
-# Full integration suite
-python -m pytest ml/tests/integration
+Use the Makefile shortcut to run a fast, stable two‑phase ML test sequence:
+
+```bash
+# Parallelize non-integration tests; run integration tests serially
+make pytest-ml
+```
+
+Equivalent manual invocation:
+
+```bash
+# 1) Non-integration in parallel
+pytest ml -m "not integration" -n auto --dist=loadscope -q
+
+# 2) Integration serial
+pytest ml -m integration -n 1 -q
 ```
 
 ### Performance Tests
 ```bash
-# Benchmark hot path operations
-python -m pytest ml/tests/performance/test_ml_hot_path_benchmarks.py --benchmark-only
+# Benchmark hot path operations (optionally relax thresholds on CI)
+ML_BENCH_RELAX=1.5 python -m pytest ml/tests/performance/test_ml_hot_path_benchmarks.py --benchmark-only
 ```
 
 ## Connection Management
@@ -204,13 +214,16 @@ EngineManager.dispose_engine(connection_string)
 EngineManager.dispose_all()
 ```
 
-### Preventing Connection Exhaustion
+### Preventing Connection Exhaustion & Deadlocks
 
-1. **Session-scoped fixtures**: Single engine for entire test session
-2. **Conservative pooling**: 2 base + 3 overflow connections
-3. **Automatic cleanup**: `cleanup_engines` fixture disposes after each test
-4. **Transaction isolation**: Tests use nested transactions with rollback
-5. **Connection monitoring**: `connection_monitor` fixture detects leaks
+1. **Session-scoped engine** reuses connections across tests.
+2. **Conservative pooling**: 2 base + 3 overflow connections.
+3. **Class/Module cleanup**: TRUNCATE once per class/module; per‑test cleanup suppressed via env.
+4. **Transaction isolation**: Nested transactions for function‑scoped DB sessions.
+5. **Parallel policy**:
+   - Non‑integration tests → `-n auto --dist=loadscope`.
+   - Integration tests → serial (`-n 1`).
+   - DDL‑heavy tests (e.g., partition migrations) are marked `serial` for xdist safety.
 
 ## Common Patterns
 
@@ -290,14 +303,14 @@ python -m pytest test_file.py::test_function --benchmark-only
 - Use Docker for local development if PostgreSQL not installed
 
 ### Parallel Test Execution
-- Limited to CPU/2 workers to prevent database overwhelm
-- Use `-n auto` flag with pytest-xdist for parallel execution
+- Use `-n auto` for non‑integration tests only; keep integration serial to avoid DDL/DML contention.
+- The Makefile target `pytest-ml` orchestrates this automatically.
 
 ### Memory Usage
 - Hypothesis tests can consume significant memory
 - Use smaller max_examples in CI environments
 
-## Recent Improvements (January 2024)
+## Recent Improvements (September 2025)
 
 ### Test Marker Implementation
 - Applied pytest markers to all 131 test files
@@ -305,12 +318,17 @@ python -m pytest test_file.py::test_function --benchmark-only
 - Parallel-safe tests marked for concurrent execution
 - Created verification scripts to ensure marker compliance
 
-### PostgreSQL Test Consolidation
-- Merged 3 redundant PostgreSQL test files into 1 parameterized file
-- Achieved 57% line reduction (223 → 96 lines)
-- Preserved all test scenarios while eliminating duplication
-- Fixed broken fixtures that were causing test failures
+### PostgreSQL Test Consolidation & Speedups
+- Added class/module‑scoped cleanup fixtures to minimize TRUNCATE overhead.
+- Cached schema initialization per engine URL.
+- Ensured DDL tests are marked `serial` for xdist safety.
+- Added `ML_BENCH_RELAX` variable for stable performance thresholds on CI.
 
+- **DB cleanup scopes**:
+  - `clean_postgres_db`: function‑scoped compatibility fixture (legacy tests).
+  - `clean_postgres_db_class`: TRUNCATE once before/after a test class.
+  - `clean_postgres_db_module`: TRUNCATE once before/after a module.
+  - Per‑test TRUNCATE is suppressed when higher‑scope cleanup is active.
 ### Infrastructure Consolidation
 - Unified multiple conftest files into single source of truth
 - Implemented session-scoped database fixtures

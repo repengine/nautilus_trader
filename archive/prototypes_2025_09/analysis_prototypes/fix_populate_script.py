@@ -51,11 +51,11 @@ def validate_daily_file_integrity(file_path: Path) -> bool:
 def find_corrupted_daily_files(output_dir: Path, symbol: str, expected_days: list[datetime]) -> list[datetime]:
     """Find corrupted daily files that need re-download."""
     corrupted_dates = []
-    
+
     for day in expected_days:
         date_str = day.strftime("%Y%m%d")
         daily_file = output_dir / f"{symbol}_mbp10_{date_str}.parquet"
-        
+
         if daily_file.exists() and not validate_daily_file_integrity(daily_file):
             logger.info(f"  Found corrupted daily file: {daily_file.name}")
             corrupted_dates.append(day)
@@ -65,7 +65,7 @@ def find_corrupted_daily_files(output_dir: Path, symbol: str, expected_days: lis
                 logger.info(f"  Removed corrupted file: {daily_file.name}")
             except OSError as e:
                 logger.warning(f"  Could not remove corrupted file {daily_file.name}: {e}")
-    
+
     return corrupted_dates
 
 

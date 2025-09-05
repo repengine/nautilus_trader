@@ -37,7 +37,7 @@ except ImportError:
 @pytest.mark.serial
 @pytest.mark.deployment
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")  # Ensure clean PostgreSQL state
+@pytest.mark.usefixtures("clean_postgres_db_module")  # Ensure clean PostgreSQL state once per module
 class TestDeploymentIntegration:
     """Integration tests for deployment components."""
 

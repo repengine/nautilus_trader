@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from ml.evaluation.metrics import binary_logloss, pr_auc, roc_auc
+from ml.evaluation.metrics import binary_logloss
+from ml.evaluation.metrics import pr_auc
+from ml.evaluation.metrics import roc_auc
 
 
 def test_binary_logloss_simple() -> None:

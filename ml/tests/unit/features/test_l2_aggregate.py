@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
 
 import polars as pl
 
-from ml.features.l2_aggregate import TOPKS, aggregate_l2_minute_pl
+from ml.features.l2_aggregate import TOPKS
+from ml.features.l2_aggregate import aggregate_l2_minute_pl
 
 
 def _make_l2_df() -> pl.DataFrame:

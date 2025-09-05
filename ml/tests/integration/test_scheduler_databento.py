@@ -33,7 +33,7 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestDataSchedulerIntegration:
     """
     Test DataScheduler with Databento integration.

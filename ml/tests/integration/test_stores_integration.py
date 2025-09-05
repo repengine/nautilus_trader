@@ -103,7 +103,7 @@ def data_processor(test_database):
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestFeatureStore:
     """
     Test FeatureStore functionality with PostgreSQL.
@@ -205,7 +205,7 @@ class TestFeatureStore:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestModelStore:
     """
     Test ModelStore functionality with PostgreSQL.
@@ -323,7 +323,7 @@ class TestModelStore:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestStrategyStore:
     """
     Test StrategyStore functionality with PostgreSQL.
@@ -358,6 +358,7 @@ class TestStrategyStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
+    @pytest.mark.usefixtures("clean_postgres_db")
     def test_read_active_signals(self, strategy_store, mock_persistence_manager):
         """
         Test reading active signals.
@@ -401,7 +402,7 @@ class TestStrategyStore:
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db")
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestDataProcessor:
     """
     Test DataProcessor functionality with PostgreSQL.

@@ -14,9 +14,12 @@ import pytest
 from ml.stores.strategy_store import StrategyStore
 
 
+# Apply module-scoped cleanup once for all tests in this module to reduce overhead
+pytestmark = pytest.mark.usefixtures("clean_postgres_db_module")
+
+
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_emits_signal_events(test_database):
     """Test that StrategyStore emits SIGNAL_EMITTED events after flush."""
     # Create store with PostgreSQL connection
@@ -76,7 +79,6 @@ def test_strategy_store_emits_signal_events(test_database):
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database):
     """Test that signals are grouped by strategy_id and instrument_id for event emission."""
     store = StrategyStore(
@@ -144,7 +146,6 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database)
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_handles_event_emission_failure_gracefully(test_database):
     """Test that event emission failures don't break signal storage."""
     store = StrategyStore(
@@ -179,7 +180,6 @@ def test_strategy_store_handles_event_emission_failure_gracefully(test_database)
 
 @pytest.mark.database
 @pytest.mark.serial
-@pytest.mark.usefixtures("clean_postgres_db")
 def test_strategy_store_no_events_when_registry_unavailable(test_database):
     """Test that store works normally when DataRegistry is unavailable."""
     store = StrategyStore(

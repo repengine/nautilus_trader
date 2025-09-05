@@ -80,7 +80,8 @@ def test_migrations_applied(test_database):
         ]
 
         for table in tables_to_check:
-            result = conn.execute(text(f"""  # noqa: S608 - table list is internal/test-controlled
+            result = conn.execute(text(
+                f"""
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables
                         WHERE table_schema = 'public'

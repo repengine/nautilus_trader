@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any
 
 from ml.core.integration import MLIntegrationManager
 
 
 def auto_start_if_configured(mgr: MLIntegrationManager) -> None:
-    """Auto-start background observability flushing based on env config.
+    """
+    Auto-start background observability flushing based on env config.
 
     Reads `ML_OBS_SINK`, `ML_OBS_BASE_PATH`, `ML_OBS_FILE_FORMAT`, `ML_OBS_DB_URL`,
     and `ML_OBS_INTERVAL_SECONDS`. If any are present, starts background flushing

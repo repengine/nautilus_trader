@@ -522,7 +522,7 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-                f"""  # noqa: S608 - table_name is validated; WHERE parts controlled
+                f"""
                 SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
                 FROM {table_name}
                 WHERE strategy_id = :strategy_id
@@ -583,7 +583,7 @@ class StrategyStore(BaseStore):
             params["instrument_id"] = instrument_id
 
             sql = _text(
-                f"""  # noqa: S608 - WHERE parts composed from controlled filters
+                f"""
                 SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
                        model_predictions, risk_metrics
                 FROM public.ml_strategy_signals
@@ -626,7 +626,7 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-                f"""  # noqa: S608 - table_name validated; safe identifier interpolation
+                f"""
                 SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
                 FROM {table_name}
                 WHERE instrument_id = :instrument_id
@@ -672,7 +672,7 @@ class StrategyStore(BaseStore):
                 else "public.ml_strategy_signals"
             )
             query = text(
-                    f"""  # noqa: S608 - table_name validated; expression assembled from constants/params
+                    f"""
                     SELECT
                         COUNT(*) as total_signals,
                         COUNT(DISTINCT strategy_id) as unique_strategies,
@@ -1162,7 +1162,7 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-                f"""  # noqa: S608 - WHERE parts composed from controlled filters
+                f"""
                 SELECT strategy_id,
                        instrument_id,
                        signal_type,

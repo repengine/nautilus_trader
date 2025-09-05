@@ -13,7 +13,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Protocol, TYPE_CHECKING, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -71,9 +71,11 @@ class MLIntegrationManager:
     """
 
     if TYPE_CHECKING:  # pragma: no cover - typing only
-        from ml.observability.service import ObservabilityService
+        from threading import Event
+        from threading import Thread
+
         from ml.observability.scheduler import ObservabilityFlusher
-        from threading import Event, Thread
+        from ml.observability.service import ObservabilityService
 
         observability_service: ObservabilityService | None
         _obs_flusher: ObservabilityFlusher | None
@@ -730,8 +732,6 @@ class MLIntegrationManager:
         ("jsonl" or "csv"). Returns a mapping of table name to file path for
         written tables.
         """
-        from typing import cast
-
         try:
             from ml.observability.persistence import ObservabilityPersistor
 
@@ -882,7 +882,8 @@ class MLIntegrationManager:
         return dict(out)
 
     def set_message_publisher(self, publisher: object) -> None:
-        """Configure the message publisher for ML stores which support it.
+        """
+        Configure the message publisher for ML stores which support it.
 
         Currently applies to ``DataStore`` only. Safe to call at any time; if
         the store is not initialized yet, this method is a no-op.

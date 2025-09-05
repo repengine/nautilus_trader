@@ -20,6 +20,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_gauge
+from ml.common.metrics_bootstrap import get_histogram
 from ml.config.events import Source as _source
 from ml.config.events import Stage as _stage
 from ml.config.scheduler_config import DatabentoConfig
@@ -31,9 +34,6 @@ from ml.registry.persistence import PersistenceConfig
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-from ml.common.metrics_bootstrap import get_counter
-from ml.common.metrics_bootstrap import get_gauge
-from ml.common.metrics_bootstrap import get_histogram
 
 
 # Provide a patchable `db` attribute for tests expecting to stub out DB helpers

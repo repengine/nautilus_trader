@@ -8,11 +8,19 @@ background tasks; do not call from hot loops.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from dataclasses import field
 
 import pandas as pd
-from sqlalchemy import BIGINT, FLOAT, INTEGER, JSON, NVARCHAR, Column, MetaData, String, Table
+from sqlalchemy import BIGINT
+from sqlalchemy import FLOAT
+from sqlalchemy import INTEGER
+from sqlalchemy import NVARCHAR
+from sqlalchemy import Column
+from sqlalchemy import MetaData
+from sqlalchemy import String
+from sqlalchemy import Table
 from sqlalchemy.engine import Engine
 
 from ml.core.db_engine import EngineManager
@@ -103,14 +111,71 @@ class ObservabilityDBPersistor:
         with self.engine.begin() as conn:
             if (df := tables.get("latency")) is not None and not df.empty:
                 df.to_sql("obs_latency_watermarks", conn, if_exists="append", index=False, method="multi")
-                written["latency"] = int(len(df))
+                written["latency"] = len(df)
             if (df := tables.get("metrics")) is not None and not df.empty:
                 df.to_sql("obs_metrics", conn, if_exists="append", index=False, method="multi")
-                written["metrics"] = int(len(df))
+                written["metrics"] = len(df)
             if (df := tables.get("correlation")) is not None and not df.empty:
                 df.to_sql("obs_event_correlation", conn, if_exists="append", index=False, method="multi")
-                written["correlation"] = int(len(df))
+                written["correlation"] = len(df)
             if (df := tables.get("health")) is not None and not df.empty:
                 df.to_sql("obs_health_scores", conn, if_exists="append", index=False, method="multi")
-                written["health"] = int(len(df))
+                written["health"] = len(df)
         return written
+
+    def apply_retention(self, *, retention_days: int) -> dict[str, int]:
+        """
+        Delete rows older than the given retention window from all tables.
+
+        Parameters
+        ----------
+        retention_days : int
+            Number of days to retain. Rows older than ``now - retention_days``
+            based on the appropriate time column per table are removed.
+
+        Returns
+        -------
+        dict[str, int]
+            Mapping of physical table name to number of rows deleted.
+
+        Notes
+        -----
+        - Time columns (ns) used per table:
+            - obs_latency_watermarks: ts_stage_end
+            - obs_metrics: timestamp
+            - obs_event_correlation: ts_event
+            - obs_health_scores: timestamp
+        """
+        import time
+
+        from sqlalchemy import text as _text
+
+        # Compute cutoff in nanoseconds
+        now_ns = time.time_ns()
+        cutoff_ns = now_ns - int(retention_days * 24 * 60 * 60 * 1e9)
+
+        delete_specs: list[tuple[str, str]] = [
+            ("obs_latency_watermarks", "ts_stage_end"),
+            ("obs_metrics", "timestamp"),
+            ("obs_event_correlation", "ts_event"),
+            ("obs_health_scores", "timestamp"),
+        ]
+
+        deleted: dict[str, int] = {}
+        with self.engine.begin() as conn:
+            for table, ts_col in delete_specs:
+                try:
+                    # Use parameterized DELETE to work across SQLite/PostgreSQL
+                    result = conn.execute(
+                        _text(
+                            f"DELETE FROM {table} WHERE {ts_col} < :cutoff",  # noqa: S608 - controlled identifiers
+                        ),
+                        {"cutoff": int(cutoff_ns)},
+                    )
+                    # SQLAlchemy 2.0: result.rowcount may be -1 depending on backend; coerce to int >= 0
+                    count = int(result.rowcount or 0)
+                    deleted[table] = count
+                except Exception:
+                    # If table doesn't exist yet or backend-specific behavior, record zero deletions
+                    deleted.setdefault(table, 0)
+        return deleted

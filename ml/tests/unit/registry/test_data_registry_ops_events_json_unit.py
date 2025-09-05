@@ -5,8 +5,11 @@ from pathlib import Path
 
 from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
-from ml.registry.dataclasses import DatasetManifest, DatasetType, StorageKind
-from ml.registry.persistence import BackendType, PersistenceConfig
+from ml.registry.dataclasses import DatasetManifest
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import StorageKind
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
 
 
 def _manifest(dataset_id: str, location: Path) -> DatasetManifest:

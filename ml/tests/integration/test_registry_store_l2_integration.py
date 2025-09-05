@@ -46,6 +46,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.database
 @pytest.mark.serial
 @pytest.mark.integration
+@pytest.mark.usefixtures("clean_postgres_db_class")
 class TestL2L3RegistryStoreIntegration:
     """
     Test that L2/L3 features integrate properly with registry and store.
@@ -121,7 +122,6 @@ class TestL2L3RegistryStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_registry_manifest_with_l2_features(self, test_database) -> None:
         """
         Test creating feature manifest with L2/L3 capabilities.
@@ -198,7 +198,6 @@ class TestL2L3RegistryStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_feature_store_computes_l2_features(
         self,
         test_database,
@@ -352,7 +351,6 @@ class TestL2L3RegistryStoreIntegration:
 
     @pytest.mark.database
     @pytest.mark.serial
-    @pytest.mark.usefixtures("clean_postgres_db")
     def test_end_to_end_l2_feature_persistence(self, test_database) -> None:
         """
         Test end-to-end flow from L2 data to persisted features.

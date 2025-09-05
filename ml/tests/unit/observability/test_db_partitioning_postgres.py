@@ -12,6 +12,9 @@ from sqlalchemy.engine import Engine
 
 from ml.observability.migrations import ensure_monthly_partitions
 
+# Ensure DDL operations run without parallel interference (PostgreSQL locks can deadlock under xdist)
+pytestmark = pytest.mark.serial
+
 
 @pytest.mark.skipif(
     os.getenv(

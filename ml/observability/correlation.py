@@ -8,7 +8,6 @@ and prune weak edges.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
 
 
 def prune_edges(
@@ -16,7 +15,8 @@ def prune_edges(
     *,
     threshold: float,
 ) -> list[tuple[str, str, float]]:
-    """Return edges with strength >= threshold.
+    """
+    Return edges with strength >= threshold.
 
     Parameters
     ----------
@@ -28,7 +28,8 @@ def prune_edges(
 
 
 def connected_components(nodes: list[str], edges: Iterable[tuple[str, str, float]]) -> int:
-    """Count connected components in an undirected graph.
+    """
+    Count connected components in an undirected graph.
 
     Parameters
     ----------
@@ -59,5 +60,5 @@ def connected_components(nodes: list[str], edges: Iterable[tuple[str, str, float
     return comps
 
 
-__all__ = ["prune_edges", "connected_components"]
+__all__ = ["connected_components", "prune_edges"]
 

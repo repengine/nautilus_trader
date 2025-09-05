@@ -10,13 +10,15 @@ contracts while keeping production code decoupled from Pandera.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import pandas as pd
 
 
 def build_latency_watermarks(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
-    """Build a latency watermark DataFrame from stage rows.
+    """
+    Build a latency watermark DataFrame from stage rows.
 
     Each row should provide:
     - correlation_id: str
@@ -40,7 +42,8 @@ def build_latency_watermarks(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
 
 
 def build_metrics_collection(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
-    """Build a metrics collection DataFrame with type normalization.
+    """
+    Build a metrics collection DataFrame with type normalization.
 
     Expected fields:
     - metric_name: str
@@ -64,7 +67,8 @@ def build_metrics_collection(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
 
 
 def build_event_correlation(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
-    """Build an event correlation/lineage DataFrame.
+    """
+    Build an event correlation/lineage DataFrame.
 
     Fields:
     - correlation_id, event_id, parent_event_id (nullable), instrument_id
@@ -87,7 +91,8 @@ def build_event_correlation(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
 
 
 def build_health_scores(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
-    """Build a health score aggregation DataFrame.
+    """
+    Build a health score aggregation DataFrame.
 
     Fields:
     - component_id: str
@@ -117,10 +122,10 @@ def build_health_scores(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
 
 
 __all__ = [
-    "build_latency_watermarks",
-    "build_metrics_collection",
     "build_event_correlation",
     "build_health_scores",
+    "build_latency_watermarks",
+    "build_metrics_collection",
 ]
 
 
@@ -129,7 +134,8 @@ def aggregate_metrics_by_window(
     *,
     window_ns: int,
 ) -> pd.DataFrame:
-    """Aggregate metric rows by fixed windows while preserving totals.
+    """
+    Aggregate metric rows by fixed windows while preserving totals.
 
     Groups by (metric_name, domain, instrument_id, window_start). The `labels`
     field is not carried through to avoid exponential cardinality; callers can
@@ -168,7 +174,8 @@ def scale_health_scores(
     *,
     factor: float,
 ) -> pd.DataFrame:
-    """Scale health scores uniformly and clip to [0, 1].
+    """
+    Scale health scores uniformly and clip to [0, 1].
 
     Returns a DataFrame with same columns as input, where `health_score` is
     multiplied by `factor` and then clipped to [0, 1].

@@ -218,6 +218,7 @@ class TFTDatasetBuilder:
                 if self.include_micro:
                     try:
                         from pathlib import Path as _Path
+
                         from ml.features.micro_aggregate import MicrostructureAggregator
 
                         base_dir = self.micro_base_dir or "data/tier1"
@@ -235,6 +236,7 @@ class TFTDatasetBuilder:
                 if self.include_l2:
                     try:
                         from pathlib import Path as _Path
+
                         from ml.features.l2_aggregate import L2Aggregator
 
                         base_dir = self.l2_base_dir or "data/tier1"
@@ -277,8 +279,9 @@ class TFTDatasetBuilder:
         final_df = pl.concat(all_data, how="vertical")
         # Optionally join macro features (as-of with lag)
         if self.include_macro:
-            from ml.data.fred_join import join_fred_asof
             from typing import cast
+
+            from ml.data.fred_join import join_fred_asof
 
             final_df = cast(
                 pl.DataFrame,
@@ -643,6 +646,7 @@ class TFTDatasetBuilder:
         if self.include_micro:
             try:
                 from pathlib import Path as _Path
+
                 from ml.features.micro_aggregate import MicrostructureAggregator
 
                 base_dir = self.micro_base_dir or "data/tier1"
@@ -659,6 +663,7 @@ class TFTDatasetBuilder:
         if self.include_l2:
             try:
                 from pathlib import Path as _Path
+
                 from ml.features.l2_aggregate import L2Aggregator
 
                 base_dir = self.l2_base_dir or "data/tier1"
@@ -745,6 +750,7 @@ class TFTDatasetBuilder:
         if self.include_micro:
             try:
                 from pathlib import Path as _Path
+
                 from ml.features.micro_aggregate import MicrostructureAggregator
 
                 base_dir = self.micro_base_dir or "data/tier1"
@@ -760,6 +766,7 @@ class TFTDatasetBuilder:
         if self.include_l2:
             try:
                 from pathlib import Path as _Path
+
                 from ml.features.l2_aggregate import L2Aggregator
 
                 base_dir = self.l2_base_dir or "data/tier1"

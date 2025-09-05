@@ -92,12 +92,17 @@ _PROTOTYPE_PATH_SUFFIXES = [
 ]
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def _mark_prototypes(items: list[pytest.Item]) -> None:
     """
     Mark TDD prototype tests so they don't block by default.
 
     Adds the `prototype` marker to tests whose path matches known TDD prototype files.
     The root config excludes `prototype` by default via `-m 'not prototype'`.
+
+    Parameters
+    ----------
+    items : list[pytest.Item]
+        Collected pytest items to inspect and mark.
     """
     for item in items:
         nodeid = item.nodeid.replace("::", "/")
@@ -388,6 +393,129 @@ def clean_postgres_db() -> Generator[None, None, None]:
         print(f"clean_postgres_db post-test cleanup skipped: {e}")
 
 
+@pytest.fixture(scope="class")
+def clean_postgres_db_class() -> Generator[None, None, None]:
+    """
+    Class-scoped PostgreSQL cleanup fixture.
+
+    Performs a best-effort TRUNCATE of user tables in the `public` schema once
+    before the first test in a class and once after the last test. This reduces
+    per-test overhead for integration/benchmark suites which otherwise call the
+    function-scoped `clean_postgres_db` for every test method.
+
+    Notes
+    -----
+    - Uses `EngineManager.get_engine(DATABASE_URL)` to respect the shared pool.
+    - Defers constraints to allow order-agnostic TRUNCATE.
+    - Gracefully degrades if the database is not available (tests should already
+      be gated via markers when Postgres is down).
+    """
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    def _truncate_all() -> None:
+        from sqlalchemy import text as _text
+
+        try:
+            with engine.connect() as conn:
+                conn.execute(_text("SET CONSTRAINTS ALL DEFERRED"))
+                result = conn.execute(
+                    _text(
+                        """
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename NOT LIKE 'pg_%'
+                          AND tablename NOT LIKE 'sql_%'
+                        """,
+                    ),
+                )
+                for row in result:
+                    table = row[0]
+                    try:
+                        conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
+                    except Exception as exc:
+                        print(f"Warning during class-scope cleanup of {table}: {exc}")
+                conn.commit()
+        except Exception as exc:
+            print(f"clean_postgres_db_class cleanup skipped: {exc}")
+
+    # Clean before class; disable per-test TRUNCATE while this fixture is active
+    import os as _os
+    _prev = _os.getenv("TEST_DB_SKIP_TRUNCATE")
+    _os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
+    # Clean before class
+    _truncate_all()
+    yield
+    # Clean after class
+    _truncate_all()
+    # Restore environment
+    if _prev is None:
+        _os.environ.pop("TEST_DB_SKIP_TRUNCATE", None)
+    else:
+        _os.environ["TEST_DB_SKIP_TRUNCATE"] = _prev
+
+
+@pytest.fixture(scope="module")
+def clean_postgres_db_module() -> Generator[None, None, None]:
+    """
+    Module-scoped PostgreSQL cleanup fixture.
+
+    Performs a best-effort TRUNCATE of user tables in the `public` schema once
+    before the first test in a module and once after the last test.
+
+    Returns
+    -------
+    Generator[None, None, None]
+        Yields control to the test module between pre/post cleanups.
+    """
+    engine = EngineManager.get_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=3,
+        pool_pre_ping=True,
+    )
+
+    def _truncate_all() -> None:
+        from sqlalchemy import text as _text
+
+        try:
+            with engine.connect() as conn:
+                conn.execute(_text("SET CONSTRAINTS ALL DEFERRED"))
+                result = conn.execute(
+                    _text(
+                        """
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename NOT LIKE 'pg_%'
+                          AND tablename NOT LIKE 'sql_%'
+                        """,
+                    ),
+                )
+                for row in result:
+                    table = row[0]
+                    try:
+                        conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
+                    except Exception as exc:
+                        print(f"Warning during module-scope cleanup of {table}: {exc}")
+                conn.commit()
+        except Exception as exc:
+            print(f"clean_postgres_db_module cleanup skipped: {exc}")
+
+    import os as _os
+    _prev = _os.getenv("TEST_DB_SKIP_TRUNCATE")
+    _os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
+    _truncate_all()
+    yield
+    _truncate_all()
+    if _prev is None:
+        _os.environ.pop("TEST_DB_SKIP_TRUNCATE", None)
+    else:
+        _os.environ["TEST_DB_SKIP_TRUNCATE"] = _prev
+
 # ============================================================================
 # Compatibility database fixtures (legacy names expected by tests)
 # ============================================================================
@@ -412,31 +540,33 @@ def test_database() -> Generator[TestDatabase, None, None]:
         pool_pre_ping=True,
     )
 
-    # Best-effort clean before creating wrapper
-    with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                """
-                SELECT tablename FROM pg_tables
-                WHERE schemaname = 'public'
-                  AND tablename NOT LIKE 'pg_%'
-                  AND tablename NOT LIKE 'sql_%'
-                """,
-            ),
-        )
-        for row in result:
-            table_name = row[0]
-            try:
-                conn.execute(text(f"TRUNCATE TABLE {table_name} CASCADE"))
-            except Exception:
-                # Ignore per-table errors; migrations may not be applied yet
-                import logging as _logging
-                _logging.getLogger(__name__).debug(
-                    "TRUNCATE failed for table %s; ignoring in test cleanup",
-                    table_name,
-                    exc_info=True,
-                )
-        conn.commit()
+    # Best-effort clean before creating wrapper, unless class/module cleanup handles it
+    import os as _os
+    if not _os.getenv("TEST_DB_SKIP_TRUNCATE"):
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                      AND tablename NOT LIKE 'pg_%'
+                      AND tablename NOT LIKE 'sql_%'
+                    """,
+                ),
+            )
+            for row in result:
+                table_name = row[0]
+                try:
+                    conn.execute(text(f"TRUNCATE TABLE {table_name} CASCADE"))
+                except Exception:
+                    # Ignore per-table errors; migrations may not be applied yet
+                    import logging as _logging
+                    _logging.getLogger(__name__).debug(
+                        "TRUNCATE failed for table %s; ignoring in test cleanup",
+                        table_name,
+                        exc_info=True,
+                    )
+            conn.commit()
 
     db = TestDatabase(engine=engine, connection_string=DATABASE_URL, auto_rollback=False)
     # Ensure minimal schema exists for tests expecting migrations
@@ -689,7 +819,7 @@ def configure_test_logging():
 # ============================================================================
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     """
     Configure pytest for optimal parallel execution.
 
@@ -722,24 +852,46 @@ def pytest_configure(config):
         pass  # xdist not installed
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """
-    Gate database-marked tests when PostgreSQL is not reachable.
+    Apply prototype marks and gate DB tests on collection.
 
-    This prevents noisy failures on CI or local environments without a running Postgres
-    instance. A clear skip reason is added.
-
+    Parameters
+    ----------
+    config : pytest.Config
+        Pytest configuration object.
+    items : list[pytest.Item]
+        Collected test items.
     """
-    if is_postgresql_running():
-        return
+    # Mark prototypes first
+    _mark_prototypes(items)
 
-    skip_reason = (
-        f"PostgreSQL not reachable at {DATABASE_URL}; skipping @pytest.mark.database tests"
-    )
-    skip_db = pytest.mark.skip(reason=skip_reason)
-    for item in items:
-        if "database" in item.keywords:
-            item.add_marker(skip_db)
+    # Gate database-marked tests when PostgreSQL is not reachable.
+    if not is_postgresql_running():
+        skip_reason = (
+            f"PostgreSQL not reachable at {DATABASE_URL}; skipping @pytest.mark.database tests"
+        )
+        skip_db = pytest.mark.skip(reason=skip_reason)
+        for item in items:
+            if "database" in item.keywords:
+                item.add_marker(skip_db)
+
+    # When xdist is active, group database tests to run on a single worker to prevent
+    # cross-worker DDL/DML interference and deadlocks.
+    try:
+        import xdist  # noqa: F401
+
+        for item in items:
+            if "database" in item.keywords or "serial" in item.keywords:
+                try:
+                    # Group all DB/serial tests in a single worker named "db"
+                    item.add_marker(pytest.mark.xdist_group("db"))  # type: ignore[attr-defined]
+                except Exception:
+                    # If the marker is unavailable, tests will still run; just without grouping
+                    pass
+    except Exception:
+        # xdist not installed or import failed; no grouping needed
+        pass
 
 
 def pytest_sessionstart(session):
@@ -817,8 +969,8 @@ def pytest_sessionfinish(session, exitstatus):
 # ============================================================================
 
 # Import existing fixtures to maintain compatibility
-from ml.tests.fixtures.database_fixtures import *  # noqa: E402,F401,F403 - test re-exports
-from ml.tests.fixtures.mock_services import *  # noqa: E402,F401,F403 - test re-exports
+from ml.tests.fixtures.database_fixtures import *  # noqa: E402, F403 - test re-exports
+from ml.tests.fixtures.mock_services import *  # noqa: E402, F403 - test re-exports
 
 
 # Re-export test utilities

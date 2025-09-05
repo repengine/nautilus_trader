@@ -87,7 +87,7 @@ class DataCollector:
         # Config-driven defaults with env overrides
         self._config = config or DataCollectorConfig()
         default_dir = Path(self._config.data_dir)
-        self.data_dir = data_dir or default_dir
+        self.data_dir = Path(data_dir) if data_dir is not None else default_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # Storage management
@@ -155,9 +155,12 @@ class DataCollector:
         """
         Load list of symbols we already have basic data for.
         """
-        universe_dir = Path(self.data_dir) / "universe"
         symbols = []
-        for symbol_dir in universe_dir.iterdir():
+        # Check if data_dir exists first
+        if not Path(self.data_dir).exists():
+            return symbols
+
+        for symbol_dir in Path(self.data_dir).iterdir():
             if symbol_dir.is_dir() and symbol_dir.name.isupper():
                 if list(symbol_dir.glob("*.parquet")):
                     symbols.append(symbol_dir.name)
