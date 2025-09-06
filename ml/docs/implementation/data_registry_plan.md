@@ -25,7 +25,7 @@ eus metrics).
 - Stores: `ml/stores/feature_store.py`, `ml/stores/model_store.py`, `ml/stores/s
 trategy_store.py`.
 - DB schema (gold): `ml/stores/migrations/001_stores_schema.sql`.
-- Health views: `ml/schema/pipeline_health.sql` (freshness, errors, processing).
+- Health views: `ml/stores/migrations/005_views.sql` (freshness, errors, processing).
 - Monitoring: `ml/monitoring/README.md`, `ml/monitoring/grafana/GRAFANA_INTEGRAT
 ION_PLAN.md`.
 - Registry (models/features/strategies): `ml/registry/*`, `ml/docs/context/conte
@@ -288,7 +288,7 @@ te upstream schema drift; update manifest or add normalization transform.
   - `ml/docs/context/context_data.md` – data architecture and scheduler.
   - `ml/docs/context/context_stores.md` – stores, partitioning, DataProcessor.
   - `ml/docs/context/context_registry.md` – registry architecture and manifests.
-  - `ml/schema/pipeline_health.sql` – health/freshness views.
+  - `ml/stores/migrations/005_views.sql` – health/freshness views.
   - `ml/monitoring/README.md`, `ml/monitoring/grafana/GRAFANA_INTEGRATION_PLAN.m
 d`.
 - Code anchors:

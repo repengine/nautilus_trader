@@ -252,7 +252,7 @@ if __name__ == "__main__":
 
     # Note: PostgreSQL demo requires a running PostgreSQL instance
     # You can use the Nautilus PostgreSQL container:
-    # docker-compose up nautilus_postgres
+    # docker compose -f ml/deployment/docker-compose.yml up -d postgres
 
     try:
         demo_postgres_backend()
@@ -260,4 +260,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nPostgreSQL demo skipped: {e}")
         print("Make sure PostgreSQL is running and accessible")
-        print("You can use: docker-compose up nautilus_postgres")
+        print("You can use: docker compose -f ml/deployment/docker-compose.yml up -d postgres")

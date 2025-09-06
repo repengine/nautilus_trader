@@ -120,10 +120,29 @@ class MLIntegrationManager:
 
         env_start = os.getenv("ML_AUTO_START_DB", "").lower() in {"1", "true", "yes"}
         env_migrate = os.getenv("ML_AUTO_MIGRATE", "").lower() in {"1", "true", "yes"}
+        self._allow_dummy = os.getenv("ML_ALLOW_DUMMY", "").lower() in {"1", "true", "yes"}
         self.auto_start_postgres = auto_start_postgres or env_start
         self.auto_migrate = auto_migrate or env_migrate
 
-        # Initialize components
+        # Initialize components with progressive fallback when enabled
+        if not self._is_postgres_running():
+            if self.auto_start_postgres:
+                self._start_postgres_container()
+            elif self._allow_dummy:
+                logger.warning(
+                    "PostgreSQL unavailable; ML_ALLOW_DUMMY enabled — using Dummy stores/registries (no persistence)",
+                )
+                self._init_dummy_components()
+                if ensure_healthy:
+                    self.ensure_healthy()
+                self._validate_protocol_compliance(strict=strict_protocol_validation)
+                return
+            else:
+                raise RuntimeError(
+                    "PostgreSQL is not running. Start it or set ML_ALLOW_DUMMY=1 for in-memory fallback",
+                )
+
+        # Normal path (PostgreSQL available)
         self._init_database()
         self._init_stores()
         self._init_registries()
@@ -140,18 +159,37 @@ class MLIntegrationManager:
         """
         Initialize database connection and run migrations.
         """
-        # Check if PostgreSQL is running
-        if not self._is_postgres_running():
-            if self.auto_start_postgres:
-                self._start_postgres_container()
-            else:
-                raise RuntimeError(
-                    "PostgreSQL is not running. Start it manually or set auto_start_postgres=True",
-                )
-
+        # At this point either PostgreSQL is running or we are in dummy mode.
+        if self._allow_dummy and not self._is_postgres_running():
+            # Dummy mode: nothing to do
+            return
         # Run migrations if needed
         if self.auto_migrate:
             self._run_migrations()
+
+    def _init_dummy_components(self) -> None:
+        """
+        Initialize in-memory dummy components for testing fallback.
+
+        This mode provides protocol-compatible components without persistence.
+        """
+        from ml.registry.base import DummyRegistry
+        from ml.stores.base import DummyStore
+
+        # Stores
+        self.feature_store = DummyStore()
+        self.model_store = DummyStore()
+        self.strategy_store = DummyStore()
+        self.data_store = DummyStore()
+
+        # Registries
+        self.feature_registry = DummyRegistry()
+        self.model_registry = DummyRegistry()
+        self.strategy_registry = DummyRegistry()
+        self.data_registry = DummyRegistry()
+
+        # Partition manager is not applicable in dummy mode
+        self.partition_manager = None  # type: ignore[assignment]
 
     def _init_stores(self) -> None:
         """
@@ -222,6 +260,14 @@ class MLIntegrationManager:
             registry=self.data_registry,
             connection_string=self.db_connection,
         )
+        # Ensure FeatureStore/ModelStore publish into the same DataRegistry instance
+        try:
+            if hasattr(self, "feature_store") and hasattr(self.feature_store, "set_data_registry"):
+                self.feature_store.set_data_registry(self.data_registry)  # type: ignore[attr-defined]
+            if hasattr(self, "model_store") and hasattr(self.model_store, "set_data_registry"):
+                self.model_store.set_data_registry(self.data_registry)  # type: ignore[attr-defined]
+        except Exception:
+            logger.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
 
     def _init_partition_manager(self) -> None:
         """
@@ -251,9 +297,9 @@ class MLIntegrationManager:
 
     def _start_postgres_container(self) -> None:
         """
-        Start PostgreSQL using docker-compose if available, else docker run.
+        Start PostgreSQL using Docker Compose if available, else docker run.
         """
-        logger.info("Starting PostgreSQL (preferring docker-compose if available)...")
+        logger.info("Starting PostgreSQL (preferring Docker Compose if available)...")
 
         import shutil
 
@@ -261,10 +307,27 @@ class MLIntegrationManager:
         docker_path = shutil.which("docker")
         if docker_path is None:
             raise RuntimeError("docker executable not found in PATH")
-        for candidate in (Path("ml/docker-compose.yml"), Path("docker-compose.yml")):
-            if candidate.exists():
-                compose_file = candidate
-                break
+        # Prefer explicit env override, then deployment compose, then dev compose, then root
+        import os
+        candidates: list[object] = []
+        env_compose = os.getenv("ML_COMPOSE_FILE")
+        if env_compose:
+            candidates.append(Path(env_compose))
+        candidates.extend(
+            [
+                Path("ml/deployment/docker-compose.yml"),
+                Path("ml/docker-compose.dev.yml"),
+                Path("docker-compose.yml"),
+            ]
+        )
+        for candidate in candidates:
+            try:
+                if isinstance(candidate, Path) and candidate.exists():
+                    compose_file = candidate
+                    break
+            except Exception:
+                # Fallback silently to next candidate
+                continue
 
         if compose_file is not None:
             try:

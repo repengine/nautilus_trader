@@ -9,6 +9,7 @@ This script checks the health of all services in the Docker deployment.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -32,7 +33,7 @@ def check_postgres() -> bool:
     Check PostgreSQL health.
     """
     result = subprocess.run(
-        ["docker-compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
+        ["docker", "compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
         capture_output=True,
         text=True,
     )
@@ -44,7 +45,7 @@ def check_redis() -> bool:
     Check Redis health.
     """
     result = subprocess.run(
-        ["docker-compose", "exec", "-T", "redis", "redis-cli", "ping"],
+        ["docker", "compose", "exec", "-T", "redis", "redis-cli", "ping"],
         capture_output=True,
         text=True,
     )
@@ -56,7 +57,8 @@ def check_ml_pipeline() -> bool:
     Check ML Pipeline health via HTTP endpoint.
     """
     try:
-        response = requests.get("http://localhost:8080/health", timeout=5)
+        port = os.environ.get("ML_PIPELINE_HOST_PORT", "8081")
+        response = requests.get(f"http://localhost:{port}/health", timeout=5)
         return response.status_code == 200
     except Exception:
         return False
@@ -86,26 +88,42 @@ def check_grafana() -> bool:
 
 def check_docker_compose() -> bool:
     """
-    Check if docker-compose services are running.
+    Check if Docker Compose services are running.
+
+    Robust to non-JSON output by falling back to plain text check.
+    Honors COMPOSE_FILE if set in the environment.
     """
+    env = dict(**{k: v for k, v in dict(**{
+        # forward COMPOSE_FILE if present
+        "COMPOSE_FILE": os.environ.get("COMPOSE_FILE", ""),
+    }).items() if v})
+
     result = subprocess.run(
-        ["docker-compose", "ps", "--format", "json"],
+        ["docker", "compose", "ps", "--format", "json"],
         capture_output=True,
         text=True,
+        env=env or None,
     )
     if result.returncode != 0:
         return False
 
-    try:
-        services = json.loads(result.stdout)
-        # Check if key services are running
-        required = ["postgres", "ml_pipeline"]
-        running = [s for s in services if s.get("State") == "running"]
-        running_names = [s.get("Service") for s in running]
+    stdout = result.stdout.strip()
+    if stdout:
+        try:
+            services = json.loads(stdout)
+            required = {"postgres", "ml_pipeline"}
+            running = {s.get("Service") for s in services if s.get("State") == "running"}
+            return required.issubset(running)
+        except Exception:
+            pass  # Fall back to plain text check
 
-        return all(req in running_names for req in required)
-    except Exception:
-        return False
+    # Fallback: plain text check without JSON
+    result_text = subprocess.run(
+        ["docker", "compose", "ps"], capture_output=True, text=True, env=env or None
+    )
+    text = (result_text.stdout or "") + (result_text.stderr or "")
+    lc = text.lower()
+    return ("ml_pipeline" in lc and "postgres" in lc and ("up" in lc or "healthy" in lc))
 
 
 def main() -> None:

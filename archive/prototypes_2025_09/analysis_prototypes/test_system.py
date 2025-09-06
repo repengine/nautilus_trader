@@ -114,7 +114,7 @@ print("\n🚀 NEXT STEPS:")
 print("  1. Set DATABENTO_API_KEY environment variable")
 print("  2. Run: python -m ml.data.scheduler collect --date 2024-01-15")
 print("  3. Check: python -m ml.cli.coverage report --start 2024-01-15")
-print("  4. Monitor: docker-compose up prometheus grafana")
+print("  4. Monitor: docker compose up -d prometheus grafana")
 
 print("\n📊 The ML system is operational and ready for use!")
 print("   Documentation may be stale, but the code works!")

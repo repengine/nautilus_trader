@@ -1,14 +1,28 @@
 #!/usr/bin/env python3
 """
-Evaluate binary classifier predictions and print metrics JSON.
+Compute evaluation metrics (ROC AUC, PR AUC, logloss) from predictions.
 
-Inputs (NPZ or CSV):
-- NPZ with keys {y_true, scores} or {y_true, probs}
-- CSV with columns y_true and scores/probs
+This CLI reads a NumPy NPZ file containing either calibrated probabilities or
+raw logits together with true labels, computes metrics, and writes a JSON
+summary. Intended to feed `promote_features.py` via `--metrics_json`.
 
-Outputs:
-- Prints JSON with logloss, roc_auc, pr_auc
+Inputs (NPZ conventions)
+- Probabilities: keys {"q_val", "y_val_true"}
+- Logits: keys {"z_val", "y_val_true"} (will apply sigmoid)
 
+Examples
+--------
+1) Evaluate from probabilities:
+   python -m ml.scripts.evaluate_predictions \
+       --preds /tmp/teacher_preds.npz \
+       --out_json /tmp/metrics.json
+
+2) Evaluate from logits with custom keys:
+   python -m ml.scripts.evaluate_predictions \
+       --preds /tmp/logits.npz \
+       --logits_key z \
+       --y_key y \
+       --out_json /tmp/metrics.json
 """
 
 from __future__ import annotations
@@ -16,62 +30,83 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Final
 
 import numpy as np
 
-from ml.evaluation.metrics import binary_logloss
-from ml.evaluation.metrics import pr_auc
-from ml.evaluation.metrics import roc_auc
+from ml._imports import HAS_SKLEARN
+from ml._imports import check_ml_dependencies
 
 
-def _load_arrays(path: Path) -> tuple[np.ndarray, np.ndarray, str]:
-    if path.suffix.lower() == ".npz":
-        data = np.load(path, allow_pickle=True)
-        y_true = data["y_true"].astype(np.float64)
-        if "scores" in data:
-            scores = data["scores"].astype(np.float64)
-            return y_true, scores, "scores"
-        if "probs" in data:
-            probs = data["probs"].astype(np.float64)
-            return y_true, probs, "probs"
-        raise SystemExit("NPZ must contain either 'scores' or 'probs'")
-    # CSV
-    import pandas as pd  # local to avoid import at module import time
+if not HAS_SKLEARN:  # pragma: no cover - env guard, tests assume sklearn available
+    check_ml_dependencies(["sklearn"])  # ensure clear message
 
-    df = pd.read_csv(path)
-    if "y_true" not in df.columns:
-        raise SystemExit("CSV must contain y_true column")
-    y_true = df["y_true"].to_numpy(dtype=np.float64)
-    col = "scores" if "scores" in df.columns else ("probs" if "probs" in df.columns else None)
-    if col is None:
-        raise SystemExit("CSV must contain 'scores' or 'probs' column")
-    arr = df[col].to_numpy(dtype=np.float64)
-    return y_true, arr, col
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import log_loss
+from sklearn.metrics import roc_auc_score
+
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+def _flatten(arr: np.ndarray) -> np.ndarray:
+    if arr.ndim == 2 and arr.shape[1] == 1:
+        return arr.reshape(-1)
+    return arr.reshape(-1)
+
+
+def _compute_metrics(y_true: np.ndarray, p_pred: np.ndarray) -> dict[str, float]:
+    # Cast to explicit dtypes
+    y = y_true.astype(np.int32).reshape(-1)
+    p = p_pred.astype(np.float64).reshape(-1)
+    # Clip probabilities for logloss stability
+    eps: Final[float] = 1e-15
+    p = np.clip(p, eps, 1.0 - eps)
+    metrics = {
+        "roc_auc": float(roc_auc_score(y, p)),
+        "pr_auc": float(average_precision_score(y, p)),
+        "logloss": float(log_loss(y, p)),
+    }
+    return metrics
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--preds", required=True, help="Path to NPZ/CSV with y_true and scores/probs")
+    ap = argparse.ArgumentParser(description="Evaluate predictions and write metrics JSON")
+    ap.add_argument("--preds", required=True, help="Path to NPZ with predictions and labels")
+    ap.add_argument("--probs_key", default="q_val", help="Key for probabilities in NPZ")
+    ap.add_argument("--logits_key", default="z_val", help="Key for logits in NPZ")
+    ap.add_argument("--y_key", default="y_val_true", help="Key for true labels in NPZ")
+    ap.add_argument("--out_json", required=True, help="Where to write metrics JSON")
     args = ap.parse_args(argv)
 
-    y_true, arr, kind = _load_arrays(Path(args.preds))
-    # Convert probs to scores (logits) for AUC/PR consistency if needed
-    if kind == "probs":
-        scores = np.log(np.clip(arr, 1e-6, 1 - 1e-6) / np.clip(1 - arr, 1e-6, 1 - 1e-6))
-        probs = arr
-    else:
-        scores = arr
-        probs = 1.0 / (1.0 + np.exp(-arr))
+    data = np.load(args.preds)
+    y_arr = data.get(args.y_key)
+    if y_arr is None:
+        raise SystemExit(f"Missing labels in NPZ: {args.y_key}")
 
-    metrics: dict[str, Any] = {
-        "roc_auc": roc_auc(y_true, scores),
-        "pr_auc": pr_auc(y_true, probs),
-        "logloss": binary_logloss(y_true, probs),
-    }
-    print(json.dumps(metrics))
+    q_arr = data.get(args.probs_key)
+    z_arr = data.get(args.logits_key)
+    if q_arr is None and z_arr is None:
+        raise SystemExit("Provide either probabilities (q_val) or logits (z_val) in NPZ")
+
+    if q_arr is None:
+        p_arr = _sigmoid(_flatten(z_arr))  # type: ignore[arg-type]
+    else:
+        p_arr = _flatten(q_arr)
+
+    y = _flatten(y_arr)
+    if y.shape[0] != p_arr.shape[0]:
+        raise SystemExit(f"Length mismatch y={y.shape[0]} vs p={p_arr.shape[0]}")
+
+    metrics = _compute_metrics(y, p_arr)
+    out = Path(args.out_json)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps({"metrics_json": str(out)}, separators=(",", ":")))
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

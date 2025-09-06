@@ -3,6 +3,12 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
+  # ML Pipeline (exposes /metrics on port 8080)
+  - job_name: 'ml_pipeline'
+    static_configs:
+      - targets: ['ml_pipeline:8080']
+    metrics_path: /metrics
+
   # ML Signal Actor metrics
   - job_name: 'ml_signal_actor'
     static_configs:

@@ -12,21 +12,28 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
-COPY pyproject.toml poetry.lock ./
-COPY nautilus_trader ./nautilus_trader
+# Copy only ML sources (use released Nautilus for core platform)
+RUN pip install --no-cache-dir nautilus-trader
 COPY ml ./ml
 
-# Install Python dependencies
-RUN pip install --no-cache-dir poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-dev
+# Install minimal runtime dependencies for the pipeline (avoid heavy GPU stacks)
+RUN pip install --no-cache-dir \
+    flask \
+    requests \
+    sqlalchemy \
+    psycopg2-binary \
+    pandas \
+    numpy \
+    polars \
+    pyarrow \
+    msgspec \
+    prometheus-client \
+    databento
 
 # Create necessary directories
 RUN mkdir -p /app/data/catalog /app/models /app/logs /app/configs
 
-# Install additional dependencies for health check
-RUN pip install --no-cache-dir flask requests
+# Ensure health check deps present (already installed above)
 
 # Copy entrypoint script
 COPY ml/deployment/entrypoint_pipeline.py /app/entrypoint.py

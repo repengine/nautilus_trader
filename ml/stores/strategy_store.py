@@ -471,7 +471,7 @@ class StrategyStore(BaseStore):
                     instrument_id = str(v.get("instrument_id", "UNKNOWN"))
                     topic = build_topic(domain, operation, instrument_id)
                     ts_e = int(v.get("ts_event", 0))
-                    payload: dict[str, Any] = {
+                    row_payload: dict[str, Any] = {
                         "dataset_id": "signals",
                         "instrument_id": instrument_id,
                         "stage": stage.value,
@@ -482,7 +482,7 @@ class StrategyStore(BaseStore):
                         "count": 1,
                         "status": "success",
                     }
-                    self.publisher.publish(topic, payload)
+                    self.publisher.publish(topic, row_payload)
             except Exception:
                 logger.debug("StrategyStore per-row publish failed", exc_info=True)
 

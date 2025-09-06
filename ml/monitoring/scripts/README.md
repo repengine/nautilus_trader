@@ -48,10 +48,10 @@ python scripts/validate_dashboards.py --file grafana/dashboards/ml-overview.json
 
 ```bash
 # Start with Docker Compose
-docker-compose up -d
+docker compose up -d
 
 # Verify services are running
-docker-compose ps
+docker compose ps
 ```
 
 ### 5. Import Dashboards
@@ -284,8 +284,8 @@ curl -H "Authorization: Bearer $GRAFANA_API_TOKEN" \
   http://localhost:3000/api/health
 
 # Check service status
-docker-compose ps
-docker-compose logs grafana
+docker compose ps
+docker compose logs grafana
 ```
 
 ### Dashboard Issues
@@ -295,7 +295,7 @@ docker-compose logs grafana
 python scripts/validate_dashboards.py --input ./dashboards --detailed
 
 # Check Grafana logs
-docker-compose logs grafana | grep -i error
+docker compose logs grafana | grep -i error
 ```
 
 ### Configuration Problems

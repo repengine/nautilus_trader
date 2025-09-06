@@ -110,12 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     if info is None:
         raise SystemExit(f"Unknown feature_set_id: {args.feature_set_id}")
 
-    # Load metrics
+    # Load metrics and persist into perf_digest
     metrics: dict[str, Any] = json.loads(Path(args.metrics_json).read_text(encoding="utf-8"))
-    # Update perf_digest
-    info.manifest.perf_digest.update(
-        {k: float(v) for k, v in metrics.items() if isinstance(v, (int | float))}
-    )
+    numeric_metrics = {k: float(v) for k, v in metrics.items() if isinstance(v, (int | float))}
+    registry.update_manifest(args.feature_set_id, perf_digest=numeric_metrics)
 
     # Build gates
     gates: list[QualityGate] = []

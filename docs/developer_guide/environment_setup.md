@@ -146,13 +146,13 @@ You can use `docker-compose.yml` file located in `.docker` directory
 to bootstrap the Nautilus working environment. This will start the following services:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 If you only want specific services running (like `postgres` for example), you can start them with command:
 
 ```bash
-docker-compose up -d postgres
+docker compose up -d postgres
 ```
 
 Used services are:

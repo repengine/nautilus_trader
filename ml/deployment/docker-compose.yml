@@ -1,16 +1,18 @@
 # Docker Compose v2 format - no version needed
+name: ml
 
 services:
   # PostgreSQL Database for ML persistence
   postgres:
     image: postgres:15-alpine
-    container_name: nautilus_ml_postgres
     environment:
       POSTGRES_DB: nautilus
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    # Expose Postgres on host. Default to 5433 to avoid conflicts with dev stack.
+    # Override with env var POSTGRES_HOST_PORT=5432 if you are not running the dev compose.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../stores/migrations:/docker-entrypoint-initdb.d:ro  # Auto-apply canonical migrations on first init
@@ -20,16 +22,15 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - nautilus_network
+      - nautilus-ml
 
   # Redis for message bus (optional but recommended)
   redis:
     image: redis:7-alpine
-    container_name: nautilus_ml_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6380}:6379"
     networks:
-      - nautilus_network
+      - nautilus-ml
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -41,7 +42,6 @@ services:
     build:
       context: ../..
       dockerfile: ml/deployment/Dockerfile.actor
-    container_name: ml_signal_actor
     deploy:
       resources:
         limits:
@@ -72,7 +72,7 @@ services:
       - postgres
       - redis
     networks:
-      - nautilus_network
+      - nautilus-ml
     restart: unless-stopped
 
   # ML Trading Strategy Container
@@ -80,7 +80,6 @@ services:
     build:
       context: ../..
       dockerfile: ml/deployment/Dockerfile.strategy
-    container_name: ml_strategy
     deploy:
       resources:
         limits:
@@ -118,7 +117,7 @@ services:
       - redis
       - ml_signal_actor
     networks:
-      - nautilus_network
+      - nautilus-ml
     restart: unless-stopped
 
   # ML Pipeline Service for data collection and feature computation
@@ -126,7 +125,6 @@ services:
     build:
       context: ../..
       dockerfile: ml/deployment/Dockerfile.pipeline
-    container_name: ml_pipeline
     deploy:
       resources:
         limits:
@@ -139,6 +137,7 @@ services:
       # Databento configuration
       DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
       DATABENTO_DATASET: "${DATABENTO_DATASET:-EQUS.MINI}"
+      ML_ENABLE_DATABENTO: "1"  # allow import for health even without API key
 
       # Pipeline configuration
       PIPELINE_MODE: "${PIPELINE_MODE:-daily}"  # daily, backfill, or realtime
@@ -179,7 +178,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - nautilus_network
+      - nautilus-ml
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
@@ -187,11 +186,12 @@ services:
       timeout: 10s
       start_period: 60s
       retries: 3
+    ports:
+      - "${ML_PIPELINE_HOST_PORT:-8081}:8080"
 
   # Prometheus for metrics
   prometheus:
     image: prom/prometheus:latest
-    container_name: nautilus_prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -201,12 +201,11 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
     networks:
-      - nautilus_network
+      - nautilus-ml
 
   # Grafana for visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: nautilus_grafana
     ports:
       - "3000:3000"
     environment:
@@ -219,7 +218,7 @@ services:
     depends_on:
       - prometheus
     networks:
-      - nautilus_network
+      - nautilus-ml
 
 volumes:
   postgres_data:
@@ -227,5 +226,6 @@ volumes:
   grafana_data:
 
 networks:
-  nautilus_network:
+  nautilus-ml:
     driver: bridge
+    name: nautilus-ml

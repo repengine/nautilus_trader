@@ -152,11 +152,11 @@ python run_local_dry_run.py
 **Docker:**
 ```bash
 # View all logs
-docker-compose logs -f
+docker compose logs -f
 
 # View specific service
-docker-compose logs -f ml_signal_actor
-docker-compose logs -f ml_strategy
+docker compose logs -f ml_signal_actor
+docker compose logs -f ml_strategy
 ```
 
 ### Database

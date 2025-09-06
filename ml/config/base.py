@@ -215,6 +215,9 @@ class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
     log_commands: bool = True
     # Security: enforce ONNX-only in production by default
     allow_non_onnx_in_dev: bool = False
+    # Integration fields (enable automatic store initialization and testing fallbacks)
+    db_connection: str | None = None
+    use_dummy_stores: bool = False
 
 
 class DataCollectorConfig(NautilusConfig, kw_only=True, frozen=True):

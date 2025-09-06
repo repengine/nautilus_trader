@@ -20,7 +20,13 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from flask import Flask
-from flask import jsonify
+from flask import Response, jsonify
+try:
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+except Exception:  # pragma: no cover - optional in non-monitoring tests
+    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
+    def generate_latest() -> bytes:  # type: ignore[override]
+        return b""  # empty payload when prometheus-client unavailable
 
 
 # Add the parent directory to the path
@@ -79,6 +85,15 @@ def health_check() -> tuple[Any, int]:
     Health check endpoint for Docker.
     """
     return jsonify(pipeline_status), 200 if pipeline_status["healthy"] else 503
+
+
+@app.route("/metrics")
+def metrics() -> Response:  # pragma: no cover - simple pass-through
+    """
+    Prometheus metrics endpoint.
+    """
+    payload = generate_latest()
+    return Response(payload, mimetype=CONTENT_TYPE_LATEST)
 
 
 class PipelineRunner:

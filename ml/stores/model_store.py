@@ -230,6 +230,17 @@ class ModelStore(BaseStore):
 
         return self._data_registry
 
+    def set_data_registry(self, registry: RegistryProtocol) -> None:
+        """
+        Set the DataRegistry instance used for event emission.
+
+        Parameters
+        ----------
+        registry : RegistryProtocol
+            The shared registry instance to use.
+        """
+        self._data_registry = registry
+
     def _setup_tables(self) -> None:
         """
         Create model_predictions table if it doesn't exist.
@@ -363,7 +374,7 @@ class ModelStore(BaseStore):
         if emit_events:
             self._emit_prediction_events(data)
 
-    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
+    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover  # noqa: C901 - upsert + normalization + dedup
         """
         Upsert predictions (patchable in tests).
         """
@@ -375,7 +386,7 @@ class ModelStore(BaseStore):
             import random
 
             sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:
+            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311 - sampled audit logging only
                 logger.info(
                     "AUDIT ModelStore._execute_write: n=%d keys=%s",
                     len(values),
@@ -459,7 +470,7 @@ class ModelStore(BaseStore):
                     instrument_id = str(v.get("instrument_id", "UNKNOWN"))
                     topic = build_topic(domain, operation, instrument_id)
                     ts_e = int(v.get("ts_event", 0))
-                    payload: dict[str, Any] = {
+                    row_payload: dict[str, Any] = {
                         "dataset_id": "predictions",
                         "instrument_id": instrument_id,
                         "stage": stage.value,
@@ -470,9 +481,11 @@ class ModelStore(BaseStore):
                         "count": 1,
                         "status": "success",
                     }
-                    self.publisher.publish(topic, payload)
+                self.publisher.publish(topic, row_payload)
             except Exception:
                 logger.debug("ModelStore per-row publish failed", exc_info=True)
+
+    
 
     # Backwards-compatible alias used in some tests
     def write_predictions(self, data: list[ModelPrediction]) -> None:
@@ -956,6 +969,7 @@ class ModelStore(BaseStore):
                     ts_max=ts_max,
                     count=len(group_preds),
                     status="success",
+                    metadata={"model_id": model_id},
                 )
 
                 # Update watermark for tracking progress

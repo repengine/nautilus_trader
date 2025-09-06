@@ -1,5 +1,11 @@
 # ML Monitoring Stack
 
+Note: Choose Your Monitoring
+
+- Canonical (recommended): Use the monitoring services bundled in `ml/deployment/docker-compose.yml` (Prometheus and Grafana run alongside the ML services on the `nautilus-ml` network). Start with:
+  - `docker compose -f ml/deployment/docker-compose.yml up -d prometheus grafana`
+- Optional standalone: This `ml/monitoring` directory provides a self-contained monitoring stack for development or separate deployments. Use it only if you intentionally want monitoring isolated from the main stack.
+
 This directory contains the complete monitoring infrastructure for Nautilus Trader's ML components using Prometheus, Grafana, and AlertManager.
 
 ## Quick Start
@@ -22,14 +28,14 @@ cp .env.example .env
 ### 3. Start the Stack
 
 ```bash
-# Start all monitoring services
-docker-compose up -d
+# Start all monitoring services (standalone stack)
+docker compose up -d
 
 # Check service health
-docker-compose ps
+docker compose ps
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### 4. Access Services
@@ -145,10 +151,10 @@ docker exec nautilus_prometheus promtool tsdb snapshot /prometheus
 
 ```bash
 # Pull latest images
-docker-compose pull
+docker compose pull
 
 # Restart with new images
-docker-compose down && docker-compose up -d
+docker compose down && docker compose up -d
 ```
 
 ### Data Retention
@@ -188,9 +194,9 @@ global:
 
 ```bash
 # Check service logs
-docker-compose logs prometheus
-docker-compose logs grafana
-docker-compose logs alertmanager
+docker compose logs prometheus
+docker compose logs grafana
+docker compose logs alertmanager
 
 # Test Prometheus queries
 curl -G http://localhost:9090/api/v1/query --data-urlencode 'query=up'
@@ -287,5 +293,5 @@ while True:
 For issues or questions:
 
 1. Check the [troubleshooting guide](#troubleshooting)
-2. Review logs: `docker-compose logs`
+2. Review logs: `docker compose logs`
 3. Open an issue with relevant logs and configuration

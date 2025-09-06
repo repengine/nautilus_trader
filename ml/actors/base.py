@@ -787,8 +787,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         registry_path.mkdir(parents=True, exist_ok=True)
 
         self._persistence_manager = PersistenceManager(persistence_config)
-        self._feature_registry = FeatureRegistry(registry_path)
-        self._model_registry = ModelRegistry(registry_path)
+        self._feature_registry = FeatureRegistry(registry_path, persistence_config=persistence_config)
+        self._model_registry = ModelRegistry(registry_path, persistence_config=persistence_config)
         self._strategy_registry = StrategyRegistry(registry_path)
 
         # Initialize DataRegistry
@@ -796,6 +796,14 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             registry_path=registry_path / "datasets",
             persistence_config=persistence_config,
         )
+        # Inject shared DataRegistry into stores when available
+        try:
+            if hasattr(self._feature_store, "set_data_registry"):
+                self._feature_store.set_data_registry(self._data_registry)  # type: ignore[attr-defined]
+            if hasattr(self._model_store, "set_data_registry"):
+                self._model_store.set_data_registry(self._data_registry)  # type: ignore[attr-defined]
+        except Exception:
+            self.log.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
 
         # Initialize DataStore with the registry and connection
         self._data_store = DataStore(
@@ -1002,7 +1010,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             f"Circuit breaker: {str(self._circuit_breaker.state) if self._circuit_breaker else 'disabled'}",
         )
 
-    def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:
+    def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:  # noqa: C901 - performance-sensitive orchestration
         """
         Generate ML prediction with circuit breaker protection.
 
@@ -1028,8 +1036,19 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             self._total_inference_time += inference_time
             self._prediction_count += 1
 
-            # MANDATORY: Store features for parity tracking
-            feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
+            # MANDATORY: Store features for parity tracking (prefer manifest names)
+            feature_dict: dict[str, float]
+            try:
+                fid = getattr(self._config, "feature_set_id", None)
+                manifest = (
+                    self._feature_registry.get_feature_manifest(fid) if fid else None  # type: ignore[attr-defined]
+                )
+                if manifest is not None and len(manifest.feature_names) == len(features):
+                    feature_dict = {manifest.feature_names[i]: float(features[i]) for i in range(len(features))}
+                else:
+                    feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
+            except Exception:
+                feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
             self._feature_store.write_features(
                 feature_set_id=getattr(self._config, "feature_set_id", "default"),
                 instrument_id=str(bar.bar_type.instrument_id),

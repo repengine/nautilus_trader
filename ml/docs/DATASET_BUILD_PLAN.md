@@ -21,7 +21,7 @@ This document outlines the plan to build, validate, and register a full ML train
 - [x] End‑to‑end pipeline CLI (build → teacher → distill) reading sidecar.
 - [x] Unit, integration, property, and metamorphic tests per `ml/tests/docs/TESTING_STRATEGY.md`.
 - [ ] Full symbol/time build job (bars + L1 + macro + events; L2 on prioritized tickers/time windows).
-- [ ] Quality gates + promotion CLI for features based on evaluation metrics.
+- [x] Quality gates + promotion CLI for features based on evaluation metrics.
 - [ ] Runtime/coverage report: macro null‑rates, feature coverage per symbol, target stats (via `dataset_report` CLI).
 
 ## Phases & Tasks
@@ -50,9 +50,9 @@ This document outlines the plan to build, validate, and register a full ML train
   - L2 invariance to size scaling.
   - Builder time index monotonic (0..n‑1).
 - [x] Contracts: timestamp monotonicity; price/size sanity; macro join null‑rates measured.
-- [ ] Quality gates & promotion CLI:
-  - [ ] Compute PR‑AUC/logloss; write to FeatureRegistry `perf_digest`.
-  - [ ] Validate against gates (e.g., PR‑AUC ≥ 0.7, logloss ≤ 0.6). Promote to PROD.
+- [x] Quality gates & promotion CLI:
+  - [x] Compute PR‑AUC/logloss; write to FeatureRegistry `perf_digest`. (ml/scripts/evaluate_predictions.py + ml/scripts/promote_features.py)
+  - [x] Validate against gates (e.g., PR‑AUC ≥ 0.7, logloss ≤ 0.6). Promote to PROD.
   - [ ] Generate dataset quality report and attach to registry entry (as artifact) for audit.
 
 ### Phase 4 — Manifests, Sidecars, and Registry Integration
@@ -89,7 +89,7 @@ This document outlines the plan to build, validate, and register a full ML train
 
 ### Phase 9 — Documentation & Runbooks
 
-- [ ] Update user docs with run commands, flags, and manifests.
+- [x] Update user docs with run commands, flags, and manifests. (see ml/docs/tools/CLI_Tooling.md)
 - [ ] Troubleshooting guide for lag joins, L2 schema mismatches, and performance tuning.
 
 ## Testing Matrix
@@ -141,7 +141,11 @@ This document outlines the plan to build, validate, and register a full ML train
     --train_teacher --teacher_model_id tft_teacher_v1 \\
     --model_registry_dir ~/.nautilus/ml/models --student_model_id lgb_student_v1`
 - Evaluate predictions:
-  - `python -m ml.scripts.evaluate_predictions --preds /path/to/preds.npz`
+  - `python -m ml.scripts.evaluate_predictions --preds /path/to/teacher_preds.npz --out_json /tmp/metrics.json`
+
+- Promote features (gated):
+  - `python -m ml.scripts.promote_features --feature_registry_dir ~/.nautilus/ml/features \
+     --feature_set_id <fid> --metrics_json /tmp/metrics.json --gates_json ml/config/promotion_gates_example.json`
 
 - Dataset report:
   - `python -m ml.scripts.dataset_report --dataset /tmp/tft_ds/dataset.parquet --out_json /tmp/tft_ds/report.json --out_md /tmp/tft_ds/report.md`

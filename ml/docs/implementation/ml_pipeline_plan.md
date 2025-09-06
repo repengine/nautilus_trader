@@ -186,10 +186,10 @@ def validate_schema(df: pl.DataFrame, schema: pl.Schema, name: str) -> None:
 
 #### Task 1.3: Consolidate Docker Compose Files
 
-- [ ] **Compare**: `ml/docker-compose.yml` vs `ml/deployment/docker-compose.yml`
-- [ ] **Merge**: Create unified `ml/deployment/docker-compose.yml`
-- [ ] **Archive**: Move `ml/docker-compose.yml` to `ml/docker-compose.dev.yml`
-- [ ] **Test**: `docker-compose -f ml/deployment/docker-compose.yml config`
+- [x] Compare: `ml/docker-compose.yml` vs `ml/deployment/docker-compose.yml`
+- [x] Merge: unified `ml/deployment/docker-compose.yml` (canonical)
+- [x] Archive: dev overrides moved to `ml/docker-compose.dev.yml`
+- [x] Test: `docker compose -f ml/deployment/docker-compose.yml config`
 
 ```yaml
 # ml/deployment/docker-compose.yml - Consolidated version
@@ -1730,5 +1730,4 @@ The implementation is complete when:
 - `nautilus_trader`: Core trading framework
 
 ---
-
 

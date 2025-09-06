@@ -1,5 +1,6 @@
-# Docker Compose Override for Development
-# Copy this file to docker-compose.override.yml for local development
+# Docker Compose Override for Development (Deprecated)
+# Prefer using `ml/docker-compose.dev.yml` with:
+#   docker compose -f ml/deployment/docker-compose.yml -f ml/docker-compose.dev.yml up
 
 services:
   # Override ML Pipeline for development
@@ -35,6 +36,6 @@ services:
     ports:
       - "5050:80"
     networks:
-      - nautilus_network
+      - nautilus-ml
     depends_on:
       - postgres

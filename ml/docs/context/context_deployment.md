@@ -239,7 +239,7 @@ print(check_db_prereqs("$DB_CONNECTION"))
 
 **Main Compose File**: `ml/deployment/docker-compose.yml`
 
-**Network**: `nautilus_network` (bridge driver)
+**Network**: `nautilus-ml` (bridge driver)
 
 **Volumes**:
 
@@ -422,11 +422,11 @@ FROM python:3.11-slim
 
 ```bash
 # View all services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific services
-docker-compose logs -f ml_signal_actor
-docker-compose logs -f ml_strategy
+docker compose logs -f ml_signal_actor
+docker compose logs -f ml_strategy
 ```
 
 **Database Monitoring**:
@@ -474,7 +474,7 @@ SELECT * FROM public.ml_model_predictions ORDER BY ts_event DESC LIMIT 10;
 
 ### Internal Network Communication
 
-- **Network**: `nautilus_network` (172.18.0.0/16)
+- **Network**: `nautilus-ml` (bridge)
 - **Service Discovery**: Docker DNS resolution
 - **Communication**: HTTP/gRPC for metrics, PostgreSQL protocol for persistence
 
@@ -535,7 +535,7 @@ Comprehensive health monitoring:
 - Returns aggregated health status
 
 ### Development Override
-**File**: `ml/deployment/docker-compose.override.yml.example`
+Note: Dev override now lives at `ml/docker-compose.dev.yml` (use `-f` with the base compose).
 
 Development-specific configurations:
 - Source code live mounting for hot reload
@@ -591,8 +591,8 @@ Development-specific configurations:
    ```
 
 4. **Verification**:
-   - Check service health: `docker-compose ps`
-   - Monitor logs: `docker-compose logs -f`
+   - Check service health: `docker compose ps`
+   - Monitor logs: `docker compose logs -f`
    - Verify metrics: `http://localhost:9090`
    - Check dashboards: `http://localhost:3000`
 

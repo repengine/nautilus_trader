@@ -200,7 +200,7 @@ class ProductionMLSystem:
 python -m ml.cli.coverage report --start today --end today
 
 # Monitor event flow
-docker-compose exec prometheus curl -s http://localhost:9090/api/v1/query?query=ml_pipeline_events_total
+docker compose exec prometheus curl -s http://localhost:9090/api/v1/query?query=ml_pipeline_events_total
 
 # Check system health
 python -c "from ml.registry.data_registry import DataRegistry; print(DataRegistry().get_health())"
@@ -237,7 +237,7 @@ python -m ml.data.scheduler collect --date 2024-01-15 --symbols SPY
 python -m ml.cli.coverage report --dataset bars --start 2024-01-15 --end 2024-01-15
 
 # 5. Start unified monitoring
-docker-compose up -d prometheus grafana
+docker compose up -d prometheus grafana
 
 # You're on your way! 🚀
 ```

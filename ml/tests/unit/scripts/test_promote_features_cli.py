@@ -60,3 +60,6 @@ def test_promote_features_cli_promotes_on_gates(tmp_path: Path) -> None:
     info = freg2.get_feature_set(fid)
     assert info is not None
     assert info.manifest.stage == FeatureStage.PROD
+    # Perf digest persisted via update_manifest
+    assert abs(info.manifest.perf_digest.get("pr_auc", 0.0) - 0.75) < 1e-12
+    assert abs(info.manifest.perf_digest.get("logloss", 1.0) - 0.55) < 1e-12

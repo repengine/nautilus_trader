@@ -460,7 +460,10 @@ class FeatureRegistry(MLComponentMixin):
             info = self._features[feature_set_id]
             info.manifest.stage = stage
             info.manifest.last_modified = time.time()
-            self._save()
+            if self.backend == BackendType.POSTGRES:
+                self._save_feature_to_db(info)
+            else:
+                self._save()
 
     def deprecate(self, feature_set_id: str, reason: str | None = None) -> None:
         with self._lock:
@@ -469,13 +472,20 @@ class FeatureRegistry(MLComponentMixin):
             if reason:
                 info.manifest.metadata["deprecation_reason"] = reason
             info.manifest.last_modified = time.time()
-            self._save()
+            if self.backend == BackendType.POSTGRES:
+                self._save_feature_to_db(info)
+            else:
+                self._save()
 
     def scrap(self, feature_set_id: str) -> None:
         with self._lock:
             if feature_set_id in self._features:
-                self._features[feature_set_id].manifest.stage = FeatureStage.SCRAPPED
-                self._save()
+                info = self._features[feature_set_id]
+                info.manifest.stage = FeatureStage.SCRAPPED
+                if self.backend == BackendType.POSTGRES:
+                    self._save_feature_to_db(info)
+                else:
+                    self._save()
 
     def get_feature_set(self, feature_set_id: str) -> FeatureInfo | None:
         """
@@ -534,7 +544,7 @@ class FeatureRegistry(MLComponentMixin):
         return result
 
     # Quality gating
-    def validate_and_promote(self, feature_set_id: str, gates: list[QualityGate]) -> bool:
+    def validate_and_promote(self, feature_set_id: str, gates: list[QualityGate]) -> bool:  # noqa: C901 - gate evaluation flow is intentionally explicit
         """
         Validate a feature set against quality gates and promote to PROD if passed.
 
@@ -584,3 +594,84 @@ class FeatureRegistry(MLComponentMixin):
         if passed_all:
             self.promote(feature_set_id, FeatureStage.PROD)
         return passed_all
+
+    # Manifest update API
+    def update_manifest(
+        self,
+        feature_set_id: str,
+        *,
+        perf_digest: dict[str, float] | None = None,
+        parity_digest: dict[str, float] | None = None,
+        constraints: dict[str, float] | None = None,
+        artifacts: dict[str, str] | None = None,
+        stage: FeatureStage | None = None,
+    ) -> None:
+        """
+        Update selected manifest fields and persist them.
+
+        Parameters
+        ----------
+        feature_set_id : str
+            The feature set to update
+        perf_digest : dict[str, float] | None
+            Performance metrics to merge into manifest.perf_digest
+        parity_digest : dict[str, float] | None
+            Parity metrics to merge into manifest.parity_digest
+        constraints : dict[str, float] | None
+            Constraint metrics to merge into manifest.constraints
+        artifacts : dict[str, str] | None
+            Artifact mapping to store alongside manifest in metadata
+        stage : FeatureStage | None
+            Optional stage update
+        """
+        with self._lock:
+            info = self._features.get(feature_set_id)
+            if info is None:
+                raise KeyError(f"Unknown feature_set_id: {feature_set_id}")
+
+            # Merge dictionaries if provided
+            if perf_digest:
+                info.manifest.perf_digest.update({k: float(v) for k, v in perf_digest.items()})
+            if parity_digest:
+                info.manifest.parity_digest.update({k: float(v) for k, v in parity_digest.items()})
+            if constraints:
+                info.manifest.constraints.update({k: float(v) for k, v in constraints.items()})
+            if artifacts is not None:
+                info.artifacts.update({str(k): str(v) for k, v in artifacts.items()})
+            if stage is not None:
+                info.manifest.stage = stage
+            info.manifest.last_modified = time.time()
+
+            # Persist
+            if self.backend == BackendType.POSTGRES:
+                self._save_feature_to_db(info)
+            else:
+                self._save()
+
+    def attach_artifact(self, feature_set_id: str, name: str, path: str) -> None:
+        """
+        Attach a single artifact to the feature set and persist.
+
+        Parameters
+        ----------
+        feature_set_id : str
+            The feature set to update
+        name : str
+            Artifact logical name (e.g., "dataset_report")
+        path : str
+            Artifact path or URI
+        """
+        self.update_manifest(feature_set_id, artifacts={name: path})
+
+    def attach_artifacts(self, feature_set_id: str, artifacts: dict[str, str]) -> None:
+        """
+        Attach multiple artifacts to the feature set and persist.
+
+        Parameters
+        ----------
+        feature_set_id : str
+            The feature set to update
+        artifacts : dict[str, str]
+            Mapping from artifact name to path/URI
+        """
+        self.update_manifest(feature_set_id, artifacts=artifacts)

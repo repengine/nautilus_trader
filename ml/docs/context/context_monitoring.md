@@ -513,7 +513,7 @@ class ModelActor(BaseMLInferenceActor):
 
 #### Health Check Routine
 
-1. Verify all containers running: `docker-compose ps`
+1. Verify all containers running: `docker compose ps`
 2. Check Prometheus targets: <http://localhost:9090/targets>
 3. Verify Grafana accessibility: <http://localhost:3000>
 4. Review critical alerts: <http://localhost:9093>
@@ -576,9 +576,9 @@ docker exec nautilus_prometheus promtool tsdb snapshot /prometheus
 
 ```bash
 # Restore from backup
-docker-compose down
+docker compose down
 # Restore configuration files
-docker-compose up -d
+docker compose up -d
 
 # Import dashboards
 python scripts/import_dashboards.py --all
@@ -593,7 +593,7 @@ python scripts/import_dashboards.py --all
 1. Check ML application metrics endpoint: `curl http://localhost:8000/metrics`
 2. Verify Prometheus scrape config
 3. Check network connectivity between containers
-4. Review Prometheus logs: `docker-compose logs prometheus`
+4. Review Prometheus logs: `docker compose logs prometheus`
 
 **Grafana Dashboard Errors**
 
@@ -771,10 +771,10 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 ### Health Monitoring
 - **ml/scripts/check_pipeline_health.py**: Pipeline health check script
 - **ml/stores/migrations/005_views.sql**: SQL health monitoring views
-- **ml/schema/pipeline_health.sql**: Reference SQL (migrated to migrations)
+- **ml/stores/migrations/005_views.sql**: Monitoring views (canonical)
 
 ### Configuration
-- **ml/monitoring/docker-compose.yml**: Docker stack configuration
+- **ml/monitoring/docker-compose.yml**: Standalone monitoring stack (optional)
 - **ml/monitoring/prometheus/prometheus.yml**: Prometheus configuration
 - **ml/monitoring/alertmanager/alertmanager.yml**: Alert routing configuration
 - **ml/monitoring/prometheus/alerts/**: Alert rule definitions

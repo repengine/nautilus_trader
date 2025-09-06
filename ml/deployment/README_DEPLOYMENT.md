@@ -11,7 +11,7 @@ This directory contains the Docker Compose configuration for deploying the Nauti
    # Edit .env and add your DATABENTO_API_KEY
    ```
 
-2. **Build and start services:**
+2. **Build and start services (base stack):**
 
    ```bash
    make build
@@ -28,7 +28,10 @@ This directory contains the Docker Compose configuration for deploying the Nauti
    Ensure required DB functions and current-month partitions are present. From your host:
 
    ```bash
-   python -c "from ml.stores.db_preflight import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5432/nautilus'))"
+   # Note: deployment maps Postgres to localhost:5433 by default.
+   # If you need 5432 instead, set POSTGRES_HOST_PORT=5432 in your environment before `make up`.
+   python -c "import os; from ml.stores.db_preflight import check_db_prereqs; \
+print(check_db_prereqs('postgresql://postgres:postgres@localhost:' + os.environ.get('POSTGRES_HOST_PORT','5433') + '/nautilus'))"
    ```
    ```
 
@@ -107,20 +110,17 @@ make realtime
 ### Development Mode
 
 ```bash
-# Copy override file for development
-cp docker-compose.override.yml.example docker-compose.override.yml
-
-# Run with live code mounting
+# Run base stack with dev overrides (5432 port, pgAdmin)
 make dev
 ```
 
 ## Monitoring
 
 ### Health Check
-The pipeline exposes a health endpoint at `http://localhost:8080/health`:
+The pipeline exposes a health endpoint on host `${ML_PIPELINE_HOST_PORT:-8081}` (mapped to container 8080):
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8081/health
 ```
 
 ### Metrics
@@ -131,13 +131,13 @@ Grafana dashboards at `http://localhost:3000` (admin/admin)
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
 make logs SERVICE=ml_pipeline
 
 # Pipeline log file
-docker-compose exec ml_pipeline tail -f /app/logs/ml_pipeline.log
+docker compose exec ml_pipeline tail -f /app/logs/ml_pipeline.log
 ```
 
 ## Database Management
@@ -159,20 +159,20 @@ make restore FILE=backup_20240101_120000.sql
 
 ```bash
 # PostgreSQL CLI
-docker-compose exec postgres psql -U postgres nautilus
+docker compose exec postgres psql -U postgres nautilus
 
 ### Migrations
 
 Canonical migrations live under `ml/stores/migrations/`. Apply them in order before first run:
 
 ```bash
-docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/001_stores_schema.sql
-docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/002_auto_partitioning.sql
-docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/003_market_data.sql
-docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/004_data_registry.sql
-docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/005_schema_hardening.sql
-docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/005a_feature_values_dedupe.sql
-docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/006_disable_partition_triggers.sql
+docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/001_stores_schema.sql
+docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/002_auto_partitioning.sql
+docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/003_market_data.sql
+docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/004_data_registry.sql
+docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/005_schema_hardening.sql
+docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/005a_feature_values_dedupe.sql
+docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migrations/006_disable_partition_triggers.sql
 ```
 
 # pgAdmin web interface (if using override)
@@ -185,8 +185,8 @@ docker-compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migr
 ### Pipeline not starting
 
 1. Check logs: `make logs`
-2. Verify database is healthy: `docker-compose ps postgres`
-3. Check environment variables: `docker-compose config`
+2. Verify database is healthy: `docker compose ps postgres`
+3. Check environment variables: `docker compose config`
 
 ### Memory issues
 Adjust limits in docker-compose.yml:
@@ -203,7 +203,7 @@ Ensure all services are on the same network:
 
 ```bash
 docker network ls
-docker network inspect nautilus_network
+docker network inspect nautilus-ml
 ```
 
 ### Data not processing

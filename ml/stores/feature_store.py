@@ -261,6 +261,18 @@ class FeatureStore:
 
         return self._data_registry
 
+    # Allow external injection of a shared DataRegistry instance
+    def set_data_registry(self, registry: RegistryProtocol) -> None:
+        """
+        Set the DataRegistry instance used for event emission and watermarks.
+
+        Parameters
+        ----------
+        registry : RegistryProtocol
+            The shared registry instance to use.
+        """
+        self._data_registry = registry
+
     def compute_historical_parallel(
         self,
         instrument_ids: list[str],
@@ -528,7 +540,7 @@ class FeatureStore:
                     "ts_event",
                 ],
                 set_={
-                    "values": stmt.excluded.values,  # noqa: PD011 - SQLAlchemy attribute, not pandas
+                    "values": stmt.excluded["values"],
                     "ts_init": stmt.excluded.ts_init,
                     "source": stmt.excluded.source,
                     # created_at left as existing/default
@@ -562,6 +574,7 @@ class FeatureStore:
                     ts_max=ts_max,
                     count=len(rows),
                     status="success",
+                    metadata={"feature_set_id": feature_set_id},
                 )
 
                 # Update watermark for tracking progress
@@ -705,7 +718,7 @@ class FeatureStore:
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["feature_set_id", "instrument_id", "ts_event"],
                     set_={
-                        "values": stmt.excluded.values,  # noqa: PD011 - SQLAlchemy attribute, not pandas
+                        "values": stmt.excluded["values"],
                         "ts_init": stmt.excluded.ts_init,
                         "is_live": stmt.excluded.is_live,
                         "source": stmt.excluded.source,

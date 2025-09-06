@@ -19,11 +19,10 @@ python ml/tests/test_smoke.py
 
 ```bash
 # Step 1: Start PostgreSQL
-cd ml/
-docker-compose up -d postgres
+docker compose -f ml/deployment/docker-compose.yml up -d postgres
 
 # Wait for it to be ready
-docker-compose ps  # Should show postgres as "healthy"
+docker compose -f ml/deployment/docker-compose.yml ps  # Should show postgres as "healthy"
 
 # Step 2: Run tests
 export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus
@@ -107,7 +106,7 @@ python ml/tests/test_smoke.py
 pytest ml/tests/test_smoke.py -xvs
 
 # If you have PostgreSQL in CI
-docker-compose up -d postgres
+docker compose -f ml/deployment/docker-compose.yml up -d postgres
 sleep 10  # Wait for DB
 pytest ml/tests/test_smoke.py ml/tests/unit/features -x
 ```
@@ -116,7 +115,7 @@ pytest ml/tests/test_smoke.py ml/tests/unit/features -x
 
 ```bash
 # Start all services
-docker-compose up -d
+docker compose -f ml/deployment/docker-compose.yml up -d
 
 # Run everything (will have failures)
 pytest ml/tests --tb=short -q
