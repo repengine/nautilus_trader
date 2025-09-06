@@ -84,10 +84,11 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
 
 def _normalize_atr(atr: float, close: float) -> float:
     """
-    Normalize ATR by price with a small floor to avoid extreme relative changes
-    on near-flat series.
+    Normalize ATR by price with a small floor to avoid extreme relative changes on near-
+    flat series.
 
     Returns atr/close or 0.0 when the ratio is below 1e-6.
+
     """
     ratio = safe_divide(float(atr), float(close), default=0.0)
     return 0.0 if ratio < 1e-6 else ratio
@@ -672,7 +673,10 @@ class FeatureEngineer:
                 return getattr(self._obj, name)
 
         self.indicators: Any = types.SimpleNamespace(
-            **{name: _IndicatorCompatProxy(obj) for name, obj in self._indicator_manager.indicators.items()},
+            **{
+                name: _IndicatorCompatProxy(obj)
+                for name, obj in self._indicator_manager.indicators.items()
+            },
         )
 
         # Cache statistics for metrics
@@ -769,9 +773,10 @@ class FeatureEngineer:
         """
         Calculate simple quality metrics per feature column for batch outputs.
 
-        This runs off the hot path and is used for monitoring/validation in
-        teacher pipelines. Metrics include null_rate, zero_rate, unique_ratio,
-        inf_rate, and outlier_rate (IQR-based) for numeric columns.
+        This runs off the hot path and is used for monitoring/validation in teacher
+        pipelines. Metrics include null_rate, zero_rate, unique_ratio, inf_rate, and
+        outlier_rate (IQR-based) for numeric columns.
+
         """
         if not getattr(self.config, "validate_quality", False):
             return {}
@@ -813,7 +818,11 @@ class FeatureEngineer:
             return cast(PolarsDF, features_df)
         # Try pandas → polars
         try:
-            if pd is not None and hasattr(features_df, "__class__") and "pandas" in str(type(features_df)):
+            if (
+                pd is not None
+                and hasattr(features_df, "__class__")
+                and "pandas" in str(type(features_df))
+            ):
                 return pl.from_pandas(features_df)  # type: ignore[arg-type]
         except Exception:
             return None
@@ -842,6 +851,7 @@ class FeatureEngineer:
 
         # Additional metrics for numeric columns only
         import polars as _pl  # local import for type/attr checks
+
         if col_data.dtype in (_pl.Float32, _pl.Float64):
             inf_count = col_data.is_infinite().sum()
             metrics["inf_rate"] = float(inf_count) / float(total_rows) if total_rows else 0.0
@@ -1199,9 +1209,8 @@ class FeatureEngineer:
             # Warn once if configuration requests advanced features which are
             # disabled in the hot path (until actors provide them at runtime).
             if (
-                (self.config.include_microstructure or self.config.include_trade_flow)
-                and not self._online_warning_emitted
-            ):
+                self.config.include_microstructure or self.config.include_trade_flow
+            ) and not self._online_warning_emitted:
                 import logging as _logging
 
                 _logging.getLogger(__name__).warning(
@@ -1238,7 +1247,9 @@ class FeatureEngineer:
         for idx in range(len(close_prices)):
             indicator_mgr.update_from_values(
                 close=float(close_prices[idx]),
-                high=float(high_prices[idx]) if high_prices is not None else float(close_prices[idx]),
+                high=(
+                    float(high_prices[idx]) if high_prices is not None else float(close_prices[idx])
+                ),
                 low=float(low_prices[idx]) if low_prices is not None else float(close_prices[idx]),
                 volume=float(volumes[idx]),
             )
@@ -1257,8 +1268,12 @@ class FeatureEngineer:
                 continue
             current_bar = {
                 "close": float(close_prices[idx]),
-                "high": float(high_prices[idx]) if high_prices is not None else float(close_prices[idx]),
-                "low": float(low_prices[idx]) if low_prices is not None else float(close_prices[idx]),
+                "high": (
+                    float(high_prices[idx]) if high_prices is not None else float(close_prices[idx])
+                ),
+                "low": (
+                    float(low_prices[idx]) if low_prices is not None else float(close_prices[idx])
+                ),
                 "volume": float(volumes[idx]),
             }
             feat_vec = self._calculate_features_online_impl(
@@ -1480,7 +1495,11 @@ class FeatureEngineer:
 
         # High-Low spread (use mid-price denominator for numerical stability)
         hl_num = current_bar["high"] - current_bar["low"]
-        hl_den = 0.5 * (current_bar["high"] + current_bar["low"]) if (current_bar["high"] + current_bar["low"]) != 0 else close
+        hl_den = (
+            0.5 * (current_bar["high"] + current_bar["low"])
+            if (current_bar["high"] + current_bar["low"]) != 0
+            else close
+        )
         self.feature_buffer[feature_idx] = safe_divide(hl_num, hl_den)
         feature_idx += 1
 
@@ -1873,7 +1892,11 @@ class FeatureEngineer:
         # HL spread
         # High-Low spread with mid-price denominator for stability
         hl_num = float(bar_data["high"]) - float(bar_data["low"])
-        hl_den = 0.5 * (float(bar_data["high"]) + float(bar_data["low"])) if (float(bar_data["high"]) + float(bar_data["low"])) != 0 else close
+        hl_den = (
+            0.5 * (float(bar_data["high"]) + float(bar_data["low"]))
+            if (float(bar_data["high"]) + float(bar_data["low"])) != 0
+            else close
+        )
         features["hl_spread"] = safe_divide(hl_num, hl_den)
 
     def _calculate_features_from_indicators(
@@ -2422,6 +2445,7 @@ class FeatureEngineer:
         local_pd = pd
         if local_pd is None:
             from ml._imports import pd as _pd
+
             local_pd = _pd
         assert local_pd is not None
 
@@ -2430,6 +2454,7 @@ class FeatureEngineer:
 
         # Extract the last row as a plain dict
         from typing import Any as _Any
+
         if hasattr(features_df, "to_pandas"):
             features_pd: _Any = features_df.to_pandas()  # type: ignore[operator]
         else:
@@ -2460,6 +2485,7 @@ class FeatureEngineer:
         except Exception:
             # Fall back silently; this is a compatibility helper for tests
             import logging as _logging
+
             _logging.getLogger(__name__).debug("Fallback RSI calculation failed", exc_info=True)
 
         # Improve numerical stability for spread-related metamorphic tests by
@@ -2485,6 +2511,7 @@ def _stable_rsi(prices: list[float], period: int) -> float:
     -------
     float
         RSI in [0, 100].
+
     """
     import math
 

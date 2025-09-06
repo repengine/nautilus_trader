@@ -18,12 +18,33 @@ Notes
 from __future__ import annotations
 
 import json
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import as_completed
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from ml._imports import check_ml_dependencies
+
+
+try:
+    from ml.common.metrics_bootstrap import get_counter
+    from ml.common.metrics_bootstrap import get_histogram
+
+    _RUNS_TOTAL = get_counter(
+        "nautilus_ml_build_runner_runs_total",
+        "Total dataset build tasks executed",
+        ["status"],
+    )
+    _RUN_DURATION = get_histogram(
+        "nautilus_ml_build_runner_task_duration_seconds",
+        "Duration of per-symbol dataset build tasks",
+        ["symbol"],
+    )
+except Exception:  # pragma: no cover - metrics optional
+    _RUNS_TOTAL = None  # type: ignore[assignment]
+    _RUN_DURATION = None  # type: ignore[assignment]
 
 
 try:  # Python 3.11+
@@ -53,6 +74,7 @@ class BuildConfig:
     threshold: float = 0.001
     lookback_periods: int = 60
     workers: int = 1
+    use_subprocess: bool = False
 
     @staticmethod
     def from_mapping(obj: dict[str, Any]) -> BuildConfig:
@@ -81,6 +103,7 @@ class BuildConfig:
             threshold=float(_p("threshold", 0.001)),
             lookback_periods=int(_p("lookback_periods", 60)),
             workers=max(1, int(_p("workers", 1))),
+            use_subprocess=bool(_p("use_subprocess", False)),
         )
         return cfg
 
@@ -123,9 +146,6 @@ def _log_progress(out_dir: Path, event: dict[str, Any]) -> None:
 
 
 def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
-    # Import here to avoid import-time overhead for consumers
-    from ml.scripts.build_tft_dataset import main as build_main
-
     symbol_out = cfg.out_dir / task.symbol
     symbol_out.mkdir(parents=True, exist_ok=True)
     args = [
@@ -149,25 +169,102 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
     if cfg.include_l2:
         args += ["--include_l2"]
 
-    return int(build_main(args))
+    if cfg.use_subprocess:
+        import subprocess
+
+        cmd = [
+            "uv",
+            "run",
+            "--active",
+            "--no-sync",
+            "python",
+            "-m",
+            "ml.scripts.build_tft_dataset",
+            *args,
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        _log_progress(
+            cfg.out_dir,
+            {"event": "subprocess_log", "symbol": task.symbol, "output": proc.stdout[-5000:]},
+        )
+        return int(proc.returncode)
+    else:
+        # Import here to avoid import-time overhead for consumers
+        from ml.scripts.build_tft_dataset import main as build_main
+
+        return int(build_main(args))
 
 
-def execute(cfg: BuildConfig) -> dict[str, Any]:
+def execute(
+    cfg: BuildConfig,
+) -> dict[str, Any]:
     tasks = plan_tasks(cfg)
     results: dict[str, Any] = {"total": len(tasks), "succeeded": 0, "failed": 0}
-    for t in tasks:
-        _log_progress(cfg.out_dir, {"event": "start", "symbol": t.symbol})
-        try:
-            rc = _run_single(cfg, t)
-            if rc == 0:
-                results["succeeded"] += 1
-                _log_progress(cfg.out_dir, {"event": "success", "symbol": t.symbol, "rc": rc})
-            else:
+    import time
+
+    if cfg.workers <= 1:
+        for t in tasks:
+            _log_progress(cfg.out_dir, {"event": "start", "symbol": t.symbol})
+            try:
+                start = time.perf_counter()
+                rc = _run_single(cfg, t)
+                dur = time.perf_counter() - start
+                if _RUN_DURATION is not None:
+                    _RUN_DURATION.labels(symbol=t.symbol).observe(dur)
+                if rc == 0:
+                    results["succeeded"] += 1
+                    _log_progress(cfg.out_dir, {"event": "success", "symbol": t.symbol, "rc": rc})
+                    if _RUNS_TOTAL is not None:
+                        _RUNS_TOTAL.labels(status="success").inc()
+                else:
+                    results["failed"] += 1
+                    _log_progress(cfg.out_dir, {"event": "failure", "symbol": t.symbol, "rc": rc})
+                    if _RUNS_TOTAL is not None:
+                        _RUNS_TOTAL.labels(status="failure").inc()
+            except Exception as exc:  # pragma: no cover - defensive
                 results["failed"] += 1
-                _log_progress(cfg.out_dir, {"event": "failure", "symbol": t.symbol, "rc": rc})
-        except Exception as exc:  # pragma: no cover - defensive
-            results["failed"] += 1
-            _log_progress(cfg.out_dir, {"event": "exception", "symbol": t.symbol, "error": str(exc)})
+                _log_progress(
+                    cfg.out_dir, {"event": "exception", "symbol": t.symbol, "error": str(exc)}
+                )
+                if _RUNS_TOTAL is not None:
+                    _RUNS_TOTAL.labels(status="exception").inc()
+    else:
+        # Parallel execution per symbol
+        with ProcessPoolExecutor(max_workers=cfg.workers) as pool:
+            future_map: dict[Any, BuildTask] = {}
+            for t in tasks:
+                _log_progress(cfg.out_dir, {"event": "start", "symbol": t.symbol})
+                future = pool.submit(_run_single, cfg, t)
+                future_map[future] = t
+            for fut in as_completed(future_map):
+                t = future_map[fut]
+                try:
+                    start = time.perf_counter()
+                    rc = fut.result()
+                    dur = time.perf_counter() - start
+                    if _RUN_DURATION is not None:
+                        _RUN_DURATION.labels(symbol=t.symbol).observe(dur)
+                    if int(rc) == 0:
+                        results["succeeded"] += 1
+                        _log_progress(
+                            cfg.out_dir, {"event": "success", "symbol": t.symbol, "rc": int(rc)}
+                        )
+                        if _RUNS_TOTAL is not None:
+                            _RUNS_TOTAL.labels(status="success").inc()
+                    else:
+                        results["failed"] += 1
+                        _log_progress(
+                            cfg.out_dir, {"event": "failure", "symbol": t.symbol, "rc": int(rc)}
+                        )
+                        if _RUNS_TOTAL is not None:
+                            _RUNS_TOTAL.labels(status="failure").inc()
+                except Exception as exc:  # pragma: no cover - defensive
+                    results["failed"] += 1
+                    _log_progress(
+                        cfg.out_dir, {"event": "exception", "symbol": t.symbol, "error": str(exc)}
+                    )
+                    if _RUNS_TOTAL is not None:
+                        _RUNS_TOTAL.labels(status="exception").inc()
     return results
 
 

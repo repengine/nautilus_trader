@@ -27,7 +27,7 @@ def _bars_df(ts: list[int]) -> pl.DataFrame:
             "low": [99.9 + 0.01 * i for i in range(len(ts))],
             "close": [100.05 + 0.01 * i for i in range(len(ts))],
             "volume": [1000 + 10 * i for i in range(len(ts))],
-        }
+        },
     )
 
 

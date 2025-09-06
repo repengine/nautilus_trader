@@ -40,62 +40,68 @@ class TestFeatureStoreIntegration:
         # Use a MagicMock with Bar spec to avoid strict C-extension type checks
         return MagicMock(spec=Bar)
 
-    def test_ml_signal_actor_with_feature_store(self, mock_bar: Bar, test_database: TestDatabase) -> None:
+    def test_ml_signal_actor_with_feature_store(
+        self, mock_bar: Bar, test_database: TestDatabase
+    ) -> None:
         """
         Test that MLSignalActor uses FeatureStore when configured.
         """
-        with patch("ml.actors.base.ModelStore"), \
-             patch("ml.actors.base.StrategyStore"), \
-             patch("ml.actors.base.PersistenceManager"):
-                # Create config with FeatureStore enabled
-                # Provide required typed args via casts to satisfy mypy
-                from nautilus_trader.model.data import BarType
-                from nautilus_trader.model.identifiers import InstrumentId
+        with (
+            patch("ml.actors.base.ModelStore"),
+            patch("ml.actors.base.StrategyStore"),
+            patch("ml.actors.base.PersistenceManager"),
+        ):
+            # Create config with FeatureStore enabled
+            # Provide required typed args via casts to satisfy mypy
+            from nautilus_trader.model.data import BarType
+            from nautilus_trader.model.identifiers import InstrumentId
 
-                config = MLSignalActorConfig(
-                    component_id="TEST_ACTOR",
-                    model_id="model-1",
-                    model_path="./test_model.onnx",
-                    bar_type=cast(BarType, object()),
-                    instrument_id=cast(InstrumentId, object()),
-                    use_feature_store=True,
-                    db_connection=test_database.connection_string,
-                    persist_features=True,
-                    prediction_threshold=0.7,
+            config = MLSignalActorConfig(
+                component_id="TEST_ACTOR",
+                model_id="model-1",
+                model_path="./test_model.onnx",
+                bar_type=cast(BarType, object()),
+                instrument_id=cast(InstrumentId, object()),
+                use_feature_store=True,
+                db_connection=test_database.connection_string,
+                persist_features=True,
+                prediction_threshold=0.7,
+            )
+
+            # Create actor
+            with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
+                actor = MLSignalActor(config)
+
+                # Verify FeatureStore was initialized
+                assert actor._feature_store is not None
+                assert actor._persist_features is True
+
+                # Mock the FeatureStore compute_realtime method
+                from numpy.random import default_rng
+
+                expected_features = default_rng(0).random(50).astype(np.float32)
+                actor._feature_store.compute_realtime = MagicMock(
+                    return_value=expected_features,
                 )
 
-                # Create actor
-                with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
-                    actor = MLSignalActor(config)
+                # Compute features
+                features = actor._compute_features(mock_bar)
 
-                    # Verify FeatureStore was initialized
-                    assert actor._feature_store is not None
-                    assert actor._persist_features is True
+                # Verify FeatureStore was called correctly
+                actor._feature_store.compute_realtime.assert_called_once_with(
+                    bar=mock_bar,
+                    store=True,
+                )
 
-                    # Mock the FeatureStore compute_realtime method
-                    from numpy.random import default_rng
+                # Verify returned features match
+                assert np.array_equal(
+                    cast(npt.NDArray[np.float32], features),
+                    expected_features,
+                )
 
-                    expected_features = default_rng(0).random(50).astype(np.float32)
-                    actor._feature_store.compute_realtime = MagicMock(
-                        return_value=expected_features,
-                    )
-
-                    # Compute features
-                    features = actor._compute_features(mock_bar)
-
-                    # Verify FeatureStore was called correctly
-                    actor._feature_store.compute_realtime.assert_called_once_with(
-                        bar=mock_bar,
-                        store=True,
-                    )
-
-                    # Verify returned features match
-                    assert np.array_equal(
-                        cast(npt.NDArray[np.float32], features),
-                        expected_features,
-                    )
-
-    def test_ml_signal_actor_without_feature_store(self, mock_bar: Bar, test_database: TestDatabase) -> None:
+    def test_ml_signal_actor_without_feature_store(
+        self, mock_bar: Bar, test_database: TestDatabase
+    ) -> None:
         """
         Test that MLSignalActor works without FeatureStore (backward compatibility).
         """
@@ -269,10 +275,7 @@ class TestFeatureStoreIntegration:
             # Verify custom configuration
             assert actor._feature_store is not None
             assert actor._persist_features is False
-            assert (
-                actor._feature_store.connection_string
-                == test_database.connection_string
-            )
+            assert actor._feature_store.connection_string == test_database.connection_string
             assert actor._feature_store.feature_config == feature_config
 
     @pytest.mark.database

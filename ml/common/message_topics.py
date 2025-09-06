@@ -39,6 +39,7 @@ def _normalize_instrument_id(instrument_id: str) -> str:
     - Removes any character not in [A-Za-z0-9_.-]
     - Collapses consecutive '.' characters
     - Strips leading/trailing '.'
+
     """
     # Replace explicit reserved chars with '.'
     normalized = "".join("." if ch in _RESERVED_CHARS else ch for ch in instrument_id)
@@ -73,6 +74,7 @@ def build_topic(domain: str, operation: str, instrument_id: str) -> str:
     ------
     ValueError
         If the domain or operation do not match the required patterns.
+
     """
     if not _DOMAIN_RE.match(domain):
         raise ValueError(f"Invalid domain '{domain}', must match [a-z]+")
@@ -83,13 +85,13 @@ def build_topic(domain: str, operation: str, instrument_id: str) -> str:
     return f"ml.{domain}.{operation}.{instrument_norm}"
 
 
-
 def map_stage_to_topic_segments(stage: Stage) -> tuple[str, str]:
     """
     Map a pipeline ``Stage`` to (domain, operation) topic segments.
 
-    The mapping aligns with tests and contracts expecting operations from
-    {created, updated, deprecated, deleted}.
+    The mapping aligns with tests and contracts expecting operations from {created,
+    updated, deprecated, deleted}.
+
     """
     if stage is Stage.DATA_INGESTED:
         return ("data", "created")

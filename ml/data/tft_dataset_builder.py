@@ -227,7 +227,9 @@ class TFTDatasetBuilder:
                         micro = agg.compute_for_symbol(sym)
                         if not micro.is_empty():
                             if micro["timestamp"].dtype != pl.Datetime:
-                                micro = micro.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                                micro = micro.with_columns(
+                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
+                                )
                             dataset = dataset.join(micro, on="timestamp", how="left")
                     except Exception as exc:  # pragma: no cover - best-effort path
                         logger.debug(f"Microstructure join failed for {instrument_id}: {exc}")
@@ -245,7 +247,9 @@ class TFTDatasetBuilder:
                         l2 = agg_l2.compute_for_symbol(sym)
                         if not l2.is_empty():
                             if l2["timestamp"].dtype != pl.Datetime:
-                                l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                                l2 = l2.with_columns(
+                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
+                                )
                             dataset = dataset.join(l2, on="timestamp", how="left")
                     except Exception as exc:  # pragma: no cover
                         logger.debug(f"L2 feature join failed for {instrument_id}: {exc}")
@@ -286,10 +290,10 @@ class TFTDatasetBuilder:
             final_df = cast(
                 pl.DataFrame,
                 join_fred_asof(
-                final_df,
-                timestamp_col="ts_event",
-                lag_days=self.macro_lag_days,
-                fred_path=self.fred_path,
+                    final_df,
+                    timestamp_col="ts_event",
+                    lag_days=self.macro_lag_days,
+                    fred_path=self.fred_path,
                 ),
             )
         logger.info(
@@ -509,29 +513,74 @@ class TFTDatasetBuilder:
         all_data_pl: list[pl.DataFrame] = []
         all_data_pd: list[pd.DataFrame] = []
 
+        # Candidate venues to try per symbol (ETFs frequently ARCA/ARCX)
+        candidate_venues = [
+            "ARCA",
+            "ARCX",
+            "NASDAQ",
+            "XNAS",
+            "NYSE",
+            "XNYS",
+        ]
+
         for symbol in self.symbols:
             logger.info(f"Processing {symbol}...")
 
             # Load data using catalog
             try:
-                # Assuming symbol needs venue suffix (e.g., NYSE, NASDAQ)
-                instrument_id = f"{symbol}.NYSE"  # Default to NYSE, could be configurable
-                df = bars_to_dataframe(
-                    self.catalog,
-                    [instrument_id],
-                    start=None,  # Load all available data
-                    end=None,
-                )
-
+                df = pl.DataFrame()
+                last_err: Exception | None = None
+                for venue in candidate_venues:
+                    instrument_id = f"{symbol}.{venue}"
+                    try:
+                        df = bars_to_dataframe(self.catalog, [instrument_id], start=None, end=None)
+                        if not df.is_empty():
+                            break
+                    except Exception as e_inner:  # pragma: no cover - catalog differences
+                        last_err = e_inner
+                        continue
                 if df.is_empty():
-                    # Try with NASDAQ if NYSE doesn't work
-                    instrument_id = f"{symbol}.NASDAQ"
-                    df = bars_to_dataframe(
-                        self.catalog,
-                        [instrument_id],
-                        start=None,
-                        end=None,
-                    )
+                    # Fallback: read OHLCV minute parquet directly under base dir
+                    try:
+                        from pathlib import Path as _Path
+
+                        base = _Path(self.micro_base_dir or "data/tier1")
+                        paths = [
+                            base / symbol / "ohlcv-1m_historical.parquet",
+                            base / symbol / "ohlcv-1m_recent.parquet",
+                        ]
+                        frames = []
+                        for p in paths:
+                            if p.exists():
+                                part = pl.read_parquet(str(p))
+                                if not part.is_empty():
+                                    frames.append(part)
+                        if frames:
+                            df = pl.concat(frames, how="vertical")
+                            # Normalize timestamp column name and type
+                            if "timestamp" not in df.columns and "ts_event" in df.columns:
+                                df = df.rename({"ts_event": "timestamp"})
+                            if "timestamp" in df.columns and df["timestamp"].dtype != pl.Datetime:
+                                df = df.with_columns(
+                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
+                                )
+                            df = df.sort(
+                                "timestamp" if "timestamp" in df.columns else df.columns[0]
+                            )
+                        else:
+                            # No files found; log and skip
+                            if last_err is not None:
+                                logger.warning(
+                                    f"Failed to load data for {symbol} (last error: {last_err}); no parquet fallback",
+                                )
+                            else:
+                                logger.warning(
+                                    f"No data found for {symbol} across venues {candidate_venues}; parquet fallback missing",
+                                )
+                            continue
+                    except Exception as e_fallback:  # pragma: no cover - environment dependent
+                        logger.warning(f"Fallback parquet load failed for {symbol}: {e_fallback}")
+                        continue
             except Exception as e:
                 logger.warning(f"Failed to load data for {symbol}: {e}")
                 continue
@@ -654,7 +703,9 @@ class TFTDatasetBuilder:
                 micro = agg.compute_for_symbol(symbol)
                 if not micro.is_empty():
                     if micro["timestamp"].dtype != pl.Datetime:
-                        micro = micro.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                        micro = micro.with_columns(
+                            pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
+                        )
                     dataset = dataset.join(micro, on="timestamp", how="left")
             except Exception as exc:  # pragma: no cover
                 logger.debug(f"Microstructure join failed for {symbol}: {exc}")
@@ -787,7 +838,9 @@ class TFTDatasetBuilder:
 
                 provider = EventScheduleProvider(MockEventSource())
                 if "timestamp" in dataset.columns:
-                    ts_series = pl.Series("timestamp", dataset["timestamp"].astype("datetime64[ns]")).cast(pl.Int64)
+                    ts_series = pl.Series(
+                        "timestamp", dataset["timestamp"].astype("datetime64[ns]")
+                    ).cast(pl.Int64)
                     ev_pl = provider.compute_features(ts_series, [symbol])
                     ev_pl = ev_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
                     ev_pd = ev_pl.to_pandas()

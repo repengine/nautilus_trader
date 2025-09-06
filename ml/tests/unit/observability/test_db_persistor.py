@@ -25,8 +25,8 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": 1000,
                 "ts_stage_end": 2000,
-            }
-        ]
+            },
+        ],
     )
     met = build_metrics_collection(
         [
@@ -36,8 +36,8 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
                 "value": 0.002,
                 "timestamp": 1000,
                 "labels": {"actor_id": "a1"},
-            }
-        ]
+            },
+        ],
     )
     cor = build_event_correlation(
         [
@@ -50,8 +50,8 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
                 "lineage_depth": 0,
                 "ts_event": 1000,
                 "propagation_path": ["data"],
-            }
-        ]
+            },
+        ],
     )
     hea = build_health_scores(
         [
@@ -61,18 +61,20 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
                 "subsystem_scores": {"db": 1.0},
                 "timestamp": 1000,
                 "measurement_window_ms": 1000,
-            }
-        ]
+            },
+        ],
     )
 
     db = tmp_path / "obs.db"
     per = ObservabilityDBPersistor(connection_string=f"sqlite:///{db}")
-    written = per.persist({
-        "latency": lat,
-        "metrics": met,
-        "correlation": cor,
-        "health": hea,
-    })
+    written = per.persist(
+        {
+            "latency": lat,
+            "metrics": met,
+            "correlation": cor,
+            "health": hea,
+        }
+    )
     assert set(written.keys()) == {"latency", "metrics", "correlation", "health"}
 
     import sqlalchemy as sa
@@ -87,4 +89,3 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
         EventCorrelationSchema.validate(cor_df)
         hea_df = pd.read_sql("select * from obs_health_scores", conn)
         HealthScoreAggregationSchema.validate(hea_df)
-

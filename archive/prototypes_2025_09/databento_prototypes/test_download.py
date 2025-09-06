@@ -10,8 +10,11 @@ import databento as db
 
 warnings.filterwarnings("ignore")
 
+
 def test_single_download():
-    """Test a single small download to check format."""
+    """
+    Test a single small download to check format.
+    """
     try:
         client = db.Historical()
         print("✅ Connected to Databento")
@@ -45,6 +48,7 @@ def test_single_download():
     except Exception as e:
         print(f"❌ Test failed: {e}")
         return False
+
 
 if __name__ == "__main__":
     test_single_download()

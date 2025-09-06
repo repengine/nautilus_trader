@@ -1,10 +1,11 @@
 """
 Unified Observability Pipeline DTO builders.
 
-This module provides typed builders that produce pandas DataFrames representing
-latency watermarks, metrics collection, event correlation/lineage, and health
-scores. These are used by tests and integration layers to validate observability
-contracts while keeping production code decoupled from Pandera.
+This module provides typed builders that produce pandas DataFrames representing latency
+watermarks, metrics collection, event correlation/lineage, and health scores. These are
+used by tests and integration layers to validate observability contracts while keeping
+production code decoupled from Pandera.
+
 """
 
 from __future__ import annotations
@@ -30,13 +31,19 @@ def build_latency_watermarks(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
     The builder adds:
     - stage_latency_ns (int)
     - cumulative_latency_ns (int) in input order
+
     """
     df = pd.DataFrame(list(rows))
     if df.empty:
-        return df.assign(stage_latency_ns=pd.Series(dtype="int64"), cumulative_latency_ns=pd.Series(dtype="int64"))
+        return df.assign(
+            stage_latency_ns=pd.Series(dtype="int64"),
+            cumulative_latency_ns=pd.Series(dtype="int64"),
+        )
 
     df = df.copy()
-    df["stage_latency_ns"] = (df["ts_stage_end"].astype("int64") - df["ts_stage_start"].astype("int64")).clip(lower=0)
+    df["stage_latency_ns"] = (
+        df["ts_stage_end"].astype("int64") - df["ts_stage_start"].astype("int64")
+    ).clip(lower=0)
     df["cumulative_latency_ns"] = df["stage_latency_ns"].cumsum()
     return df
 
@@ -51,11 +58,13 @@ def build_metrics_collection(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
     - value: float
     - timestamp: int
     - labels: dict[str, Any] | str (will be JSON-encoded string)
+
     """
     df = pd.DataFrame(list(rows))
     if df.empty:
         return df
     df = df.copy()
+
     # Ensure labels is a JSON string
     def _enc(x: Any) -> str:
         return x if isinstance(x, str) else json.dumps(x or {})
@@ -76,11 +85,13 @@ def build_event_correlation(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
     - lineage_depth (int >= 0)
     - ts_event (int)
     - propagation_path (list[str] | str) -> JSON string
+
     """
     df = pd.DataFrame(list(rows))
     if df.empty:
         return df
     df = df.copy()
+
     # Normalize propagation_path to JSON string
     def _enc_list(x: Any) -> str:
         return x if isinstance(x, str) else json.dumps(list(x or []))
@@ -100,6 +111,7 @@ def build_health_scores(rows: Iterable[dict[str, Any]]) -> pd.DataFrame:
     - subsystem_scores: dict[str, float] | str (JSON-encoded)
     - timestamp: int
     - measurement_window_ms: int
+
     """
     df = pd.DataFrame(list(rows))
     if df.empty:
@@ -141,6 +153,7 @@ def aggregate_metrics_by_window(
     field is not carried through to avoid exponential cardinality; callers can
     join if needed. Returns a DataFrame with columns:
       - metric_name, domain, instrument_id, window_start, total_value, sample_count
+
     """
     df = pd.DataFrame(list(rows))
     if df.empty:
@@ -179,10 +192,13 @@ def scale_health_scores(
 
     Returns a DataFrame with same columns as input, where `health_score` is
     multiplied by `factor` and then clipped to [0, 1].
+
     """
     df = pd.DataFrame(list(rows))
     if df.empty:
         return df
     df = df.copy()
-    df["health_score"] = (df["health_score"].astype(float) * float(factor)).clip(lower=0.0, upper=1.0)
+    df["health_score"] = (df["health_score"].astype(float) * float(factor)).clip(
+        lower=0.0, upper=1.0
+    )
     return df

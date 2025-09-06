@@ -2,7 +2,9 @@
 """
 Integration tests for ML deployment components.
 
-Tests inter-service communication, end-to-end container workflows, and Prometheus metrics.
+Tests inter-service communication, end-to-end container workflows, and Prometheus
+metrics.
+
 """
 
 from __future__ import annotations
@@ -37,19 +39,25 @@ except ImportError:
 @pytest.mark.serial
 @pytest.mark.deployment
 @pytest.mark.integration
-@pytest.mark.usefixtures("clean_postgres_db_module")  # Ensure clean PostgreSQL state once per module
+@pytest.mark.usefixtures(
+    "clean_postgres_db_module"
+)  # Ensure clean PostgreSQL state once per module
 class TestDeploymentIntegration:
-    """Integration tests for deployment components."""
+    """
+    Integration tests for deployment components.
+    """
 
     @pytest.fixture
     def deployment_env(self, monkeypatch, tmp_path, test_database):
-        """Set up complete deployment environment with PostgreSQL."""
+        """
+        Set up complete deployment environment with PostgreSQL.
+        """
         # Create necessary directories and files
         from ml.tests.fixtures.model_factory import TestModelFactory
 
         model_factory = TestModelFactory()
         model_path = model_factory.create_onnx_model(
-            output_path=tmp_path / "models" / "model.onnx"
+            output_path=tmp_path / "models" / "model.onnx",
         )
 
         catalog_path = tmp_path / "catalog"
@@ -79,15 +87,21 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_actor_to_strategy_communication(self, deployment_env):
-        """Test signal actor communicates with strategy."""
+        """
+        Test signal actor communicates with strategy.
+        """
         # Set up actor node
         actor_node = MLSignalActorNode()
         strategy_node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_actor.TradingNode") as mock_actor_trading_node:
             with patch("ml.deployment.entrypoint_actor.MLSignalActor") as mock_signal_actor:
-                with patch("ml.deployment.entrypoint_strategy.TradingNode") as mock_strategy_trading_node:
-                    with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy") as mock_strategy:
+                with patch(
+                    "ml.deployment.entrypoint_strategy.TradingNode"
+                ) as mock_strategy_trading_node:
+                    with patch(
+                        "ml.deployment.entrypoint_strategy.MLTradingStrategy"
+                    ) as mock_strategy:
                         # Mock the components
                         mock_actor_node = Mock()
                         mock_actor_trading_node.return_value = mock_actor_node
@@ -116,13 +130,17 @@ class TestDeploymentIntegration:
 
     @pytest.mark.asyncio
     async def test_concurrent_node_startup(self, deployment_env):
-        """Test concurrent startup of multiple nodes."""
+        """
+        Test concurrent startup of multiple nodes.
+        """
         actor_node = MLSignalActorNode()
         strategy_node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_actor.TradingNode") as mock_actor_node_class:
             with patch("ml.deployment.entrypoint_actor.MLSignalActor"):
-                with patch("ml.deployment.entrypoint_strategy.TradingNode") as mock_strategy_node_class:
+                with patch(
+                    "ml.deployment.entrypoint_strategy.TradingNode"
+                ) as mock_strategy_node_class:
                     with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy"):
                         # Mock trading nodes
                         mock_actor_trading = AsyncMock()
@@ -131,7 +149,9 @@ class TestDeploymentIntegration:
                         actor_node.node = mock_actor_trading
 
                         mock_strategy_trading = AsyncMock()
-                        mock_strategy_trading.run_async = AsyncMock(side_effect=asyncio.CancelledError)
+                        mock_strategy_trading.run_async = AsyncMock(
+                            side_effect=asyncio.CancelledError
+                        )
                         mock_strategy_node_class.return_value = mock_strategy_trading
                         strategy_node.node = mock_strategy_trading
 
@@ -155,14 +175,20 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_pipeline_with_stores_initialization(self, deployment_env, test_database):
-        """Test pipeline initializes stores correctly with PostgreSQL."""
+        """
+        Test pipeline initializes stores correctly with PostgreSQL.
+        """
         runner = PipelineRunner()
 
         with patch("ml.deployment.entrypoint_pipeline.check_ml_dependencies"):
             with patch("ml.deployment.entrypoint_pipeline.FeatureStore") as mock_fs_class:
                 with patch("ml.deployment.entrypoint_pipeline.ModelStore") as mock_ms_class:
-                    with patch("ml.deployment.entrypoint_pipeline.ParquetDataCatalog") as mock_catalog_class:
-                        with patch("ml.deployment.entrypoint_pipeline.DataScheduler") as mock_scheduler_class:
+                    with patch(
+                        "ml.deployment.entrypoint_pipeline.ParquetDataCatalog"
+                    ) as mock_catalog_class:
+                        with patch(
+                            "ml.deployment.entrypoint_pipeline.DataScheduler"
+                        ) as mock_scheduler_class:
                             # Mock stores
                             mock_fs = Mock()
                             mock_fs_class.return_value = mock_fs
@@ -194,7 +220,9 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_health_check_endpoint_availability(self, deployment_env):
-        """Test health check endpoint is available during pipeline run."""
+        """
+        Test health check endpoint is available during pipeline run.
+        """
         from ml.deployment.entrypoint_pipeline import app
         from ml.deployment.entrypoint_pipeline import pipeline_status
 
@@ -212,7 +240,9 @@ class TestDeploymentIntegration:
 
     @pytest.mark.asyncio
     async def test_graceful_shutdown_sequence(self, deployment_env):
-        """Test graceful shutdown of all components."""
+        """
+        Test graceful shutdown of all components.
+        """
         actor_node = MLSignalActorNode()
         strategy_node = MLStrategyNode()
         pipeline_runner = PipelineRunner()
@@ -251,7 +281,9 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_environment_variable_propagation(self, deployment_env, monkeypatch):
-        """Test environment variables propagate correctly to all components."""
+        """
+        Test environment variables propagate correctly to all components.
+        """
         # Set custom environment variables
         monkeypatch.setenv("POSITION_SIZE_PCT", "0.05")
         monkeypatch.setenv("MIN_CONFIDENCE", "0.75")
@@ -285,7 +317,9 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_error_recovery_and_retry(self, deployment_env):
-        """Test error recovery and retry mechanisms."""
+        """
+        Test error recovery and retry mechanisms.
+        """
         runner = PipelineRunner()
         runner.running = True
 
@@ -331,6 +365,7 @@ class TestDeploymentIntegration:
                 mock_scheduler.run_daily_update()  # Third call - shutdown
             except Exception:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Third update call raised as expected in test",
                     exc_info=True,
@@ -355,8 +390,12 @@ class TestDeploymentIntegration:
     @patch("ml.common.metrics.PREDICTION_COUNTER")
     @patch("ml.common.metrics.FEATURE_CALCULATION_TIMER")
     @patch("ml.common.metrics.MODEL_INFERENCE_TIMER")
-    def test_prometheus_metrics_exposure(self, mock_inference_timer, mock_feature_timer, mock_prediction_counter, deployment_env):
-        """Test Prometheus metrics are properly exposed."""
+    def test_prometheus_metrics_exposure(
+        self, mock_inference_timer, mock_feature_timer, mock_prediction_counter, deployment_env
+    ):
+        """
+        Test Prometheus metrics are properly exposed.
+        """
         # Test actor metrics
         actor_node = MLSignalActorNode()
         with patch("ml.deployment.entrypoint_actor.TradingNode"):
@@ -373,7 +412,9 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_docker_compose_service_dependencies(self, deployment_env):
-        """Test service dependency checks."""
+        """
+        Test service dependency checks.
+        """
         from ml.deployment.check_health import check_docker_compose
 
         with patch("subprocess.run") as mock_run:
@@ -407,7 +448,9 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_configuration_validation(self, deployment_env, monkeypatch):
-        """Test configuration validation across components."""
+        """
+        Test configuration validation across components.
+        """
         # Test invalid configuration handling
         monkeypatch.delenv("DATABENTO_API_KEY", raising=False)
 
@@ -428,14 +471,18 @@ class TestDeploymentIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     def test_multi_threading_safety(self, deployment_env):
-        """Test thread safety of concurrent operations."""
+        """
+        Test thread safety of concurrent operations.
+        """
         from ml.deployment.entrypoint_pipeline import pipeline_status
 
         # Reset status
         pipeline_status["errors"] = []
 
         def update_status(error_msg):
-            """Simulate concurrent status updates."""
+            """
+            Simulate concurrent status updates.
+            """
             time.sleep(0.001)  # Simulate processing
             pipeline_status["errors"].append(error_msg)
 

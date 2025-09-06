@@ -68,6 +68,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
 # This delegates to the centralized EngineManager.
 def create_engine(connection_string: str, **kwargs: Any) -> Engine:
@@ -77,17 +78,17 @@ def create_engine(connection_string: str, **kwargs: Any) -> Engine:
 # Backwards-compat: expose a module-level PersistenceManager symbol for tests to monkeypatch.
 try:  # pragma: no cover - used only in tests which patch this symbol
     from ml.registry import persistence as _persistence
+
     _RealPM = _persistence.PersistenceManager
     PersistenceManager: type[Any] = _RealPM
 except Exception:  # pragma: no cover
-    class _StubPM:
-        """Test stub for patching."""
 
+    class _StubPM:
+        """
+        Test stub for patching.
+        """
 
     PersistenceManager = _StubPM
-
-
-
 
 
 # Prometheus metrics for feature computation events (centralized)
@@ -95,6 +96,7 @@ data_events_total: Counter | None = None
 if HAS_PROMETHEUS:
     try:
         from ml.common.metrics import data_events_total as _central_data_events_total
+
         data_events_total = _central_data_events_total
     except Exception:
         data_events_total = None
@@ -207,6 +209,7 @@ class FeatureStore:
         # (FeatureStore writes synchronously by default; buffer is only used
         #  when write_batch is called in tests.)
         from ml.stores.base import FeatureData  # import locally to avoid cycles in type hints
+
         self._write_buffer: list[FeatureData] = []
         # Back-compat alias expected by tests
         self._buffer: list[FeatureData] = self._write_buffer
@@ -231,7 +234,10 @@ class FeatureStore:
                 registry_path = Path.home() / ".nautilus" / "ml" / "registry"
 
                 # Determine backend based on connection string
-                if "postgresql://" in self.connection_string or "postgres://" in self.connection_string:
+                if (
+                    "postgresql://" in self.connection_string
+                    or "postgres://" in self.connection_string
+                ):
                     # Use PostgreSQL backend for production
                     persistence_config = PersistenceConfig(
                         backend=BackendType.POSTGRES,
@@ -284,6 +290,7 @@ class FeatureStore:
         -------
         dict[str, int]
             Mapping instrument_id -> rows written (0 on failure).
+
         """
         from concurrent.futures import ThreadPoolExecutor
         from concurrent.futures import as_completed
@@ -342,6 +349,7 @@ class FeatureStore:
         except Exception:
             # Fallback: create a non-partitioned compatible table for tests/dev
             from sqlalchemy import Integer
+
             self.feature_values_table = Table(
                 "ml_feature_values",
                 self.metadata,
@@ -373,8 +381,11 @@ class FeatureStore:
 
     @staticmethod
     def _normalize_ts_ns(ts_value: int) -> tuple[int, bool]:
-        """Delegate to centralized timestamp normalization utility."""
+        """
+        Delegate to centralized timestamp normalization utility.
+        """
         from ml.common.timestamps import normalize_timestamp_ns
+
         return normalize_timestamp_ns(ts_value)
 
     # Present for test monkeypatching and future extension; no-op here.
@@ -464,6 +475,7 @@ class FeatureStore:
 
             from ml.typing import PandasDF
             from ml.typing import PolarsDF
+
             pf = cast(PolarsDF, features_df)
             for i, row_vals in enumerate(pf.iter_rows()):
                 ts_event = int(timestamps[i])
@@ -485,6 +497,7 @@ class FeatureStore:
             from typing import cast
 
             from ml.typing import PandasDF
+
             pdf = cast(PandasDF, features_df)
             for i in range(len(pdf)):
                 ts_event = int(timestamps[i])
@@ -661,8 +674,13 @@ class FeatureStore:
                 if idx < features.size
             }
             from ml.common.timestamps import sanitize_timestamp_ns
-            tse_norm = sanitize_timestamp_ns(int(bar.ts_event), logger=logger, context="FeatureStore.realtime")
-            tsi_norm = sanitize_timestamp_ns(int(bar.ts_init), logger=logger, context="FeatureStore.realtime")
+
+            tse_norm = sanitize_timestamp_ns(
+                int(bar.ts_event), logger=logger, context="FeatureStore.realtime"
+            )
+            tsi_norm = sanitize_timestamp_ns(
+                int(bar.ts_init), logger=logger, context="FeatureStore.realtime"
+            )
 
             row = {
                 "feature_set_id": self._get_feature_set_id(),
@@ -742,7 +760,7 @@ class FeatureStore:
                             data_events_total.labels(
                                 dataset_type="features",
                                 component=feature_set_id,
-                            stage=Stage.FEATURE_COMPUTED.value,
+                                stage=Stage.FEATURE_COMPUTED.value,
                                 source="realtime",
                                 status="success",
                             ).inc()
@@ -1009,6 +1027,7 @@ class FeatureStore:
             Initialization timestamp in nanoseconds (explicit mode)
         data : Any | None
             Backwards-compat: a FeatureData or list[FeatureData]
+
         """
         # Backwards compatibility: support write_features([FeatureData]) / (batch)
         batch_data: list[Any] | None = None
@@ -1081,12 +1100,7 @@ class FeatureStore:
             return
 
         # Explicit-args mode
-        if (
-            feature_set_id is None
-            or instrument_id is None
-            or features is None
-            or ts_event is None
-        ):
+        if feature_set_id is None or instrument_id is None or features is None or ts_event is None:
             raise TypeError(
                 "write_features requires explicit arguments or a FeatureData batch",
             )
@@ -1136,8 +1150,12 @@ class FeatureStore:
             except Exception:
                 logger.debug("FeatureStore publish failed", exc_info=True)
 
-    def _execute_write(self, row: dict[str, Any]) -> None:  # pragma: no cover (exercised in integration)
-        """Upsert a single feature row (patchable in tests)."""
+    def _execute_write(
+        self, row: dict[str, Any]
+    ) -> None:  # pragma: no cover (exercised in integration)
+        """
+        Upsert a single feature row (patchable in tests).
+        """
         # Optional audit logging (sampled)
         try:
             import os
@@ -1150,10 +1168,15 @@ class FeatureStore:
             logger.debug("Audit logging skipped due to error: %s", e)
         # Final guard: normalize any incoming timestamps
         from ml.common.timestamps import sanitize_timestamp_ns
+
         if "ts_event" in row:
-            row["ts_event"] = sanitize_timestamp_ns(int(row["ts_event"]), logger=logger, context="FeatureStore._execute_write")
+            row["ts_event"] = sanitize_timestamp_ns(
+                int(row["ts_event"]), logger=logger, context="FeatureStore._execute_write"
+            )
         if "ts_init" in row:
-            row["ts_init"] = sanitize_timestamp_ns(int(row["ts_init"]), logger=logger, context="FeatureStore._execute_write")
+            row["ts_init"] = sanitize_timestamp_ns(
+                int(row["ts_init"]), logger=logger, context="FeatureStore._execute_write"
+            )
 
         stmt = insert(self.feature_values_table).values(row)
         stmt = stmt.on_conflict_do_update(
@@ -1168,7 +1191,11 @@ class FeatureStore:
             conn.execute(stmt)
 
         # Optional per-row publish when enabled
-        if self._enable_publishing and self.publisher is not None and self._publish_mode in ("row", "both"):
+        if (
+            self._enable_publishing
+            and self.publisher is not None
+            and self._publish_mode in ("row", "both")
+        ):
             try:
                 stage = Stage.FEATURE_COMPUTED
                 domain, operation = map_stage_to_topic_segments(stage)
@@ -1191,8 +1218,11 @@ class FeatureStore:
                 logger.debug("FeatureStore per-row publish failed", exc_info=True)
 
     def _execute_query(self, sql: str) -> list[Any]:  # pragma: no cover (test hook)
-        """Execute a SQL query and return rows (patchable)."""
+        """
+        Execute a SQL query and return rows (patchable).
+        """
         from sqlalchemy import text as _text
+
         with self.engine.connect() as conn:
             result = conn.execute(_text(sql))
             try:
@@ -1221,6 +1251,7 @@ class FeatureStore:
         data : list[FeatureData]
             Rows to upsert. Accepts objects with attributes
             feature_set_id, instrument_id, ts_event, ts_init, feature_values.
+
         """
         if not data:
             return
@@ -1296,7 +1327,9 @@ class FeatureStore:
             return False
 
     def _get_connection(self) -> Any:  # pragma: no cover (test hook for patching)
-        """Return a connection context manager (patchable in tests)."""
+        """
+        Return a connection context manager (patchable in tests).
+        """
         return self.engine.connect()
 
     # -------------------------------------------------------------------------------------
@@ -1326,6 +1359,7 @@ class FeatureStore:
         pd.DataFrame
             A DataFrame of rows with columns: feature_set_id, instrument_id,
             values, ts_event, ts_init.
+
         """
         # Local import to avoid importing pandas at module import time
         import pandas as pd
@@ -1338,10 +1372,12 @@ class FeatureStore:
             params["instrument_id"] = instrument_id
 
         table_name = (
-            "ml_feature_values" if self.engine.dialect.name == "sqlite" else "public.ml_feature_values"
+            "ml_feature_values"
+            if self.engine.dialect.name == "sqlite"
+            else "public.ml_feature_values"
         )
         sql = _text(
-                f"""
+            f"""
                 SELECT feature_set_id,
                        instrument_id,
                        values,
@@ -1351,7 +1387,7 @@ class FeatureStore:
                 WHERE {' AND '.join(where_parts)}
                 ORDER BY ts_event
                 """,
-            )
+        )
         # Prefer a mock-friendly session when available; else engine
         sess: Any | None = getattr(self, "persistence", None)
         session_obj: Any | None = None
@@ -1368,6 +1404,7 @@ class FeatureStore:
             # Use simple execute/fetch with manual DataFrame construction for MagicMock compatibility
             try:
                 from sqlalchemy import text as _text2
+
                 rows = session_obj.execute(_text2(str(sql)), params).fetchall()
             except Exception:
                 rows = []
@@ -1381,13 +1418,16 @@ class FeatureStore:
                 }
                 for r in rows
             ]
-            df = pd.DataFrame(data, columns=[
-                "feature_set_id",
-                "instrument_id",
-                "values",
-                "ts_event",
-                "ts_init",
-            ])
+            df = pd.DataFrame(
+                data,
+                columns=[
+                    "feature_set_id",
+                    "instrument_id",
+                    "values",
+                    "ts_event",
+                    "ts_init",
+                ],
+            )
             if not len(df.index):
                 # Fallback to engine path if mock returned no rows
                 with self.engine.connect() as conn:
@@ -1404,6 +1444,7 @@ class FeatureStore:
         Accepts minimal explicit args used in integration tests: instrument_id,
         ts_event, and features. Fills feature_set_id from current pipeline/config and
         ts_init with ts_event when not provided.
+
         """
         if args or set(kwargs.keys()) & {"feature_set_id", "data"}:
             # Delegate when full signature or batch data is supplied

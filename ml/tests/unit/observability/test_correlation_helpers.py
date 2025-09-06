@@ -12,4 +12,3 @@ def test_prune_edges_and_components() -> None:
     comps_before = connected_components(nodes, edges)
     comps_after = connected_components(nodes, pruned)
     assert comps_before <= comps_after <= 3
-

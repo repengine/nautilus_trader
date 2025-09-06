@@ -11,8 +11,11 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
+
 def test_batch_combine():
-    """Test downloading multiple batches and combining them."""
+    """
+    Test downloading multiple batches and combining them.
+    """
     try:
         client = db.Historical()
         print("✅ Connected to Databento")
@@ -20,7 +23,7 @@ def test_batch_combine():
         # Test multiple small batches
         batches = [
             (datetime(2025, 8, 26), datetime(2025, 8, 27)),
-            (datetime(2025, 8, 28), datetime(2025, 8, 29))
+            (datetime(2025, 8, 28), datetime(2025, 8, 29)),
         ]
 
         all_dfs = []
@@ -67,8 +70,10 @@ def test_batch_combine():
     except Exception as e:
         print(f"❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 if __name__ == "__main__":
     test_batch_combine()

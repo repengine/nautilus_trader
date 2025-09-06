@@ -27,7 +27,11 @@ ml/config/
 ├── loader.py               # Typed configuration loader with layered merge
 ├── defaults.py             # Default configuration constructors
 ├── names.py                # Canonical metric names and Prometheus labels
-└── scheduler_config.py     # Data scheduler and Databento configuration
+├── scheduler_config.py     # Data scheduler and Databento configuration
+├── observability.py        # Observability system configuration with database and file sinks
+├── transformers.py         # Configuration for Transformer models (TFT, N-BEATS, CVML)  
+├── databases.py           # Database-specific configurations for PostgreSQL and TimescaleDB
+└── ensemble.py            # Ensemble model configuration with voting and stacking strategies
 ```
 
 ### Configuration Hierarchy
@@ -113,6 +117,38 @@ Cross-framework advanced training features:
 - ONNX export configuration with automatic path generation
 - Prometheus metrics integration toggle
 
+#### ObservabilityConfig (`observability.py`)
+Comprehensive observability system configuration:
+- **Database Persistence**: PostgreSQL table configuration for latency watermarks, metrics, correlation data, and health scores
+- **File Export Options**: JSONL and CSV output with configurable directory structures
+- **Flush Scheduling**: Background persistence with configurable intervals (default 60s)
+- **Sink Selection**: Database-first with file backup, or file-only for external pipeline integration
+- **Health Monitoring**: Configurable thresholds for component health aggregation and alerting
+
+#### TransformerConfig (`transformers.py`)
+Advanced transformer model configurations:
+- **TFTConfig**: Temporal Fusion Transformer with attention mechanisms and variable selection
+- **NBEATSConfig**: Neural Basis Expansion Analysis for seasonal and trend decomposition
+- **CVMLConfig**: Computer Vision for Market Liquidity with CNN architectures for order book analysis
+- **AttentionConfig**: Multi-head attention parameters with positional encoding options
+- **EncoderDecoderConfig**: Sequence-to-sequence architecture for multi-horizon forecasting
+
+#### DatabaseConfig (`databases.py`)
+Database-specific optimization configurations:
+- **PostgreSQLConfig**: Connection pooling, timeout settings, and performance tuning parameters
+- **TimescaleDBConfig**: Hypertable management, retention policies, and continuous aggregation
+- **PartitionConfig**: Time-based partitioning strategies with automatic maintenance
+- **IndexConfig**: BRIN, BTREE, and GIN index configuration for ML table optimization
+- **ReplicationConfig**: High-availability setup with read replica configuration
+
+#### EnsembleConfig (`ensemble.py`)
+Multi-model ensemble configuration:
+- **VotingConfig**: Hard and soft voting strategies with weight optimization
+- **StackingConfig**: Meta-learner configuration with cross-validation integration
+- **BaggingConfig**: Bootstrap aggregation with parallel training support
+- **BlendingConfig**: Linear combination strategies with regularization
+- **DiversityConfig**: Model diversity enforcement through parameter constraints
+
 ### Actor Configurations (`actors.py`)
 
 #### MLSignalActorConfig
@@ -168,7 +204,7 @@ Environment integration supports JSON blob loading via `{PREFIX}_JSON` variables
 
 ### Configuration Creation
 ```python
-from ml.config import XGBoostTrainingConfig, OptunaConfig, AdvancedTrainingConfig
+from ml.config import XGBoostTrainingConfig, OptunaConfig, AdvancedTrainingConfig, ObservabilityConfig
 
 # Framework-specific training configuration
 training_config = XGBoostTrainingConfig(
@@ -186,6 +222,15 @@ training_config = XGBoostTrainingConfig(
         cv_strategy="purged",
         export_onnx=True
     )
+)
+
+# Observability configuration with database sink
+observability_config = ObservabilityConfig(
+    enable_db_sink=True,
+    enable_file_sink=True,
+    flush_interval_seconds=60.0,
+    file_format="jsonl",
+    db_connection_string="postgresql://user:pass@localhost/nautilus"
 )
 ```
 
@@ -239,6 +284,7 @@ export ML_JSON='{"prediction_threshold": 0.8, "max_inference_latency_ms": 3.0}'
 - **Databento Configuration**: Schema, dataset, and collection configuration
 - **Scheduler Configuration**: Symbol universe and collection timing
 - **Feature Store**: Database connection and pipeline specification
+- **Observability Pipeline**: Database sink configuration and background persistence scheduling
 
 ## Implementation Notes
 

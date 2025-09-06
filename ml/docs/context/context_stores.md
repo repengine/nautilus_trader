@@ -418,6 +418,126 @@ def create_engine(connection_string: str, **kwargs: Any) -> Engine:
 
 All stores now use centralized EngineManager for connection pooling and lifecycle management.
 
+## 🆕 Message Bus Integration
+
+### Publisher Protocol and Configuration
+
+All stores now support optional message bus publishing for real-time event distribution:
+
+```python
+from ml.common.message_bus import MessagePublisherProtocol, NoopPublisher
+from ml.common.message_topics import build_topic, map_stage_to_topic_segments
+from ml.config.events import Stage
+
+class CustomPublisher(MessagePublisherProtocol):
+    def publish(self, topic: str, payload: dict[str, Any]) -> bool:
+        # Custom implementation (Kafka, Redis, etc.)
+        return True
+
+# Store configuration with publishing
+store = FeatureStore(
+    connection_string=db_url,
+    enable_publishing=True,
+    publisher=CustomPublisher(),
+    publish_mode="both"  # "batch", "row", or "both"
+)
+```
+
+### Canonical Topic Structure
+
+Events are published to standardized topics based on pipeline stages:
+
+**Topic Format:** `ml.{domain}.{operation}.{instrument_id}`
+
+**Stage Mappings:**
+- `Stage.FEATURE_COMPUTED` → `ml.features.updated.{instrument}`
+- `Stage.PREDICTION_EMITTED` → `ml.models.created.{instrument}`
+- `Stage.SIGNAL_EMITTED` → `ml.strategies.created.{instrument}`
+- `Stage.CATALOG_WRITTEN` → `ml.data.updated.{instrument}`
+
+### Publishing Modes
+
+**Batch Publishing (Default):**
+```python
+# Publishes summary after batch operations
+payload = {
+    "dataset_id": "features",
+    "instrument_id": instrument_id,
+    "ts_min": min(timestamps),
+    "ts_max": max(timestamps),
+    "count": len(batch_data),
+    "status": "success"
+}
+```
+
+**Per-Row Publishing:**
+```python
+# Publishes individual events for each row
+for row in batch_data:
+    payload = {
+        "dataset_id": "features", 
+        "instrument_id": row["instrument_id"],
+        "ts_event": row["ts_event"],
+        "correlation_id": generate_correlation_id(...),
+        "status": "success"
+    }
+```
+
+## 🆕 Event Correlation and Metadata
+
+### Correlation ID System
+
+All stores now support correlation ID tracking for event lineage:
+
+```python
+from ml.common.correlation import make_correlation_id
+
+# Deterministic correlation ID generation
+correlation_id = make_correlation_id(
+    run_id="scheduler_001",
+    dataset_id="features_v1", 
+    instrument_id="EURUSD",
+    ts_min=start_time,
+    ts_max=end_time,
+    count=batch_size
+)
+```
+
+### Event Metadata Storage
+
+**PostgreSQL Backend:**
+- Uses `emit_data_event_ext()` function with JSONB metadata column
+- Fallback to legacy `emit_data_event()` when extended function unavailable
+- Migration `007_add_event_metadata.sql` adds metadata support
+
+**JSON Backend:**
+- Metadata stored directly in event dictionaries
+- Full metadata preservation with schema validation
+
+### Cross-Domain Event Cascades
+
+Stores can emit cascaded events across domains:
+
+```python
+from ml.common.cascade import emit_cascade, EventDict
+
+# Source event from data ingestion
+source_event = EventDict(
+    domain="data",
+    event_type="catalog_written", 
+    correlation_id="abc123",
+    instrument_id="EURUSD",
+    ts_event=1693747200000000000,
+)
+
+# Cascade to features domain
+feature_event = emit_cascade(
+    source_event,
+    target_domain="features",
+    delay_ns=1000000  # 1ms delay
+)
+```
+
 ## Live Data Recording
 
 ### LiveDataRecorder **📝 ADDITION:** (`ml/stores/live_data_recorder.py`)

@@ -46,6 +46,7 @@ def _infer_macro_columns(columns: Iterable[str]) -> list[str]:
     Infer FRED macro columns by intersecting with known default series IDs.
 
     Falls back to heuristic: all-uppercase columns with letters/digits/underscore.
+
     """
     # Known defaults from FRED loader (keep in sync with FREDDataLoader.DEFAULT_INDICATORS)
     known = {
@@ -125,13 +126,24 @@ def _feature_coverage_pl(df: Any, feature_cols: list[str]) -> dict[str, Any]:
     by_symbol: dict[str, dict[str, float]] = {}
     if "instrument_id" in df.columns:
         # Per-symbol coverage
-        grouped = df.lazy().group_by("instrument_id").agg(
-            [pl.col(c).is_null().not_().sum().alias(c) for c in feature_cols if c in df.columns],
-        ).collect()
+        grouped = (
+            df.lazy()
+            .group_by("instrument_id")
+            .agg(
+                [
+                    pl.col(c).is_null().not_().sum().alias(c)
+                    for c in feature_cols
+                    if c in df.columns
+                ],
+            )
+            .collect()
+        )
         for row in grouped.iter_rows(named=True):
             sym = str(row.get("instrument_id"))
             denom = int(df.filter(pl.col("instrument_id") == row["instrument_id"]).height) or 1
-            by_symbol[sym] = {k: float(v) / float(denom) for k, v in row.items() if k != "instrument_id"}
+            by_symbol[sym] = {
+                k: float(v) / float(denom) for k, v in row.items() if k != "instrument_id"
+            }
     return {"overall": overall, "by_symbol": by_symbol}
 
 
@@ -150,7 +162,9 @@ def _feature_coverage_pd(df: Any, feature_cols: list[str]) -> dict[str, Any]:
     if "instrument_id" in df.columns:
         for sym, g in df.groupby("instrument_id"):
             denom = len(g) or 1
-            by_symbol[str(sym)] = {c: float(g[c].notna().sum()) / float(denom) for c in feature_cols if c in g.columns}
+            by_symbol[str(sym)] = {
+                c: float(g[c].notna().sum()) / float(denom) for c in feature_cols if c in g.columns
+            }
     return {"overall": overall, "by_symbol": by_symbol}
 
 
@@ -160,10 +174,19 @@ def _target_stats_pl(df: Any) -> dict[str, Any]:
         return {}
     total = df.height
     pos = df.select(pl.col("y").sum().alias("p")).item() if total > 0 else 0
-    base = {"total": int(total), "positives": int(pos), "positive_rate": float(pos) / float(total) if total else 0.0}
+    base = {
+        "total": int(total),
+        "positives": int(pos),
+        "positive_rate": float(pos) / float(total) if total else 0.0,
+    }
     by_symbol: dict[str, Any] = {}
     if "instrument_id" in df.columns and total > 0:
-        grouped = df.lazy().group_by("instrument_id").agg([pl.col("y").sum().alias("positives"), pl.count().alias("total")]).collect()
+        grouped = (
+            df.lazy()
+            .group_by("instrument_id")
+            .agg([pl.col("y").sum().alias("positives"), pl.count().alias("total")])
+            .collect()
+        )
         for row in grouped.iter_rows(named=True):
             total_sym = int(row["total"]) or 1
             by_symbol[str(row["instrument_id"])] = {
@@ -180,13 +203,17 @@ def _target_stats_pd(df: Any) -> dict[str, Any]:
         return {}
     total = len(df)
     pos = int(df["y"].sum()) if total > 0 else 0
-    base = {"total": int(total), "positives": int(pos), "positive_rate": float(pos) / float(total) if total else 0.0}
+    base = {
+        "total": int(total),
+        "positives": int(pos),
+        "positive_rate": float(pos) / float(total) if total else 0.0,
+    }
     by_symbol: dict[str, Any] = {}
     if "instrument_id" in df.columns and total > 0:
         grouped = df.groupby("instrument_id")["y"].agg(["sum", "count"]).reset_index()
         for _, r in grouped.iterrows():
             total_sym = int(r["count"]) or 1
-            by_symbol[str(r["instrument_id"]) ] = {
+            by_symbol[str(r["instrument_id"])] = {
                 "total": int(r["count"]),
                 "positives": int(r["sum"]),
                 "positive_rate": float(r["sum"]) / float(total_sym),
@@ -207,7 +234,9 @@ def _to_markdown(report: dict[str, Any]) -> str:
     if tgt:
         ov = tgt.get("overall", {})
         lines.append("\n## Target Distribution")
-        lines.append(f"- total: {ov.get('total', 0)}; positives: {ov.get('positives', 0)}; rate: {ov.get('positive_rate', 0.0):.4f}")
+        lines.append(
+            f"- total: {ov.get('total', 0)}; positives: {ov.get('positives', 0)}; rate: {ov.get('positive_rate', 0.0):.4f}"
+        )
     return "\n".join(lines) + "\n"
 
 

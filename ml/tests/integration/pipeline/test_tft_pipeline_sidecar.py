@@ -20,9 +20,11 @@ def _stub_build_main(argv: list[str] | None = None) -> int:  # type: ignore[no-r
             "instrument_id": ["SPY", "SPY", "SPY"],
             "f1": [0.1, 0.2, 0.3],
             "y": [0, 1, 0],
-        }
+        },
     )
-    df.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))).write_parquet(str(out_dir / "dataset.parquet"))
+    df.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))).write_parquet(
+        str(out_dir / "dataset.parquet")
+    )
     df.write_csv(str(out_dir / "dataset.csv"))
     sidecar = {
         "feature_set_id": "feature_set_123",
@@ -44,7 +46,11 @@ def _stub_tft_main(argv: list[str] | None = None) -> int:  # type: ignore[no-red
     out_dir = Path(argv[out_idx])
     import numpy as np
 
-    np.savez_compressed(out_dir / "teacher_preds.npz", q_train=np.array([0.5, 0.5, 0.5]), y_val_true=np.array([0, 1, 0]))
+    np.savez_compressed(
+        out_dir / "teacher_preds.npz",
+        q_train=np.array([0.5, 0.5, 0.5]),
+        y_val_true=np.array([0, 1, 0]),
+    )
     return 0
 
 
@@ -83,4 +89,3 @@ def test_pipeline_reads_sidecar_when_args_missing(monkeypatch, tmp_path: Path) -
     ]
     rc = pipeline_mod.main(args)
     assert rc == 0
-

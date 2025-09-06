@@ -4,11 +4,12 @@ Comprehensive Databento data downloader that maximizes subscription value.
 
 Downloads everything you're paying for:
 - Core Schema (OHLCV): 7 years
-- L1 (BBO/Trades): 1 year  
+- L1 (BBO/Trades): 1 year
 - L2 (MBP-10): 30 days
 - L3 (MBP-1): 30 days (if needed)
 
 NO DATA LOSS - Incremental updates preserve all historical data.
+
 """
 import argparse
 import logging
@@ -24,6 +25,7 @@ import pandas as pd
 
 try:
     import polars as pl
+
     HAS_POLARS = True
 except ImportError:
     HAS_POLARS = False
@@ -32,13 +34,15 @@ except ImportError:
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
 def get_subscription_date_ranges() -> dict[str, tuple[datetime, datetime]]:
-    """Get optimal date ranges for each data type based on subscription."""
+    """
+    Get optimal date ranges for each data type based on subscription.
+    """
     today = datetime.now().date()
     yesterday = datetime.combine(today - timedelta(days=1), datetime.min.time())
 
@@ -48,25 +52,27 @@ def get_subscription_date_ranges() -> dict[str, tuple[datetime, datetime]]:
     return {
         "core": (
             yesterday - timedelta(days=365 * 7),  # 7 years
-            yesterday
+            yesterday,
         ),
         "l1": (
-            yesterday - timedelta(days=365),       # 1 year
-            yesterday
+            yesterday - timedelta(days=365),  # 1 year
+            yesterday,
         ),
         "l2": (
-            yesterday - timedelta(days=30),        # 30 days
-            yesterday
+            yesterday - timedelta(days=30),  # 30 days
+            yesterday,
         ),
         "l3": (
-            yesterday - timedelta(days=30),        # 30 days
-            yesterday
-        )
+            yesterday - timedelta(days=30),  # 30 days
+            yesterday,
+        ),
     }
 
 
 def get_existing_date_range(file_path: Path) -> tuple[datetime, datetime] | None:
-    """Get date range from existing parquet file, handling both formats."""
+    """
+    Get date range from existing parquet file, handling both formats.
+    """
     if not file_path.exists():
         return None
 
@@ -119,9 +125,11 @@ def get_existing_date_range(file_path: Path) -> tuple[datetime, datetime] | None
 
 def calculate_missing_ranges(
     target_range: tuple[datetime, datetime],
-    existing_range: tuple[datetime, datetime] | None
+    existing_range: tuple[datetime, datetime] | None,
 ) -> list[tuple[datetime, datetime]]:
-    """Calculate date ranges that need to be downloaded."""
+    """
+    Calculate date ranges that need to be downloaded.
+    """
     target_start, target_end = target_range
 
     if existing_range is None:
@@ -149,9 +157,11 @@ def download_data_range(
     dataset: str,
     start_date: datetime,
     end_date: datetime,
-    output_file: Path
+    output_file: Path,
 ) -> bool:
-    """Download data for a date range with intelligent batching."""
+    """
+    Download data for a date range with intelligent batching.
+    """
     logger.info(f"Downloading {schema} for {symbol}: {start_date.date()} to {end_date.date()}")
 
     # Calculate optimal batch size based on schema type and date range
@@ -161,19 +171,23 @@ def download_data_range(
     if schema.startswith("ohlcv"):
         batch_days = min(365, total_days)  # 1 year max for OHLCV
     elif schema in ["tbbo", "trades"]:
-        batch_days = min(90, total_days)   # 3 months max for L1 data
+        batch_days = min(90, total_days)  # 3 months max for L1 data
     elif schema.startswith("mbp"):
-        batch_days = min(30, total_days)   # 1 month max for L2 data
+        batch_days = min(30, total_days)  # 1 month max for L2 data
     else:
         batch_days = min(180, total_days)  # 6 months default
 
     if total_days <= batch_days:
         # Single request
-        return _download_single_batch(client, symbol, schema, dataset, start_date, end_date, output_file)
+        return _download_single_batch(
+            client, symbol, schema, dataset, start_date, end_date, output_file
+        )
     else:
         # Multiple batches
         logger.info(f"Large request - splitting into {batch_days}-day batches")
-        return _download_multiple_batches(client, symbol, schema, dataset, start_date, end_date, output_file, batch_days)
+        return _download_multiple_batches(
+            client, symbol, schema, dataset, start_date, end_date, output_file, batch_days
+        )
 
 
 def _download_single_batch(
@@ -183,9 +197,11 @@ def _download_single_batch(
     dataset: str,
     start_date: datetime,
     end_date: datetime,
-    output_file: Path
+    output_file: Path,
 ) -> bool:
-    """Download a single batch of data."""
+    """
+    Download a single batch of data.
+    """
     try:
         df = client.timeseries.get_range(
             dataset=dataset,
@@ -231,9 +247,11 @@ def _download_multiple_batches(
     start_date: datetime,
     end_date: datetime,
     output_file: Path,
-    batch_days: int
+    batch_days: int,
 ) -> bool:
-    """Download data in multiple batches and combine."""
+    """
+    Download data in multiple batches and combine.
+    """
     batch_files = []
     current_start = start_date
     batch_num = 0
@@ -244,7 +262,9 @@ def _download_multiple_batches(
 
         logger.info(f"  Batch {batch_num + 1}: {current_start.date()} to {batch_end.date()}")
 
-        if _download_single_batch(client, symbol, schema, dataset, current_start, batch_end, batch_file):
+        if _download_single_batch(
+            client, symbol, schema, dataset, current_start, batch_end, batch_file
+        ):
             batch_files.append(batch_file)
         else:
             logger.warning(f"  Batch {batch_num + 1} failed - continuing with remaining batches")
@@ -276,10 +296,14 @@ def _download_multiple_batches(
         # Concatenate and sort
         if HAS_POLARS:
             combined_df = pl.concat(dfs)
-            final_df = combined_df.sort("ts_event").unique(subset=["symbol", "ts_event"], keep="last")
+            final_df = combined_df.sort("ts_event").unique(
+                subset=["symbol", "ts_event"], keep="last"
+            )
         else:
             combined_df = pd.concat(dfs, ignore_index=True)
-            final_df = combined_df.sort_values("ts_event").drop_duplicates(subset=["symbol", "ts_event"], keep="last")
+            final_df = combined_df.sort_values("ts_event").drop_duplicates(
+                subset=["symbol", "ts_event"], keep="last"
+            )
 
         # Save final result
         temp_file = output_file.with_suffix(".tmp")
@@ -310,7 +334,9 @@ def _download_multiple_batches(
 
 
 def merge_data_files(base_file: Path, new_files: list[Path], output_file: Path) -> bool:
-    """Merge existing and new data files, handling overlaps."""
+    """
+    Merge existing and new data files, handling overlaps.
+    """
     try:
         dfs = []
 
@@ -343,14 +369,16 @@ def merge_data_files(base_file: Path, new_files: list[Path], output_file: Path) 
             combined_df = pl.concat(dfs)
 
             # Sort by timestamp and remove duplicates
-            final_df = (combined_df
-                       .sort("ts_event")
-                       .unique(subset=["symbol", "ts_event"], keep="last"))
+            final_df = combined_df.sort("ts_event").unique(
+                subset=["symbol", "ts_event"], keep="last"
+            )
         else:
             combined_df = pd.concat(dfs, ignore_index=True)
 
             # Sort by timestamp and remove duplicates
-            final_df = combined_df.sort_values("ts_event").drop_duplicates(subset=["symbol", "ts_event"], keep="last")
+            final_df = combined_df.sort_values("ts_event").drop_duplicates(
+                subset=["symbol", "ts_event"], keep="last"
+            )
 
         # Save merged result
         temp_file = output_file.with_suffix(".tmp")
@@ -381,9 +409,11 @@ def process_symbol_schema(
     schema: str,
     dataset: str,
     target_range: tuple[datetime, datetime],
-    output_dir: Path
+    output_dir: Path,
 ) -> bool:
-    """Process a single symbol-schema combination with incremental updates."""
+    """
+    Process a single symbol-schema combination with incremental updates.
+    """
     # Determine output file path
     if schema.startswith("ohlcv"):
         schema_short = "bars"
@@ -437,56 +467,154 @@ def process_symbol_schema(
 
 
 def get_tier1_symbols() -> list[str]:
-    """Get comprehensive list of Tier 1 symbols."""
+    """
+    Get comprehensive list of Tier 1 symbols.
+    """
     return [
         # Major ETFs
-        "SPY", "QQQ", "IWM", "DIA", "VTI", "VEA", "VWO", "EFA", "EEM",
-
+        "SPY",
+        "QQQ",
+        "IWM",
+        "DIA",
+        "VTI",
+        "VEA",
+        "VWO",
+        "EFA",
+        "EEM",
         # Sector ETFs
-        "XLF", "XLK", "XLE", "XLV", "XLI", "XLY", "XLP", "XLB", "XLRE", "XLU", "XLC",
-
+        "XLF",
+        "XLK",
+        "XLE",
+        "XLV",
+        "XLI",
+        "XLY",
+        "XLP",
+        "XLB",
+        "XLRE",
+        "XLU",
+        "XLC",
         # Bond ETFs
-        "TLT", "IEF", "SHY", "AGG", "LQD", "HYG", "TIP", "EMB",
-
+        "TLT",
+        "IEF",
+        "SHY",
+        "AGG",
+        "LQD",
+        "HYG",
+        "TIP",
+        "EMB",
         # Commodity ETFs
-        "GLD", "SLV", "USO", "UNG", "DBA", "DBB", "DBC", "VNQ",
-
+        "GLD",
+        "SLV",
+        "USO",
+        "UNG",
+        "DBA",
+        "DBB",
+        "DBC",
+        "VNQ",
         # Currency ETFs
-        "UUP", "FXE", "FXY", "FXB", "FXC", "FXA", "FXF",
-
+        "UUP",
+        "FXE",
+        "FXY",
+        "FXB",
+        "FXC",
+        "FXA",
+        "FXF",
         # Volatility ETFs
-        "VXX", "VIXY", "VXZ", "SVXY", "UVXY",
-
+        "VXX",
+        "VIXY",
+        "VXZ",
+        "SVXY",
+        "UVXY",
         # Top Individual Stocks
-        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK.B",
-        "AMD", "JPM", "JNJ", "V", "PG", "UNH", "HD", "MA", "DIS", "BAC",
-        "ADBE", "CRM", "NFLX", "KO", "PEP", "TMO", "ABBV", "CVX", "WMT",
-        "MRK", "LLY", "AVGO", "NKE", "ORCL", "ACN", "COST", "MCD", "ABT",
-        "TXN", "GS", "MS", "WFC", "C", "XOM", "COP", "CAT", "BA", "GE",
-        "MMM", "VZ", "T",
-
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "GOOGL",
+        "AMZN",
+        "META",
+        "TSLA",
+        "BRK.B",
+        "AMD",
+        "JPM",
+        "JNJ",
+        "V",
+        "PG",
+        "UNH",
+        "HD",
+        "MA",
+        "DIS",
+        "BAC",
+        "ADBE",
+        "CRM",
+        "NFLX",
+        "KO",
+        "PEP",
+        "TMO",
+        "ABBV",
+        "CVX",
+        "WMT",
+        "MRK",
+        "LLY",
+        "AVGO",
+        "NKE",
+        "ORCL",
+        "ACN",
+        "COST",
+        "MCD",
+        "ABT",
+        "TXN",
+        "GS",
+        "MS",
+        "WFC",
+        "C",
+        "XOM",
+        "COP",
+        "CAT",
+        "BA",
+        "GE",
+        "MMM",
+        "VZ",
+        "T",
         # Newer high-interest stocks
-        "PLTR", "SOFI", "RIVN", "LCID", "COIN", "MSTR"
+        "PLTR",
+        "SOFI",
+        "RIVN",
+        "LCID",
+        "COIN",
+        "MSTR",
     ]
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Comprehensive Databento downloader - gets everything you're paying for!"
+        description="Comprehensive Databento downloader - gets everything you're paying for!",
     )
 
     parser.add_argument("--symbols", nargs="+", help="Specific symbols to download")
     parser.add_argument("--tier", type=int, choices=[1], help="Use Tier 1 symbol list")
-    parser.add_argument("--data-dir", type=Path, default=Path("data/comprehensive"),
-                       help="Output data directory")
-    parser.add_argument("--schemas", nargs="+",
-                       choices=["core", "l1", "l2", "l3", "all"],
-                       default=["all"],
-                       help="Which data types to download")
-    parser.add_argument("--force", action="store_true",
-                       help="Force re-download (ignores existing data)")
-    parser.add_argument("--dry-run", action="store_true",
-                       help="Show what would be downloaded without actually downloading")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("data/comprehensive"),
+        help="Output data directory",
+    )
+    parser.add_argument(
+        "--schemas",
+        nargs="+",
+        choices=["core", "l1", "l2", "l3", "all"],
+        default=["all"],
+        help="Which data types to download",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-download (ignores existing data)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be downloaded without actually downloading",
+    )
 
     args = parser.parse_args()
 
@@ -523,7 +651,7 @@ def main():
         ],
         "l3": [
             {"schema": "mbp-1", "dataset": "XNAS.ITCH"},
-        ]
+        ],
     }
 
     logger.info(f"Processing {len(symbols)} symbols")
@@ -563,7 +691,9 @@ def main():
                 continue
 
             target_range = date_ranges[schema_type]
-            logger.info(f"  {schema_type.upper()}: {target_range[0].date()} to {target_range[1].date()}")
+            logger.info(
+                f"  {schema_type.upper()}: {target_range[0].date()} to {target_range[1].date()}"
+            )
 
             # Process each schema variant
             for config in schema_configs[schema_type]:
@@ -587,7 +717,12 @@ def main():
                 # Actual download
                 try:
                     success = process_symbol_schema(
-                        client, symbol, schema, dataset, target_range, symbol_dir
+                        client,
+                        symbol,
+                        schema,
+                        dataset,
+                        target_range,
+                        symbol_dir,
                     )
                     if success:
                         symbol_success += 1
@@ -612,7 +747,9 @@ def main():
         logger.info("DRY RUN COMPLETED - no data was downloaded")
     else:
         success_rate = (total_success / total_attempted) * 100 if total_attempted > 0 else 0
-        logger.info(f"Overall success rate: {total_success}/{total_attempted} ({success_rate:.1f}%)")
+        logger.info(
+            f"Overall success rate: {total_success}/{total_attempted} ({success_rate:.1f}%)"
+        )
 
         if total_success == total_attempted:
             logger.info("🎉 ALL DOWNLOADS SUCCESSFUL!")
@@ -623,7 +760,9 @@ def main():
             return 1
 
     logger.info("\nNext steps:")
-    logger.info("1. Verify data completeness with: python comprehensive_data_downloader.py --dry-run")
+    logger.info(
+        "1. Verify data completeness with: python comprehensive_data_downloader.py --dry-run"
+    )
     logger.info("2. Set up incremental updates (daily)")
     logger.info("3. Configure TFT training with comprehensive dataset")
 

@@ -3,6 +3,7 @@
 Analyze and consolidate the tier1/enhanced data overlap.
 
 This script helps determine the optimal data organization strategy.
+
 """
 import logging
 from datetime import datetime
@@ -17,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 def get_parquet_date_range(file_path: Path) -> tuple[datetime, datetime, int] | None:
-    """Get date range and record count from parquet file."""
+    """
+    Get date range and record count from parquet file.
+    """
     if not file_path.exists():
         return None
 
@@ -48,12 +51,14 @@ def get_parquet_date_range(file_path: Path) -> tuple[datetime, datetime, int] | 
 
 
 def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
-    """Analyze all data files for a symbol across tier1/enhanced."""
+    """
+    Analyze all data files for a symbol across tier1/enhanced.
+    """
     results = {
         "symbol": symbol,
         "tier1": {},
         "enhanced": {},
-        "recommendations": []
+        "recommendations": [],
     }
 
     # Analyze tier1 data
@@ -72,7 +77,7 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
                         "date_range": f"{info[0].date()} to {info[1].date()}",
                         "days": (info[1] - info[0]).days + 1,
                         "records": info[2],
-                        "size_mb": file_path.stat().st_size / (1024 * 1024)
+                        "size_mb": file_path.stat().st_size / (1024 * 1024),
                     }
 
         # L2 data (MBP)
@@ -86,7 +91,7 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
                         "date_range": f"{info[0].date()} to {info[1].date()}",
                         "days": (info[1] - info[0]).days + 1,
                         "records": info[2],
-                        "size_mb": file_path.stat().st_size / (1024 * 1024)
+                        "size_mb": file_path.stat().st_size / (1024 * 1024),
                     }
 
         # Aggregated data (daily/hourly)
@@ -100,7 +105,7 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
                         "date_range": f"{info[0].date()} to {info[1].date()}",
                         "days": (info[1] - info[0]).days + 1,
                         "records": info[2],
-                        "size_mb": file_path.stat().st_size / (1024 * 1024)
+                        "size_mb": file_path.stat().st_size / (1024 * 1024),
                     }
 
     # Analyze enhanced data
@@ -126,7 +131,7 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
                     "date_range": f"{info[0].date()} to {info[1].date()}",
                     "days": (info[1] - info[0]).days + 1,
                     "records": info[2],
-                    "size_mb": file_path.stat().st_size / (1024 * 1024)
+                    "size_mb": file_path.stat().st_size / (1024 * 1024),
                 }
 
     # Generate recommendations
@@ -142,9 +147,13 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
             enhanced_days = results["enhanced"]["l2_depth"]["days"]
 
             if tier1_days > enhanced_days:
-                recommendations.append(f"✅ Keep tier1 L2 data ({tier1_days} days vs {enhanced_days} days)")
+                recommendations.append(
+                    f"✅ Keep tier1 L2 data ({tier1_days} days vs {enhanced_days} days)"
+                )
             else:
-                recommendations.append(f"⚠️  Enhanced L2 may be more complete ({enhanced_days} days vs {tier1_days} days)")
+                recommendations.append(
+                    f"⚠️  Enhanced L2 may be more complete ({enhanced_days} days vs {tier1_days} days)"
+                )
 
         # Compare trade data
         tier1_trades = results["tier1"].get("l1_trades", {})
@@ -152,9 +161,13 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
 
         if tier1_trades and enhanced_trades_years:
             tier1_days = tier1_trades.get("days", 0)
-            enhanced_total_records = sum(results["enhanced"][k]["records"] for k in enhanced_trades_years)
+            enhanced_total_records = sum(
+                results["enhanced"][k]["records"] for k in enhanced_trades_years
+            )
 
-            recommendations.append(f"🔍 Compare: tier1 trades ({tier1_days} days, {tier1_trades.get('records', 0):,} records) vs enhanced trades ({len(enhanced_trades_years)} years, {enhanced_total_records:,} records)")
+            recommendations.append(
+                f"🔍 Compare: tier1 trades ({tier1_days} days, {tier1_trades.get('records', 0):,} records) vs enhanced trades ({len(enhanced_trades_years)} years, {enhanced_total_records:,} records)"
+            )
 
     elif results["tier1"]:
         recommendations.append("✅ Only tier1 data exists")
@@ -225,7 +238,9 @@ def main():
                 print(f"  Tier1: {len(results['tier1'])} files, {total_tier1_mb:.1f} MB")
 
                 for data_type, info in results["tier1"].items():
-                    print(f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)")
+                    print(
+                        f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)"
+                    )
 
             # Enhanced summary
             if results["enhanced"]:
@@ -233,7 +248,9 @@ def main():
                 print(f"  Enhanced: {len(results['enhanced'])} files, {total_enhanced_mb:.1f} MB")
 
                 for data_type, info in results["enhanced"].items():
-                    print(f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)")
+                    print(
+                        f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)"
+                    )
 
             # Recommendations
             for rec in results["recommendations"]:

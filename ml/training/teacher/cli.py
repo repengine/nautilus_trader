@@ -3,7 +3,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402 - allow module docstring before imports in CLI script
 
-
 """
 Teacher calibration CLI (compat shim) — forwards to tft_cli when registry args provided.
 

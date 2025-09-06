@@ -3,7 +3,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402 - allow module docstring before imports in CLI script
 
-
 """
 CLI to calibrate a TFT teacher and emit soft labels for distillation, with registry integration.
 
@@ -135,7 +134,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Ensure either training CSV or NPZ path provided
     if not args.train_data_csv and not args.student_window_npz:
-        raise SystemExit("Provide either --train_data_csv for training or --student_window_npz for calibration")
+        raise SystemExit(
+            "Provide either --train_data_csv for training or --student_window_npz for calibration"
+        )
 
     # If training data is provided, run training mode
     if args.train_data_csv:
@@ -148,13 +149,18 @@ def main(argv: list[str] | None = None) -> int:
             import random
 
             import numpy as _np
+
             try:
                 import torch as _torch
+
                 _torch.manual_seed(args.seed)
                 _torch.cuda.manual_seed_all(args.seed)
             except Exception:
                 import logging as _logging
-                _logging.getLogger(__name__).debug("Torch seeding failed; continuing", exc_info=True)
+
+                _logging.getLogger(__name__).debug(
+                    "Torch seeding failed; continuing", exc_info=True
+                )
             random.seed(args.seed)
             _np.random.seed(args.seed)
         # Enforce feature column order
@@ -238,7 +244,10 @@ def main(argv: list[str] | None = None) -> int:
                 training_ds = getattr(teacher_tft, "_training_dataset", None)
                 assert training_ds is not None
                 val_ds = TimeSeriesDataSet.from_dataset(
-                    training_ds, df_val, predict=True, stop_randomization=True
+                    training_ds,
+                    df_val,
+                    predict=True,
+                    stop_randomization=True,
                 )
                 val_loader = val_ds.to_dataloader(train=False, batch_size=64, num_workers=0)
                 # calculate_feature_relevance may not be available in all versions
@@ -249,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
                     np.savez_compressed(interp_path, feature_relevance=relevance)
             except Exception:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Interpretability save failed; continuing",
                     exc_info=True,
@@ -277,12 +287,16 @@ def main(argv: list[str] | None = None) -> int:
                     training_ds = getattr(teacher_tft, "_training_dataset", None)
                     assert training_ds is not None
                     val_ds = TimeSeriesDataSet.from_dataset(
-                        training_ds, df_val, predict=True, stop_randomization=True
+                        training_ds,
+                        df_val,
+                        predict=True,
+                        stop_randomization=True,
                     )
                     val_loader = val_ds.to_dataloader(train=False, batch_size=64, num_workers=0)
                     batch = next(iter(val_loader))
                     x = batch[0] if isinstance(batch, (list, tuple)) else batch
                     import torch.nn as nn
+
                     tft_model = getattr(teacher_tft, "_tft", None)
                     if tft_model is None:
                         raise RuntimeError("No TFT model available for TorchScript export")
@@ -295,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
                     artifact_format = "pt"
                 except Exception as exc:
                     raise RuntimeError(
-                        f"TorchScript export failed and pickle is unsupported: {exc}"
+                        f"TorchScript export failed and pickle is unsupported: {exc}",
                     )
             elif used_tft and getattr(args, "export_safetensors", False):
                 try:
@@ -317,13 +331,15 @@ def main(argv: list[str] | None = None) -> int:
                         "used_tft": used_tft,
                         "format": "safetensors",
                     }
-                    with open(st_path.with_suffix(".safetensors.meta.json"), "w", encoding="utf-8") as f:
+                    with open(
+                        st_path.with_suffix(".safetensors.meta.json"), "w", encoding="utf-8"
+                    ) as f:
                         _json.dump(meta, f, indent=2)
                     model_path = st_path
                     artifact_format = "safetensors"
                 except Exception as exc:
                     raise RuntimeError(
-                        f"Safetensors export failed and pickle is unsupported: {exc}"
+                        f"Safetensors export failed and pickle is unsupported: {exc}",
                     )
             else:
                 model_obj = getattr(teacher_tft, "_tft", None) if used_tft else lr
@@ -347,6 +363,7 @@ def main(argv: list[str] | None = None) -> int:
             perf_metrics: dict[str, float] = {}
             try:
                 from ml._imports import HAS_SKLEARN
+
                 if HAS_SKLEARN:
                     from sklearn.metrics import accuracy_score
                     from sklearn.metrics import brier_score_loss
@@ -356,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
                     perf_metrics = {
                         "auc": float(roc_auc_score(y_val_true.astype(int), p_val)),
                         "accuracy": float(
-                            accuracy_score(y_val_true.astype(int), (p_val >= 0.5).astype(int))
+                            accuracy_score(y_val_true.astype(int), (p_val >= 0.5).astype(int)),
                         ),
                         "brier": float(brier_score_loss(y_val_true.astype(int), p_val)),
                     }
@@ -422,15 +439,20 @@ def main(argv: list[str] | None = None) -> int:
                     "Provide --model_registry_dir and --teacher_model_id to run ONNX teacher on X_val",
                 )
             from ml.registry.model_registry import ModelRegistry
+
             mreg = ModelRegistry(Path(args.model_registry_dir))
             session = mreg.load_model(args.teacher_model_id)
             if session is None:
-                raise SystemExit(f"Failed to load teacher model {args.teacher_model_id} from registry")
+                raise SystemExit(
+                    f"Failed to load teacher model {args.teacher_model_id} from registry"
+                )
             # Run inference
             try:
                 session_any: Any = session
                 input_name = (
-                    session_any.get_inputs()[0].name if hasattr(session_any, "get_inputs") else ONNX_INPUT_NAME
+                    session_any.get_inputs()[0].name
+                    if hasattr(session_any, "get_inputs")
+                    else ONNX_INPUT_NAME
                 )
                 outputs: list[Any] = session_any.run(None, {input_name: X_val})
                 raw_out = outputs[0]

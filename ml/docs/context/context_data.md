@@ -16,6 +16,8 @@ Operational notes:
 - **TFT Dataset Building**: Training data preparation with FeatureStore integration for training/inference parity
 - **Provider Architecture**: Extensible data provider system for static and time-series features
 - **Alternative Data Loaders**: FRED economic indicators loader for macro features
+- **Observability Integration**: Comprehensive event tracking, correlation IDs, and metrics collection for pipeline monitoring
+- **Message Bus Support**: Event publication to external systems via configurable publisher protocols
 
 **Implementation Status**: ~95% complete, production-ready with comprehensive metrics and monitoring
 
@@ -186,9 +188,10 @@ def bars_to_dataframe(
 **Key Features**:
 
 - **DataRegistry Integration**:
-  - Emits CATALOG_WRITTEN events for data lineage (with optional event metadata)
-  - Updates watermarks for dataset freshness tracking
+  - Emits CATALOG_WRITTEN events for data lineage with SHA256-based correlation IDs
+  - Updates watermarks for dataset freshness tracking 
   - Supports both PostgreSQL and JSON backends
+  - Cross-domain event correlation for end-to-end pipeline tracing
 - **Comprehensive Metrics** (15+ Prometheus metrics):
   - `data_collection_latency`: Collection time by instrument
   - `pipeline_stage_latency`: Stage execution times
@@ -217,9 +220,11 @@ def bars_to_dataframe(
 **Integration Points**:
 
 - DataCollector → ParquetDataCatalog → FeatureEngineer → FeatureStore
-- DataRegistry for event tracking and watermark management
-- Prometheus metrics server for observability
-- Database health views for pipeline monitoring
+- DataRegistry for event tracking, watermark management, and correlation tracking
+- Prometheus metrics server for observability and health monitoring
+- Database health views for pipeline monitoring and alerting
+- Message bus integration for external system notifications via publisher protocols
+- Observability pipeline for structured event collection and analysis
 
 ### 4. TFT Dataset Builder (`tft_dataset_builder.py`)
 
@@ -635,11 +640,13 @@ class DataProvider(Protocol):
 
 ### Recently Completed 🎯
 
-- **DataRegistry Integration**: Full event emission and watermark tracking in scheduler
-- **FRED Data Loader**: Complete economic indicator integration
-- **FeatureStore Priority**: TFTDatasetBuilder automatically uses FeatureStore
-- **Comprehensive Metrics**: 15+ Prometheus metrics across all components
-- **Production Monitoring**: Metrics server integration in scheduler
+- **DataRegistry Integration**: Full event emission, watermark tracking, and correlation ID generation in scheduler
+- **FRED Data Loader**: Complete economic indicator integration with observability support
+- **FeatureStore Priority**: TFTDatasetBuilder automatically uses FeatureStore for training/inference parity
+- **Comprehensive Metrics**: 15+ Prometheus metrics across all components with health monitoring
+- **Production Monitoring**: Metrics server integration in scheduler with alerting capabilities
+- **Observability Pipeline**: Event correlation, metadata tracking, and structured analytics
+- **Message Bus Integration**: External system notifications via configurable publisher protocols
 
 ### Framework Complete, Implementation Needed 🔶
 
@@ -649,11 +656,13 @@ class DataProvider(Protocol):
 
 ### Integration Points Working ✅
 
-- **DataCollector → ParquetDataCatalog**: Full integration
-- **DataScheduler → FeatureStore**: Automatic feature persistence
-- **DataScheduler → DataRegistry**: Event tracking and watermarks
-- **FREDLoader → DataStore**: Economic indicators storage
-- **TFTDatasetBuilder → FeatureStore**: Training/inference parity
+- **DataCollector → ParquetDataCatalog**: Full integration with observability tracking
+- **DataScheduler → FeatureStore**: Automatic feature persistence with event correlation
+- **DataScheduler → DataRegistry**: Event tracking, watermarks, and correlation ID generation
+- **FREDLoader → DataStore**: Economic indicators storage with registry integration
+- **TFTDatasetBuilder → FeatureStore**: Training/inference parity with comprehensive validation
+- **DataScheduler → ObservabilityService**: Event correlation and metrics collection for analytics
+- **DataScheduler → MessageBus**: External system notifications via publisher protocols
 
 ## Critical Issues and Gaps
 
@@ -872,9 +881,10 @@ fred_config = FREDConfig(
   - Cache hit tracking via Prometheus
 - **Rate Limiting**: Compliant with FRED's 120 calls/minute limit
 - **DataStore Integration**:
-  - Stores indicators with DataRegistry registration
-  - Creates DatasetManifest with validation rules
-  - Generates pseudo InstrumentIds (e.g., "FRED.DGS10")
+  - Stores indicators with DataRegistry registration and correlation tracking
+  - Creates DatasetManifest with validation rules and lineage information
+  - Generates pseudo InstrumentIds (e.g., "FRED.DGS10") for consistent identification
+  - Emits data events with metadata for observability pipeline integration
 - **Metrics Support**:
   - Fetch counters and duration histograms
   - Cache hit counters

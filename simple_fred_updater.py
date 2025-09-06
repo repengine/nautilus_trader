@@ -13,8 +13,11 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
+
 def update_fred_data():
-    """Update FRED data with latest values."""
+    """
+    Update FRED data with latest values.
+    """
     # Check API key
     api_key = os.getenv("FRED_API_KEY")
     if not api_key:
@@ -36,7 +39,7 @@ def update_fred_data():
         "DEXUSEU": "USD/EUR",
         "BAMLH0A0HYM2": "High Yield Spread",
         "BAMLC0A0CM": "Investment Grade Spread",
-        "MORTGAGE30US": "30Y Mortgage Rate"
+        "MORTGAGE30US": "30Y Mortgage Rate",
     }
 
     # Get last 60 days to ensure we capture latest data
@@ -68,7 +71,7 @@ def update_fred_data():
             updated_data[series_id] = {
                 "value": latest_value,
                 "date": latest_date,
-                "data": data
+                "data": data,
             }
 
             print(f"✅ {name}: {latest_value:.2f} (as of {latest_date.strftime('%Y-%m-%d')})")
@@ -89,11 +92,13 @@ def update_fred_data():
         for series_id, info in updated_data.items():
             data = info["data"].dropna()
             for date, value in data.items():
-                combined_data.append({
-                    "date": date,
-                    "series_id": series_id,
-                    "value": value
-                })
+                combined_data.append(
+                    {
+                        "date": date,
+                        "series_id": series_id,
+                        "value": value,
+                    }
+                )
 
         if combined_data:
             df = pd.DataFrame(combined_data)
@@ -117,6 +122,7 @@ def update_fred_data():
                 print(f"  {name}: {info['value']:.2f}")
 
     return success_count > 0
+
 
 if __name__ == "__main__":
     success = update_fred_data()

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402 - allow module docstring before imports in typing stubs
 
-
 """
 Internal typing aliases to keep runtime dependencies optional while providing
 precise static types for mypy/ruff.
@@ -20,6 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     import polars as _pl
     from sklearn.preprocessing import StandardScaler as _StandardScaler
 else:  # Fallbacks for runtime when deps may be absent
+
     class _pd:  # type: ignore[too-many-function-args]
         class DataFrame:  # pragma: no cover - runtime stub
             pass

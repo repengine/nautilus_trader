@@ -3,6 +3,7 @@
 Demonstration of FRED economic data integration with ML pipeline.
 
 Shows how to use the updated FRED data for feature engineering and trading signals.
+
 """
 import warnings
 
@@ -12,18 +13,26 @@ import polars as pl
 
 warnings.filterwarnings("ignore")
 
+
 def load_fred_ml_data():
-    """Load FRED data in ML pipeline format."""
+    """
+    Load FRED data in ML pipeline format.
+    """
     try:
         df = pl.read_parquet("data/fred/fred_indicators_ml_format.parquet")
-        print(f"📊 Loaded FRED ML data: {df.shape[0]} rows, {df['series_id'].n_unique()} indicators")
+        print(
+            f"📊 Loaded FRED ML data: {df.shape[0]} rows, {df['series_id'].n_unique()} indicators"
+        )
         return df
     except Exception as e:
         print(f"❌ Error loading FRED data: {e}")
         return None
 
+
 def create_regime_features(df):
-    """Create market regime features from FRED data."""
+    """
+    Create market regime features from FRED data.
+    """
     print("\n🎯 Creating Market Regime Features")
     print("=" * 40)
 
@@ -31,7 +40,7 @@ def create_regime_features(df):
     wide_df = df.pivot(
         index="timestamp",
         columns="series_id",
-        values="value"
+        values="value",
     ).sort("timestamp")
 
     # Convert to pandas for easier manipulation
@@ -43,23 +52,23 @@ def create_regime_features(df):
     # 1. Volatility Regime (VIX-based)
     if "VIXCLS" in wide_pd.columns:
         vix = wide_pd["VIXCLS"]
-        features["vol_regime_low"] = (vix < 15).astype(int)      # Low vol
+        features["vol_regime_low"] = (vix < 15).astype(int)  # Low vol
         features["vol_regime_normal"] = ((vix >= 15) & (vix < 25)).astype(int)  # Normal
-        features["vol_regime_high"] = (vix >= 25).astype(int)    # High vol
+        features["vol_regime_high"] = (vix >= 25).astype(int)  # High vol
         features["vix_zscore"] = (vix - vix.rolling(20).mean()) / vix.rolling(20).std()
         print(f"✅ VIX regime features: Current VIX = {vix.iloc[-1]:.1f}")
 
     # 2. Interest Rate Environment
     if "DGS10" in wide_pd.columns:
         rates_10y = wide_pd["DGS10"]
-        features["rate_regime_low"] = (rates_10y < 2.0).astype(int)     # Low rates
+        features["rate_regime_low"] = (rates_10y < 2.0).astype(int)  # Low rates
         features["rate_regime_normal"] = ((rates_10y >= 2.0) & (rates_10y < 4.0)).astype(int)
-        features["rate_regime_high"] = (rates_10y >= 4.0).astype(int)   # High rates
+        features["rate_regime_high"] = (rates_10y >= 4.0).astype(int)  # High rates
         print(f"✅ Rate regime features: Current 10Y = {rates_10y.iloc[-1]:.2f}%")
 
     # 3. Yield Curve Shape
     if all(col in wide_pd.columns for col in ["DGS2", "DGS10", "DGS30"]):
-        features["yield_slope"] = wide_pd["DGS10"] - wide_pd["DGS2"]      # 10Y-2Y slope
+        features["yield_slope"] = wide_pd["DGS10"] - wide_pd["DGS2"]  # 10Y-2Y slope
         features["yield_curvature"] = 2 * wide_pd["DGS10"] - wide_pd["DGS2"] - wide_pd["DGS30"]
         features["yield_level"] = (wide_pd["DGS2"] + wide_pd["DGS10"] + wide_pd["DGS30"]) / 3
         features["yield_inversion"] = (features["yield_slope"] < 0).astype(int)
@@ -69,7 +78,9 @@ def create_regime_features(df):
     if "BAMLH0A0HYM2" in wide_pd.columns:
         hy_spread = wide_pd["BAMLH0A0HYM2"]
         features["credit_stress"] = (hy_spread > hy_spread.rolling(60).mean() + 1.0).astype(int)
-        features["hy_spread_zscore"] = (hy_spread - hy_spread.rolling(60).mean()) / hy_spread.rolling(60).std()
+        features["hy_spread_zscore"] = (
+            hy_spread - hy_spread.rolling(60).mean()
+        ) / hy_spread.rolling(60).std()
         print(f"✅ Credit features: Current HY spread = {hy_spread.iloc[-1]:.2f}%")
 
     # 5. Dollar Strength
@@ -82,8 +93,11 @@ def create_regime_features(df):
     print(f"\n📈 Created {len(features.columns)} regime features")
     return features
 
+
 def generate_trading_signals(df, features):
-    """Generate sample trading signals using FRED data."""
+    """
+    Generate sample trading signals using FRED data.
+    """
     print("\n⚡ Generating Trading Signals")
     print("=" * 35)
 
@@ -133,8 +147,11 @@ def generate_trading_signals(df, features):
 
     return signals
 
+
 def create_feature_summary():
-    """Create summary of available FRED features."""
+    """
+    Create summary of available FRED features.
+    """
     print("\n📋 FRED Feature Categories")
     print("=" * 30)
 
@@ -146,16 +163,16 @@ def create_feature_summary():
             "DGS10 - 10-Year Treasury",
             "DGS30 - 30-Year Treasury",
             "SOFR - Secured Overnight Financing Rate",
-            "MORTGAGE30US - 30-Year Mortgage Rate"
+            "MORTGAGE30US - 30-Year Mortgage Rate",
         ],
         "Credit Risk": [
             "BAMLH0A0HYM2 - High Yield Credit Spread",
-            "BAMLC0A0CM - Investment Grade Spread"
+            "BAMLC0A0CM - Investment Grade Spread",
         ],
         "Currency": [
             "DTWEXBGS - Trade-Weighted Dollar Index",
-            "DEXUSEU - USD/EUR Exchange Rate"
-        ]
+            "DEXUSEU - USD/EUR Exchange Rate",
+        ],
     }
 
     for category, indicators in categories.items():
@@ -165,8 +182,11 @@ def create_feature_summary():
 
     print(f"\n✅ Total: {sum(len(v) for v in categories.values())} economic indicators available")
 
+
 def demonstrate_integration():
-    """Demonstrate full FRED-ML integration."""
+    """
+    Demonstrate full FRED-ML integration.
+    """
     print("🏦 FRED Economic Data ML Integration Demo")
     print("=" * 50)
 
@@ -210,6 +230,7 @@ def demonstrate_integration():
     print(f"   {len(combined_features)} rows, {len(combined_features.columns)} features")
 
     return combined_features
+
 
 if __name__ == "__main__":
     features = demonstrate_integration()

@@ -1,0 +1,6 @@
+{
+  "gates": [
+    { "metric": "pr_auc", "comparison": "gte", "threshold": 0.70, "required": true },
+    { "metric": "logloss", "comparison": "lte", "threshold": 0.60, "required": true }
+  ]
+}

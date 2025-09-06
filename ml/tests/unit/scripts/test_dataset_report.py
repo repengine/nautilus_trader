@@ -25,7 +25,7 @@ def _make_df() -> pl.DataFrame:
             # Macro columns (subset of known series)
             "DGS10": [4.0, 4.1, 4.0, 4.2, None],
             "VIXCLS": [15.0, None, 16.0, 15.5, 15.2],
-        }
+        },
     )
 
 
@@ -65,4 +65,3 @@ def test_dataset_report_generates_stats(tmp_path: Path) -> None:
 
     # Markdown file produced
     assert out_md.exists() and out_md.stat().st_size > 0
-

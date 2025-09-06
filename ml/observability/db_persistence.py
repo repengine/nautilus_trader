@@ -1,9 +1,10 @@
 """
 Observability DB persistor (off hot-path).
 
-Provides a minimal adapter to persist observability DataFrames to a relational
-database using SQLAlchemy engines provisioned by EngineManager. Intended for
-background tasks; do not call from hot loops.
+Provides a minimal adapter to persist observability DataFrames to a relational database
+using SQLAlchemy engines provisioned by EngineManager. Intended for background tasks; do
+not call from hot loops.
+
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ class ObservabilityDBPersistor:
     ----------
     connection_string : str
         SQLAlchemy database URL (e.g., postgresql:// or sqlite:///path.db).
+
     """
 
     connection_string: str
@@ -52,7 +54,9 @@ class ObservabilityDBPersistor:
         self._ensure_tables()
 
     def _ensure_tables(self) -> None:
-        """Create observability tables if they don't exist."""
+        """
+        Create observability tables if they don't exist.
+        """
         # Define schemas explicitly for consistency across backends
         self.latency_table = Table(
             "obs_latency_watermarks",
@@ -106,20 +110,27 @@ class ObservabilityDBPersistor:
 
         Supported keys: latency, metrics, correlation, health.
         Returns mapping of table name to row count inserted.
+
         """
         written: dict[str, int] = {}
         with self.engine.begin() as conn:
             if (df := tables.get("latency")) is not None and not df.empty:
-                df.to_sql("obs_latency_watermarks", conn, if_exists="append", index=False, method="multi")
+                df.to_sql(
+                    "obs_latency_watermarks", conn, if_exists="append", index=False, method="multi"
+                )
                 written["latency"] = len(df)
             if (df := tables.get("metrics")) is not None and not df.empty:
                 df.to_sql("obs_metrics", conn, if_exists="append", index=False, method="multi")
                 written["metrics"] = len(df)
             if (df := tables.get("correlation")) is not None and not df.empty:
-                df.to_sql("obs_event_correlation", conn, if_exists="append", index=False, method="multi")
+                df.to_sql(
+                    "obs_event_correlation", conn, if_exists="append", index=False, method="multi"
+                )
                 written["correlation"] = len(df)
             if (df := tables.get("health")) is not None and not df.empty:
-                df.to_sql("obs_health_scores", conn, if_exists="append", index=False, method="multi")
+                df.to_sql(
+                    "obs_health_scores", conn, if_exists="append", index=False, method="multi"
+                )
                 written["health"] = len(df)
         return written
 
@@ -145,6 +156,7 @@ class ObservabilityDBPersistor:
             - obs_metrics: timestamp
             - obs_event_correlation: ts_event
             - obs_health_scores: timestamp
+
         """
         import time
 

@@ -4,7 +4,7 @@ Auto Gap Filler - Analyzes existing tier1 data and downloads ALL missing data fr
 
 This script:
 1. Scans your existing data/tier1 directory
-2. Identifies ALL gaps between what you have and what your subscription allows  
+2. Identifies ALL gaps between what you have and what your subscription allows
 3. Downloads ONLY the missing data (no redownloading)
 4. Works with your existing file structure
 """
@@ -20,6 +20,7 @@ import pandas as pd
 
 try:
     import polars as pl
+
     HAS_POLARS = True
 except ImportError:
     HAS_POLARS = False
@@ -27,7 +28,7 @@ except ImportError:
 # Setup logging - quieter output
 logging.basicConfig(
     level=logging.WARNING,
-    format="%(levelname)s - %(message)s"
+    format="%(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -39,20 +40,24 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 def get_subscription_entitlements() -> dict[str, tuple[datetime, datetime]]:
-    """Get what you should have based on Databento subscription."""
+    """
+    Get what you should have based on Databento subscription.
+    """
     today = datetime.now().date()
     yesterday = datetime.combine(today - timedelta(days=1), datetime.min.time())
     yesterday = yesterday.replace(tzinfo=None)
 
     return {
-        "core": (yesterday - timedelta(days=365 * 7), yesterday),    # 7 years OHLCV
-        "l1": (yesterday - timedelta(days=365), yesterday),         # 1 year L1
-        "l2": (yesterday - timedelta(days=30), yesterday),          # 30 days L2
+        "core": (yesterday - timedelta(days=365 * 7), yesterday),  # 7 years OHLCV
+        "l1": (yesterday - timedelta(days=365), yesterday),  # 1 year L1
+        "l2": (yesterday - timedelta(days=30), yesterday),  # 30 days L2
     }
 
 
 def get_existing_date_range(file_path: Path) -> tuple[datetime, datetime] | None:
-    """Get date range from existing file, handling both old and new formats."""
+    """
+    Get date range from existing file, handling both old and new formats.
+    """
     if not file_path.exists():
         return None
 
@@ -73,7 +78,9 @@ def get_existing_date_range(file_path: Path) -> tuple[datetime, datetime] | None
             max_ts = df_full["ts_event"].max()
             min_date = pd.to_datetime(min_ts, unit="ns", utc=True).tz_localize(None)
             max_date = pd.to_datetime(max_ts, unit="ns", utc=True).tz_localize(None)
-        elif df.index.name == "ts_event" or (hasattr(df.index, "name") and "ts_event" in str(df.index.name)):
+        elif df.index.name == "ts_event" or (
+            hasattr(df.index, "name") and "ts_event" in str(df.index.name)
+        ):
             # Old format: ts_event index (datetime) - need to read full file to get complete range
             df_full = pd.read_parquet(file_path)
             min_date = df_full.index.min()
@@ -99,9 +106,13 @@ def get_existing_date_range(file_path: Path) -> tuple[datetime, datetime] | None
         return None
 
 
-def calculate_gaps(existing_range: tuple[datetime, datetime] | None,
-                  target_range: tuple[datetime, datetime]) -> list[tuple[datetime, datetime]]:
-    """Calculate missing date ranges."""
+def calculate_gaps(
+    existing_range: tuple[datetime, datetime] | None,
+    target_range: tuple[datetime, datetime],
+) -> list[tuple[datetime, datetime]]:
+    """
+    Calculate missing date ranges.
+    """
     if not existing_range:
         return [target_range]
 
@@ -121,13 +132,15 @@ def calculate_gaps(existing_range: tuple[datetime, datetime] | None,
 
 
 def analyze_symbol_gaps(symbol_dir: Path, entitlements: dict) -> dict:
-    """Analyze what's missing for a specific symbol."""
+    """
+    Analyze what's missing for a specific symbol.
+    """
     symbol = symbol_dir.name
     analysis = {
         "symbol": symbol,
         "existing": {},
         "gaps": {},
-        "downloads_needed": []
+        "downloads_needed": [],
     }
 
     # File pattern mapping: (file_pattern, schema_name, data_type, output_filename)
@@ -136,7 +149,7 @@ def analyze_symbol_gaps(symbol_dir: Path, entitlements: dict) -> dict:
         ("hourly_*.parquet", "ohlcv-1m", "core", "bars_ohlcv-1m.parquet"),
         ("l1/*bbo*.parquet", "tbbo", "l1", "bbo_tbbo.parquet"),
         ("l1/*trades*.parquet", "trades", "l1", "trades.parquet"),
-        ("l2/*.parquet", "mbp-10", "l2", "mbp-10.parquet")
+        ("l2/*.parquet", "mbp-10", "l2", "mbp-10.parquet"),
     ]
 
     for pattern, schema, data_type, output_file in file_patterns:
@@ -149,7 +162,7 @@ def analyze_symbol_gaps(symbol_dir: Path, entitlements: dict) -> dict:
                 analysis["existing"][schema] = {
                     "file": files[0],
                     "range": existing_range,
-                    "days": (existing_range[1] - existing_range[0]).days
+                    "days": (existing_range[1] - existing_range[0]).days,
                 }
 
                 # Calculate gaps
@@ -159,33 +172,39 @@ def analyze_symbol_gaps(symbol_dir: Path, entitlements: dict) -> dict:
                 if gaps:
                     analysis["gaps"][schema] = gaps
                     for gap_start, gap_end in gaps:
-                        analysis["downloads_needed"].append({
-                            "schema": schema,
-                            "start": gap_start,
-                            "end": gap_end,
-                            "days": (gap_end - gap_start).days,
-                            "output_file": symbol_dir / output_file,
-                            "data_type": data_type
-                        })
+                        analysis["downloads_needed"].append(
+                            {
+                                "schema": schema,
+                                "start": gap_start,
+                                "end": gap_end,
+                                "days": (gap_end - gap_start).days,
+                                "output_file": symbol_dir / output_file,
+                                "data_type": data_type,
+                            }
+                        )
         else:
             # No existing data - need full range
             if data_type in entitlements:
                 target_start, target_end = entitlements[data_type]
                 analysis["gaps"][schema] = [(target_start, target_end)]
-                analysis["downloads_needed"].append({
-                    "schema": schema,
-                    "start": target_start,
-                    "end": target_end,
-                    "days": (target_end - target_start).days,
-                    "output_file": symbol_dir / output_file,
-                    "data_type": data_type
-                })
+                analysis["downloads_needed"].append(
+                    {
+                        "schema": schema,
+                        "start": target_start,
+                        "end": target_end,
+                        "days": (target_end - target_start).days,
+                        "output_file": symbol_dir / output_file,
+                        "data_type": data_type,
+                    }
+                )
 
     return analysis
 
 
 def download_gap(client: db.Historical, download_info: dict, dry_run: bool = False) -> bool:
-    """Download a specific gap."""
+    """
+    Download a specific gap.
+    """
     symbol = download_info["output_file"].parent.name
     schema = download_info["schema"]
     start_date = download_info["start"]
@@ -193,11 +212,15 @@ def download_gap(client: db.Historical, download_info: dict, dry_run: bool = Fal
     output_file = download_info["output_file"]
 
     if dry_run:
-        print(f"  [DRY RUN] Would download {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)")
+        print(
+            f"  [DRY RUN] Would download {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)"
+        )
         return True
 
     try:
-        print(f"Downloading {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)")
+        print(
+            f"Downloading {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)"
+        )
 
         # Download data
         with warnings.catch_warnings():
@@ -243,16 +266,30 @@ def download_gap(client: db.Historical, download_info: dict, dry_run: bool = Fal
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Auto Gap Filler - Download ALL missing data from your Databento subscription"
+        description="Auto Gap Filler - Download ALL missing data from your Databento subscription",
     )
-    parser.add_argument("--data-dir", type=Path, default=Path("data/tier1"),
-                       help="Directory to scan for existing data")
-    parser.add_argument("--symbols", nargs="+",
-                       help="Specific symbols to process (default: all found in directory)")
-    parser.add_argument("--dry-run", action="store_true",
-                       help="Show what would be downloaded without actually downloading")
-    parser.add_argument("--max-symbols", type=int, default=None,
-                       help="Limit processing to first N symbols (for testing)")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("data/tier1"),
+        help="Directory to scan for existing data",
+    )
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        help="Specific symbols to process (default: all found in directory)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be downloaded without actually downloading",
+    )
+    parser.add_argument(
+        "--max-symbols",
+        type=int,
+        default=None,
+        help="Limit processing to first N symbols (for testing)",
+    )
 
     args = parser.parse_args()
 
@@ -273,13 +310,19 @@ def main():
     # Get subscription entitlements
     entitlements = get_subscription_entitlements()
     print("📊 Databento Subscription Entitlements:")
-    print(f"  Core (OHLCV): {entitlements['core'][0].date()} to {entitlements['core'][1].date()} (7 years)")
-    print(f"  L1 (BBO/Trades): {entitlements['l1'][0].date()} to {entitlements['l1'][1].date()} (1 year)")
+    print(
+        f"  Core (OHLCV): {entitlements['core'][0].date()} to {entitlements['core'][1].date()} (7 years)"
+    )
+    print(
+        f"  L1 (BBO/Trades): {entitlements['l1'][0].date()} to {entitlements['l1'][1].date()} (1 year)"
+    )
     print(f"  L2 (MBP): {entitlements['l2'][0].date()} to {entitlements['l2'][1].date()} (30 days)")
 
     # Find symbols to process
     if args.symbols:
-        symbol_dirs = [args.data_dir / symbol for symbol in args.symbols if (args.data_dir / symbol).is_dir()]
+        symbol_dirs = [
+            args.data_dir / symbol for symbol in args.symbols if (args.data_dir / symbol).is_dir()
+        ]
     else:
         symbol_dirs = [d for d in args.data_dir.iterdir() if d.is_dir()]
 
@@ -289,7 +332,7 @@ def main():
 
     symbol_dirs.sort()
     if args.max_symbols:
-        symbol_dirs = symbol_dirs[:args.max_symbols]
+        symbol_dirs = symbol_dirs[: args.max_symbols]
 
     print(f"🔍 Analyzing {len(symbol_dirs)} symbols for gaps...")
     print()

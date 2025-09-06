@@ -49,8 +49,14 @@ class TestDataRegistryOpsEventsJson:
         events = data.get("events", [])
 
         # At least three ops-related events present
-        assert any(e.get("dataset_id") == ds_id and e.get("stage") == Stage.CATALOG_WRITTEN.value for e in events)
+        assert any(
+            e.get("dataset_id") == ds_id and e.get("stage") == Stage.CATALOG_WRITTEN.value
+            for e in events
+        )
         assert any(e.get("dataset_id") == ds_id and e.get("status") == "deprecated" for e in events)
         # Correlation id should be present on events
-        assert all("correlation_id" in (e.get("metadata") or {}) for e in events if e.get("dataset_id") == ds_id)
-
+        assert all(
+            "correlation_id" in (e.get("metadata") or {})
+            for e in events
+            if e.get("dataset_id") == ds_id
+        )

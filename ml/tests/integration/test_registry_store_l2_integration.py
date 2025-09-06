@@ -133,7 +133,7 @@ class TestL2L3RegistryStoreIntegration:
             )
             registry = FeatureRegistry(
                 registry_path=Path(tmpdir),
-                persistence_config=persistence_config
+                persistence_config=persistence_config,
             )
 
             # Create manifest with L2/L3 features
@@ -363,7 +363,7 @@ class TestL2L3RegistryStoreIntegration:
             )
             registry = FeatureRegistry(
                 registry_path=Path(tmpdir),
-                persistence_config=persistence_config
+                persistence_config=persistence_config,
             )
 
             # Create config with L2 features

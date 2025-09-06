@@ -27,6 +27,10 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 
 - **[development/CODING_STANDARDS.md](development/CODING_STANDARDS.md)** - Comprehensive coding standards and quality requirements
 
+### 🧰 CLI Tooling
+
+- **[tools/CLI_Tooling.md](tools/CLI_Tooling.md)** - Build runner, dataset report, and feature promotion CLI usage
+
 ### 🔬 Research & Analysis
 
 - **[research/freqai_analysis.md](research/freqai_analysis.md)** - FreqAI integration patterns and insights

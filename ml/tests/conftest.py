@@ -103,6 +103,7 @@ def _mark_prototypes(items: list[pytest.Item]) -> None:
     ----------
     items : list[pytest.Item]
         Collected pytest items to inspect and mark.
+
     """
     for item in items:
         nodeid = item.nodeid.replace("::", "/")
@@ -110,6 +111,7 @@ def _mark_prototypes(items: list[pytest.Item]) -> None:
             if nodeid.endswith(suffix):
                 item.add_marker(pytest.mark.prototype)
                 break
+
 
 # ============================================================================
 # Hypothesis Configuration
@@ -409,6 +411,7 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
     - Defers constraints to allow order-agnostic TRUNCATE.
     - Gracefully degrades if the database is not available (tests should already
       be gated via markers when Postgres is down).
+
     """
     engine = EngineManager.get_engine(
         DATABASE_URL,
@@ -445,6 +448,7 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
 
     # Clean before class; disable per-test TRUNCATE while this fixture is active
     import os as _os
+
     _prev = _os.getenv("TEST_DB_SKIP_TRUNCATE")
     _os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
     # Clean before class
@@ -471,6 +475,7 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
     -------
     Generator[None, None, None]
         Yields control to the test module between pre/post cleanups.
+
     """
     engine = EngineManager.get_engine(
         DATABASE_URL,
@@ -506,6 +511,7 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
             print(f"clean_postgres_db_module cleanup skipped: {exc}")
 
     import os as _os
+
     _prev = _os.getenv("TEST_DB_SKIP_TRUNCATE")
     _os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
     _truncate_all()
@@ -515,6 +521,7 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
         _os.environ.pop("TEST_DB_SKIP_TRUNCATE", None)
     else:
         _os.environ["TEST_DB_SKIP_TRUNCATE"] = _prev
+
 
 # ============================================================================
 # Compatibility database fixtures (legacy names expected by tests)
@@ -542,6 +549,7 @@ def test_database() -> Generator[TestDatabase, None, None]:
 
     # Best-effort clean before creating wrapper, unless class/module cleanup handles it
     import os as _os
+
     if not _os.getenv("TEST_DB_SKIP_TRUNCATE"):
         with engine.connect() as conn:
             result = conn.execute(
@@ -561,6 +569,7 @@ def test_database() -> Generator[TestDatabase, None, None]:
                 except Exception:
                     # Ignore per-table errors; migrations may not be applied yet
                     import logging as _logging
+
                     _logging.getLogger(__name__).debug(
                         "TRUNCATE failed for table %s; ignoring in test cleanup",
                         table_name,
@@ -575,6 +584,7 @@ def test_database() -> Generator[TestDatabase, None, None]:
     except Exception:
         # If migrations fail due to environment, let tests surface specifics
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
             "Database init_schema failed; continuing",
             exc_info=True,
@@ -786,6 +796,7 @@ def cleanup_engines() -> None:
     Deprecated per-test engine cleanup (use session finish cleanup).
 
     Left as a no-op to preserve import references in legacy tests.
+
     """
     return None
 
@@ -862,6 +873,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         Pytest configuration object.
     items : list[pytest.Item]
         Collected test items.
+
     """
     # Mark prototypes first
     _mark_prototypes(items)
@@ -879,7 +891,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     # When xdist is active, group database tests to run on a single worker to prevent
     # cross-worker DDL/DML interference and deadlocks.
     try:
-        import xdist  # noqa: F401
+        import xdist
 
         for item in items:
             if "database" in item.keywords or "serial" in item.keywords:
@@ -904,11 +916,13 @@ def pytest_sessionstart(session):
     # Proactively clear pytest cache to avoid stale collection/results
     try:
         from shutil import rmtree
+
         cache_dir = Path.cwd() / ".pytest_cache"
         if cache_dir.exists():
             rmtree(cache_dir)
     except Exception:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
             "Failed to clear pytest cache; continuing",
             exc_info=True,
@@ -1014,6 +1028,7 @@ def valid_env(monkeypatch: pytest.MonkeyPatch) -> None:
     Provide a minimal valid environment for deployment entrypoint tests.
 
     Mirrors the per-test fixture to make it available module-wide.
+
     """
     monkeypatch.setenv("DB_CONNECTION", "postgresql://test:test@localhost:5432/test")
     monkeypatch.setenv("STRATEGY_ID", "MLStrategy-TEST-001")

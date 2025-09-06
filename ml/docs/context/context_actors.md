@@ -1068,6 +1068,86 @@ The MLSignalActor exposes a lightweight, non–hot‑path method `get_signal_sta
 
 This method is safe to call outside the hot path and is intended for assertions in tests and sanity checks.
 
+## **📝 ADDITION:** Centralized Metrics Bootstrap Pattern
+
+### Metrics Bootstrap Integration
+
+All actors now use the centralized metrics bootstrap pattern instead of direct prometheus imports:
+
+```python
+# ❌ OLD: Direct prometheus usage
+from prometheus_client import Counter, Histogram
+
+# ✅ NEW: Centralized bootstrap
+from ml.common.metrics_bootstrap import get_counter, get_histogram
+
+ml_predictions_total = get_counter(
+    "nautilus_ml_predictions_total",
+    "Total number of ML predictions made", 
+    ["actor_id", "model_name"]
+)
+```
+
+**Benefits:**
+- Prevents metric registry conflicts during module reloads
+- Safe for testing environments with metric cleanup
+- Consistent naming and labeling across components
+
+### **📝 ADDITION:** Universal MLComponentProtocol Integration
+
+All actors now implement the universal component protocol via `MLComponentMixin`:
+
+```python
+class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
+    """Base actor with universal protocol compliance."""
+    
+    def get_health_status(self) -> dict[str, Any]:
+        """Enhanced health reporting with store status."""
+        base_status = super().get_health_status()
+        base_status.update({
+            "stores_initialized": self._stores_healthy(),
+            "model_loaded": self._model is not None,
+            "circuit_breaker_state": self._circuit_breaker.state if self._circuit_breaker else "disabled"
+        })
+        return base_status
+```
+
+**Protocol Methods:**
+- `get_health_status()`: Comprehensive health with store/model status
+- `get_performance_metrics()`: Lightweight diagnostic metrics  
+- `validate_configuration()`: Configuration validation issues
+
+### Store Protocol Evolution
+
+```python
+class FeatureStoreProtocol(Protocol):
+    def compute_realtime(
+        self, 
+        bar: Any, 
+        store: bool = ...,
+        indicator_manager: Any | None = ...
+    ) -> Any:
+        """Delegate feature computation with optional persistence."""
+```
+
+**Integration Pattern:**
+```python
+def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
+    # Prefer FeatureStore delegation when available
+    try:
+        features = self._feature_store.compute_realtime(
+            bar=bar, 
+            store=self._persist_features
+        )
+        if isinstance(features, np.ndarray) and features.size > 0:
+            return features
+    except Exception as exc:
+        self.log.debug("FeatureStore failed, falling back to local computation")
+    
+    # Fallback to local feature engineering
+    return self._feature_engineer.calculate_features_online(...)
+```
+
 ## **📝 ADDITION:** Configuration Enhancement Summary
 
 ### MLSignalActorConfig Extensions
@@ -1094,23 +1174,27 @@ class MLSignalActorConfig(MLActorConfig):
     strategy: StrategyConfig | None = None          # Maps to strategy_config
 ```
 
-### **📝 ADDITION:** Enhanced Testing Patterns
+**Key Features:**
+- Automatic field mapping for backward compatibility
+- Test mode configuration with dummy stores
+- ONNX runtime provider configuration
+- Feature persistence control
 
-#### EnhancedMLInferenceActor for Tests
+### **🔄 UPDATE:** EnhancedMLInferenceActor Architecture Change
 
-The EnhancedMLInferenceActor has been redesigned as a minimal test-focused implementation:
+The EnhancedMLInferenceActor has been redesigned as a **minimal test-focused implementation** rather than a complete demonstration:
+
+- **Purpose**: Testing zero-allocation feature computation patterns
+- **Store Integration**: Uses null store protocols to avoid external dependencies
+- **Feature Computation**: Guarantees view semantics with pre-allocated buffers
+- **Usage**: Primarily for performance tests and hot-path validation
 
 ```python
-class EnhancedMLInferenceActor(BaseMLInferenceActor):
-    """Minimal enhanced inference actor for performance tests."""
-    
-    def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
-        """Guarantees zero-allocation feature computation with buffer reuse."""
-        # **⚠️ CORRECTION:** Returns view of pre-allocated buffer
-        # **📝 ADDITION:** Implements null store protocols to avoid external dependencies
-        features = self._engineer.calculate_features_online(...)
-        self._feature_buffer[:size] = features
-        return self._feature_buffer[:size]  # Returns view, not copy
+def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
+    """Guarantees zero-allocation feature computation with buffer reuse."""
+    features = self._engineer.calculate_features_online(...)
+    self._feature_buffer[:size] = features
+    return self._feature_buffer[:size]  # Returns view, not copy
 ```
 
 #### Test Configuration Patterns

@@ -1,8 +1,9 @@
 """
 Correlation network helpers for observability analyses (off hot-path).
 
-Provides simple primitives used by tests and tooling to analyze connectivity
-and prune weak edges.
+Provides simple primitives used by tests and tooling to analyze connectivity and prune
+weak edges.
+
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ def prune_edges(
     edges : iterable of (node1, node2, strength)
     threshold : float
         Minimum strength to keep.
+
     """
     return [(a, b, s) for (a, b, s) in edges if s >= threshold]
 
@@ -37,6 +39,7 @@ def connected_components(nodes: list[str], edges: Iterable[tuple[str, str, float
         Graph nodes.
     edges : iterable of (node1, node2, strength)
         Graph edges (strength ignored).
+
     """
     adj: dict[str, set[str]] = {n: set() for n in nodes}
     for a, b, _ in edges:
@@ -61,4 +64,3 @@ def connected_components(nodes: list[str], edges: Iterable[tuple[str, str, float
 
 
 __all__ = ["connected_components", "prune_edges"]
-

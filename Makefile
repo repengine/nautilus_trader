@@ -473,6 +473,28 @@ benchmark-ml:  #-- Run ML performance benchmarks manually
 install-cli:  #-- Install Nautilus CLI tool from source
 	cargo install --path crates/cli --bin nautilus --force
 
+.PHONY: ml-build-runner
+ml-build-runner:  #-- Run per-symbol dataset builds from a JSON/TOML config (CONFIG=path)
+	@[ -n "$(CONFIG)" ] || { echo "Provide CONFIG=/path/to/config.{json,toml}"; exit 1; }
+	uv run --active --no-sync python -m ml.pipelines.build_runner --config $(CONFIG)
+
+.PHONY: ml-dataset-report
+ml-dataset-report:  #-- Generate dataset report (DATASET=parquet|csv, OUT_JSON, OUT_MD optional)
+	@[ -n "$(DATASET)" ] || { echo "Provide DATASET=/path/to/dataset.parquet"; exit 1; }
+	uv run --active --no-sync python -m ml.scripts.dataset_report --dataset $(DATASET) $(if $(OUT_JSON),--out_json $(OUT_JSON),) $(if $(OUT_MD),--out_md $(OUT_MD),)
+
+.PHONY: ml-promote-features
+ml-promote-features:  #-- Promote features via gates (FEATURE_REGISTRY_DIR, FEATURE_SET_ID, METRICS_JSON, GATES or GATES_JSON)
+	@[ -n "$(FEATURE_REGISTRY_DIR)" ] || { echo "FEATURE_REGISTRY_DIR is required"; exit 1; }
+	@[ -n "$(FEATURE_SET_ID)" ] || { echo "FEATURE_SET_ID is required"; exit 1; }
+	@[ -n "$(METRICS_JSON)" ] || { echo "METRICS_JSON is required"; exit 1; }
+	uv run --active --no-sync python -m ml.scripts.promote_features \
+	  --feature_registry_dir $(FEATURE_REGISTRY_DIR) \
+	  --feature_set_id $(FEATURE_SET_ID) \
+	  --metrics_json $(METRICS_JSON) \
+	  $(if $(GATES_JSON),--gates_json $(GATES_JSON),) \
+	  $(if $(GATE1),--gate $(GATE1) $(GATE2) $(GATE3) $(GATE4),)
+
 #== Internal
 
 .PHONY: help
@@ -564,5 +586,5 @@ pytest-ml:  #-- Run ML tests optimized for speed (parallel non-integration + ser
 .PHONY: pytest-ml-perf
 pytest-ml-perf:  #-- Run ML performance tests with optional relax factor (ML_BENCH_RELAX)
 	$(info $(M) Running ML performance tests...) \
-	&& echo "Relax factor: $${ML_BENCH_RELAX:-1.0}" 
+	&& echo "Relax factor: $${ML_BENCH_RELAX:-1.0}"
 	ML_BENCH_RELAX=$${ML_BENCH_RELAX:-1.0} uv run --active --no-sync pytest ml/tests/performance -q

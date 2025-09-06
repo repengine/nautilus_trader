@@ -19,6 +19,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# Integration tests perform DDL/DML on shared PostgreSQL schemas; run them serially even when
+# xdist is enabled to avoid cross-worker locking and deadlocks.
+import pytest as _pytest
+
 from ml._imports import HAS_LIGHTGBM
 from ml._imports import HAS_ONNX
 from ml._imports import HAS_XGBOOST
@@ -36,9 +40,6 @@ from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
-# Integration tests perform DDL/DML on shared PostgreSQL schemas; run them serially even when
-# xdist is enabled to avoid cross-worker locking and deadlocks.
-import pytest as _pytest
 
 pytestmark = _pytest.mark.serial
 

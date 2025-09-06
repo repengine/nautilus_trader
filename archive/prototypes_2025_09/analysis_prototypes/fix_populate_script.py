@@ -17,13 +17,15 @@ import pandas as pd
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
 def get_expected_trading_days(start_date: datetime, end_date: datetime) -> list[datetime]:
-    """Get list of expected trading days (Mon-Fri) between dates."""
+    """
+    Get list of expected trading days (Mon-Fri) between dates.
+    """
     trading_days = []
     current = start_date
 
@@ -37,19 +39,26 @@ def get_expected_trading_days(start_date: datetime, end_date: datetime) -> list[
 
 
 def validate_daily_file_integrity(file_path: Path) -> bool:
-    """Check if a daily file is readable and not corrupted."""
+    """
+    Check if a daily file is readable and not corrupted.
+    """
     if not file_path.exists():
         return False
     try:
         import pyarrow.parquet as pq
+
         pf = pq.ParquetFile(file_path)
         return pf.metadata is not None and pf.metadata.num_rows > 0
     except Exception:
         return False
 
 
-def find_corrupted_daily_files(output_dir: Path, symbol: str, expected_days: list[datetime]) -> list[datetime]:
-    """Find corrupted daily files that need re-download."""
+def find_corrupted_daily_files(
+    output_dir: Path, symbol: str, expected_days: list[datetime]
+) -> list[datetime]:
+    """
+    Find corrupted daily files that need re-download.
+    """
     corrupted_dates = []
 
     for day in expected_days:
@@ -69,8 +78,12 @@ def find_corrupted_daily_files(output_dir: Path, symbol: str, expected_days: lis
     return corrupted_dates
 
 
-def validate_existing_data(symbol: str, output_dir: Path, expected_days: list[datetime]) -> tuple[bool, list[str]]:
-    """Validate existing data completeness and return (is_complete, issues)."""
+def validate_existing_data(
+    symbol: str, output_dir: Path, expected_days: list[datetime]
+) -> tuple[bool, list[str]]:
+    """
+    Validate existing data completeness and return (is_complete, issues).
+    """
     final_file = output_dir / f"{symbol}_mbp-10.parquet"
 
     if not final_file.exists():
@@ -81,11 +94,16 @@ def validate_existing_data(symbol: str, output_dir: Path, expected_days: list[da
         corrupted_dates = find_corrupted_daily_files(output_dir, symbol, expected_days)
         if corrupted_dates:
             # If we have corrupted daily files, the final file is suspect too
-            logger.info(f"  Found {len(corrupted_dates)} corrupted daily files - final file needs rebuild")
-            return False, [f"Corrupted daily files found: {len(corrupted_dates)} files need re-download"]
+            logger.info(
+                f"  Found {len(corrupted_dates)} corrupted daily files - final file needs rebuild"
+            )
+            return False, [
+                f"Corrupted daily files found: {len(corrupted_dates)} files need re-download"
+            ]
 
         # Quick validation using parquet metadata
         import polars as pl
+
         df = pl.scan_parquet(final_file)
 
         # Sample data to check date range
@@ -124,7 +142,9 @@ def validate_existing_data(symbol: str, output_dir: Path, expected_days: list[da
         expected_days_count = len(expected_days)
 
         if coverage_days < expected_days_count - 2:
-            issues.append(f"Insufficient coverage: {coverage_days} days vs expected ~{expected_days_count}")
+            issues.append(
+                f"Insufficient coverage: {coverage_days} days vs expected ~{expected_days_count}"
+            )
 
         return len(issues) == 0, issues
 
@@ -136,9 +156,14 @@ def download_l2_daily_with_validation(
     client: db.Historical,
     symbol: str,
     date: datetime,
-    output_dir: Path
+    output_dir: Path,
 ) -> tuple[int, bool]:
-    """Download L2 data for a single day with validation. Returns (records, success)."""
+    """
+    Download L2 data for a single day with validation.
+
+    Returns (records, success).
+
+    """
     start = date.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
@@ -184,6 +209,7 @@ def download_l2_daily_with_validation(
             if transient and attempt < attempts:
                 logger.warning(f"  {date.date()}: Retry {attempt}/{attempts} - {msg}")
                 import time
+
                 time.sleep(delay_secs)
                 delay_secs *= 2.0
                 continue
@@ -195,16 +221,87 @@ def download_l2_daily_with_validation(
 
 
 def get_tier1_symbols() -> list[str]:
-    """Get list of Tier 1 symbols."""
+    """
+    Get list of Tier 1 symbols.
+    """
     return [
-        "SPY", "QQQ", "IWM", "DIA", "VTI", "XLF", "XLK", "XLE", "XLV", "XLI",
-        "TLT", "GLD", "SLV", "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META",
-        "TSLA", "BRK.B", "AMD", "JPM", "JNJ", "V", "PG", "UNH", "HD", "MA",
-        "DIS", "BAC", "ADBE", "CRM", "NFLX", "KO", "PEP", "TMO", "ABBV", "CVX",
-        "WMT", "MRK", "LLY", "AVGO", "NKE", "ORCL", "ACN", "COST", "MCD", "ABT",
-        "TXN", "GS", "MS", "WFC", "C", "XOM", "COP", "CAT", "BA", "GE",
-        "MMM", "VZ", "T", "EFA", "EEM", "VEA", "VWO", "UUP", "FXE", "USO",
-        "UNG", "PLTR", "SOFI", "RIVN", "LCID", "COIN", "MSTR", "VNQ"
+        "SPY",
+        "QQQ",
+        "IWM",
+        "DIA",
+        "VTI",
+        "XLF",
+        "XLK",
+        "XLE",
+        "XLV",
+        "XLI",
+        "TLT",
+        "GLD",
+        "SLV",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "GOOGL",
+        "AMZN",
+        "META",
+        "TSLA",
+        "BRK.B",
+        "AMD",
+        "JPM",
+        "JNJ",
+        "V",
+        "PG",
+        "UNH",
+        "HD",
+        "MA",
+        "DIS",
+        "BAC",
+        "ADBE",
+        "CRM",
+        "NFLX",
+        "KO",
+        "PEP",
+        "TMO",
+        "ABBV",
+        "CVX",
+        "WMT",
+        "MRK",
+        "LLY",
+        "AVGO",
+        "NKE",
+        "ORCL",
+        "ACN",
+        "COST",
+        "MCD",
+        "ABT",
+        "TXN",
+        "GS",
+        "MS",
+        "WFC",
+        "C",
+        "XOM",
+        "COP",
+        "CAT",
+        "BA",
+        "GE",
+        "MMM",
+        "VZ",
+        "T",
+        "EFA",
+        "EEM",
+        "VEA",
+        "VWO",
+        "UUP",
+        "FXE",
+        "USO",
+        "UNG",
+        "PLTR",
+        "SOFI",
+        "RIVN",
+        "LCID",
+        "COIN",
+        "MSTR",
+        "VNQ",
     ]
 
 
@@ -215,7 +312,9 @@ def main():
     parser.add_argument("--tier", type=int, choices=[1], help="Use Tier 1 symbols")
     parser.add_argument("--days", type=int, default=30, help="Number of days to download")
     parser.add_argument("--data-dir", type=Path, default=Path("data/tier1"), help="Data directory")
-    parser.add_argument("--force", action="store_true", help="Force re-download even if file exists")
+    parser.add_argument(
+        "--force", action="store_true", help="Force re-download even if file exists"
+    )
     parser.add_argument("--validate-only", action="store_true", help="Only validate existing data")
     parser.add_argument("--start-date", type=str, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end-date", type=str, help="End date (YYYY-MM-DD)")
@@ -307,18 +406,21 @@ def main():
             "total_records": total_records,
             "successful_days": successful_days,
             "failed_days": failed_days,
-            "success_rate": successful_days / len(expected_days) if expected_days else 0
+            "success_rate": successful_days / len(expected_days) if expected_days else 0,
         }
 
         # Combine files if we have data
         if total_records > 0:
             from ml.scripts.populate_l2_efficient import combine_daily_files
+
             combine_daily_files(symbol, output_dir)
             logger.info(f"  Combined: {total_records:,} total records")
 
         # Report issues
         if failed_days:
-            logger.error(f"  ❌ Failed days ({len(failed_days)}): {failed_days[:5]}{'...' if len(failed_days) > 5 else ''}")
+            logger.error(
+                f"  ❌ Failed days ({len(failed_days)}): {failed_days[:5]}{'...' if len(failed_days) > 5 else ''}"
+            )
 
     # Summary report
     logger.info("\n" + "=" * 60)

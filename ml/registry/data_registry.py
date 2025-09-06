@@ -291,7 +291,7 @@ class DataRegistry(MLComponentMixin):
                     "parameters": rule.parameters,
                     "severity": rule.severity.value,
                     "description": rule.description,
-                }
+                },
             )
 
         return {
@@ -454,7 +454,7 @@ class DataRegistry(MLComponentMixin):
                         (:dataset_id, :name, :version, :dataset_type, :storage_kind, :location,
                          :partitioning, :retention_days, :schema, :schema_hash, :constraints,
                          :parents, :pipeline_signature, :metadata)
-                    """
+                    """,
                     )
 
                     session.execute(
@@ -620,7 +620,7 @@ class DataRegistry(MLComponentMixin):
                         UPDATE ml_dataset_registry
                         SET {', '.join(set_parts)}, last_modified = NOW()
                         WHERE dataset_id = :dataset_id
-                    """
+                    """,
                     )
 
                     result = session.execute(query, update_data)
@@ -784,7 +784,7 @@ class DataRegistry(MLComponentMixin):
                                metadata
                         FROM ml_dataset_registry
                         WHERE dataset_id = :dataset_id
-                    """
+                    """,
                     )
 
                     result = session.execute(query, {"dataset_id": dataset_id}).fetchone()
@@ -795,10 +795,12 @@ class DataRegistry(MLComponentMixin):
                     manifest_data = dict(result)
                     manifest_data["seq_field"] = manifest_data.get("metadata", {}).get("seq_field")
                     manifest_data["ts_field"] = manifest_data.get("metadata", {}).get(
-                        "ts_field", "ts_event"
+                        "ts_field",
+                        "ts_event",
                     )
                     manifest_data["primary_keys"] = manifest_data.get("metadata", {}).get(
-                        "primary_keys", ["instrument_id", "ts_event"]
+                        "primary_keys",
+                        ["instrument_id", "ts_event"],
                     )
 
                     manifest = self._dict_to_manifest(manifest_data)
@@ -1021,7 +1023,7 @@ class DataRegistry(MLComponentMixin):
                                 :dataset_id, :instrument_id, :stage, :source, :run_id,
                                 :ts_min, :ts_max, :count, :status, :error, :metadata
                             )
-                        """
+                        """,
                         )
                         session.execute(
                             query_ext,
@@ -1046,7 +1048,7 @@ class DataRegistry(MLComponentMixin):
                                 :dataset_id, :instrument_id, :stage, :source, :run_id,
                                 :ts_min, :ts_max, :count, :status, :error
                             )
-                        """
+                        """,
                         )
                         session.execute(
                             query,
@@ -1152,7 +1154,7 @@ class DataRegistry(MLComponentMixin):
                             :dataset_id, :instrument_id, :source,
                             :last_success_ns, :count, :completeness_pct
                         )
-                    """
+                    """,
                     )
 
                     session.execute(
@@ -1237,7 +1239,7 @@ class DataRegistry(MLComponentMixin):
                         WHERE dataset_id = :dataset_id
                           AND instrument_id = :instrument_id
                           AND source = :source
-                    """
+                    """,
                     )
 
                     result = session.execute(
@@ -1329,7 +1331,7 @@ class DataRegistry(MLComponentMixin):
                             (transform_id, child_dataset_id, parent_dataset_id, ts_range, parameters)
                             VALUES
                             (:transform_id, :child_dataset_id, :parent_dataset_id, :ts_range, :parameters)
-                        """
+                        """,
                         )
 
                         session.execute(

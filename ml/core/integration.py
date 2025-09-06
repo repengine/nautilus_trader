@@ -437,7 +437,9 @@ class MLIntegrationManager:
             - components: per-component health and metrics (when available)
             - domains: aggregated health per domain (data, features, model, strategy)
             - system: overall status with list of unhealthy components
+
         """
+
         def _comp_health(comp: object) -> dict[str, object]:
             healthy = True
             health: dict[str, object] | None = None
@@ -466,11 +468,15 @@ class MLIntegrationManager:
         }
 
         for name, comp in comp_map.items():
-            components[name] = _comp_health(comp) if comp is not None else {
-                "healthy": False,
-                "health": {},
-                "metrics": {},
-            }
+            components[name] = (
+                _comp_health(comp)
+                if comp is not None
+                else {
+                    "healthy": False,
+                    "health": {},
+                    "metrics": {},
+                }
+            )
 
         def _domain_healthy(keys: list[str]) -> bool:
             return all(components[k]["healthy"] for k in keys if k in components)
@@ -643,7 +649,9 @@ class MLIntegrationManager:
         retention_hours: int | None = None,
         max_size_mb: int | None = None,
     ) -> None:
-        """No-op configuration stub for message bus (for tests)."""
+        """
+        No-op configuration stub for message bus (for tests).
+        """
         _ = (backend, topic_prefix, retention_hours, max_size_mb)
         return None
 
@@ -655,20 +663,28 @@ class MLIntegrationManager:
         flush_interval_ms: int | None = None,
         correlation_strategy: str | None = None,
     ) -> None:
-        """No-op configuration stub for event emission (for tests)."""
+        """
+        No-op configuration stub for event emission (for tests).
+        """
         _ = (batching_enabled, batch_size, flush_interval_ms, correlation_strategy)
         return None
 
     def configure_event_system(self, **_: object) -> None:
-        """No-op aggregate configuration for event system (for tests)."""
+        """
+        No-op aggregate configuration for event system (for tests).
+        """
         return None
 
     def configure_domain_bookkeeping(self, _config: object) -> None:
-        """No-op configuration stub for domain bookkeeping (for tests)."""
+        """
+        No-op configuration stub for domain bookkeeping (for tests).
+        """
         return None
 
     def initialize_observability_pipeline(self) -> None:
-        """Initialize a lightweight observability service (off hot-path)."""
+        """
+        Initialize a lightweight observability service (off hot-path).
+        """
         try:
             from ml.observability.service import ObservabilityService
 
@@ -686,11 +702,15 @@ class MLIntegrationManager:
             return None
 
     def start_end_to_end_tracking(self) -> None:
-        """No-op start of E2E tracking (for tests)."""
+        """
+        No-op start of E2E tracking (for tests).
+        """
         return None
 
     def start_health_checks(self) -> None:
-        """No-op start of health monitoring (for tests)."""
+        """
+        No-op start of health monitoring (for tests).
+        """
         return None
 
     def collect_observability_dataframes(self) -> dict[str, object]:
@@ -699,6 +719,7 @@ class MLIntegrationManager:
 
         Returns a mapping of table name -> DataFrame. When the service is not
         initialized, returns empty DataFrames.
+
         """
         try:
             svc = getattr(self, "observability_service", None)
@@ -724,13 +745,16 @@ class MLIntegrationManager:
                 "health": None,
             }
 
-    def flush_observability_to_path(self, *, base_path: Path, file_format: str = "jsonl") -> dict[str, Path]:
+    def flush_observability_to_path(
+        self, *, base_path: Path, file_format: str = "jsonl"
+    ) -> dict[str, Path]:
         """
         Persist current observability tables to disk (off hot-path).
 
         Writes non-empty tables under `base_path` using the specified format
         ("jsonl" or "csv"). Returns a mapping of table name to file path for
         written tables.
+
         """
         try:
             from ml.observability.persistence import ObservabilityPersistor
@@ -749,6 +773,7 @@ class MLIntegrationManager:
         Uses `ObservabilityDBPersistor` to write non-empty tables to a relational
         store (e.g., SQLite/PostgreSQL) and returns a mapping of table name to
         number of rows written.
+
         """
         try:
             from ml.observability.db_persistence import ObservabilityDBPersistor
@@ -769,9 +794,12 @@ class MLIntegrationManager:
         db_connection_string: str | None = None,
     ) -> dict[str, Path] | None:
         """
-        Start periodic flush of observability tables. When ``interval_seconds`` is
+        Start periodic flush of observability tables.
+
+        When ``interval_seconds`` is
         None or <= 0, performs a single flush and returns the written mapping.
         Otherwise, starts a background thread managed by the integration instance.
+
         """
         # Ensure service exists
         self.initialize_observability_pipeline()
@@ -801,7 +829,9 @@ class MLIntegrationManager:
         return None
 
     def stop_observability_flush(self) -> None:
-        """Stop background flush if running (idempotent)."""
+        """
+        Stop background flush if running (idempotent).
+        """
         stop = getattr(self, "_obs_stop_event", None)
         thread = getattr(self, "_obs_thread", None)
         if stop is not None:
@@ -819,8 +849,9 @@ class MLIntegrationManager:
         """
         Start observability flushing based on an ObservabilityConfig.
 
-        Accepts any object with attributes matching ObservabilityConfig fields to
-        avoid hard dependencies in call sites.
+        Accepts any object with attributes matching ObservabilityConfig fields to avoid
+        hard dependencies in call sites.
+
         """
         base_path = Path(getattr(cfg, "base_path", "./observability"))
         sink = str(getattr(cfg, "sink", "file"))
@@ -836,7 +867,9 @@ class MLIntegrationManager:
         )
 
     def start_observability_from_env(self) -> None:
-        """Start observability flushing using environment-driven config."""
+        """
+        Start observability flushing using environment-driven config.
+        """
         try:
             from ml.config.observability import ObservabilityConfig
 
@@ -846,7 +879,9 @@ class MLIntegrationManager:
             return None
 
     def emit_cross_domain_event(self, _event: dict[str, object]) -> None:
-        """No-op cross-domain event emitter stub (for tests)."""
+        """
+        No-op cross-domain event emitter stub (for tests).
+        """
         return None
 
     def emit_cascade(
@@ -861,6 +896,7 @@ class MLIntegrationManager:
 
         This adapter delegates to a light helper in ``ml.common.cascade`` to
         avoid deep coupling and keep hot paths unaffected.
+
         """
         from typing import Any, cast
 
@@ -874,7 +910,8 @@ class MLIntegrationManager:
             instrument_id=cast(str, source_event.get("instrument_id", "")),
             ts_event=int(cast(Any, source_event.get("ts_event", 0))),
             source_event_id=cast(
-                str, source_event.get("event_id", source_event.get("source_event_id", "unknown"))
+                str,
+                source_event.get("event_id", source_event.get("source_event_id", "unknown")),
             ),
             payload=cast(dict[str, Any], source_event.get("payload", {}) or {}),
         )
@@ -887,10 +924,12 @@ class MLIntegrationManager:
 
         Currently applies to ``DataStore`` only. Safe to call at any time; if
         the store is not initialized yet, this method is a no-op.
+
         """
         if hasattr(self, "data_store") and isinstance(self.data_store, DataStore):
             # Avoid strict typing dependency here; DataStore expects a compatible publisher.
             self.data_store.publisher = publisher  # type: ignore[assignment]
+
 
 # Singleton instance for global access
 _integration_manager: MLIntegrationManager | None = None

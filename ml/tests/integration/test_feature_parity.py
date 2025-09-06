@@ -79,6 +79,7 @@ class TestFeatureParity:
 
             # Use a lightweight object with the required attributes
             from types import SimpleNamespace
+
             # Clamp decimal precision to avoid exceeding Nautilus Price precision constraints
             bar = SimpleNamespace(
                 close=Price.from_str(f"{close_price:.5f}"),
@@ -179,18 +180,18 @@ class TestFeatureParity:
         bar = mock_bars[50]  # Middle bar with stable indicators
 
         features_1 = store.feature_engineer.calculate_features_online(
-                close_price=float(bar.close),
-                high_price=float(bar.high),
-                low_price=float(bar.low),
-                volume=float(bar.volume),
-            )
+            close_price=float(bar.close),
+            high_price=float(bar.high),
+            low_price=float(bar.low),
+            volume=float(bar.volume),
+        )
 
         features_2 = store.feature_engineer.calculate_features_online(
-                close_price=float(bar.close),
-                high_price=float(bar.high),
-                low_price=float(bar.low),
-                volume=float(bar.volume),
-            )
+            close_price=float(bar.close),
+            high_price=float(bar.high),
+            low_price=float(bar.low),
+            volume=float(bar.volume),
+        )
 
         # Features should be identical for same input
         assert np.array_equal(features_1, features_2), "Same input produced different features!"
@@ -222,15 +223,27 @@ class TestFeatureParity:
         # Check indicator states
         # Robust init checks across indicator implementations
         assert (
-            getattr(engineer.indicators.rsi, "is_initialized", getattr(engineer.indicators.rsi, "initialized", False))
+            getattr(
+                engineer.indicators.rsi,
+                "is_initialized",
+                getattr(engineer.indicators.rsi, "initialized", False),
+            )
             is True
         ), "RSI not initialized after 50 bars"
         assert (
-            getattr(engineer.indicators.ema_fast, "is_initialized", getattr(engineer.indicators.ema_fast, "initialized", False))
+            getattr(
+                engineer.indicators.ema_fast,
+                "is_initialized",
+                getattr(engineer.indicators.ema_fast, "initialized", False),
+            )
             is True
         ), "EMA fast not initialized"
         assert (
-            getattr(engineer.indicators.ema_slow, "is_initialized", getattr(engineer.indicators.ema_slow, "initialized", False))
+            getattr(
+                engineer.indicators.ema_slow,
+                "is_initialized",
+                getattr(engineer.indicators.ema_slow, "initialized", False),
+            )
             is True
         ), "EMA slow not initialized"
 
@@ -301,7 +314,9 @@ class TestFeatureParity:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_feature_versioning(self, feature_config: FeatureConfig, test_database: TestDatabase) -> None:
+    def test_feature_versioning(
+        self, feature_config: FeatureConfig, test_database: TestDatabase
+    ) -> None:
         """
         Test that feature versions change when pipeline changes.
         """

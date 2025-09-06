@@ -9,8 +9,11 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
+
 def load_fred_data():
-    """Load and clean FRED data."""
+    """
+    Load and clean FRED data.
+    """
     df = pd.read_parquet("data/fred/fred_indicators.parquet")
 
     # Convert timestamp to datetime index
@@ -24,8 +27,11 @@ def load_fred_data():
 
     return df
 
+
 def analyze_regime_indicators(df):
-    """Analyze market regime indicators."""
+    """
+    Analyze market regime indicators.
+    """
     print("🎯 Market Regime Analysis")
     print("=" * 40)
 
@@ -61,8 +67,11 @@ def analyze_regime_indicators(df):
 
         print(f"\nCurrent 10Y Rate: {rates_10y.iloc[-1]:.2f}%")
 
+
 def create_ml_features(df):
-    """Create ML features from FRED data."""
+    """
+    Create ML features from FRED data.
+    """
     print("\n🔧 ML Feature Engineering")
     print("=" * 40)
 
@@ -116,31 +125,44 @@ def create_ml_features(df):
             # Year-over-year change
             features[f"{indicator.lower()}_yoy"] = df[indicator].pct_change(252)  # ~1 year
 
-    print(f"✅ Economic indicators: {len([c for c in economic_indicators if c in df.columns])} series")
+    print(
+        f"✅ Economic indicators: {len([c for c in economic_indicators if c in df.columns])} series"
+    )
 
     # 6. Regime Classifications
     if "VIXCLS" in df.columns:
-        features["vol_regime"] = pd.cut(df["VIXCLS"],
-                                       bins=[0, 15, 25, 100],
-                                       labels=["low", "normal", "high"])
+        features["vol_regime"] = pd.cut(
+            df["VIXCLS"],
+            bins=[0, 15, 25, 100],
+            labels=["low", "normal", "high"],
+        )
 
     if "DGS10" in df.columns:
-        features["rate_regime"] = pd.cut(df["DGS10"],
-                                        bins=[0, 2, 4, 100],
-                                        labels=["low", "normal", "high"])
+        features["rate_regime"] = pd.cut(
+            df["DGS10"],
+            bins=[0, 2, 4, 100],
+            labels=["low", "normal", "high"],
+        )
 
     print("✅ Regime features: volatility, interest rate regimes")
 
     # Feature summary
     print("\nFeature Summary:")
     print(f"  Total features created: {len(features.columns)}")
-    print(f"  Date range: {features.index.min().strftime('%Y-%m-%d')} to {features.index.max().strftime('%Y-%m-%d')}")
-    print(f"  Non-null coverage: {(features.count().sum() / (len(features) * len(features.columns)) * 100):.1f}%")
+    print(
+        f"  Date range: {features.index.min().strftime('%Y-%m-%d')} to {features.index.max().strftime('%Y-%m-%d')}"
+    )
+    print(
+        f"  Non-null coverage: {(features.count().sum() / (len(features) * len(features.columns)) * 100):.1f}%"
+    )
 
     return features
 
+
 def demonstrate_trading_signals(df):
-    """Show how FRED data can generate trading signals."""
+    """
+    Show how FRED data can generate trading signals.
+    """
     print("\n⚡ Trading Signal Examples")
     print("=" * 40)
 
@@ -178,15 +200,20 @@ def demonstrate_trading_signals(df):
         print(f"   Stress days in last year: {credit_stress.tail(252).sum()}")
         print(f"   Current HY spread: {hy_spread.iloc[-1]:.2f}%")
 
+
 def main():
-    """Main analysis function."""
+    """
+    Main analysis function.
+    """
     print("🏦 FRED Economic Data Analysis for ML")
     print("=" * 50)
 
     # Load data
     df = load_fred_data()
     print(f"Loaded FRED data: {len(df)} observations, {len(df.columns)} series")
-    print(f"Date range: {df.index.min().strftime('%Y-%m-%d')} to {df.index.max().strftime('%Y-%m-%d')}")
+    print(
+        f"Date range: {df.index.min().strftime('%Y-%m-%d')} to {df.index.max().strftime('%Y-%m-%d')}"
+    )
 
     # Regime analysis
     analyze_regime_indicators(df)
@@ -205,6 +232,7 @@ def main():
     print("4. Combine with market data for enhanced ML models")
 
     return features
+
 
 if __name__ == "__main__":
     features = main()

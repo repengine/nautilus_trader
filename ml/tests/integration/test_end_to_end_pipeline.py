@@ -295,6 +295,7 @@ class TestEndToEndPipeline:
 
         # Use real PostgreSQL FeatureStore instead of mock
         from ml.stores.feature_store import FeatureStore
+
         feature_store = FeatureStore(connection_string=test_database.connection_string)
         engineer = FeatureEngineer(config, feature_store=feature_store)
 

@@ -22,6 +22,7 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
         SQLAlchemy connection URL for DB sink.
     interval_seconds : PositiveFloat, default 60.0
         Flush interval in seconds for background scheduler.
+
     """
 
     sink: Literal["file", "db"] = "file"
@@ -41,7 +42,9 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
 
     @classmethod
     def from_env(cls) -> ObservabilityConfig:
-        """Build ObservabilityConfig from environment variables if present."""
+        """
+        Build ObservabilityConfig from environment variables if present.
+        """
         import os
 
         kwargs: dict[str, object] = {}
@@ -65,16 +68,24 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
         from typing import cast
 
         sink_obj = kwargs.get("sink", "file")
-        sink_val: _Lit["file", "db"] = cast(_Lit["file", "db"], sink_obj if sink_obj in {"file", "db"} else "file")
+        sink_val: _Lit["file", "db"] = cast(
+            _Lit["file", "db"], sink_obj if sink_obj in {"file", "db"} else "file"
+        )
         base_obj = kwargs.get("base_path", "./observability")
         base_path_val: str = str(base_obj)
         fmt_obj = kwargs.get("file_format", "jsonl")
         file_format_val: str = str(fmt_obj)
         db_url_val: str | None = (
-            str(kwargs.get("db_connection_string")) if kwargs.get("db_connection_string", None) is not None else None
+            str(kwargs.get("db_connection_string"))
+            if kwargs.get("db_connection_string", None) is not None
+            else None
         )
         inter_obj = kwargs.get("interval_seconds", 60.0)
         interval_val: float = float(inter_obj) if isinstance(inter_obj, (int, float, str)) else 60.0
         return cls(
-            sink=sink_val, base_path=base_path_val, file_format=file_format_val, db_connection_string=db_url_val, interval_seconds=interval_val
+            sink=sink_val,
+            base_path=base_path_val,
+            file_format=file_format_val,
+            db_connection_string=db_url_val,
+            interval_seconds=interval_val,
         )

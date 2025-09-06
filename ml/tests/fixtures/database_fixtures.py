@@ -9,6 +9,7 @@ This module provides:
 - Test data seeding
 - Database cleanup utilities
 - Transaction management for test isolation
+
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
 
 # Track schema initialization per connection URL to avoid re-running migrations
 _SCHEMA_INITIALIZED: dict[str, bool] = {}
@@ -34,7 +36,9 @@ from ml.core.db_engine import EngineManager
 
 
 class TestDatabase:
-    """Test database manager for ML tests."""
+    """
+    Test database manager for ML tests.
+    """
 
     def __init__(
         self,
@@ -82,16 +86,19 @@ class TestDatabase:
             else:
                 # Default to PostgreSQL from environment
                 import os
+
                 self.connection_string = os.getenv(
                     "DATABASE_URL",
-                    "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+                    "postgresql://postgres:postgres@localhost:5432/nautilus_test",
                 )
 
             # Use EngineManager to get or create engine
             # This ensures proper connection pooling and prevents "too many clients" errors
             if "sqlite" in self.connection_string:
                 # SQLite-specific settings
-                connect_args = {"check_same_thread": False} if "memory" in self.connection_string else {}
+                connect_args = (
+                    {"check_same_thread": False} if "memory" in self.connection_string else {}
+                )
                 self.engine = EngineManager.get_engine(
                     self.connection_string,
                     echo=echo,
@@ -117,7 +124,9 @@ class TestDatabase:
 
     @staticmethod
     def _enable_sqlite_foreign_keys(dbapi_conn: Any, connection_record: Any) -> None:
-        """Enable foreign key constraints for SQLite."""
+        """
+        Enable foreign key constraints for SQLite.
+        """
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
     def init_schema(self, schema_files: list[Path] | None = None) -> None:
@@ -174,7 +183,9 @@ class TestDatabase:
         _SCHEMA_INITIALIZED[engine_key] = True
 
     def _get_default_schema_files(self) -> list[Path]:
-        """Get default ML schema files."""
+        """
+        Get default ML schema files.
+        """
         migrations_dir = Path(__file__).parent.parent.parent.parent / "stores" / "migrations"
 
         # Core schema files for testing
@@ -188,7 +199,9 @@ class TestDatabase:
         return [f for f in schema_files if f.exists()]
 
     def _adapt_sql_for_sqlite(self, sql: str) -> str:
-        """Adapt PostgreSQL SQL for SQLite compatibility."""
+        """
+        Adapt PostgreSQL SQL for SQLite compatibility.
+        """
         # Remove PostgreSQL-specific features
         replacements = [
             ("SERIAL", "INTEGER"),
@@ -215,7 +228,10 @@ class TestDatabase:
         lines = sql.split("\n")
         filtered_lines = []
         for line in lines:
-            if not any(keyword in line.upper() for keyword in ["CREATE EXTENSION", "CREATE INDEX CONCURRENTLY"]):
+            if not any(
+                keyword in line.upper()
+                for keyword in ["CREATE EXTENSION", "CREATE INDEX CONCURRENTLY"]
+            ):
                 filtered_lines.append(line)
 
         return "\n".join(filtered_lines)
@@ -241,25 +257,31 @@ class TestDatabase:
             session.commit()
 
     def _seed_basic_data(self, session: Session) -> None:
-        """Seed basic test data."""
+        """
+        Seed basic test data.
+        """
         # Add instruments
         session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO ml_instruments (instrument_id, symbol, asset_type, tick_size, lot_size)
                 VALUES
                     ('EURUSD.SIM', 'EURUSD', 'FX', 0.00001, 1000),
                     ('SPY.XNAS', 'SPY', 'EQUITY', 0.01, 1),
                     ('BTCUSD.COINBASE', 'BTCUSD', 'CRYPTO', 0.01, 0.001)
                 ON CONFLICT DO NOTHING
-            """)
+            """
+            ),
         )
 
         # Add sample feature values
         import time
+
         current_ns = int(time.time() * 1e9)
 
         session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO ml_feature_values (
                     feature_set_id, instrument_id, ts_event, ts_init, values, is_live
                 )
@@ -272,12 +294,15 @@ class TestDatabase:
                     false
                 )
                 ON CONFLICT DO NOTHING
-            """),
-            {"ts_event": current_ns, "ts_init": current_ns + 1000}
+            """
+            ),
+            {"ts_event": current_ns, "ts_init": current_ns + 1000},
         )
 
     def _seed_full_data(self, session: Session) -> None:
-        """Seed comprehensive test data."""
+        """
+        Seed comprehensive test data.
+        """
         # Start with basic data
         self._seed_basic_data(session)
 
@@ -290,22 +315,25 @@ class TestDatabase:
 
         for inst_id, symbol, asset_type, tick_size, lot_size in instruments:
             session.execute(
-                text("""
+                text(
+                    """
                     INSERT INTO ml_instruments (instrument_id, symbol, asset_type, tick_size, lot_size)
                     VALUES (:inst_id, :symbol, :asset_type, :tick_size, :lot_size)
                     ON CONFLICT DO NOTHING
-                """),
+                """
+                ),
                 {
                     "inst_id": inst_id,
                     "symbol": symbol,
                     "asset_type": asset_type,
                     "tick_size": tick_size,
                     "lot_size": lot_size,
-                }
+                },
             )
 
         # Add historical feature values
         import time
+
         base_ts = int(time.time() * 1e9)
 
         for i in range(100):
@@ -313,7 +341,8 @@ class TestDatabase:
 
             for inst_id in ["EURUSD.SIM", "GBPUSD.SIM", "SPY.XNAS"]:
                 session.execute(
-                    text("""
+                    text(
+                        """
                         INSERT INTO ml_feature_values (
                             feature_set_id, instrument_id, ts_event, ts_init, values, is_live
                         )
@@ -326,24 +355,29 @@ class TestDatabase:
                             false
                         )
                         ON CONFLICT DO NOTHING
-                    """),
+                    """
+                    ),
                     {
                         "inst_id": inst_id,
                         "ts_event": ts,
                         "ts_init": ts + 1000,
                         "values": f'{{"sma_20": {1.09 + i * 0.0001}, "rsi": {50 + i % 30}, "volume": {10000 + i * 100}}}',
-                    }
+                    },
                 )
 
     def _seed_minimal_data(self, session: Session) -> None:
-        """Seed minimal test data."""
+        """
+        Seed minimal test data.
+        """
         # Just one instrument
         session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO ml_instruments (instrument_id, symbol, asset_type, tick_size, lot_size)
                 VALUES ('TEST.SIM', 'TEST', 'EQUITY', 0.01, 1)
                 ON CONFLICT DO NOTHING
-            """)
+            """
+            ),
         )
 
     @contextmanager
@@ -371,7 +405,9 @@ class TestDatabase:
             session.close()
 
     def clear_all_data(self) -> None:
-        """Clear all data from database (preserves schema)."""
+        """
+        Clear all data from database (preserves schema).
+        """
         with self.engine.connect() as conn:
             # Get all tables
             metadata = MetaData()
@@ -379,12 +415,16 @@ class TestDatabase:
 
             # Delete data from all tables (in reverse dependency order)
             for table in reversed(metadata.sorted_tables):
-                conn.execute(text(f"DELETE FROM {table.name}"))  # noqa: S608 - table name from reflection
+                conn.execute(
+                    text(f"DELETE FROM {table.name}")
+                )
 
             conn.commit()
 
     def drop_all(self) -> None:
-        """Drop all tables and schema."""
+        """
+        Drop all tables and schema.
+        """
         with self.engine.connect() as conn:
             # Get all tables
             metadata = MetaData()
@@ -398,7 +438,9 @@ class TestDatabase:
         self._schema_initialized = False
 
     def cleanup(self) -> None:
-        """Clean up test database resources."""
+        """
+        Clean up test database resources.
+        """
         # Note: We don't dispose the engine here anymore as it's managed by EngineManager
         # The engine will be disposed by the cleanup_engines fixture after each test
 
@@ -408,6 +450,7 @@ class TestDatabase:
                 self.db_path.unlink()
             except Exception:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Failed to unlink temp DB path; ignoring",
                     exc_info=True,
@@ -450,7 +493,9 @@ class TestDatabase:
             Table data
 
         """
-        return pd.read_sql(f"SELECT * FROM {table_name}", self.engine)  # noqa: S608 - test helper, table_name controlled
+        return pd.read_sql(
+            f"SELECT * FROM {table_name}", self.engine
+        )
 
 
 def create_test_database(**kwargs: Any) -> TestDatabase:
@@ -510,15 +555,21 @@ def temp_database(
 
 
 class DatabaseSnapshot:
-    """Utility for database state snapshots and restoration."""
+    """
+    Utility for database state snapshots and restoration.
+    """
 
     def __init__(self, database: TestDatabase):
-        """Initialize snapshot utility."""
+        """
+        Initialize snapshot utility.
+        """
         self.database = database
         self.snapshots: dict[str, dict[str, pd.DataFrame]] = {}
 
     def take_snapshot(self, name: str = "default") -> None:
-        """Take snapshot of current database state."""
+        """
+        Take snapshot of current database state.
+        """
         snapshot = {}
 
         # Get all tables
@@ -533,7 +584,9 @@ class DatabaseSnapshot:
         self.snapshots[name] = snapshot
 
     def restore_snapshot(self, name: str = "default") -> None:
-        """Restore database to snapshot state."""
+        """
+        Restore database to snapshot state.
+        """
         if name not in self.snapshots:
             raise ValueError(f"Snapshot '{name}' not found")
 
@@ -550,5 +603,7 @@ class DatabaseSnapshot:
             session.commit()
 
     def has_snapshot(self, name: str = "default") -> bool:
-        """Check if snapshot exists."""
+        """
+        Check if snapshot exists.
+        """
         return name in self.snapshots

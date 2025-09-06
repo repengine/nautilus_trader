@@ -3,7 +3,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402 - allow module docstring before imports in CLI script
 
-
 """
 CLI to train and register a LightGBM student from teacher outputs.
 """

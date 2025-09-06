@@ -31,7 +31,9 @@ class TestLatencyWatermarks:
         ]
         df = build_latency_watermarks(rows)
         assert (df["ts_stage_end"] >= df["ts_stage_start"]).all()
-        assert (df["stage_latency_ns"] == (df["ts_stage_end"] - df["ts_stage_start"]).clip(lower=0)).all()
+        assert (
+            df["stage_latency_ns"] == (df["ts_stage_end"] - df["ts_stage_start"]).clip(lower=0)
+        ).all()
         assert (df["cumulative_latency_ns"].diff().fillna(df["stage_latency_ns"]) >= 0).all()
 
 
@@ -97,10 +99,9 @@ class TestHealthScores:
                 "subsystem_scores": {"db": 0.9, "cache": 0.95},
                 "timestamp": 1000,
                 "measurement_window_ms": 5000,
-            }
+            },
         ]
         df = build_health_scores(rows)
         assert float(df.iloc[0]["health_score"]) <= 1.0
         assert isinstance(df.iloc[0]["subsystem_scores"], str)
         assert json.loads(df.iloc[0]["subsystem_scores"]) == {"db": 0.9, "cache": 0.95}
-

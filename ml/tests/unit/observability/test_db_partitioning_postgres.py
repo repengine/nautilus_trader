@@ -12,13 +12,15 @@ from sqlalchemy.engine import Engine
 
 from ml.observability.migrations import ensure_monthly_partitions
 
+
 # Ensure DDL operations run without parallel interference (PostgreSQL locks can deadlock under xdist)
 pytestmark = pytest.mark.serial
 
 
 @pytest.mark.skipif(
     os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/nautilus_test",
     ).startswith("sqlite"),
     reason="PostgreSQL not available",
 )
@@ -60,7 +62,8 @@ def test_partition_creation_on_empty_table() -> None:
 
 @pytest.mark.skipif(
     os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/nautilus_test",
     ).startswith("sqlite"),
     reason="PostgreSQL not available",
 )

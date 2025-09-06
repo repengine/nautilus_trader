@@ -33,6 +33,7 @@ gates.json schema (example)::
         {"metric": "logloss", "comparison": "lte", "threshold": 0.6, "required": true}
       ]
     }
+
 """
 
 from __future__ import annotations
@@ -59,7 +60,9 @@ def _parse_inline_gates(gate_args: list[str]) -> list[QualityGate]:
     if not gate_args:
         return gates
     if len(gate_args) % 4 != 0:
-        raise SystemExit("--gate must be provided in groups of 4: metric comparison threshold required|optional")
+        raise SystemExit(
+            "--gate must be provided in groups of 4: metric comparison threshold required|optional"
+        )
     for i in range(0, len(gate_args), 4):
         metric, comp, thresh, req = gate_args[i : i + 4]
         required = req.lower() in ("req", "required", "true", "1")
@@ -67,7 +70,9 @@ def _parse_inline_gates(gate_args: list[str]) -> list[QualityGate]:
             threshold = float(thresh)
         except ValueError as exc:  # pragma: no cover - argparse validation should catch
             raise SystemExit(f"Invalid threshold: {thresh}") from exc
-        gates.append(QualityGate(metric_name=metric, threshold=threshold, comparison=comp, required=required))
+        gates.append(
+            QualityGate(metric_name=metric, threshold=threshold, comparison=comp, required=required)
+        )
     return gates
 
 
@@ -108,7 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     # Load metrics
     metrics: dict[str, Any] = json.loads(Path(args.metrics_json).read_text(encoding="utf-8"))
     # Update perf_digest
-    info.manifest.perf_digest.update({k: float(v) for k, v in metrics.items() if isinstance(v, (int | float))})
+    info.manifest.perf_digest.update(
+        {k: float(v) for k, v in metrics.items() if isinstance(v, (int | float))}
+    )
 
     # Build gates
     gates: list[QualityGate] = []

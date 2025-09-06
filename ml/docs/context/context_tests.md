@@ -1,7 +1,7 @@
 # ML Tests Context Documentation
 
-**Version**: 4.2  
-**Last Updated**: 2025-09-05  
+**Version**: 4.2
+**Last Updated**: 2025-09-05
 **Status**: Optimized and parallel-ready test infrastructure with DB-safe scoping and two‑phase execution
 
 ## ⚠️ Important Database Requirement
@@ -75,6 +75,7 @@ def test_timestamp_monotonicity_invariant(self, ...):
 ```
 
 Key invariants tested:
+
 - Timestamp monotonicity
 - Feature immutability after write
 - Partition consistency
@@ -95,6 +96,7 @@ def test_price_scaling_invariance(self):
 ```
 
 Metamorphic relations tested:
+
 - Price scaling invariance
 - Time reversal properties
 - Noise addition robustness
@@ -109,7 +111,7 @@ class FeatureInputSchema(pa.DataFrameModel):
     ts_event: Series[int] = pa.Field(ge=0)
     ts_init: Series[int] = pa.Field(ge=0)
     feature_values: Series[object] = pa.Field()
-    
+
     @pa.check("ts_event")
     def ts_event_monotonic(cls, series):
         return series.is_monotonic_increasing
@@ -153,6 +155,7 @@ ml/tests/
 ## Running Tests
 
 ### Quick Validation
+
 ```bash
 # Smoke tests - verify basic functionality
 python -m pytest ml/tests/test_smoke.py -xvs
@@ -162,6 +165,7 @@ python -m pytest ml/tests/unit -x --tb=short
 ```
 
 ### Property-Based Tests
+
 ```bash
 # Run with CI profile (fast)
 HYPOTHESIS_PROFILE=ci python -m pytest ml/tests/property -x
@@ -190,6 +194,7 @@ pytest ml -m integration -n 1 -q
 ```
 
 ### Performance Tests
+
 ```bash
 # Benchmark hot path operations (optionally relax thresholds on CI)
 ML_BENCH_RELAX=1.5 python -m pytest ml/tests/performance/test_ml_hot_path_benchmarks.py --benchmark-only
@@ -261,6 +266,7 @@ fred_client = create_mock_fred_client(test_data)
 ## Debugging Failed Tests
 
 ### Connection Issues
+
 ```bash
 # Monitor PostgreSQL connections
 watch -n1 "psql -c 'SELECT count(*) FROM pg_stat_activity;'"
@@ -270,6 +276,7 @@ python -c "from ml.core.db_engine import EngineManager; print(EngineManager.get_
 ```
 
 ### Hypothesis Failures
+
 ```python
 # Use debug profile for verbose output
 HYPOTHESIS_PROFILE=debug python -m pytest failing_test.py -xvs
@@ -279,6 +286,7 @@ python -m pytest --hypothesis-seed=12345
 ```
 
 ### Performance Issues
+
 ```bash
 # Profile test execution
 python -m pytest --profile test_slow.py
@@ -299,26 +307,31 @@ python -m pytest test_file.py::test_function --benchmark-only
 ## Known Issues and Workarounds
 
 ### PostgreSQL Required
+
 - SQLite is not supported due to PostgreSQL-specific features
 - Use Docker for local development if PostgreSQL not installed
 
 ### Parallel Test Execution
+
 - Use `-n auto` for non‑integration tests only; keep integration serial to avoid DDL/DML contention.
 - The Makefile target `pytest-ml` orchestrates this automatically.
 
 ### Memory Usage
+
 - Hypothesis tests can consume significant memory
 - Use smaller max_examples in CI environments
 
 ## Recent Improvements (September 2025)
 
 ### Test Marker Implementation
+
 - Applied pytest markers to all 131 test files
 - Database tests marked with `@pytest.mark.serial` to prevent connection exhaustion
 - Parallel-safe tests marked for concurrent execution
 - Created verification scripts to ensure marker compliance
 
 ### PostgreSQL Test Consolidation & Speedups
+
 - Added class/module‑scoped cleanup fixtures to minimize TRUNCATE overhead.
 - Cached schema initialization per engine URL.
 - Ensured DDL tests are marked `serial` for xdist safety.
@@ -329,7 +342,9 @@ python -m pytest test_file.py::test_function --benchmark-only
   - `clean_postgres_db_class`: TRUNCATE once before/after a test class.
   - `clean_postgres_db_module`: TRUNCATE once before/after a module.
   - Per‑test TRUNCATE is suppressed when higher‑scope cleanup is active.
+
 ### Infrastructure Consolidation
+
 - Unified multiple conftest files into single source of truth
 - Implemented session-scoped database fixtures
 - Added automatic cleanup to prevent connection leaks

@@ -459,7 +459,11 @@ class StrategyStore(BaseStore):
                 logger.debug("StrategyStore publish failed", exc_info=True)
 
         # Optional per-row publish when enabled
-        if self._enable_publishing and self.publisher is not None and self._publish_mode in ("row", "both"):
+        if (
+            self._enable_publishing
+            and self.publisher is not None
+            and self._publish_mode in ("row", "both")
+        ):
             try:
                 stage = Stage.SIGNAL_EMITTED
                 domain, operation = map_stage_to_topic_segments(stage)
@@ -522,7 +526,7 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-                f"""
+            f"""
                 SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
                 FROM {table_name}
                 WHERE strategy_id = :strategy_id
@@ -531,7 +535,7 @@ class StrategyStore(BaseStore):
                   AND ts_event < :end_ns
                 ORDER BY ts_event
                 """,
-            )
+        )
         with self.engine.connect() as conn:
             from collections.abc import Mapping
             from typing import cast
@@ -626,14 +630,14 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-                f"""
+            f"""
                 SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
                 FROM {table_name}
                 WHERE instrument_id = :instrument_id
                 ORDER BY ts_event DESC
                 LIMIT :limit
                 """,
-            )
+        )
         with self.engine.connect() as conn:
             df = pd.read_sql_query(
                 sql,
@@ -672,7 +676,7 @@ class StrategyStore(BaseStore):
                 else "public.ml_strategy_signals"
             )
             query = text(
-                    f"""
+                f"""
                     SELECT
                         COUNT(*) as total_signals,
                         COUNT(DISTINCT strategy_id) as unique_strategies,
@@ -687,7 +691,7 @@ class StrategyStore(BaseStore):
                     WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
                       AND (:end_ns IS NULL OR ts_event < :end_ns)
                     """,
-                )
+            )
 
             result = conn.execute(
                 query,
@@ -1138,6 +1142,7 @@ class StrategyStore(BaseStore):
         pd.DataFrame
             A DataFrame with columns: strategy_id, instrument_id, signal_type,
             strength, model_predictions, risk_metrics, execution_params, ts_event, ts_init.
+
         """
         import time as _time
 
@@ -1162,7 +1167,7 @@ class StrategyStore(BaseStore):
             else "public.ml_strategy_signals"
         )
         sql = _text(
-                f"""
+            f"""
                 SELECT strategy_id,
                        instrument_id,
                        signal_type,
@@ -1177,7 +1182,7 @@ class StrategyStore(BaseStore):
                 ORDER BY ts_event DESC
                 LIMIT :limit
                 """,
-            )
+        )
 
         # Prefer a mock-friendly session when available; else engine
         sess: Any | None = None
@@ -1194,6 +1199,7 @@ class StrategyStore(BaseStore):
             # Use simple execute/fetch for MagicMock compatibility
             try:
                 from sqlalchemy import text as _text2
+
                 rows = sess.execute(_text2(str(sql)), params).fetchall()
             except Exception:
                 rows = []
@@ -1245,16 +1251,22 @@ class StrategyStore(BaseStore):
         """
         Return strategy signals in a time range.
 
-        This is a compatibility shim delegating to read_signals when instrument is provided,
-        and otherwise reading across instruments.
+        This is a compatibility shim delegating to read_signals when instrument is
+        provided, and otherwise reading across instruments.
+
         """
         import pandas as pd
         from sqlalchemy import text as _text
 
         # Accept seconds or nanoseconds; normalize to ns
         from ml.common.timestamps import sanitize_timestamp_ns
-        start_ns = sanitize_timestamp_ns(int(start_ns), logger=logger, context="StrategyStore.get_signals:start")
-        end_ns = sanitize_timestamp_ns(int(end_ns), logger=logger, context="StrategyStore.get_signals:end")
+
+        start_ns = sanitize_timestamp_ns(
+            int(start_ns), logger=logger, context="StrategyStore.get_signals:start"
+        )
+        end_ns = sanitize_timestamp_ns(
+            int(end_ns), logger=logger, context="StrategyStore.get_signals:end"
+        )
 
         if instrument_id is not None:
             return self.read_signals(
@@ -1287,8 +1299,9 @@ class StrategyStore(BaseStore):
         """
         Backward-compatible alias for write_signal.
 
-        Accepts legacy fields like action/confidence/features and maps them to
-        the current write_signal signature.
+        Accepts legacy fields like action/confidence/features and maps them to the
+        current write_signal signature.
+
         """
         if args:
             self.write_signal(*args, **kwargs)

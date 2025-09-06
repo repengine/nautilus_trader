@@ -8,10 +8,11 @@ The `ml/registry/` directory implements a comprehensive, production-ready ML lif
 
 ### Event Metadata & Correlation IDs
 
-- DataRegistry events now accept optional `metadata: dict[str, Any]`.
-- `DataStore` attaches a deterministic `correlation_id` to each success/failure event (derived from run_id, dataset_id, instrument_id, and time window) for end‑to‑end tracing.
-- SQL migration adds a JSONB `metadata` column to `ml_data_events` and an extended function `emit_data_event_ext`. Code prefers the extended function and falls back to the legacy one when not available.
-- Manifests and schema hashes remain unchanged; correlation is per‑event, not per‑model/feature schema.
+- **Enhanced Event Tracking**: DataRegistry events now accept optional `metadata: dict[str, Any]` for rich contextual information
+- **Deterministic Correlation**: `DataStore` attaches SHA256-based `correlation_id` to each success/failure event (derived from run_id, dataset_id, instrument_id, and time window) for end‑to‑end tracing
+- **Database Migration**: SQL migration adds a JSONB `metadata` column to `ml_data_events` and an extended function `emit_data_event_ext`. Code prefers the extended function and falls back to the legacy one when not available
+- **Cross-Domain Lineage**: Event correlation spans data/features/models/strategies domains with parent-child relationship tracking
+- **Observability Integration**: Events feed into observability pipeline for comprehensive system monitoring and debugging
 
 ### Migrations & DB Functions
 
@@ -31,9 +32,11 @@ print(check_db_prereqs("$DB_CONNECTION"))  # ok=True indicates functions/partiti
 
 **✨ ENHANCEMENT:** The protocol system provides enhanced type safety and interface consistency:
 
-- Callers of the registry in ML (stores, DataStore, scheduler) are typed against a `RegistryProtocol` to enforce interface drift at compile time.
-- This keeps emit/update usage consistent across JSON and Postgres backends while allowing the concrete `DataRegistry` to evolve behind the Protocol.
-- **📝 ADDITION:** The `RegistryProtocol` specifically defines: `emit_event()`, `update_watermark()`, `get_manifest()`, `get_contract()`, and `register_dataset()` methods.
+- **Type-Safe Interfaces**: Callers of the registry in ML (stores, DataStore, scheduler) are typed against a `RegistryProtocol` to enforce interface drift at compile time
+- **Backend Agnostic**: This keeps emit/update usage consistent across JSON and Postgres backends while allowing the concrete `DataRegistry` to evolve behind the Protocol
+- **Comprehensive Protocol**: The `RegistryProtocol` specifically defines: `emit_event()`, `update_watermark()`, `get_manifest()`, `get_contract()`, and `register_dataset()` methods
+- **MLComponentProtocol Integration**: All registries implement standardized health reporting, performance metrics, and configuration validation
+- **Message Bus Integration**: Registry events can be published to external message bus systems via configurable publisher protocols
 
 ### Key Architectural Principles
 
@@ -43,7 +46,7 @@ print(check_db_prereqs("$DB_CONNECTION"))  # ok=True indicates functions/partiti
 4. **Hot/Cold Path Separation**: Models marked as serveable/non-serveable for different use cases
 5. **Statistical Validation**: Built-in A/B testing and canary deployment capabilities
 6. **Lineage Tracking**: Parent-child relationships for teacher-student model hierarchies
-7. **Data Registry Integration**: Complete dataset lifecycle management with watermarks and events
+7. **Data Registry Integration**: Complete dataset lifecycle management with watermarks, events, and observability pipeline integration
 
 ## Module Structure
 
@@ -87,6 +90,8 @@ The central model lifecycle management system with comprehensive deployment trac
     - Handling rollbacks with statistical validation
     - **📝 ADDITION:** Security validation with path traversal protection
     - **📝 ADDITION:** ONNX-only loading for serveable models
+    - **📝 ADDITION:** Observability integration with model deployment event tracking
+    - **📝 ADDITION:** Message bus publisher integration for external system notifications
 
 #### Manifest Structure (`ModelManifest`)
 

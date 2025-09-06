@@ -1,7 +1,9 @@
 """
 Test StrategyStore event emission functionality.
 
-This test verifies that SIGNAL_EMITTED events are properly emitted after flush operations.
+This test verifies that SIGNAL_EMITTED events are properly emitted after flush
+operations.
+
 """
 
 from __future__ import annotations
@@ -21,11 +23,13 @@ pytestmark = pytest.mark.usefixtures("clean_postgres_db_module")
 @pytest.mark.database
 @pytest.mark.serial
 def test_strategy_store_emits_signal_events(test_database):
-    """Test that StrategyStore emits SIGNAL_EMITTED events after flush."""
+    """
+    Test that StrategyStore emits SIGNAL_EMITTED events after flush.
+    """
     # Create store with PostgreSQL connection
     store = StrategyStore(
         connection_string=test_database.connection_string,
-        batch_size=10
+        batch_size=10,
     )
 
     # Mock the DataRegistry
@@ -46,7 +50,7 @@ def test_strategy_store_emits_signal_events(test_database):
                 risk_metrics={"risk_score": 0.2 + i * 0.1},
                 execution_params={"stop_loss": 1.05 + i * 0.01},
                 ts_event=1700000000000000000 + i * 1000000000,
-                is_live=False
+                is_live=False,
             )
 
         # Flush should trigger event emission
@@ -80,10 +84,12 @@ def test_strategy_store_emits_signal_events(test_database):
 @pytest.mark.database
 @pytest.mark.serial
 def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database):
-    """Test that signals are grouped by strategy_id and instrument_id for event emission."""
+    """
+    Test that signals are grouped by strategy_id and instrument_id for event emission.
+    """
     store = StrategyStore(
         connection_string=test_database.connection_string,
-        batch_size=100
+        batch_size=100,
     )
 
     mock_registry = MagicMock()
@@ -101,7 +107,7 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database)
             risk_metrics={"risk_score": 0.3},
             execution_params={"stop_loss": 1.05},
             ts_event=1700000000000000000,
-            is_live=True
+            is_live=True,
         )
 
         store.write_signal(
@@ -113,7 +119,7 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database)
             risk_metrics={"risk_score": 0.4},
             execution_params={"stop_loss": 1.35},
             ts_event=1700000001000000000,
-            is_live=True
+            is_live=True,
         )
 
         store.write_signal(
@@ -125,7 +131,7 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database)
             risk_metrics={"risk_score": 0.2},
             execution_params={},
             ts_event=1700000002000000000,
-            is_live=False
+            is_live=False,
         )
 
         # Flush should emit 3 separate events (one for each strategy/instrument combo)
@@ -137,20 +143,27 @@ def test_strategy_store_groups_signals_by_strategy_and_instrument(test_database)
 
         # Count occurrences per instrument_id (two for EUR/USD, one for GBP/USD)
         from collections import Counter as _Counter
-        instrument_counts = _Counter(call[1]["instrument_id"] for call in mock_registry.emit_event.call_args_list)
+
+        instrument_counts = _Counter(
+            call[1]["instrument_id"] for call in mock_registry.emit_event.call_args_list
+        )
         assert instrument_counts["EUR/USD"] == 2
         assert instrument_counts["GBP/USD"] == 1
         # All events should use canonical dataset id
-        assert all(call[1]["dataset_id"] == "signals" for call in mock_registry.emit_event.call_args_list)
+        assert all(
+            call[1]["dataset_id"] == "signals" for call in mock_registry.emit_event.call_args_list
+        )
 
 
 @pytest.mark.database
 @pytest.mark.serial
 def test_strategy_store_handles_event_emission_failure_gracefully(test_database):
-    """Test that event emission failures don't break signal storage."""
+    """
+    Test that event emission failures don't break signal storage.
+    """
     store = StrategyStore(
         connection_string=test_database.connection_string,
-        batch_size=10
+        batch_size=10,
     )
 
     # Mock registry that raises an exception
@@ -168,7 +181,7 @@ def test_strategy_store_handles_event_emission_failure_gracefully(test_database)
             risk_metrics={"risk_score": 0.3},
             execution_params={"stop_loss": 1.05},
             ts_event=1700000000000000000,
-            is_live=False
+            is_live=False,
         )
 
         # Flush should complete successfully despite event emission failure
@@ -181,10 +194,12 @@ def test_strategy_store_handles_event_emission_failure_gracefully(test_database)
 @pytest.mark.database
 @pytest.mark.serial
 def test_strategy_store_no_events_when_registry_unavailable(test_database):
-    """Test that store works normally when DataRegistry is unavailable."""
+    """
+    Test that store works normally when DataRegistry is unavailable.
+    """
     store = StrategyStore(
         connection_string=test_database.connection_string,
-        batch_size=10
+        batch_size=10,
     )
 
     # Mock _get_data_registry to return None (simulating unavailable registry)
@@ -199,7 +214,7 @@ def test_strategy_store_no_events_when_registry_unavailable(test_database):
             risk_metrics={"risk_score": 0.3},
             execution_params={"stop_loss": 1.05},
             ts_event=1700000000000000000,
-            is_live=False
+            is_live=False,
         )
 
         # Should complete without issues

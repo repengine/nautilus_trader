@@ -163,7 +163,10 @@ class TestSchedulerFeatureStoreIntegration:
         """
         # Update config with test database connection (frozen dataclass -> replace)
         from dataclasses import replace as _replace
-        self.config = _replace(self.config, feature_store_connection=test_database.connection_string)
+
+        self.config = _replace(
+            self.config, feature_store_connection=test_database.connection_string
+        )
         # Create scheduler
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
             # Set up mock feature store
@@ -250,6 +253,7 @@ class TestSchedulerFeatureStoreIntegration:
         """
         # Set an invalid connection string to trigger failure
         from dataclasses import replace as _replace
+
         self.config = _replace(self.config, feature_store_connection="invalid://connection")
 
         # Create scheduler - should handle failure gracefully
@@ -338,7 +342,10 @@ class TestSchedulerFeatureStoreIntegration:
         """
         # Update config with test database connection
         from dataclasses import replace as _replace
-        self.config = _replace(self.config, feature_store_connection=test_database.connection_string)
+
+        self.config = _replace(
+            self.config, feature_store_connection=test_database.connection_string
+        )
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
             mock_feature_store = MagicMock()
             mock_feature_store.compute_and_store_historical.return_value = 50

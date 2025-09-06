@@ -40,6 +40,7 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 class _DBStub:
     pass
 
+
 db = _DBStub()
 
 
@@ -56,19 +57,15 @@ logger = logging.getLogger(__name__)
 
 
 class _CounterLike(Protocol):
-    def labels(self, **kwargs: object) -> _CounterLike:
-        ...
+    def labels(self, **kwargs: object) -> _CounterLike: ...
 
-    def inc(self, *args: object, **kwargs: object) -> None:
-        ...
+    def inc(self, *args: object, **kwargs: object) -> None: ...
 
 
 class _HistogramLike(Protocol):
-    def labels(self, **kwargs: object) -> _HistogramLike:
-        ...
+    def labels(self, **kwargs: object) -> _HistogramLike: ...
 
-    def observe(self, *args: object, **kwargs: object) -> None:
-        ...
+    def observe(self, *args: object, **kwargs: object) -> None: ...
 
 
 class _NoOpMetric:
@@ -196,6 +193,7 @@ feature_computation_errors_total = get_counter(
 data_events_total: Counter | None = None
 try:
     from ml.common.metrics import data_events_total as _central_data_events_total
+
     data_events_total = _central_data_events_total
 except Exception:
     data_events_total = None
@@ -305,8 +303,9 @@ class DataScheduler:
         """
         Initialize the DataRegistry for event tracking.
 
-        This method sets up the DataRegistry for emitting data processing events
-        and tracking watermarks throughout the pipeline.
+        This method sets up the DataRegistry for emitting data processing events and
+        tracking watermarks throughout the pipeline.
+
         """
         try:
             # Prefer resolved scheduler connection; fall back to JSON backend
@@ -376,6 +375,7 @@ class DataScheduler:
 
             # Instantiate via module to allow tests to patch ml.stores.feature_store.FeatureStore
             from ml.stores import feature_store as _fs
+
             self._feature_store = _fs.FeatureStore(
                 connection_string=db_connection,
                 feature_config=feature_config,
@@ -670,11 +670,16 @@ class DataScheduler:
                     # Test compatibility: if mocks were provided, treat as success without serialization
                     try:
                         from unittest.mock import MagicMock as _MM
+
                         if isinstance(data[0], _MM):
-                            logger.info("Received mocked data; short-circuiting catalog write for test")
+                            logger.info(
+                                "Received mocked data; short-circuiting catalog write for test"
+                            )
                             return True
                     except Exception:
-                        logger.debug("Mock detection failed; proceeding with catalog write", exc_info=True)
+                        logger.debug(
+                            "Mock detection failed; proceeding with catalog write", exc_info=True
+                        )
 
                     # Write to catalog with metrics
                     catalog_start_time = time.perf_counter()
@@ -707,7 +712,9 @@ class DataScheduler:
                                 ts_max = max(item.ts_event for item in data) if data else 0
 
                                 # Use the run_id from the collection run
-                                run_id = getattr(self, "_current_run_id", f"scheduler_{time.time_ns()}")
+                                run_id = getattr(
+                                    self, "_current_run_id", f"scheduler_{time.time_ns()}"
+                                )
 
                                 # Determine dataset_id based on schema type
                                 schema_type = self.config.databento.schema.split("-")[0].upper()
@@ -718,7 +725,9 @@ class DataScheduler:
                                 # Emit the event
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,
-                                    instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
+                                    instrument_id=str(
+                                        InstrumentId.from_str(f"{symbol_code}.{venue}")
+                                    ),
                                     stage=_stage.CATALOG_WRITTEN.value,
                                     source=_source.HISTORICAL.value,
                                     run_id=run_id,
@@ -731,7 +740,9 @@ class DataScheduler:
                                 # Update watermark for this dataset
                                 self._data_registry.update_watermark(
                                     dataset_id=dataset_id,
-                                    instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
+                                    instrument_id=str(
+                                        InstrumentId.from_str(f"{symbol_code}.{venue}")
+                                    ),
                                     source=_source.HISTORICAL.value,
                                     last_success_ns=ts_max,
                                     count=len(data),
@@ -750,7 +761,7 @@ class DataScheduler:
 
                                 logger.debug(
                                     f"Emitted {_stage.CATALOG_WRITTEN.value} event for {symbol_code}: "
-                                    f"run_id={run_id}, count={len(data)}"
+                                    f"run_id={run_id}, count={len(data)}",
                                 )
                             except Exception as e:
                                 # Log but don't fail the pipeline if event emission fails
@@ -769,13 +780,17 @@ class DataScheduler:
                         # Try to emit failure event
                         if self._data_registry is not None:
                             try:
-                                run_id = getattr(self, "_current_run_id", f"scheduler_{time.time_ns()}")
+                                run_id = getattr(
+                                    self, "_current_run_id", f"scheduler_{time.time_ns()}"
+                                )
                                 schema_type = self.config.databento.schema.split("-")[0].upper()
                                 dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
 
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,
-                                    instrument_id=str(InstrumentId.from_str(f"{symbol_code}.{venue}")),
+                                    instrument_id=str(
+                                        InstrumentId.from_str(f"{symbol_code}.{venue}")
+                                    ),
                                     stage=_stage.CATALOG_WRITTEN.value,
                                     source=_source.HISTORICAL.value,
                                     run_id=run_id,
@@ -795,7 +810,9 @@ class DataScheduler:
                                         status="failed",
                                     ).inc()
                             except Exception as e:
-                                logger.warning(f"Failed to emit failure event for {symbol_code}: {e}")
+                                logger.warning(
+                                    f"Failed to emit failure event for {symbol_code}: {e}"
+                                )
 
                         raise
 
@@ -970,7 +987,6 @@ class DataScheduler:
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
-
 
         # Track metrics
         total_features_computed = 0

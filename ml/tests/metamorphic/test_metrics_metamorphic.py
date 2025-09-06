@@ -22,4 +22,3 @@ def test_logloss_label_prob_complement_symmetry() -> None:
     ll = binary_logloss(y, p)
     ll_comp = binary_logloss(1.0 - y, 1.0 - p)
     assert abs(ll - ll_comp) < 1e-9
-

@@ -38,7 +38,11 @@ def main(argv: list[str] | None = None) -> int:
     # Feature registry parameters can be derived from a sidecar file or registered on demand
     ap.add_argument("--feature_registry_dir", default=None)
     ap.add_argument("--feature_set_id", default=None)
-    ap.add_argument("--register_features", action="store_true", help="Register a new feature set if not provided")
+    ap.add_argument(
+        "--register_features",
+        action="store_true",
+        help="Register a new feature set if not provided",
+    )
     ap.add_argument("--model_registry_dir", required=True)
     ap.add_argument("--student_model_id", required=True)
     args = ap.parse_args(argv)
@@ -95,11 +99,13 @@ def main(argv: list[str] | None = None) -> int:
     # Optional auto-register when requested
     if (feature_registry_dir is not None) and args.register_features and feature_set_id is None:
         try:
+            import hashlib as _hashlib
+
+            from ml.registry.base import DataRequirements as _DataReq
             from ml.registry.feature_registry import FeatureManifest
             from ml.registry.feature_registry import FeatureRegistry as _FeatureRegistry
-            from ml.registry.feature_registry import FeatureRole, FeatureStage
-            from ml.registry.base import DataRequirements as _DataReq
-            import hashlib as _hashlib
+            from ml.registry.feature_registry import FeatureRole
+            from ml.registry.feature_registry import FeatureStage
 
             reg_path = Path(feature_registry_dir)
             reg_path.mkdir(parents=True, exist_ok=True)
@@ -129,7 +135,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Final validation now: both must be available for teacher/distill steps
     if feature_registry_dir is None or feature_set_id is None:
-        raise SystemExit("feature_registry_dir and feature_set_id are required (via args or sidecar/registration)")
+        raise SystemExit(
+            "feature_registry_dir and feature_set_id are required (via args or sidecar/registration)"
+        )
     if args.train_teacher:
         from ml.training.teacher.tft_cli import main as tft_main
 

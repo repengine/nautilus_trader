@@ -45,4 +45,3 @@ class TestIntegrationPublisher:
 
         # Assert
         assert getattr(store, "publisher") is pub
-

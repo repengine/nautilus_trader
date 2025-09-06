@@ -111,7 +111,12 @@ def main(argv: list[str] | None = None) -> int:
     X_train = X[:cutoff]
     X_val = X[cutoff:]
 
-    np.savez_compressed(out_dir / "features_npz.npz", X_train=X_train, X_val=X_val, feature_names=np.array(feature_names))
+    np.savez_compressed(
+        out_dir / "features_npz.npz",
+        X_train=X_train,
+        X_val=X_val,
+        feature_names=np.array(feature_names),
+    )
 
     # Optionally export feature manifest
     if args.register_features:
@@ -149,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Registered feature set: {fid} in {args.feature_registry_dir}")
 
     print(
-        f"Saved dataset to {dataset_parquet} and {dataset_csv}\nSaved features to {out_dir / 'features_npz.npz'}"
+        f"Saved dataset to {dataset_parquet} and {dataset_csv}\nSaved features to {out_dir / 'features_npz.npz'}",
     )
     return 0
 

@@ -208,12 +208,14 @@ For production environments requiring periodic persistence:
 from ml.observability.scheduler import ObservabilityFlusher
 import threading
 
-# Create background flusher
+# Create background flusher with database sink
 flusher = ObservabilityFlusher(
     service=service,
     base_path=Path("/data/observability"),
     interval_seconds=60.0,
-    file_format="jsonl"
+    file_format="jsonl",
+    sink="db",
+    db_connection_string="postgresql://user:pass@localhost/nautilus"
 )
 
 # Start background thread

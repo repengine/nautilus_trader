@@ -6,6 +6,7 @@ This file consolidates tests from:
 - ml/tests/test_stores_simple.py (merged and removed)
 
 Consolidation performed on 2025-08-25.
+
 """
 
 from __future__ import annotations
@@ -125,11 +126,16 @@ class TestFeatureStore:
         # Verify row persisted by querying directly
         import pandas as pd
         from sqlalchemy import text
-        df = feature_store.read_features(
-            instrument_id="AAPL",
-            start_ts=ts_event,
-            end_ts=ts_event,
-        ) if hasattr(feature_store, "read_features") else pd.DataFrame()
+
+        df = (
+            feature_store.read_features(
+                instrument_id="AAPL",
+                start_ts=ts_event,
+                end_ts=ts_event,
+            )
+            if hasattr(feature_store, "read_features")
+            else pd.DataFrame()
+        )
         # Fallback: direct SQL check
         if df.empty:
             with feature_store.engine.connect() as conn:
@@ -285,6 +291,7 @@ class TestModelStore:
         """
         # Insert multiple rows for performance stats
         import time as _time
+
         now_ns = int(_time.time() * 1e9)
         with model_store.engine.begin() as conn:
             for i in range(100):
@@ -365,6 +372,7 @@ class TestStrategyStore:
         """
         # Insert a recent signal row
         import time as _time
+
         now_ns = int(_time.time() * 1e9)
         with strategy_store.engine.begin() as conn:
             conn.execute(

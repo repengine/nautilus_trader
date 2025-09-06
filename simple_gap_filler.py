@@ -17,19 +17,23 @@ warnings.filterwarnings("ignore")
 
 
 def get_subscription_ranges():
-    """What you should have based on Databento subscription."""
+    """
+    What you should have based on Databento subscription.
+    """
     today = datetime.now().date()
     yesterday = datetime.combine(today - timedelta(days=1), datetime.min.time())
 
     return {
-        "core": (yesterday - timedelta(days=365 * 7), yesterday),    # 7 years OHLCV
-        "l1": (yesterday - timedelta(days=365), yesterday),         # 1 year L1
-        "l2": (yesterday - timedelta(days=30), yesterday),          # 30 days L2
+        "core": (yesterday - timedelta(days=365 * 7), yesterday),  # 7 years OHLCV
+        "l1": (yesterday - timedelta(days=365), yesterday),  # 1 year L1
+        "l2": (yesterday - timedelta(days=30), yesterday),  # 30 days L2
     }
 
 
 def analyze_symbol(symbol_dir: Path, subscription_ranges: dict) -> dict:
-    """Fast analysis of what's missing for a symbol."""
+    """
+    Fast analysis of what's missing for a symbol.
+    """
     symbol = symbol_dir.name
     gaps = []
 
@@ -46,7 +50,7 @@ def analyze_symbol(symbol_dir: Path, subscription_ranges: dict) -> dict:
         (ohlcv_hourly_files, "ohlcv-1m", "core", "hourly/1m OHLCV"),
         (l1_tbbo_files, "tbbo", "l1", "L1 BBO data"),
         (l1_trades_files, "trades", "l1", "L1 trades data"),
-        (l2_files, "mbp-10", "l2", "L2 MBP data")
+        (l2_files, "mbp-10", "l2", "L2 MBP data"),
     ]
 
     for files, schema, data_type, description in checks:
@@ -60,15 +64,17 @@ def analyze_symbol(symbol_dir: Path, subscription_ranges: dict) -> dict:
                 elif data_type == "l2":
                     output_file = symbol_dir / "l2" / f"{schema}.parquet"
 
-                gaps.append({
-                    "symbol": symbol,
-                    "schema": schema,
-                    "start": start_date,
-                    "end": end_date,
-                    "days": (end_date - start_date).days,
-                    "reason": f"Missing {description}",
-                    "output_file": output_file
-                })
+                gaps.append(
+                    {
+                        "symbol": symbol,
+                        "schema": schema,
+                        "start": start_date,
+                        "end": end_date,
+                        "days": (end_date - start_date).days,
+                        "reason": f"Missing {description}",
+                        "output_file": output_file,
+                    }
+                )
         else:
             # Files exist - check if they're comprehensive enough
             if data_type == "core":
@@ -78,35 +84,41 @@ def analyze_symbol(symbol_dir: Path, subscription_ranges: dict) -> dict:
                 # Simple heuristic: if file is named "1y", we likely need more historical data
                 if "1y" in file_path.name:
                     # Need more historical data (7 years vs 1 year)
-                    gaps.append({
-                        "symbol": symbol,
-                        "schema": schema,
-                        "start": target_start,
-                        "end": target_start + timedelta(days=365*6),  # 6 more years
-                        "days": 365*6,
-                        "reason": f"Need historical {description} (currently only 1 year)",
-                        "output_file": symbol_dir / f"{schema}_historical.parquet"
-                    })
+                    gaps.append(
+                        {
+                            "symbol": symbol,
+                            "schema": schema,
+                            "start": target_start,
+                            "end": target_start + timedelta(days=365 * 6),  # 6 more years
+                            "days": 365 * 6,
+                            "reason": f"Need historical {description} (currently only 1 year)",
+                            "output_file": symbol_dir / f"{schema}_historical.parquet",
+                        }
+                    )
 
                 # Also check for recent data gaps
                 file_age = datetime.now() - datetime.fromtimestamp(file_path.stat().st_mtime)
                 if file_age.days > 7:
                     recent_start = target_end - timedelta(days=7)
-                    gaps.append({
-                        "symbol": symbol,
-                        "schema": schema,
-                        "start": recent_start,
-                        "end": target_end,
-                        "days": 7,
-                        "reason": f"Recent {description} updates needed",
-                        "output_file": symbol_dir / f"{schema}_recent.parquet"
-                    })
+                    gaps.append(
+                        {
+                            "symbol": symbol,
+                            "schema": schema,
+                            "start": recent_start,
+                            "end": target_end,
+                            "days": 7,
+                            "reason": f"Recent {description} updates needed",
+                            "output_file": symbol_dir / f"{schema}_recent.parquet",
+                        }
+                    )
 
     return {"symbol": symbol, "gaps": gaps}
 
 
 def download_gap(client: db.Historical, gap: dict, dry_run: bool = False) -> bool:
-    """Download a specific gap."""
+    """
+    Download a specific gap.
+    """
     symbol = gap["symbol"]
     schema = gap["schema"]
     start_date = gap["start"]
@@ -114,7 +126,9 @@ def download_gap(client: db.Historical, gap: dict, dry_run: bool = False) -> boo
     days = gap["days"]
 
     if dry_run:
-        print(f"  [DRY RUN] Would download {schema}: {start_date.date()} to {end_date.date()} ({days} days)")
+        print(
+            f"  [DRY RUN] Would download {schema}: {start_date.date()} to {end_date.date()} ({days} days)"
+        )
         return True
 
     try:
@@ -127,9 +141,9 @@ def download_gap(client: db.Historical, gap: dict, dry_run: bool = False) -> boo
         if schema.startswith("ohlcv"):
             batch_days = min(365, total_days)  # 1 year max
         elif schema in ["tbbo", "trades"]:
-            batch_days = min(90, total_days)   # 3 months max
+            batch_days = min(90, total_days)  # 3 months max
         else:
-            batch_days = min(30, total_days)   # 1 month max
+            batch_days = min(30, total_days)  # 1 month max
 
         if total_days <= batch_days:
             # Single download
@@ -177,6 +191,7 @@ def download_gap(client: db.Historical, gap: dict, dry_run: bool = False) -> boo
             if all_dfs:
                 # Combine all batches
                 import pandas as pd
+
                 combined_df = pd.concat(all_dfs)  # Keep the index (ts_event)
 
                 # Sort and deduplicate by ts_event index
@@ -229,7 +244,7 @@ def main():
     symbol_dirs.sort()
 
     if args.max_symbols:
-        symbol_dirs = symbol_dirs[:args.max_symbols]
+        symbol_dirs = symbol_dirs[: args.max_symbols]
 
     if not symbol_dirs:
         print("❌ No symbol directories found")

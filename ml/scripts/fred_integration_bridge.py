@@ -2,8 +2,9 @@
 """
 Integration bridge between simple FRED updater and ML pipeline.
 
-This script converts the simple_fred_updater.py output into the format 
-expected by the ML pipeline's FRED loader and DataStore system.
+This script converts the simple_fred_updater.py output into the format expected by the
+ML pipeline's FRED loader and DataStore system.
+
 """
 import os
 import warnings
@@ -15,8 +16,11 @@ import polars as pl
 
 warnings.filterwarnings("ignore")
 
+
 def convert_simple_to_ml_format():
-    """Convert simple FRED updater format to ML pipeline format."""
+    """
+    Convert simple FRED updater format to ML pipeline format.
+    """
     print("🔗 FRED Integration Bridge")
     print("=" * 40)
 
@@ -47,12 +51,14 @@ def convert_simple_to_ml_format():
 
             value = row[col]
             if pd.notna(value):  # Only include non-null values
-                ml_data.append({
-                    "timestamp": timestamp,
-                    "timestamp_ns": timestamp_ns,
-                    "series_id": col,
-                    "value": float(value)
-                })
+                ml_data.append(
+                    {
+                        "timestamp": timestamp,
+                        "timestamp_ns": timestamp_ns,
+                        "series_id": col,
+                        "value": float(value),
+                    }
+                )
 
     # Create ML-format DataFrame
     ml_df = pd.DataFrame(ml_data)
@@ -79,7 +85,11 @@ def convert_simple_to_ml_format():
                 original_df["date"] = pd.to_datetime(original_df["timestamp"])
             elif "date" not in original_df.columns and "timestamp" not in original_df.columns:
                 # Handle different date column names
-                date_cols = [col for col in original_df.columns if "date" in col.lower() or "time" in col.lower()]
+                date_cols = [
+                    col
+                    for col in original_df.columns
+                    if "date" in col.lower() or "time" in col.lower()
+                ]
                 if date_cols:
                     original_df["date"] = pd.to_datetime(original_df[date_cols[0]])
 
@@ -96,7 +106,10 @@ def convert_simple_to_ml_format():
                     # Simple append approach - convert new data to same format as original
                     if "series_id" in original_df.columns:
                         # Original is in long format, append our ML format
-                        combined_df = pd.concat([original_df, ml_df.drop("timestamp_ns", axis=1, errors="ignore")], ignore_index=True)
+                        combined_df = pd.concat(
+                            [original_df, ml_df.drop("timestamp_ns", axis=1, errors="ignore")],
+                            ignore_index=True,
+                        )
                     else:
                         # Original is in wide format, append our wide format
                         original_wide = original_df.copy()
@@ -113,12 +126,16 @@ def convert_simple_to_ml_format():
                         combined_df = pd.concat([original_wide, new_wide], ignore_index=True)
 
                     # Save merged data
-                    backup_file = f"{original_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    backup_file = (
+                        f"{original_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    )
                     os.rename(original_file, backup_file)
                     print(f"📂 Backed up original to: {backup_file}")
 
                     combined_df.to_parquet(original_file)
-                    print(f"🔄 Updated original file with {len(combined_df) - len(original_df)} new rows")
+                    print(
+                        f"🔄 Updated original file with {len(combined_df) - len(original_df)} new rows"
+                    )
                 else:
                     print(f"⚠️  Gap of {gap_days} days - not merging automatically")
             else:
@@ -146,7 +163,7 @@ def convert_simple_to_ml_format():
         "DEXUSEU": "USD/EUR Exchange Rate",
         "BAMLH0A0HYM2": "High Yield Credit Spread",
         "BAMLC0A0CM": "Investment Grade Spread",
-        "MORTGAGE30US": "30-Year Mortgage Rate"
+        "MORTGAGE30US": "30-Year Mortgage Rate",
     }
 
     for _, row in latest_values.iterrows():
@@ -159,8 +176,11 @@ def convert_simple_to_ml_format():
 
     return True
 
+
 def test_ml_integration():
-    """Test integration with ML pipeline components."""
+    """
+    Test integration with ML pipeline components.
+    """
     print("\n🧪 Testing ML Integration")
     print("=" * 30)
 
@@ -177,7 +197,9 @@ def test_ml_integration():
         ml_file = "data/fred/fred_indicators_ml_format.parquet"
         if os.path.exists(ml_file):
             df = pl.read_parquet(ml_file)
-            print(f"✅ ML format data loads: {len(df)} rows, {len(df['series_id'].unique())} series")
+            print(
+                f"✅ ML format data loads: {len(df)} rows, {len(df['series_id'].unique())} series"
+            )
 
         print("✅ Integration test passed")
 
@@ -191,8 +213,11 @@ def test_ml_integration():
 
     return True
 
+
 def create_incremental_update_schedule():
-    """Create a simple cron-style scheduler for incremental updates."""
+    """
+    Create a simple cron-style scheduler for incremental updates.
+    """
     print("\n⏰ Setting up Incremental Updates")
     print("=" * 35)
 
@@ -232,8 +257,11 @@ echo "$(date): FRED data update complete"
 
     return script_path
 
+
 def main():
-    """Main integration function."""
+    """
+    Main integration function.
+    """
     print("🏦 FRED-ML Integration Bridge")
     print("=" * 50)
 
@@ -248,10 +276,13 @@ def main():
     print("🎉 FRED Integration Complete!")
     print("\nNext steps:")
     print("1. Use ML-format data in feature engineering:")
-    print("   python -c \"import polars as pl; df=pl.read_parquet('data/fred/fred_indicators_ml_format.parquet'); print(df.head())\"")
+    print(
+        "   python -c \"import polars as pl; df=pl.read_parquet('data/fred/fred_indicators_ml_format.parquet'); print(df.head())\""
+    )
     print("2. Integrate with TFT training pipeline")
     print("3. Set up automatic daily updates with cron")
     print("4. Add FRED features to trading strategies")
+
 
 if __name__ == "__main__":
     main()

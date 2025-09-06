@@ -1,8 +1,9 @@
 """
 Background flusher for observability (off hot-path).
 
-This scheduler can be driven via ticks (deterministic tests) or started in a
-background thread for periodic persistence of observability tables.
+This scheduler can be driven via ticks (deterministic tests) or started in a background
+thread for periodic persistence of observability tables.
+
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ class ObservabilityFlusher:
 
     Prefer using ``tick`` in tests for determinism. For background operation,
     use ``start_background`` with a caller-managed ``threading.Event`` to stop.
+
     """
 
     service: ObservabilityService
@@ -63,7 +65,9 @@ class ObservabilityFlusher:
             return out
 
     def tick(self) -> dict[str, Path] | dict[str, int]:
-        """Flush if interval has elapsed; return mapping of written files."""
+        """
+        Flush if interval has elapsed; return mapping of written files.
+        """
         if self.interval_seconds <= 0:
             return self.flush_once()
         if self.now() - self._last_flush >= self.interval_seconds:
@@ -74,7 +78,9 @@ class ObservabilityFlusher:
     def start_background(self, stop_event: threading.Event) -> threading.Thread:
         """
         Start a background thread that ticks until ``stop_event`` is set.
+
         Caller is responsible for setting the event and joining the thread.
+
         """
 
         def _run() -> None:

@@ -5,6 +5,7 @@
 Capture design options and migration steps for evolving the ML layer to an event‑driven pipeline while preserving hot‑path budgets and keeping DB‑first registries authoritative.
 
 ## Operating Principles
+
 - Actor boundary: Keep Nautilus actors single‑threaded; do not block hot paths.
 - DB‑first: Registries/stores remain source of truth; events are a read‑side view.
 - Optional bus: Publishing is optional and non‑blocking; no‑op in tests/scripts.
@@ -122,7 +123,7 @@ Each consumer must be idempotent (correlation_id + watermark), assume out‑of�
 - Redis Streams: Add a publisher adapter behind a flag; enable when ≥3 consumers or replay needs appear
 
 ## Acceptance
+
 - Hot path remains single‑threaded and within budgets; pub/sub optional and non‑blocking
 - Idempotent consumers validated via correlation_id + watermarks
 - Observability dashboards stable; perf and coverage gates green
-

@@ -8,6 +8,7 @@ Inputs (NPZ or CSV):
 
 Outputs:
 - Prints JSON with logloss, roc_auc, pr_auc
+
 """
 
 from __future__ import annotations
@@ -74,4 +75,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

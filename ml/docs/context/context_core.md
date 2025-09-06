@@ -120,14 +120,18 @@ Comprehensive system integration manager that automatically wires all ML compone
 1. **Database Management**: Auto-start PostgreSQL, run migrations, health checks
 2. **Component Wiring**: Initialize all stores and registries with proper configuration
 3. **Partition Management**: Set up time-based partitioning for high-volume tables
-4. **Observability Pipeline**: Optional integration with lightweight monitoring service
+4. **Observability Pipeline**: Full observability service with background persistence and event correlation
 5. **Actor Creation**: Factory method for creating pre-wired ML actors
+6. **Protocol Compliance**: Runtime validation of MLComponentProtocol implementation across all components
+7. **Message Bus Integration**: Event emission and external system integration via configurable publishers
 
 **Production Features:**
 - Environment variable configuration (ML_AUTO_START_DB, ML_AUTO_MIGRATE)
 - Comprehensive health aggregation across domains (data, features, model, strategy)
 - Event emission and cascade support for cross-domain coordination
-- Background observability flush with configurable intervals
+- Background observability flush with configurable intervals and multiple sink support
+- Protocol compliance validation with runtime checks and automatic fallback strategies
+- Message bus publisher configuration with topic normalization and routing policies
 
 ## Dependencies
 
@@ -202,17 +206,45 @@ assert engine is engine2
 EngineManager.dispose_all()
 ```
 
-### Actor Integration
+### Actor Integration with Observability
 
 ```python
-# Create actor with automatic store integration
+# Create actor with automatic store integration and observability
 actor = integration.create_integrated_actor(
     actor_class=MyMLActor,
     config=actor_config
 )
 
-# Actor automatically has access to all stores and registries
+# Actor automatically has access to all stores, registries, and observability
 # via BaseMLInferenceActor inheritance
+
+# Observability pipeline can be initialized separately
+integration.initialize_observability_pipeline()
+
+# Start background persistence with database sink
+integration.start_observability_flush(
+    base_path=Path("/data/observability"),
+    interval_seconds=60.0,
+    file_format="jsonl",
+    sink="db",  # Direct PostgreSQL persistence
+    db_connection_string="postgresql://user:pass@localhost/nautilus"
+)
+```
+
+### Event Correlation and Message Bus
+
+```python
+# Emit correlated events across domains
+correlation_id = integration.emit_cascade(
+    event_type="prediction_generated",
+    instrument_id="EURUSD.SIM",
+    metadata={"model_version": "1.2.3", "confidence": 0.87}
+)
+
+# Events automatically routed to configured message bus
+# Topic: ml.features.computed.EURUSD.SIM
+# Topic: ml.model.prediction_generated.EURUSD.SIM
+# Topic: ml.strategy.signal_emitted.EURUSD.SIM
 ```
 
 ## Integration Points
@@ -234,11 +266,33 @@ actor = integration.create_integrated_actor(
 - **Health Monitoring**: Real-time connection pool and storage health tracking
 - **Migration Management**: Automatic database schema evolution
 
-### Observability
-- **Metrics Bootstrap**: Safe Prometheus client initialization
-- **Health Aggregation**: Domain-level health reporting (data, features, model, strategy)
-- **Event Correlation**: Cross-domain event tracking and cascade support
-- **Performance Monitoring**: Latency and throughput metrics for all components
+### Observability Pipeline Integration
+
+The core module provides comprehensive observability infrastructure through deep integration with the observability module:
+
+**ObservabilityService Integration:**
+- **Automatic Initialization**: Observability service created when `initialize_observability_pipeline()` called
+- **Background Persistence**: Configurable flush intervals (default 60s) with structured data export
+- **Database Sink**: Direct persistence to PostgreSQL tables for high-performance analytics
+- **File Sink**: JSONL/CSV export for external data pipeline integration
+
+**Event Correlation System:**
+- **UUID4 Generation**: Deterministic correlation IDs for end-to-end request tracing  
+- **Cross-Domain Lineage**: Parent-child event relationships spanning data/features/models/strategies
+- **Event Cascade Support**: Automatic correlation preservation via `emit_cascade()` method
+- **Distributed Tracing**: Integration points prepared for OpenTelemetry/Jaeger systems
+
+**Health Monitoring Integration:**
+- **Component Health Aggregation**: Real-time health scores from all MLComponentProtocol-compliant components
+- **Domain-Level Reporting**: Separate health tracking for data, features, model, and strategy domains
+- **Alert Threshold Management**: Configurable thresholds with subsystem breakdown
+- **Performance Metrics**: Latency watermarks, throughput metrics, and quality scores
+
+**Message Bus Protocol:**
+- **Publisher Interface**: MessagePublisherProtocol for event emission to external systems
+- **Topic Standardization**: Canonical `ml.{domain}.{operation}.{instrument_id}` topic structure
+- **Publishing Modes**: Both batch and per-row publishing with configurable routing
+- **Noop Fallback**: Safe default implementation when message bus unavailable
 
 ## Implementation Notes
 

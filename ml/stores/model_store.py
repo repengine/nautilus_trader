@@ -51,16 +51,19 @@ from ml.config.events import Stage
 
 logger = logging.getLogger(__name__)
 
+
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
 def create_engine(connection_string: str, **kwargs: object) -> Engine:
     # mypy: allow forwarding arbitrary kwargs to EngineManager
     return EngineManager.get_engine(connection_string, **kwargs)  # type: ignore[arg-type]
+
 
 # Prometheus metrics for prediction events (centralized)
 data_events_total: Counter | None = None
 if HAS_PROMETHEUS:
     try:
         from ml.common.metrics import data_events_total as _central_data_events_total
+
         data_events_total = _central_data_events_total
     except Exception:
         data_events_total = None
@@ -200,7 +203,10 @@ class ModelStore(BaseStore):
                 registry_path = Path.home() / ".nautilus" / "ml" / "registry"
 
                 # Determine backend based on connection string
-                if self.connection_string and ("postgresql://" in self.connection_string or "postgres://" in self.connection_string):
+                if self.connection_string and (
+                    "postgresql://" in self.connection_string
+                    or "postgres://" in self.connection_string
+                ):
                     # Use PostgreSQL backend for production
                     persistence_config = PersistenceConfig(
                         backend=BackendType.POSTGRES,
@@ -284,14 +290,19 @@ class ModelStore(BaseStore):
 
         """
         from ml.common.timestamps import sanitize_timestamp_ns
+
         ts_init = (
             self.clock.timestamp_ns()
             if self.clock
-            else sanitize_timestamp_ns(time.time_ns(), logger=logger, context="ModelStore.write_prediction:ts_init")
+            else sanitize_timestamp_ns(
+                time.time_ns(), logger=logger, context="ModelStore.write_prediction:ts_init"
+            )
         )
 
         # Normalize timestamp defensively
-        ts_event_norm = sanitize_timestamp_ns(int(ts_event), logger=logger, context="ModelStore.write_prediction")
+        ts_event_norm = sanitize_timestamp_ns(
+            int(ts_event), logger=logger, context="ModelStore.write_prediction"
+        )
 
         data = ModelPrediction(
             model_id=model_id,
@@ -353,7 +364,9 @@ class ModelStore(BaseStore):
             self._emit_prediction_events(data)
 
     def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
-        """Upsert predictions (patchable in tests)."""
+        """
+        Upsert predictions (patchable in tests).
+        """
         if not values:
             return
         # Optional audit logging (sampled)
@@ -372,11 +385,16 @@ class ModelStore(BaseStore):
             logger.debug("Audit logging skipped due to error: %s", e)
         # Normalize timestamps in incoming values
         from ml.common.timestamps import sanitize_timestamp_ns
+
         for v in values:
             if "ts_event" in v and isinstance(v["ts_event"], int):
-                v["ts_event"] = sanitize_timestamp_ns(int(v["ts_event"]), logger=logger, context="ModelStore._execute_write")
+                v["ts_event"] = sanitize_timestamp_ns(
+                    int(v["ts_event"]), logger=logger, context="ModelStore._execute_write"
+                )
             if "ts_init" in v and isinstance(v["ts_init"], int):
-                v["ts_init"] = sanitize_timestamp_ns(int(v["ts_init"]), logger=logger, context="ModelStore._execute_write")
+                v["ts_init"] = sanitize_timestamp_ns(
+                    int(v["ts_init"]), logger=logger, context="ModelStore._execute_write"
+                )
         # De-duplicate within the same batch to avoid ON CONFLICT updating the same
         # row twice in a single INSERT .. ON CONFLICT statement.
         dedup: dict[tuple[str, str, int], dict[str, Any]] = {}
@@ -429,7 +447,11 @@ class ModelStore(BaseStore):
                 logger.debug("ModelStore publish failed", exc_info=True)
 
         # Optional per-row publish when enabled
-        if self._enable_publishing and self.publisher is not None and self._publish_mode in ("row", "both"):
+        if (
+            self._enable_publishing
+            and self.publisher is not None
+            and self._publish_mode in ("row", "both")
+        ):
             try:
                 stage = Stage.PREDICTION_EMITTED
                 domain, operation = map_stage_to_topic_segments(stage)
@@ -455,7 +477,6 @@ class ModelStore(BaseStore):
     # Backwards-compatible alias used in some tests
     def write_predictions(self, data: list[ModelPrediction]) -> None:
         self.write_batch(data)
-
 
     def read_predictions(
         self,
@@ -500,6 +521,7 @@ class ModelStore(BaseStore):
         )
 
         from typing import cast
+
         with self.engine.connect() as conn:
             params: dict[str, int | str] = {
                 "model_id": model_id,
@@ -536,6 +558,7 @@ class ModelStore(BaseStore):
         pd.DataFrame
             A DataFrame with columns: model_id, instrument_id, prediction, confidence,
             inference_time_ms, is_live, ts_event, ts_init.
+
         """
         import pandas as pd
         from sqlalchemy import text as _text
@@ -585,6 +608,7 @@ class ModelStore(BaseStore):
             # Use simple execute/fetch for MagicMock compatibility
             try:
                 from sqlalchemy import text as _text2
+
                 rows = sess.execute(_text2(str(sql)), params).fetchall()
             except Exception:
                 rows = []
@@ -670,7 +694,11 @@ class ModelStore(BaseStore):
                 ORDER BY ts_event
                 """,
             )
-            params = {"start_ns": int(start_ns), "end_ns": int(end_ns), "instrument_id": instrument_id}
+            params = {
+                "start_ns": int(start_ns),
+                "end_ns": int(end_ns),
+                "instrument_id": instrument_id,
+            }
 
         with self.engine.connect() as conn:
             return pd.read_sql_query(sql, conn, params=cast(Any, params))
@@ -687,13 +715,19 @@ class ModelStore(BaseStore):
         Return predictions for a model within a time range.
 
         This is a compatibility shim delegating to read_predictions.
+
         """
         import pandas as pd
 
         # Accept seconds or nanoseconds; normalize to ns
         from ml.common.timestamps import sanitize_timestamp_ns
-        start_ns = sanitize_timestamp_ns(int(start_ns), logger=logger, context="ModelStore.get_predictions:start")
-        end_ns = sanitize_timestamp_ns(int(end_ns), logger=logger, context="ModelStore.get_predictions:end")
+
+        start_ns = sanitize_timestamp_ns(
+            int(start_ns), logger=logger, context="ModelStore.get_predictions:start"
+        )
+        end_ns = sanitize_timestamp_ns(
+            int(end_ns), logger=logger, context="ModelStore.get_predictions:end"
+        )
 
         if instrument_id is None:
             # Return across instruments by unioning results
@@ -714,7 +748,9 @@ class ModelStore(BaseStore):
                 }
                 return pd.read_sql_query(sql, conn, params=params2)
         else:
-            return self.read_predictions(model_id=model_id, instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns)
+            return self.read_predictions(
+                model_id=model_id, instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns
+            )
 
     @override
     def get_latest(
@@ -813,6 +849,7 @@ class ModelStore(BaseStore):
 
         if sess is not None:
             from sqlalchemy import text as _text2
+
             query = _text2(base_sql)
             try:
                 result = sess.execute(query, params).fetchone()
@@ -880,6 +917,7 @@ class ModelStore(BaseStore):
 
             # Group predictions by model_id and instrument_id for efficient event emission
             from collections import defaultdict
+
             grouped: dict[tuple[str, str], list[ModelPrediction]] = defaultdict(list)
 
             for pred in predictions:
@@ -981,6 +1019,7 @@ class ModelStore(BaseStore):
             if self.engine:
                 with self.engine.connect() as conn:
                     from sqlalchemy import text
+
                     result = conn.execute(text("SELECT 1"))
                     return result is not None
             return True  # If no engine, assume healthy (in-memory mode)
@@ -1047,6 +1086,7 @@ class ModelStore(BaseStore):
         # Convert hours_back to concrete window when provided
         if hours_back is not None:
             import time as _time
+
             end_ns = int(_time.time() * 1e9)
             start_ns = int(end_ns - hours_back * 3600 * 1e9)
 
@@ -1102,6 +1142,7 @@ class ModelStore(BaseStore):
 
         Allows calling with model_id, instrument_id, ts_event, prediction, confidence
         and fills features={} and inference_time_ms=0.0 when not provided.
+
         """
         if args:
             self.write_prediction(*args, **kwargs)

@@ -16,16 +16,18 @@ The `ml/features/` directory contains a sophisticated, production-ready feature 
 
 ```
 ml/features/
-├── __init__.py              # Public API exports
-├── engineering.py           # Core feature engineering classes (2,458 lines)
-├── validation.py           # Parity validation system (24,583 lines)
-├── pipeline.py             # Declarative pipeline framework (508 lines)
-├── microstructure.py       # L2/L3 microstructure features (32,010 lines)
+├── __init__.py              # Public API exports (22 lines)
+├── engineering.py           # Core feature engineering classes (~1,500 lines) 
+├── validation.py           # Parity validation system (680 lines)
+├── pipeline.py             # Declarative pipeline framework (509 lines)  
+├── microstructure.py       # L2/L3 microstructure features (958 lines)
 ├── feature_export.py       # Registry integration utilities (53 lines)
-└── materialize_cli.py      # Feature materialization CLI (115 lines)
+├── materialize_cli.py      # Feature materialization CLI (115 lines)
+├── micro_aggregate.py      # 🆕 Per-minute L1 microstructure aggregation (141 lines)
+└── l2_aggregate.py         # 🆕 L2 order book per-minute aggregation (131 lines)
 ```
 
-**🔄 UPDATE:** Line counts verified against actual files as of the latest codebase analysis.
+**🔄 UPDATE:** Module structure and line counts updated to reflect recent additions of aggregation modules and perfect parity implementation.
 
 ## Core Components
 
@@ -318,7 +320,59 @@ Features integrate with the mandatory store triad:
 - **ModelStore**: Stores predictions using features
 - **StrategyStore**: Trading decisions based on features
 
-### 3. Metrics Integration
+### 3. New Aggregation Modules 🆕
+
+#### micro_aggregate.py
+Lightweight per-minute aggregation from L1 quotes and trades:
+
+**Key Features:**
+- **Midprice calculation** from bid/ask quotes
+- **Spread computation** in basis points
+- **Quote imbalance** based on bid/ask sizes  
+- **Trade imbalance** from signed trade volumes
+- **Realized volatility** from log returns
+
+**Core Function:**
+```python
+def aggregate_microstructure_minute_pl(
+    quotes: pl.DataFrame | None,
+    trades: pl.DataFrame | None,
+    timestamp_col: str = "ts_event"
+) -> pl.DataFrame:
+```
+
+**Output Columns:**
+- `midprice`: Average midprice over the minute
+- `spread_bps`: Average spread in basis points
+- `quote_imbalance`: Size imbalance between bid/ask
+- `trade_imbalance`: Signed volume imbalance
+- `realized_vol`: Volatility from trade price movements
+
+#### l2_aggregate.py
+Per-minute L2 order book aggregation from MBP-10 snapshots:
+
+**Key Features:**
+- **Depth imbalance** across multiple levels (top 1, 3, 5, 10)
+- **Depth-weighted price** in basis points
+- **Price slope approximation** across order book levels
+- **Robust aggregation** with safe division and null handling
+
+**Core Function:**
+```python
+def aggregate_l2_minute_pl(
+    l2: pl.DataFrame, 
+    timestamp_col: str = "ts_event"
+) -> pl.DataFrame:
+```
+
+**Output Columns:**
+For each top-k level (1, 3, 5, 10):
+- `depth_imbalance_topK`: Size imbalance across top K levels
+- `dwp_bps_topK`: Depth-weighted price deviation in bps
+- `bid_slope_topK`: Price slope approximation (bid side)  
+- `ask_slope_topK`: Price slope approximation (ask side)
+
+### 4. Metrics Integration
 Comprehensive Prometheus metrics:
 
 - **Computation Time**: By instrument, feature type, mode
@@ -367,6 +421,14 @@ Comprehensive Prometheus metrics:
 - [x] Full microstructure transform (registered, gated by L1_L2)
 - [x] Full trade flow transform (registered, gated by L1_L2)
 
+### New Aggregation Features ✅ 🆕
+
+- [x] Per-minute microstructure aggregation with midprice, spread, and imbalances
+- [x] L2 order book aggregation with depth imbalances and price slopes
+- [x] TFT dataset builder integration for enhanced feature sets
+- [x] Polars-optimized aggregation functions for performance
+- [x] Robust error handling and null value management
+
 ### TFT-Specific Features (Pipeline Transforms) ✅
 
 - [x] Calendar features transform (cyclic/fourier/onehot encoding)
@@ -374,28 +436,136 @@ Comprehensive Prometheus metrics:
 - [x] Macro indicators transform (VIX, DXY, treasury yields, fed funds)
 - [x] Static covariates transform (instrument metadata)
 
+### Enhanced Feature Export 🆕
+
+```python
+from ml.features.feature_export import register_feature_set_from_engineer
+
+# Export feature manifest with aggregations
+feature_set_id = register_feature_set_from_engineer(
+    registry_path=Path("ml/registry"),
+    name="enhanced_features_v2",
+    version="2.1.0", 
+    role=FeatureRole.PRIMARY,
+    data_requirements=DataRequirements.L1_L2,  # Supports L2 features
+    feature_config=FeatureConfig(
+        include_microstructure=True,
+        include_trade_flow=True
+    )
+)
+```
+
 ### Pending Features 🔄
 
 - [ ] Fractional differencing integration with StationarityTransformer
 - [ ] Cross-sectional features across multiple instruments
 - [ ] Feature selection and importance analysis tools
-- [ ] Full L2/L3 data integration with L2MicrostructureFeatures class
+- [ ] Enhanced L3 trade data integration beyond current simplified features
 
 ## Critical Implementation Notes
 
-### 1. Parity Validation Critical Path
-The parity validation system is essential for production deployment:
+### 1. Perfect Feature Parity (<1e-10 tolerance) 🔄 UPDATE
+Recent improvements ensure mathematical identity:
 
-- **Indicator State**: Must exactly match between batch and online
-- **Numerical Precision**: 1e-10 tolerance prevents accumulation errors
-- **Buffer Management**: Online features must be copied, not referenced
+```python
+class FeatureParityValidator:
+    def validate_parity(self, df, start_idx=50, end_idx=None):
+        # 1. Prepare batch features via sequential processing
+        batch_features = self._compute_batch_with_online_path(df)
+        
+        # 2. Warm up online indicators to match batch state
+        indicator_mgr = self._warmup_indicators(df, start_idx)
+        
+        # 3. Compute online features step-by-step
+        online_features = self._compute_online_sequential(df, indicator_mgr)
+        
+        # 4. Validate numerical identity
+        differences = np.abs(batch_features - online_features)
+        max_diff = np.max(differences)
+        
+        # 5. Assert strict tolerance  
+        assert max_diff < 1e-10, f"Parity violation: {max_diff}"
+```
 
-### 2. Hot Path Performance
-Zero-allocation design enables low-latency inference:
+**Critical Implementation Details:**
+- **State synchronization**: Indicators warmed to identical state
+- **Buffer copying**: Online features copied to prevent overwrite
+- **Sequential processing**: Batch mode mirrors online progression exactly
+- **Numerical precision**: 1e-10 tolerance catches accumulation errors
 
-- **Pre-allocation**: All arrays allocated at initialization
-- **Buffer Reuse**: Same buffer for all feature computations
-- **View Returns**: Return buffer views to avoid copying
+### 2. Enhanced Architecture Patterns 🆕
+
+**Batch Processing (Cold Path):**
+```python
+# NEW: Batch mode now uses same online computation paths
+def calculate_features_batch(self, df, fit_scaler=False):
+    # Extract price arrays efficiently
+    prices = self._extract_price_arrays(df)
+    
+    # Initialize indicators
+    indicator_mgr = IndicatorManager(self.config)
+    
+    # Sequential update using same online path
+    all_features = []
+    for i in range(len(prices["close"])):
+        # Update indicators with current bar
+        indicator_mgr.update_from_values(
+            close=prices["close"][i],
+            high=prices["high"][i], 
+            low=prices["low"][i],
+            volume=prices["volume"][i]
+        )
+        
+        # Compute features using same online method
+        features = self._compute_online_features(prices, i, indicator_mgr)
+        all_features.append(features.copy())  # Critical: copy to avoid overwrite
+```
+
+**Online Processing (Hot Path):**
+```python
+# Same computation core, optimized for real-time
+def calculate_features_online(self, bar_data, indicator_mgr, scaler=None):
+    # Pre-allocated feature buffer (zero allocation)
+    features = self._compute_online_features(bar_data, -1, indicator_mgr)
+    
+    # Apply scaler if provided
+    if scaler is not None:
+        features = self._apply_scaler_online(features, scaler)
+    
+    # Return view of buffer (caller must copy if persisting)
+    return features
+```
+
+**Key Parity Mechanisms:**
+1. **Shared computation core** via `_compute_online_features()`
+2. **Identical indicator updates** using same IndicatorManager methods
+3. **Sequential processing** in batch mode to match online state progression
+4. **Safe division** with consistent defaults across modes
+5. **Validation tolerance** <1e-10 for numerical precision
+
+### 3. Integration with New Aggregation Modules 🆕
+
+```python
+from ml.features.micro_aggregate import MicrostructureAggregator
+from ml.features.l2_aggregate import L2Aggregator
+
+# Per-minute microstructure aggregation
+micro_agg = MicrostructureAggregator(base_dir=Path("data/"))
+micro_features = micro_agg.compute_for_symbol("SPY")
+
+# L2 order book aggregation  
+l2_agg = L2Aggregator(base_dir=Path("data/"))
+l2_features = l2_agg.compute_for_symbol("SPY")
+
+# Combined with TFT dataset builder
+builder = TFTDatasetBuilder(
+    include_micro=True,    # NEW: Include microstructure aggregation
+    include_l2=True,       # NEW: Include L2 aggregation
+    include_events=True,   # NEW: Include event schedule features
+    micro_base_dir=micro_agg.base_dir,
+    l2_base_dir=l2_agg.base_dir
+)
+```
 
 ### 3. Feature Normalization
 Consistent normalization across modes:

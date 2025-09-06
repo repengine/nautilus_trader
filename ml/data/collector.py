@@ -83,6 +83,7 @@ class DataCollector:
         else:
             # Import Databento lazily to avoid asyncio loop creation at module import time
             import databento as db  # local import
+
             self.client = db.Historical(self.api_key)
         # Config-driven defaults with env overrides
         self._config = config or DataCollectorConfig()

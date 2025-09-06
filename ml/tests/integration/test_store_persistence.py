@@ -2,6 +2,7 @@
 Integration tests for store persistence.
 
 Tests that data is actually persisted to stores and can be retrieved.
+
 """
 
 import pytest
@@ -56,18 +57,15 @@ class TestStorePersistence:
 
         # Read back features
         with test_database.get_session() as session:
-            row = (
-                session.execute(
-                    text(
-                        """
+            row = session.execute(
+                text(
+                    """
                         SELECT * FROM ml_feature_values
                         WHERE feature_set_id = :feature_set_id
                         """,
-                    ),
-                    {"feature_set_id": "test_set"},
-                )
-                .fetchone()
-            )
+                ),
+                {"feature_set_id": "test_set"},
+            ).fetchone()
 
         assert row is not None
         instrument_id = row._mapping["instrument_id"] if hasattr(row, "_mapping") else row[1]

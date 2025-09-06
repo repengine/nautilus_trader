@@ -37,4 +37,3 @@ def test_aggregate_l2_minute_pl_basic() -> None:
     # Symmetric sizes -> depth imbalance near 0
     for k in TOPKS:
         assert abs(out[f"depth_imbalance_top{k}"][0]) < 1e-6
-

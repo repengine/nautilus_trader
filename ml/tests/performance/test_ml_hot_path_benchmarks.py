@@ -92,6 +92,7 @@ def _measure_p99_seconds(func: Callable[[], _T], iterations: int = 1000) -> floa
     -------
     float
         P99 latency in seconds.
+
     """
     durations: list[float] = []
     # Warmup a bit to avoid first-call costs
@@ -103,6 +104,7 @@ def _measure_p99_seconds(func: Callable[[], _T], iterations: int = 1000) -> floa
         durations.append(_time.perf_counter() - t0)
     return float(np.percentile(np.array(durations, dtype=np.float64), 99))
 
+
 # =================================================================================================
 # Test Fixtures
 # =================================================================================================
@@ -110,7 +112,9 @@ def _measure_p99_seconds(func: Callable[[], _T], iterations: int = 1000) -> floa
 
 @pytest.fixture
 def feature_config() -> FeatureConfig:
-    """Create optimized feature configuration for benchmarking."""
+    """
+    Create optimized feature configuration for benchmarking.
+    """
     return FeatureConfig(
         return_periods=[1, 5, 10],  # Reduced periods for performance
         momentum_periods=[5, 10],
@@ -129,13 +133,17 @@ def feature_config() -> FeatureConfig:
 
 @pytest.fixture
 def instrument_id() -> InstrumentId:
-    """Create test instrument ID."""
+    """
+    Create test instrument ID.
+    """
     return InstrumentId(Symbol("TEST"), Venue("VENUE"))
 
 
 @pytest.fixture
 def bar_type(instrument_id: InstrumentId) -> BarType:
-    """Create test bar type."""
+    """
+    Create test bar type.
+    """
     from nautilus_trader.model.data import BarSpecification
     from nautilus_trader.model.enums import AggregationSource
     from nautilus_trader.model.enums import BarAggregation
@@ -154,7 +162,9 @@ def bar_type(instrument_id: InstrumentId) -> BarType:
 
 @pytest.fixture
 def test_bars(bar_type: BarType) -> list[Bar]:
-    """Generate test bars for benchmarking."""
+    """
+    Generate test bars for benchmarking.
+    """
     bars = []
     base_price = 100.0
     base_volume = 1_000_000.0
@@ -182,7 +192,9 @@ def test_bars(bar_type: BarType) -> list[Bar]:
 
 @pytest.fixture
 def mock_onnx_model(tmp_path: Path) -> Path:
-    """Create a mock ONNX model for testing."""
+    """
+    Create a mock ONNX model for testing.
+    """
     if not HAS_ONNX:
         pytest.skip("ONNX not available")
 
@@ -215,7 +227,9 @@ def mock_onnx_model(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def mock_xgboost_model() -> Any:
-    """Create a mock XGBoost model for testing."""
+    """
+    Create a mock XGBoost model for testing.
+    """
     if not HAS_XGBOOST:
         pytest.skip("XGBoost not available")
 
@@ -242,7 +256,9 @@ def mock_xgboost_model() -> Any:
 @pytest.mark.database
 @pytest.mark.serial
 class TestFeatureComputationBenchmarks:
-    """Benchmarks for feature computation performance."""
+    """
+    Benchmarks for feature computation performance.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -256,6 +272,7 @@ class TestFeatureComputationBenchmarks:
         Benchmark P99 latency for feature computation.
 
         Requirement: P99 latency must be <500μs for production.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -297,9 +314,9 @@ class TestFeatureComputationBenchmarks:
         p99_s = _measure_p99_seconds(lambda: compute_features(), iterations=2000)
         p99_latency_us = p99_s * 1_000_000
         relax = 5.0 if os.getenv("PYTEST_XDIST_WORKER") else 1.0
-        assert p99_latency_us < 500.0 * relax, (
-            f"P99 feature computation latency {p99_latency_us:.1f}μs exceeds {500*relax:.0f}μs requirement"
-        )
+        assert (
+            p99_latency_us < 500.0 * relax
+        ), f"P99 feature computation latency {p99_latency_us:.1f}μs exceeds {500*relax:.0f}μs requirement"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -313,6 +330,7 @@ class TestFeatureComputationBenchmarks:
         Benchmark feature computation throughput.
 
         Target: >2000 computations/second.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -350,6 +368,7 @@ class TestFeatureComputationBenchmarks:
 
         # Manual throughput to avoid plugin overhead and flakiness
         import time as _time
+
         loops = 20
         t0 = _time.perf_counter()
         for _ in range(loops):
@@ -357,9 +376,9 @@ class TestFeatureComputationBenchmarks:
         elapsed = _time.perf_counter() - t0
         throughput = (100 * loops) / elapsed  # bars per second
 
-        assert throughput > 2000, (
-            f"Feature computation throughput {throughput:.0f}/s below 2000/s target"
-        )
+        assert (
+            throughput > 2000
+        ), f"Feature computation throughput {throughput:.0f}/s below 2000/s target"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -372,6 +391,7 @@ class TestFeatureComputationBenchmarks:
         Test that feature computation has zero allocations in hot path.
 
         Requirement: No allocations after warm-up period.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -443,7 +463,9 @@ class TestFeatureComputationBenchmarks:
 @pytest.mark.database
 @pytest.mark.serial
 class TestModelInferenceBenchmarks:
-    """Benchmarks for model inference performance."""
+    """
+    Benchmarks for model inference performance.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -457,6 +479,7 @@ class TestModelInferenceBenchmarks:
         Benchmark P99 latency for ONNX model inference.
 
         Requirement: P99 latency must be <2ms for production.
+
         """
         # Load model
         session = ort.InferenceSession(
@@ -480,9 +503,9 @@ class TestModelInferenceBenchmarks:
         p99_s = _measure_p99_seconds(lambda: run_inference(), iterations=2000)
         p99_latency_ms = p99_s * 1000.0
         relax = 5.0 if os.getenv("PYTEST_XDIST_WORKER") else 1.0
-        assert p99_latency_ms < 2.0 * relax, (
-            f"P99 ONNX inference latency {p99_latency_ms:.2f}ms exceeds {2*relax:.0f}ms requirement"
-        )
+        assert (
+            p99_latency_ms < 2.0 * relax
+        ), f"P99 ONNX inference latency {p99_latency_ms:.2f}ms exceeds {2*relax:.0f}ms requirement"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -496,6 +519,7 @@ class TestModelInferenceBenchmarks:
         Benchmark XGBoost model inference throughput.
 
         Target: >1000 predictions/second.
+
         """
         # Prepare batch input
         n_features = 50
@@ -511,6 +535,7 @@ class TestModelInferenceBenchmarks:
 
         # Manual throughput measurement for stability
         import time as _time
+
         loops = 25
         t0 = _time.perf_counter()
         for _ in range(loops):
@@ -518,9 +543,9 @@ class TestModelInferenceBenchmarks:
         elapsed = _time.perf_counter() - t0
         throughput = (batch_size * loops) / elapsed  # predictions per second
 
-        assert throughput > 1000, (
-            f"XGBoost inference throughput {throughput:.0f}/s below 1000/s target"
-        )
+        assert (
+            throughput > 1000
+        ), f"XGBoost inference throughput {throughput:.0f}/s below 1000/s target"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -533,6 +558,7 @@ class TestModelInferenceBenchmarks:
         Benchmark model hot-swapping latency.
 
         Requirement: Model swap must complete in <100ms.
+
         """
         if not HAS_ONNX:
             pytest.skip("ONNX not available")
@@ -546,9 +572,7 @@ class TestModelInferenceBenchmarks:
         # Validate P99 swap latency with direct measurement
         p99_s = _measure_p99_seconds(lambda: swap_model(), iterations=20)
         p99_ms = p99_s * 1000.0
-        assert p99_ms < 100.0, (
-            f"Model swap P99 {p99_ms:.1f}ms exceeds 100ms requirement"
-        )
+        assert p99_ms < 100.0, f"Model swap P99 {p99_ms:.1f}ms exceeds 100ms requirement"
 
 
 # =================================================================================================
@@ -560,7 +584,9 @@ class TestModelInferenceBenchmarks:
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db_class")
 class TestStoreBenchmarks:
-    """Benchmarks for store read/write operations."""
+    """
+    Benchmarks for store read/write operations.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -573,6 +599,7 @@ class TestStoreBenchmarks:
         Benchmark FeatureStore read operation latency.
 
         Requirement: Read latency <1ms for cached features.
+
         """
         # Create PostgreSQL store for testing
         store = FeatureStore(
@@ -596,9 +623,9 @@ class TestStoreBenchmarks:
         p99_s = _measure_p99_seconds(lambda: read_features(), iterations=5000)
         p99_latency_ms = p99_s * 1000.0
         relax = 5.0 if os.getenv("PYTEST_XDIST_WORKER") else 1.0
-        assert p99_latency_ms < 1.0 * relax, (
-            f"FeatureStore read latency {p99_latency_ms:.2f}ms exceeds {1*relax:.0f}ms requirement"
-        )
+        assert (
+            p99_latency_ms < 1.0 * relax
+        ), f"FeatureStore read latency {p99_latency_ms:.2f}ms exceeds {1*relax:.0f}ms requirement"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -611,6 +638,7 @@ class TestStoreBenchmarks:
         Benchmark store write buffering performance.
 
         Requirement: Buffered writes should not block hot path.
+
         """
         # Create PostgreSQL store
         store = StrategyStore(
@@ -621,17 +649,20 @@ class TestStoreBenchmarks:
         write_buffer: deque[dict[str, Any]] = deque(maxlen=1000)
 
         def buffer_write() -> None:
-            write_buffer.append({
-                "instrument_id": "TEST",
-                "ts_event": time.time_ns(),
-                "signal": np.random.choice([-1, 0, 1]),
-                "confidence": np.random.random(),
-            })
+            write_buffer.append(
+                {
+                    "instrument_id": "TEST",
+                    "ts_event": time.time_ns(),
+                    "signal": np.random.choice([-1, 0, 1]),
+                    "confidence": np.random.random(),
+                }
+            )
 
         # Measure directly to compute a robust P99
         import time as _time
 
         import numpy as _np
+
         durations: list[float] = []
         for _ in range(10_000):
             t0 = _time.perf_counter()
@@ -641,9 +672,9 @@ class TestStoreBenchmarks:
         p99_us = float(_np.percentile(_np.array(durations, dtype=_np.float64), 99)) * 1_000_000
         relax = 5.0 if os.getenv("PYTEST_XDIST_WORKER") else 1.0
         # Allow minimal headroom for Python overhead while enforcing a tight bound
-        assert p99_us < 12.0 * relax, (
-            f"Write buffering latency P99 {p99_us:.1f}μs exceeds {12*relax:.0f}μs requirement"
-        )
+        assert (
+            p99_us < 12.0 * relax
+        ), f"Write buffering latency P99 {p99_us:.1f}μs exceeds {12*relax:.0f}μs requirement"
 
 
 # =================================================================================================
@@ -655,7 +686,9 @@ class TestStoreBenchmarks:
 @pytest.mark.serial
 @pytest.mark.usefixtures("clean_postgres_db_class")
 class TestEndToEndBenchmarks:
-    """Benchmarks for complete signal generation pipeline."""
+    """
+    Benchmarks for complete signal generation pipeline.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -673,6 +706,7 @@ class TestEndToEndBenchmarks:
         Benchmark end-to-end signal generation latency.
 
         Requirement: Bar → Features → Model → Signal must be <5ms.
+
         """
         if not HAS_ONNX:
             pytest.skip("ONNX not available")
@@ -781,9 +815,9 @@ class TestEndToEndBenchmarks:
         p99_s = _measure_p99_seconds(lambda: generate_signal(test_bar), iterations=2000)
         p99_latency_ms = p99_s * 1000.0
         relax = 5.0 if os.getenv("PYTEST_XDIST_WORKER") else 1.0
-        assert p99_latency_ms < 5.0 * relax, (
-            f"P99 end-to-end signal generation latency {p99_latency_ms:.2f}ms exceeds {5*relax:.0f}ms requirement"
-        )
+        assert (
+            p99_latency_ms < 5.0 * relax
+        ), f"P99 end-to-end signal generation latency {p99_latency_ms:.2f}ms exceeds {5*relax:.0f}ms requirement"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -797,6 +831,7 @@ class TestEndToEndBenchmarks:
         Benchmark signal generation under concurrent load.
 
         Requirement: Maintain <5ms P99 with 10 concurrent instruments.
+
         """
         # Create multiple engineers for concurrent processing
         engineers = [FeatureEngineer(feature_config) for _ in range(10)]
@@ -841,9 +876,9 @@ class TestEndToEndBenchmarks:
         p99_s = _measure_p99_seconds(lambda: process_concurrent(), iterations=500)
         p99_latency_ms = p99_s * 1000.0
         relax = 5.0 if os.getenv("PYTEST_XDIST_WORKER") else 1.0
-        assert p99_latency_ms < 50.0 * relax, (
-            f"Concurrent processing P99 {p99_latency_ms:.2f}ms exceeds {50*relax:.0f}ms requirement"
-        )
+        assert (
+            p99_latency_ms < 50.0 * relax
+        ), f"Concurrent processing P99 {p99_latency_ms:.2f}ms exceeds {50*relax:.0f}ms requirement"
 
 
 # =================================================================================================
@@ -854,7 +889,9 @@ class TestEndToEndBenchmarks:
 @pytest.mark.database
 @pytest.mark.serial
 class TestMessageProcessingBenchmarks:
-    """Benchmarks for message processing and event handling."""
+    """
+    Benchmarks for message processing and event handling.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -867,6 +904,7 @@ class TestMessageProcessingBenchmarks:
         Benchmark message processing rate limits.
 
         Target: >10,000 messages/second.
+
         """
         # Create message queue
         message_queue: deque[Bar] = deque(test_bars[:100])
@@ -885,6 +923,7 @@ class TestMessageProcessingBenchmarks:
 
         # Drive consistent processing across iterations to avoid zero counts
         import time as _time
+
         total_processed = 0
         start = _time.perf_counter()
         for _ in range(100):
@@ -894,9 +933,9 @@ class TestMessageProcessingBenchmarks:
         elapsed = _time.perf_counter() - start
         throughput = total_processed / elapsed
 
-        assert throughput > 10_000, (
-            f"Message processing rate {throughput:.0f}/s below 10,000/s target"
-        )
+        assert (
+            throughput > 10_000
+        ), f"Message processing rate {throughput:.0f}/s below 10,000/s target"
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -908,6 +947,7 @@ class TestMessageProcessingBenchmarks:
         Benchmark event dispatch latency.
 
         Requirement: Event dispatch <100μs.
+
         """
         # Create mock event handlers
         handlers = [Mock() for _ in range(10)]
@@ -917,6 +957,7 @@ class TestMessageProcessingBenchmarks:
         import time as _time
 
         import numpy as _np
+
         durations: list[float] = []
         for _ in range(10_000):
             t0 = _time.perf_counter()
@@ -931,9 +972,9 @@ class TestMessageProcessingBenchmarks:
             relax *= relax_env
         except Exception:
             pass
-        assert p99_us < 100.0 * relax, (
-            f"Event dispatch latency P99 {p99_us:.1f}μs exceeds {100*relax:.0f}μs requirement"
-        )
+        assert (
+            p99_us < 100.0 * relax
+        ), f"Event dispatch latency P99 {p99_us:.1f}μs exceeds {100*relax:.0f}μs requirement"
 
 
 # =================================================================================================
@@ -944,7 +985,9 @@ class TestMessageProcessingBenchmarks:
 @pytest.mark.database
 @pytest.mark.serial
 class TestPerformanceRegression:
-    """Tests to detect performance regressions."""
+    """
+    Tests to detect performance regressions.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -956,8 +999,9 @@ class TestPerformanceRegression:
         """
         Detect performance regressions by comparing against baseline.
 
-        This test maintains a baseline of performance metrics and fails
-        if current performance degrades by more than 10%.
+        This test maintains a baseline of performance metrics and fails if current
+        performance degrades by more than 10%.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -1031,6 +1075,7 @@ class TestPerformanceRegression:
         Detect memory leaks in hot path operations.
 
         Requirement: Memory usage must be stable over extended operation.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -1056,6 +1101,7 @@ class TestPerformanceRegression:
 
         # Measure initial memory
         import psutil
+
         process = psutil.Process()
         initial_memory = process.memory_info().rss
 
@@ -1084,9 +1130,9 @@ class TestPerformanceRegression:
         memory_increase_mb = memory_increase / (1024 * 1024)
 
         # Allow up to 10MB increase (for caches, etc.)
-        assert memory_increase_mb < 10, (
-            f"Memory leak detected: {memory_increase_mb:.1f}MB increase after 10k operations"
-        )
+        assert (
+            memory_increase_mb < 10
+        ), f"Memory leak detected: {memory_increase_mb:.1f}MB increase after 10k operations"
 
 
 # =================================================================================================
@@ -1098,8 +1144,9 @@ def generate_performance_report() -> None:
     """
     Generate a comprehensive performance report.
 
-    This function runs all benchmarks and produces a summary report
-    suitable for documentation and performance tracking.
+    This function runs all benchmarks and produces a summary report suitable for
+    documentation and performance tracking.
+
     """
     print("=" * 80)
     print("ML HOT PATH PERFORMANCE BENCHMARK REPORT")
@@ -1117,6 +1164,7 @@ def generate_performance_report() -> None:
 
     # Run pytest with benchmark plugin
     import subprocess
+
     result = subprocess.run(
         [
             "pytest",

@@ -38,4 +38,3 @@ def test_feature_registry_validate_and_promote(tmp_path: Path) -> None:
     assert ok is True
     promoted = freg.get_feature_set(fid)
     assert promoted is not None and promoted.manifest.stage == FeatureStage.PROD
-

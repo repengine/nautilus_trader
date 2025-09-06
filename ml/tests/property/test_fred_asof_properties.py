@@ -28,9 +28,17 @@ def test_fred_lag_increases_nulls(n_releases: int, n_rows: int, step: int) -> No
     # Build synthetic FRED (single series) and left timestamps
     base_ns = 1_600_000_000_000_000_000
     fred_ts = _timeseries(base_ns, n_releases, step * 5)
-    fred = pl.DataFrame({"timestamp": pl.Series(fred_ts).cast(pl.Datetime("ns")), "series_id": ["S"] * n_releases, "value": list(range(n_releases))})
+    fred = pl.DataFrame(
+        {
+            "timestamp": pl.Series(fred_ts).cast(pl.Datetime("ns")),
+            "series_id": ["S"] * n_releases,
+            "value": list(range(n_releases)),
+        }
+    )
     left_ts = _timeseries(base_ns, n_rows, step)
-    left = pl.DataFrame({"timestamp": pl.Series(left_ts).cast(pl.Datetime("ns")), "x": list(range(n_rows))})
+    left = pl.DataFrame(
+        {"timestamp": pl.Series(left_ts).cast(pl.Datetime("ns")), "x": list(range(n_rows))}
+    )
 
     out0 = join_fred_asof(left, timestamp_col="timestamp", lag_days=0)
     out1 = join_fred_asof(left, timestamp_col="timestamp", lag_days=1)
@@ -42,4 +50,3 @@ def test_fred_lag_increases_nulls(n_releases: int, n_rows: int, step: int) -> No
     for i in range(n_rows):
         if s0[i] is not None and s1[i] is not None:
             assert s0[i] == s1[i]
-
