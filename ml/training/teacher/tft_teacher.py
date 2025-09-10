@@ -85,12 +85,14 @@ class TFTTeacher(BaseTeacher):
         # Local imports to avoid heavy deps at import time
         pl_module: types.ModuleType
         try:  # pragma: no cover - exercised in integration test
+            # Prefer Lightning 2.x when available for better NumPy 2.0 compatibility;
+            # fall back to pytorch_lightning 1.x if necessary.
             try:
-                import lightning.pytorch as _lpl  # Prefer modern import to align class identity
+                import lightning.pytorch as _lpl
 
                 pl_module = _lpl
             except Exception:  # pragma: no cover
-                import pytorch_lightning as _pl  # Fallback alias
+                import pytorch_lightning as _pl
 
                 pl_module = _pl
             import torch
@@ -208,16 +210,17 @@ class TFTTeacher(BaseTeacher):
             except Exception:
                 pass
 
-        callbacks = pl_module.callbacks.EarlyStopping(monitor="val_loss", patience=1)
+        callbacks = None
         accelerator = "gpu" if torch.cuda.is_available() else "cpu"
         self._trainer = pl_module.Trainer(
             max_epochs=self.max_epochs,
             gradient_clip_val=1.0,
             enable_progress_bar=False,
             logger=False,
-            callbacks=callbacks,
+            callbacks=([] if callbacks is None else [callbacks]),
             accelerator=accelerator,
             devices=1,
+            enable_checkpointing=False,
         )
         self._trainer.fit(self._tft, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
@@ -250,18 +253,35 @@ class TFTTeacher(BaseTeacher):
         )
         loader = dataset.to_dataloader(train=False, batch_size=64, num_workers=0)
 
-        # raw mode gives a dict with predictions before activation for BCEWithLogits
-        raw = self._tft.predict(loader, mode="raw")
+        # Use default prediction mode for broader compatibility; convert to logits below
+        raw = self._tft.predict(loader)
         preds = None
-        # Try common keys
-        if isinstance(raw, dict) and "prediction" in raw:
-            preds = raw["prediction"]
+        # Common PF return types: dict, list[dict], tensor/ndarray
+        if isinstance(raw, dict):
+            if "prediction" in raw:
+                preds = raw["prediction"]
+            elif "predictions" in raw:
+                preds = raw["predictions"]
+        elif isinstance(raw, list) and len(raw) > 0:
+            # Concatenate per-batch outputs
+            vals: list[_np.ndarray] = []
+            for item in raw:
+                if isinstance(item, dict) and ("prediction" in item or "predictions" in item):
+                    v = item.get("prediction", item.get("predictions"))
+                    vals.append(_np.asarray(v))
+                else:
+                    vals.append(_np.asarray(item))
+            preds = _np.concatenate(vals, axis=0)
         elif isinstance(raw, _np.ndarray):
             preds = raw
         else:
-            # Fallback: try "predictions" key or attribute
-            if isinstance(raw, dict) and "predictions" in raw:
-                preds = raw["predictions"]
+            try:
+                import torch as _torch  # type: ignore
+
+                if isinstance(raw, _torch.Tensor):
+                    preds = raw.detach().cpu().numpy()
+            except Exception:
+                pass
         if preds is None:
             raise RuntimeError("Unexpected TFT prediction output format")
 

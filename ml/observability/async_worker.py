@@ -109,6 +109,7 @@ class ObservabilityAsyncWorker:
     flush_interval_seconds: float = 5.0
     queue_maxsize: int = 4096
     component_label: str = "obs_async_worker"
+    use_async_db: bool = False
 
     _queue: asyncio.Queue[QueueItem] = field(init=False)
     _task: asyncio.Task[None] | None = field(default=None, init=False)
@@ -283,6 +284,7 @@ class ObservabilityAsyncWorker:
         # Lazy init of sinks to avoid overhead until needed
         file_sink: _Any = None
         db_sink: _Any = None
+        db_async: _Any = None
 
         def _flush_sync() -> None:
             nonlocal file_sink, db_sink
@@ -310,6 +312,26 @@ class ObservabilityAsyncWorker:
                         file_format="jsonl",
                     )
                 file_sink.persist(tables)
+            dur = time.perf_counter() - start
+            self._FLUSH_SEC.labels(sink=self.sink).observe(dur)
+            self._last_flush = time.time()
+
+        async def _flush_async_db() -> None:
+            nonlocal db_async
+            if db_async is None:
+                from ml.observability.async_db_persistence import ObservabilityAsyncDBPersistor
+
+                db_async = ObservabilityAsyncDBPersistor(
+                    connection_string=str(self.db_connection_string or ""),
+                )
+            tables = {
+                "latency": self.service.latency_watermarks_df(),
+                "metrics": self.service.metrics_collection_df(),
+                "correlation": self.service.event_correlation_df(),
+                "health": self.service.health_scores_df(),
+            }
+            start = time.perf_counter()
+            await db_async.persist_async(tables)
             dur = time.perf_counter() - start
             self._FLUSH_SEC.labels(sink=self.sink).observe(dur)
             self._last_flush = time.time()
@@ -384,4 +406,7 @@ class ObservabilityAsyncWorker:
             now = time.time()
             if now - self._last_flush >= float(self.flush_interval_seconds):
                 with contextlib.suppress(Exception):
-                    await asyncio.to_thread(_flush_sync)
+                    if self.sink == "db" and self.use_async_db:
+                        await _flush_async_db()
+                    else:
+                        await asyncio.to_thread(_flush_sync)

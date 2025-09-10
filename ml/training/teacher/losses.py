@@ -19,61 +19,50 @@ Example:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 
 try:  # pragma: no cover - optional heavy dep guard
     import torch
+    from pytorch_forecasting.metrics import MultiHorizonMetric
 except Exception as exc:  # pragma: no cover
-    raise ImportError("PyTorch is required for BCEWithLogitsLossPF") from exc
+    raise ImportError("PyTorch + pytorch-forecasting are required for BCEWithLogitsLossPF") from exc
 
 
-@dataclass
-class BCEWithLogitsLossPF:
+class BCEWithLogitsLossPF(MultiHorizonMetric):  # type: ignore[misc]
     """
-    Binary cross-entropy with logits loss wrapper for PF models.
+    BCE-with-logits loss as a Pytorch Forecasting Metric.
 
-    This class mimics the minimal callable interface expected by
-    :class:`pytorch_forecasting.models.temporal_fusion_transformer.TemporalFusionTransformer`.
+    Implements ``loss(y_pred, target)`` returning element-wise loss (no reduction).
 
     Attributes:
         pos_weight: Optional positive class weight to address imbalance.
-
-    Note:
-        This is a minimal wrapper and does not provide advanced metric logging
-        like :mod:`pytorch_forecasting.metrics`. It is intended for use as the
-        ``loss=`` argument to ``from_dataset``.
-
+        reduction: "mean" (default) or "none" compatible with MultiHorizonMetric.
     """
 
-    pos_weight: float | None = None
-    _loss: torch.nn.modules.loss.BCEWithLogitsLoss | None = None
+    def __init__(self, pos_weight: float | None = None, reduction: str = "mean") -> None:
+        super().__init__(reduction=reduction)
+        self.pos_weight = pos_weight
+        self.register_buffer(
+            "_pos_weight_tensor",
+            (torch.tensor([float(pos_weight)], dtype=torch.float32) if pos_weight is not None else None),
+            persistent=False,
+        )
 
-    def __post_init__(self) -> None:
-        weight: torch.Tensor | None
-        if self.pos_weight is not None:
-            weight = torch.tensor([float(self.pos_weight)], dtype=torch.float32)
+    def loss(self, y_pred: Any, target: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        # Accept either dict outputs (with key 'prediction') or direct tensor outputs
+        if isinstance(y_pred, dict):
+            pred = y_pred["prediction"].float()
         else:
-            weight = None
-        self._loss = torch.nn.BCEWithLogitsLoss(pos_weight=weight)
-
-    def __call__(self, y_pred: Any, y_true: Any) -> torch.Tensor:
-        """
-        Compute BCE-with-logits loss.
-
-        Args:
-            y_pred: Predicted logits (Tensor [..., 1]).
-            y_true: Targets (Tensor [..., 1] or [...]).
-
-        Returns:
-            Scalar loss tensor.
-
-        """
-        yp = torch.as_tensor(y_pred)
-        yt = torch.as_tensor(y_true)
-        if yt.ndim == yp.ndim - 1:
-            yt = yt.unsqueeze(-1)
-        assert self._loss is not None
-        out: torch.Tensor = self._loss(yp.float(), yt.float())
-        return out
+            pred = torch.as_tensor(y_pred).float()
+        tgt = target.float()
+        if tgt.ndim == pred.ndim - 1:
+            tgt = tgt.unsqueeze(-1)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            pred,
+            tgt,
+            weight=None,
+            pos_weight=self._pos_weight_tensor,
+            reduction="none",
+        )
+        return loss

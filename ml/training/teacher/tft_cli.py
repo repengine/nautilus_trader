@@ -238,6 +238,8 @@ def main(argv: list[str] | None = None) -> int:
             z_val_vec = z_all[cutoff:]
             used_tft = True
         except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).exception("TFT training failed; falling back to logistic regression")
             # Fallback: scikit-learn logistic regression as a simple teacher proxy
             from ml._imports import HAS_SKLEARN
 
