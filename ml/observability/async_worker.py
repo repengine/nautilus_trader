@@ -169,6 +169,14 @@ class ObservabilityAsyncWorker:
                 with contextlib.suppress(Exception):
                     await self._task
 
+    def queue_size(self) -> int:
+        """
+        Return current queue size.
+
+        This is a cheap call and safe for status polling.
+        """
+        return int(self._queue.qsize())
+
     # --------------------------- Enqueue API -----------------------------
 
     def enqueue_latency(

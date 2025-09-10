@@ -90,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
         help="component label for metrics",
     )
 
+    p_status = sub.add_parser("status", help="Show observability async worker status")
+
     args = parser.parse_args(argv)
     mgr = object.__new__(MLIntegrationManager)  # lightweight
 
@@ -115,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         for k, cnt in out_db.items():
             print(f"{k}: {cnt}")
         return 0
-    else:  # start
+    elif args.cmd == "start":  # start
         if args.seed_sample:
             _seed_sample(mgr)
         # Async mode: construct ObservabilityConfig and start from config
@@ -149,6 +151,22 @@ def main(argv: list[str] | None = None) -> int:
                 time.sleep(float(args.duration))
                 MLIntegrationManager.stop_observability_flush(mgr)
             return 0
+    else:  # status
+        status = MLIntegrationManager.get_observability_async_status(mgr)
+        running_obj = status.get("running", False)
+        qsize_obj = status.get("queue_size", 0)
+        running = bool(running_obj) if isinstance(running_obj, (bool, int, str)) else False
+        if isinstance(qsize_obj, (int, float)):
+            qsize = int(qsize_obj)
+        elif isinstance(qsize_obj, str):
+            try:
+                qsize = int(qsize_obj)
+            except ValueError:
+                qsize = 0
+        else:
+            qsize = 0
+        print(f"async_worker_running={running} queue_size={qsize}")
+        return 0
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation

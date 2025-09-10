@@ -997,9 +997,31 @@ class MLIntegrationManager:
 
                 # Best-effort stop with small timeout
                 asyncio.run(worker.stop(drain=True, timeout=1.0))
-                self._obs_async_worker = None  # type: ignore[attr-defined]
+                self._obs_async_worker = None
         except Exception:
             return None
+
+    def get_observability_async_status(self) -> dict[str, object]:
+        """
+        Return status of async observability worker if running.
+
+        Returns
+        -------
+        dict[str, object]
+            Mapping with keys:
+            - running: bool
+            - queue_size: int (0 when not running)
+
+        """
+        try:
+            worker = getattr(self, "_obs_async_worker", None)
+            if worker is None:
+                return {"running": False, "queue_size": 0}
+            # Typed at runtime to avoid hard dependency
+            size = getattr(worker, "queue_size", lambda: 0)()
+            return {"running": True, "queue_size": int(size)}
+        except Exception:
+            return {"running": False, "queue_size": 0}
 
     def start_observability_from_env(self) -> None:
         """
