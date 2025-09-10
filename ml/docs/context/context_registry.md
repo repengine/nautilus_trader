@@ -258,6 +258,20 @@ class DataContract:
     metadata: dict[str, Any]
 ```
 
+### Ingestion Backfill Integration
+
+The backfill/orchestration layer integrates with the registry to keep events and watermarks authoritative:
+
+- After each successful backfill window, the orchestrator emits a dataset event with `stage=Stage.DATA_INGESTED`, `source=Source.BACKFILL`, and `status=EventStatus.SUCCESS` via `RegistryProtocol.emit_event`.
+- The orchestrator then advances the dataset watermark for the instrument via `RegistryProtocol.update_watermark(last_success_ns=ts_max)`.
+- Gap detection should be driven by dataset manifests: resolve storage kind/location and timestamp field from `DataRegistry.get_manifest(dataset_id)`, then supply that to a `CoverageProvider` (SQL or catalog) to query actual storage coverage.
+
+See:
+
+- `ml/data/ingest/orchestrator.py` (Registry‑integrated backfill)
+- `ml/stores/protocols.py` (CoverageProviderProtocol)
+- `ml/stores/coverage_sql.py` (SQL implementations targeting the canonical `market_data` table from migration `003_market_data.sql`)
+
 #### Watermark Tracking (`Watermark`)
 
 ```python

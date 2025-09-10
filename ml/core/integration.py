@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
@@ -404,7 +405,7 @@ class MLIntegrationManager:
 
     def _run_migrations(self) -> None:
         """
-        Run all database migrations.
+        Run all database migrations using a robust SQL splitter.
         """
         logger.info("Running database migrations...")
 
@@ -419,24 +420,56 @@ class MLIntegrationManager:
 
         engine = EngineManager.get_engine(self.db_connection)
 
+        # Use the same splitter as the CLI migration runner to respect dollar-quoted bodies
+        try:
+            from ml.scripts.apply_migrations import _split_statements as _splitter
+        except Exception:
+
+            def _splitter(sql: str) -> Iterable[str]:
+                return [s for s in sql.split(";") if s.strip()]
+
         for migration_path in migrations:
             migration_file = Path(migration_path)
-            if migration_file.exists():
-                print(f"Running migration: {migration_path}")
-                with open(migration_file) as f:
-                    sql = f.read()
+            if not migration_file.exists():
+                continue
 
+            logger.info("Applying migration: %s", migration_path)
+            sql = migration_file.read_text(encoding="utf-8")
+            try:
                 with engine.begin() as conn:
-                    # Split by semicolons and execute each statement
-                    # (some drivers don't support multiple statements)
-                    for statement in sql.split(";"):
-                        if statement.strip():
-                            try:
-                                conn.execute(text(statement))
-                            except Exception as e:
-                                # Ignore errors for existing objects
-                                if "already exists" not in str(e):
-                                    logger.warning("Warning in migration %s: %s", migration_path, e)
+                    for statement in _splitter(sql):
+                        try:
+                            conn.execute(text(statement))
+                        except Exception as e:
+                            msg = str(e).lower()
+                            if (
+                                "already exists" in msg
+                                or "does not exist" in msg
+                                or "duplicate" in msg
+                            ):
+                                logger.debug("Migration notice (%s): %s", migration_path, e)
+                            else:
+                                logger.warning("Warning in migration %s: %s", migration_path, e)
+            except Exception as exc:
+                logger.error("Migration failed for %s: %s", migration_path, exc)
+
+        # Best-effort: proactively create current/future partitions so stores operate immediately
+        try:
+            # Call SQL helper if present
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("SELECT auto_create_partitions()"))
+                except Exception:
+                    # Ignore if function not installed; PartitionManager handles below
+                    pass
+
+            if self.partition_manager is None:
+                self._init_partition_manager()
+            if self.partition_manager is not None:
+                stats = self.partition_manager.run_maintenance()
+                logger.info("Partition maintenance: %s", stats)
+        except Exception as exc:
+            logger.warning("Partition maintenance skipped: %s", exc)
 
     def ensure_healthy(self) -> None:
         """

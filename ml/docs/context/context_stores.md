@@ -496,6 +496,18 @@ Gap detection should consult the registry to resolve dataset manifests and use a
 
 See `ml/data/ingest/orchestrator.py` and protocols in `ml/stores/protocols.py`. A SQL implementation is available for Postgres in `ml/stores/coverage_sql.py` (`SqlCoverageProvider`, `SqlMarketDataWriter`) that uses the canonical `market_data` table created by migration `003_market_data.sql`.
 
+Parquet alternative: When using Nautilus `ParquetDataCatalog` for raw data, use `ml/stores/coverage_catalog.py` (`CatalogCoverageProvider`) to compute day-bucket coverage from catalog file intervals. This pairs well with Parquet-based historical workflows while keeping canonical writes in Postgres.
+
+SqlMarketDataWriter field mapping:
+
+- Automatically maps DataFrame columns to canonical fields when present:
+  - Bars (OHLCV): `open`, `high`, `low`, `close`, `volume`
+  - Quotes: `bid`, `ask`, `bid_size`, `ask_size`
+  - Trades: `last`, `trade_count`, `vwap`
+  - Metadata: `quality_flags`, `source` (defaults to `"historical"` if not provided)
+- Always sets `instrument_id`, `ts_event`, `ts_init` (ns). Missing fields remain NULL.
+- Idempotent inserts on `(instrument_id, ts_event)` (Postgres ON CONFLICT, SQLite OR IGNORE).
+
 ## Data Processing Pipeline
 
 ### DataProcessor Architecture

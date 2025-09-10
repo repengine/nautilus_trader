@@ -142,11 +142,12 @@ Post‑Alpha Backlog (Beta and beyond)
   - Complete TFT teacher with export paths and TorchScript adapter; student distiller enhancements (calibration in ONNX, inference smoke tests, registry manifests with schema hash/lineage); HPO/validation hardening (study persistence, failure behavior, validate_inference_compatibility).
 
 - Databento Ingestion & Store Hardening
-  - DELIVERED deterministic fixtures: curated TBBO/L2 MBP‑10/Trades DataFrames with manifests (`schema_hash`, `sha256`).
-  - Adapter contracts: validate mapping to internal schemas; ordering invariants (monotonic sequence/ts), idempotent replay, watermark progression; backpressure + retry semantics.
+- DELIVERED deterministic fixtures: curated TBBO/L2 MBP‑10/Trades DataFrames with manifests (`schema_hash`, `sha256`).
+- Adapter contracts: validate mapping to internal schemas; ordering invariants (monotonic sequence/ts), idempotent replay, watermark progression; backpressure + retry semantics.
 - Live/backfill bridge: resume from offsets/time windows; retry/backoff on rate limits; reconnection semantics; property tests for partial day boundaries and DST.
   - DELIVERED: provider‑agnostic resume/backoff helper with DST‑aware window planning and tests (`DatabentoIngestor`).
-  - Store integration: idempotent writes and dedupe, partitioning verified, BRIN/BTREE index guidance; DataStore contracts remain provider‑agnostic.
+  - DELIVERED: store integration via `SqlMarketDataWriter` + `SqlCoverageProvider` (idempotent writes with ON CONFLICT/OR IGNORE; BRIN guidance) targeting canonical `market_data` (003_market_data.sql); DataStore contracts remain provider‑agnostic.
+  - DELIVERED: gap backfill orchestrator integrated with DataRegistry (events + watermarks) and canonical storage (`ml/data/ingest/orchestrator.py`).
   - DELIVERED observability: ingestion metrics helpers, dashboard row, alerts.
   - Performance: ingestion micro‑benchmarks (CPU, throughput, p95/p99) with budgets and documentation.
   - Acceptance: integration tests pass against offline fixtures; contract/property tests green; dashboards updated; micro‑bench stable within budgets.
@@ -163,8 +164,9 @@ Post‑Alpha Backlog (Beta and beyond)
 Next (Short‑Term)
 
 - Live/Backfill Bridge
-  - Resume from offsets/time windows; rate‑limit backoff/retry; reconnection semantics using `MockDatabentoClient`.
-  - Property tests for partial‑day boundaries and DST; integration examples for resumption.
+  - Bootstrap wiring/CLI: instantiate coverage + writer + registry + ingestor from env; run orchestrator backfill on configured instruments.
+  - Persist IngestState between runs (JSON under `checkpoints/` or minimal DB table); add resume examples.
+  - Optional: service hook (IntegrationManager) to run backfill at startup in `ml_pipeline` container.
 - Ingestion Performance Gates
   - CI micro‑bench for ingestion (P95/P99, CPU); convert to hard gates once stable.
 - Redis Streams End‑to‑End (Optional)

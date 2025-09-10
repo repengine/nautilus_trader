@@ -118,6 +118,43 @@ METRICS_PORT: 8000
 - Pipeline status tracking with error reporting
 - Graceful shutdown handling via signal handlers
 
+**Backfill Bootstrap (Orchestrator)**:
+
+- For canonical market data storage, run a one-time or periodic gap backfill at startup using the orchestrator with SQL coverage + writer implementations.
+- Uses the same `DB_CONNECTION` as other services and the canonical `market_data` table from migration `ml/stores/migrations/003_market_data.sql`.
+
+Example wiring in `entrypoint_pipeline.py`:
+
+```python
+from pathlib import Path
+from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.data.ingest.resume import DatabentoIngestor, IngestState
+from ml.stores.coverage_sql import SqlCoverageProvider, SqlMarketDataWriter
+from ml.registry.data_registry import DataRegistry
+from ml.registry.persistence import PersistenceConfig, BackendType
+
+DB_URL = os.getenv("DB_CONNECTION")
+
+coverage = SqlCoverageProvider(connection_string=DB_URL)
+writer = SqlMarketDataWriter(connection_string=DB_URL)
+registry = DataRegistry(
+    registry_path=Path("/app/registry"),
+    persistence_config=PersistenceConfig(backend=BackendType.POSTGRES, connection_string=DB_URL),
+)
+ingestor = DatabentoIngestor(client=databento_client)
+orch = IngestionOrchestrator(coverage=coverage, writer=writer, registry=registry, ingestor=ingestor)
+
+orch.backfill_gaps(
+    dataset_id=os.getenv("DATABENTO_DATASET", "EQUS.MINI"),
+    schema=os.getenv("DB_SCHEMA", "tbbo"),
+    instrument_id=os.getenv("INSTRUMENT_ID", "SPY.XNAS"),
+    lookback_days=int(os.getenv("BACKFILL_LOOKBACK_DAYS", "7")),
+    state=IngestState(),
+)
+```
+
+Note: For live streaming, attach the client’s write path to `SqlMarketDataWriter` to persist incoming records consistently with backfilled data.
+
 ### Core Trading Services
 
 #### 1. ML Signal Actor Container (`ml_signal_actor`)

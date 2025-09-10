@@ -35,12 +35,16 @@ import sys
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import databento as db
 import pandas as pd
 import polars as pl
 import psutil
 import pyarrow.parquet as pq
+import signal
+import time
+from random import shuffle as _shuffle
 
 
 # Setup logging
@@ -49,6 +53,30 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _load_progress(path: Path) -> dict[str, list[str]]:
+    try:
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return {k: list(map(str, v)) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_progress(path: Path, prog: dict[str, list[str]]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(prog, f)
+        tmp.replace(path)
+    except Exception:
+        # Best effort; don't crash on progress save
+        pass
 
 
 def validate_data_integrity(file_path: Path, symbol: str, expected_date: datetime) -> bool:
@@ -180,64 +208,62 @@ def detect_data_gaps(
 
 def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
     """
-    Merge new daily files with existing L2 data, maintaining chronological order.
+    Merge new daily files with existing L2 data using streaming writes.
+
+    Avoids loading the entire final file into memory.
+
     """
     daily_files = sorted(output_dir.glob(f"{symbol}_mbp10_*.parquet"))
     if not daily_files:
         return
 
     final_file = output_dir / f"{symbol}_mbp-10.parquet"
-    existing_data = None
-
-    # Load existing data if it exists
-    if final_file.exists():
-        try:
-            existing_data = pl.read_parquet(final_file)
-            logger.info(f"Found existing data: {len(existing_data):,} records")
-        except Exception as e:
-            logger.warning(f"Could not read existing data: {e}")
-            existing_data = None
-
-    # Load new daily data
-    new_data_frames = []
-    for daily_file in daily_files:
-        try:
-            df = pl.read_parquet(daily_file)
-            if not df.is_empty():
-                new_data_frames.append(df)
-        except Exception as e:
-            logger.warning(f"Could not read {daily_file}: {e}")
-
-    if not new_data_frames:
-        logger.info("No new data to merge")
-        return
-
-    # Combine all data
-    all_frames = []
-    if existing_data is not None and not existing_data.is_empty():
-        all_frames.append(existing_data)
-    all_frames.extend(new_data_frames)
-
-    # Concatenate and sort by timestamp
-    combined_df = pl.concat(all_frames).sort("ts_event").unique()
-
-    # Write back to final file
     tmp_file = output_dir / f"{symbol}_mbp-10.tmp.parquet"
-    try:
-        combined_df.write_parquet(tmp_file)
-        tmp_file.replace(final_file)
 
-        # Clean up daily files
-        for daily_file in daily_files:
+    def _append_files_to_writer(
+        writer: pq.ParquetWriter | None,
+        files: list[Path],
+    ) -> pq.ParquetWriter | None:
+        for file in files:
             try:
-                daily_file.unlink()
+                pf = pq.ParquetFile(file)
+                if writer is None:
+                    writer = pq.ParquetWriter(tmp_file, pf.schema_arrow)
+                for rg in range(pf.num_row_groups or 1):
+                    table = pf.read_row_group(rg) if pf.num_row_groups else pf.read()
+                    # Ensure column order matches writer schema
+                    if writer.schema and table.schema != writer.schema:
+                        table = table.select(writer.schema.names)
+                    writer.write_table(table)
+            except Exception as e:
+                logger.error(f"  Error appending {file.name}: {e}")
+                continue
+        return writer
+
+    writer: pq.ParquetWriter | None = None
+    try:
+        # Append existing final first (if present), then new daily files
+        if final_file.exists():
+            writer = _append_files_to_writer(writer, [final_file])
+        writer = _append_files_to_writer(writer, daily_files)
+        if writer is not None:
+            writer.close()
+        # Replace final atomically
+        tmp_file.replace(final_file)
+        # Cleanup daily files
+        for file in daily_files:
+            try:
+                file.unlink()
             except OSError:
                 pass
-
         size_mb = final_file.stat().st_size / (1024 * 1024)
-        logger.info(f"Merged data: {len(combined_df):,} records, {size_mb:.1f} MB")
-
+        logger.info(f"Merged data (streaming): {size_mb:.1f} MB -> {final_file.name}")
     except Exception as e:
+        try:
+            if writer is not None:
+                writer.close()
+        except Exception:
+            pass
         if tmp_file.exists():
             try:
                 tmp_file.unlink()
@@ -552,6 +578,12 @@ def main():
         help="Data directory",
     )
     parser.add_argument(
+        "--progress-file",
+        type=Path,
+        default=Path("data/tier1/.l2_progress.json"),
+        help="Path to JSON progress file for resume",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         default=True,
@@ -569,6 +601,30 @@ def main():
         "--force",
         action="store_true",
         help="Re-download all data, ignoring existing files",
+    )
+    parser.add_argument(
+        "--max-symbols",
+        type=int,
+        default=None,
+        help="Limit number of symbols processed in this run",
+    )
+    parser.add_argument(
+        "--symbol-offset",
+        type=int,
+        default=0,
+        help="Start offset into the symbol list (for sharding)",
+    )
+    parser.add_argument(
+        "--shuffle",
+        action="store_true",
+        help="Shuffle symbol order to spread progress",
+    )
+    parser.add_argument("--rate-limit", type=int, default=60, help="API calls per minute throttle")
+    parser.add_argument(
+        "--sleep-between-symbols",
+        type=float,
+        default=0.0,
+        help="Seconds to sleep between symbols (reduce burstiness)",
     )
 
     args = parser.parse_args()
@@ -603,15 +659,43 @@ def main():
         end_date = datetime.now() - timedelta(days=1)
         start_date = end_date - timedelta(days=args.days - 1)
 
-    logger.info(f"Downloading L2 data for {len(symbols)} symbols")
+    # Optional sharding
+    symbols_work = list(symbols)
+    if args.shuffle:
+        _shuffle(symbols_work)
+    if args.symbol_offset:
+        symbols_work = symbols_work[args.symbol_offset :]
+    if args.max_symbols is not None:
+        symbols_work = symbols_work[: max(0, int(args.max_symbols))]
+
+    logger.info(f"Downloading L2 data for {len(symbols_work)} symbols")
     logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
     logger.info("=" * 50)
 
     total_records = 0
     total_size_mb = 0
 
-    for i, symbol in enumerate(symbols, 1):
-        logger.info(f"\n[{i}/{len(symbols)}] Processing {symbol}...")
+    # Progress and signal handling
+    progress_path: Path = args.progress_file
+    progress: dict[str, list[str]] = _load_progress(progress_path)
+    _terminate: dict[str, bool] = {"stop": False}
+
+    def _handle_sig(_signum: int, _frame: Any) -> None:
+        _terminate["stop"] = True
+        _save_progress(progress_path, progress)
+        logger.info("Received termination signal; progress saved.")
+
+    try:
+        signal.signal(signal.SIGTERM, _handle_sig)
+        signal.signal(signal.SIGINT, _handle_sig)
+    except Exception:
+        pass
+
+    min_interval = 60.0 / max(1, int(args.rate_limit))
+    last_call_ts = 0.0
+
+    for i, symbol in enumerate(symbols_work, 1):
+        logger.info(f"\n[{i}/{len(symbols_work)}] Processing {symbol}...")
 
         # Create output directory
         output_dir = args.data_dir / symbol / "l2"
@@ -620,7 +704,7 @@ def main():
         final_file = output_dir / f"{symbol}_mbp-10.parquet"
 
         # Handle force mode or gap detection
-        dates_to_download = []
+        dates_to_download: list[datetime] = []
 
         if args.force:
             # Force mode: download all dates
@@ -632,8 +716,16 @@ def main():
                 except OSError:
                     pass
         elif args.check_gaps:
-            # Gap detection mode: find missing dates
-            dates_to_download = detect_data_gaps(symbol, output_dir, start_date, end_date)
+            # Prefer progress-based gap detection to avoid loading large files
+            done_dates = set(progress.get(symbol, []))
+            if done_dates:
+                expected = get_business_dates(start_date, end_date)
+                dates_to_download = [
+                    d for d in expected if d.strftime("%Y-%m-%d") not in done_dates
+                ]
+            else:
+                # Fallback: inspect existing files
+                dates_to_download = detect_data_gaps(symbol, output_dir, start_date, end_date)
             if not dates_to_download:
                 if final_file.exists():
                     size_mb = final_file.stat().st_size / (1024 * 1024)
@@ -655,9 +747,25 @@ def main():
 
         # Download only the dates we need
         symbol_records = 0
+        done_dates = set(progress.get(symbol, []))
         for date in dates_to_download:
+            if _terminate["stop"]:
+                break
+            date_iso = date.strftime("%Y-%m-%d")
+            if date_iso in done_dates:
+                logger.info(f"  {date.date()}: already completed (progress file)")
+                continue
+            # Throttle
+            now = time.time()
+            elapsed = now - last_call_ts
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
             records = download_l2_daily(client, symbol, date, output_dir)
+            last_call_ts = time.time()
             symbol_records += records
+            if records > 0:
+                progress.setdefault(symbol, []).append(date_iso)
+                _save_progress(progress_path, progress)
 
         # Combine/merge files
         if symbol_records > 0:
@@ -674,6 +782,8 @@ def main():
 
         total_records += symbol_records
         logger.info(f"  Downloaded: {symbol_records:,} new records")
+        if args.sleep_between_symbols > 0:
+            time.sleep(float(args.sleep_between_symbols))
 
     logger.info("\n" + "=" * 50)
     logger.info(f"COMPLETE: {total_records:,} total records, {total_size_mb:.1f} MB")

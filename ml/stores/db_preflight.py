@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from typing import Any
 
 from sqlalchemy import text
 
@@ -32,13 +33,60 @@ PARTITIONED_TABLES = [
 ]
 
 
+def _ensure_helper_functions(conn: Any) -> None:
+    """
+    Ensure helper functions exist (idempotent).
+    """
+    # create_monthly_partitions is used by migrations and tests
+    try:
+        exists = conn.execute(
+            text("SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname='create_monthly_partitions')"),
+        ).scalar()
+        if not bool(exists):
+            conn.execute(
+                text(
+                    """
+CREATE OR REPLACE FUNCTION create_monthly_partitions(
+    table_name TEXT,
+    start_date DATE,
+    num_months INTEGER
+)
+RETURNS VOID AS $$
+DECLARE
+    partition_date DATE;
+    partition_name TEXT;
+    start_ns BIGINT;
+    end_ns BIGINT;
+BEGIN
+    FOR i IN 0..num_months-1 LOOP
+        partition_date := start_date + (i || ' months')::INTERVAL;
+        partition_name := table_name || '_' || TO_CHAR(partition_date, 'YYYY_MM');
+        start_ns := EXTRACT(EPOCH FROM partition_date) * 1000000000;
+        end_ns := EXTRACT(EPOCH FROM partition_date + '1 month'::INTERVAL) * 1000000000;
+        EXECUTE format(
+            'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+            partition_name, table_name, start_ns, end_ns
+        );
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+                    """,
+                ),
+            )
+            conn.commit()
+    except Exception:
+        # Proceed; partition checks will surface issues
+        pass
+
+
 def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
     """
-    Run preflight checks and return a status summary.
+    Run preflight checks with best-effort remediation and return a status summary.
 
     Checks:
-    - Required SQL functions exist
+    - Required SQL functions exist (update_watermark, emit_data_event)
     - Current-month partition exists for partitioned tables
+    - If partitions are missing, attempt to create via auto_create_partitions()
 
     """
     engine = EngineManager.get_engine(connection_string)
@@ -46,6 +94,9 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
 
     try:
         with engine.connect() as conn:
+            # Ensure helper exists for partition creation
+            _ensure_helper_functions(conn)
+
             # Check functions
             for fn in REQUIRED_FUNCTIONS:
                 exists = conn.execute(
@@ -67,6 +118,7 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
             # Check current month partitions
             today = date.today()
             part_suffix = f"_{today.year:04d}_{today.month:02d}"
+            missing_any = False
             for table in PARTITIONED_TABLES:
                 partition_name = table + part_suffix
                 exists = conn.execute(
@@ -85,6 +137,29 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
                 if not exists:
                     summary["ok"] = False
                     logger.warning("DB preflight: missing partition %s", partition_name)
+                    missing_any = True
+
+            # Attempt remediation if partitions missing
+            if missing_any:
+                try:
+                    conn.execute(text("SELECT auto_create_partitions()"))
+                    conn.commit()
+                    # Re-verify
+                    today2 = date.today()
+                    suffix2 = f"_{today2.year:04d}_{today2.month:02d}"
+                    for table in PARTITIONED_TABLES:
+                        pname = table + suffix2
+                        ok2 = conn.execute(
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename=:n)",
+                            ),
+                            {"n": pname},
+                        ).scalar()
+                        summary[f"partition:{pname}"] = bool(ok2)
+                        if not ok2:
+                            summary["ok"] = False
+                except Exception as exc:
+                    logger.warning("Partition remediation failed: %s", exc)
 
     except Exception as e:
         logger.error("DB preflight failed: %s", e)

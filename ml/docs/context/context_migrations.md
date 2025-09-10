@@ -121,6 +121,18 @@ migrations = [
 - Pre-created test partitions for common timestamp ranges
 - Idempotent partition creation with conflict handling
 
+### Market Data Table (`003_market_data.sql`)
+
+Defines the canonical `market_data` table used for raw market data persistence.
+
+- Primary key on `(instrument_id, ts_event)` with BRIN index on `ts_event` for efficient range scans
+- Nanosecond `ts_event` and `ts_init` fields aligned with Nautilus conventions
+- Referenced by `ml/stores/coverage_sql.py` implementations:
+  - `SqlCoverageProvider` computes day‑bucket coverage directly from this table
+  - `SqlMarketDataWriter` performs idempotent inserts for backfilled/live data (Postgres ON CONFLICT, SQLite OR IGNORE)
+
+Ensure this migration is applied in any environment where the orchestrator backfill runs.
+
 ### Data Registry (`004_data_registry.sql`)
 
 **Comprehensive Data Lineage**:

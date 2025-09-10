@@ -323,38 +323,50 @@ Tests:
 
 ## Streaming + Gap Backfill Orchestration
 
-At process startup, orchestrate two paths:
+At process startup, orchestrate two complementary paths:
 
-- Live streaming: attach a streaming client that writes incoming records to the market data store (`MarketDataStore.write_df`).
-- Gap backfill: detect day‑bucket gaps within a lookback window and backfill via `DatabentoIngestor`.
+- Live streaming: attach a streaming client that writes incoming records through a `MarketDataWriterProtocol` to canonical storage.
+- Gap backfill: detect missing UTC day buckets via a `CoverageProviderProtocol` and backfill each window using `DatabentoIngestor`.
 
-The orchestrator (`ml.data.ingest.orchestrator.IngestionOrchestrator`) implements provider‑agnostic gap detection against a simple store and backfills missing UTC day buckets:
+The orchestrator (`ml.data.ingest.orchestrator.IngestionOrchestrator`) wires these pieces together and integrates with the registry for events + watermarks:
 
 ```python
+from pathlib import Path
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor, IngestState
-from ml.stores.market_data_store import MarketDataStore
+from ml.stores.coverage_sql import SqlCoverageProvider, SqlMarketDataWriter
+from ml.registry.data_registry import DataRegistry
+from ml.registry.persistence import PersistenceConfig, BackendType
 
-store = MarketDataStore(connection_string="sqlite:///./md.db")
+DB_URL = "postgresql://postgres:postgres@localhost:5433/nautilus"  # or $DB_CONNECTION
+
+coverage = SqlCoverageProvider(connection_string=DB_URL, table_name="market_data", ts_field="ts_event")
+writer = SqlMarketDataWriter(connection_string=DB_URL, table_name="market_data")
+registry = DataRegistry(
+    registry_path=Path("/tmp/registry"),
+    persistence_config=PersistenceConfig(backend=BackendType.POSTGRES, connection_string=DB_URL),
+)
+
 ingestor = DatabentoIngestor(client=databento_like_client)
-orch = IngestionOrchestrator(store=store, ingestor=ingestor)
+orch = IngestionOrchestrator(coverage=coverage, writer=writer, registry=registry, ingestor=ingestor)
 state = IngestState()
 
 # Backfill gaps in the last 7 days for an instrument
 gaps = orch.backfill_gaps(
-    dataset="GLBX.MDP3", schema="tbbo", instrument="ES-USD-FUT.CME", lookback_days=7, state=state
+    dataset_id="GLBX.MDP3", schema="tbbo", instrument_id="ES-USD-FUT.CME", lookback_days=7, state=state
 )
 
-# Live path integration hook (attach streaming client)
+# Live path integration hook (attach streaming client that writes via `writer`)
 orch.start_live()
 ```
 
 Tests:
 
 - Gap detection + backfill: `ml/tests/unit/ingest/test_orchestrator_backfill.py`
-- Store coverage abstraction: `ml/stores/market_data_store.py` (SQLite fallback for dev/tests)
-- **Performance**: Week-based schedule fetching for efficiency
-- **API**: Holiday list generation, supported exchange enumeration, and cache management
+- Retry/resume: `ml/tests/unit/ingest/test_resume_backoff.py`
+- DST window planning: `ml/tests/property/test_window_planner_dst.py`
+
+SQL implementations for Postgres are provided in `ml/stores/coverage_sql.py` and use the canonical `market_data` table created by migration `ml/stores/migrations/003_market_data.sql`. If your raw layer is a Nautilus `ParquetDataCatalog`, you can use `ml/stores/coverage_catalog.py` (`CatalogCoverageProvider`) to derive gap coverage from catalog file intervals.
 
 ### 7. FRED Economic Data Integration (`loaders/fred_loader.py`)
 
