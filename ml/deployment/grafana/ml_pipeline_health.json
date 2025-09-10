@@ -1116,6 +1116,30 @@
       "targets": [ { "expr": "nautilus_ml_observability_queue_depth{component=\"obs_async_worker\"}", "refId": "A" } ],
       "title": "Async Queue Depth",
       "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Async worker queue depth over time",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "showPoints": "never"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 53 },
+      "id": 109,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [ { "expr": "nautilus_ml_observability_queue_depth{component=\\"obs_async_worker\\"}", "refId": "A" } ],
+      "title": "Async Queue Depth (Timeseries)",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",

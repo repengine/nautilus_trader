@@ -4,6 +4,7 @@ import types
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+from typing import Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -295,3 +296,84 @@ class TFTTeacher(BaseTeacher):
 
     def feature_schema(self) -> dict[str, str]:
         return dict.fromkeys(self.time_varying_unknown_reals, "float32")
+
+    # Optional convenience: predict logits with aligned targets using PF return_x
+    def predict_logits_with_targets(self, df: Any) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        if not self._is_fitted or self._tft is None:
+            raise RuntimeError("TFTTeacher must be fitted before prediction")
+
+        try:
+            import numpy as _np
+            from pytorch_forecasting import TimeSeriesDataSet
+        except Exception as exc:  # pragma: no cover
+            raise ImportError("pytorch-forecasting is required for prediction") from exc
+
+        if not HAS_PANDAS:
+            check_ml_dependencies(["pandas"])  # pragma: no cover
+        assert pd is not None
+        df = pd.DataFrame(df).copy()
+
+        training = self._training_dataset
+        assert training is not None
+        dataset = TimeSeriesDataSet.from_dataset(
+            training,
+            df,
+            predict=True,
+            stop_randomization=True,
+        )
+        loader = dataset.to_dataloader(train=False, batch_size=64, num_workers=0)
+
+        out = self._tft.predict(loader, return_x=True)
+        preds_any = None
+        x_any = None
+        # Handle common return structures: tuple(preds, x) or list of tuples
+        if isinstance(out, tuple) and len(out) == 2:
+            preds_any, x_any = out
+        elif isinstance(out, list) and len(out) > 0:
+            first = out[0]
+            if isinstance(first, tuple) and len(first) == 2:
+                preds_list = []
+                y_list = []
+                for preds_i, x_i in out:
+                    preds_list.append(_np.asarray(preds_i))
+                    # x_i may be a dict with decoder_target
+                    if isinstance(x_i, dict):
+                        y_i = x_i.get("decoder_target") or x_i.get("target")
+                    else:
+                        y_i = getattr(x_i, "decoder_target", None)
+                    if y_i is None:
+                        raise RuntimeError("Unable to locate decoder_target in PF return_x output")
+                    y_list.append(_np.asarray(y_i))
+                preds = _np.concatenate(preds_list, axis=0)
+                y = _np.concatenate(y_list, axis=0)
+                # Convert to logits if probabilities
+                arr: npt.NDArray[_np.float64] = _np.asarray(preds, dtype=_np.float64).reshape(-1)
+                if _np.all(arr >= 0.0) and _np.all(arr <= 1.0):
+                    eps = 1e-6
+                    p = _np.clip(arr, eps, 1.0 - eps)
+                    arr = _np.log(p / (1.0 - p))
+                y_arr: npt.NDArray[_np.float64] = _np.asarray(y, dtype=_np.float64).reshape(-1)
+                return arr.astype(_np.float64), y_arr.astype(_np.float64)
+        else:
+            preds_any = out
+            x_any = None
+
+        preds_np = _np.asarray(preds_any)
+        # Extract decoder_target if available
+        y_np = None
+        if x_any is not None:
+            if isinstance(x_any, dict):
+                y_np = x_any.get("decoder_target") or x_any.get("target")
+            else:
+                y_np = getattr(x_any, "decoder_target", None)
+        if y_np is None:
+            # As a fallback, cannot align targets — raise for caller to degrade gracefully
+            raise RuntimeError("predict_logits_with_targets could not extract decoder_target")
+
+        arr: npt.NDArray[_np.float64] = _np.asarray(preds_np, dtype=_np.float64).reshape(-1)
+        if _np.all(arr >= 0.0) and _np.all(arr <= 1.0):
+            eps = 1e-6
+            p = _np.clip(arr, eps, 1.0 - eps)
+            arr = _np.log(p / (1.0 - p))
+        y_arr: npt.NDArray[_np.float64] = _np.asarray(y_np, dtype=_np.float64).reshape(-1)
+        return arr.astype(_np.float64), y_arr.astype(_np.float64)

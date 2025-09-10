@@ -482,29 +482,47 @@ benchmark-ml:  #-- Run ML performance benchmarks manually
 
 #== ML Deployment (Docker Compose)
 
+.PHONY: _compose_args
+_compose_args:
+	@true
+
+# Compose files (include override if present)
+COMPOSE_BASE=ml/deployment/docker-compose.yml
+COMPOSE_OVERRIDE=ml/deployment/docker-compose.override.yml
+ifneq (,$(wildcard $(COMPOSE_OVERRIDE)))
+COMPOSE_ARGS=-f $(COMPOSE_BASE) -f $(COMPOSE_OVERRIDE)
+else
+COMPOSE_ARGS=-f $(COMPOSE_BASE)
+endif
+
 .PHONY: ml-up
 ml-up:  #-- Bring up ML stack (postgres, redis, ml_pipeline, grafana, prometheus)
 	$(info $(M) Starting ML stack with Docker Compose (project name 'ml')...)
-	docker compose -f ml/deployment/docker-compose.yml up -d
+	docker compose $(COMPOSE_ARGS) up -d
+
+.PHONY: ml-up-core
+ml-up-core:  #-- Bring up core ML services without building optional images
+	$(info $(M) Starting core ML services (postgres, redis, ml_pipeline, grafana, prometheus) -- no build...)
+	docker compose $(COMPOSE_ARGS) up -d --no-build postgres redis ml_pipeline prometheus grafana
 
 .PHONY: ml-down
 ml-down:  #-- Bring down ML stack and remove volumes
 	$(info $(M) Stopping ML stack and removing volumes...)
-	docker compose -f ml/deployment/docker-compose.yml down -v
+	docker compose $(COMPOSE_ARGS) down -v
 
 .PHONY: ml-logs
 ml-logs:  #-- Tail logs for ml_pipeline service (CTRL-C to exit)
 	$(info $(M) Tailing ml_pipeline logs...)
-	docker compose -f ml/deployment/docker-compose.yml logs -f ml_pipeline
+	docker compose $(COMPOSE_ARGS) logs -f ml_pipeline
 
 .PHONY: ml-ps
 ml-ps:  #-- Show status of ML services
-	docker compose -f ml/deployment/docker-compose.yml ps
+	docker compose $(COMPOSE_ARGS) ps
 
 .PHONY: ml-migrate
 ml-migrate:  #-- Apply ML database migrations via docker compose exec
 	$(info $(M) Applying ML DB migrations via docker compose exec postgres...)
-	uv run --active --no-sync python -m ml.deployment.migrations --apply --compose-file ml/deployment/docker-compose.yml
+	uv run --active --no-sync python -m ml.deployment.migrations --apply --compose-file $(COMPOSE_BASE)
 
 #== CLI Tools
 
