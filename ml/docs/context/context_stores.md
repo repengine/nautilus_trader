@@ -485,6 +485,17 @@ Notes
 - When using SQLite, quote the `"values"` column in ad‑hoc SELECTs due to SQL keyword conflicts; the write path already quotes correctly.
 - For Postgres, BRIN over `ts_event` plus the unique key `(feature_set_id, instrument_id, ts_event)` supports efficient range scans and idempotency guarantees.
 
+### Coverage & Backfill Integration
+
+Gap detection should consult the registry to resolve dataset manifests and use a CoverageProvider to detect missing UTC day buckets within a lookback window. The orchestrator coordinates:
+
+- `CoverageProviderProtocol`: `read_bucket_coverage(dataset_id, schema, instrument_id, start_ns, end_ns) -> set[int]`
+- `DatabentoIngestor`: retries, resume, metrics for each backfilled window
+- `MarketDataWriterProtocol`: writes backfilled rows to the canonical storage for the dataset (location derived from manifest)
+- `RegistryProtocol`: emits events (`Stage.DATA_INGESTED`) and updates watermarks after each successful window
+
+See `ml/data/ingest/orchestrator.py` and protocols in `ml/stores/protocols.py`. A SQL implementation is available for Postgres in `ml/stores/coverage_sql.py` (`SqlCoverageProvider`, `SqlMarketDataWriter`) that uses the canonical `market_data` table created by migration `003_market_data.sql`.
+
 ## Data Processing Pipeline
 
 ### DataProcessor Architecture

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC
 from datetime import datetime
+from pathlib import Path as _Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -20,6 +21,8 @@ from ml._imports import pd
 from ml._imports import pl
 from ml.config.base import MLFeatureConfig
 from ml.data.catalog_utils import bars_to_dataframe
+from ml.data.l2_cache import L2MinuteCache
+from ml.data.micro_cache import MicroMinuteCache
 from ml.data.providers.utils import cyclic_encode
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
@@ -541,8 +544,6 @@ class TFTDatasetBuilder:
                 if df.is_empty():
                     # Fallback: read OHLCV minute parquet directly under base dir
                     try:
-                        from pathlib import Path as _Path
-
                         base = _Path(self.micro_base_dir or "data/tier1")
                         paths = [
                             base / symbol / "ohlcv-1m_historical.parquet",
@@ -583,14 +584,14 @@ class TFTDatasetBuilder:
                                                 try:
                                                     part = part.with_columns(
                                                         pl.col("timestamp").dt.convert_time_zone(
-                                                            "UTC"
+                                                            "UTC",
                                                         ),
                                                     )
                                                 except Exception:
                                                     try:
                                                         part = part.with_columns(
                                                             pl.col("timestamp").cast(
-                                                                pl.Datetime("ns", "UTC")
+                                                                pl.Datetime("ns", "UTC"),
                                                             ),
                                                         )
                                                     except Exception:
@@ -625,7 +626,7 @@ class TFTDatasetBuilder:
                                             try:
                                                 part = part.with_columns(
                                                     pl.col("timestamp").cast(
-                                                        pl.Datetime("ns", "UTC")
+                                                        pl.Datetime("ns", "UTC"),
                                                     ),
                                                 )
                                             except Exception:

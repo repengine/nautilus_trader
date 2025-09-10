@@ -320,6 +320,39 @@ Tests:
 
 - Backoff + resume: `ml/tests/unit/ingest/test_resume_backoff.py`
 - DST window planning: `ml/tests/property/test_window_planner_dst.py`
+
+## Streaming + Gap Backfill Orchestration
+
+At process startup, orchestrate two paths:
+
+- Live streaming: attach a streaming client that writes incoming records to the market data store (`MarketDataStore.write_df`).
+- Gap backfill: detect day‑bucket gaps within a lookback window and backfill via `DatabentoIngestor`.
+
+The orchestrator (`ml.data.ingest.orchestrator.IngestionOrchestrator`) implements provider‑agnostic gap detection against a simple store and backfills missing UTC day buckets:
+
+```python
+from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.data.ingest.resume import DatabentoIngestor, IngestState
+from ml.stores.market_data_store import MarketDataStore
+
+store = MarketDataStore(connection_string="sqlite:///./md.db")
+ingestor = DatabentoIngestor(client=databento_like_client)
+orch = IngestionOrchestrator(store=store, ingestor=ingestor)
+state = IngestState()
+
+# Backfill gaps in the last 7 days for an instrument
+gaps = orch.backfill_gaps(
+    dataset="GLBX.MDP3", schema="tbbo", instrument="ES-USD-FUT.CME", lookback_days=7, state=state
+)
+
+# Live path integration hook (attach streaming client)
+orch.start_live()
+```
+
+Tests:
+
+- Gap detection + backfill: `ml/tests/unit/ingest/test_orchestrator_backfill.py`
+- Store coverage abstraction: `ml/stores/market_data_store.py` (SQLite fallback for dev/tests)
 - **Performance**: Week-based schedule fetching for efficiency
 - **API**: Holiday list generation, supported exchange enumeration, and cache management
 

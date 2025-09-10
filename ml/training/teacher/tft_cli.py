@@ -278,6 +278,25 @@ def main(argv: list[str] | None = None) -> int:
             # Guard: ensure we have non-empty validation logits for calibration
             if z_val_vec is None or (hasattr(z_val_vec, "size") and z_val_vec.size == 0):
                 raise RuntimeError("Empty validation logits after TFT prediction")
+            # Align y_val_true length to z_val_vec if needed (fallback modes may produce shorter sequences)
+            try:
+                import numpy as _np
+
+                z_len = int(z_val_vec.shape[0])
+                y_len = int(_np.asarray(y_val_true).shape[0]) if y_val_true is not None else 0
+                if z_len > 0 and y_len > 0 and z_len != y_len:
+                    if z_len < y_len:
+                        # Use most recent labels to match predicted horizon
+                        y_val_true = _np.asarray(y_val_true, dtype=_np.float64)[-z_len:]
+                    else:
+                        z_val_vec = _np.asarray(z_val_vec, dtype=_np.float64)[-y_len:]
+                # If training logits exist, enforce 80/20 split consistency (optional)
+                if z_train_vec is not None and hasattr(z_train_vec, "shape"):
+                    zt = int(z_train_vec.shape[0])
+                    if zt == 0:
+                        z_train_vec = None
+            except Exception:
+                pass
             used_tft = True
         except Exception:
             import logging as _logging

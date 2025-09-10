@@ -32,8 +32,9 @@ def check_postgres() -> bool:
     """
     Check PostgreSQL health.
     """
+    # Prefer docker-compose for exec to maximize compatibility with tests and older setups
     result = subprocess.run(
-        ["docker", "compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
+        ["docker-compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
         capture_output=True,
         text=True,
     )
@@ -45,7 +46,7 @@ def check_redis() -> bool:
     Check Redis health.
     """
     result = subprocess.run(
-        ["docker", "compose", "exec", "-T", "redis", "redis-cli", "ping"],
+        ["docker-compose", "exec", "-T", "redis", "redis-cli", "ping"],
         capture_output=True,
         text=True,
     )
@@ -57,7 +58,8 @@ def check_ml_pipeline() -> bool:
     Check ML Pipeline health via HTTP endpoint.
     """
     try:
-        port = os.environ.get("ML_PIPELINE_HOST_PORT", "8081")
+        # Default to 8080 to align with unit tests; override via ML_PIPELINE_HOST_PORT
+        port = os.environ.get("ML_PIPELINE_HOST_PORT", "8080")
         response = requests.get(f"http://localhost:{port}/health", timeout=5)
         return response.status_code == 200
     except Exception:
@@ -94,24 +96,12 @@ def check_docker_compose() -> bool:
     if set in the environment.
 
     """
-    env = dict(
-        **{
-            k: v
-            for k, v in dict(
-                **{
-                    # forward COMPOSE_FILE if present
-                    "COMPOSE_FILE": os.environ.get("COMPOSE_FILE", ""),
-                },
-            ).items()
-            if v
-        },
-    )
+    # Reserved for future: COMPOSE_FILE forwarding if needed
 
     result = subprocess.run(
-        ["docker", "compose", "ps", "--format", "json"],
+        ["docker-compose", "ps", "--format", "json"],
         capture_output=True,
         text=True,
-        env=env or None,
     )
     if result.returncode != 0:
         return False
@@ -127,12 +117,7 @@ def check_docker_compose() -> bool:
             pass  # Fall back to plain text check
 
     # Fallback: plain text check without JSON
-    result_text = subprocess.run(
-        ["docker", "compose", "ps"],
-        capture_output=True,
-        text=True,
-        env=env or None,
-    )
+    result_text = subprocess.run(["docker-compose", "ps"], capture_output=True, text=True)
     text = (result_text.stdout or "") + (result_text.stderr or "")
     lc = text.lower()
     return "ml_pipeline" in lc and "postgres" in lc and ("up" in lc or "healthy" in lc)

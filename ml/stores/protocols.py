@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+import pandas as pd
+
 
 class BaseStoreProtocol(Protocol):
     def write_batch(self, data: list[Any]) -> None: ...
@@ -105,3 +107,26 @@ class StrategyStoreProtocol(Protocol):
         end_ns: int | None = None,
     ) -> dict[str, int]: ...
     def flush(self) -> None: ...
+
+
+class CoverageProviderProtocol(Protocol):
+    def read_bucket_coverage(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> set[int]: ...
+
+
+class MarketDataWriterProtocol(Protocol):
+    def write(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        df: pd.DataFrame,
+    ) -> int: ...

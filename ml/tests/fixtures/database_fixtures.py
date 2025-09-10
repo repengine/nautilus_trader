@@ -144,7 +144,25 @@ class TestDatabase:
             engine_key = str(self.engine.url)
         except Exception:
             engine_key = "default"
-        if self._schema_initialized or _SCHEMA_INITIALIZED.get(engine_key, False):
+
+        # Detect stale/partial initialization for PostgreSQL and force re-run if needed
+        needs_init = True
+        try:
+            with self.engine.connect() as _conn:
+                probe = _conn.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.routines WHERE routine_name = 'create_monthly_partitions')",
+                    ),
+                ).scalar()
+                # If helper function exists, assume base schema applied
+                needs_init = not bool(probe)
+        except Exception:
+            # On any error, fall back to running initialization
+            needs_init = True
+
+        if (
+            self._schema_initialized or _SCHEMA_INITIALIZED.get(engine_key, False)
+        ) and not needs_init:
             self._schema_initialized = True
             return
 
@@ -162,8 +180,15 @@ class TestDatabase:
                     if "sqlite" in self.connection_string:
                         sql = self._adapt_sql_for_sqlite(sql)
 
-                    # Execute SQL statements
-                    for statement in sql.split(";"):
+                    # Execute SQL statements, respecting dollar-quoted function bodies
+                    try:
+                        from ml.scripts.apply_migrations import _split_statements  # type: ignore
+                    except Exception:
+                        # Fallback simple splitter if import fails
+                        def _split_statements(x: str) -> list[str]:
+                            return [s for s in x.split(";") if s.strip()]
+
+                    for statement in _split_statements(sql):
                         statement = statement.strip()
                         if statement and not statement.startswith("--"):
                             try:
@@ -178,6 +203,51 @@ class TestDatabase:
                                 raise
 
             conn.commit()
+
+            # Ensure helper function exists for PostgreSQL test expectations
+            try:
+                exists = conn.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname='create_monthly_partitions')",
+                    ),
+                ).scalar()
+                if not bool(exists):
+                    conn.execute(
+                        text(
+                            """
+CREATE OR REPLACE FUNCTION create_monthly_partitions(
+    table_name TEXT,
+    start_date DATE,
+    num_months INTEGER
+)
+RETURNS VOID AS $$
+DECLARE
+    partition_date DATE;
+    partition_name TEXT;
+    start_ns BIGINT;
+    end_ns BIGINT;
+BEGIN
+    FOR i IN 0..num_months-1 LOOP
+        partition_date := start_date + (i || ' months')::INTERVAL;
+        partition_name := table_name || '_' || TO_CHAR(partition_date, 'YYYY_MM');
+        start_ns := EXTRACT(EPOCH FROM partition_date) * 1000000000;
+        end_ns := EXTRACT(EPOCH FROM partition_date + '1 month'::INTERVAL) * 1000000000;
+
+        EXECUTE format('
+            CREATE TABLE IF NOT EXISTS %I PARTITION OF %I
+            FOR VALUES FROM (%L) TO (%L)',
+            partition_name, table_name, start_ns, end_ns
+        );
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+                            """,
+                        ),
+                    )
+                    conn.commit()
+            except Exception:
+                # Allow tests to surface specific DB issues
+                pass
 
         self._schema_initialized = True
         _SCHEMA_INITIALIZED[engine_key] = True
