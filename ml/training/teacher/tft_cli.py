@@ -82,6 +82,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--lstm_layers", required=False, type=int, default=1)
     ap.add_argument("--attention_head_size", required=False, type=int, default=2)
     ap.add_argument("--dropout", required=False, type=float, default=0.1)
+    ap.add_argument(
+        "--dataloader_workers",
+        required=False,
+        type=int,
+        default=0,
+        help="Number of DataLoader workers for train/val (default: 0)",
+    )
+    ap.add_argument(
+        "--loss",
+        required=False,
+        choices=["poisson", "bce"],
+        default="poisson",
+        help="Loss function for TFT teacher (default: poisson)",
+    )
     ap.add_argument("--seed", required=False, type=int, default=None)
     ap.add_argument(
         "--static_categoricals",
@@ -188,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
             from ml.training.teacher.tft_teacher import TFTTeacherConfig
 
             teacher_tft = TFTTeacher(
-                TFTTeacherConfig(architecture="TFT"),
+                TFTTeacherConfig(architecture="TFT", loss_name=str(args.loss)),
                 max_encoder_length=args.max_encoder_length,
                 max_prediction_length=args.max_prediction_length,
                 time_varying_unknown_reals=feature_names,
@@ -215,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
                 lstm_layers=args.lstm_layers,
                 attention_head_size=args.attention_head_size,
                 dropout=args.dropout,
+                dataloader_workers=args.dataloader_workers,
             )
             teacher_tft.fit(df)
             z_all = teacher_tft.predict_logits(df_sorted)

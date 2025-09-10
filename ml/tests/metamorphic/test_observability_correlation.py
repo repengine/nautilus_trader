@@ -184,21 +184,26 @@ class TestMetricsAggregationMetamorphic:
         scaled_scores = [item["health_score"] for item in scaled_health_data]
 
         if len(original_scores) > 1:
-            # Metamorphic relation: Relative ordering preserved when not clipped to bounds
-            original_order = sorted(range(len(original_scores)), key=lambda i: original_scores[i])
-            scaled_order = sorted(range(len(scaled_scores)), key=lambda i: scaled_scores[i])
-
-            # Check if scaling factor keeps most values within bounds
+            # Metamorphic relation: Relative ordering preserved for clearly distinct pairs
+            # when not heavily clipped. Allow ties/near-ties to reorder.
             clipped_count = sum(
                 1
                 for score in [s * health_adjustment_factor for s in original_scores]
                 if score < 0.0 or score > 1.0
             )
-
             if clipped_count <= len(original_scores) * 0.3:  # Less than 30% clipped
-                assert (
-                    original_order == scaled_order
-                ), "Health score scaling should preserve component ordering when not heavily clipped"
+                eps = 1e-6
+                for i in range(len(original_scores)):
+                    for j in range(i + 1, len(original_scores)):
+                        di = original_scores[i] - original_scores[j]
+                        dj = scaled_scores[i] - scaled_scores[j]
+                        # Only enforce ordering for pairs with meaningful separation
+                        if abs(di) > eps:
+                            assert (
+                                (dj == 0.0 and abs(di) <= eps)
+                                or (dj > 0 and di > 0)
+                                or (dj < 0 and di < 0)
+                            ), "Health score scaling should preserve pairwise ordering for distinct pairs"
 
         # Metamorphic relation: All scaled scores must remain in valid range
         for score in scaled_scores:

@@ -196,15 +196,22 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         self.strategy_store: StrategyStoreProtocol | None = None
         if self._config.use_strategy_store:
             store_config = self._config.strategy_store_config or {}
-            self.strategy_store = StrategyStore(
-                connection_string=store_config.get(
-                    "connection_string",
-                    "postgresql://postgres:postgres@localhost:5432/nautilus",
-                ),
-                batch_size=store_config.get("batch_size", 100),
-                flush_interval_ms=store_config.get("flush_interval_ms", 1000),
-                clock=self.clock,
-            )
+            try:
+                self.strategy_store = StrategyStore(
+                    connection_string=store_config.get(
+                        "connection_string",
+                        "postgresql://postgres:postgres@localhost:5432/nautilus",
+                    ),
+                    batch_size=store_config.get("batch_size", 100),
+                    flush_interval_ms=store_config.get("flush_interval_ms", 1000),
+                    clock=self.clock,
+                )
+            except Exception:
+                # In test/dev without DB, proceed without a StrategyStore
+                self.log.warning(
+                    "StrategyStore unavailable; proceeding without persistence",
+                )
+                self.strategy_store = None
 
     def on_start(self) -> None:
         """

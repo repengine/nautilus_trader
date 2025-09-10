@@ -30,6 +30,10 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
     file_format: str = "jsonl"
     db_connection_string: str | None = None
     interval_seconds: PositiveFloat = 60.0
+    # Async worker options (optional)
+    async_enabled: bool = False
+    async_queue_maxsize: int = 4096
+    async_component_label: str = "obs_async_worker"
 
     # Environment variable overrides
     _ENV_MAPPING: ClassVar[dict[str, str]] = {
@@ -38,6 +42,9 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
         "file_format": "ML_OBS_FILE_FORMAT",
         "db_connection_string": "ML_OBS_DB_URL",
         "interval_seconds": "ML_OBS_INTERVAL_SECONDS",
+        "async_enabled": "ML_OBS_ASYNC_ENABLE",
+        "async_queue_maxsize": "ML_OBS_ASYNC_QUEUE_MAX",
+        "async_component_label": "ML_OBS_ASYNC_COMPONENT",
     }
 
     @classmethod
@@ -61,6 +68,13 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
                         kwargs[field] = val
                     else:
                         continue
+                elif field == "async_enabled":
+                    kwargs[field] = val.strip().lower() in {"1", "true", "yes", "y", "on"}
+                elif field == "async_queue_maxsize":
+                    try:
+                        kwargs[field] = int(val)
+                    except ValueError:
+                        continue
                 else:
                     kwargs[field] = val
         # Construct with explicit typing for msgspec/NautilusConfig
@@ -83,10 +97,15 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
         )
         inter_obj = kwargs.get("interval_seconds", 60.0)
         interval_val: float = float(inter_obj) if isinstance(inter_obj, (int, float, str)) else 60.0
+        aqm_obj = kwargs.get("async_queue_maxsize", 4096)
+        async_q_val: int = int(aqm_obj) if isinstance(aqm_obj, (int, float, str)) else 4096
         return cls(
             sink=sink_val,
             base_path=base_path_val,
             file_format=file_format_val,
             db_connection_string=db_url_val,
             interval_seconds=interval_val,
+            async_enabled=bool(kwargs.get("async_enabled", False)),
+            async_queue_maxsize=async_q_val,
+            async_component_label=str(kwargs.get("async_component_label", "obs_async_worker")),
         )

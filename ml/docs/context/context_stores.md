@@ -2,80 +2,207 @@
 
 ## Executive Summary
 
-The Nautilus Trader ML stores infrastructure implements a sophisticated four-tier storage architecture consisting of FeatureStore, ModelStore, StrategyStore, and DataStore. This system provides mandatory data persistence for all ML actors with advanced PostgreSQL partitioning, comprehensive data processing pipelines, contract validation, and event tracking. The architecture enforces strict adherence to Nautilus conventions while delivering enterprise-grade performance and reliability.
+The Nautilus Trader ML stores infrastructure implements a sophisticated four-tier storage architecture consisting of FeatureStore, ModelStore, StrategyStore, and DataStore. This production-ready system provides mandatory data persistence for all ML actors with advanced PostgreSQL partitioning, comprehensive data processing pipelines, contract validation, and event tracking. The architecture enforces strict adherence to Nautilus conventions while delivering enterprise-grade performance and reliability.
 
-**📝 ADDITION:** The stores architecture has been enhanced with centralized database engine management through EngineManager, improved message bus integration, and advanced protocol-based interfaces for better type safety and testing.
+**Key Features:**
+
+- **Mandatory 4-Store Integration**: All ML actors must use the complete store quartet via BaseMLInferenceActor
+- **Centralized Engine Management**: Thread-safe singleton EngineManager for connection pooling and lifecycle management
+- **Protocol-Based Architecture**: Structural typing with Protocol classes for type safety and testing compatibility
+- **Progressive Fallback Systems**: PostgreSQL → DummyStore fallback chains for resilience
+- **Message Bus Integration**: Optional real-time event publishing with configurable topics and modes
+- **Advanced Data Processing**: Quality tracking, validation, enrichment, and comprehensive metrics
+- **Intelligent Partitioning**: Time-based partitioning with PartitionManager and disabled race-prone triggers
+- **Contract Validation**: Schema validation with quality scoring, enforcement modes, and preflight checks
+- **Live Data Recording**: Automatic capture and persistence of all market data via LiveDataRecorder
+- **Event-Driven Architecture**: Full integration with registry system for observability and lineage tracking
 
 ## Core Architecture
 
-### The Store Quartet
+### The Mandatory Store Quartet
 
-The ML infrastructure is built around four stores that form the backbone of the data persistence layer:
+The ML infrastructure is built around four stores that form the backbone of the data persistence layer. **Every ML actor MUST inherit from BaseMLInferenceActor** to ensure proper initialization and integration:
 
 ```python
-# Every ML actor MUST use these four mandatory stores
-class BaseMLInferenceActor:
-    def __init__(self):
-        self.feature_store = FeatureStore(connection_string)
-        self.model_store = ModelStore(persistence_config)
-        self.strategy_store = StrategyStore(persistence_config)
-        self.data_store = DataStore(connection_string, registry)  # **✨ ENHANCEMENT:** Added missing data_store
+# BaseMLInferenceActor automatically initializes the mandatory 4-store architecture
+class BaseMLInferenceActor(NautilusActor, MLComponentMixin):
+    """Base class enforcing mandatory 4-store + 4-registry integration."""
 
-# DataStore provides unified facade with validation
-class DataStore:
-    def __init__(self, registry, connection_string):
+    def __init__(self, config: MLActorConfig):
+        super().__init__(config)
+
+        # Automatic store initialization with progressive fallback
+        try:
+            persistence_config = self._create_persistence_config(config)
+
+            # Core stores (mandatory quartet)
+            self.feature_store = FeatureStore(config.db_connection, **store_kwargs)
+            self.model_store = ModelStore(persistence_config=persistence_config)
+            self.strategy_store = StrategyStore(persistence_config=persistence_config)
+            self.data_store = DataStore(persistence_config.connection_string, registry)
+
+            # Registries (mandatory quartet)
+            self.feature_registry = FeatureRegistry(persistence_config)
+            self.model_registry = ModelRegistry(persistence_config)
+            self.strategy_registry = StrategyRegistry(persistence_config)
+            self.data_registry = DataRegistry(persistence_config)
+
+        except Exception as e:
+            # Progressive fallback to DummyStore implementations
+            logger.warning(f"Database unavailable, using DummyStore fallbacks: {e}")
+            self._init_dummy_stores()
+
+# DataStore provides unified facade with comprehensive validation
+class DataStore(MLComponentMixin):
+    """Unified data store facade with contract validation and event emission."""
+
+    def __init__(self, connection_string: str, registry: RegistryProtocol | None = None):
+        # Component stores
         self.feature_store = FeatureStore(connection_string)
         self.model_store = ModelStore(connection_string)
         self.strategy_store = StrategyStore(connection_string)
         self.data_processor = DataProcessor(connection_string)
+
+        # Registry integration with lazy initialization
+        self._registry = registry
+        self._correlation_tracking = True
+        self._enable_publishing = False
+        self._publisher: MessagePublisherProtocol | None = None
 ```
 
 #### FeatureStore (`ml/stores/feature_store.py`)
 
-- **Purpose**: Unified feature computation and storage ensuring training/inference parity
-- **Key Capability**: Uses same FeatureEngineer for both batch (historical) and online (live) computation
-- **Storage**: PostgreSQL table `ml_feature_values` with time-based partitioning
-- **Schema**: Feature values stored as JSONB with instrument_id, ts_event, ts_init (nanoseconds)
-- **Pipeline Integration**: Supports PipelineSpec for declarative feature transformations
-- **Data Registry**: Lazy initialization of DataRegistry for event emission
-- **✨ ENHANCEMENT:** Uses centralized EngineManager for database connections
-- **📝 ADDITION:** Supports both PersistenceConfig and connection_string initialization patterns
-- **📝 ADDITION:** Integrated with message bus publishing for real-time feature updates
+**Purpose**: Unified feature computation and storage ensuring training/inference parity through shared FeatureEngineer
+
+**Core Architecture**:
+
+- **Computation Engine**: Uses identical FeatureEngineer for batch (historical) and online (live) computation
+- **Storage Backend**: PostgreSQL table `ml_feature_values` with monthly time-based partitioning
+- **Schema Design**: Feature values stored as JSONB with mandatory instrument_id, ts_event, ts_init (nanoseconds)
+- **Dual Pipeline Support**:
+  - Offline (L1_L2): Full microstructure and trade-flow features for training
+  - Online (L1_ONLY): OHLCV-only features for live inference
+
+**Integration Capabilities**:
+
+- **Registry Integration**: Lazy DataRegistry initialization for event emission and watermark tracking
+- **Engine Management**: Centralized EngineManager with thread-safe connection pooling
+- **Message Bus Publishing**: Optional real-time feature updates with configurable publish modes
+- **Pipeline Specifications**: Declarative PipelineSpec support for feature transformations
+- **Indicator Management**: Internal IndicatorManager cache for stateful indicators
+
+**Performance Features**:
+
+- **Timestamp Normalization**: Defensive conversion of seconds/milliseconds/microseconds to nanoseconds
+- **Batch Processing**: Configurable write buffering with auto-flush on size/time thresholds
+- **Clock Integration**: Optional Nautilus Clock for timestamp consistency in live trading
+- **Caching**: Pipeline hash-based caching for transformation specifications
+
+**Data Quality**:
+
+- **Quality Flags**: 8-bit quality tracking system for data validation and monitoring
+- **Event Emission**: Automatic event publication to DataRegistry for observability
+- **Error Handling**: Comprehensive exception handling with graceful degradation
 
 #### ModelStore (`ml/stores/model_store.py`)
 
-- **Purpose**: Model prediction storage with performance tracking
-- **Key Capability**: Batch writing with auto-flushing, latency tracking, confidence scoring
-- **Storage**: PostgreSQL table `ml_model_predictions` with time-based partitioning
-- **Schema**: Predictions with features_used, inference_time_ms, confidence metrics
-- **Persistence**: Supports both connection_string and PersistenceConfig initialization
-- **📝 ADDITION:** Configurable batch_size and flush_interval_ms for performance tuning
-- **📝 ADDITION:** Optional Clock integration for Nautilus timestamp consistency
-- **✨ ENHANCEMENT:** Message bus publishing support with configurable publisher
+**Purpose**: Comprehensive model prediction storage with performance tracking and batch optimization
+
+**Core Architecture**:
+
+- **Storage Backend**: PostgreSQL table `ml_model_predictions` with monthly time-based partitioning
+- **Schema Design**: Predictions with features_used (JSONB), inference_time_ms, confidence metrics
+- **Dual Initialization**: Supports both legacy connection_string and modern PersistenceConfig patterns
+- **Batch Optimization**: Configurable batch_size (default: 1000) with intelligent auto-flushing
+
+**Performance Systems**:
+
+- **Adaptive Flushing**: Time-based (default: 100ms) and size-based flush triggers
+- **Latency Tracking**: Built-in inference time measurement with statistical collection
+- **Connection Pooling**: EngineManager integration for optimal resource utilization
+- **Memory Management**: Efficient write buffer management with predictable cleanup
+
+**Integration Features**:
+
+- **Clock Integration**: Optional Nautilus Clock for timestamp synchronization in live trading
+- **Message Bus Publishing**: Configurable real-time event distribution with multiple publish modes
+- **Registry Integration**: PersistenceManager integration for unified configuration management
+- **Metrics Collection**: Prometheus metrics integration for prediction volume and latency
+
+**Production Readiness**:
+
+- **Error Resilience**: Comprehensive exception handling with graceful degradation
+- **Timestamp Normalization**: Defensive nanosecond conversion with warning logging
+- **Legacy Compatibility**: Backward compatibility with existing initialization patterns
+- **Health Monitoring**: Built-in health checks and performance statistics endpoints
 
 #### StrategyStore (`ml/stores/strategy_store.py`)
 
-- **Purpose**: Strategy signal storage with risk metrics and execution parameters
-- **Key Capability**: Signal attribution, risk tracking, execution parameter calculation
-- **Storage**: PostgreSQL table `ml_strategy_signals` with time-based partitioning
-- **Schema**: Signals with model_predictions mapping, risk_metrics, execution_params
-- **📝 ADDITION:** Configurable batch_size and flush_interval_ms for performance optimization
-- **📝 ADDITION:** Optional Clock integration for timestamp synchronization
-- **✨ ENHANCEMENT:** Message bus publishing support for real-time signal distribution
+**Purpose**: Advanced strategy signal storage with comprehensive risk tracking and execution parameter management
+
+**Core Architecture**:
+
+- **Storage Backend**: PostgreSQL table `ml_strategy_signals` with monthly time-based partitioning
+- **Schema Design**: Signals with model_predictions mapping (JSONB), risk_metrics, execution_params
+- **Signal Attribution**: Complete traceability from model predictions to strategy decisions
+- **Execution Context**: Rich execution parameter storage including stop loss, take profit, position sizing
+
+**Risk Management Systems**:
+
+- **Comprehensive Risk Metrics**: Real-time calculation and storage of portfolio-level risk measures
+- **Model Attribution**: Mapping of strategy signals to contributing model predictions
+- **Performance Analytics**: Built-in signal distribution analysis and success rate tracking
+- **Position Sizing Logic**: Execution parameter computation with risk-adjusted sizing
+
+**Performance Optimization**:
+
+- **Batch Processing**: Configurable batch_size (default: 1000) with intelligent flush strategies
+- **Adaptive Timing**: Time-based (default: 100ms) flush intervals with override capabilities
+- **Memory Efficiency**: Optimized write buffer management with predictable resource usage
+- **Connection Management**: EngineManager integration for connection pooling and lifecycle
+
+**Integration Capabilities**:
+
+- **Clock Synchronization**: Optional Nautilus Clock integration for timestamp consistency
+- **Message Bus Publishing**: Configurable real-time signal distribution with topic routing
+- **Registry Integration**: PersistenceManager support for unified configuration
+- **Analytics Interface**: Rich query methods for strategy performance analysis and signal distribution
 
 #### DataStore (`ml/stores/data_store.py`)
 
-- **Purpose**: Typed read/write facade with contract validation and event emission
-- **Key Capability**: Schema validation, quality reporting, watermark tracking
-- **Features**:
-  - Preflight schema checks before data processing
-  - Contract-based validation with enforcement modes (strict, lenient, monitor_only)
-  - Automatic event emission to DataRegistry
-  - Schema migration support with dual-write windows
-  - Quality scoring and violation tracking
-- **📝 ADDITION:** Comprehensive event emission with correlation_id for lineage tracking
-- **📝 ADDITION:** Message bus integration for event publishing to external systems
-- **✨ ENHANCEMENT:** Advanced preflight validation with type compatibility checking
+**Purpose**: Unified data store facade providing typed read/write operations with comprehensive contract validation and event-driven architecture
+
+**Core Architecture**:
+
+- **Facade Pattern**: Unified interface over FeatureStore, ModelStore, StrategyStore with added validation layer
+- **Contract-Based Validation**: Schema validation against DataRegistry contracts with quality scoring
+- **Event-Driven Design**: Automatic event emission for all data operations with correlation tracking
+- **Progressive Fallback**: Graceful degradation when components are unavailable
+
+**Validation Framework**:
+
+- **Preflight Checks**: Comprehensive schema validation before data processing
+- **Quality Scoring**: 0-1 quality scores with detailed violation tracking and reporting
+- **Enforcement Modes**:
+  - `strict`: Reject any data with violations
+  - `lenient`: Log warnings but allow data through
+  - `monitor_only`: Track violations without blocking
+- **Type Compatibility**: Advanced type checking with coercion and compatibility validation
+
+**Event & Lineage System**:
+
+- **Correlation Tracking**: Deterministic correlation_id generation for end-to-end lineage
+- **Event Metadata**: JSONB metadata storage in PostgreSQL with fallback to JSON backend
+- **Watermark Management**: Automatic timestamp watermark tracking for data freshness
+- **Cross-Domain Events**: Event cascading across data, features, models, and strategy domains
+
+**Advanced Features**:
+
+- **Schema Evolution**: Dual-write window support during schema migrations
+- **Message Bus Integration**: Optional real-time event publishing with topic routing
+- **Quality Reports**: Comprehensive validation reports with violation details and metadata
+- **Batch Validation**: Efficient batch processing with per-record quality tracking
+- **Registry Integration**: Deep integration with DataRegistry for manifest and contract management
 
 ### Base Classes and Data Models
 
@@ -90,11 +217,11 @@ class FeatureData(Data):
     values: dict[str, float]
     _ts_event: int  # nanoseconds
     _ts_init: int   # nanoseconds
-    quality_flags: int = 0  # **📝 ADDITION:** Quality tracking support
+    quality_flags: int = 0  # Quality tracking support
 
     @property
     def feature_values(self) -> dict[str, float]:
-        """**📝 ADDITION:** Safe accessor for feature values dict avoiding inheritance conflicts."""
+        """Safe accessor for feature values dict avoiding inheritance conflicts."""
         # Defensive copy as a plain dict[str, float]
         raw: dict[str, Any] = object.__getattribute__(self, "__dict__")
         data = raw.get("values")
@@ -154,11 +281,11 @@ class BaseStore(MLComponentMixin, ABC):
 
 class DummyStore:
     """Dummy store for testing when database is not available."""
-    # **✨ ENHANCEMENT:** Comprehensive protocol compliance for all store methods
+    # Comprehensive protocol compliance for all store methods
     # Accepts all method calls but doesn't persist anything
 ```
 
-**📝 ADDITION:** Advanced Protocol Support (`ml/stores/protocols.py`)
+### Advanced Protocol Support (`ml/stores/protocols.py`)
 
 ```python
 # Protocol interfaces for structural type checking and test compatibility
@@ -187,10 +314,10 @@ class StrategyStoreProtocol(Protocol):
 
 ## Database Schema Architecture
 
-**✨ ENHANCEMENT:** Migrations under `ml/stores/migrations/` are the canonical source of schema.
+**Schema Location:** Migrations under `ml/stores/migrations/` are the canonical source of schema.
 Legacy SQL files under `ml/schema/` are retained for reference only.
 
-**📝 ADDITION:** Recent schema enhancements include:
+**Recent Schema Enhancements:**
 
 - **006_disable_partition_triggers.sql**: Disables race-prone automatic partition triggers
 - **007_add_event_metadata.sql**: Adds JSONB metadata column to events table
@@ -218,7 +345,7 @@ All ML tables use sophisticated time-based partitioning managed by PostgreSQL na
 
 Located in `ml/stores/migrations/`:
 
-#### Recent Migration Files **📝 ADDITION:**
+#### Recent Migration Files
 
 - **006_disable_partition_triggers.sql**: Removes problematic automatic partition triggers
 - **007_add_event_metadata.sql**: Extends events table with JSONB metadata support
@@ -259,7 +386,7 @@ All stores implement the universal component interface defined in `ml/common/pro
 
 These methods are not used in hot write paths; use them for health endpoints and startup checks. Integration Manager validates protocol compliance (warn by default; strict via `ML_STRICT_PROTOCOL_VALIDATION`).
 
-### DB Preflight **📝 ADDITION:** (`ml/stores/db_preflight.py`)
+### DB Preflight (`ml/stores/db_preflight.py`)
 
 Use `ml/stores/db_preflight.check_db_prereqs()` at startup or during ops to verify:
 
@@ -409,7 +536,9 @@ The DataProcessor implements intelligent caching for:
 - Quality metrics
 - With configurable TTL and LRU eviction
 
-**📝 ADDITION:** Centralized Database Engine Management
+### Centralized Database Engine Management
+
+All stores use the centralized EngineManager for connection pooling and lifecycle management:
 
 ```python
 def create_engine(connection_string: str, **kwargs: Any) -> Engine:
@@ -417,7 +546,12 @@ def create_engine(connection_string: str, **kwargs: Any) -> Engine:
     return EngineManager.get_engine(connection_string, **kwargs)
 ```
 
-All stores now use centralized EngineManager for connection pooling and lifecycle management.
+**Key Benefits:**
+
+- Unified connection pooling across all stores
+- Simplified testing through single mock point
+- Resource optimization and leak prevention
+- Consistent connection configuration
 
 ## 🆕 Message Bus Integration
 

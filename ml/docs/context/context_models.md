@@ -2,201 +2,389 @@
 
 ## Executive Summary
 
-The ML models framework in Nautilus Trader provides a production-ready infrastructure for training, exporting, and deploying machine learning models optimized for financial time series prediction. The framework emphasizes hot-path performance, ONNX export capabilities, and seamless integration with the broader ML pipeline including registries, stores, and inference actors.
+The ML models framework in Nautilus Trader provides a production-ready infrastructure for training, exporting, and deploying machine learning models optimized for financial time series prediction. The framework emphasizes hot-path performance, ONNX export capabilities, and seamless integration with the broader ML pipeline through the Universal ML Architecture Patterns.
 
-Operational notes:
+**Operational Notes:**
 
-- Persistence: Model predictions are written via `ModelStore` with nanosecond timestamps; store write paths defensively normalize and log if smaller units are detected. See `context_stores.md` → "Timestamp Policy & Normalization".
-- DB readiness: Apply registry/store migrations and run a DB preflight before deployments. See `context_deployment.md` and `context_registry.md`.
+- **Persistence**: Model predictions are written via `ModelStore` with nanosecond timestamps; store write paths defensively normalize and log if smaller units are detected. See `context_stores.md` → "Timestamp Policy & Normalization".
+- **DB Readiness**: Apply registry/store migrations and run a DB preflight before deployments. See `context_deployment.md` and `context_registry.md`.
+- **Universal Patterns**: All model components MUST follow the 5 Universal ML Architecture Patterns for consistency and reliability.
 
 **Key Design Principles:**
 
-- **Production-First**: All models export to ONNX for hot-path inference
-- **Framework Agnostic**: Supports XGBoost, LightGBM, PyTorch, and custom models
-- **Registry Integration**: Models are managed through the ModelRegistry system
-- **Security**: No pickle support in production - only safe, inspectable formats (ONNX, JSON, joblib)
-- **Performance**: Sub-millisecond inference through ONNX Runtime optimization
+- **Production-First**: All models export to ONNX for hot-path inference with sub-5ms latency targets
+- **Framework Agnostic**: Supports XGBoost, LightGBM, PyTorch, TFT, and custom models through unified interfaces
+- **Universal Architecture**: Mandatory 4-Store + 4-Registry integration via `BaseMLInferenceActor`
+- **Protocol-Based**: Structural typing with `Protocol` interfaces for duck typing and testability
+- **Security-First**: No pickle support in production - only safe, inspectable formats (ONNX, JSON, joblib, native)
+- **Progressive Fallback**: Graceful degradation when dependencies are unavailable (PostgreSQL → DummyStore)
+- **Hot/Cold Path Separation**: <5ms hot path for inference, unlimited cold path for training/analytics
 
-## Current Implementation State
+## Framework Architecture
+
+### Universal ML Architecture Patterns
+
+All ML model components MUST implement the 5 Universal Patterns:
+
+1. **Mandatory 4-Store + 4-Registry Integration**: Automatic initialization via `BaseMLInferenceActor`
+2. **Protocol-First Interface Design**: Structural typing without implementation coupling
+3. **Hot/Cold Path Separation**: <5ms hot path, unlimited cold path
+4. **Progressive Fallback Chains**: PostgreSQL → DummyStore → Local cache strategies
+5. **Centralized Metrics Bootstrap**: No direct `prometheus_client` imports
 
 ### Models Directory Structure
 
-The `/ml/models/` directory currently contains:
+The `/ml/models/` directory contains:
 
-- **Dummy Models**: Pre-generated test models in pickle format (for testing only)
-  - `dummy_bullish_model.pkl` - Bullish bias test model
-  - `dummy_bearish_model.pkl` - Bearish bias test model
-  - `dummy_neutral_model.pkl` - Neutral bias test model
+- **Test Models**: Pre-generated dummy models for testing infrastructure
+  - `dummy_bullish_model.pkl` - Bullish bias test model (testing only)
+  - `dummy_bearish_model.pkl` - Bearish bias test model (testing only)
+  - `dummy_neutral_model.pkl` - Neutral bias test model (testing only)
 - **Model Generator**: `save_dummy_model.py` - Script to create test models
+- **Extended Examples**: `ml/examples/create_dummy_model.py` - Enhanced dummy model creation
 
-**Note**: These pickle models are for development/testing only. Production systems use the `ProductionModelLoader` which explicitly rejects pickle formats for security.
+**Security Policy**: Pickle models (`.pkl`, `.pickle`) are strictly forbidden in production. `ProductionModelLoader` explicitly rejects these formats and only accepts safe formats: ONNX, JSON, joblib, and native framework formats.
 
-## Available Model Architectures
+## Model Implementation Catalog
 
 ### 1. Tree-Based Models (Production Ready)
 
+Both XGBoost and LightGBM implementations follow the Universal ML Architecture Patterns with full ONNX export capabilities, comprehensive hyperparameter optimization, and production-grade performance monitoring.
+
 #### XGBoost Models (`ml/training/non_distilled/xgboost.py`)
+
 **Implementation**: `XGBoostTrainer(BaseMLTrainer, ModelExportMixin)`
 
-**Features:**
+**Architecture Integration**:
 
-- Native XGBoost JSON format support
-- ONNX export with optimized conversion
-- GPU acceleration support (CUDA)
-- Monotonic constraints for interpretability
-- SHAP value computation for explainability
-- Optuna hyperparameter optimization
-- MLflow experiment tracking
+- Inherits Universal ML Patterns through `BaseMLTrainer`
+- Implements `ModelExportMixin` for production compatibility
+- Protocol-based interfaces for structural typing
+- Progressive fallback for missing dependencies
 
-**Configuration**: `XGBoostTrainingConfig`
+**Core Features**:
 
-- Comprehensive hyperparameter control
-- GPU configuration options
-- Regularization parameters
-- Early stopping and cross-validation
+- **Native Format Support**: XGBoost JSON and binary (.xgb) formats
+- **ONNX Export Pipeline**: Optimized conversion with `onnxmltools` integration
+- **GPU Acceleration**: CUDA support with configurable device selection
+- **Model Interpretability**: Monotonic constraints and SHAP value computation
+- **Hyperparameter Optimization**: Optuna integration with TPE sampling
+- **Experiment Tracking**: MLflow integration with automated logging
+- **Cross-Validation**: Time-series aware and standard K-fold strategies
 
-**Export Formats:**
+**Configuration Management**: `XGBoostTrainingConfig`
 
-- Native: `.json`, `.xgb`
-- Production: `.onnx` (preferred)
-- Metadata: `.meta.json` sidecars
+- Comprehensive hyperparameter control (learning rate, depth, regularization)
+- GPU configuration with fallback to CPU
+- Monotonic constraints for feature interpretability
+- Early stopping and validation monitoring
+- Optuna search space definition
+
+**Production Export Formats**:
+
+- **Native**: `.json` (preferred), `.xgb` (binary)
+- **ONNX**: `.onnx` with metadata sidecars
+- **Metadata**: `.meta.json` with model provenance, feature names, and performance metrics
+
+**Security & Validation**:
+
+- No pickle support - only safe, inspectable formats
+- Model validation with inference compatibility checks
+- Feature name normalization for ONNX (f0, f1, f2... format)
+- Automatic metadata generation with training provenance
 
 #### LightGBM Models (`ml/training/non_distilled/lightgbm.py`)
+
 **Implementation**: `LightGBMTrainer(BaseMLTrainer, ModelExportMixin)`
 
-**Features:**
+**Architecture Integration**:
 
-- Advanced sampling strategies (GOSS, DART)
-- Categorical feature handling
-- GPU acceleration support
-- Exclusive Feature Bundling (EFB)
-- Native ONNX export
-- Feature importance analysis
+- Full Universal ML Pattern compliance via `BaseMLTrainer`
+- `ModelExportMixin` implementation for production readiness
+- Protocol-based design for testability and flexibility
+- Automatic categorical feature detection and encoding
 
-**Configuration**: `LightGBMTrainingConfig`
+**Advanced Features**:
 
-- GOSS (Gradient-based One-Side Sampling)
-- DART (Dropouts meet Multiple Additive Regression Trees)
-- GPU and EFB configurations
-- Comprehensive hyperparameter tuning
+- **Sampling Strategies**: GOSS (Gradient-based One-Side Sampling) and DART (Dropouts meet Multiple Additive Regression Trees)
+- **Categorical Features**: Automatic detection and native handling of categorical variables
+- **GPU Acceleration**: Multi-platform GPU support with platform/device ID configuration
+- **Exclusive Feature Bundling (EFB)**: Automatic feature bundling for efficiency
+- **Feature Importance**: Built-in feature importance analysis with multiple importance types
+- **Visualization**: Matplotlib integration for feature importance plotting
 
-**Export Formats:**
+**Configuration Management**: `LightGBMTrainingConfig`
 
-- Native: `.txt`, `.lgb`
-- Production: `.onnx` (preferred)
-- Metadata: `.meta.json` sidecars
+- **Boosting Configurations**: GOSS (top_rate, other_rate), DART (drop_rate, uniform_drop), standard gbdt
+- **GPU Settings**: Platform/device selection with automatic fallback
+- **EFB Configuration**: Bundle size and conflict rate optimization
+- **Hyperparameter Optimization**: Optuna integration with LightGBM-specific search spaces
+- **Regularization**: L1/L2 regularization with adaptive scaling
+
+**Production Export Formats**:
+
+- **Native**: `.txt` (human-readable), `.lgb` (binary)
+- **ONNX**: `.onnx` with optimized conversion pipeline
+- **Metadata**: `.meta.json` with categorical features, training metrics, and model configuration
+
+**Performance & Optimization**:
+
+- Automatic categorical feature encoding to physical indices
+- Best iteration tracking for inference optimization
+- Early stopping with configurable patience
+- Memory-efficient dataset creation with reference datasets
 
 ### 2. Deep Learning Models (Teacher-Student Framework)
 
 #### Teacher-Student Architecture (`ml/training/teacher/`)
-**Base Implementation**: `BaseTeacher` abstract class in `ml/training/teacher/base.py`
 
-**Components:**
+**Base Implementation**: `BaseTeacher` abstract class with Protocol-based design
 
-- **BaseTeacher**: Abstract interface for teacher models
-- **TeacherConfig**: Configuration dataclass for teacher models
-- **TFT Teacher**: Temporal Fusion Transformer implementation (in development)
+**Core Components**:
 
-**Features:**
+- **BaseTeacher** (`ml/training/teacher/base.py`): Abstract interface for heavy teacher models
+- **TeacherConfig**: Immutable configuration dataclass with versioning
+- **TFTTeacher** (`ml/training/teacher/tft_teacher.py`): Production Temporal Fusion Transformer implementation
+- **TFTTeacherConfig**: TFT-specific configuration with loss function selection
+- **Custom Loss Functions** (`ml/training/teacher/losses.py`): BCEWithLogitsLossPF for PyTorch Forecasting
 
-- Platt calibration for probability adjustment
-- Soft label generation for student distillation
-- Feature schema validation
-- Cold-path optimization (heavy computation allowed)
+**Teacher Model Features**:
 
-**Current Status**: Framework established, TFT implementation in progress
+- **Cold-Path Optimization**: Heavy computation allowed, no performance constraints
+- **Platt Calibration**: Automatic probability calibration with scikit-learn LogisticRegression
+- **Soft Label Generation**: Raw logits output for student distillation
+- **Feature Schema Validation**: Type-safe feature contracts
+- **Progressive Dependency Loading**: Lazy imports for PyTorch Forecasting, Lightning
 
-### 3. Test Models (Development/Testing)
+**TFT Implementation Details**:
 
-#### Dummy Models (`ml/models/` and `ml/examples/`)
-**Implementations**:
+- **PyTorch Forecasting Integration**: Full TemporalFusionTransformer implementation
+- **Flexible Data Requirements**: Configurable static/dynamic features, time indices
+- **Multi-Loss Support**: Poisson loss (default) and BCEWithLogitsLoss for classification
+- **GPU Acceleration**: Automatic CUDA detection with CPU fallback
+- **Minimal Training Mode**: Single epoch default for fast prototyping
+- **Time Series Validation**: Automatic 80/20 temporal split with sufficient encoder history
 
-- `DummyModel` class in `ml/models/save_dummy_model.py`
-- Extended version in `ml/examples/create_dummy_model.py`
+**Current Status**:
 
-**Purpose**:
+- ✅ **BaseTeacher Interface**: Production ready
+- ✅ **TFT Teacher**: Full implementation with PyTorch Forecasting
+- ✅ **Calibration Pipeline**: Platt calibration integration
+- 🚧 **Student Distillation**: Framework ready, distillation pipeline in development
 
-- Infrastructure testing and validation
-- CI/CD pipeline verification
-- Performance benchmarking baseline
-- Dry-run testing without actual training
+### 3. Model Loading Infrastructure
 
-**Features:**
+#### Production Model Loaders (`ml/actors/base.py`)
 
-- Linear combination with sigmoid activation
-- Configurable bias (bullish/bearish/neutral)
-- Deterministic random number generation for reproducibility
-- Support for both `predict()` and `predict_proba()` methods
+**Security-First Design**:
+
+- **Explicit Pickle Rejection**: `.pkl` and `.pickle` files raise `SecurityError`
+- **Safe Format Whitelist**: Only ONNX, JSON, joblib, and native framework formats
+- **Format Detection**: Automatic model type detection based on file extensions and content
+
+**ProductionModelLoader**:
+
+- **Multi-Format Support**: ONNX (preferred), XGBoost JSON, joblib, LightGBM native
+- **Metadata Extraction**: Automatic input/output shape detection
+- **Error Handling**: Graceful fallback with descriptive error messages
+- **Model Validation**: Format compatibility and inference readiness checks
+
+**ONNXModelLoader** (Specialized):
+
+- **ONNX Runtime Integration**: Optimized session creation with provider fallback
+- **Execution Provider Chain**: TensorRT → CUDA → CPU with automatic detection
+- **Session Optimization**: Configurable thread pools, memory arenas, graph optimization
+- **Input/Output Introspection**: Automatic tensor name and shape extraction
+
+### 4. Test Models (Development/Testing)
+
+#### Dummy Model Infrastructure
+
+**Core Implementations**:
+
+- **`DummyModel`** (`ml/models/save_dummy_model.py`): Basic linear model with sigmoid activation
+- **Enhanced `DummyModel`** (`ml/examples/create_dummy_model.py`): Extended with feature names and noise
+- **Pre-built Models**: Bullish, bearish, and neutral bias models for different testing scenarios
+
+**Design Features**:
+
+- **Deterministic RNG**: Reproducible results with seeded random number generation
+- **Configurable Bias**: Adjustable bias parameters for different market scenarios
+- **Dual Interface**: Both `predict()` and `predict_proba()` method support
+- **Linear + Sigmoid**: Simple but realistic prediction pipeline
+- **Feature Name Support**: Named features for realistic testing
+
+**Use Cases**:
+
+- **Infrastructure Testing**: Validate ML pipeline without training overhead
+- **CI/CD Integration**: Fast, reliable models for automated testing
+- **Performance Benchmarking**: Consistent baseline for latency measurements
+- **Dry-Run Deployment**: End-to-end testing without model training dependencies
+- **Development Debugging**: Predictable outputs for development iteration
+
+## Model Export & Conversion Framework
+
+### Export Infrastructure (`ml/training/export.py`)
+
+**Core Export Functions**:
+
+- **`convert_to_onnx()`**: Framework-agnostic ONNX conversion with optimized settings
+- **`convert_to_torchscript()`**: PyTorch model tracing/scripting for TorchScript export
+- **`save_model_with_metadata()`**: Unified model saving with comprehensive metadata sidecars
+- **`detect_model_type()`**: Automatic model framework detection from file or object
+
+**Model Type Detection**:
+
+```python
+class ModelType(Enum):
+    ONNX = "onnx"
+    XGBOOST = "xgboost"
+    LIGHTGBM = "lightgbm"
+    SKLEARN = "sklearn"
+    UNKNOWN = "unknown"
+```
+
+**Metadata Sidecar Schema**:
+Every model saved includes a `.meta.json` file with:
+
+- **Model Information**: Type, path, version hash, file size, modification time
+- **Shape Information**: Input/output tensor shapes for validation
+- **Training Provenance**: Feature names, trainer class, configuration parameters
+- **Performance Metadata**: Best iteration, training metrics, validation scores
+- **ONNX Specific**: Input/output names, opset version, provider requirements
+
+**Security & Validation**:
+
+- **No Pickle Support**: Explicit rejection of pickle formats in production
+- **Safe Format Enforcement**: Only ONNX, JSON, joblib, and native framework formats
+- **Inference Compatibility**: Automatic validation of exported models
+- **Version Tracking**: SHA-256 hash generation based on model parameters
 
 ## Configuration Management
 
-### Base Configuration Hierarchy
+### Configuration Architecture
+
+**Hierarchical Configuration System**:
 
 ```python
 BaseMLTrainer(ABC)
-├── MLTrainingConfig (base)
-├── XGBoostTrainingConfig
-├── LightGBMTrainingConfig
-└── TFTTeacherConfig
+├── MLTrainingConfig (base)       # Core training parameters
+├── XGBoostTrainingConfig         # XGBoost-specific settings
+├── LightGBMTrainingConfig        # LightGBM-specific settings
+├── TFTTeacherConfig              # Teacher model configuration
+└── OnnxRuntimeConfig             # ONNX Runtime optimization
 ```
 
-### Key Configuration Classes
+**Universal Configuration Principles**:
 
-1. **MLTrainingConfig** (`ml/config/base.py`)
-   - Target column specification
-   - Train/test split ratios
-   - Cross-validation strategy
-   - Model save paths
+- **Immutable Dataclasses**: All configs use `frozen=True` for thread safety
+- **Type Safety**: Complete type annotations with mypy strict compliance
+- **Default Validation**: `__post_init__` validation for parameter ranges
+- **Environment Awareness**: Database connections, GPU detection, dependency checks
 
-2. **XGBoostTrainingConfig** (`ml/config/xgboost.py`)
-   - Objective functions (regression, classification)
-   - Regularization parameters
-   - GPU configuration
-   - Monotonic constraints
+### Configuration Catalog
 
-3. **LightGBMTrainingConfig** (`ml/config/lightgbm.py`)
-   - Boosting strategies
-   - Advanced sampling (GOSS, DART)
-   - GPU acceleration
-   - Categorical feature handling
+**1. MLTrainingConfig** (`ml/config/base.py`) - Base Training Configuration
 
-4. **OnnxRuntimeConfig** (`ml/config/runtime.py`)
-   - Provider configurations (CPU, CUDA, TensorRT)
-   - Session optimization
-   - Memory management
+- **Data Splitting**: Train/test split ratios with time-series awareness
+- **Target Definition**: Target column specification and transformation settings
+- **Cross-Validation**: Strategy selection (time_series, k_fold) with fold configuration
+- **Model Persistence**: Save paths, export formats, metadata inclusion
+- **Feature Integration**: FeatureStore connection and pipeline specification
+- **Experiment Tracking**: MLflow configuration for automatic logging
 
-## Training Infrastructure
+**2. XGBoostTrainingConfig** (`ml/config/xgboost.py`) - Tree Boosting Configuration
 
-### Base Training Framework (`ml/training/base.py`)
+- **Objective Functions**: Binary/multi-class classification, regression with custom eval metrics
+- **Tree Parameters**: Max depth, learning rate, subsample ratios with intelligent defaults
+- **Regularization**: L1/L2 penalties, gamma, min_child_weight with validation
+- **GPU Configuration**: CUDA device selection, tree method optimization
+- **Constraints**: Monotonic constraints for interpretability
+- **Early Stopping**: Rounds configuration with validation monitoring
+- **Optuna Integration**: Search spaces for hyperparameter optimization
 
-The `BaseMLTrainer` abstract class provides a comprehensive training pipeline with:
+**3. LightGBMTrainingConfig** (`ml/config/lightgbm.py`) - Gradient Boosting Configuration
 
-**Core Features:**
+- **Boosting Strategies**: GBDT, GOSS, DART with strategy-specific parameters
+- **Advanced Sampling**: GOSS (gradient-based sampling), DART (dropout regularization)
+- **Feature Handling**: Categorical feature auto-detection, EFB bundling
+- **GPU Acceleration**: Multi-platform GPU support with device/platform ID
+- **Regularization**: Lambda L1/L2, feature/bagging fractions
+- **Performance Tuning**: Num leaves, max depth, min child samples optimization
 
-- Standardized data preparation pipeline
-- Feature engineering integration via FeatureStore
-- Cross-validation support (time-series and k-fold)
-- Optuna hyperparameter optimization
-- MLflow experiment tracking
-- Automatic ONNX export
-- Trading-specific metrics calculation
+**4. TFTTeacherConfig** (`ml/training/teacher/base.py`) - Deep Learning Configuration
 
-**Training Pipeline Methods:**
+- **Architecture Parameters**: Hidden size, LSTM layers, attention heads
+- **Data Requirements**: Static/dynamic features, time indices, group identifiers
+- **Training Settings**: Max epochs, batch size, learning rate with scheduler
+- **Loss Functions**: Poisson (default), BCE with logits for classification
+- **Sequence Configuration**: Encoder/prediction lengths, allow missing timesteps
+- **Hardware Settings**: GPU acceleration, dataloader workers
 
-- `train()`: Orchestrates complete training pipeline
-- `prepare_data()`: Abstract method for data preparation
-- `prepare_data_with_feature_store()`: FeatureStore integration for training/inference parity
-- `evaluate()`: Standard ML metrics computation
-- `calculate_trading_metrics()`: Financial metrics (Sharpe, drawdown, etc.)
-- `get_feature_importance()`: Extract feature importance from models
+**5. OnnxRuntimeConfig** (`ml/config/runtime.py`) - Inference Optimization
 
-**Cross-Validation Support:**
+- **Execution Providers**: Provider priority chain (TensorRT → CUDA → CPU)
+- **Session Options**: Thread configuration, memory optimization, graph optimization
+- **Provider-Specific Settings**: CUDA memory management, TensorRT precision
+- **Performance Tuning**: Intra/inter-op parallelism, CPU memory arena
+- **Fallback Configuration**: Graceful provider fallback on initialization failure
 
-- Time-series CV for temporal data
-- Standard k-fold CV with sklearn fallback
-- Purged walk-forward validation integration
+## Base Training Infrastructure
 
-### Training/Inference Patterns
+### BaseMLTrainer Framework (`ml/training/base.py`)
+
+**Universal Architecture Integration**:
+
+- **Protocol-Based Design**: Structural typing with abstract methods for framework-agnostic implementation
+- **ModelExportMixin**: Ensures all trainers can export to production-ready formats
+- **Progressive Fallback**: Graceful handling of missing dependencies (Optuna, MLflow, sklearn)
+- **FeatureStore Integration**: Optional integration with automatic initialization and parity guarantees
+
+**Core Training Pipeline**:
+
+1. **Data Preparation**: Framework-specific data preprocessing with validation
+2. **Hyperparameter Optimization**: Optional Optuna integration with TPE sampling
+3. **Cross-Validation**: Time-series aware and standard K-fold strategies
+4. **Model Training**: Framework-specific training with validation monitoring
+5. **Evaluation**: Standard ML metrics plus trading-specific performance measures
+6. **Export Pipeline**: Automatic ONNX conversion and metadata generation
+7. **Experiment Tracking**: MLflow integration with parameter and metric logging
+
+**Key Methods & Features**:
+
+**Training Orchestration**:
+
+- **`train()`**: Complete pipeline orchestration with error handling
+- **`prepare_data()`**: Framework-specific data preprocessing (abstract)
+- **`prepare_data_with_feature_store()`**: FeatureStore integration for training/inference parity
+- **`_train_model()`**: Core training logic (framework-specific, abstract)
+
+**Evaluation & Metrics**:
+
+- **`evaluate()`**: Standard ML metrics (accuracy, precision, recall, F1, MSE, MAE, R²)
+- **`calculate_trading_metrics()`**: Financial metrics (Sharpe ratio, max drawdown, win rate, information ratio)
+- **`get_feature_importance()`**: Framework-agnostic feature importance extraction
+
+**Optimization & Validation**:
+
+- **`_optimize_hyperparameters()`**: Optuna integration with framework-specific search spaces
+- **`_cross_validate()`**: Time-series and K-fold cross-validation with robust error handling
+- **`_time_series_cv()`**: Walk-forward validation preserving temporal structure
+- **`_standard_cv()`**: Standard K-fold with sklearn integration and fallbacks
+
+**Export & Persistence**:
+
+- **`export_to_onnx()`**: ONNX conversion with validation
+- **`save_model()`**: Framework-native format saving
+- **`load_model()`**: Model loading with metadata restoration
+
+**Cross-Validation Strategies**:
+
+- **Time-Series CV**: Preserves temporal order, prevents look-ahead bias
+- **Standard K-Fold**: Sklearn integration with robust sample size validation
+- **Purged Walk-Forward**: Framework ready for advanced temporal validation
+
+### Model Training Patterns
 
 #### Training Pipeline Architecture
 
@@ -354,166 +542,517 @@ class ModelExportMixin(ABC):
     def validate_inference_compatibility(self, model_path) -> bool
 ```
 
-**TrainingActorContract**: Actor integration interface (`ml/training/export.py`)
+### Actor Integration Contracts
+
+**TrainingActorContract**: Ensures seamless training-to-inference handoff
 
 ```python
 class TrainingActorContract(ABC):
-    @abstractmethod
-    def get_required_features(self) -> list[str]
+    """Contract for training → inference actor integration."""
 
     @abstractmethod
-    def get_model_input_shape(self) -> tuple[int, ...]
+    def get_required_features(self) -> list[str]:
+        """Feature names required for inference."""
 
     @abstractmethod
-    def export_for_actor(self, actor_model_path, actor_config_path) -> dict
+    def get_model_input_shape(self) -> tuple[int, ...]:
+        """Expected input tensor shape for validation."""
+
+    @abstractmethod
+    def export_for_actor(
+        self,
+        actor_model_path: str | Path,
+        actor_config_path: str | Path | None = None
+    ) -> dict[str, Any]:
+        """Export model and generate actor configuration."""
+
+    def generate_actor_config(self) -> dict[str, Any]:
+        """Generate MLSignalActor configuration template."""
+        return {
+            "model_path": "path/to/model.onnx",
+            "feature_config": {
+                "indicators": {},
+                "lookback_window": 20,
+                "normalize_features": True
+            },
+            "signal_strategy": "threshold",
+            "prediction_threshold": 0.5,
+            "warm_up_period": 50
+        }
 ```
 
-## Performance Characteristics
-
-### Hot Path Requirements
-
-- **Feature Computation**: <500μs
-- **Model Inference**: <2ms
-- **End-to-End Latency**: <5ms
-- **Memory**: Bounded, pre-allocated arrays
-
-### Model Loading Performance
-
-- **ONNX Runtime**: Optimized with session options
-- **Provider Priority**: CUDA → TensorRT → CPU
-- **Memory Management**: Configurable arena allocation
-- **Threading**: Optimized for inference workloads
-
-### ONNX Runtime Optimization
+**Modern Integration Workflow**:
 
 ```python
-# Session Options
-SessionOptions:
-    - intra_op_num_threads: CPU parallelism
-    - inter_op_num_threads: Graph parallelism
-    - enable_mem_pattern: Memory optimization
-    - enable_cpu_mem_arena: Arena allocation
+# Training phase - export for production
+trainer = XGBoostTrainer(config=training_config)
+results = trainer.train(data=training_data)
 
-# Execution Providers
-Providers = [
-    "TensorrtExecutionProvider",  # GPU acceleration
-    "CUDAExecutionProvider",      # CUDA fallback
-    "CPUExecutionProvider"        # CPU fallback
-]
+# Export model with actor integration
+actor_config = trainer.export_for_actor(
+    actor_model_path="forex_model.onnx",
+    actor_config_path="actor_config.json"
+)
+
+# Automatic actor configuration generation
+with open("actor_config.json", "w") as f:
+    json.dump(actor_config, f, indent=2)
+
+# Inference phase - use exported model
+from ml.actors.signal import MLSignalActor, MLSignalActorConfig
+
+actor_config = MLSignalActorConfig.from_json("actor_config.json")
+actor = MLSignalActor(config=actor_config)
 ```
 
-## Integration Points
+## Performance Architecture
 
-### Registry System Integration
+### Hot/Cold Path Performance Targets
 
-- **ModelRegistry**: Semantic versioning, rollback capabilities
-- **FeatureRegistry**: Feature schema validation
-- **StrategyRegistry**: Strategy compatibility tracking
-- **PersistenceManager**: Unified backend for registry storage
+**Hot Path (Real-time Inference)**:
 
-### Store System Integration
+- **P99 Feature Computation**: <500μs (sub-millisecond)
+- **P99 Model Inference**: <2ms (ONNX optimized)
+- **P99 End-to-End Latency**: <5ms (complete signal generation)
+- **Memory Profile**: Zero allocations, pre-allocated buffers
+- **Throughput Target**: >1000 predictions/second/core
 
-All ML actors inherit from `BaseMLInferenceActor` which automatically initializes three mandatory stores:
+**Cold Path (Training & Analytics)**:
 
-- **ModelStore**: Prediction persistence and performance tracking
-- **FeatureStore**: Training/inference parity guarantees
-- **StrategyStore**: Trading decision audit trail
+- **Training Duration**: Unlimited (hours acceptable)
+- **Memory Usage**: Unlimited (subject to available resources)
+- **Batch Processing**: Large datasets supported
+- **Hyperparameter Optimization**: Extensive search spaces allowed
 
-### Actor System Integration
+### ONNX Runtime Optimization Strategy
 
-- **BaseMLInferenceActor**: Production inference base class with mandatory stores
-- **MLSignalActor**: Signal generation with built-in features
-- **MLSignal**: Clean data class for ML signals with model_id tracking
-- **HealthMonitor**: System health tracking for ML actors
-- **CircuitBreaker**: Failure protection for inference pipeline
+**Execution Provider Chain**:
 
-### Data Signal Classes
+```python
+# Ordered by performance preference
+PROVIDER_CHAIN = [
+    "TensorrtExecutionProvider",   # NVIDIA TensorRT (fastest)
+    "CUDAExecutionProvider",       # NVIDIA CUDA (fast)
+    "OpenVINOExecutionProvider",   # Intel OpenVINO (CPU optimized)
+    "CPUExecutionProvider"         # Standard CPU (fallback)
+]
 
-- **MLSignal**: Core signal class with required fields:
-  - `instrument_id`: Target instrument
-  - `model_id`: Model identifier for tracking
-  - `prediction`: Model output value
-  - `confidence`: Confidence score (0.0 to 1.0)
-  - `ts_event`, `ts_init`: Nautilus-standard timestamps
+# Session optimization configuration
+SESSION_OPTIONS = {
+    "intra_op_num_threads": cpu_count(),
+    "inter_op_num_threads": 1,
+    "enable_mem_pattern": True,
+    "enable_cpu_mem_arena": True,
+    "graph_optimization_level": "ORT_ENABLE_ALL"
+}
+```
 
-## Current State Assessment
+**Memory Management**:
+
+- **Pre-Allocation**: Feature buffers allocated at actor initialization
+- **Buffer Reuse**: Same buffers used across predictions (zero allocation)
+- **ONNX Arena**: Memory arena for efficient tensor management
+- **Garbage Collection**: Minimal impact through pre-allocation strategy
+
+**Performance Monitoring**:
+
+```python
+# Automatic metrics collection via Universal Patterns
+from ml.common.metrics_bootstrap import get_histogram, get_counter
+
+inference_latency = get_histogram(
+    "ml_inference_duration_seconds",
+    "Model inference latency distribution",
+    labels=["model_id", "provider"]
+)
+
+prediction_throughput = get_counter(
+    "ml_predictions_total",
+    "Total predictions made",
+    labels=["model_id", "status"]
+)
+```
+
+### Optimization Implementation Levels
+
+**Standard Performance (Default)**:
+
+- ONNX Runtime with CPU provider
+- Standard session options
+- Basic memory management
+- Prometheus metrics collection
+
+**Optimized Performance**:
+
+- GPU provider chain with fallback
+- Advanced session configuration
+- Pre-allocated inference buffers
+- Zero-allocation hot path
+- Advanced provider-specific optimizations
+
+**Ultra-High Performance (Custom)**:
+
+- TensorRT INT8 quantization
+- Custom CUDA kernels
+- Batch inference optimization
+- NUMA-aware memory allocation
+- Hardware-specific tuning
+
+## Universal ML Architecture Integration
+
+### Mandatory 4-Store + 4-Registry Pattern
+
+**Automatic Initialization via BaseMLInferenceActor**:
+
+```python
+class BaseMLInferenceActor:
+    """Universal ML actor with mandatory component integration."""
+
+    def __init__(self, config: ActorConfig):
+        # Automatic store initialization (Pattern 1)
+        self.feature_store: FeatureStoreProtocol = self._init_feature_store()
+        self.model_store: ModelStoreProtocol = self._init_model_store()
+        self.strategy_store: StrategyStoreProtocol = self._init_strategy_store()
+        self.data_store: DataStoreProtocol = self._init_data_store()
+
+        # Automatic registry initialization
+        self.feature_registry: FeatureRegistryProtocol = self._init_feature_registry()
+        self.model_registry: ModelRegistryProtocol = self._init_model_registry()
+        self.strategy_registry: StrategyRegistryProtocol = self._init_strategy_registry()
+        self.data_registry: DataRegistryProtocol = self._init_data_registry()
+
+        # Progressive fallback implementation
+        self._validate_components()
+```
+
+**Store Integration Functions**:
+
+- **ModelStore**: Prediction persistence, performance tracking, A/B test metrics
+- **FeatureStore**: Training/inference parity, historical feature computation
+- **StrategyStore**: Trading decisions, risk metrics, strategy performance
+- **DataStore**: Unified data access, contract validation, event emission
+
+**Registry Integration Functions**:
+
+- **ModelRegistry**: Lifecycle management, semantic versioning, deployment tracking
+- **FeatureRegistry**: Schema validation, feature lineage, compatibility checking
+- **StrategyRegistry**: Strategy requirements, compatibility matrix, deployment rules
+- **DataRegistry**: Dataset manifests, lineage tracking, quality monitoring
+
+### Protocol-Based Component Design
+
+**Structural Typing Benefits**:
+
+- **Duck Typing**: Test implementations conform without inheritance
+- **Type Safety**: Comprehensive typing without circular dependencies
+- **Modularity**: Components can be swapped without changing interfaces
+- **Testing**: Easy mock creation for isolated unit tests
+
+```python
+@runtime_checkable
+class ModelStoreProtocol(Protocol):
+    def record_prediction(
+        self, model_id: str, prediction: float,
+        ts_event: int, instrument_id: str
+    ) -> None: ...
+
+    def get_model_performance(
+        self, model_id: str, start_ns: int, end_ns: int
+    ) -> dict[str, float]: ...
+
+    def health_check(self) -> dict[str, Any]: ...
+```
+
+### Signal Generation Architecture
+
+**MLSignal Data Class**:
+
+```python
+@msgspec.Struct
+class MLSignal:
+    """Universal ML signal with comprehensive tracking."""
+    instrument_id: str
+    model_id: str
+    prediction: float
+    confidence: float
+    ts_event: int  # Nanoseconds since epoch
+    ts_init: int   # Nanoseconds since epoch
+
+    # Optional fields for enhanced tracking
+    feature_hash: str | None = None
+    model_version: str | None = None
+    signal_strength: float | None = None
+    risk_score: float | None = None
+```
+
+**Signal Processing Pipeline**:
+
+1. **Feature Computation**: Hot-path optimized feature engineering
+2. **Model Inference**: ONNX-optimized prediction generation
+3. **Signal Enhancement**: Confidence calculation, risk scoring
+4. **Automatic Persistence**: Store integration via Universal Patterns
+5. **Event Emission**: Message bus integration for strategy consumption
+6. **Performance Monitoring**: Automatic metrics collection and alerting
+
+### Circuit Breaker & Health Monitoring
+
+**Production Reliability**:
+
+```python
+class CircuitBreaker:
+    """Failure protection for ML inference pipeline."""
+
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 30.0):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.state = CircuitBreakerState.CLOSED
+
+    def execute(self, operation: Callable) -> Any:
+        if not self.can_execute():
+            raise CircuitBreakerOpenError("Circuit breaker is OPEN")
+
+        try:
+            result = operation()
+            self.record_success()
+            return result
+        except Exception as e:
+            self.record_failure()
+            raise
+```
+
+**Health Monitoring Integration**:
+
+- **Component Status**: All stores and registries provide health endpoints
+- **Performance Metrics**: Latency, throughput, error rates automatically tracked
+- **Dependency Monitoring**: Database connections, model loading status
+- **Alerting Integration**: Prometheus metrics with Grafana dashboards
+- **Graceful Degradation**: Automatic fallback to dummy implementations
+
+## Current Implementation Status
 
 ### Production Ready ✅
 
-- **XGBoost Training & Export**: Full ONNX pipeline with native JSON support
-- **LightGBM Training & Export**: Complete implementation with native format support
-- **ONNX Runtime Loading**: Optimized for hot-path with configurable providers
-- **Production Model Loaders**: Security-hardened with pickle rejection
-- **Base Training Infrastructure**: Complete with CV, Optuna, MLflow integration
-- **Model Export Framework**: Unified export with metadata sidecars
-- **Test Models**: Dummy models for infrastructure testing
+**Core Training Infrastructure**:
 
-### In Development 🚧
+- **BaseMLTrainer**: Complete abstract framework with Universal Pattern compliance
+- **XGBoost Integration**: Full production pipeline with ONNX export, GPU support, SHAP values
+- **LightGBM Integration**: Advanced sampling (GOSS/DART), categorical features, GPU acceleration
+- **Model Export Framework**: Unified export pipeline with comprehensive metadata generation
+- **Configuration System**: Immutable, type-safe configuration classes with validation
 
-- **TFT Teacher Implementation**: Framework defined, awaiting PyTorch Forecasting integration
-- **Student Model Distillation**: Teacher → Student pipeline in progress
-- **Advanced Architectures**: N-BEATS, DeepLOB, Graph Neural Networks planned
-- **Knowledge Distillation**: Teacher-student framework established, implementation ongoing
+**Production Deployment**:
 
-### Framework Available 📋
+- **Security-Hardened Loading**: Explicit pickle rejection, format whitelisting
+- **ONNX Runtime Optimization**: Provider chain fallback, session optimization
+- **Universal ML Patterns**: Mandatory 4-Store + 4-Registry integration
+- **Protocol-Based Design**: Structural typing for duck typing and testability
+- **Progressive Fallback**: PostgreSQL → DummyStore graceful degradation
 
-- **Model Export Contracts**: `ModelExportMixin` and `TrainingActorContract` interfaces
-- **Training Base Classes**: `BaseMLTrainer` with full pipeline support
-- **Teacher-Student Framework**: `BaseTeacher` abstract class ready for implementation
-- **Configuration System**: Comprehensive config classes for all components
-- **Health Monitoring**: `HealthMonitor` and `CircuitBreaker` for production reliability
+**Quality Assurance**:
 
-## Critical Implementation Notes
+- **Test Infrastructure**: Comprehensive dummy models for CI/CD integration
+- **Performance Monitoring**: Centralized metrics with Prometheus integration
+- **Circuit Breaker Protection**: Automatic failure detection and recovery
+- **Health Monitoring**: Component status tracking and alerting
 
-### Security Considerations
+### Production Deployed 🚀
 
-- **No Pickle in Production**: `ProductionModelLoader` explicitly rejects `.pkl` and `.pickle` files
-- **Safe Formats Only**: ONNX, JSON, joblib, native framework formats (XGBoost JSON, LightGBM text)
-- **Test Models Exception**: Pickle models in `/ml/models/` are for testing only, never for production
-- **Model Validation**: Type detection and compatibility checks before loading
-- **Version Control**: Metadata sidecars track model versions and modifications
+**Deep Learning Framework**:
 
-### Performance Guidelines
+- **Teacher-Student Architecture**: Complete `BaseTeacher` interface with Platt calibration
+- **TFT Implementation**: Production-ready Temporal Fusion Transformer with PyTorch Forecasting
+- **Multi-Loss Support**: Poisson and BCEWithLogits loss functions for different targets
+- **Cold-Path Optimization**: Heavy computation support for teacher models
+- **Flexible Configuration**: Comprehensive TFT parameter control
 
-- **Pre-allocation**: Feature buffers allocated at actor initialization
-- **Hot Path Isolation**: No training or heavy computation in inference path
-- **Model Caching**: Models loaded once at startup, reused for all predictions
-- **ONNX Optimization**: Configurable runtime with provider fallback chain
-- **Memory Bounds**: Arena allocation and thread pool configuration
+**Model Registry System**:
 
-### Production Deployment Requirements
+- **Lifecycle Management**: Full semantic versioning with deployment status tracking
+- **A/B Testing Support**: Canary deployments with statistical validation
+- **Quality Gates**: Automated validation before production deployment
+- **Configurable Persistence**: JSON file or PostgreSQL backend with fallback
 
-- **ONNX Export**: Strongly recommended for all production models
-- **Metadata Sidecars**: `.meta.json` files track model provenance
-- **Registry Integration**: Use ModelRegistry for lifecycle management (optional but recommended)
-- **Health Monitoring**: HealthMonitor and CircuitBreaker protect against failures
-- **Store Integration**: All actors must inherit from BaseMLInferenceActor for mandatory stores
+### Framework Extensions Available 🚧
 
-### Development and Testing
+**Advanced Architectures** (Framework Ready):
 
-- **Dummy Models**: Use provided test models for infrastructure validation
-- **Model Generator Scripts**: `save_dummy_model.py` and `create_dummy_model.py` for test data
-- **Dry-Run Testing**: Test infrastructure without training actual models
-- **Deterministic RNG**: Test models use seeded random numbers for reproducibility
+- **N-BEATS**: Time series forecasting framework interfaces defined
+- **DeepLOB**: Order book modeling architecture contracts established
+- **Graph Neural Networks**: Protocol-based interfaces for graph-based models
+- **State-Space Models**: Framework support for Kalman Filter and related models
 
-### Future Extensibility
+**Knowledge Distillation Pipeline** (In Development):
 
-- **Plugin Architecture**: Extend `BaseMLTrainer` for new model types
-- **Custom Exporters**: Add framework-specific ONNX converters in `export.py`
-- **Teacher Models**: Implement `BaseTeacher` for heavy models
-- **Student Distillation**: Use teacher outputs for lightweight student training
-- **Advanced Architectures**: Framework ready for N-BEATS, DeepLOB, GNNs, etc.
+- **Teacher → Student Pipeline**: Soft label generation and distillation training
+- **Multi-Teacher Ensembles**: Framework for ensemble teacher knowledge transfer
+- **Progressive Distillation**: Staged knowledge transfer for complex models
+- **Performance Preservation**: Validation frameworks for student model quality
 
-This framework provides a robust foundation for production ML in financial markets, with a clear separation between development (allowing pickle for convenience) and production (enforcing security through format restrictions), while maintaining high performance and operational excellence.
-## Cross-Module References
+**Enterprise Features** (Planned):
 
-- **Data Pipeline**: See `context_data.md` for data ingestion and collection
-- **Feature Engineering**: See `context_features.md` for feature computation
-- **Stores**: See `context_stores.md` for persistence layer
-- **Training**: See `context_training.md` for model training pipelines
-- **Registry**: See `context_registry.md` for lifecycle management
-- **Strategies**: See `context_strategies.md` for trading strategy framework
-- **Deployment**: See `context_deployment.md` for containerization
-- **Monitoring**: See `context_monitoring.md` for observability
-- **Actors**: See `context_actors.md` for inference actors
-- **Models**: See `context_models.md` for model implementations
+- **Model Versioning**: Git-based model version control integration
+- **Compliance Tracking**: Audit trails for financial regulation compliance
+- **Multi-Tenant Support**: Isolated model namespaces for different strategies
+- **Advanced A/B Testing**: Statistical significance testing with early stopping
+
+## Production Implementation Guidelines
+
+### Security-First Architecture
+
+**Zero-Trust Model Loading**:
+
+- **Explicit Format Rejection**: `.pkl` and `.pickle` files trigger immediate `SecurityError`
+- **Whitelisted Formats**: Only ONNX, JSON, joblib, and native framework formats accepted
+- **Runtime Validation**: All models undergo format and inference compatibility validation
+- **Provenance Tracking**: Comprehensive metadata tracking with SHA-256 version hashing
+- **Secure Fallbacks**: Progressive fallback never compromises security posture
+
+**Production Security Checklist**:
+
+1. ✅ No pickle formats in production pipelines
+2. ✅ All model files validated before loading
+3. ✅ Metadata sidecars present and validated
+4. ✅ Model provenance tracked end-to-end
+5. ✅ Registry-based deployment with quality gates
+
+### Universal Performance Standards
+
+**Hot Path Requirements (Mandatory)**:
+
+- **P99 Latency Targets**: Feature computation <500μs, inference <2ms, end-to-end <5ms
+- **Zero Allocation Policy**: Pre-allocated buffers, no dynamic memory in hot path
+- **Model Caching Strategy**: Load once at startup, reuse across all predictions
+- **ONNX Optimization**: Multi-provider fallback with runtime optimization
+- **Memory Management**: Arena allocation, bounded memory usage, GC-friendly patterns
+
+**Performance Implementation Pattern**:
+
+```python
+class OptimizedMLActor(BaseMLInferenceActor):
+    def __init__(self, config: ActorConfig):
+        super().__init__(config)
+
+        # Pre-allocate all inference buffers
+        self.feature_buffer = np.zeros(config.feature_count, dtype=np.float32)
+        self.prediction_buffer = np.zeros(1, dtype=np.float32)
+
+        # Load and cache model once
+        self.model = self._load_optimized_model()
+
+        # Initialize performance monitoring
+        self._init_performance_metrics()
+
+    def predict(self, features: np.ndarray) -> float:
+        """Zero-allocation prediction method."""
+        # Reuse pre-allocated buffers
+        np.copyto(self.feature_buffer, features)
+
+        # ONNX optimized inference
+        self.model.run(
+            [self.prediction_buffer],
+            {"features": self.feature_buffer.reshape(1, -1)}
+        )
+
+        return float(self.prediction_buffer[0])
+```
+
+### Deployment Architecture Standards
+
+**Universal ML Pattern Compliance** (Mandatory):
+
+1. **Pattern 1**: All actors MUST inherit from `BaseMLInferenceActor`
+2. **Pattern 2**: All interfaces MUST use `typing.Protocol` for structural typing
+3. **Pattern 3**: Hot path MUST be <5ms, cold path unlimited
+4. **Pattern 4**: MUST implement progressive fallback chains
+5. **Pattern 5**: MUST use centralized metrics bootstrap
+
+**Production Deployment Checklist**:
+
+- ✅ ONNX export validated with sample inputs
+- ✅ Metadata sidecars complete and schema-valid
+- ✅ Registry integration with quality gates
+- ✅ Health monitoring and circuit breaker configured
+- ✅ Performance targets validated under load
+- ✅ Progressive fallback tested end-to-end
+
+### Development & Testing Framework
+
+**Infrastructure Testing**:
+
+- **Dummy Models**: Deterministic test models for CI/CD pipeline validation
+- **Performance Benchmarking**: Consistent baselines for latency measurements
+- **Load Testing**: Validate performance targets under production load
+- **Failure Injection**: Test progressive fallback and recovery mechanisms
+
+**Quality Assurance Pipeline**:
+
+```python
+# Automated validation in CI/CD
+def validate_model_production_readiness(model_path: Path) -> ValidationReport:
+    """Comprehensive model validation for production deployment."""
+    report = ValidationReport()
+
+    # Security validation
+    report.security = validate_model_security(model_path)
+
+    # Performance validation
+    report.performance = validate_performance_targets(model_path)
+
+    # Integration validation
+    report.integration = validate_universal_patterns(model_path)
+
+    # Export validation
+    report.export = validate_onnx_compatibility(model_path)
+
+    return report
+```
+
+### Future Architecture Extensions
+
+**Plugin Architecture Ready**:
+
+- **Custom Trainers**: Extend `BaseMLTrainer` with framework-specific implementations
+- **Novel Architectures**: Protocol-based interfaces support N-BEATS, DeepLOB, GNNs
+- **Export Extensions**: Add new framework converters via `ModelExportMixin`
+- **Registry Backends**: Pluggable persistence layers (PostgreSQL, MongoDB, S3)
+
+**Enterprise Readiness**:
+
+- **Compliance Framework**: Audit trails, regulatory reporting, model governance
+- **Multi-Tenancy**: Isolated model namespaces with resource quotas
+- **Advanced Monitoring**: Model drift detection, data quality monitoring
+- **Automated Retraining**: Pipeline orchestration with automated quality validation
+
+**Research & Development Support**:
+
+- **Experimentation Framework**: A/B testing with statistical significance validation
+- **Knowledge Distillation**: Teacher-student pipelines for model compression
+- **Federated Learning**: Distributed training across multiple data sources
+- **AutoML Integration**: Automated architecture search and hyperparameter optimization
+
+---
+
+**Architecture Maturity**: The ML models framework represents a production-grade, enterprise-ready platform for financial ML applications. The Universal ML Architecture Patterns ensure consistency, reliability, and performance across all components, while the protocol-based design enables extensibility and testing. Security is enforced through format restrictions and validation pipelines, while performance is optimized through ONNX integration and zero-allocation hot paths.
+
+## Cross-Module Integration
+
+### Core Dependencies
+
+- **Universal Patterns**: See `ml/docs/architecture/universal_patterns_guide.md` for mandatory implementation patterns
+- **Feature Engineering**: See `context_features.md` for feature computation and FeatureStore integration
+- **Training Pipeline**: See `context_training.md` for model training orchestration and BaseMLTrainer usage
+- **Registry System**: See `context_registry.md` for model lifecycle management and ModelRegistry integration
+- **Store Integration**: See `context_stores.md` for persistence layer and 4-Store pattern implementation
+
+### Production Integration
+
+- **Actor System**: See `context_actors.md` for BaseMLInferenceActor and inference pipeline implementation
+- **Strategy Framework**: See `context_strategies.md` for ML signal consumption and trading strategy integration
+- **Deployment**: See `context_deployment.md` for containerization, orchestration, and production deployment
+- **Monitoring & Observability**: See `context_monitoring.md` for metrics, health monitoring, and performance tracking
+
+### Data & Infrastructure
+
+- **Data Pipeline**: See `context_data.md` for data ingestion, collection, and DataStore integration
+- **Configuration Management**: See `context_config.md` for configuration architecture and validation patterns
+- **Testing Framework**: See `context_tests.md` for testing strategies, dummy models, and validation approaches

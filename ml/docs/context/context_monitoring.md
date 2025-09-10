@@ -2,336 +2,505 @@
 
 ## Executive Summary
 
-The ML monitoring infrastructure for Nautilus Trader provides comprehensive observability for machine learning components through a Prometheus/Grafana/AlertManager stack. This production-ready system offers real-time metrics collection, visualization, and alerting across data quality, feature engineering, model lifecycle, performance degradation, and resource utilization.
+The ML monitoring infrastructure for Nautilus Trader provides comprehensive observability through a hybrid approach combining real-time Prometheus metrics, off-hot-path observability data collection, and operational health monitoring. This production-ready system integrates with the mandatory 4-store + 4-registry architecture and provides graceful degradation when monitoring dependencies are unavailable.
 
-Operational notes:
+**Deployment Options**:
 
-- Include DB preflight status and engine pool telemetry in dashboards where useful. Preflight utility: `ml/stores/db_preflight.py`. Pool status: `EngineManager.get_pool_status()`.
+- **Primary (Recommended)**: Monitoring services integrated in `ml/deployment/docker-compose.yml` with Prometheus and Grafana running alongside ML services
+- **Standalone**: Self-contained monitoring stack in `ml/monitoring/` for development or isolated deployments
+- **Observability-Only**: Off-hot-path observability service for structured data collection without Prometheus
+
+**Architecture Pillars**:
+
+1. **Centralized Metrics Bootstrap** (`ml/common/metrics_bootstrap.py`) - Safe, idempotent metrics creation
+2. **Observability Service** (`ml/observability/`) - Off-hot-path structured data collection
+3. **Circuit Breakers** - Production-ready fault tolerance with metrics integration
+4. **Health Monitoring** - SQL views and automated health scoring
 
 ### Key Features
 
-- **Production-Ready**: Docker-based deployment with health checks and automatic restarts
-- **Comprehensive Coverage**: Specialized metrics collectors covering all ML pipeline stages
-- **Real-time Alerting**: Multi-tier alert system with Slack, email, and PagerDuty integration
-- **Performance Optimized**: Sub-5ms latency overhead with graceful degradation
-- **Extensible Architecture**: Modular collector design supporting future ML components
-- **Centralized Metrics**: All metrics must be acquired via `ml/common/metrics_bootstrap.py` (get_counter/get_histogram/get_gauge) or imported from `ml/common/metrics.py` to avoid duplication
+- **Production-Ready**: Docker-based deployment with health checks, graceful degradation, and circuit breaker protection
+- **Dual-Path Monitoring**: Hot-path Prometheus metrics + cold-path observability data collection
+- **Universal Integration**: Automatic integration with BaseMLInferenceActor and 4-store + 4-registry system
+- **Circuit Breaker Integration**: Built-in fault tolerance with state monitoring and metrics
+- **Performance Optimized**: <5ms P99 latency overhead with graceful fallback to dummy implementations
+- **Centralized Metrics**: All metrics via `ml/common/metrics_bootstrap.py` preventing duplicate registration
+- **SQL Health Views**: Comprehensive pipeline health monitoring with nanosecond timestamp support
+- **Real-time Dashboard**: Rich terminal-based monitoring for live system observation
 
 ### Current Status
 
-- ✅ Core infrastructure implemented and tested
-- ✅ Basic metrics collection (MLMetricsCollector) operational
-- ✅ Centralized metrics in `ml/common/metrics.py` (30+ metrics)
-- ✅ Docker deployment stack configured
-- ✅ Grafana dashboards and alert rules defined
-- ✅ DataScheduler metrics integrated
-- ✅ Pipeline health monitoring with SQL views (moved to migrations)
-- ✅ Health check script (`check_pipeline_health.py`)
-- ✅ Real-time dashboard (`realtime_dashboard.py`)
-- ✅ Extended metrics collectors implemented (data, features, model, performance, registry, resources)
-- ✅ MetricsServer with /metrics and /health endpoints
-- 🔄 Full integration with all ML components in progress
+- ✅ Centralized metrics bootstrap system (`ml/common/metrics_bootstrap.py`)
+- ✅ Production metrics collection (40+ metrics) in `ml/common/metrics.py`
+- ✅ Observability service with DataFrame materialization (`ml/observability/`)
+- ✅ Circuit breaker implementation with metrics integration
+- ✅ BaseMLInferenceActor with automatic monitoring integration
+- ✅ Docker deployment stack with Prometheus/Grafana
+- ✅ Health monitoring SQL views with nanosecond timestamp functions
+- ✅ Real-time terminal dashboard (`ml/monitoring/realtime_dashboard.py`)
+- ✅ Metrics server with /metrics and /health endpoints
+- ✅ Thread-safe collectors with graceful degradation patterns
+- ✅ Integration with MLIntegrationManager and health aggregation
+- 🔄 Advanced dashboard programmatic generation and Grafana integration
 
 ## Architecture Overview
 
-### System Components
+### Dual-Path Monitoring Architecture
+
+The monitoring system implements a dual-path approach:
+
+**Hot Path (Real-time)**:
+
+- Prometheus metrics via `ml/common/metrics_bootstrap.py`
+- <5ms P99 latency overhead
+- Circuit breaker state monitoring
+- Live health checks
+
+**Cold Path (Observability)**:
+
+- Structured data collection via `ml/observability/service.py`
+- DataFrame materialization for analysis
+- Event correlation and lineage tracking
+- Background persistence to files/database
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     ML Application                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │ Data Loaders │  │ Feature Eng. │  │ ML Actors    │     │
-│  │ + Metrics    │  │ + Metrics    │  │ + Metrics    │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
-└─────────────────────┬───────────────────────────────────────┘
-                      │ /metrics endpoint (port 8000)
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Monitoring Stack                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │  Prometheus  │  │   Grafana    │  │ AlertManager │     │
-│  │  (port 9090) │  │ (port 3000)  │  │ (port 9093)  │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
-│  ┌──────────────┐  ┌──────────────┐                       │
-│  │ Pushgateway  │  │Node Exporter │                       │
-│  │ (port 9091)  │  │ (port 9100)  │                       │
-│  └──────────────┘  └──────────────┘                       │
-└─────────────────────────────────────────────────────────────┘
-                      │
+┌─────────────────────────────────────────────────────────────────┐
+│                    ML Application Layer                         │
+│  ┌───────────────┐  ┌───────────────┐  ┌──────────────────┐    │
+│  │ BaseMLInf...  │  │ MLSignalActor │  │  MLTradingStr... │    │
+│  │ +Metrics      │  │ +CircuitBreak │  │  +Monitoring     │    │
+│  │ +HealthCheck  │  │ +Monitoring   │  │  +Health         │    │
+│  └───────────────┘  └───────────────┘  └──────────────────┘    │
+└─────────────────────┬─────────────────┬──────────────────┬──────┘
+                      │Hot Path         │Cold Path         │
+                      │(Prometheus)     │(Observability)   │
+                      ▼                 ▼                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  Monitoring Infrastructure                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
+│  │  Prometheus  │  │ Observability│  │    Health Views      │   │
+│  │  (port 9090) │  │   Service    │  │   (SQL/PostgreSQL)   │   │
+│  │              │  │ (Background) │  │                      │   │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘   │
+│  ┌──────────────┐  ┌──────────────┐                            │
+│  │   Grafana    │  │ Real-time    │                            │
+│  │ (port 3000)  │  │ Dashboard    │                            │
+│  └──────────────┘  └──────────────┘                            │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │ /metrics, /health endpoints
                       ▼
             ┌──────────────────┐
-            │ Alert Channels   │
-            │ - Slack          │
-            │ - Email          │
-            │ - PagerDuty      │
+            │ 4-Store System   │
+            │ - FeatureStore   │
+            │ - ModelStore     │
+            │ - StrategyStore  │
+            │ - DataStore      │
             └──────────────────┘
 ```
 
 ### Technology Stack
 
-- **Metrics Collection**: Prometheus Client (Python)
-- **Time Series Database**: Prometheus 2.48.0
-- **Visualization**: Grafana 10.2.3
-- **Alerting**: AlertManager 0.27.0
-- **Container Orchestration**: Docker Compose
-- **Reverse Proxy**: Optional (nginx/traefik for production)
+**Core Infrastructure**:
+
+- **Metrics Bootstrap**: `ml/common/metrics_bootstrap.py` - Safe, idempotent metrics creation
+- **Centralized Metrics**: `ml/common/metrics.py` - 40+ production metrics with consistent labeling
+- **Observability Service**: `ml/observability/service.py` - Off-hot-path data collection
+- **Circuit Breakers**: Production-ready fault tolerance with metrics integration
+
+**Monitoring Services**:
+
+- **Prometheus**: Latest - Time series database and metrics collection
+- **Grafana**: Latest - Visualization and dashboards
+- **PostgreSQL Views**: Nanosecond timestamp support with health scoring algorithms
+- **Real-time Dashboard**: Rich library for terminal-based live monitoring
+
+**Production Integration**:
+
+- **Docker Compose**: Full stack deployment with health checks
+- **MLIntegrationManager**: Automatic component wiring and health aggregation
+- **BaseMLInferenceActor**: Universal monitoring integration for all ML actors
+- **Progressive Fallback**: Graceful degradation when monitoring services unavailable
 
 ## Metrics Catalog
-### Bootstrap Usage and Naming Standards
 
-- Always acquire metrics via `ml.common.metrics_bootstrap`:
-  - `get_counter(name, description, labelnames)`
-  - `get_histogram(name, description, labelnames, buckets=...)`
-  - `get_gauge(name, description, labelnames)`
-- Do not instantiate Prometheus collectors directly in modules. This prevents duplicate registration and ensures idempotency across tests and processes.
-- Naming conventions: prefix all ML metrics with `nautilus_ml_` and use snake_case. Labels should be stable and minimal (e.g., `model`, `instrument`, `stage`, `status`).
-- Central, widely used metrics live in `ml/common/metrics.py`; domain‑specific metrics use the bootstrap in their owning module.
+### Centralized Metrics Bootstrap System
 
-### Core Metrics (MLMetricsCollector)
+**MANDATORY**: All metrics must be obtained via `ml.common.metrics_bootstrap.py`:
 
-| Metric Name | Type | Description | Labels | Alert Threshold |
-|-------------|------|-------------|--------|-----------------|
-| `nautilus_ml_predictions_total` | Counter | Total ML predictions made | model, instrument, prediction_class, status | N/A |
-| `nautilus_ml_prediction_latency_seconds` | Histogram | Model inference latency | model, instrument | P99 > 5s |
-| `nautilus_ml_model_confidence` | Gauge | Current model confidence | model, instrument | < 0.6 |
-| `nautilus_ml_feature_computation_latency_seconds` | Histogram | Feature computation time | instrument, feature_type | P95 > 500ms |
-| `nautilus_ml_model_errors_total` | Counter | Model error count | model, instrument, error_type | Rate > 5/min |
+```python
+from ml.common.metrics_bootstrap import get_counter, get_histogram, get_gauge
 
-### Centralized Metrics (ml/common/metrics.py)
+# Safe, idempotent metric creation
+counter = get_counter("nautilus_ml_predictions_total", "Total predictions", ["model", "instrument"])
+histogram = get_histogram("nautilus_ml_inference_duration", "Inference time", ["model"], buckets=[0.001, 0.005, 0.01])
+gauge = get_gauge("nautilus_ml_model_confidence", "Model confidence", ["model"])
+```
+
+**Key Benefits**:
+
+- **Idempotent**: Multiple calls return same metric instance
+- **Thread-Safe**: Safe for concurrent access
+- **Test-Safe**: Prevents duplicate registration errors in tests
+- **Import-Safe**: No direct prometheus_client dependencies
+
+**Naming Conventions**:
+
+- Prefix: `nautilus_ml_` for all ML metrics
+- Format: `snake_case` with descriptive names
+- Labels: Stable, minimal set (instrument, model, stage, status)
+- Consistency: Follow existing patterns in `ml/common/metrics.py`
+
+### Production Metrics Catalog (ml/common/metrics.py)
+
+**Core ML Inference Metrics**:
+
+- `model_inference_duration` - Model inference latency (P99 target: <5ms)
+- `model_accuracy` - Model accuracy scores by version
+- `model_confidence` - Average prediction confidence
+- `feature_computation_duration` - Feature calculation time
+
+### Current Production Metrics (ml/common/metrics.py)
+
+The centralized metrics system provides 40+ production-ready metrics organized by domain:
 
 #### Data Pipeline Metrics
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_data_events_total` | Counter | Total data events processed | dataset_type, component, stage, source, status |
-| `nautilus_ml_watermark_lag_seconds` | Gauge | Lag since last processing | dataset, instrument, source |
-| `nautilus_ml_stage_coverage_pct` | Gauge | Coverage between pipeline stages | dataset, from_stage, to_stage |
-| `nautilus_ml_contract_violations_total` | Counter | Contract validation violations | dataset, rule |
+| Metric Name | Type | Description | Labels | Critical Threshold |
+|-------------|------|-------------|--------|-------------------|
+| `data_events_total` | Counter | Pipeline events processed | dataset_type, component, stage, source, status | - |
+| `watermark_lag_seconds` | Gauge | Processing lag since last event | dataset, instrument, source | >300s |
+| `stage_coverage_pct` | Gauge | Coverage between pipeline stages | dataset, from_stage, to_stage | <90% |
+| `contract_violations_total` | Counter | Data contract violations | dataset, rule | Rate >1/min |
 
-#### Data Collection Metrics
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_data_collection_duration` | Histogram | Duration of collection operations | source, schema |
-| `nautilus_ml_data_collection_errors` | Counter | Total collection errors | source, instrument, error_type |
-| `nautilus_ml_catalog_write_operations` | Counter | Catalog write operations | status |
+#### Store Operations Metrics
+| Metric Name | Type | Description | Labels | Critical Threshold |
+|-------------|------|-------------|--------|-------------------|
+| `feature_store_operations_total` | Counter | FeatureStore operations | operation, status | - |
+| `model_store_operations_total` | Counter | ModelStore operations | operation, status | - |
+| `strategy_store_operations_total` | Counter | StrategyStore operations | operation, status | - |
+| `data_collection_duration` | Histogram | Data collection latency | source, schema | P95 >60s |
 
-#### Feature Store Metrics
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_feature_store_operations` | Counter | Total operations | operation, status |
-| `nautilus_ml_feature_computation_duration_seconds` | Histogram | Feature computation time | feature_set, mode |
-| `nautilus_ml_feature_drift_score` | Gauge | Feature drift score (0-1) | feature_set, feature_name |
+#### ML Performance Metrics
+| Metric Name | Type | Description | Labels | Critical Threshold |
+|-------------|------|-------------|--------|-------------------|
+| `model_inference_duration` | Histogram | Model inference time | model_id, version | P99 >5ms |
+| `model_accuracy` | Gauge | Model accuracy score | model_id, version | <0.6 |
+| `model_confidence` | Gauge | Average confidence score | model_id, version | <0.5 |
+| `feature_computation_duration` | Histogram | Feature calculation time | feature_set, mode | P95 >500ms |
+| `feature_drift_score` | Gauge | Feature drift detection | feature_set, feature_name | >0.3 |
 
-#### Model Store Metrics
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_model_store_operations` | Counter | Total operations | operation, status |
-| `nautilus_ml_model_inference_duration_seconds` | Histogram | Model inference time | model_id, version |
-| `nautilus_ml_model_accuracy` | Gauge | Model accuracy score | model_id, version |
-| `nautilus_ml_model_confidence` | Gauge | Average confidence score | model_id, version |
+#### Data Quality & Validation Metrics
+| Metric Name | Type | Description | Labels | Critical Threshold |
+|-------------|------|-------------|--------|-------------------|
+| `validation_violations_counter` | Counter | Data validation failures | dataset_id, rule_type, severity | Rate >5/min |
+| `schema_mismatch_counter` | Counter | Schema validation errors | dataset, mismatch_type | Rate >1/min |
+| `write_rejection_counter` | Counter | Rejected writes | dataset_id, reason | Rate >1/min |
+| `quality_score_histogram` | Histogram | Data quality distribution | dataset_id | <0.8 |
 
-#### Strategy Store Metrics
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_strategy_store_operations` | Counter | Total operations | operation, status |
-| `nautilus_ml_strategy_signal_generation_duration_seconds` | Histogram | Signal generation time | strategy_id |
-| `nautilus_ml_strategy_pnl` | Gauge | Strategy P&L | strategy_id, timeframe |
+#### System Health & Reliability Metrics
+| Metric Name | Type | Description | Labels | Critical Threshold |
+|-------------|------|-------------|--------|-------------------|
+| `pipeline_health` | Gauge | Component health score (0-1) | component | <0.7 |
+| `system_ready` | Gauge | System readiness (0/1) | component | 0 |
+| `circuit_breaker_state` | Gauge | Circuit breaker state | component | 1.0 (open) |
+| `circuit_breaker_trips_total` | Counter | Circuit breaker transitions | component, to_state | Rate >1/min |
+| `backpressure_drops_total` | Counter | Events dropped due to backpressure | component, reason | Rate >10/min |
 
-#### Validation Metrics
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_validation_violations` | Counter | Validation violations | dataset_id, rule_type, severity |
-| `nautilus_ml_validation_duration_seconds` | Histogram | Validation time | dataset_id |
-| `nautilus_ml_schema_mismatches` | Counter | Schema validation failures | dataset, mismatch_type |
-| `nautilus_ml_write_rejections` | Counter | Rejected writes | dataset_id, reason |
-| `nautilus_ml_data_quality_score` | Histogram | Data quality distribution | dataset_id |
+### Helper Functions
 
-#### System Health Metrics
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_pipeline_health` | Gauge | Overall health score (0-1) | component |
-| `nautilus_ml_system_ready` | Gauge | System readiness (0/1) | component |
+The metrics system provides convenient helper functions for consistent labeling:
 
-### Pipeline Metrics (DataScheduler)
+```python
+from ml.common.metrics import record_pipeline_event, update_pipeline_health
 
-| Metric Name | Type | Description | Labels |
-|-------------|------|-------------|--------|
-| `nautilus_ml_pipeline_stage_latency_seconds` | Histogram | Stage execution latency | stage |
-| `nautilus_ml_pipeline_runs_total` | Counter | Total pipeline runs | status |
+# Record pipeline events with consistent labeling
+record_pipeline_event(
+    dataset_type="features",
+    component="technical_indicators",
+    stage="FEATURE_COMPUTED",
+    source="live",
+    status="success",
+    count=100
+)
 
-### Extended Collectors (Implemented)
+# Update component health scores
+update_pipeline_health(component="data_ingestion", score=0.95)
+```
 
-#### DataQualityCollector (ml/monitoring/collectors/data.py)
+## Circuit Breaker Integration
 
-- Data loading performance and cache efficiency
-- Missing values and data quality ratios
-- Outlier detection and validation failures
-- Data staleness and freshness monitoring
+### Production Circuit Breaker Implementation
 
-#### FeatureEngineeringCollector (ml/monitoring/collectors/features.py)
+The monitoring system integrates with production-ready circuit breakers in `ml/actors/base.py`:
 
-- Feature computation performance
-- Feature drift detection and scoring
-- Cache hit ratios and efficiency
-- Feature importance tracking
+```python
+from ml.actors.base import CircuitBreaker, CircuitBreakerState, CircuitBreakerConfig
 
-#### ModelLifecycleCollector (ml/monitoring/collectors/model.py)
+# Circuit breaker with metrics integration
+breaker = CircuitBreaker(
+    config=CircuitBreakerConfig(
+        failure_threshold=5,
+        recovery_timeout=30.0,
+        success_threshold=3
+    ),
+    component_id="ml_signal_actor"
+)
 
-- Model deployment metadata and versioning
-- Training duration and performance tracking
-- Model size and loading time monitoring
-- Model errors and deployment failures
+# Automatic metrics recording
+if breaker.can_execute():
+    try:
+        result = perform_inference()
+        breaker.record_success()  # Updates metrics
+    except Exception as e:
+        breaker.record_failure()  # Updates circuit_breaker_trips_total
+        raise
+```
 
-#### PerformanceDegradationCollector (ml/monitoring/collectors/performance.py)
+**Circuit Breaker States & Metrics**:
 
-- Rolling accuracy and performance tracking
-- Prediction distribution shift detection
-- Inference timeout monitoring
-- Retraining requirement indicators
+- `circuit_breaker_state` gauge: 0=closed, 0.5=half_open, 1=open
+- `circuit_breaker_trips_total` counter: State transitions by component
+- Automatic health score updates based on breaker state
 
-#### ResourceUtilizationCollector (ml/monitoring/collectors/resources.py)
+### Circuit Breaker Configuration
 
-- Memory and CPU utilization tracking
-- GPU utilization monitoring (when available)
-- Disk I/O and storage metrics
-- Feature store and model registry size
+```python
+from ml.config.base import CircuitBreakerConfig
 
-#### RegistryHealthCollector (ml/monitoring/collectors/registry.py)
+config = CircuitBreakerConfig(
+    failure_threshold=5,      # Failures before opening
+    recovery_timeout=30.0,    # Seconds until retry attempt
+    success_threshold=3       # Successes to close from half-open
+)
+```
 
-- Registry operation metrics
-- Schema validation tracking
-- Manifest registration events
-- Version management metrics
+## Health Monitoring System
 
-## Dashboard Specifications
+### SQL Health Views (ml/stores/migrations/005_views.sql)
 
-### 1. ML Overview Dashboard (`ml-overview.json`)
-**Purpose**: High-level system health and key performance indicators
+Comprehensive health monitoring through PostgreSQL views with nanosecond timestamp support:
 
-**Panels**:
+**Core Health Views**:
 
-- Model Accuracy Trend (Time Series)
-- Inference Latency P99 (Stat Panel)
-- Prediction Rate (Gauge)
-- System Health Score (Stat Panel)
-- Recent Alerts (Table)
-- Resource Utilization Summary (Row of Gauges)
+- `ml.pipeline_health` - Daily pipeline health scores and staleness detection
+- `ml.data_collection_stats` - Hourly data collection metrics per instrument
+- `ml.model_performance_summary` - Model inference performance and accuracy tracking
+- `ml.feature_computation_stats` - Feature calculation performance metrics
+- `ml.data_freshness` - Real-time data staleness monitoring
 
-**Refresh**: 10 seconds
-**Variables**: `$model`, `$instrument`, `$interval`
+**Health Scoring Algorithm**:
 
-### 2. Pipeline Health Dashboard (`pipeline-health.json`)
-**Purpose**: Monitor data pipeline operations and health
+```sql
+CASE
+    WHEN EXTRACT(EPOCH FROM NOW() - ns_to_timestamp(MAX(f.ts_init))) > 86400 THEN 0
+    WHEN EXTRACT(EPOCH FROM NOW() - ns_to_timestamp(MAX(f.ts_init))) > 3600 THEN 50
+    ELSE 100
+END as health_score
+```
 
-**Panels**:
+### Automated Health Checking
 
-- Pipeline Run Status (Time Series) - Success/failure over time
-- Data Collection Latency (Histogram)
-- Feature Computation Rate (Gauge)
-- FeatureStore Write Performance (Stat Panel)
-- Data Staleness by Instrument (Table)
-- Databento API Usage (Counter)
-- Last Successful Run (Stat Panel) - Alert: >25 hours
-- Error Rate Trend (Time Series)
-
-**Refresh**: 30 seconds
-**Variables**: `$instrument`, `$stage`
-
-### 3. Data Quality Dashboard (`data-quality.json`)
-**Purpose**: Monitor data pipeline health and quality metrics
-
-**Panels**:
-
-- Missing Values Ratio (Gauge) - Alert: >5%
-- Outliers Detected Rate (Time Series)
-- Data Staleness (Stat Panel) - Alert: >300s
-- Validation Failures (Counter) - Alert: >10/min
-- Data Load Latency Distribution (Histogram)
-- Data Source Status (Table)
-
-**Refresh**: 30 seconds
-
-### 4. Feature Engineering Dashboard (`feature-engineering.json`)
-**Purpose**: Track feature computation performance and quality
-
-**Panels**:
-
-- Feature Computation Latency (Histogram)
-- Feature Drift Heatmap (Heatmap)
-- Feature Cache Hit Ratio (Gauge) - Target: >80%
-- Feature Importance Rankings (Bar Chart)
-- Computation Error Rate (Time Series)
-- Feature Null Ratio Table (Table)
-
-**Refresh**: 30 seconds
-
-### 5. Model Lifecycle Dashboard (`model-lifecycle.json`)
-**Purpose**: Monitor model deployment, training, and versioning
-
-**Panels**:
-
-- Active Model Information (Stat Panels)
-- Training Duration Trends (Time Series)
-- Model Size Tracking (Gauge)
-- Load Time Performance (Histogram)
-- Deployment History (Table)
-- Model Registry Status (Table)
-
-**Refresh**: 60 seconds
-
-### 6. Performance Degradation Dashboard (`performance-degradation.json`)
-**Purpose**: Detect and visualize model performance issues
-
-**Panels**:
-
-- Rolling Accuracy (Time Series) - Alert: <70%
-- Prediction Distribution Shift (Heatmap)
-- Inference Timeout Ratio (Gauge) - Alert: >1%
-- Confidence Score Distribution (Histogram)
-- Retraining Indicators (Binary Panel)
-- Performance Alert History (Table)
-
-**Refresh**: 15 seconds
-
-### 7. Resource Utilization Dashboard (`resource-utilization.json`)
-**Purpose**: Monitor system resource consumption
-
-**Panels**:
-
-- CPU Usage Timeline (Time Series) - Alert: >80%
-- Memory Usage (Gauge) - Alert: >90%
-- GPU Utilization (Time Series) - Alert: >95% (if available)
-- Disk I/O Rates (Time Series)
-- Inference Batch Size (Histogram)
-- Feature Store Growth (Time Series)
-
-**Refresh**: 15 seconds
-
-### 8. Real-time Terminal Dashboard (`realtime_dashboard.py`)
-**Purpose**: Live monitoring from the command line using Rich library
-
-**Features**:
-
-- System metrics monitoring with live updates
-- Data ingestion rate tracking
-- Feature computation performance
-- Model inference metrics
-- Alert notifications
-- Resource utilization display
-
-**Usage**:
+**Health Check Script** (`ml/scripts/check_pipeline_health.py`):
 
 ```bash
+# Human-readable health report
+python ml/scripts/check_pipeline_health.py
+
+# JSON output for monitoring integration
+python ml/scripts/check_pipeline_health.py --json
+
+# Export health report
+python ml/scripts/check_pipeline_health.py --export health_report.json
+```
+
+**Health Check Features**:
+
+- Queries all health monitoring SQL views
+- Generates health scores from 0-100
+- Supports critical-only filtering
+- JSON output for dashboard integration
+- Automated PostgreSQL connectivity
+
+## Observability Service (Off-Hot-Path)
+
+### Structured Data Collection System
+
+The observability service (`ml/observability/service.py`) provides off-hot-path structured data collection complementing real-time Prometheus metrics:
+
+```python
+from ml.observability.service import ObservabilityService
+
+# Initialize service (lightweight, off hot-path)
+service = ObservabilityService()
+
+# Collect different types of observability data
+service.add_latency_stage(
+    correlation_id="correlation-123",
+    instrument_id="EURUSD.SIM",
+    pipeline_stage="feature_computation",
+    ts_stage_start=start_ns,
+    ts_stage_end=end_ns
+)
+
+service.add_health(
+    component_id="data_store",
+    health_score=0.95,
+    subsystem_scores={"db": 0.98, "cache": 0.92},
+    timestamp=timestamp_ns,
+    measurement_window_ms=1000
+)
+
+# Materialize structured DataFrames
+dataframes = {
+    "latency": service.latency_watermarks_df(),
+    "metrics": service.metrics_collection_df(),
+    "correlation": service.event_correlation_df(),
+    "health": service.health_scores_df()
+}
+```
+
+**Key Features**:
+
+- **Off-Hot-Path**: Minimal performance impact on critical inference loops
+- **Structured Output**: Contract-validated pandas DataFrames
+- **Event Correlation**: Track event lineage across system components
+- **Health Aggregation**: Component and subsystem health scoring
+- **Background Persistence**: File (JSONL/CSV) or database sinks
+
+### Observability CLI Integration
+
+```bash
+# Start background observability flushing
+python -m ml.cli.observability start --sink db --db-url postgresql://...
+
+# Flush to JSONL files
+python -m ml.cli.observability flush-jsonl --base-path ./observability
+
+# Flush to database
+python -m ml.cli.observability flush-db --db-url postgresql://...
+```
+
+### MLIntegrationManager Integration
+
+The observability service integrates automatically with `MLIntegrationManager`:
+
+```python
+from ml.core.integration import MLIntegrationManager
+
+# Automatic observability initialization
+mgr = MLIntegrationManager()
+mgr.initialize_observability_pipeline()  # Lazy initialization
+
+# Service available as attribute
+service = mgr.observability_service
+```
+
+## Monitoring Infrastructure Components
+
+### Thread-Safe Collectors (ml/monitoring/collectors/)
+
+**BaseMetricsCollector** (`base.py`): Abstract base class providing:
+
+- Thread-safe metric initialization and access
+- Graceful degradation without Prometheus
+- Consistent configuration management
+- Health check integration
+
+**Specialized Collectors**:
+
+- **DataQualityCollector**: Data loading, quality ratios, staleness monitoring
+- **FeatureEngineeringCollector**: Feature computation, drift detection, cache efficiency
+- **ModelLifecycleCollector**: Model deployment, training metrics, ONNX tracking
+- **PerformanceDegradationCollector**: Accuracy tracking, distribution shift detection
+- **ResourceUtilizationCollector**: Memory, CPU, GPU, disk I/O monitoring
+- **RegistryHealthCollector**: Registry operations, schema validation, health status
+
+## Monitoring Dashboards & Visualization
+
+### Real-time Terminal Dashboard
+
+**Primary Monitoring Interface** (`ml/monitoring/realtime_dashboard.py`):
+
+```bash
+# Start live monitoring dashboard
 python ml/monitoring/realtime_dashboard.py
 ```
 
-The terminal dashboard provides:
+**Features**:
 
-- Live data ingestion metrics (L0/L1/L2 symbols, size, rates)
-- Feature computation statistics
-- Model performance indicators
-- System health monitoring
-- Alert summary panel
-- Auto-refresh with configurable intervals
+- **Live System Metrics**: Real-time health scores, circuit breaker states, inference latency
+- **Data Pipeline Monitoring**: Ingestion rates, feature computation progress, data staleness
+- **Model Performance Tracking**: Prediction rates, accuracy trends, confidence distributions
+- **Resource Utilization**: Memory, CPU, storage utilization with alerts
+- **Alert Dashboard**: Color-coded alert summary with severity levels
+- **Rich Terminal UI**: Interactive panels with auto-refresh and navigation
+
+**Configuration**:
+
+```python
+from ml.monitoring._config import DashboardConfig
+
+config = DashboardConfig(
+    data_dir="./data/tier1",
+    l1_progress_file="tier1_l1_progress.json",
+    feature_progress_file="tier1_features_progress.json"
+)
+```
+
+### Production Dashboards (Docker Deployment)
+
+**Grafana Integration** (Available at `http://localhost:3000`):
+
+**1. ML Pipeline Health Dashboard**:
+
+- Overall pipeline health score gauge
+- Component health breakdown (data, features, models, strategies)
+- Circuit breaker status monitoring
+- Real-time error rate tracking
+
+**2. Performance Monitoring Dashboard**:
+
+- Model inference latency percentiles (P50, P95, P99)
+- Feature computation performance trends
+- Prediction accuracy and confidence tracking
+- Resource utilization monitoring
+
+**Deployment**: Included in `ml/deployment/docker-compose.yml`:
+
+```yaml
+grafana:
+  image: grafana/grafana:latest
+  ports:
+    - "3000:3000"
+  volumes:
+    - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+  depends_on:
+    - prometheus
+```
+
+### Dashboard Factory & Programmatic Generation
+
+**Automated Dashboard Creation** (`ml/monitoring/dashboard_factory.py`):
+
+```python
+from ml.monitoring.dashboard_factory import DashboardFactory
+
+factory = DashboardFactory()
+dashboard_json = factory.create_ml_overview_dashboard(
+    title="ML System Overview",
+    datasource="prometheus",
+    refresh_interval="10s"
+)
+```
+
+**Grafana API Client** (`ml/monitoring/grafana_client.py`):
+
+```python
+from ml.monitoring.grafana_client import GrafanaClient
+
+client = GrafanaClient("http://localhost:3000", "admin", "password")
+client.create_dashboard(dashboard_json)
+client.create_folder("ML Monitoring")
+```
 
 ## Alert Configuration
 
@@ -420,77 +589,124 @@ route:
 
 ## Integration Patterns
 
-### MLDataLoader Integration
+### Universal BaseMLInferenceActor Integration
+
+**Automatic Monitoring Integration**: All ML actors inherit monitoring capabilities through `BaseMLInferenceActor`:
 
 ```python
-from ml.monitoring.collector import MLMetricsCollector
-from ml.monitoring._config import MonitoringConfig
-from ml.data.loader import MLDataLoader
+from ml.actors.base import BaseMLInferenceActor, CircuitBreakerConfig
+from ml.config.base import MLActorConfig
 
-# Initialize metrics
-config = MonitoringConfig(enabled=True, metrics_port=8000)
-metrics = MLMetricsCollector(config)
-
-class MonitoredMLDataLoader(MLDataLoader):
-    def __init__(self, catalog, metrics_collector=None):
-        super().__init__(catalog)
-        self.metrics = metrics_collector
-
-    def load_bars(self, instrument, start=None, end=None):
-        with self.metrics.time_feature_computation(instrument, "data_load"):
-            # Load data with automatic timing
-            return super().load_bars(instrument, start, end)
-```
-
-### FeatureEngineer Integration
-
-```python
-from ml.features.engineering import FeatureEngineer
-
-class MonitoredFeatureEngineer(FeatureEngineer):
-    def __init__(self, config, metrics_collector=None):
+class MyMLActor(BaseMLInferenceActor):
+    def __init__(self, config: MLActorConfig):
         super().__init__(config)
-        self.metrics = metrics_collector
-
-    def compute_features(self, data):
-        with self.metrics.time_feature_computation("EURUSD", "technical"):
-            features = super().compute_features(data)
-
-            # Record quality metrics (would use DataQualityCollector)
-            if self.metrics:
-                null_ratio = features.isnull().sum().sum() / features.size
-                # metrics.record_feature_quality("technical", null_ratio)
-
-            return features
-```
-
-### BaseMLInferenceActor Integration
-
-```python
-from ml.actors.base import BaseMLInferenceActor
-
-class ModelActor(BaseMLInferenceActor):
-    def __init__(self, config):
-        super().__init__(config)
-        # Metrics collector can be initialized if monitoring is enabled
-        if config.monitoring.enabled:
-            self.metrics = MLMetricsCollector(config.monitoring)
+        # Automatic integration:
+        # - 4 stores (FeatureStore, ModelStore, StrategyStore, DataStore)
+        # - 4 registries (FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry)
+        # - Circuit breaker with metrics integration
+        # - Health monitoring and metrics collection
 
     def on_data(self, data):
-        if hasattr(self, 'metrics'):
-            with self.metrics.time_prediction("xgboost_v1", "EURUSD") as timer:
-                prediction = self.model.predict(data)
-                confidence = self.model.predict_proba(data).max()
+        # Circuit breaker protection and metrics automatic
+        if not self._circuit_breaker.can_execute():
+            return None
 
-                timer.set_prediction(
-                    prediction_class="buy" if prediction > 0 else "sell",
-                    confidence=confidence
-                )
+        try:
+            # Your inference logic here
+            prediction = self.model.predict(data)
 
-                return prediction
-        else:
-            # Monitoring disabled, just run prediction
-            return self.model.predict(data)
+            # Automatic metrics recording
+            self._circuit_breaker.record_success()
+            return prediction
+        except Exception as e:
+            self._circuit_breaker.record_failure()
+            # Metrics updated automatically
+            raise
+```
+
+### 4-Store + 4-Registry Monitoring Integration
+
+**Automatic Store Monitoring**: All stores provide built-in metrics via centralized metrics:
+
+```python
+from ml.stores import FeatureStore, ModelStore, StrategyStore, DataStore
+
+# All stores automatically record metrics
+feature_store = FeatureStore(config)
+# Operations automatically tracked via feature_store_operations_total
+
+model_store = ModelStore(config)
+# Metrics: model_store_operations_total, model_inference_duration
+
+strategy_store = StrategyStore(config)
+# Metrics: strategy_store_operations_total, strategy_signal_generation_duration
+```
+
+### Circuit Breaker Integration Example
+
+```python
+from ml.actors.signal import MLSignalActor
+from ml.config.signal import MLSignalConfig
+from ml.config.base import CircuitBreakerConfig
+
+config = MLSignalConfig(
+    # Standard ML actor config
+    model_path="./model.onnx",
+    instrument_id="EURUSD.SIM",
+
+    # Circuit breaker configuration
+    circuit_breaker_config=CircuitBreakerConfig(
+        failure_threshold=5,
+        recovery_timeout=30.0,
+        success_threshold=3
+    )
+)
+
+actor = MLSignalActor(config)
+# Circuit breaker automatically integrated with metrics:
+# - circuit_breaker_state gauge
+# - circuit_breaker_trips_total counter
+# - Automatic health score updates
+```
+
+### MLIntegrationManager Health Integration
+
+**Automatic Health Aggregation**:
+
+```python
+from ml.core.integration import MLIntegrationManager
+
+# Initialize with automatic health monitoring
+mgr = MLIntegrationManager()
+
+# Get system-wide health summary
+health_summary = mgr.aggregate_health()
+# Returns: {
+#   "system_health": 0.92,
+#   "domain_health": {"data": 0.95, "features": 0.90, "models": 0.91},
+#   "component_details": {...}
+# }
+
+# CLI integration
+# python -m ml.cli.health --db-connection <url> --strict
+```
+
+### Observability Service Integration
+
+**Off-Hot-Path Monitoring**:
+
+```python
+from ml.core.integration import MLIntegrationManager
+
+mgr = MLIntegrationManager()
+mgr.initialize_observability_pipeline()  # Lazy initialization
+
+# Service automatically available
+service = mgr.observability_service
+
+# Materialize observability data
+dataframes = mgr.materialize_observability_dfs()
+# Returns: {"latency": df, "metrics": df, "correlation": df, "health": df}
 ```
 
 ## Performance Baselines
@@ -518,79 +734,109 @@ class ModelActor(BaseMLInferenceActor):
 
 ## Operational Procedures
 
-### Daily Operations
+### Production Deployment & Health Checks
 
-#### Health Check Routine
-
-1. Verify all containers running: `docker compose ps`
-2. Check Prometheus targets: <http://localhost:9090/targets>
-3. Verify Grafana accessibility: <http://localhost:3000>
-4. Review critical alerts: <http://localhost:9093>
-
-#### Performance Monitoring
-
-1. Check query performance in Grafana
-2. Review slow queries in Prometheus
-3. Monitor resource utilization trends
-4. Validate metric collection rates
-
-### Weekly Maintenance
-
-#### Dashboard Review
-
-1. Review dashboard usage analytics
-2. Update template variables if needed
-3. Optimize slow-performing queries
-4. Archive unused dashboards
-
-#### Alert Tuning
-
-1. Review alert firing frequency
-2. Adjust thresholds based on historical data
-3. Update notification channels as needed
-4. Test alert escalation paths
-
-### Monthly Tasks
-
-#### Capacity Planning
-
-1. Analyze storage growth trends
-2. Review metric cardinality
-3. Plan for scaling if needed
-4. Update retention policies
-
-#### Security Audit
-
-1. Review access permissions
-2. Rotate API keys and passwords
-3. Update SSL certificates
-4. Audit metric exposure
-
-### Disaster Recovery
-
-#### Backup Procedures
+#### Docker Stack Health Check (`ml/deployment/check_health.py`)
 
 ```bash
-# Backup Grafana dashboards
-docker exec nautilus_grafana grafana-cli admin export-dashboard
+# Comprehensive health check for all services
+cd ml/deployment && python check_health.py
 
-# Backup Prometheus configuration
-tar -czf prometheus-config-$(date +%Y%m%d).tar.gz prometheus/
-
-# Backup metrics data (if needed)
-docker exec nautilus_prometheus promtool tsdb snapshot /prometheus
+# Expected output:
+# ✓ Docker Compose - [OK]
+# ✓ PostgreSQL - [OK]
+# ✓ Redis - [OK]
+# ✓ ML Pipeline - [OK]
+# ✓ Prometheus - [OK]
+# ✓ Grafana - [OK]
 ```
 
-#### Recovery Procedures
+**Services Monitored**:
+
+- Docker Compose stack status
+- PostgreSQL database connectivity (`pg_isready`)
+- Redis message bus (`redis-cli ping`)
+- ML Pipeline HTTP endpoints (`/health`)
+- Prometheus metrics server (`/-/healthy`)
+- Grafana dashboard service (`/api/health`)
+
+#### Pipeline Health Monitoring
 
 ```bash
-# Restore from backup
-docker compose down
-# Restore configuration files
-docker compose up -d
+# Daily health report (human-readable)
+python ml/scripts/check_pipeline_health.py
 
-# Import dashboards
-python scripts/import_dashboards.py --all
+# JSON output for dashboard integration
+python ml/scripts/check_pipeline_health.py --json > health_report.json
+
+# Critical issues only
+python ml/scripts/check_pipeline_health.py --critical-only
+```
+
+### Real-time Monitoring
+
+#### Terminal Dashboard
+
+```bash
+# Start live monitoring dashboard
+python ml/monitoring/realtime_dashboard.py
+
+# Features:
+# - Live system health scores
+# - Data ingestion progress monitoring
+# - Feature computation performance
+# - Circuit breaker status tracking
+# - Alert summary dashboard
+```
+
+#### Metrics Server
+
+```bash
+# Start metrics server (if not using Docker stack)
+python -c "from ml.monitoring.server import MetricsServer; server = MetricsServer(); server.start()"
+
+# Endpoints available:
+# - http://localhost:8080/metrics (Prometheus format)
+# - http://localhost:8080/health (JSON health check)
+```
+
+### Observability Data Management
+
+#### Background Observability Flushing
+
+```bash
+# Start background observability collection
+python -m ml.cli.observability start --sink db --db-url postgresql://...
+
+# Flush to JSONL files
+python -m ml.cli.observability flush-jsonl --base-path ./observability
+
+# One-time database flush
+python -m ml.cli.observability flush-db --db-url postgresql://...
+```
+
+### Configuration Management
+
+#### Monitoring Configuration
+
+```python
+from ml.monitoring._config import MonitoringConfig
+
+config = MonitoringConfig(
+    enabled=True,
+    metrics_port=8080,
+    health_check_interval=30.0,
+    export_interval=5.0
+)
+```
+
+#### Observability Configuration
+
+```python
+from ml.config.observability import ObservabilityConfig
+
+config = ObservabilityConfig.from_env()  # Auto-detect from env vars
+# ML_OBS_SINK, ML_OBS_BASE_PATH, ML_OBS_DB_URL, etc.
 ```
 
 ### Troubleshooting Guide
@@ -627,43 +873,60 @@ python scripts/import_dashboards.py --all
 
 ## Current Implementation Status
 
-### ✅ Completed Components
+### ✅ Production-Ready Components
 
-- **Core Infrastructure**: Docker compose stack with health checks
-- **Basic Metrics Collection**: MLMetricsCollector with 5 core metrics
-- **Centralized Metrics**: 30+ metrics defined in `ml/common/metrics.py`
-- **Extended Collectors**: 6 specialized collectors implemented
-  - DataQualityCollector
-  - FeatureEngineeringCollector
-  - ModelLifecycleCollector
-  - PerformanceDegradationCollector
-  - ResourceUtilizationCollector
-  - RegistryHealthCollector
-- **Metrics Server**: HTTP server with /metrics and /health endpoints
-- **Configuration System**: Type-safe configuration with MonitoringConfig
-- **Dashboard Factory**: Programmatic dashboard generation
-- **Grafana Client**: API client for dashboard management
-- **Alert Rules**: Critical, warning, and info alert definitions
-- **Pipeline Health Monitoring**: SQL views (migrated to ml/stores/migrations/005_views.sql)
-- **Health Check Script**: `check_pipeline_health.py` for automated checks
-- **Real-time Dashboard**: `realtime_dashboard.py` for live monitoring
-- **Documentation**: Comprehensive setup and operation guides
+**Core Monitoring Infrastructure**:
 
-### 🔄 In Development
+- ✅ **Centralized Metrics Bootstrap** (`ml/common/metrics_bootstrap.py`) - Safe, idempotent metric creation
+- ✅ **Production Metrics Catalog** (`ml/common/metrics.py`) - 40+ metrics with circuit breaker and health integration
+- ✅ **Observability Service** (`ml/observability/`) - Off-hot-path structured data collection with DataFrame materialization
+- ✅ **Circuit Breaker Integration** - Production fault tolerance with automatic metrics recording
+- ✅ **Thread-Safe Collectors** (`ml/monitoring/collectors/`) - 6 specialized collectors with graceful degradation
 
-- **Full Integration**: Complete integration with all ML components
-- **Advanced Dashboard Panels**: Fine-tuning dashboard layouts
-- **Integration Testing**: End-to-end validation with ML components
-- **Performance Optimization**: Query optimization and caching
-- **Security Hardening**: Authentication and TLS configuration
+**ML Actor Integration**:
 
-### 📋 Planned Enhancements
+- ✅ **BaseMLInferenceActor** - Universal monitoring integration with 4-store + 4-registry auto-wiring
+- ✅ **MLSignalActor** - Signal generation with circuit breaker and health monitoring
+- ✅ **MLTradingStrategy** - Trading strategy execution monitoring and performance tracking
 
-- **Distributed Tracing**: Integration with Jaeger/Zipkin
-- **Log Aggregation**: ELK stack integration
-- **Mobile Dashboard**: Responsive design for mobile access
-- **AI-Powered Anomaly Detection**: ML-based alert threshold tuning
-- **Multi-Environment Support**: Dev/staging/prod configurations
+**Health & Observability Systems**:
+
+- ✅ **SQL Health Views** (`ml/stores/migrations/005_views.sql`) - Comprehensive health monitoring with nanosecond timestamps
+- ✅ **MLIntegrationManager** - Automatic health aggregation and observability pipeline initialization
+- ✅ **Health CLI** (`ml.cli.health`) - JSON health summaries for dashboard integration
+- ✅ **Observability CLI** (`ml.cli.observability`) - Background data flushing to files/database
+
+**Production Deployment**:
+
+- ✅ **Docker Stack Integration** (`ml/deployment/docker-compose.yml`) - Prometheus, Grafana, and health checks
+- ✅ **Health Check Script** (`ml/deployment/check_health.py`) - Comprehensive service health validation
+- ✅ **Real-time Dashboard** (`ml/monitoring/realtime_dashboard.py`) - Rich terminal monitoring interface
+- ✅ **Metrics Server** (`ml/monitoring/server.py`) - HTTP /metrics and /health endpoints
+
+**Configuration & Management**:
+
+- ✅ **Type-Safe Configuration** - MonitoringConfig, ObservabilityConfig with environment variable support
+- ✅ **Progressive Fallback** - Graceful degradation when monitoring services unavailable
+- ✅ **Dashboard Factory** - Programmatic Grafana dashboard generation
+- ✅ **Grafana API Client** - Dashboard management and provisioning
+
+### 🔄 Advanced Features (Available)
+
+- ✅ **Event Correlation Tracking** - Cross-component event lineage via observability service
+- ✅ **Pipeline Health Scoring** - Automated health calculation with configurable thresholds
+- ✅ **Backpressure Monitoring** - Event drop tracking with queue depth metrics
+- ✅ **Model Drift Detection** - Feature and prediction distribution shift monitoring
+- ✅ **Performance Degradation Alerts** - Rolling accuracy and confidence monitoring
+- 🔄 **Advanced Grafana Dashboards** - Programmatic dashboard generation and management
+- 🔄 **Alert Rule Management** - Dynamic alert threshold tuning based on historical data
+
+### 📋 Future Enhancements
+
+- **Distributed Tracing Integration** - OpenTelemetry/Jaeger integration for request tracing
+- **Advanced Anomaly Detection** - ML-powered threshold tuning and anomaly alerts
+- **Multi-Environment Configuration** - Dev/staging/prod monitoring profiles
+- **Mobile Dashboard Interface** - Responsive web interface for mobile monitoring
+- **Custom Metric Exporters** - Integration with external monitoring systems (DataDog, New Relic)
 
 ## Critical Monitoring Points
 
@@ -756,43 +1019,91 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 
 ## Key Implementation Files
 
-### Core Components
+### Core Monitoring Infrastructure
 
-- **ml/monitoring/__init__.py**: Package exports (MLMetricsCollector, MetricsServer, MonitoringConfig)
-- **ml/monitoring/collector.py**: Main MLMetricsCollector implementation
-- **ml/monitoring/_config.py**: MonitoringConfig dataclass
-- **ml/monitoring/server.py**: HTTP metrics server for Prometheus scraping
-- **ml/common/metrics.py**: Centralized Prometheus metrics definitions
+**Metrics Bootstrap & Centralized System**:
+
+- `ml/common/metrics_bootstrap.py` - Safe, idempotent metric creation utilities
+- `ml/common/metrics.py` - Centralized 40+ production metrics catalog
+- `ml/common/metrics_export.py` - Safe Prometheus client wrapper with fallbacks
+
+**Monitoring Components**:
+
+- `ml/monitoring/__init__.py` - Package exports (MLMetricsCollector, MetricsServer, MonitoringConfig)
+- `ml/monitoring/collector.py` - Main MLMetricsCollector with graceful degradation
+- `ml/monitoring/_config.py` - Type-safe MonitoringConfig, AlertConfig, DashboardConfig
+- `ml/monitoring/server.py` - HTTP metrics server (/metrics, /health endpoints)
+
+### Observability Infrastructure (Off-Hot-Path)
+
+**Service & Pipeline Components**:
+
+- `ml/observability/service.py` - Central observability service façade
+- `ml/observability/pipeline.py` - DataFrame builders for latency, metrics, correlation, health
+- `ml/observability/scheduler.py` - Background flushing scheduler
+- `ml/observability/db_persistence.py` - Database persistence layer
+- `ml/observability/correlation.py` - Event correlation tracking
+
+**Configuration & CLI**:
+
+- `ml/config/observability.py` - ObservabilityConfig with environment variable support
+- `ml/cli/observability.py` - CLI for background flushing and data materialization
+
+### ML Actor Integration
+
+**Universal ML Actor Base**:
+
+- `ml/actors/base.py` - BaseMLInferenceActor with automatic 4-store + 4-registry + monitoring
+- `ml/actors/signal.py` - MLSignalActor with circuit breaker and health integration
+- `ml/core/integration.py` - MLIntegrationManager with automatic health aggregation
+
+**Circuit Breaker & Health**:
+
+- `ml/config/base.py` - CircuitBreakerConfig and health monitoring configurations
+- Health integration in BaseMLInferenceActor with automatic metrics recording
+
+### Health Monitoring System
+
+**SQL Health Views & Scripts**:
+
+- `ml/stores/migrations/005_views.sql` - Comprehensive health monitoring views with nanosecond timestamps
+- `ml/scripts/check_pipeline_health.py` - Automated health checking with JSON output
+- `ml/deployment/check_health.py` - Docker stack health validation
 
 ### Specialized Collectors
 
-- **ml/monitoring/collectors/base.py**: BaseMetricsCollector abstract class
-- **ml/monitoring/collectors/data.py**: DataQualityCollector
-- **ml/monitoring/collectors/features.py**: FeatureEngineeringCollector
-- **ml/monitoring/collectors/model.py**: ModelLifecycleCollector
-- **ml/monitoring/collectors/performance.py**: PerformanceDegradationCollector
-- **ml/monitoring/collectors/resources.py**: ResourceUtilizationCollector
-- **ml/monitoring/collectors/registry.py**: RegistryHealthCollector
+**Thread-Safe Monitoring Collectors**:
 
-### Dashboards and Visualization
+- `ml/monitoring/collectors/base.py` - BaseMetricsCollector with graceful degradation
+- `ml/monitoring/collectors/data.py` - DataQualityCollector
+- `ml/monitoring/collectors/features.py` - FeatureEngineeringCollector
+- `ml/monitoring/collectors/model.py` - ModelLifecycleCollector
+- `ml/monitoring/collectors/performance.py` - PerformanceDegradationCollector
+- `ml/monitoring/collectors/resources.py` - ResourceUtilizationCollector
+- `ml/monitoring/collectors/registry.py` - RegistryHealthCollector
 
-- **ml/monitoring/realtime_dashboard.py**: Terminal-based real-time dashboard
-- **ml/monitoring/dashboard_factory.py**: Programmatic dashboard generation
-- **ml/monitoring/grafana_client.py**: Grafana API client
-- **ml/monitoring/grafana/dashboards/**: JSON dashboard definitions
+### Dashboards & Visualization
 
-### Health Monitoring
+**Real-time & Dashboard Components**:
 
-- **ml/scripts/check_pipeline_health.py**: Pipeline health check script
-- **ml/stores/migrations/005_views.sql**: SQL health monitoring views
-- **ml/stores/migrations/005_views.sql**: Monitoring views (canonical)
+- `ml/monitoring/realtime_dashboard.py` - Rich terminal-based live monitoring dashboard
+- `ml/monitoring/dashboard_factory.py` - Programmatic Grafana dashboard generation
+- `ml/monitoring/grafana_client.py` - Grafana API client for dashboard management
+- `ml/monitoring/grafana/` - Dashboard templates and configurations
 
-### Configuration
+### Production Deployment
 
-- **ml/monitoring/docker-compose.yml**: Standalone monitoring stack (optional)
-- **ml/monitoring/prometheus/prometheus.yml**: Prometheus configuration
-- **ml/monitoring/alertmanager/alertmanager.yml**: Alert routing configuration
-- **ml/monitoring/prometheus/alerts/**: Alert rule definitions
+**Docker Integration**:
+
+- `ml/deployment/docker-compose.yml` - Full stack with Prometheus, Grafana, PostgreSQL
+- `ml/deployment/grafana/` - Production dashboard configurations
+- `ml/monitoring/docker-compose.yml` - Standalone monitoring stack (development)
+
+**Configuration Files**:
+
+- `ml/monitoring/prometheus/prometheus.yml` - Prometheus scraping configuration
+- `ml/monitoring/alertmanager/alertmanager.yml` - Alert routing and notification
+- `ml/monitoring/.env.example` - Environment variable template
 
 ## Cross-Module References
 

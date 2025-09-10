@@ -318,7 +318,7 @@ def convert_to_torchscript(
 
     def _jit_script(mod: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.
-        return torch.jit.script(mod)  # type: ignore[no-untyped-call]
+        return torch.jit.script(mod)
 
     with torch.inference_mode():
         if sample_input is not None:

@@ -59,7 +59,13 @@ def main(argv: list[str] | None = None) -> int:
         default=0,
         help="If >0, build in date chunks of this many days and concatenate",
     )
-    ap.add_argument("--include_macro", action="store_true")
+    # Macro now on by default; --no_macro disables it
+    ap.add_argument("--include_macro", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument(
+        "--no_macro",
+        action="store_true",
+        help="Disable FRED macro join (enabled by default)",
+    )
     ap.add_argument("--macro_lag_days", type=int, default=1)
     ap.add_argument("--include_micro", action="store_true")
     ap.add_argument("--include_l2", action="store_true")
@@ -87,10 +93,11 @@ def main(argv: list[str] | None = None) -> int:
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     logging.info("Building dataset for symbols: %s", ",".join(symbols))
 
+    include_macro = not bool(getattr(args, "no_macro", False))
     builder = TFTDatasetBuilder(
         catalog,
         symbols,
-        include_macro=args.include_macro,
+        include_macro=include_macro,
         macro_lag_days=args.macro_lag_days,
         include_micro=args.include_micro,
         include_l2=args.include_l2,

@@ -21,7 +21,10 @@ import json
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import date
+from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +76,7 @@ class BuildConfig:
     out_dir: Path
     symbols: list[str]
     window: BuildWindow = BuildWindow()
-    include_macro: bool = False
+    include_macro: bool = True
     macro_lag_days: int = 1
     include_micro: bool = False
     include_l2: bool = False
@@ -82,6 +85,10 @@ class BuildConfig:
     lookback_periods: int = 60
     workers: int = 1
     use_subprocess: bool = False
+    # Additional build CLI options
+    chunk_days: int = 0
+    register_features: bool = True
+    feature_registry_dir: Path = Path("~/.nautilus/ml/features").expanduser()
 
     @staticmethod
     def from_mapping(obj: dict[str, Any]) -> BuildConfig:
@@ -102,7 +109,7 @@ class BuildConfig:
             out_dir=Path(str(_p("out_dir", "./tft_ds"))),
             symbols=symbols,
             window=window,
-            include_macro=bool(_p("include_macro", False)),
+            include_macro=bool(_p("include_macro", True)),
             macro_lag_days=int(_p("macro_lag_days", 1)),
             include_micro=bool(_p("include_micro", False)),
             include_l2=bool(_p("include_l2", False)),
@@ -111,6 +118,11 @@ class BuildConfig:
             lookback_periods=int(_p("lookback_periods", 60)),
             workers=max(1, int(_p("workers", 1))),
             use_subprocess=bool(_p("use_subprocess", False)),
+            chunk_days=int(_p("chunk_days", 0)),
+            register_features=bool(_p("register_features", True)),
+            feature_registry_dir=Path(
+                str(_p("feature_registry_dir", "~/.nautilus/ml/features")),
+            ).expanduser(),
         )
         return cfg
 
@@ -169,12 +181,31 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
         "--lookback_periods",
         str(cfg.lookback_periods),
     ]
+    # Window arguments
+    start: str | None = cfg.window.start
+    end: str | None = cfg.window.end
+    if cfg.window.days_back is not None:
+        # Compute [today - days_back, today)
+        today = datetime.now(tz=UTC)
+        s_dt = today - timedelta(days=int(cfg.window.days_back))
+        start = s_dt.strftime("%Y-%m-%d")
+        end = today.strftime("%Y-%m-%d")
+    if start:
+        args += ["--start", start]
+    if end:
+        args += ["--end", end]
+    if cfg.chunk_days > 0:
+        args += ["--chunk_days", str(cfg.chunk_days)]
     if cfg.include_macro:
         args += ["--include_macro", "--macro_lag_days", str(cfg.macro_lag_days)]
     if cfg.include_micro:
         args += ["--include_micro"]
     if cfg.include_l2:
         args += ["--include_l2"]
+    if cfg.register_features:
+        args += ["--register_features"]
+        if cfg.feature_registry_dir:
+            args += ["--feature_registry_dir", str(cfg.feature_registry_dir)]
 
     if cfg.use_subprocess:
         import subprocess

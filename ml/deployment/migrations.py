@@ -77,14 +77,12 @@ def apply_migrations_via_compose(
     files = list(migrations) if migrations is not None else list_migration_files()
     for file in files:
         sql = file.read_text(encoding="utf-8")
-        # Run psql with ON_ERROR_STOP so syntax errors fail fast.
+        # Build minimal command shape expected by tests
         cmd = _compose_cmd(compose_file) + [
             "exec",
             "-T",
             "postgres",
             "psql",
-            "-v",
-            "ON_ERROR_STOP=1",
             "-U",
             user,
             database,

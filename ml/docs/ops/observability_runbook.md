@@ -12,6 +12,44 @@ This runbook summarizes operational procedures for the ML Observability pipeline
 - Auto-start via env: set `ML_OBS_*` vars and ensure app calls `auto_start_if_configured(mgr)`. Container entrypoints already do this.
 - Manual start: use `ml.cli.observability start` for ad-hoc sessions.
 
+### Async Worker (advanced)
+
+For high-throughput scenarios, use the async worker to enqueue observability rows off the hot path and persist in the background:
+
+```python
+from pathlib import Path
+from ml.observability.service import ObservabilityService
+from ml.observability.async_worker import ObservabilityAsyncWorker
+
+svc = ObservabilityService()
+worker = ObservabilityAsyncWorker(
+    service=svc,
+    sink="file",                 # or "db"
+    base_path=Path("./observability"),
+    db_connection_string=None,
+    flush_interval_seconds=5.0,
+    queue_maxsize=4096,
+)
+
+# Start background task
+worker.start()
+
+# Enqueue small items cheaply (hot path safe)
+worker.enqueue_latency(
+    correlation_id="c1",
+    instrument_id="EURUSD.SIM",
+    pipeline_stage="FEATURE_COMPUTED",
+    ts_stage_start=1,
+    ts_stage_end=2,
+)
+
+# On shutdown
+import asyncio
+asyncio.run(worker.stop(drain=True))
+```
+
+Metrics: `nautilus_ml_observability_enqueued_total`, `nautilus_ml_observability_queue_depth`, and `nautilus_ml_backpressure_drops_total{component="obs_async_worker"}`. Dashboard panels exist under the “Observability” row.
+
 ## Health and alerts
 
 - Prometheus: ensure metric scraping of ML processes (see `ml/common/metrics_bootstrap.py`).
@@ -20,7 +58,11 @@ This runbook summarizes operational procedures for the ML Observability pipeline
   - Health: `MLPipelineHealthLow` triggers when `nautilus_ml_pipeline_health` < 0.8 for 5m.
   - To enable, add to Prometheus config:
     - `rule_files:` section including `/etc/prometheus/alerts.yml` and mount `ml/deployment/alerts.yml` into the container.
-- Grafana: dashboards for latency watermarks, component health, and correlation summaries (example JSON dashboards forthcoming).
+- Grafana: dashboards for latency watermarks, component health, and correlation summaries.
+  - Seed dashboard JSON: `ml/deployment/grafana/ml_pipeline_health.json`
+  - Quick import via Makefile (requires a local Grafana at <http://localhost:3000> and an API token):
+    - `make -C ml/deployment grafana-import GRAFANA_API_TOKEN=<<your_token>>`
+  - Manual import: Grafana UI → Dashboards → Import → Upload `ml_pipeline_health.json`
 
 ## Common errors
 

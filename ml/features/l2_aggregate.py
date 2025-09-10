@@ -203,13 +203,6 @@ class L2Aggregator:
             df_final = df_fallback
         else:
             df_final = df
-        from typing import cast as _cast
-
-        out = aggregate_l2_minute_pl(_cast(pl.DataFrame, df_final))
-        logger.info(
-            "L2 aggregated %s: %d rows -> %d minutes",
-            symbol,
-            len(_cast(pl.DataFrame, df_final)),
-            len(out),
-        )
+        out = aggregate_l2_minute_pl(df_final)
+        logger.info("L2 aggregated %s: %d rows -> %d minutes", symbol, len(df_final), len(out))
         return out

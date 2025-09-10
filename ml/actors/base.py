@@ -734,6 +734,28 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         - Signal analysis and backtesting
         - Complete audit trail
         """
+        # Fast-path: honor explicit dummy stores setting immediately to avoid
+        # any database probing in unit/property tests.
+        use_dummy_stores_flag = bool(getattr(self._config, "use_dummy_stores", False))
+        if use_dummy_stores_flag:
+            from ml.registry.base import DummyRegistry
+            from ml.stores.base import DummyStore
+
+            self.log.info("Using DummyStore and DummyRegistry for testing (no persistence)")
+            self._feature_store = DummyStore()
+            self._model_store = DummyStore()
+            self._strategy_store = DummyStore()
+            self._data_store = DummyStore()
+
+            # Also use dummy registries to avoid file I/O during tests
+            self._feature_registry = DummyRegistry()
+            self._model_registry = DummyRegistry()
+            self._strategy_registry = DummyRegistry()
+            self._data_registry = DummyRegistry()
+            self._persistence_manager = None
+
+            return  # Skip any DB initialization entirely
+
         # Get connection string from config
         db_connection = getattr(
             self._config,
@@ -784,8 +806,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 else:
                     raise
 
-        # Initialize stores - use DummyStore only in test mode
-        use_dummy_stores = getattr(self._config, "use_dummy_stores", False) or use_dummy
+        # Initialize stores - use DummyStore only in test mode or when DB unreachable
+        use_dummy_stores = use_dummy
 
         if use_dummy_stores:
             # Explicitly requested dummy stores for testing

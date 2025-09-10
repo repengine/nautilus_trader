@@ -9,6 +9,7 @@ existing collected market data.
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -671,41 +672,45 @@ class TFTDatasetBuilder:
         dataset = self._add_static_features_polars(dataset)
         dataset = self._add_known_future_features_polars(dataset)
 
-        # Optionally join microstructure features (per-minute)
+        # Optionally join microstructure features (per-minute) via cache
         if self.include_micro:
             try:
-                from pathlib import Path as _Path
+                base_dir = _Path(self.micro_base_dir or "data/tier1")
+                micro_cache = MicroMinuteCache(_Path("data/features/micro_minute"))
+                ts_min = dataset.select(pl.col("timestamp").min())[0, 0]
+                ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
 
-                from ml.features.micro_aggregate import MicrostructureAggregator
-
-                base_dir = self.micro_base_dir or "data/tier1"
-                agg = MicrostructureAggregator(_Path(base_dir))
-                micro = agg.compute_for_symbol(symbol)
-                if not micro.is_empty():
-                    if micro["timestamp"].dtype != pl.Datetime:
-                        micro = micro.with_columns(
-                            pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
-                        )
-                    dataset = dataset.join(micro, on="timestamp", how="left")
+                if ts_min is not None and ts_max is not None:
+                    start_dt = ts_min.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
+                    end_dt = ts_max.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
+                    micro = micro_cache.get_range(symbol, start_dt, end_dt, base_dir)
+                    if not micro.is_empty():
+                        if micro["timestamp"].dtype != pl.Datetime:
+                            micro = micro.with_columns(
+                                pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
+                            )
+                        dataset = dataset.join(micro, on="timestamp", how="left")
             except Exception as exc:  # pragma: no cover
-                logger.debug(f"Microstructure join failed for {symbol}: {exc}")
+                logger.debug(f"Microstructure cache join failed for {symbol}: {exc}")
 
-        # Optionally join L2 features (per-minute)
+        # Optionally join L2 features (per-minute) via cache
         if self.include_l2:
             try:
-                from pathlib import Path as _Path
+                base_dir = _Path(self.l2_base_dir or "data/tier1")
+                l2_cache = L2MinuteCache(_Path("data/features/l2_minute"))
+                ts_min = dataset.select(pl.col("timestamp").min())[0, 0]
+                ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
 
-                from ml.features.l2_aggregate import L2Aggregator
-
-                base_dir = self.l2_base_dir or "data/tier1"
-                agg_l2 = L2Aggregator(_Path(base_dir))
-                l2 = agg_l2.compute_for_symbol(symbol, start=start, end=end)
-                if not l2.is_empty():
-                    if l2["timestamp"].dtype != pl.Datetime:
-                        l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
-                    dataset = dataset.join(l2, on="timestamp", how="left")
+                if ts_min is not None and ts_max is not None:
+                    start_dt = ts_min.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
+                    end_dt = ts_max.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
+                    l2 = l2_cache.get_range(symbol, start_dt, end_dt, base_dir)
+                    if not l2.is_empty():
+                        if l2["timestamp"].dtype != pl.Datetime:
+                            l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                        dataset = dataset.join(l2, on="timestamp", how="left")
             except Exception as exc:  # pragma: no cover
-                logger.debug(f"L2 feature join failed for {symbol}: {exc}")
+                logger.debug(f"L2 cache join failed for {symbol}: {exc}")
 
         # Optionally add event-based known-future features
         if self.include_events:

@@ -823,8 +823,7 @@ class FeatureEngineer:
                 and hasattr(features_df, "__class__")
                 and "pandas" in str(type(features_df))
             ):
-                # Cast to precise PolarsDF type for static checkers
-                return cast(PolarsDF, pl.from_pandas(cast(PandasDF, features_df)))
+                return pl.from_pandas(cast(PandasDF, features_df))
         except Exception:
             return None
         return None
@@ -965,7 +964,7 @@ class FeatureEngineer:
         for col in feature_names:
             if col in features_df.columns:
                 features_df[col] = features_df[col].astype("float32")
-        return cast(PandasDF, features_df)
+        return features_df
 
     def _create_features_dataframe(
         self: Self,
@@ -989,7 +988,7 @@ class FeatureEngineer:
             if "timestamp" in df.columns and "timestamp" not in features_df.columns:
                 features_df = features_df.with_columns(
                     [cast(Any, df)["timestamp"].alias("timestamp")],
-                )
+                )  # type: ignore[operator]
             # Ensure column order matches config
             features_df = features_df.select(feature_names)  # type: ignore[operator]
             # Cast to float32 to match online path dtype exactly
@@ -1050,10 +1049,7 @@ class FeatureEngineer:
         if POLARS_AVAILABLE:
             # Convert column names to list to avoid pandas Index issues
             column_names = list(features_df.columns)
-            features_scaled = cast(
-                PolarsDF,
-                pl.DataFrame(features_scaled_array, schema=column_names),
-            )
+            features_scaled = pl.DataFrame(features_scaled_array, schema=column_names)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:
                 # Polars expects Expr/Series; use alias for stable column name
@@ -2468,7 +2464,7 @@ class FeatureEngineer:
         from typing import Any as _Any
 
         if hasattr(features_df, "to_pandas"):
-            features_pd: _Any = features_df.to_pandas()
+            features_pd: _Any = cast(_Any, features_df).to_pandas()
         else:
             features_pd = features_df  # Assume pandas.DataFrame
         # Convert last row to a plain dict without relying on indexers

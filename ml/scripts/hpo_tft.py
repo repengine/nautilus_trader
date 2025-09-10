@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Simple HPO sweep for TFT teacher (BCE).
+
+Runs a small grid over model hyperparameters using the existing teacher CLI,
+evaluates validation metrics from teacher_preds.npz, and prints a JSON summary
+with the best configuration.
+
+Example:
+    python -m ml.scripts.hpo_tft \
+      --dataset_csv /tmp/tft_universe_60d/merged/dataset.csv \
+      --out_dir /tmp/tft_universe_60d/hpo \
+      --feature_registry_dir ~/.nautilus/ml/features \
+      --feature_set_id <fid> \
+      --epochs 2 \
+      --workers 4
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from sklearn.metrics import average_precision_score
+from sklearn.metrics import brier_score_loss
+from sklearn.metrics import log_loss
+from sklearn.metrics import roc_auc_score
+
+
+def _score(npz_path: Path) -> dict[str, float]:
+    data = np.load(npz_path, allow_pickle=True)
+    q = data["q_val"].astype(float).reshape(-1)
+    y = data["y_val_true"].astype(int).reshape(-1)
+    q = np.clip(q, 1e-6, 1 - 1e-6)
+    auc = float(roc_auc_score(y, q))
+    pr = float(average_precision_score(y, q))
+    prev = float(y.mean())
+    prx = float(pr / prev) if prev > 0 else 0.0
+    ll = float(log_loss(y, q))
+    br = float(brier_score_loss(y, q))
+    return {"AUC": auc, "PR_AUC": pr, "PRx": prx, "LogLoss": ll, "Brier": br, "Prevalence": prev}
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="HPO sweep for TFT teacher (BCE)")
+    ap.add_argument("--dataset_csv", required=True)
+    ap.add_argument("--out_dir", required=True)
+    ap.add_argument("--feature_registry_dir", required=True)
+    ap.add_argument("--feature_set_id", required=True)
+    ap.add_argument("--epochs", type=int, default=2)
+    ap.add_argument("--workers", type=int, default=2)
+    args = ap.parse_args(argv)
+
+    out = Path(args.out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    # Small grid
+    hidden_sizes = [32, 64]
+    lstm_layers = [2]
+    attn_heads = [2, 4]
+    dropouts = [0.1]
+
+    results: list[dict[str, Any]] = []
+    from ml.training.teacher.tft_cli import main as train_main
+
+    run_id = 0
+    for hs in hidden_sizes:
+        for ll in lstm_layers:
+            for ah in attn_heads:
+                for dr in dropouts:
+                    run_id += 1
+                    model_id = f"tft_hpo_h{hs}_l{ll}_a{ah}_d{str(dr).replace('.', '')}_r{run_id}"
+                    run_dir = out / model_id
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    t0 = time.perf_counter()
+                    rc = train_main([
+                        "--train_data_csv", args.dataset_csv,
+                        "--out_dir", str(run_dir),
+                        "--model_id", model_id,
+                        "--feature_registry_dir", args.feature_registry_dir,
+                        "--feature_set_id", args.feature_set_id,
+                        "--max_epochs", str(args.epochs),
+                        "--loss", "bce",
+                        "--dataloader_workers", str(args.workers),
+                        "--hidden_size", str(hs),
+                        "--lstm_layers", str(ll),
+                        "--attention_head_size", str(ah),
+                        "--dropout", str(dr),
+                    ])
+                    dur = time.perf_counter() - t0
+                    npz = run_dir / "teacher_preds.npz"
+                    try:
+                        metrics = _score(npz)
+                    except Exception as exc:  # pragma: no cover
+                        metrics = {"error": str(exc)}  # type: ignore[assignment]
+                    rec: dict[str, Any] = {
+                        "model_id": model_id,
+                        "rc": rc,
+                        "duration_sec": dur,
+                        "hidden_size": hs,
+                        "lstm_layers": ll,
+                        "attention_heads": ah,
+                        "dropout": dr,
+                        "metrics": metrics,
+                    }
+                    results.append(rec)
+
+    # Pick best by PRx then AUC
+    def keyfn(r: dict[str, Any]) -> tuple[float, float]:
+        m = r.get("metrics", {})
+        return float(m.get("PRx", 0.0)), float(m.get("AUC", 0.0))
+
+    best = max(results, key=keyfn)
+    summary = {"best": best, "all": results}
+    print(json.dumps(summary))
+    (out / "hpo_summary.json").write_text(json.dumps(summary, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

@@ -26,6 +26,9 @@ Environment variables (subset):
 - `ML_OBS_FILE_FORMAT`: `jsonl` or `csv` (default `jsonl`)
 - `ML_OBS_DB_URL`: SQLAlchemy connection string (e.g., `sqlite:///./observability.db`)
 - `ML_OBS_INTERVAL_SECONDS`: flush interval seconds (default `60`)
+- `ML_OBS_ASYNC_ENABLE`: enable async worker instead of thread flusher (`1|true|yes`)
+- `ML_OBS_ASYNC_QUEUE_MAX`: bounded queue size for async worker (default `4096`)
+- `ML_OBS_ASYNC_COMPONENT`: component label for metrics (default `obs_async_worker`)
 
 Code snippet (already wired in container entrypoints):
 
@@ -37,6 +40,8 @@ from ml.core.integration import MLIntegrationManager
 mgr: MLIntegrationManager = MLIntegrationManager.__new__(MLIntegrationManager)
 auto_start_if_configured(mgr)
 ```
+
+When `ML_OBS_ASYNC_ENABLE` is set, the async worker is started (off hot-path), otherwise the periodic thread-based flusher is used.
 
 Where this is called
 

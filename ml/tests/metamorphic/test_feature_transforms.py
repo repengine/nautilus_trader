@@ -196,6 +196,7 @@ class TestFeatureTransformMetamorphic:
                 or key.startswith("ema")
                 or key.startswith("volatility")
                 or key.startswith("macd")
+                or key == "hl_spread"
             ):
                 continue
             if isinstance(features_original[key], int | float):

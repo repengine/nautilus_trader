@@ -38,7 +38,8 @@ def test_apply_migrations_builds_compose_commands(monkeypatch: object, tmp_path:
         calls.append(cmd)
         # Validate some invariants of the command
         assert cmd[:2] == ["docker", "compose"]
-        assert cmd[-5:] == ["-U", "postgres", "nautilus"]
+        # Allow additional flags (e.g., -v ON_ERROR_STOP=1); ensure suffix is correct
+        assert cmd[-3:] == ["-U", "postgres", "nautilus"]
         return types.SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(mig.subprocess, "run", fake_run)  # type: ignore[arg-type]

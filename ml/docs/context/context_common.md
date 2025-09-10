@@ -16,12 +16,16 @@ ml/common/
 ├── protocols.py             # Universal ML component protocol and mixin
 ├── metrics_bootstrap.py     # Safe, idempotent metrics creation utilities
 ├── metrics.py               # Centralized Prometheus metrics definitions
+├── metrics_export.py        # Safe Prometheus metrics export wrapper
 ├── timestamps.py            # Timestamp normalization and sanitization
 ├── precision.py             # Nautilus Price/Quantity precision helpers
 ├── correlation.py           # Event tracing correlation ID utilities
 ├── cascade.py               # Cross-domain event cascade helpers
-├── message_bus.py           # Message bus publisher protocol and no-op implementation
-└── message_topics.py        # Message bus topic builder and normalization
+├── message_bus.py           # Message bus publisher protocol and implementation
+├── message_topics.py        # Message bus topic builder and normalization
+├── in_memory_bus.py         # In-memory pub/sub for testing and examples
+├── throttler.py             # Token-bucket rate limiting for event publishing
+└── topic_filters.py         # MQTT-style wildcard topic matching utilities
 ```
 
 ### Design Principles
@@ -155,7 +159,31 @@ price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.45678901
 
 **Usage**: Primarily used by `MLIntegrationManager.emit_cascade()` for domain bookkeeping.
 
-### 8. Message Bus Abstraction (`message_bus.py`)
+### 8. Metrics Export (`metrics_export.py`)
+
+**Purpose**: Provides safe wrapper for Prometheus metrics export without direct prometheus_client imports.
+
+**Key Features**:
+
+- **Safe Import Pattern**: Uses dynamic imports to avoid violating centralized metrics bootstrap rules
+- **Graceful Fallback**: Returns empty payload when prometheus_client is unavailable
+- **Content Type Detection**: Automatically determines proper content type for metrics exposition
+
+**Core Functions**:
+
+- `generate_latest()`: Returns metrics exposition payload with fallback to empty bytes
+- `CONTENT_TYPE_LATEST`: Proper content type constant for Prometheus metrics
+
+**Usage Pattern**:
+
+```python
+from ml.common.metrics_export import generate_latest, CONTENT_TYPE_LATEST
+
+# Safe metrics export for HTTP endpoints
+metrics_data = generate_latest()  # bytes
+```
+
+### 9. Message Bus Abstraction (`message_bus.py`)
 
 **Purpose**: Provides minimal, typed interface for message bus publishing with safe default implementation.
 
@@ -166,7 +194,78 @@ price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.45678901
 
 **Integration Pattern**: Allows dependency injection while maintaining type safety.
 
-### 9. Message Topics (`message_topics.py`)
+### 10. In-Memory Bus (`in_memory_bus.py`)
+
+**Purpose**: Lightweight pub/sub implementation for testing and examples with wildcard pattern matching.
+
+**Key Features**:
+
+- **Pattern Subscriptions**: Supports wildcard patterns using `topic_filters.match_topic`
+- **Handler Registration**: Subscribe handlers to topic patterns
+- **Testing Focus**: Designed for unit tests and local examples, not production hot-path usage
+
+**Core Interface**:
+
+```python
+class InMemoryPublisher(MessagePublisherProtocol):
+    def subscribe(self, pattern: str, handler: Handler) -> None
+    def publish(self, topic: str, payload: dict[str, Any]) -> bool
+```
+
+**Usage Pattern**:
+
+```python
+from ml.common.in_memory_bus import InMemoryPublisher
+
+publisher = InMemoryPublisher()
+publisher.subscribe("ml.features.*", lambda topic, payload: print(f"Got: {topic}"))
+publisher.publish("ml.features.updated.EURUSD", {"status": "computed"})
+```
+
+### 11. Throttler (`throttler.py`)
+
+**Purpose**: Non-blocking token-bucket rate limiting for event publishing to prevent external bus flooding.
+
+**Key Features**:
+
+- **Per-Key Limiting**: Independent rate limits per topic/key
+- **Token Bucket Algorithm**: Allows bursts up to configured limit with steady refill rate
+- **Nanosecond Precision**: Uses nanosecond timestamps for accurate rate calculation
+- **Non-Blocking**: Returns immediately without waiting for tokens
+
+**Configuration**:
+
+```python
+from ml.common.throttler import Throttler
+
+throttler = Throttler(rate_per_sec=10.0, burst=5)
+if throttler.should_publish("ml.features.EURUSD", time_ns()):
+    publisher.publish(topic, payload)
+```
+
+### 12. Topic Filters (`topic_filters.py`)
+
+**Purpose**: MQTT-style wildcard pattern matching for topic-based message routing.
+
+**Pattern Semantics**:
+
+- `*`: Matches exactly one token (dot-separated)
+- `#`: Matches zero or more tokens (only valid as complete token)
+- Literal tokens must match exactly (case-sensitive)
+
+**Examples**:
+
+```python
+from ml.common.topic_filters import match_topic
+
+match_topic("ml.features.*", "ml.features.EURUSD")         # True
+match_topic("events.ml.#", "events.ml.FEATURE_COMPUTED")   # True
+match_topic("ml.*.updated", "ml.models.updated")           # True
+```
+
+**Integration**: Used by `InMemoryPublisher` and `events_consumer` CLI for pattern-based subscription.
+
+### 13. Message Topics (`message_topics.py`)
 
 **Purpose**: Centralizes ML message bus topic construction with consistent routing and safe character normalization.
 
@@ -189,8 +288,9 @@ price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.45678901
 ### Internal Dependencies
 
 - `ml.config.events`: For Stage enum (message_topics.py only)
-- `prometheus_client`: Direct import for base metric types
+- `prometheus_client`: Direct import for base metric types in metrics.py only
 - Self-referential: `metrics_bootstrap.py` imports from `metrics.py`
+- Cross-references: `in_memory_bus.py` imports from `message_bus.py` and `topic_filters.py`
 
 ### External Dependencies
 
@@ -261,6 +361,55 @@ normalized_ts = sanitize_timestamp_ns(
     logger=logger,
     context="feature_ingestion"
 )
+```
+
+### 5. Event Publishing with Rate Limiting Pattern
+
+```python
+from ml.common.throttler import Throttler
+from ml.common.message_bus import MessagePublisherProtocol
+
+class RateLimitedPublisher:
+    def __init__(self, publisher: MessagePublisherProtocol):
+        self._publisher = publisher
+        self._throttler = Throttler(rate_per_sec=10.0, burst=5)
+
+    def publish_if_allowed(self, topic: str, payload: dict) -> bool:
+        if self._throttler.should_publish(topic, time_ns()):
+            return self._publisher.publish(topic, payload)
+        return False
+```
+
+### 6. Topic Pattern Subscription Pattern
+
+```python
+from ml.common.in_memory_bus import InMemoryPublisher
+from ml.common.topic_filters import match_topic
+
+# Testing pattern with wildcard subscriptions
+publisher = InMemoryPublisher()
+
+# Subscribe to all feature events
+publisher.subscribe("ml.features.*", handle_feature_event)
+
+# Subscribe to all ML events
+publisher.subscribe("ml.#", handle_all_ml_events)
+
+# Subscribe to specific instrument predictions
+publisher.subscribe("ml.predictions.*.EURUSD", handle_eurusd_predictions)
+```
+
+### 7. Safe Metrics Export Pattern
+
+```python
+from ml.common.metrics_export import generate_latest, CONTENT_TYPE_LATEST
+
+# HTTP endpoint for metrics scraping
+def metrics_endpoint():
+    return {
+        'content': generate_latest(),
+        'content_type': CONTENT_TYPE_LATEST
+    }
 ```
 
 ## Integration Points

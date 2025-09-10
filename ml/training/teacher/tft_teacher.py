@@ -50,6 +50,8 @@ class TFTTeacher(BaseTeacher):
         lstm_layers: int = 1,
         attention_head_size: int = 2,
         dropout: float = 0.1,
+        dataloader_workers: int = 0,
+        pretrained_state_path: str | None = None,
     ) -> None:
         super().__init__(config)
         self.max_encoder_length = int(max_encoder_length)
@@ -66,6 +68,8 @@ class TFTTeacher(BaseTeacher):
         self.lstm_layers = int(lstm_layers)
         self.attention_head_size = int(attention_head_size)
         self.dropout = float(dropout)
+        self.dataloader_workers = int(dataloader_workers)
+        self.pretrained_state_path = pretrained_state_path
 
         # Runtime state
         self._training_dataset: Any | None = None
@@ -163,8 +167,16 @@ class TFTTeacher(BaseTeacher):
             stop_randomization=True,
         )
 
-        train_loader = training.to_dataloader(train=True, batch_size=64, num_workers=0)
-        val_loader = val.to_dataloader(train=False, batch_size=64, num_workers=0)
+        train_loader = training.to_dataloader(
+            train=True,
+            batch_size=64,
+            num_workers=self.dataloader_workers,
+        )
+        val_loader = val.to_dataloader(
+            train=False,
+            batch_size=64,
+            num_workers=self.dataloader_workers,
+        )
 
         from typing import cast as _cast
 
@@ -186,6 +198,15 @@ class TFTTeacher(BaseTeacher):
             attention_head_size=self.attention_head_size,
             log_interval=100,
         )
+        # Optional warm-start from a pretrained state dict (best-effort partial load)
+        if self.pretrained_state_path:
+            try:
+                import torch  # local import for typing
+
+                state = torch.load(self.pretrained_state_path, map_location="cpu")
+                _missing, _unexpected = self._tft.load_state_dict(state, strict=False)
+            except Exception:
+                pass
 
         callbacks = pl_module.callbacks.EarlyStopping(monitor="val_loss", patience=1)
         accelerator = "gpu" if torch.cuda.is_available() else "cpu"

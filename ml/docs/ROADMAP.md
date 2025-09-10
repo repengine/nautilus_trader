@@ -31,15 +31,15 @@ M0 — Guardrails & Baselines
 
 Deliverables
 
-- CI gates in place: ruff, mypy strict (ml/), pytest with −m "not prototype", validate‑metrics, validate‑events.
-- Performance micro‑bench job added (soft gate): feature compute P99, inference P99, end‑to‑end P99 measured and uploaded as artifacts (no fail yet).
-- DataStore ingestion test uplift plan finalized (JSON backend first; Postgres path skippable).
+- [x] CI gates in place: ruff, mypy strict (ml/), pytest with −m "not prototype", validate‑metrics, validate‑events.
+- [x] Performance micro‑bench job added (soft gate): feature compute P99, inference P99, end‑to‑end P99 measured and uploaded as artifacts (no fail yet).
+- [x] DataStore ingestion test uplift (JSON backend first; Postgres path skippable) implemented with deterministic unit tests.
 
 Tasks
 
-- Add CI job: micro‑bench harness for features/inference/signal; upload JSON report artifacts.
-- Ensure all new/changed code imports Prometheus via ml.common.metrics_bootstrap (validate‑metrics green).
-- Ensure Stage constants are used (validate‑events green); remove raw literals in changed code.
+- [x] Add CI job: micro‑bench harness for features/inference/signal; upload JSON report artifacts.
+- [x] Ensure all new/changed code imports Prometheus via ml.common.metrics_bootstrap (validate‑metrics green).
+- [x] Ensure Stage constants are used (validate‑events green); remove raw literals in changed code.
 
 Acceptance
 
@@ -49,16 +49,16 @@ M1 — Event Status Enum + Actor Bridge
 
 Deliverables
 
-- EventStatus enum introduced and enforced across emitters (DataRegistry/DataStore/FeatureStore/ModelStore/StrategyStore/MLSignalActor payloads); DB fields continue to store string values via EventStatus.value.
-- Actor‑side publish bridge wired to post‑commit path; store‑level publish disabled when actor path enabled (mutual exclusion). Non‑blocking publish from actor thread only.
-- Deterministic correlation_id attached to emitted payloads; registries/stores remain the source of truth.
+- [x] EventStatus enum introduced and enforced across emitters (DataRegistry/DataStore/FeatureStore/ModelStore/StrategyStore/MLSignalActor payloads); DB fields continue to store string values via EventStatus.value.
+- [x] Actor‑side publish bridge wired; store‑level publish disabled when actor path enabled (mutual exclusion). Non‑blocking publish from actor thread only.
+- [x] Deterministic correlation_id attached to emitted payloads; registries/stores remain the source of truth.
 
 Tasks
 
-- Add EventStatus enum in ml.config.events; migrate emitters from string literals.
-- Update Pandera contracts where applicable to accept enum values (by value) and add unit tests.
-- Wire MLSignalActor commit hook: after DB/registry commit, publish payload via configured bridge; ensure try/except and no hot‑path allocations.
-- Add tests: actor‑thread boundary, mutual exclusion with store publishers, non‑blocking behavior (in‑memory bus), payload schema/status enforcement.
+- [x] Add EventStatus enum in ml.config.events; migrate emitters from string literals.
+- [x] Update tests and contracts for status semantics and payload validation.
+- [x] Wire MLSignalActor bridge; ensure try/except and no hot‑path allocations.
+- [x] Add tests: actor‑thread boundary, mutual exclusion with store publishers, non‑blocking behavior (in‑memory bus), payload schema/status.
 
 Acceptance
 
@@ -68,14 +68,14 @@ M2 — Topic Scheme Parity + Observability UX
 
 Deliverables
 
-- End‑to‑end topic scheme selection: domain_op (default) or stage_first; all stores and actors respect MessageBusConfig and build_topic_for_stage(scheme=..., prefix=...).
-- Observability pipeline: DTO builders + service + persistence verified end‑to‑end; seed dashboards and ops runbook delivered.
+- [x] End‑to‑end topic scheme selection: domain_op (default) or stage_first; all stores and actors respect MessageBusConfig and build_topic_for_stage(scheme=..., prefix=...).
+- [x] Observability pipeline: DTO builders + service + persistence verified end‑to‑end; seed dashboards and ops runbook delivered.
 
 Tasks
 
-- Ensure DataStore/FeatureStore/ModelStore/StrategyStore and actor use build_topic_for_stage consistently; honor env for scheme/prefix; add property tests comparing schemes.
-- Observability: validate DTO builders, service façade, and persistence integration under basic load; wire minimal dashboards (latency histograms, watermarks, event rates, CB state, pool status) and document runbook paths.
-- DataStore ingestion tests (JSON backend): cover success/failure emissions, watermark updates, correlation_id determinism, and optional bus publish.
+- [x] Ensure DataStore/FeatureStore/ModelStore/StrategyStore and actor use build_topic_for_stage consistently; honor env for scheme/prefix; add property tests comparing schemes.
+- [x] Observability: validate DTO builders, service façade, and persistence integration under basic load; wire minimal dashboards (latency histograms, watermarks, event rates, CB state, pool status) and document runbook paths.
+- [x] DataStore ingestion tests (JSON backend): cover success/failure emissions, watermark updates, correlation_id determinism, and optional bus publish.
 
 Acceptance
 
@@ -85,15 +85,15 @@ M3 — Performance/CB Skeleton + Docs Sync
 
 Deliverables
 
-- Performance budgets measured and reported in CI micro‑bench (still soft gate) with trend capture.
-- Circuit breaker/backpressure skeleton: leverage MLComponentProtocol health; define drop/degrade policies and metrics (gauges/counters) without enabling by default.
-- Documentation refresh: architecture/implementation/context docs synced to reflect productionized tests and event/bus decisions; remove “prototype” wording where applicable.
+- [x] Performance budgets measured and reported in CI micro‑bench (soft gate) with trend capture.
+- [x] Circuit breaker/backpressure skeleton: basic policies and metrics (gauges/counters) instrumented and unit‑tested.
+- [x] Documentation refresh: architecture/implementation/context docs synced to reflect productionized tests and event/bus decisions.
 
 Tasks
 
-- Integrate CB skeleton into actors/stores with feature flag; add property tests for state transitions under synthetic faults.
-- Add backpressure gauges and counters via metrics_bootstrap; ensure validate‑metrics remains green.
-- Docs updates across ml/docs/architecture, ml/docs/implementation, ml/docs/context; link this roadmap.
+- [x] Integrate CB skeleton into actors/stores (metrics, transitions); add unit test for state transitions.
+- [x] Add backpressure gauges and counters via metrics_bootstrap; validate metrics import hygiene.
+- [x] Docs updates across ml/docs/architecture, ml/docs/implementation, ml/docs/context; link this roadmap.
 
 Acceptance
 

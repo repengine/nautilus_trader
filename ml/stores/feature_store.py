@@ -1305,11 +1305,11 @@ class FeatureStore:
         if not data:
             return
 
-        # Append to buffer for visibility during the call
-        # (tests assert the buffer is cleared after write_batch returns)
-        from typing import cast as _cast
+        # Append to buffer for visibility during the call (tests assert
+        # the buffer is cleared after write_batch returns)
+        from ml.stores.base import FeatureData as _FeatureData  # local to avoid cycles
 
-        self._write_buffer.extend(_cast(list[object], data))
+        self._write_buffer.extend(cast(list[_FeatureData], data))
 
         for item in list(data):
             fs_id = getattr(item, "feature_set_id", None)

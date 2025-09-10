@@ -1039,6 +1039,56 @@
       ],
       "title": "Recent Errors",
       "type": "table"
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 },
+      "id": 105,
+      "panels": [],
+      "title": "Observability",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Async observability enqueue rate (5m)",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+      "id": 106,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [ { "expr": "sum by (kind) (rate(nautilus_ml_observability_enqueued_total[5m]))", "refId": "A" } ],
+      "title": "Observability Enqueued Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Backpressure drops in async worker (last 5m)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [ { "color": "green" }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 } ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
+      "id": 107,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [ { "expr": "sum(increase(nautilus_ml_backpressure_drops_total{component=\"obs_async_worker\"}[5m]))", "refId": "A" } ],
+      "title": "Async Worker Backpressure Drops (5m)",
+      "type": "stat"
     }
   ],
   "refresh": "10s",

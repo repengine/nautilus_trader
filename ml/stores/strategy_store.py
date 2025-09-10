@@ -581,15 +581,8 @@ class StrategyStore(BaseStore):
                     "end_ns": int(end_ns),
                 },
             )
-            from collections.abc import Mapping
-            from typing import Any as _Any
-            from typing import cast as _cast
-
-            _params = _cast(
-                Mapping[str, _Any],
-                {"instrument_id": instrument_id, "limit": int(limit)},
-            )
-            df = pd.read_sql_query(sql, conn, params=cast(Mapping[str, _Any], _params))
+            # Pass the actual bound parameters to avoid InvalidRequestError
+            df = pd.read_sql_query(sql, conn, params=dict(_params))
         return df
 
     @override
@@ -625,16 +618,15 @@ class StrategyStore(BaseStore):
         if instrument_id is not None:
             where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
-
-            sql = _text(
-                f"""
-                SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
-                       model_predictions, risk_metrics
-                FROM public.ml_strategy_signals
-                WHERE {' AND '.join(where_parts)}
-                ORDER BY ts_event
-                """,
-            )
+        sql = _text(
+            f"""
+            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+                   model_predictions, risk_metrics
+            FROM public.ml_strategy_signals
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY ts_event
+            """,
+        )
         with self.engine.connect() as conn:
             df = pd.read_sql_query(sql, conn, params=params)
         return df

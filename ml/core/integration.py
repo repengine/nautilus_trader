@@ -85,6 +85,7 @@ class MLIntegrationManager:
         from threading import Event
         from threading import Thread
 
+        from ml.observability.async_worker import ObservabilityAsyncWorker
         from ml.observability.scheduler import ObservabilityFlusher
         from ml.observability.service import ObservabilityService
 
@@ -92,6 +93,7 @@ class MLIntegrationManager:
         _obs_flusher: ObservabilityFlusher | None
         _obs_stop_event: Event | None
         _obs_thread: Thread | None
+        _obs_async_worker: ObservabilityAsyncWorker | None
 
     def __init__(
         self,
@@ -949,13 +951,55 @@ class MLIntegrationManager:
         file_format = str(getattr(cfg, "file_format", "jsonl"))
         interval_seconds = float(getattr(cfg, "interval_seconds", 60.0))
         db_url = getattr(cfg, "db_connection_string", None)
-        self.start_observability_flush(
-            base_path=base_path,
-            interval_seconds=interval_seconds,
-            file_format=file_format,
-            sink=sink,
-            db_connection_string=db_url,
-        )
+        async_enabled = bool(getattr(cfg, "async_enabled", False))
+        async_queue_max = int(getattr(cfg, "async_queue_maxsize", 4096))
+        async_component = str(getattr(cfg, "async_component_label", "obs_async_worker"))
+
+        if async_enabled:
+            # Initialize service and async worker (off hot-path)
+            self.initialize_observability_pipeline()
+            svc = getattr(self, "observability_service", None)
+            if svc is None:
+                return None
+            try:
+                from ml.observability.async_worker import ObservabilityAsyncWorker
+
+                self._obs_async_worker = ObservabilityAsyncWorker(
+                    service=svc,
+                    sink="db" if sink == "db" else "file",
+                    base_path=base_path if sink != "db" else None,
+                    db_connection_string=str(db_url) if sink == "db" else None,
+                    flush_interval_seconds=interval_seconds,
+                    queue_maxsize=async_queue_max,
+                    component_label=async_component,
+                )
+                # Start background task
+                self._obs_async_worker.start()
+            except Exception:  # pragma: no cover - defensive
+                return None
+        else:
+            self.start_observability_flush(
+                base_path=base_path,
+                interval_seconds=interval_seconds,
+                file_format=file_format,
+                sink=sink,
+                db_connection_string=db_url,
+            )
+
+    def stop_observability_async(self) -> None:
+        """
+        Stop async observability worker if running (idempotent).
+        """
+        try:
+            worker = getattr(self, "_obs_async_worker", None)
+            if worker is not None:
+                import asyncio
+
+                # Best-effort stop with small timeout
+                asyncio.run(worker.stop(drain=True, timeout=1.0))
+                self._obs_async_worker = None  # type: ignore[attr-defined]
+        except Exception:
+            return None
 
     def start_observability_from_env(self) -> None:
         """
