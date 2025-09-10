@@ -123,9 +123,11 @@ Post‑Alpha Backlog (Beta and beyond)
 
 - Observability UX Expansion
   - Grafana dashboards for event rates, stage latencies, watermarks, CB state, engine pool telemetry; add alert coverage.
+  - Seeded Observability row panels for async worker enqueued rate and backpressure drops (delivered).
 
 - Async Persistence Worker (Flagged)
-  - Bounded queue + asyncio loop using sqlalchemy.ext.asyncio/asyncpg and redis.asyncio; sync façade enqueues only; shutdown barrier; backpressure metrics; stress tests.
+  - DELIVERED behind feature flag in Alpha: `ml/observability/async_worker.py` with bounded queue, non-blocking enqueue, off-thread persistence; integration via `ObservabilityConfig`/`MLIntegrationManager`.
+  - Next: extend stress/property tests and (optionally) async DB sink using `sqlalchemy.ext.asyncio`.
 
 - Feature Engineering Backlog
   - Fractional differencing (StationarityTransformer) with parity tests; cross‑sectional features (rank/standardize); feature selection/importance tools; enriched L3 trade flow features with hot‑path budget checks.

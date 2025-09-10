@@ -365,7 +365,7 @@ WITH RECURSIVE lineage_tree AS (
         dataset_id,
         dataset_id as root_dataset,
         0 as depth,
-        ARRAY[dataset_id] as path
+        ARRAY[dataset_id]::varchar[] as path
     FROM ml_dataset_registry
     WHERE parents IS NULL OR parents = '[]'::jsonb
 
