@@ -468,6 +468,23 @@ CREATE INDEX IF NOT EXISTS brin_ml_strategy_signals_ts
     ON ml_strategy_signals USING BRIN (ts_event);
 ```
 
+### Provider‑Agnostic FeatureStore Testing
+
+To validate write semantics without external dependencies, use deterministic fixtures and a file‑backed SQLite connection. This preserves schema across connections and exercises the upsert (idempotent) path and unique constraints:
+
+Example test (see `ml/tests/integration/test_feature_store_from_fixtures.py`):
+
+1) Generate TBBO fixtures and map to FeatureData rows (minimal feature map from bid/ask px).
+2) Write batch twice (duplicate rows) and assert:
+   - Row count equals unique timestamps (idempotency via ON CONFLICT upsert)
+   - Ordering by `ts_event` is monotonic increasing
+   - `feature_set_id` preserved
+
+Notes
+
+- When using SQLite, quote the `"values"` column in ad‑hoc SELECTs due to SQL keyword conflicts; the write path already quotes correctly.
+- For Postgres, BRIN over `ts_event` plus the unique key `(feature_set_id, instrument_id, ts_event)` supports efficient range scans and idempotency guarantees.
+
 ## Data Processing Pipeline
 
 ### DataProcessor Architecture

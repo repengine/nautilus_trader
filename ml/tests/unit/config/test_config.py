@@ -58,7 +58,7 @@ class DatabaseConfig:
         # Always use PostgreSQL for all tests
         pg_connection = os.environ.get(
             "DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5432/nautilus_test",
+            "postgresql://postgres:postgres@localhost:5432/nautilus",
         )
         return cls(
             backend="postgresql",
@@ -78,7 +78,7 @@ class DatabaseConfig:
         # Always use PostgreSQL - required for ML stores
         pg_connection = os.environ.get(
             "DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5432/nautilus_test",
+            "postgresql://postgres:postgres@localhost:5432/nautilus",
         )
         return cls(
             backend="postgresql",
@@ -98,7 +98,7 @@ class DatabaseConfig:
         # Always use PostgreSQL for E2E tests
         pg_connection = os.environ.get(
             "DATABASE_URL",
-            "postgresql://postgres:postgres@localhost:5432/nautilus_test",
+            "postgresql://postgres:postgres@localhost:5432/nautilus",
         )
         return cls(
             backend="postgresql",

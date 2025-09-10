@@ -123,11 +123,17 @@ Post‑Alpha Backlog (Beta and beyond)
 
 - Observability UX Expansion
   - Grafana dashboards for event rates, stage latencies, watermarks, CB state, engine pool telemetry; add alert coverage.
-  - Seeded Observability row panels for async worker enqueued rate and backpressure drops (delivered).
+  - Seeded Observability row panels for async worker enqueued rate and backpressure drops (DELIVERED).
+  - Added Async Queue Depth stat and timeseries panels (DELIVERED).
+  - Added Ingestion row panels: ingest rate (by dataset), watermark lag (max), ingest errors (DELIVERED).
+  - Added Consumers/Aggregator row panels: buffer size, flushed rate, duplicates rate, watermark lag (DELIVERED).
+  - Added alerts: MLIngestErrorsHigh, MLIngestWatermarkLagHigh, MLIngestRateDrop, MLAggregatorDuplicatesHigh, MLAggregatorBufferHigh, MLAggregatorWatermarkLagHigh (DELIVERED).
 
 - Async Persistence Worker (Flagged)
   - DELIVERED behind feature flag in Alpha: `ml/observability/async_worker.py` with bounded queue, non-blocking enqueue, off-thread persistence; integration via `ObservabilityConfig`/`MLIntegrationManager`.
-  - Next: extend stress/property tests and (optionally) async DB sink using `sqlalchemy.ext.asyncio`.
+  - DELIVERED optional async DB sink: `ml/observability/async_db_persistence.py` using SQLAlchemy async (`sqlite+aiosqlite`, `postgresql+asyncpg`).
+  - CLI: `ml/cli/observability.py start --async` and `status` to control/inspect async worker.
+  - Next: extend stress/property tests as load increases.
 
 - Feature Engineering Backlog
   - Fractional differencing (StationarityTransformer) with parity tests; cross‑sectional features (rank/standardize); feature selection/importance tools; enriched L3 trade flow features with hot‑path budget checks.
@@ -135,11 +141,33 @@ Post‑Alpha Backlog (Beta and beyond)
 - Models/Training Backlog
   - Complete TFT teacher with export paths and TorchScript adapter; student distiller enhancements (calibration in ONNX, inference smoke tests, registry manifests with schema hash/lineage); HPO/validation hardening (study persistence, failure behavior, validate_inference_compatibility).
 
-- Data Ingestion
-  - Real provider adapter (e.g., Alpha Vantage/FMP) behind protocol with deterministic fixtures; DataStore contract wiring; tests remain provider‑agnostic.
+- Databento Ingestion & Store Hardening
+  - DELIVERED deterministic fixtures: curated TBBO/L2 MBP‑10/Trades DataFrames with manifests (`schema_hash`, `sha256`).
+  - Adapter contracts: validate mapping to internal schemas; ordering invariants (monotonic sequence/ts), idempotent replay, watermark progression; backpressure + retry semantics.
+  - Live/backfill bridge: resume from offsets/time windows; retry/backoff on rate limits; reconnection semantics; property tests for partial day boundaries and DST.
+  - Store integration: idempotent writes and dedupe, partitioning verified, BRIN/BTREE index guidance; DataStore contracts remain provider‑agnostic.
+  - DELIVERED observability: ingestion metrics helpers, dashboard row, alerts.
+  - Performance: ingestion micro‑benchmarks (CPU, throughput, p95/p99) with budgets and documentation.
+  - Acceptance: integration tests pass against offline fixtures; contract/property tests green; dashboards updated; micro‑bench stable within budgets.
+
+- Cross‑Domain Lineage & Consumers
+  - DELIVERED consumer templates: AggregatingConsumer (watermark-gated, idempotent), LineageWriter (observability correlation), RetriableConsumer (DLQ/retry).
+  - DELIVERED tests: property (ordering/idempotency), unit (DLQ), integration (ingest→aggregate→lineage).
+  - Next: batch envelope contracts (optional Pandera schema), consumer metrics hardening, Redis Streams end-to-end example with fixtures.
 
 - Registries/Stores Hardening
+  - DELIVERED provider‑agnostic FeatureStore write test using deterministic fixtures (SQLite): idempotent upsert and ordering verified.
   - Schema evolution patterns, dual‑write windows, migration tests (JSON + PG); BRIN/BTREE tuning guidance; ops runbook updates.
+
+Next (Short‑Term)
+
+- Live/Backfill Bridge
+  - Resume from offsets/time windows; rate‑limit backoff/retry; reconnection semantics using `MockDatabentoClient`.
+  - Property tests for partial‑day boundaries and DST; integration examples for resumption.
+- Ingestion Performance Gates
+  - CI micro‑bench for ingestion (P95/P99, CPU); convert to hard gates once stable.
+- Redis Streams End‑to‑End (Optional)
+  - Fixtures → Redis publisher → RedisStreamsConsumer → Aggregator → Lineage with deterministic Redis stub; example + tests.
 
 Risks & Mitigations
 
@@ -173,5 +201,5 @@ Quick Commands
 —
 
 Document version: 0.1-alpha
-Last updated: 2025-09-09
+Last updated: 2025-09-10
 Status: Active (Alpha)

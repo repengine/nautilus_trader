@@ -1002,7 +1002,7 @@ jobs:
         image: postgres:15
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: nautilus_test
+          POSTGRES_DB: nautilus
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -1026,7 +1026,7 @@ jobs:
 
     - name: Run integration tests
       env:
-        DB_CONNECTION: postgresql://postgres:postgres@localhost:5432/nautilus_test
+        DB_CONNECTION: postgresql://postgres:postgres@localhost:5432/nautilus
         ML_ENVIRONMENT: testing
         ML_AUTO_MIGRATE: true
       run: |
@@ -1034,7 +1034,7 @@ jobs:
 
     - name: Run performance tests
       env:
-        DB_CONNECTION: postgresql://postgres:postgres@localhost:5432/nautilus_test
+        DB_CONNECTION: postgresql://postgres:postgres@localhost:5432/nautilus
         ML_ENVIRONMENT: testing
       run: |
         pytest ml/tests/performance/ -v --tb=short --durations=10

@@ -11,14 +11,21 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY pyproject.toml poetry.lock ./
-COPY nautilus_trader ./nautilus_trader
 COPY ml ./ml
 
-# Install Python dependencies
-RUN pip install --no-cache-dir poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-root
+# Install runtime dependencies (avoid Poetry in image for simplicity)
+# Include ONNX runtime support for actor inference when used
+RUN pip install --no-cache-dir \
+    nautilus-trader \
+    numpy \
+    pandas \
+    msgspec \
+    sqlalchemy \
+    psycopg2-binary \
+    prometheus-client \
+    requests \
+    onnxruntime \
+    onnx
 
 # Create models directory
 RUN mkdir -p /app/models

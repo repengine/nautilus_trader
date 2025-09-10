@@ -45,7 +45,8 @@ class MLSignalActorNode:
         # Get configuration from environment
         db_connection = os.getenv(
             "DB_CONNECTION",
-            "postgresql://postgres:postgres@localhost:5432/nautilus",
+            # Default to in-network Postgres host for containers; override via env for host use
+            "postgresql://postgres:postgres@postgres:5432/nautilus",
         )
         databento_api_key = os.getenv("DATABENTO_API_KEY")
 

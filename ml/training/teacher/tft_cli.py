@@ -90,6 +90,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Number of DataLoader workers for train/val (default: 0)",
     )
     ap.add_argument(
+        "--learning_rate",
+        required=False,
+        type=float,
+        default=3e-4,
+        help="Optimizer learning rate for TFT (default: 3e-4)",
+    )
+    ap.add_argument(
         "--loss",
         required=False,
         choices=["poisson", "bce"],
@@ -129,6 +136,12 @@ def main(argv: list[str] | None = None) -> int:
         "--export_safetensors",
         action="store_true",
         help="Export teacher weights as .safetensors with sidecar metadata",
+    )
+    ap.add_argument(
+        "--pretrained_state_path",
+        required=False,
+        default=None,
+        help="Optional path to a pretrained state dict for warm-start (e.g., MTM)",
     )
     ap.add_argument(
         "--register_teacher",
@@ -230,16 +243,35 @@ def main(argv: list[str] | None = None) -> int:
                 attention_head_size=args.attention_head_size,
                 dropout=args.dropout,
                 dataloader_workers=args.dataloader_workers,
+                pretrained_state_path=(args.pretrained_state_path or None),
+                learning_rate=float(args.learning_rate),
             )
             teacher_tft.fit(df)
-            z_all = teacher_tft.predict_logits(df_sorted)
-            # Split logits into train/val according to cutoff
-            z_train_vec = z_all[:cutoff]
-            z_val_vec = z_all[cutoff:]
+            # Prefer aligned PF targets for validation to ensure q_val matches y_val_true
+            try:
+                z_val_vec, y_val_true_pf = teacher_tft.predict_logits_with_targets(df_val)
+                # Override y_val_true with PF-aligned decoder targets
+                y_val_true = y_val_true_pf
+            except Exception:
+                # Fallback: slice by time cutoff
+                z_all = teacher_tft.predict_logits(df_sorted)
+                z_val_vec = z_all[cutoff:]
+            # For q_train, compute logits on the training slice directly
+            try:
+                z_train_vec = teacher_tft.predict_logits(_df_train)
+            except Exception:
+                # If it fails, fall back to slicing
+                z_train_vec = z_all[:cutoff]
+            # Guard: ensure we have non-empty validation logits for calibration
+            if z_val_vec is None or z_val_vec.size == 0:
+                raise RuntimeError("Empty validation logits after TFT prediction")
             used_tft = True
         except Exception:
             import logging as _logging
-            _logging.getLogger(__name__).exception("TFT training failed; falling back to logistic regression")
+
+            _logging.getLogger(__name__).exception(
+                "TFT training failed; falling back to logistic regression"
+            )
             # Fallback: scikit-learn logistic regression as a simple teacher proxy
             from ml._imports import HAS_SKLEARN
 

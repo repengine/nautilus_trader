@@ -241,6 +241,34 @@ circuit_breaker_trips_total = Counter(
 )
 
 # ============================================================================
+# CONSUMER / AGGREGATOR METRICS
+# ============================================================================
+
+aggregator_buffer_size = Gauge(
+    "nautilus_ml_aggregator_buffer_size",
+    "Current buffered envelope count per instrument",
+    ["instrument"],
+)
+
+aggregator_duplicates_total = Counter(
+    "nautilus_ml_aggregator_duplicates_total",
+    "Total duplicate envelopes dropped by id",
+    [],
+)
+
+aggregator_flushed_total = Counter(
+    "nautilus_ml_aggregator_flushed_total",
+    "Total envelopes flushed after watermark gating",
+    ["instrument"],
+)
+
+aggregator_watermark_lag_seconds = Gauge(
+    "nautilus_ml_aggregator_watermark_lag_seconds",
+    "Watermark lag (watermark_ns - last_flushed_ts) per instrument",
+    ["instrument"],
+)
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -329,4 +357,9 @@ __all__ = [
     "validation_violations_counter",
     "watermark_lag_seconds",
     "write_rejection_counter",
+    # Aggregator metrics
+    "aggregator_buffer_size",
+    "aggregator_duplicates_total",
+    "aggregator_flushed_total",
+    "aggregator_watermark_lag_seconds",
 ]

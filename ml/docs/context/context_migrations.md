@@ -209,7 +209,7 @@ For ad-hoc application outside the integration manager, use the lightweight runn
 uv run --active --no-sync python -m ml.scripts.apply_migrations --print-only
 
 # Apply baseline migrations to both registry and stores (uses $DATABASE_URL if set)
-uv run --active --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://postgres:postgres@localhost:5433/nautilus
+uv run --active --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://postgres:postgres@localhost:5432/nautilus
 
 # Apply full set including hardening, views, optional indices/fixes
 uv run --active --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://... --full
@@ -222,6 +222,16 @@ uv run --active --no-sync python -m ml.scripts.apply_migrations --full --dry-run
 ```
 
 The runner mirrors the canonical ordering used by `MLIntegrationManager` and executes each SQL file transactionally. It is idempotency-friendly and tolerates common "already exists" conflicts as warnings.
+
+DB readiness tips:
+
+```
+# Start local Postgres for tests
+make docker-up-test
+
+# Wait/check current DATABASE_URL (defaults to localhost:5432/nautilus)
+make check-db
+```
 
 ### Adding New Migrations
 

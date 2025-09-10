@@ -259,8 +259,74 @@ consumer = RedisStreamsConsumer(
 processed = consumer.poll_once(count=50, block_ms=0)
 print(f"Processed {processed} events")
 
+### 3. Aggregation → Lineage → DLQ (Templates)
+
+The following templates are provided for common cross-domain flows:
+
+- `ml.consumers.aggregator.AggregatingConsumer`: buffers envelopes per instrument, enforces monotonic order under a watermark, and forwards flushed envelopes downstream. Idempotent by event id.
+- `ml.consumers.lineage_writer.LineageWriter`: writes correlation/lineage rows from envelopes to `ObservabilityService` (idempotent by event id).
+- `ml.consumers.retry.RetriableConsumer`: wraps a handler with bounded synchronous retries and publishes to DLQ on final failure (`dlq.{stage}`).
+
+Example (in-memory):
+
+```python
+from ml.common.in_memory_bus import InMemoryPublisher
+from ml.consumers.aggregator import AggregatingConsumer
+from ml.consumers.lineage_writer import LineageWriter
+
+svc = ObservabilityService()
+writer = LineageWriter(service=svc)
+bus = InMemoryPublisher()
+bus.subscribe("aggregated.#", lambda t, p: writer.handle(t, p))
+
+agg = AggregatingConsumer(downstream=bus, topic_mapper=lambda _stage: "aggregated.lineage")
+
+envelope = {
+  "id": "e1",
+  "parent_id": None,
+  "instrument_id": "EURUSD.SIM",
+  "ts_event": 100,
+  "stage": "FEATURE_COMPUTED",
+  "correlation_id": "c1",
+  "payload": {"x": 1}
+}
+
+agg.handle("events.ml.FEATURE_COMPUTED", envelope)
+agg.advance_watermark("EURUSD.SIM", watermark_ns=200)  # flushes to writer
+```
+
+For DLQ/retry:
+
+```python
+from ml.consumers.retry import RetriableConsumer
+
+dlq_bus = InMemoryPublisher()
+rc = RetriableConsumer(handler=my_handler, dlq=dlq_bus)
+rc.handle(topic, envelope)
+```
+
+Metrics
+
+- `nautilus_ml_aggregator_buffer_size{instrument}` – buffered envelopes per instrument
+- `nautilus_ml_aggregator_flushed_total{instrument}` – count of envelopes flushed
+- `nautilus_ml_aggregator_duplicates_total` – duplicates dropped
+- `nautilus_ml_aggregator_watermark_lag_seconds{instrument}` – (watermark_ns - last_flushed_ts) in seconds
+
+Monitoring
+
+- Dashboard (Consumers / Aggregator row):
+  - Buffer Size: `nautilus_ml_aggregator_buffer_size`
+  - Flushed Rate: `sum by (instrument)(rate(nautilus_ml_aggregator_flushed_total[$interval]))`
+  - Duplicates Rate: `rate(nautilus_ml_aggregator_duplicates_total[$interval])`
+  - Watermark Lag (max): `max(nautilus_ml_aggregator_watermark_lag_seconds)`
+- Alerts:
+  - `MLAggregatorDuplicatesHigh`: sustained duplicates > 1/s
+  - `MLAggregatorBufferHigh`: max buffer > 5k for 10m
+  - `MLAggregatorWatermarkLagHigh`: max lag > 5m for 10m
+
 # Poll with blocking (wait up to 5 seconds)
 processed = consumer.poll_once(count=100, block_ms=5000)
+
 ```
 
 ### 3. Multi-Pattern Consumer with Routing

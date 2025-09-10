@@ -3,6 +3,9 @@
 Test PostgreSQL integration is working properly.
 """
 
+import os
+from urllib.parse import urlparse
+
 import pytest
 from sqlalchemy import text
 
@@ -15,7 +18,13 @@ def test_postgres_connection(postgres_connection):
     Test that we can connect to PostgreSQL.
     """
     assert "postgresql" in postgres_connection
-    assert "nautilus_test" in postgres_connection
+    # Assert the expected DB name from the environment rather than a hardcoded value
+    expected_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/nautilus",
+    )
+    expected_db = (urlparse(expected_url).path or "/").lstrip("/")
+    assert expected_db and expected_db in postgres_connection
 
 
 def test_database_fixture_works(test_database):

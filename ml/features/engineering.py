@@ -1724,23 +1724,159 @@ class FeatureEngineer:
         # zero-allocation behavior in the hot path.
         return self.feature_buffer[:feature_idx]
 
-    # Hot-path microstructure placeholder for strict typing (feature gated)
     def _calculate_microstructure_features_online(
         self,
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
         feature_idx: int,
-    ) -> int:  # pragma: no cover - typing stub
-        return feature_idx
+    ) -> int:
+        """
+        Calculate microstructure features in online mode (hot path).
 
-    # Hot-path trade flow placeholder for strict typing (feature gated)
+        Uses OHLCV-based approximations for microstructure features to maintain
+        feature parity with batch mode while staying performant (<5ms requirement).
+
+        Parameters
+        ----------
+        current_bar : dict[str, float]
+            Current bar data with 'close', 'high', 'low', 'volume'.
+        indicator_manager : IndicatorManager
+            Manager containing price history and indicator states.
+        feature_idx : int
+            Current index in the feature buffer.
+
+        Returns
+        -------
+        int
+            Updated feature index after adding microstructure features.
+
+        """
+        close = current_bar["close"]
+        high = current_bar["high"]
+        low = current_bar["low"]
+
+        # Get price history for window calculations
+        closes = indicator_manager.price_history.get("closes", [])
+        highs = indicator_manager.price_history.get("highs", [])
+        lows = indicator_manager.price_history.get("lows", [])
+
+        # Ensure we have enough history for meaningful calculations
+        window_size = min(20, len(closes))
+
+        if window_size < 2:
+            # Not enough history - use zeros
+            self.feature_buffer[feature_idx : feature_idx + 7] = 0.0
+            return feature_idx + 7
+
+        # Calculate spread-related features using high-low range as proxy
+        recent_closes = closes[-window_size:]
+        recent_highs = highs[-window_size:]
+        recent_lows = lows[-window_size:]
+
+        # spread_mean: Average relative spread from HL range
+        hl_spreads = [
+            (h - l) / c if c > 0 else 0.0
+            for h, l, c in zip(recent_highs, recent_lows, recent_closes)
+        ]
+        self.feature_buffer[feature_idx] = np.float32(np.mean(hl_spreads))
+
+        # spread_std: Standard deviation of spreads
+        self.feature_buffer[feature_idx + 1] = (
+            np.float32(np.std(hl_spreads)) if len(hl_spreads) > 1 else 0.0
+        )
+
+        # spread_relative: Current relative spread
+        current_spread_rel = (high - low) / close if close > 0 else 0.0
+        self.feature_buffer[feature_idx + 2] = np.float32(current_spread_rel)
+
+        # size_imbalance_mean: No size data available in OHLCV, use 0.0
+        self.feature_buffer[feature_idx + 3] = 0.0
+
+        # size_imbalance_std: No size data available in OHLCV, use 0.0
+        self.feature_buffer[feature_idx + 4] = 0.0
+
+        # mid_return_std: Standard deviation of recent price returns
+        if len(recent_closes) > 1:
+            returns = []
+            for i in range(1, len(recent_closes)):
+                if recent_closes[i - 1] > 0:
+                    ret = (recent_closes[i] - recent_closes[i - 1]) / recent_closes[i - 1]
+                    returns.append(ret)
+            self.feature_buffer[feature_idx + 5] = (
+                np.float32(np.std(returns)) if len(returns) > 1 else 0.0
+            )
+        else:
+            self.feature_buffer[feature_idx + 5] = 0.0
+
+        # mid_return_autocorr: Autocorrelation of returns (simplified for hot path)
+        # For performance, we use a simplified approach or set to 0.0
+        self.feature_buffer[feature_idx + 6] = 0.0
+
+        return feature_idx + 7
+
     def _calculate_trade_flow_features_online(
         self,
         current_bar: dict[str, float],
         indicator_manager: IndicatorManager,
         feature_idx: int,
-    ) -> int:  # pragma: no cover - typing stub
-        return feature_idx
+    ) -> int:
+        """
+        Calculate trade flow features in online mode (hot path).
+
+        Uses OHLCV-based approximations for trade flow features to maintain
+        feature parity with batch mode while staying performant (<5ms requirement).
+
+        Parameters
+        ----------
+        current_bar : dict[str, float]
+            Current bar data with 'close', 'high', 'low', 'volume'.
+        indicator_manager : IndicatorManager
+            Manager containing price history and indicator states.
+        feature_idx : int
+            Current index in the feature buffer.
+
+        Returns
+        -------
+        int
+            Updated feature index after adding trade flow features.
+
+        """
+        close = current_bar["close"]
+        high = current_bar["high"]
+        low = current_bar["low"]
+        volume = current_bar["volume"]
+
+        # Get volume history for calculations
+        volumes = indicator_manager.price_history.get("volumes", [])
+
+        # trade_flow_imbalance: No directional trade data available, use 0.0
+        self.feature_buffer[feature_idx] = 0.0
+
+        # vwap: Use close price as VWAP approximation
+        self.feature_buffer[feature_idx + 1] = np.float32(close)
+
+        # trade_intensity: Current volume relative to recent average
+        window_size = min(20, len(volumes))
+        if window_size > 0:
+            recent_volumes = volumes[-window_size:]
+            avg_volume = np.mean(recent_volumes)
+            if avg_volume > 0:
+                intensity = min(volume / avg_volume, 5.0)  # Cap at 5x average
+                self.feature_buffer[feature_idx + 2] = np.float32(intensity)
+            else:
+                self.feature_buffer[feature_idx + 2] = 1.0
+        else:
+            self.feature_buffer[feature_idx + 2] = 1.0
+
+        # avg_price_impact: Estimate from intraday volatility normalized by volume
+        if volume > 0 and close > 0:
+            hl_range = high - low
+            impact = safe_divide(hl_range / close, volume / 1000.0, 0.0)
+            self.feature_buffer[feature_idx + 3] = np.float32(min(impact, 0.01))  # Cap at 1%
+        else:
+            self.feature_buffer[feature_idx + 3] = 0.0
+
+        return feature_idx + 4
 
     def _extract_data_arrays(
         self: Self,

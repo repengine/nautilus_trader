@@ -89,7 +89,7 @@ class TestDatabase:
 
                 self.connection_string = os.getenv(
                     "DATABASE_URL",
-                    "postgresql://postgres:postgres@localhost:5432/nautilus_test",
+                    "postgresql://postgres:postgres@localhost:5432/nautilus",
                 )
 
             # Use EngineManager to get or create engine

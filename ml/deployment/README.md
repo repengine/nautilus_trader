@@ -194,6 +194,27 @@ Key metrics to monitor:
 - `ml_inference_latency_seconds`: Model inference time
 - `ml_strategy_dry_run_trades_total`: Dry run trades counter
 
+### Alerts (Prometheus)
+
+Prometheus is configured to load alerting rules from `alerts.yml` (mounted into `/etc/prometheus/alerts.yml`).
+
+- Compose mounts are declared in `docker-compose.yml` under the `prometheus` service.
+- The Prometheus config `prometheus.yml` includes:
+
+```yaml
+rule_files:
+  - /etc/prometheus/alerts.yml
+```
+
+Included alerts cover:
+
+- `MLModelInferenceLatencyHighP99` – P99 inference latency > 200ms
+- `MLPipelineHealthLow` – pipeline health < 0.8
+- `MLObsAsyncBackpressureDrops` – any backpressure drops
+- `MLObsAsyncBackpressureSustained` – sustained drops rate
+- `MLObsAsyncQueueDepthHigh` – async queue depth > 75% capacity
+- `MLObsAsyncFlushLatencyHighP99` – P99 flush latency > 500ms
+
 ## Safety Checks
 
 Before going live:

@@ -4,7 +4,6 @@ import types
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
-from typing import Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -53,6 +52,7 @@ class TFTTeacher(BaseTeacher):
         dropout: float = 0.1,
         dataloader_workers: int = 0,
         pretrained_state_path: str | None = None,
+        learning_rate: float = 3e-4,
     ) -> None:
         super().__init__(config)
         self.max_encoder_length = int(max_encoder_length)
@@ -71,6 +71,7 @@ class TFTTeacher(BaseTeacher):
         self.dropout = float(dropout)
         self.dataloader_workers = int(dataloader_workers)
         self.pretrained_state_path = pretrained_state_path
+        self.learning_rate = float(learning_rate)
 
         # Runtime state
         self._training_dataset: Any | None = None
@@ -192,7 +193,7 @@ class TFTTeacher(BaseTeacher):
             loss_obj = PoissonLoss()
         self._tft = TemporalFusionTransformer.from_dataset(
             training,
-            learning_rate=3e-4,
+            learning_rate=self.learning_rate,
             hidden_size=self.hidden_size,
             lstm_layers=self.lstm_layers,
             dropout=self.dropout,
@@ -298,7 +299,9 @@ class TFTTeacher(BaseTeacher):
         return dict.fromkeys(self.time_varying_unknown_reals, "float32")
 
     # Optional convenience: predict logits with aligned targets using PF return_x
-    def predict_logits_with_targets(self, df: Any) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def predict_logits_with_targets(
+        self, df: Any
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         if not self._is_fitted or self._tft is None:
             raise RuntimeError("TFTTeacher must be fitted before prediction")
 
@@ -323,19 +326,29 @@ class TFTTeacher(BaseTeacher):
         )
         loader = dataset.to_dataloader(train=False, batch_size=64, num_workers=0)
 
-        out = self._tft.predict(loader, return_x=True)
+        out = self._tft.predict(loader, mode="raw", return_x=True)
         preds_any = None
         x_any = None
         # Handle common return structures: tuple(preds, x) or list of tuples
         if isinstance(out, tuple) and len(out) == 2:
             preds_any, x_any = out
+            if isinstance(preds_any, dict):
+                preds_any = preds_any.get("prediction") or preds_any.get("predictions")
         elif isinstance(out, list) and len(out) > 0:
             first = out[0]
             if isinstance(first, tuple) and len(first) == 2:
                 preds_list = []
                 y_list = []
                 for preds_i, x_i in out:
-                    preds_list.append(_np.asarray(preds_i))
+                    try:
+                        import torch as _torch  # type: ignore
+
+                        if isinstance(preds_i, _torch.Tensor):
+                            preds_list.append(preds_i.detach().cpu().numpy())
+                        else:
+                            preds_list.append(_np.asarray(preds_i))
+                    except Exception:
+                        preds_list.append(_np.asarray(preds_i))
                     # x_i may be a dict with decoder_target
                     if isinstance(x_i, dict):
                         y_i = x_i.get("decoder_target") or x_i.get("target")
@@ -343,7 +356,15 @@ class TFTTeacher(BaseTeacher):
                         y_i = getattr(x_i, "decoder_target", None)
                     if y_i is None:
                         raise RuntimeError("Unable to locate decoder_target in PF return_x output")
-                    y_list.append(_np.asarray(y_i))
+                    try:
+                        import torch as _torch  # type: ignore
+
+                        if isinstance(y_i, _torch.Tensor):
+                            y_list.append(y_i.detach().cpu().numpy())
+                        else:
+                            y_list.append(_np.asarray(y_i))
+                    except Exception:
+                        y_list.append(_np.asarray(y_i))
                 preds = _np.concatenate(preds_list, axis=0)
                 y = _np.concatenate(y_list, axis=0)
                 # Convert to logits if probabilities
@@ -358,7 +379,15 @@ class TFTTeacher(BaseTeacher):
             preds_any = out
             x_any = None
 
-        preds_np = _np.asarray(preds_any)
+        try:
+            import torch as _torch  # type: ignore
+
+            if isinstance(preds_any, _torch.Tensor):
+                preds_np = preds_any.detach().cpu().numpy()
+            else:
+                preds_np = _np.asarray(preds_any)
+        except Exception:
+            preds_np = _np.asarray(preds_any)
         # Extract decoder_target if available
         y_np = None
         if x_any is not None:
@@ -375,5 +404,12 @@ class TFTTeacher(BaseTeacher):
             eps = 1e-6
             p = _np.clip(arr, eps, 1.0 - eps)
             arr = _np.log(p / (1.0 - p))
+        try:
+            import torch as _torch  # type: ignore
+
+            if isinstance(y_np, _torch.Tensor):
+                y_np = y_np.detach().cpu().numpy()
+        except Exception:
+            pass
         y_arr: npt.NDArray[_np.float64] = _np.asarray(y_np, dtype=_np.float64).reshape(-1)
         return arr.astype(_np.float64), y_arr.astype(_np.float64)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Simple HPO sweep for TFT teacher (BCE).
+"""
+Simple HPO sweep for TFT teacher (BCE).
 
 Runs a small grid over model hyperparameters using the existing teacher CLI,
 evaluates validation metrics from teacher_preds.npz, and prints a JSON summary
@@ -13,6 +14,7 @@ Example:
       --feature_set_id <fid> \
       --epochs 2 \
       --workers 4
+
 """
 
 from __future__ import annotations
@@ -62,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     lstm_layers = [2]
     attn_heads = [2, 4]
     dropouts = [0.1]
+    lrs = [3e-4, 1e-3]
 
     results: list[dict[str, Any]] = []
     from ml.training.teacher.tft_cli import main as train_main
@@ -71,25 +74,42 @@ def main(argv: list[str] | None = None) -> int:
         for ll in lstm_layers:
             for ah in attn_heads:
                 for dr in dropouts:
-                    run_id += 1
-                    model_id = f"tft_hpo_h{hs}_l{ll}_a{ah}_d{str(dr).replace('.', '')}_r{run_id}"
+                    for lr in lrs:
+                        run_id += 1
+                    model_id = f"tft_hpo_h{hs}_l{ll}_a{ah}_d{str(dr).replace('.', '')}_lr{str(lr).replace('.', '')}_r{run_id}"
                     run_dir = out / model_id
                     run_dir.mkdir(parents=True, exist_ok=True)
                     t0 = time.perf_counter()
-                    rc = train_main([
-                        "--train_data_csv", args.dataset_csv,
-                        "--out_dir", str(run_dir),
-                        "--model_id", model_id,
-                        "--feature_registry_dir", args.feature_registry_dir,
-                        "--feature_set_id", args.feature_set_id,
-                        "--max_epochs", str(args.epochs),
-                        "--loss", "bce",
-                        "--dataloader_workers", str(args.workers),
-                        "--hidden_size", str(hs),
-                        "--lstm_layers", str(ll),
-                        "--attention_head_size", str(ah),
-                        "--dropout", str(dr),
-                    ])
+                    rc = train_main(
+                        [
+                            "--train_data_csv",
+                            args.dataset_csv,
+                            "--out_dir",
+                            str(run_dir),
+                            "--model_id",
+                            model_id,
+                            "--feature_registry_dir",
+                            args.feature_registry_dir,
+                            "--feature_set_id",
+                            args.feature_set_id,
+                            "--max_epochs",
+                            str(args.epochs),
+                            "--loss",
+                            "bce",
+                            "--dataloader_workers",
+                            str(args.workers),
+                            "--hidden_size",
+                            str(hs),
+                            "--lstm_layers",
+                            str(ll),
+                            "--attention_head_size",
+                            str(ah),
+                            "--dropout",
+                            str(dr),
+                            "--learning_rate",
+                            str(lr),
+                        ]
+                    )
                     dur = time.perf_counter() - t0
                     npz = run_dir / "teacher_preds.npz"
                     try:
@@ -122,4 +142,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

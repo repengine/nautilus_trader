@@ -8,7 +8,7 @@
 @pytest.fixture
 def postgres_connection() -> str:
     """Returns PostgreSQL connection string."""
-    return "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+    return "postgresql://postgres:postgres@localhost:5432/nautilus"
 
 @pytest.fixture
 def test_database() -> TestDatabase:

@@ -222,7 +222,7 @@ class LightGBMStudentDistiller:
         onnx_mod = globals().get("onnx") or _onnx_mod
         onnx_helper = globals().get("onnx_helper")
         onnx_numpy_helper = globals().get("onnx_numpy_helper")
-        convert_lgbm_booster = globals().get("convert_lgbm_booster")
+        onnxmltools = globals().get("onnxmltools")
         FloatTensorType = globals().get("FloatTensorType")
         if any(
             x is None
@@ -230,7 +230,7 @@ class LightGBMStudentDistiller:
                 onnx_mod,
                 onnx_helper,
                 onnx_numpy_helper,
-                convert_lgbm_booster,
+                onnxmltools,
                 FloatTensorType,
             )
         ):
@@ -238,26 +238,43 @@ class LightGBMStudentDistiller:
                 from onnx import helper as _onnx_helper
                 from onnx import numpy_helper as _onnx_numpy_helper
                 from onnxmltools.convert.common.data_types import FloatTensorType as _FloatTensorType
-                from onnxmltools.convert.lightgbm.operator_converters.LightGbm import convert_lightgbm as _convert_lgbm_booster
+
+                from ml._imports import onnxmltools as _onnxmltools
 
                 onnx_mod = _onnx_mod
                 onnx_helper = _onnx_helper
                 onnx_numpy_helper = _onnx_numpy_helper
-                convert_lgbm_booster = _convert_lgbm_booster
+                onnxmltools = _onnxmltools
                 FloatTensorType = _FloatTensorType
             except Exception as exc:  # pragma: no cover
                 raise ImportError("onnx/onnxmltools are required for export.") from exc
         n_features = len(feature_names)
         from ml.config.names import ONNX_INPUT_NAME
 
-        if FloatTensorType is None or convert_lgbm_booster is None:
+        if FloatTensorType is None or onnxmltools is None:
             raise ImportError("Required ONNX components not available")
         initial_type = [(ONNX_INPUT_NAME, FloatTensorType([None, n_features]))]
-        onnx_model = convert_lgbm_booster(self.model, initial_types=initial_type)
+        onnx_model = onnxmltools.convert_lightgbm(self.model, initial_types=initial_type)
         raw_output_name = onnx_model.graph.output[0].name
-        last = raw_output_name
+
+        # Ensure float32 compatibility by casting raw LightGBM output
+        cast_output_name = "cast_float32"
         nodes: list[Any] = []
         initializers: list[Any] = []
+
+        if onnx_helper is None:
+            raise ImportError("Required ONNX helper not available")
+
+        # Cast the raw LightGBM output to float32 to ensure type compatibility
+        nodes.append(
+            onnx_helper.make_node(
+                "Cast",
+                inputs=[raw_output_name],
+                outputs=[cast_output_name],
+                to=1,  # FLOAT (1 is the ONNX type code for float32)
+            ),
+        )
+        last = cast_output_name
         if (
             self._calibrator_kind == "platt"
             and self._platt_coef is not None
@@ -282,12 +299,19 @@ class LightGBMStudentDistiller:
             nodes.append(onnx_helper.make_node("Add", inputs=[mul_out, b_name], outputs=[add_out]))
             last = add_out
         prob_name = "probability"
-        if onnx_helper is None:
-            raise ImportError("Required ONNX helper not available")
         nodes.append(onnx_helper.make_node("Sigmoid", inputs=[last], outputs=[prob_name]))
         onnx_model.graph.node.extend(nodes)
         onnx_model.graph.initializer.extend(initializers)
-        onnx_model.graph.output[0].name = prob_name
+
+        # Update the output name and ensure correct type
+        output_info = onnx_model.graph.output[0]
+        output_info.name = prob_name
+
+        # Ensure the output type is float32
+        if hasattr(output_info.type, "tensor_type"):
+            output_info.type.tensor_type.elem_type = (
+                1  # FLOAT (1 is the ONNX type code for float32)
+            )
         os.makedirs(out_dir, exist_ok=True)
         onnx_path = os.path.join(out_dir, "student.onnx")
         if onnx_mod is None:

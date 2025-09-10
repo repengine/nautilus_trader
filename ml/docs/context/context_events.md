@@ -314,6 +314,68 @@ topic3 = build_topic_for_stage(
 # Result: "ml.signals.emitted.GBPUSD.SIM"
 ```
 
+### 3. End-to-End: Ingestion → Aggregation → Lineage (Fixture-Based)
+
+For provider-agnostic testing and local development, you can simulate an end-to-end flow using deterministic fixtures and in-memory components:
+
+1) Generate envelopes from a fixture (e.g., TBBO):
+
+```python
+import pandas as pd
+from ml.data.fixtures import make_tbbo_fixture
+
+df, man = make_tbbo_fixture(instrument_id="EURUSD.SIM", rows=10)
+```
+
+2) Build envelopes and send through aggregator:
+
+```python
+from ml.consumers.aggregator import AggregatingConsumer
+from ml.consumers.lineage_writer import LineageWriter
+from ml.common.in_memory_bus import InMemoryPublisher
+from ml.observability.service import ObservabilityService
+
+svc = ObservabilityService()
+writer = LineageWriter(service=svc)
+bus = InMemoryPublisher()
+bus.subscribe("aggregated.#", lambda t, p: writer.handle(t, p))
+agg = AggregatingConsumer(downstream=bus, topic_mapper=lambda _stage: "aggregated.lineage")
+
+for i, row in enumerate(df.itertuples(index=False), start=1):
+    env = {
+        "id": f"e{i}",
+        "parent_id": None,
+        "instrument_id": row.instrument_id,
+        "ts_event": int(row.ts_event),
+        "stage": "FEATURE_COMPUTED",
+        "correlation_id": "c1",
+        "payload": {"bid_px": float(row.bid_px), "ask_px": float(row.ask_px)},
+    }
+    agg.handle("events.ml.FEATURE_COMPUTED", env)
+
+wm = int(df["ts_event"].max())
+agg.advance_watermark("EURUSD.SIM", wm)
+
+# Lineage DataFrame contains event_id and ts_event in order
+lineage_df = svc.event_correlation_df()
+```
+
+3) Record ingestion metrics for dashboards/alerts:
+
+```python
+from ml.data.ingest.metrics import record_ingest_batch
+record_ingest_batch(
+    dataset="tbbo", instrument="EURUSD.SIM", source="historical",
+    duration_seconds=0.005, ts_min=int(df.ts_event.min()), ts_max=int(df.ts_event.max())
+)
+```
+
+Related tests:
+
+- `ml/tests/integration/test_ingest_aggregate_lineage_integration.py`
+- `ml/tests/property/test_ingestion_watermark_properties.py`
+- `ml/tests/contracts/test_databento_fixtures_contracts.py`
+
 ### 4. Consumer Pattern with Wildcard Matching
 
 ```python

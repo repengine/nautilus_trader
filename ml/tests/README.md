@@ -1,5 +1,7 @@
 # ML Tests - Honest Documentation
 
+See also: ml/docs/context/context_tests.md for the unified test environment, DB setup, and the recommended fast pytest commands.
+
 ## ⚠️ Important: Database Requirement
 
 **Most tests require PostgreSQL.** The ML stores use PostgreSQL-specific features (partitioning, functions, triggers) that are not compatible with SQLite.
@@ -20,6 +22,9 @@ python ml/tests/test_smoke.py
 ```bash
 # Step 1: Start PostgreSQL
 docker compose -f ml/deployment/docker-compose.yml up -d postgres
+
+# Or use the simple test DB helper (5432)
+make docker-up-test && make check-db
 
 # Wait for it to be ready
 docker compose -f ml/deployment/docker-compose.yml ps  # Should show postgres as "healthy"

@@ -638,6 +638,17 @@ services:
 - **Auto-Model Generation**: Creates dummy models if missing (for rapid prototyping)
 - **Live Code Mounting**: Docker dev mode with live reload via `ml/docker-compose.dev.yml`
 - **Real Market Data**: Full Databento integration for authentic testing
+
+## Developer Tips
+
+- Standardize DB env for local dev/tests:
+  - `export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus`
+  - Start DB only: `make docker-up-test`
+  - Check readiness: `make check-db` (waits on `DATABASE_URL`)
+- ML stack Compose maps host `5433` → container `5432`. If you use it, set:
+  - `export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/nautilus`
+- Prefer `EngineManager.get_engine(...)` in Python components to avoid connection pool exhaustion.
+- Mark DDL/DB-heavy tests `@pytest.mark.serial` and parallelize others with `-n auto --dist=loadscope`.
 - **Comprehensive Debug Info**: Enhanced logging, statistics reporting, performance profiling
 
 **Architecture Pattern Compliance**:

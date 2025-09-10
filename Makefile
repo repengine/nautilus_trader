@@ -420,7 +420,12 @@ docker-up-test:  #-- Start PostgreSQL for tests (defaults match StrategyStore)
 		docker compose -f .docker/docker-compose.yml up -d postgres
 	$(info $(M) Waiting for PostgreSQL to be ready...)
 	DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus \
-		uv run --active --no-sync python scripts/wait_for_postgres.py
+		uv run --active --no-sync python tools/wait_for_postgres.py
+
+.PHONY: check-db
+check-db:  #-- Check DATABASE_URL is reachable (waits up to DB_WAIT_TIMEOUT)
+	$(info $(M) Checking PostgreSQL readiness via $$DATABASE_URL...)
+	uv run --active --no-sync python tools/wait_for_postgres.py
 
 .PHONY: docker-down-test
 docker-down-test:  #-- Stop PostgreSQL test container and remove volumes

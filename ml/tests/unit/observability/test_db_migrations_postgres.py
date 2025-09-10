@@ -10,7 +10,7 @@ from sqlalchemy import inspect
 from ml.observability.migrations import apply_observability_indices
 
 
-_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5432/nautilus"
 
 
 def _pg_available(url: str) -> bool:

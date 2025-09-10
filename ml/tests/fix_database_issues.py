@@ -13,7 +13,7 @@ Usage:
     python ml/tests/fix_database_issues.py
 
 Environment Variables:
-    DATABASE_URL: PostgreSQL connection string (default: postgresql://postgres:postgres@localhost:5432/nautilus_test)
+    DATABASE_URL: PostgreSQL connection string (default: postgresql://postgres:postgres@localhost:5432/nautilus)
 
 """
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/nautilus_test",
+    "postgresql://postgres:postgres@localhost:5432/nautilus",
 )
 
 
@@ -56,7 +56,7 @@ def parse_database_url(url: str) -> dict[str, any]:
                 "postgres",
                 "localhost",
                 5432,
-                "nautilus_test",
+                "nautilus",
             )
     else:
         user, password, host, port, database = (
@@ -64,7 +64,7 @@ def parse_database_url(url: str) -> dict[str, any]:
             "postgres",
             "localhost",
             5432,
-            "nautilus_test",
+            "nautilus",
         )
 
     return {

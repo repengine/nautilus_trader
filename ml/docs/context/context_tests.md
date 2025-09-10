@@ -10,6 +10,49 @@
 
 For speed and stability under parallel execution, DB‑heavy tests run with class/module‑scoped cleanup and integration tests run serially.
 
+## Database & Environment Setup
+
+Tests read database settings from environment variables, with `DATABASE_URL` as the primary source. The pytest configuration auto‑loads an `.env` file from `ml/tests/.env` if present.
+
+Recognized variables (in order of importance):
+
+- `DATABASE_URL` — primary connection string used by tests and fixtures
+- `ML_DATABASE_URL` — optional alias some tools/scripts read (mirrors `DATABASE_URL`)
+- `NAUTILUS_REGISTRY_DB_URL` — optional alias for registry helpers (mirrors `DATABASE_URL`)
+
+Canonical local configuration (auto‑loaded):
+
+```
+# File: ml/tests/.env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus
+ML_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus
+NAUTILUS_REGISTRY_DB_URL=postgresql://postgres:postgres@localhost:5432/nautilus
+```
+
+Virtualenv auto‑loads `.env.local` at activation time (see `.venv/bin/activate`). Keep it aligned:
+
+```
+# File: .env.local
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/nautilus"
+export ML_DATABASE_URL="$DATABASE_URL"
+export NAUTILUS_REGISTRY_DB_URL="$DATABASE_URL"
+```
+
+Notes on ports and compose setups:
+
+- Test compose (simple Postgres): `.docker/docker-compose.yml` exposes host port `5432`.
+  - Start: `make docker-up-test`
+  - Wait: `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus uv run --active --no-sync python tools/wait_for_postgres.py`
+- ML stack compose: `ml/deployment/docker-compose.yml` maps host port `5433` → container `5432`.
+  - Start: `docker compose -f ml/deployment/docker-compose.yml up -d postgres`
+  - Use: `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/nautilus`
+
+One‑off overrides (without editing files):
+
+```
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus pytest ml/tests -q
+```
+
 ## Executive Summary
 
 This document summarizes the ML testing architecture and conventions. The test infrastructure has been consolidated into a single, comprehensive `conftest.py` that uses the `EngineManager` singleton for proper connection pooling. Multiple testing approaches (property-based, metamorphic, contract, and pairwise) ensure thorough coverage while minimizing test count.
@@ -162,6 +205,11 @@ python -m pytest ml/tests/test_smoke.py -xvs
 
 # Unit tests only (fast, mocked)
 python -m pytest ml/tests/unit -x --tb=short
+
+# Example scripts (manual, not pytest)
+python ml/tests/examples/simple_feature_test.py
+python ml/tests/examples/working_feature_test.py
+python ml/tests/examples/reproduce_feature_parity_bug.py
 ```
 
 ### Property-Based Tests
@@ -192,6 +240,28 @@ pytest ml -m "not integration" -n auto --dist=loadscope -q
 # 2) Integration serial
 pytest ml -m integration -n 1 -q
 ```
+
+### Fast Dev Loop (Local)
+
+```bash
+# Fail fast, concise traces, parallelize what’s safe
+HYPOTHESIS_PROFILE=ci \
+pytest ml -m "not integration" -n auto --dist=loadscope -q -x --maxfail=1 --tb=short -ra
+```
+
+Tip: append `--durations=10` to surface slowest tests.
+
+## Developer Tips
+
+- Use `EngineManager.get_engine(...)` for all DB access to avoid pool exhaustion.
+- Mark DDL/DB-heavy tests `serial`; parallelize with `-n auto --dist=loadscope` elsewhere.
+- Profiles: `HYPOTHESIS_PROFILE=ci|dev|debug` to trade speed vs. depth.
+- Monitor connections: add `connection_monitor` fixture to suspect tests.
+- Default selection: pytest excludes `prototype` tests by default (see `pyproject.toml` addopts).
+- DB readiness:
+  - Start local DB: `make docker-up-test`
+  - Wait/check: `make check-db` (uses current `DATABASE_URL`)
+- Fast loop: `HYPOTHESIS_PROFILE=ci pytest ml -m "not integration" -n auto --dist=loadscope -q -x --maxfail=1 --tb=short -ra`
 
 ### Performance Tests
 

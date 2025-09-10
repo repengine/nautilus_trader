@@ -11,6 +11,7 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 ### 📋 Strategic Planning
 
 - **[ROADMAP.md](ROADMAP.md)** - Alpha roadmap completion status and post-alpha backlog
+- **[development/tft_teacher_plan.md](development/tft_teacher_plan.md)** - TFT teacher plan, metrics, gates, and roadmap
 
 ### 🏗️ Implementation Plans
 

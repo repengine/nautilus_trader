@@ -27,7 +27,8 @@ ml/scripts/
 │   ├── check_pipeline_health.py      # Health monitoring & diagnostics
 │   ├── check_databento_subscription.py # API limits verification
 │   ├── apply_migrations.py           # Apply ML DB migrations (baseline/full)
-│   └── sanity_check.py              # Codebase quality checks
+│   ├── validate_training_claims.py   # Validate training pipeline claims (imports, CLIs)
+│   └── sanity_check.py               # Codebase quality checks
 └── README_PIPELINE.md               # Operational documentation
 ```
 
@@ -162,6 +163,48 @@ python ml/scripts/populate_yahoo_data.py --all
 python ml/scripts/fred_integration_bridge.py
 ```
 
+### Backfill Missing Data (Databento)
+
+- Prerequisites
+  - Set `DATABENTO_API_KEY` in your environment
+  - Confirm coverage with `python ml/scripts/check_databento_subscription.py`
+
+- L0/L1 backfill (years of coverage)
+  - Example: 7y L0 and 1y L1 for Tier 1 symbols
+  - `python ml/scripts/populate_universe.py --level L0 --l0-years 7 --tier 1`
+  - `python ml/scripts/populate_universe.py --level L1 --l1-years 1 --tier 1`
+
+- L2 backfill with targeted dates (gap fill)
+  - Example: fill 2025-08-30 → 2025-09-10 for Tier 1
+  - `python ml/scripts/populate_l2_efficient.py --tier 1 --start-date 2025-08-30 --end-date 2025-09-10 --check-gaps`
+
+- Notes
+  - Use `--symbols SPY QQQ AAPL` to scope to a subset
+  - Use `--rate-limit N` to throttle API requests; default 100/min in scripts
+  - All writes land under `data/tier1/<SYMBOL>/` with parquet sidecars
+
+### Databento Subscription Limits (Explicit)
+
+- Access and safety
+  - Scripts require `DATABENTO_API_KEY` and will refuse to run without it
+  - Always run `check_databento_subscription.py` first; it prints available datasets, schemas, date ranges, and cost estimates
+
+- Default limits assumed by scripts (typical equities package)
+  - L0 (bars): up to ~7 years (configurable via `--l0-years`)
+  - L1 (trades/quotes): up to ~1 year (`--l1-years`)
+  - L2/L3 (depth): up to ~30 days (`--l2-days`)
+  - These are safe defaults; exact entitlements vary by account — confirm with the check script
+
+- Rate limits and cost guards
+  - API throttling: default `--rate-limit 100` calls/min; adjust if your plan differs
+  - Cost guard: `--max-cost 0` (default) prevents any paid downloads; use `--force` only when you explicitly accept charges
+  - Estimation mode: `--estimate-only` prints costs and exits without downloading
+
+- Datasets and schemas (examples)
+  - Datasets: `DBEQ.BASIC`, `XNAS.ITCH`, `OPRA.PILLAR` (availability depends on your plan)
+  - Schemas: `ohlcv-1d`, `ohlcv-1h`, `ohlcv-1m` (L0), `trades`, `tbbo` (L1), `mbp-1`, `mbp-10` (L2), `mbo` (L3)
+  - Use the check script to list your exact datasets and schemas
+
 ### Production Pipeline Operations
 
 ```bash
@@ -175,7 +218,12 @@ python ml/scripts/run_ml_pipeline.py --mode backfill --start-date 2024-01-01 --e
 python ml/scripts/check_pipeline_health.py --json --export report.json
 
 # Apply database migrations (baseline)
+# Note: ML stack compose exposes Postgres on host 5433; the simple test DB helper uses 5432.
 python -m ml.scripts.apply_migrations --db-url postgresql://postgres:postgres@localhost:5433/nautilus
+python -m ml.scripts.apply_migrations --db-url postgresql://postgres:postgres@localhost:5432/nautilus  # local test DB
+
+# Validate training claims (imports, CLIs, key classes)
+python -m ml.scripts.validate_training_claims
 
 # Apply full set of migrations (hardening, views, optional fixes)
 python -m ml.scripts.apply_migrations --db-url postgresql://... --full

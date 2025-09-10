@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/nautilus_test",
+    "postgresql://postgres:postgres@localhost:5432/nautilus",
 )
 
 # ============================================================================

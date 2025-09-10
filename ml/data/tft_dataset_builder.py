@@ -344,13 +344,61 @@ class TFTDatasetBuilder:
         if self.include_macro:
             from ml.data.fred_join import join_fred_asof
 
-            ts_col = "timestamp" if use_polars else "timestamp"
-            direct_df = join_fred_asof(
-                direct_df,
-                timestamp_col=ts_col,
-                lag_days=self.macro_lag_days,
-                fred_path=self.fred_path,
-            )
+            ts_col = "timestamp"
+            if pl is not None and isinstance(direct_df, pl.DataFrame):
+                before_cols = set(direct_df.columns)
+                direct_df = join_fred_asof(
+                    direct_df,
+                    timestamp_col=ts_col,
+                    lag_days=self.macro_lag_days,
+                    fred_path=self.fred_path,
+                )
+                macro_cols = [c for c in direct_df.columns if c not in before_cols]
+                if macro_cols:
+                    # Fill macro nulls with 0 and add availability mask
+                    fills = []
+                    exprs = []
+                    for c in macro_cols:
+                        try:
+                            if direct_df.schema[c].is_numeric():
+                                fills.append(pl.col(c).fill_null(0))
+                        except Exception:
+                            pass
+                        exprs.append(pl.col(c).is_not_null())
+                    if fills:
+                        direct_df = direct_df.with_columns(fills)
+                    if exprs:
+                        any_macro = exprs[0]
+                        for e in exprs[1:]:
+                            any_macro = any_macro | e
+                        direct_df = direct_df.with_columns(
+                            [
+                                any_macro.cast(pl.Int32).alias("is_macro_available"),
+                            ]
+                        )
+            else:
+                # Pandas path — apply join and compute mask with pandas ops
+                direct_df = join_fred_asof(
+                    direct_df,
+                    timestamp_col=ts_col,
+                    lag_days=self.macro_lag_days,
+                    fred_path=self.fred_path,
+                )
+                try:  # pragma: no cover
+                    import pandas as _pd
+
+                    if isinstance(direct_df, _pd.DataFrame):
+                        # Assume all newly added columns after join are macro columns
+                        # We compute diff by comparing to columns of a no-op slice (cannot easily capture before)
+                        # Fallback: treat all non-core columns except known as potentially macro and fill nulls
+                        core = {"timestamp", "time_index", "instrument_id", "y"}
+                        macro_cols = [c for c in direct_df.columns if c not in core]
+                        direct_df[macro_cols] = direct_df[macro_cols].fillna(0)
+                        direct_df["is_macro_available"] = (
+                            direct_df[macro_cols].notna().any(axis=1).astype("int32")
+                        )
+                except Exception:
+                    pass
 
         logger.info(
             f"Successfully computed {len(direct_df) if hasattr(direct_df, '__len__') else 'N/A'} rows using {source}",
@@ -506,6 +554,21 @@ class TFTDatasetBuilder:
                                 part = pl.read_parquet(str(p))
                                 if not part.is_empty():
                                     frames.append(part)
+                        # Also support files produced by populate_universe: data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet
+                        l0_file = base / symbol / "l0" / f"{symbol}_ohlcv.parquet"
+                        if l0_file.exists():
+                            part = pl.read_parquet(str(l0_file))
+                            if not part.is_empty():
+                                # Standardize columns
+                                if "timestamp" not in part.columns and "ts_event" in part.columns:
+                                    part = part.rename({"ts_event": "timestamp"})
+                                keep = [
+                                    c
+                                    for c in ["timestamp", "open", "high", "low", "close", "volume"]
+                                    if c in part.columns
+                                ]
+                                part = part.select(keep)
+                                frames.append(part)
                         if frames:
                             df = pl.concat(frames, how="vertical")
                             # Normalize timestamp column name and type
@@ -688,7 +751,20 @@ class TFTDatasetBuilder:
                         micro = micro.with_columns(
                             pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
                         )
+                    before_cols = set(dataset.columns)
                     dataset = dataset.join(micro, on="timestamp", how="left")
+                    # Fill newly added numeric micro columns with 0 for stability
+                    micro_cols = [c for c in dataset.columns if c not in before_cols]
+                    if micro_cols:
+                        fills = []
+                        for c in micro_cols:
+                            try:
+                                if dataset.schema[c].is_numeric():
+                                    fills.append(pl.col(c).fill_null(0))
+                            except Exception:
+                                pass
+                        if fills:
+                            dataset = dataset.with_columns(fills)
             except Exception as exc:
                 logger.debug(f"Microstructure aggregator join failed for {symbol}: {exc}")
                 try:  # fallback to cache-based join
@@ -706,7 +782,19 @@ class TFTDatasetBuilder:
                                 micro = micro.with_columns(
                                     pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
                                 )
+                            before_cols = set(dataset.columns)
                             dataset = dataset.join(micro, on="timestamp", how="left")
+                            micro_cols = [c for c in dataset.columns if c not in before_cols]
+                            if micro_cols:
+                                fills = []
+                                for c in micro_cols:
+                                    try:
+                                        if dataset.schema[c].is_numeric():
+                                            fills.append(pl.col(c).fill_null(0))
+                                    except Exception:
+                                        pass
+                                if fills:
+                                    dataset = dataset.with_columns(fills)
                 except Exception as exc2:  # pragma: no cover
                     logger.debug(f"Microstructure cache join failed for {symbol}: {exc2}")
 
@@ -725,7 +813,29 @@ class TFTDatasetBuilder:
                     if not l2.is_empty():
                         if l2["timestamp"].dtype != pl.Datetime:
                             l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                        before_cols = set(dataset.columns)
                         dataset = dataset.join(l2, on="timestamp", how="left")
+                        l2_cols = [c for c in dataset.columns if c not in before_cols]
+                        # Add availability mask for L2 and fill nulls with 0 for numeric L2 fields
+                        if l2_cols:
+                            has_any = None
+                            fills = []
+                            for c in l2_cols:
+                                try:
+                                    if dataset.schema[c].is_numeric():
+                                        fills.append(pl.col(c).fill_null(0))
+                                except Exception:
+                                    pass
+                                expr = pl.col(c).is_not_null()
+                                has_any = expr if has_any is None else (has_any | expr)
+                            if has_any is not None:
+                                dataset = dataset.with_columns(
+                                    [
+                                        (has_any.cast(pl.Int32)).alias("is_l2_available"),
+                                    ]
+                                )
+                            if fills:
+                                dataset = dataset.with_columns(fills)
             except Exception as exc:  # pragma: no cover
                 logger.debug(f"L2 cache join failed for {symbol}: {exc}")
 

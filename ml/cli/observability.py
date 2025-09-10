@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 import time
 from pathlib import Path
@@ -68,10 +69,15 @@ def main(argv: list[str] | None = None) -> int:
     p_start.add_argument("--db-url", default=None, help="DB URL when sink=db")
     p_start.add_argument("--interval", type=float, default=60.0, help="flush interval seconds")
     p_start.add_argument(
-        "--duration", type=float, default=0.0, help="run duration seconds (0=until SIGTERM)"
+        "--duration",
+        type=float,
+        default=0.0,
+        help="run duration seconds (0=until SIGTERM)",
     )
     p_start.add_argument(
-        "--seed-sample", action="store_true", help="seed a sample set of rows before start"
+        "--seed-sample",
+        action="store_true",
+        help="seed a sample set of rows before start",
     )
     # Async worker options
     p_start.add_argument(
@@ -81,7 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         help="use async worker instead of thread flusher",
     )
     p_start.add_argument(
-        "--async-queue", type=int, default=4096, help="async worker bounded queue size"
+        "--async-queue",
+        type=int,
+        default=4096,
+        help="async worker bounded queue size",
     )
     p_start.add_argument(
         "--async-component",
@@ -122,21 +131,33 @@ def main(argv: list[str] | None = None) -> int:
             _seed_sample(mgr)
         # Async mode: construct ObservabilityConfig and start from config
         if args.async_mode:
-            cfg = ObservabilityConfig(
-                sink="db" if args.sink == "db" else "file",
-                base_path=str(args.base_path),
-                file_format=str(args.format),
-                db_connection_string=str(args.db_url) if args.db_url else None,
-                interval_seconds=float(args.interval),
-                async_enabled=True,
-                async_queue_maxsize=int(args.async_queue),
-                async_component_label=str(args.async_component),
-            )
-            MLIntegrationManager.start_observability_from_config(mgr, cfg)
-            if args.duration and args.duration > 0:
-                time.sleep(float(args.duration))
-                MLIntegrationManager.stop_observability_async(mgr)
-            return 0
+            # Run async worker inside an event loop to avoid RuntimeError
+            async def _run_async() -> int:
+                cfg = ObservabilityConfig(
+                    sink="db" if args.sink == "db" else "file",
+                    base_path=str(args.base_path),
+                    file_format=str(args.format),
+                    db_connection_string=str(args.db_url) if args.db_url else None,
+                    interval_seconds=float(args.interval),
+                    async_enabled=True,
+                    async_queue_maxsize=int(args.async_queue),
+                    async_component_label=str(args.async_component),
+                )
+                # Start worker using integration manager
+                MLIntegrationManager.start_observability_from_config(mgr, cfg)
+                # Optional bounded run duration
+                if args.duration and args.duration > 0:
+                    await asyncio.sleep(float(args.duration))
+                    # Stop worker directly to avoid calling asyncio.run inside running loop
+                    worker = getattr(mgr, "_obs_async_worker", None)
+                    if worker is not None:
+                        try:
+                            await worker.stop(drain=True, timeout=1.0)
+                        except Exception:
+                            pass
+                return 0
+
+            return asyncio.run(_run_async())
         # Default thread flusher
         else:
             MLIntegrationManager.start_observability_flush(

@@ -27,7 +27,7 @@ def _pg_available(url: str) -> bool:
         return False
 
 
-_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5432/nautilus"
 
 
 @pytest.mark.skipif(

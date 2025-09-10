@@ -258,6 +258,29 @@ Provider Layer
 - **24/7 Markets**: Special handling for cryptocurrency exchanges (BINANCE, COINBASE)
 - **Caching**: Intelligent schedule caching with configurable TTL to minimize API calls
 - **Fallback Logic**: Automatic fallback to SimpleCalendarSource when pandas_market_calendars unavailable
+
+## Deterministic Data Fixtures (Testing)
+
+For provider-agnostic ingestion and contract testing, deterministic, lightweight fixtures are provided under `ml/data/fixtures/`:
+
+- `make_tbbo_fixture` (L1 TBBO), `make_trades_fixture` (trades), `make_mbp10_fixture` (L2 snapshots)
+- Each returns `(DataFrame, FixtureManifest)` where `FixtureManifest` records `schema_hash` and `content_sha256` for reproducibility.
+- Property/contract tests validate ordering, idempotent replay deduplication, and schema stability.
+
+Usage example:
+
+```python
+from ml.data.fixtures import make_tbbo_fixture
+
+df, manifest = make_tbbo_fixture(instrument_id="EURUSD.SIM", rows=60)
+assert len(df) == 60
+```
+
+See:
+
+- Contracts: `ml/tests/contracts/test_databento_fixtures_contracts.py`
+- Property: `ml/tests/property/test_ingestion_watermark_properties.py`
+- Performance: `ml/tests/performance/test_ingestion_microbench.py`
 - **Performance**: Week-based schedule fetching for efficiency
 - **API**: Holiday list generation, supported exchange enumeration, and cache management
 

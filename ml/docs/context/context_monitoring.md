@@ -259,6 +259,29 @@ The centralized metrics system provides 40+ production-ready metrics organized b
 
 The metrics system provides convenient helper functions for consistent labeling:
 
+## Ingestion Monitoring
+
+The ingestion layer emits standardized metrics and includes helpers in `ml.data.ingest.metrics` to reduce boilerplate when recording batch outcomes:
+
+- `nautilus_ml_data_events_total{dataset_type,component,stage,source,status}` — incremented via `record_pipeline_event` with stage `INGESTED`.
+- `nautilus_ml_data_collection_duration_seconds{source,schema}` — histogram for per-batch collection latency.
+- `nautilus_ml_data_collection_errors_total{source,instrument,error_type}` — counter for ingest errors (e.g., `rate_limit`, `connection`).
+- `nautilus_ml_watermark_lag_seconds{dataset,instrument,source}` — gauge for watermark lag (seconds).
+
+Dashboard panels (ml/deployment/grafana/ml_pipeline_health.json):
+
+- Ingest Rate (by dataset): `sum by (dataset_type)(rate(nautilus_ml_data_events_total{stage="INGESTED"}[$interval]))`
+- Watermark Lag (max): `max(nautilus_ml_watermark_lag_seconds)`
+- Ingest Errors (by type): `sum by (error_type)(rate(nautilus_ml_data_collection_errors_total[$interval]))`
+
+Alerts (ml/deployment/alerts.yml):
+
+- `MLIngestErrorsHigh`: any errors in 5m (for 10m)
+- `MLIngestWatermarkLagHigh`: max watermark lag > 300s (for 10m)
+- `MLIngestRateDrop`: ingest rate near zero for 15m
+
+See the Observability Runbook for remediation and tuning guidance.
+
 ```python
 from ml.common.metrics import record_pipeline_event, update_pipeline_health
 

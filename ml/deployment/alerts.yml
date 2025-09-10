@@ -25,3 +25,107 @@ groups:
           description: |
             One or more components report health < 0.8 for 5m.
 
+      - alert: MLIngestErrorsHigh
+        expr: increase(nautilus_ml_data_collection_errors_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingestion errors observed"
+          description: |
+            Errors recorded by data ingestion over the last 5 minutes. Check source, rate limits, and connectivity.
+
+      - alert: MLIngestWatermarkLagHigh
+        expr: max_over_time(nautilus_ml_watermark_lag_seconds[10m]) > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High ingestion watermark lag (> 5 minutes)"
+          description: |
+            Watermark lag indicates stalled ingestion or delayed processing. Investigate source health and backpressure.
+
+      - alert: MLIngestRateDrop
+        expr: sum by (dataset_type) (rate(nautilus_ml_data_events_total{stage="INGESTED"}[10m])) < 0.01
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingestion rate is near zero"
+          description: |
+            Ingestion event rate dropped below threshold. Check upstream provider and scheduler.
+
+      - alert: MLObsAsyncBackpressureDrops
+        expr: increase(nautilus_ml_backpressure_drops_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backpressure drops observed in async worker"
+          description: |
+            Backpressure drops have been recorded over the last 5 minutes.
+            Investigate sustained producer rates and sink performance.
+
+      - alert: MLObsAsyncBackpressureSustained
+        expr: rate(nautilus_ml_backpressure_drops_total[5m]) > 0.5
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Sustained backpressure drops in async worker"
+          description: |
+            The async observability worker is dropping items at a sustained rate.
+            Consider increasing queue capacity, reducing producer rate, or optimizing sinks.
+
+      - alert: MLObsAsyncQueueDepthHigh
+        expr: nautilus_ml_observability_queue_depth{component="obs_async_worker"} > 3072
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Async worker queue depth high"
+          description: |
+            Queue depth is above 75% of default capacity (4096). Adjust threshold to your configured capacity.
+
+      - alert: MLObsAsyncFlushLatencyHighP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(nautilus_ml_observability_async_flush_duration_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High async flush latency (P99 > 500ms)"
+          description: |
+            P99 async flush duration exceeds 500ms. Investigate DB/file sinks and batching.
+
+      - alert: MLAggregatorDuplicatesHigh
+        expr: rate(nautilus_ml_aggregator_duplicates_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High aggregator duplicate drops"
+          description: |
+            Aggregator is dropping duplicate envelopes above 1/s. Investigate producer idempotency and replay logic.
+
+      - alert: MLAggregatorBufferHigh
+        expr: max_over_time(nautilus_ml_aggregator_buffer_size[10m]) > 5000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High aggregator buffer occupancy"
+          description: |
+            Aggregator buffer size sustained above threshold. Check downstream consumers and watermark advancement.
+
+      - alert: MLAggregatorWatermarkLagHigh
+        expr: max_over_time(nautilus_ml_aggregator_watermark_lag_seconds[10m]) > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Aggregator watermark lag high (> 5m)"
+          description: |
+            Watermark not advancing sufficiently. Verify upstream ingestion and aggregator watermark conditions.

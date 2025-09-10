@@ -46,7 +46,7 @@ def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
     # Use DATABASE_URL from environment or fall back to test database
     connection_string = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/nautilus_test",
+        "postgresql://postgres:postgres@localhost:5432/nautilus",
     )
 
     store = DataStore(

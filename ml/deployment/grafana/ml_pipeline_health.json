@@ -34,6 +34,319 @@
       "type": "row"
     },
     {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+      "id": 108,
+      "panels": [],
+      "title": "Observability (Async Worker)",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Current async worker queue depth (obs_async_worker)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2048 },
+              { "color": "red", "value": 3072 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 46 },
+      "id": 110,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "text": {},
+        "textMode": "auto"
+      },
+      "targets": [
+        { "expr": "nautilus_ml_observability_queue_depth{component=\"obs_async_worker\"}", "refId": "A" }
+      ],
+      "title": "Async Queue Depth (Stat)",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 61 },
+      "id": 120,
+      "panels": [],
+      "title": "Ingestion",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Ingestion events per second by dataset_type",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "showPoints": "never" },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 62 },
+      "id": 121,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (dataset_type)(rate(nautilus_ml_data_events_total{stage=\"INGESTED\"}[$interval]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Ingest Rate (by dataset)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 70 },
+      "id": 130,
+      "panels": [],
+      "title": "Consumers / Aggregator",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Aggregator buffer size per instrument",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "showPoints": "never" },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 71 },
+      "id": 131,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        { "expr": "nautilus_ml_aggregator_buffer_size", "refId": "A" }
+      ],
+      "title": "Aggregator Buffer Size",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Aggregator flush rate per instrument",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "showPoints": "never" },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 71 },
+      "id": 132,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        { "expr": "sum by (instrument)(rate(nautilus_ml_aggregator_flushed_total[$interval]))", "refId": "A" }
+      ],
+      "title": "Aggregator Flushed Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Aggregator duplicates drop rate",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "showPoints": "never" },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 79 },
+      "id": 133,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        { "expr": "rate(nautilus_ml_aggregator_duplicates_total[$interval])", "refId": "A" }
+      ],
+      "title": "Aggregator Duplicates Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Aggregator watermark lag (max)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 79 },
+      "id": 134,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["max"], "fields": "", "values": false },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true,
+        "text": {}
+      },
+      "targets": [ { "expr": "max(nautilus_ml_aggregator_watermark_lag_seconds)", "refId": "A" } ],
+      "title": "Aggregator Watermark Lag (max)",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Ingestion watermark lag (max over instruments)",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 62 },
+      "id": 122,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["max"], "fields": "", "values": false },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true,
+        "text": {}
+      },
+      "targets": [
+        { "expr": "max(nautilus_ml_watermark_lag_seconds)", "refId": "A" }
+      ],
+      "title": "Watermark Lag (max)",
+      "type": "gauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Ingestion errors by type",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "showPoints": "never" },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 18, "y": 62 },
+      "id": 123,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (error_type)(rate(nautilus_ml_data_collection_errors_total[$interval]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Ingest Errors (rate by type)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Backpressure drops rate by reason",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": { "mode": "normal", "group": "A" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 46 },
+      "id": 111,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (reason)(rate(nautilus_ml_backpressure_drops_total{component=\"obs_async_worker\"}[$interval]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Backpressure Drops Rate (by reason)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "description": "Async flush latency P95/P99",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "showPoints": "never" },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 18, "y": 46 },
+      "id": 112,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nautilus_ml_observability_async_flush_duration_seconds_bucket[$interval])) by (le))",
+          "refId": "A",
+          "legendFormat": "P95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(nautilus_ml_observability_async_flush_duration_seconds_bucket[$interval])) by (le))",
+          "refId": "B",
+          "legendFormat": "P99"
+        }
+      ],
+      "title": "Async Flush Latency (P95/P99)",
+      "type": "timeseries"
+    },
+    {
       "datasource": "Prometheus",
       "description": "Overall pipeline health score",
       "fieldConfig": {

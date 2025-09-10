@@ -1,0 +1,169 @@
+{
+  "strategy_tests": {
+    "strategies_claimed": [
+      "threshold",
+      "extremes",
+      "momentum",
+      "ensemble",
+      "adaptive"
+    ],
+    "strategies_found": [
+      "threshold",
+      "extremes",
+      "momentum",
+      "ensemble",
+      "adaptive"
+    ],
+    "success_rate": 1.0,
+    "details": {
+      "threshold": {
+        "class_exists": false,
+        "error": "name 'ml' is not defined",
+        "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 169, in test_strategy_existence_and_functionality\n    bar = self.create_mock_bar()\n          ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 146, in test_strategy_existence_and_functionality\n    with MockModelLoader():\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 882, in __exit__\n    ml.actors.base.BaseMLInferenceActor._load_model = self.original_load_model\n    ^^\nNameError: name 'ml' is not defined\n"
+      },
+      "extremes": {
+        "class_exists": false,
+        "error": "name 'ml' is not defined",
+        "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 169, in test_strategy_existence_and_functionality\n    bar = self.create_mock_bar()\n          ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 146, in test_strategy_existence_and_functionality\n    with MockModelLoader():\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 882, in __exit__\n    ml.actors.base.BaseMLInferenceActor._load_model = self.original_load_model\n    ^^\nNameError: name 'ml' is not defined\n"
+      },
+      "momentum": {
+        "class_exists": false,
+        "error": "name 'ml' is not defined",
+        "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 169, in test_strategy_existence_and_functionality\n    bar = self.create_mock_bar()\n          ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 146, in test_strategy_existence_and_functionality\n    with MockModelLoader():\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 882, in __exit__\n    ml.actors.base.BaseMLInferenceActor._load_model = self.original_load_model\n    ^^\nNameError: name 'ml' is not defined\n"
+      },
+      "ensemble": {
+        "class_exists": false,
+        "error": "name 'ml' is not defined",
+        "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 169, in test_strategy_existence_and_functionality\n    bar = self.create_mock_bar()\n          ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 146, in test_strategy_existence_and_functionality\n    with MockModelLoader():\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 882, in __exit__\n    ml.actors.base.BaseMLInferenceActor._load_model = self.original_load_model\n    ^^\nNameError: name 'ml' is not defined\n"
+      },
+      "adaptive": {
+        "class_exists": false,
+        "error": "name 'ml' is not defined",
+        "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 169, in test_strategy_existence_and_functionality\n    bar = self.create_mock_bar()\n          ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 146, in test_strategy_existence_and_functionality\n    with MockModelLoader():\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 882, in __exit__\n    ml.actors.base.BaseMLInferenceActor._load_model = self.original_load_model\n    ^^\nNameError: name 'ml' is not defined\n"
+      }
+    }
+  },
+  "performance_tests": {
+    "error": "name 'ml' is not defined",
+    "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 407, in test_performance_targets\n    bar = self.create_mock_bar(close=100.0 + i * 0.1)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 398, in test_performance_targets\n    with MockModelLoader():\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 882, in __exit__\n    ml.actors.base.BaseMLInferenceActor._load_model = self.original_load_model\n    ^^\nNameError: name 'ml' is not defined\n"
+  },
+  "lock_free_tests": {
+    "LockFreeRingBuffer": {
+      "exists": true,
+      "size": 100,
+      "count": 100,
+      "is_full": true,
+      "last_values_shape": [
+        10
+      ],
+      "last_values_type": "ndarray",
+      "mean": 99.5,
+      "std": 28.866069793701172,
+      "percentile_90": 139.10000610351562
+    },
+    "ReservoirSampler": {
+      "exists": true,
+      "reservoir_size": 50,
+      "count": 50,
+      "total_seen": 1000,
+      "percentiles": {
+        "50": 591.0,
+        "90": 924.199951171875,
+        "99": 987.6100463867188
+      },
+      "sample_shape": [
+        50
+      ]
+    },
+    "PreAllocatedFeatureCache": {
+      "exists": true,
+      "n_features": 20,
+      "history_size": 100,
+      "history_count": 100,
+      "current_buffer_shape": [
+        20
+      ],
+      "onnx_buffer_shape": [
+        1,
+        20
+      ],
+      "history_shape": [
+        10,
+        20
+      ],
+      "has_memory_views": true
+    }
+  },
+  "regime_detection_tests": {
+    "error": "name 'ml' is not defined",
+    "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 505, in test_regime_detection_and_adaptive_thresholds\n    bar = self.create_mock_bar(close=close, high=close+0.5, low=close-0.5)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 487, in test_regime_detection_and_adaptive_thresholds\n    with MockModelLoader():\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 882, in __exit__\n    ml.actors.base.BaseMLInferenceActor._load_model = self.original_load_model\n    ^^\nNameError: name 'ml' is not defined\n"
+  },
+  "aggregation_tests": {
+    "error": "Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)",
+    "traceback": "Traceback (most recent call last):\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 585, in test_signal_aggregation_and_multi_model\n    bar = self.create_mock_bar()\n          ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/nate/projects/nautilus_trader/test_signal_generation_comprehensive.py\", line 81, in create_mock_bar\n    bar_type = BarType(\n               ^^^^^^^^\nTypeError: Argument 'bar_spec' has incorrect type (expected nautilus_trader.model.data.BarSpecification, got str)\n"
+  },
+  "data_model_tests": {
+    "required_fields_present": 8,
+    "total_required_fields": 8,
+    "field_details": {
+      "instrument_id": {
+        "exists": true,
+        "value_type": "InstrumentId",
+        "value": "EUR/USD.SIM",
+        "description": "InstrumentId identifier"
+      },
+      "model_id": {
+        "exists": true,
+        "value_type": "str",
+        "value": "test_model_v1",
+        "description": "Model tracking and lineage"
+      },
+      "prediction": {
+        "exists": true,
+        "value_type": "float",
+        "value": "0.75",
+        "description": "Model prediction value"
+      },
+      "confidence": {
+        "exists": true,
+        "value_type": "float",
+        "value": "0.85",
+        "description": "Confidence score (0.0 to 1.0)"
+      },
+      "features": {
+        "exists": true,
+        "value_type": "ndarray",
+        "value": "[1. 2. 3.]",
+        "description": "Optional feature vector for debugging"
+      },
+      "metadata": {
+        "exists": true,
+        "value_type": "dict",
+        "value": "{'strategy': 'test', 'regime': 'normal'}",
+        "description": "Optional strategy-specific context"
+      },
+      "ts_event": {
+        "exists": true,
+        "value_type": "int",
+        "value": "1757484935266496594",
+        "description": "Event timestamp (nanoseconds)"
+      },
+      "ts_init": {
+        "exists": true,
+        "value_type": "int",
+        "value": "1757484935266496782",
+        "description": "Initialization timestamp (nanoseconds)"
+      }
+    },
+    "features_test": {
+      "features_are_numpy": true,
+      "features_dtype": "float32",
+      "features_shape": [
+        3
+      ],
+      "metadata_type": "dict"
+    },
+    "signal_created_successfully": true
+  },
+  "errors": []
+}
