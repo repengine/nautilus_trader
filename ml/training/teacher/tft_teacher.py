@@ -156,6 +156,8 @@ class TFTTeacher(BaseTeacher):
             group_ids=[self.group_id_col],
             max_encoder_length=self.max_encoder_length,
             max_prediction_length=self.max_prediction_length,
+            min_encoder_length=1,
+            min_prediction_length=1,
             static_categoricals=self.static_categoricals,
             static_reals=self.static_reals,
             time_varying_known_reals=self.time_varying_known_reals,
@@ -213,7 +215,8 @@ class TFTTeacher(BaseTeacher):
                 pass
 
         callbacks = None
-        accelerator = "gpu" if torch.cuda.is_available() else "cpu"
+        # Force CPU for stability across environments; avoids CUDA kernel asserts in PF paths
+        accelerator = "cpu"
         self._trainer = pl_module.Trainer(
             max_epochs=self.max_epochs,
             gradient_clip_val=1.0,
@@ -224,6 +227,18 @@ class TFTTeacher(BaseTeacher):
             devices=1,
             enable_checkpointing=False,
         )
+        # Workaround: Some PF versions raise during validation due to interpretability logging
+        # (e.g., integer_histogram index bounds). Disable interpretability/logging by overriding
+        # create_log on the instance to return an empty dict.
+        try:
+            import types as _types
+
+            if hasattr(self._tft, "create_log"):
+                self._tft.create_log = _types.MethodType(lambda *_a, **_k: {}, self._tft)  # type: ignore[method-assign]
+            if hasattr(self._tft, "on_epoch_end"):
+                self._tft.on_epoch_end = _types.MethodType(lambda *_a, **_k: None, self._tft)  # type: ignore[method-assign]
+        except Exception:
+            pass
         self._trainer.fit(self._tft, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
         self._training_dataset = training
@@ -300,7 +315,8 @@ class TFTTeacher(BaseTeacher):
 
     # Optional convenience: predict logits with aligned targets using PF return_x
     def predict_logits_with_targets(
-        self, df: Any
+        self,
+        df: Any,
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         if not self._is_fitted or self._tft is None:
             raise RuntimeError("TFTTeacher must be fitted before prediction")

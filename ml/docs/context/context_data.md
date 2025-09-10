@@ -281,6 +281,45 @@ See:
 - Contracts: `ml/tests/contracts/test_databento_fixtures_contracts.py`
 - Property: `ml/tests/property/test_ingestion_watermark_properties.py`
 - Performance: `ml/tests/performance/test_ingestion_microbench.py`
+
+## Ingestion Resume & Backoff
+
+The ingestion helper `ml.data.ingest.resume.DatabentoIngestor` provides robust, provider‑agnostic ingestion with:
+
+- Resume from last timestamp (stateful per instrument)
+- Retry/backoff on transient errors (configurable policy; injectable sleep function for tests)
+- Daily window planning across time zones (DST‑aware via `zoneinfo`)
+- Metrics emission through `ml.data.ingest.metrics`
+
+Usage outline:
+
+```python
+from datetime import date
+from ml.data.ingest.resume import DatabentoIngestor, IngestState, BackoffPolicy
+
+ingestor = DatabentoIngestor(client=databento_like_client, policy=BackoffPolicy())
+state = IngestState()
+
+# Plan DST‑aware daily windows
+windows = ingestor.plan_daily_windows(start_date=date(2021,3,13), end_date=date(2021,3,16), tz="America/New_York")
+
+for start_ns, end_ns in windows:
+    df = ingestor.ingest_time_window(
+        dataset="GLBX.MDP3",
+        schema="tbbo",
+        instrument="ES-USD-FUT.CME",
+        start_ns=start_ns,
+        end_ns=end_ns,
+        source="historical",
+        state=state,
+    )
+    # Process df...
+```
+
+Tests:
+
+- Backoff + resume: `ml/tests/unit/ingest/test_resume_backoff.py`
+- DST window planning: `ml/tests/property/test_window_planner_dst.py`
 - **Performance**: Week-based schedule fetching for efficiency
 - **API**: Holiday list generation, supported exchange enumeration, and cache management
 

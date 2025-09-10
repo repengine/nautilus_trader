@@ -14,6 +14,31 @@
 *.patch
 log/
 logs/
+lightning_logs/
+
+# ML artifacts and datasets
+data/
+performance_results/
+checkpoints/
+ml_registry/models/
+ml_registry/strategies/
+ml_registry/features/
+ml_registry/datasets/
+
+# Generated test artifacts
+ml/tests/integration/comprehensive_validation/*.json
+ml/tests/**/validation_reports/*.json
+
+# Model binaries and exports
+*.onnx
+*.joblib
+*.pkl
+*.ckpt
+*.pt
+*.pth
+*.h5
+*.tflite
+*.bin
 
 # Profiler and database
 *.prof

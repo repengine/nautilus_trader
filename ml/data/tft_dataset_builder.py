@@ -374,7 +374,7 @@ class TFTDatasetBuilder:
                         direct_df = direct_df.with_columns(
                             [
                                 any_macro.cast(pl.Int32).alias("is_macro_available"),
-                            ]
+                            ],
                         )
             else:
                 # Pandas path — apply join and compute mask with pandas ops
@@ -553,6 +553,48 @@ class TFTDatasetBuilder:
                             if p.exists():
                                 part = pl.read_parquet(str(p))
                                 if not part.is_empty():
+                                    # Standardize columns to OHLCV schema
+                                    if (
+                                        "timestamp" not in part.columns
+                                        and "ts_event" in part.columns
+                                    ):
+                                        part = part.rename({"ts_event": "timestamp"})
+                                    keep = [
+                                        c
+                                        for c in [
+                                            "timestamp",
+                                            "open",
+                                            "high",
+                                            "low",
+                                            "close",
+                                            "volume",
+                                        ]
+                                        if c in part.columns
+                                    ]
+                                    if keep:
+                                        part = part.select(keep)
+                                        # Unify timestamp timezone to UTC for concat compatibility
+                                        if "timestamp" in part.columns:
+                                            try:
+                                                part = part.with_columns(
+                                                    pl.col("timestamp").dt.replace_time_zone("UTC"),
+                                                )
+                                            except Exception:
+                                                try:
+                                                    part = part.with_columns(
+                                                        pl.col("timestamp").dt.convert_time_zone(
+                                                            "UTC"
+                                                        ),
+                                                    )
+                                                except Exception:
+                                                    try:
+                                                        part = part.with_columns(
+                                                            pl.col("timestamp").cast(
+                                                                pl.Datetime("ns", "UTC")
+                                                            ),
+                                                        )
+                                                    except Exception:
+                                                        pass
                                     frames.append(part)
                         # Also support files produced by populate_universe: data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet
                         l0_file = base / symbol / "l0" / f"{symbol}_ohlcv.parquet"
@@ -568,8 +610,29 @@ class TFTDatasetBuilder:
                                     if c in part.columns
                                 ]
                                 part = part.select(keep)
+                                # Unify timestamp timezone to UTC for concat compatibility
+                                if "timestamp" in part.columns:
+                                    try:
+                                        part = part.with_columns(
+                                            pl.col("timestamp").dt.replace_time_zone("UTC"),
+                                        )
+                                    except Exception:
+                                        try:
+                                            part = part.with_columns(
+                                                pl.col("timestamp").dt.convert_time_zone("UTC"),
+                                            )
+                                        except Exception:
+                                            try:
+                                                part = part.with_columns(
+                                                    pl.col("timestamp").cast(
+                                                        pl.Datetime("ns", "UTC")
+                                                    ),
+                                                )
+                                            except Exception:
+                                                pass
                                 frames.append(part)
                         if frames:
+                            # Concatenate standardized frames
                             df = pl.concat(frames, how="vertical")
                             # Normalize timestamp column name and type
                             if "timestamp" not in df.columns and "ts_event" in df.columns:
@@ -832,7 +895,7 @@ class TFTDatasetBuilder:
                                 dataset = dataset.with_columns(
                                     [
                                         (has_any.cast(pl.Int32)).alias("is_l2_available"),
-                                    ]
+                                    ],
                                 )
                             if fills:
                                 dataset = dataset.with_columns(fills)

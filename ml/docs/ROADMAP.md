@@ -144,7 +144,8 @@ Post‑Alpha Backlog (Beta and beyond)
 - Databento Ingestion & Store Hardening
   - DELIVERED deterministic fixtures: curated TBBO/L2 MBP‑10/Trades DataFrames with manifests (`schema_hash`, `sha256`).
   - Adapter contracts: validate mapping to internal schemas; ordering invariants (monotonic sequence/ts), idempotent replay, watermark progression; backpressure + retry semantics.
-  - Live/backfill bridge: resume from offsets/time windows; retry/backoff on rate limits; reconnection semantics; property tests for partial day boundaries and DST.
+- Live/backfill bridge: resume from offsets/time windows; retry/backoff on rate limits; reconnection semantics; property tests for partial day boundaries and DST.
+  - DELIVERED: provider‑agnostic resume/backoff helper with DST‑aware window planning and tests (`DatabentoIngestor`).
   - Store integration: idempotent writes and dedupe, partitioning verified, BRIN/BTREE index guidance; DataStore contracts remain provider‑agnostic.
   - DELIVERED observability: ingestion metrics helpers, dashboard row, alerts.
   - Performance: ingestion micro‑benchmarks (CPU, throughput, p95/p99) with budgets and documentation.

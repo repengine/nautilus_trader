@@ -76,57 +76,57 @@ def main(argv: list[str] | None = None) -> int:
                 for dr in dropouts:
                     for lr in lrs:
                         run_id += 1
-                    model_id = f"tft_hpo_h{hs}_l{ll}_a{ah}_d{str(dr).replace('.', '')}_lr{str(lr).replace('.', '')}_r{run_id}"
-                    run_dir = out / model_id
-                    run_dir.mkdir(parents=True, exist_ok=True)
-                    t0 = time.perf_counter()
-                    rc = train_main(
-                        [
-                            "--train_data_csv",
-                            args.dataset_csv,
-                            "--out_dir",
-                            str(run_dir),
-                            "--model_id",
-                            model_id,
-                            "--feature_registry_dir",
-                            args.feature_registry_dir,
-                            "--feature_set_id",
-                            args.feature_set_id,
-                            "--max_epochs",
-                            str(args.epochs),
-                            "--loss",
-                            "bce",
-                            "--dataloader_workers",
-                            str(args.workers),
-                            "--hidden_size",
-                            str(hs),
-                            "--lstm_layers",
-                            str(ll),
-                            "--attention_head_size",
-                            str(ah),
-                            "--dropout",
-                            str(dr),
-                            "--learning_rate",
-                            str(lr),
-                        ]
-                    )
-                    dur = time.perf_counter() - t0
-                    npz = run_dir / "teacher_preds.npz"
-                    try:
-                        metrics = _score(npz)
-                    except Exception as exc:  # pragma: no cover
-                        metrics = {"error": str(exc)}  # type: ignore[assignment]
-                    rec: dict[str, Any] = {
-                        "model_id": model_id,
-                        "rc": rc,
-                        "duration_sec": dur,
-                        "hidden_size": hs,
-                        "lstm_layers": ll,
-                        "attention_heads": ah,
-                        "dropout": dr,
-                        "metrics": metrics,
-                    }
-                    results.append(rec)
+                        model_id = f"tft_hpo_h{hs}_l{ll}_a{ah}_d{str(dr).replace('.', '')}_lr{str(lr).replace('.', '')}_r{run_id}"
+                        run_dir = out / model_id
+                        run_dir.mkdir(parents=True, exist_ok=True)
+                        t0 = time.perf_counter()
+                        rc = train_main(
+                            [
+                                "--train_data_csv",
+                                args.dataset_csv,
+                                "--out_dir",
+                                str(run_dir),
+                                "--model_id",
+                                model_id,
+                                "--feature_registry_dir",
+                                args.feature_registry_dir,
+                                "--feature_set_id",
+                                args.feature_set_id,
+                                "--max_epochs",
+                                str(args.epochs),
+                                "--loss",
+                                "bce",
+                                "--dataloader_workers",
+                                str(args.workers),
+                                "--hidden_size",
+                                str(hs),
+                                "--lstm_layers",
+                                str(ll),
+                                "--attention_head_size",
+                                str(ah),
+                                "--dropout",
+                                str(dr),
+                                "--learning_rate",
+                                str(lr),
+                            ],
+                        )
+                        dur = time.perf_counter() - t0
+                        npz = run_dir / "teacher_preds.npz"
+                        try:
+                            metrics = _score(npz)
+                        except Exception as exc:  # pragma: no cover
+                            metrics = {"error": str(exc)}  # type: ignore[assignment]
+                        rec: dict[str, Any] = {
+                            "model_id": model_id,
+                            "rc": rc,
+                            "duration_sec": dur,
+                            "hidden_size": hs,
+                            "lstm_layers": ll,
+                            "attention_heads": ah,
+                            "dropout": dr,
+                            "metrics": metrics,
+                        }
+                        results.append(rec)
 
     # Pick best by PRx then AUC
     def keyfn(r: dict[str, Any]) -> tuple[float, float]:
