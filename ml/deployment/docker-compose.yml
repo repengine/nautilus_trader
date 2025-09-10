@@ -1,4 +1,7 @@
-# Docker Compose v2 format - no version needed
+# Docker Compose v2 format - pinned project name for consistency across environments
+name: ml
+
+# Compose v2 format (no explicit version key)
 
 services:
   # PostgreSQL Database for ML persistence
@@ -11,6 +14,7 @@ services:
     # Expose Postgres on host. Default to 5433 to avoid conflicts with dev stack.
     # Override with env var POSTGRES_HOST_PORT=5432 if you are not running the dev compose.
     ports:
+      # Map host port → container port; override POSTGRES_HOST_PORT to avoid conflicts
       - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -180,6 +184,7 @@ services:
       - nautilus-ml
     restart: unless-stopped
     healthcheck:
+      # HTTP-based health check for the pipeline service
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
       interval: 30s
       timeout: 10s

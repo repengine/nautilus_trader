@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 
+from ml.config.observability import ObservabilityConfig
 from ml.core.integration import MLIntegrationManager
 
 
@@ -60,14 +61,34 @@ def main(argv: list[str] | None = None) -> int:
     p_db.add_argument("--db-url", required=True)
     p_db.add_argument("--seed-sample", action="store_true")
 
-    p_start = sub.add_parser("start", help="Start background flushing")
-    p_start.add_argument("--sink", default="file", choices=["file", "db"])
-    p_start.add_argument("--base-path", default="./observability")
-    p_start.add_argument("--format", default="jsonl", choices=["jsonl", "csv"])
-    p_start.add_argument("--db-url", default=None)
-    p_start.add_argument("--interval", type=float, default=60.0)
-    p_start.add_argument("--duration", type=float, default=0.0)
-    p_start.add_argument("--seed-sample", action="store_true")
+    p_start = sub.add_parser("start", help="Start background flushing (thread or async)")
+    p_start.add_argument("--sink", default="file", choices=["file", "db"], help="file or db sink")
+    p_start.add_argument("--base-path", default="./observability", help="base path when sink=file")
+    p_start.add_argument("--format", default="jsonl", choices=["jsonl", "csv"], help="file format")
+    p_start.add_argument("--db-url", default=None, help="DB URL when sink=db")
+    p_start.add_argument("--interval", type=float, default=60.0, help="flush interval seconds")
+    p_start.add_argument(
+        "--duration", type=float, default=0.0, help="run duration seconds (0=until SIGTERM)"
+    )
+    p_start.add_argument(
+        "--seed-sample", action="store_true", help="seed a sample set of rows before start"
+    )
+    # Async worker options
+    p_start.add_argument(
+        "--async",
+        dest="async_mode",
+        action="store_true",
+        help="use async worker instead of thread flusher",
+    )
+    p_start.add_argument(
+        "--async-queue", type=int, default=4096, help="async worker bounded queue size"
+    )
+    p_start.add_argument(
+        "--async-component",
+        type=str,
+        default="obs_async_worker",
+        help="component label for metrics",
+    )
 
     args = parser.parse_args(argv)
     mgr = object.__new__(MLIntegrationManager)  # lightweight
@@ -97,18 +118,37 @@ def main(argv: list[str] | None = None) -> int:
     else:  # start
         if args.seed_sample:
             _seed_sample(mgr)
-        MLIntegrationManager.start_observability_flush(
-            mgr,
-            base_path=Path(args.base_path),
-            interval_seconds=float(args.interval),
-            file_format=args.format,
-            sink=args.sink,
-            db_connection_string=str(args.db_url) if args.db_url else None,
-        )
-        if args.duration and args.duration > 0:
-            time.sleep(float(args.duration))
-            MLIntegrationManager.stop_observability_flush(mgr)
-        return 0
+        # Async mode: construct ObservabilityConfig and start from config
+        if args.async_mode:
+            cfg = ObservabilityConfig(
+                sink="db" if args.sink == "db" else "file",
+                base_path=str(args.base_path),
+                file_format=str(args.format),
+                db_connection_string=str(args.db_url) if args.db_url else None,
+                interval_seconds=float(args.interval),
+                async_enabled=True,
+                async_queue_maxsize=int(args.async_queue),
+                async_component_label=str(args.async_component),
+            )
+            MLIntegrationManager.start_observability_from_config(mgr, cfg)
+            if args.duration and args.duration > 0:
+                time.sleep(float(args.duration))
+                MLIntegrationManager.stop_observability_async(mgr)
+            return 0
+        # Default thread flusher
+        else:
+            MLIntegrationManager.start_observability_flush(
+                mgr,
+                base_path=Path(args.base_path),
+                interval_seconds=float(args.interval),
+                file_format=args.format,
+                sink=args.sink,
+                db_connection_string=str(args.db_url) if args.db_url else None,
+            )
+            if args.duration and args.duration > 0:
+                time.sleep(float(args.duration))
+                MLIntegrationManager.stop_observability_flush(mgr)
+            return 0
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation

@@ -480,6 +480,32 @@ test-feature-parity:  #-- Run ML feature parity tests manually
 benchmark-ml:  #-- Run ML performance benchmarks manually
 	@python benchmarks/ml_performance.py --report
 
+#== ML Deployment (Docker Compose)
+
+.PHONY: ml-up
+ml-up:  #-- Bring up ML stack (postgres, redis, ml_pipeline, grafana, prometheus)
+	$(info $(M) Starting ML stack with Docker Compose (project name 'ml')...)
+	docker compose -f ml/deployment/docker-compose.yml up -d
+
+.PHONY: ml-down
+ml-down:  #-- Bring down ML stack and remove volumes
+	$(info $(M) Stopping ML stack and removing volumes...)
+	docker compose -f ml/deployment/docker-compose.yml down -v
+
+.PHONY: ml-logs
+ml-logs:  #-- Tail logs for ml_pipeline service (CTRL-C to exit)
+	$(info $(M) Tailing ml_pipeline logs...)
+	docker compose -f ml/deployment/docker-compose.yml logs -f ml_pipeline
+
+.PHONY: ml-ps
+ml-ps:  #-- Show status of ML services
+	docker compose -f ml/deployment/docker-compose.yml ps
+
+.PHONY: ml-migrate
+ml-migrate:  #-- Apply ML database migrations via docker compose exec
+	$(info $(M) Applying ML DB migrations via docker compose exec postgres...)
+	uv run --active --no-sync python -m ml.deployment.migrations --apply --compose-file ml/deployment/docker-compose.yml
+
 #== CLI Tools
 
 .PHONY: install-cli

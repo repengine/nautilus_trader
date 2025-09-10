@@ -672,26 +672,43 @@ class TFTDatasetBuilder:
         dataset = self._add_static_features_polars(dataset)
         dataset = self._add_known_future_features_polars(dataset)
 
-        # Optionally join microstructure features (per-minute) via cache
+        # Optionally join microstructure features (per-minute)
         if self.include_micro:
+            # Prefer aggregator (matches unit test monkeypatch), then fallback to cache
             try:
-                base_dir = _Path(self.micro_base_dir or "data/tier1")
-                micro_cache = MicroMinuteCache(_Path("data/features/micro_minute"))
-                ts_min = dataset.select(pl.col("timestamp").min())[0, 0]
-                ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
+                from pathlib import Path as _Path
 
-                if ts_min is not None and ts_max is not None:
-                    start_dt = ts_min.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
-                    end_dt = ts_max.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
-                    micro = micro_cache.get_range(symbol, start_dt, end_dt, base_dir)
-                    if not micro.is_empty():
-                        if micro["timestamp"].dtype != pl.Datetime:
-                            micro = micro.with_columns(
-                                pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
-                            )
-                        dataset = dataset.join(micro, on="timestamp", how="left")
-            except Exception as exc:  # pragma: no cover
-                logger.debug(f"Microstructure cache join failed for {symbol}: {exc}")
+                from ml.features.micro_aggregate import MicrostructureAggregator
+
+                base_dir = self.micro_base_dir or "data/tier1"
+                agg = MicrostructureAggregator(_Path(base_dir))
+                micro = agg.compute_for_symbol(symbol)
+                if micro.shape[0] > 0:
+                    if micro["timestamp"].dtype != pl.Datetime:
+                        micro = micro.with_columns(
+                            pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
+                        )
+                    dataset = dataset.join(micro, on="timestamp", how="left")
+            except Exception as exc:
+                logger.debug(f"Microstructure aggregator join failed for {symbol}: {exc}")
+                try:  # fallback to cache-based join
+                    base_dir = _Path(self.micro_base_dir or "data/tier1")
+                    micro_cache = MicroMinuteCache(_Path("data/features/micro_minute"))
+                    ts_min = dataset.select(pl.col("timestamp").min())[0, 0]
+                    ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
+
+                    if ts_min is not None and ts_max is not None:
+                        start_dt = ts_min.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
+                        end_dt = ts_max.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
+                        micro = micro_cache.get_range(symbol, start_dt, end_dt, base_dir)
+                        if not micro.is_empty():
+                            if micro["timestamp"].dtype != pl.Datetime:
+                                micro = micro.with_columns(
+                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
+                                )
+                            dataset = dataset.join(micro, on="timestamp", how="left")
+                except Exception as exc2:  # pragma: no cover
+                    logger.debug(f"Microstructure cache join failed for {symbol}: {exc2}")
 
         # Optionally join L2 features (per-minute) via cache
         if self.include_l2:

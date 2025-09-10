@@ -136,6 +136,56 @@ histogram = get_histogram("nautilus_ml_inference_duration", "Inference time", ["
 gauge = get_gauge("nautilus_ml_model_confidence", "Model confidence", ["model"])
 ```
 
+## Async Observability Worker
+
+For high-throughput deployments, prefer enqueueing observability rows off the hot path and persisting them asynchronously.
+
+- Component: `ml/observability/async_worker.py` (`ObservabilityAsyncWorker`)
+- Pattern: Non-blocking enqueue on hot path → background flush to file/DB
+- Metrics: `nautilus_ml_observability_enqueued_total`, `nautilus_ml_observability_queue_depth`, and central `nautilus_ml_backpressure_drops_total{component="obs_async_worker"}`
+
+Example (programmatic):
+
+```python
+from pathlib import Path
+from ml.observability.service import ObservabilityService
+from ml.observability.async_worker import ObservabilityAsyncWorker
+
+svc = ObservabilityService()
+worker = ObservabilityAsyncWorker(
+    service=svc,
+    sink="db",  # or "file"
+    db_connection_string="sqlite:///./observability.db",
+    base_path=Path("./observability"),
+    flush_interval_seconds=5.0,
+    queue_maxsize=4096,
+)
+worker.start()
+
+# hot path
+worker.enqueue_latency(
+    correlation_id="c1",
+    instrument_id="EURUSD.SIM",
+    pipeline_stage="FEATURE_COMPUTED",
+    ts_stage_start=1,
+    ts_stage_end=2,
+)
+
+# shutdown (off hot path)
+import asyncio
+asyncio.run(worker.stop(drain=True))
+```
+
+Environment (via `ObservabilityConfig.from_env()` + `MLIntegrationManager.start_observability_from_config`):
+
+```bash
+export ML_OBS_ASYNC_ENABLE="true"
+export ML_OBS_ASYNC_QUEUE_MAX="8192"
+export ML_OBS_ASYNC_COMPONENT="obs_async_worker"
+```
+
+When `ML_OBS_ASYNC_ENABLE` is set, the integration manager starts the async worker; otherwise, it uses the thread-based `ObservabilityFlusher`.
+
 **Key Benefits**:
 
 - **Idempotent**: Multiple calls return same metric instance

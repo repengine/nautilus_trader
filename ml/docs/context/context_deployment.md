@@ -368,6 +368,72 @@ grafana:
 
 ### Dockerfile Specifications
 
+## Container Topology & Quick Commands
+
+This section captures the concrete topology and ops commands used in practice.
+
+### Project + Network
+
+- Project name: `ml` (pinned in `ml/deployment/docker-compose.yml` via `name: ml`)
+- Network: `nautilus-ml` (bridge)
+
+### Services Summary
+
+- `postgres`
+  - Internal: `postgres:5432` on `nautilus-ml`
+  - Host port: `${POSTGRES_HOST_PORT:-5433}` → `5432`
+  - Health: `pg_isready -U postgres`
+  - Migrations: mounted SQL (`/docker-entrypoint-initdb.d`) + CLI helper
+
+- `redis`
+  - Internal: `redis:6379`
+  - Host port: `${REDIS_HOST_PORT:-6380}` → `6379`
+  - Health: `redis-cli ping`
+
+- `ml_pipeline`
+  - Health: HTTP `GET http://localhost:8080/health`
+  - Host port: `${ML_PIPELINE_HOST_PORT:-8081}` → `8080`
+  - DB envs: always use `postgres` hostname (never `localhost` inside containers)
+
+- Optional: `ml_signal_actor`, `ml_strategy`, `prometheus`, `grafana`
+
+### Database URIs
+
+- Inside containers (service-to-service):
+  - `postgresql://postgres:postgres@postgres:5432/nautilus`
+- From host:
+  - `postgresql://postgres:postgres@localhost:${POSTGRES_HOST_PORT:-5433}/nautilus`
+
+### Makefile Shortcuts
+
+Top-level Makefile provides convenience targets:
+
+- `make ml-up` — start the stack (postgres, redis, ml_pipeline, grafana, prometheus)
+- `make ml-down` — stop the stack and remove volumes
+- `make ml-ps` — show service status
+- `make ml-logs` — tail `ml_pipeline` logs
+- `make ml-migrate` — apply DB migrations via compose exec helper
+
+### Migrations
+
+Apply canonical migrations idempotently:
+
+```
+uv run --active --no-sync python -m ml.deployment.migrations --apply --compose-file ml/deployment/docker-compose.yml
+```
+
+This pipes SQL to `psql` in the `postgres` service.
+
+### Common Issues
+
+- Port conflicts (e.g., `Bind for 0.0.0.0:5433 failed`):
+  - Set `POSTGRES_HOST_PORT` to a free port (e.g., `5434`) or stop the conflicting Postgres
+- Duplicate projects (e.g., containers named `deployment-*` and `ml-*`):
+  - Use the pinned project name `ml`; bring down obsolete projects:
+    `docker compose -f ml/deployment/docker-compose.yml --project-name deployment down -v`
+- Defaults in code use `localhost`:
+  - These are for host/dev tests; in containers override to `postgres` via envs
+
 #### ML Pipeline Dockerfile (`Dockerfile.pipeline`)
 
 ```dockerfile

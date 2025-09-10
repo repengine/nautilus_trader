@@ -237,6 +237,50 @@ stop_event.set()
 thread.join(timeout=5.0)
 ```
 
+### Async Observability Worker
+
+For deployments requiring higher throughput or tighter hot-path budgets, use the async worker to enqueue observability rows without blocking and persist them off-path:
+
+```python
+from pathlib import Path
+from ml.observability.service import ObservabilityService
+from ml.observability.async_worker import ObservabilityAsyncWorker
+
+svc = ObservabilityService()
+worker = ObservabilityAsyncWorker(
+    service=svc,
+    sink="file",  # or "db"
+    base_path=Path("./observability"),
+    db_connection_string=None,
+    flush_interval_seconds=5.0,
+    queue_maxsize=4096,
+)
+worker.start()
+
+# Hot path: enqueue is non-blocking (drops on backpressure and increments central counter)
+worker.enqueue_metric(
+    metric_name="ml_predictions_total",
+    metric_type="counter",
+    value=1.0,
+    timestamp=1,
+    labels={"actor_id": "a1"},
+)
+
+# Shutdown (off hot path)
+import asyncio
+asyncio.run(worker.stop(drain=True))
+```
+
+Environment (integration manager will start async worker when enabled):
+
+```bash
+export ML_OBS_ASYNC_ENABLE="true"
+export ML_OBS_ASYNC_QUEUE_MAX="8192"
+export ML_OBS_ASYNC_COMPONENT="obs_async_worker"
+```
+
+When `ML_OBS_ASYNC_ENABLE` is not set, the thread-based `ObservabilityFlusher` is used by default.
+
 ## Integration Points
 
 ### ML Monitoring System

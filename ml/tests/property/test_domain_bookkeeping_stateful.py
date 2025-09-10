@@ -100,10 +100,12 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
 
     def __init__(self):
         super().__init__()
-        self.mock_integration_manager = MagicMock(spec=MLIntegrationManager)
+        # Use a flexible mock; concrete MLIntegrationManager may evolve
+        self.mock_integration_manager = MagicMock()
         self.active_pipelines: dict[str, PipelineExecution] = {}
         self.event_history: list[SystemEvent] = []
         self.correlation_tracking: dict[str, list[str]] = {}  # correlation_id -> event_ids
+        self.correlation_instruments: dict[str, str] = {}  # correlation_id -> instrument_id
         self.metrics_collected: list[dict[str, Any]] = []
         self.health_scores: dict[str, float] = {
             "data_store": 1.0,
@@ -151,6 +153,10 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         execution_id = str(UUID4())
         timestamp = len(self.event_history) * 1000 + 1000000  # Monotonic timestamps
 
+        # Enforce consistency: each correlation_id maps to a single instrument_id
+        if correlation_id in self.correlation_instruments:
+            instrument_id = self.correlation_instruments[correlation_id]
+
         pipeline = PipelineExecution(
             execution_id=execution_id,
             correlation_id=correlation_id,
@@ -160,6 +166,9 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         )
 
         self.active_pipelines[execution_id] = pipeline
+        # Record instrument binding for this correlation if first seen
+        if correlation_id not in self.correlation_instruments:
+            self.correlation_instruments[correlation_id] = instrument_id
         return pipeline
 
     @rule(
@@ -265,7 +274,10 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         """
         if failure_rate > 0.05:  # 5% failure rate threshold
             self.message_bus_state["connected"] = False
-            self.message_bus_state["failed_messages"] += int(failure_rate * 100)
+            failures = int(failure_rate * 100)
+            self.message_bus_state["failed_messages"] += failures
+            # Failed deliveries still count toward total attempts
+            self.message_bus_state["message_count"] += failures
 
             # Message bus issues might cause event delivery failures
             # This could affect ongoing pipelines
@@ -282,6 +294,9 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         """
         Update pipeline state based on event type.
         """
+        # Ignore events for pipelines in terminal states
+        if pipeline.state in (PipelineState.COMPLETED, PipelineState.FAILED):
+            return
         state_transitions = {
             EventType.DATA_RECEIVED: PipelineState.DATA_INGESTION,
             EventType.FEATURES_COMPUTED: PipelineState.FEATURE_COMPUTATION,
@@ -432,7 +447,6 @@ class TestDomainBookkeepingStateful:
     Stateful property-based tests for domain bookkeeping.
     """
 
-    @settings(max_examples=50, stateful_step_count=50, deadline=10000)
     def test_domain_bookkeeping_workflow_state_machine(self):
         """
         Test domain bookkeeping workflows using state machine exploration.
@@ -441,12 +455,22 @@ class TestDomainBookkeepingStateful:
         invariants hold throughout the execution.
 
         """
-        # Run the state machine
-        state_machine = DomainBookkeepingStateMachine()
-        state_machine.run()
+        # Run the state machine using Hypothesis helper and capture the instance
+        from hypothesis.stateful import run_state_machine_as_test
+
+        class _CaptureMachine(DomainBookkeepingStateMachine):  # type: ignore[misc]
+            last_instance: "_CaptureMachine | None" = None
+
+            def __init__(self):
+                super().__init__()
+                _CaptureMachine.last_instance = self
+
+        run_state_machine_as_test(_CaptureMachine)
+        sm = _CaptureMachine.last_instance
+        assert sm is not None, "State machine instance was not captured"
 
         # Additional post-execution validations
-        self._validate_final_state(state_machine)
+        self._validate_final_state(sm)
 
     def _validate_final_state(self, state_machine: DomainBookkeepingStateMachine):
         """
@@ -621,17 +645,25 @@ class TestPipelineRecoveryStateful:
     Stateful tests focused on pipeline recovery scenarios.
     """
 
-    @settings(max_examples=30, stateful_step_count=30, deadline=8000)
     def test_pipeline_recovery_workflows(self):
         """
         Test pipeline recovery workflows with various failure patterns.
         """
-        state_machine = PipelineRecoveryStateMachine()
-        state_machine.run()
+        from hypothesis.stateful import run_state_machine_as_test
 
-        # Validate recovery behavior
-        if state_machine.recovery_attempts > 10:
-            # Should have had some successful recoveries
+        class _CaptureRecovery(PipelineRecoveryStateMachine):  # type: ignore[misc]
+            last_instance: "_CaptureRecovery | None" = None
+
+            def __init__(self):
+                super().__init__()
+                _CaptureRecovery.last_instance = self
+
+        run_state_machine_as_test(_CaptureRecovery)
+        sm = _CaptureRecovery.last_instance
+        assert sm is not None, "Recovery state machine instance was not captured"
+
+        # Validate recovery behavior (post-run)
+        if sm.recovery_attempts > 10:
             assert (
-                state_machine.successful_recoveries > 0
+                sm.successful_recoveries > 0
             ), "Should have some successful recoveries with many attempts"

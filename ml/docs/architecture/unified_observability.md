@@ -258,6 +258,33 @@ class AutoRecoverySystem:
         )
 ```
 
+## Choosing Flush Path: Async Worker vs Thread Flusher
+
+Two off–hot-path persistence options are available; choose based on throughput and operational constraints:
+
+- Async Worker (recommended for high throughput)
+  - Component: `ml/observability/async_worker.py` (`ObservabilityAsyncWorker`)
+  - Non-blocking enqueue on hot path; bounded queue with drops counted in central backpressure metric.
+  - Flush runs in a background thread via `asyncio.to_thread`, preserving event loop responsiveness.
+  - Enable via config/env: `ML_OBS_ASYNC_ENABLE=1`, optional `ML_OBS_ASYNC_QUEUE_MAX`, `ML_OBS_ASYNC_COMPONENT`.
+
+- Thread Flusher (simple, stable default)
+  - Component: `ml/observability/scheduler.py` (`ObservabilityFlusher`)
+  - Periodic flush on a background thread; no queue.
+  - Use when event rate is modest and async queueing is unnecessary.
+
+Integration
+
+- `MLIntegrationManager.start_observability_from_config(cfg)`
+  - When `cfg.async_enabled` (or `ML_OBS_ASYNC_ENABLE=1`), starts the async worker; otherwise starts the thread flusher.
+  - Both paths keep heavy work off the hot path; async adds backpressure semantics and queue depth metrics.
+
+Dashboards
+
+- The default Grafana dashboard (ml/deployment/grafana/ml_pipeline_health.json) includes an “Observability” row showing:
+  - Enqueued rate by kind (async)
+  - Backpressure drops (async)
+
 ### 2. **Real-Time Performance Attribution**
 
 ```python
