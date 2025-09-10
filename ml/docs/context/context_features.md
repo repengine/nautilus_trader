@@ -17,9 +17,9 @@ The `ml/features/` directory contains a sophisticated, production-ready feature 
 ```
 ml/features/
 ├── __init__.py              # Public API exports (22 lines)
-├── engineering.py           # Core feature engineering classes (~1,500 lines) 
+├── engineering.py           # Core feature engineering classes (~1,500 lines)
 ├── validation.py           # Parity validation system (680 lines)
-├── pipeline.py             # Declarative pipeline framework (509 lines)  
+├── pipeline.py             # Declarative pipeline framework (509 lines)
 ├── microstructure.py       # L2/L3 microstructure features (958 lines)
 ├── feature_export.py       # Registry integration utilities (53 lines)
 ├── materialize_cli.py      # Feature materialization CLI (115 lines)
@@ -238,11 +238,13 @@ The pipeline framework provides a declarative way to define feature transformati
 
 #### Canonical Source of Feature Names
 The ordered feature names and pipeline signature are derived from the declarative pipeline (`PipelineRunner`) built from `FeatureConfig`. To avoid drift:
+
 - `FeatureConfig.get_feature_names()` delegates to a `PipelineRunner`
 - `FeatureEngineer.generate_feature_manifest()` uses the same path
 - This ensures manifests, stores, and training use identical schemas
 
 #### Pipeline Building
+
 ```python
 # Helper function builds pipeline from config
 def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
@@ -261,6 +263,7 @@ def build_pipeline_spec_from_feature_config(cfg: FeatureConfig) -> PipelineSpec:
 ```
 
 #### Core Classes
+
 ```python
 @dataclass
 class PipelineSpec:
@@ -275,6 +278,7 @@ class TransformSpec:
 ### Transform Catalog
 
 Core transforms (always available):
+
 - **returns**: Price returns over configurable periods
 - **momentum**: Price momentum indicators
 - **volatility**: Rolling volatility calculations
@@ -282,12 +286,14 @@ Core transforms (always available):
 - **core_indicators**: RSI, Bollinger Bands, ATR, EMA, MACD indicators
 
 Advanced transforms (require L1_L2 data):
+
 - **microstructure**: Order book spread, imbalance, and depth features
 - **trade_flow**: Trade flow imbalance, VWAP, intensity metrics
 - **keltner**: Keltner channel width and position
 - **obv**: On-Balance Volume normalized
 
 TFT-specific transforms:
+
 - **calendar**: Time-based features with cyclic/fourier/onehot encoding
 - **event_schedule**: Earnings, Fed meetings, economic releases, options expiry
 - **macro_indicators**: VIX, DXY, treasury yields, term spread, fed funds rate
@@ -326,13 +332,15 @@ Features integrate with the mandatory store triad:
 Lightweight per-minute aggregation from L1 quotes and trades:
 
 **Key Features:**
+
 - **Midprice calculation** from bid/ask quotes
 - **Spread computation** in basis points
-- **Quote imbalance** based on bid/ask sizes  
+- **Quote imbalance** based on bid/ask sizes
 - **Trade imbalance** from signed trade volumes
 - **Realized volatility** from log returns
 
 **Core Function:**
+
 ```python
 def aggregate_microstructure_minute_pl(
     quotes: pl.DataFrame | None,
@@ -342,6 +350,7 @@ def aggregate_microstructure_minute_pl(
 ```
 
 **Output Columns:**
+
 - `midprice`: Average midprice over the minute
 - `spread_bps`: Average spread in basis points
 - `quote_imbalance`: Size imbalance between bid/ask
@@ -352,24 +361,27 @@ def aggregate_microstructure_minute_pl(
 Per-minute L2 order book aggregation from MBP-10 snapshots:
 
 **Key Features:**
+
 - **Depth imbalance** across multiple levels (top 1, 3, 5, 10)
 - **Depth-weighted price** in basis points
 - **Price slope approximation** across order book levels
 - **Robust aggregation** with safe division and null handling
 
 **Core Function:**
+
 ```python
 def aggregate_l2_minute_pl(
-    l2: pl.DataFrame, 
+    l2: pl.DataFrame,
     timestamp_col: str = "ts_event"
 ) -> pl.DataFrame:
 ```
 
 **Output Columns:**
 For each top-k level (1, 3, 5, 10):
+
 - `depth_imbalance_topK`: Size imbalance across top K levels
 - `dwp_bps_topK`: Depth-weighted price deviation in bps
-- `bid_slope_topK`: Price slope approximation (bid side)  
+- `bid_slope_topK`: Price slope approximation (bid side)
 - `ask_slope_topK`: Price slope approximation (ask side)
 
 ### 4. Metrics Integration
@@ -445,7 +457,7 @@ from ml.features.feature_export import register_feature_set_from_engineer
 feature_set_id = register_feature_set_from_engineer(
     registry_path=Path("ml/registry"),
     name="enhanced_features_v2",
-    version="2.1.0", 
+    version="2.1.0",
     role=FeatureRole.PRIMARY,
     data_requirements=DataRequirements.L1_L2,  # Supports L2 features
     feature_config=FeatureConfig(
@@ -472,22 +484,23 @@ class FeatureParityValidator:
     def validate_parity(self, df, start_idx=50, end_idx=None):
         # 1. Prepare batch features via sequential processing
         batch_features = self._compute_batch_with_online_path(df)
-        
+
         # 2. Warm up online indicators to match batch state
         indicator_mgr = self._warmup_indicators(df, start_idx)
-        
+
         # 3. Compute online features step-by-step
         online_features = self._compute_online_sequential(df, indicator_mgr)
-        
+
         # 4. Validate numerical identity
         differences = np.abs(batch_features - online_features)
         max_diff = np.max(differences)
-        
-        # 5. Assert strict tolerance  
+
+        # 5. Assert strict tolerance
         assert max_diff < 1e-10, f"Parity violation: {max_diff}"
 ```
 
 **Critical Implementation Details:**
+
 - **State synchronization**: Indicators warmed to identical state
 - **Buffer copying**: Online features copied to prevent overwrite
 - **Sequential processing**: Batch mode mirrors online progression exactly
@@ -496,47 +509,50 @@ class FeatureParityValidator:
 ### 2. Enhanced Architecture Patterns 🆕
 
 **Batch Processing (Cold Path):**
+
 ```python
 # NEW: Batch mode now uses same online computation paths
 def calculate_features_batch(self, df, fit_scaler=False):
     # Extract price arrays efficiently
     prices = self._extract_price_arrays(df)
-    
+
     # Initialize indicators
     indicator_mgr = IndicatorManager(self.config)
-    
+
     # Sequential update using same online path
     all_features = []
     for i in range(len(prices["close"])):
         # Update indicators with current bar
         indicator_mgr.update_from_values(
             close=prices["close"][i],
-            high=prices["high"][i], 
+            high=prices["high"][i],
             low=prices["low"][i],
             volume=prices["volume"][i]
         )
-        
+
         # Compute features using same online method
         features = self._compute_online_features(prices, i, indicator_mgr)
         all_features.append(features.copy())  # Critical: copy to avoid overwrite
 ```
 
 **Online Processing (Hot Path):**
+
 ```python
 # Same computation core, optimized for real-time
 def calculate_features_online(self, bar_data, indicator_mgr, scaler=None):
     # Pre-allocated feature buffer (zero allocation)
     features = self._compute_online_features(bar_data, -1, indicator_mgr)
-    
+
     # Apply scaler if provided
     if scaler is not None:
         features = self._apply_scaler_online(features, scaler)
-    
+
     # Return view of buffer (caller must copy if persisting)
     return features
 ```
 
 **Key Parity Mechanisms:**
+
 1. **Shared computation core** via `_compute_online_features()`
 2. **Identical indicator updates** using same IndicatorManager methods
 3. **Sequential processing** in batch mode to match online state progression
@@ -553,7 +569,7 @@ from ml.features.l2_aggregate import L2Aggregator
 micro_agg = MicrostructureAggregator(base_dir=Path("data/"))
 micro_features = micro_agg.compute_for_symbol("SPY")
 
-# L2 order book aggregation  
+# L2 order book aggregation
 l2_agg = L2Aggregator(base_dir=Path("data/"))
 l2_features = l2_agg.compute_for_symbol("SPY")
 
@@ -588,6 +604,7 @@ Robust error handling for production:
 ### 5. Internal Implementation Details
 
 Key internal methods in FeatureEngineer:
+
 - `_calculate_return_features()`: Computes returns and momentum
 - `_calculate_volatility_features()`: Rolling volatility over 5/20 periods
 - `_calculate_indicator_features()`: All technical indicators
@@ -597,6 +614,7 @@ Key internal methods in FeatureEngineer:
 - `_apply_scaler()`: Fits StandardScaler on training portion only (prevents lookahead)
 
 Helper utilities:
+
 - `build_pipeline_spec_from_feature_config()`: Single source of truth for feature ordering
 - `_dummy_context_manager`: Used when metrics collector is not available
 
@@ -746,6 +764,7 @@ feature_set_id = register_feature_set_from_engineer(
 ### Feature Quality (when validate_quality=True)
 
 The `validate_feature_quality()` method provides comprehensive metrics:
+
 - **Null Rate**: Percentage of NaN values per feature
 - **Zero Rate**: Percentage of zero values per feature
 - **Unique Ratio**: Ratio of unique values to total rows
@@ -753,6 +772,7 @@ The `validate_feature_quality()` method provides comprehensive metrics:
 - **Outlier Rate**: IQR-based detection (1.5 * IQR threshold)
 
 Quality validation is performed via:
+
 - `_calculate_feature_qualities()`: Batch quality metrics computation
 - `_calculate_column_metrics()`: Per-column analysis
 - `_calculate_outlier_rate()`: IQR-based outlier detection

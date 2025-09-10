@@ -16,7 +16,10 @@ from ml.registry.persistence import PersistenceConfig
 
 def test_auto_deploy_student_targets_signal_actor(tmp_path: Path) -> None:
     reg_dir = tmp_path / "registry"
-    reg = ModelRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    reg = ModelRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     # Create teacher (non-serveable) first
     teacher_path = reg_dir / "teacher.onnx"

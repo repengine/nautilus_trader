@@ -8,6 +8,7 @@ The Nautilus Trader ML integration architecture provides a comprehensive framewo
 
 ### 1. Universal Component Protocols
 All ML components implement the `MLComponentProtocol` for standardized:
+
 - Health reporting and monitoring
 - Performance metrics collection
 - Configuration validation
@@ -15,6 +16,7 @@ All ML components implement the `MLComponentProtocol` for standardized:
 
 ### 2. Domain-Driven Architecture
 The ML system is organized into four core domains, each with dedicated bookkeepers:
+
 - **Data Domain**: Raw market data ingestion and quality management
 - **Feature Domain**: Feature engineering and transformation pipelines
 - **Model Domain**: ML model lifecycle and inference operations
@@ -22,6 +24,7 @@ The ML system is organized into four core domains, each with dedicated bookkeepe
 
 ### 3. Hot/Cold Path Separation
 Performance-critical operations are segregated into distinct execution paths:
+
 - **Hot Path**: Real-time inference (<5ms P99), pre-allocated memory, zero GC
 - **Cold Path**: Training, analytics, migrations, heavy I/O operations
 
@@ -54,6 +57,7 @@ registries = {
 ```
 
 #### Architecture Benefits
+
 - **Consistency**: All components follow identical initialization patterns
 - **Resilience**: Progressive fallback to dummy implementations when PostgreSQL unavailable
 - **Monitoring**: Unified health checks across all components
@@ -150,7 +154,7 @@ DATA_INGESTED = "raw_data_received"
 DATA_VALIDATED = "quality_checks_passed"
 GAP_DETECTED = "data_gap_identified"
 
-# Feature Domain Events  
+# Feature Domain Events
 FEATURES_COMPUTED = "feature_calculation_complete"
 FEATURE_DRIFT_DETECTED = "statistical_drift_identified"
 PARITY_VIOLATION = "batch_online_mismatch"
@@ -186,7 +190,7 @@ data_event = {
     'payload': {...}
 }
 
-# Correlated feature event  
+# Correlated feature event
 feature_event = correlate_event(
     source=data_event,
     target_domain='features',
@@ -263,18 +267,18 @@ class MLErrorPropagator:
             FeaturePipelineError: self._handle_feature_error,
             SystemResourceError: self._handle_resource_error,
         }
-    
+
     def propagate_error(self, error: Exception, context: dict) -> None:
         """Propagate error through appropriate channels with context."""
         error_type = type(error)
         handler = self.error_handlers.get(error_type, self._handle_unknown_error)
-        
+
         # Log with full context
         logger.error(f"ML pipeline error: {error}", extra=context)
-        
+
         # Execute domain-specific handler
         handler(error, context)
-        
+
         # Emit cross-domain event for coordination
         self.stores.emit_cross_domain_event({
             'domain': context.get('domain', 'unknown'),
@@ -299,12 +303,12 @@ class FeatureEngineeringPipeline:
             recovery_timeout=30,      # Try recovery after 30s
             expected_exception=FeatureComputationError
         )
-    
+
     @circuit_breaker
     def compute_features(self, data: pd.DataFrame) -> np.ndarray:
         """Feature computation with circuit breaker protection."""
         return self._expensive_feature_computation(data)
-    
+
     def compute_features_with_fallback(self, data: pd.DataFrame) -> np.ndarray:
         """Primary method with graceful fallback."""
         try:
@@ -334,12 +338,12 @@ from ml.common.security import SecurityContext, require_domain_access
 class SecureMLComponent:
     def __init__(self, security_context: SecurityContext):
         self.security = security_context
-    
+
     @require_domain_access("data", "read")
     def read_market_data(self, instrument_id: str) -> pd.DataFrame:
         """Access controlled data reading."""
         return self.data_store.read_bars(instrument_id)
-    
+
     @require_domain_access("model", "write")
     def register_model(self, model_manifest: ModelManifest) -> str:
         """Access controlled model registration."""
@@ -385,10 +389,10 @@ class CustomMLActor(BaseMLInferenceActor):
         super().__init__(config)
         # Stores automatically initialized:
         # - self.feature_store
-        # - self.model_store  
+        # - self.model_store
         # - self.strategy_store
         # - self.data_store
-        
+
     def on_bar(self, bar: Bar) -> None:
         # Hot path with pre-initialized stores
         features = self.feature_store.get_latest_features(
@@ -409,7 +413,7 @@ class IntegratedFeatureStore(FeatureStore):
     def write_features(self, features: dict) -> None:
         # Write to feature store
         super().write_features(features)
-        
+
         # Automatically propagate to downstream stores
         if self.integration_manager:
             # Trigger model inference if configured
@@ -428,7 +432,7 @@ Registries maintain cross-domain relationships and lineage:
 class IntegratedModelRegistry(ModelRegistry):
     def register_model(self, manifest: ModelManifest) -> str:
         model_id = super().register_model(manifest)
-        
+
         # Automatically link to feature registry
         if manifest.feature_schema_hash:
             feature_set = self.feature_registry.find_by_hash(
@@ -436,7 +440,7 @@ class IntegratedModelRegistry(ModelRegistry):
             )
             if feature_set:
                 self.link_model_to_features(model_id, feature_set.id)
-        
+
         return model_id
 ```
 
@@ -462,7 +466,7 @@ health_status = integration.aggregate_health()
             "healthy": True
         },
         "features": {
-            "components": ["feature_store", "feature_registry"], 
+            "components": ["feature_store", "feature_registry"],
             "healthy": True
         },
         "model": {
@@ -519,13 +523,13 @@ correlation_tracker = EventCorrelationTracker()
 def trace_prediction_pipeline(correlation_id: str) -> dict:
     """Trace a prediction from data ingestion to signal generation."""
     events = correlation_tracker.get_correlation_chain(correlation_id)
-    
+
     return {
         "correlation_id": correlation_id,
         "total_latency_ms": events[-1].timestamp - events[0].timestamp,
         "domain_breakdown": {
             "data_processing": calculate_domain_time(events, "data"),
-            "feature_engineering": calculate_domain_time(events, "features"), 
+            "feature_engineering": calculate_domain_time(events, "features"),
             "model_inference": calculate_domain_time(events, "model"),
             "signal_generation": calculate_domain_time(events, "strategy")
         },
@@ -553,7 +557,7 @@ dev_config = EnvironmentConfig(
 
 # Production environment
 prod_config = EnvironmentConfig(
-    environment="production", 
+    environment="production",
     db_connection="postgresql://prod_user:secure_pass@prod-db:5432/nautilus_prod",
     auto_start_postgres=False,  # Managed externally
     auto_migrate=False,         # Manual migration process
@@ -580,7 +584,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-  
+
   ml-integration:
     build: .
     environment:
@@ -640,7 +644,7 @@ class DistributedMLIntegrationManager(MLIntegrationManager):
         self.node_id = node_id
         self.cluster = cluster_config
         super().__init__()
-    
+
     def _init_stores(self) -> None:
         # Shard stores across cluster nodes
         if self.cluster.is_sharded:
@@ -661,7 +665,7 @@ class StreamingMLPipeline:
             output_topics=["predictions", "signals"],
             processing_guarantee="exactly_once"
         )
-    
+
     async def process_stream(self, event: StreamEvent) -> None:
         # Stream processing with ML integration
         if event.topic == "market_data":

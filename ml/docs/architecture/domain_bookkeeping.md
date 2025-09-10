@@ -9,6 +9,7 @@ Each major information system has its own Registry + Store pair that acts as the
 **Responsibility**: All raw market data and ingestion
 
 **What It Tracks**:
+
 - Every bar, quote, trade, order book update
 - Data quality metrics and validation results
 - Ingestion timestamps and sources (live vs historical)
@@ -16,6 +17,7 @@ Each major information system has its own Registry + Store pair that acts as the
 - Gap detection and backfill status
 
 **Key Events**:
+
 - `DATA_INGESTED` - Raw data received
 - `CATALOG_WRITTEN` - Data persisted to catalog
 - `DATA_VALIDATED` - Quality checks passed
@@ -29,6 +31,7 @@ Each major information system has its own Registry + Store pair that acts as the
 **Responsibility**: All feature engineering and transformations
 
 **What It Tracks**:
+
 - Every feature computation (batch and realtime)
 - Feature schemas and versions
 - Feature lineage (which raw data → which features)
@@ -36,6 +39,7 @@ Each major information system has its own Registry + Store pair that acts as the
 - Training/serving feature parity
 
 **Key Events**:
+
 - `FEATURE_COMPUTED` - Features calculated
 - `FEATURE_STORED` - Features persisted
 - `FEATURE_DRIFT_DETECTED` - Statistical drift identified
@@ -49,6 +53,7 @@ Each major information system has its own Registry + Store pair that acts as the
 **Responsibility**: All model lifecycle and predictions
 
 **What It Tracks**:
+
 - Every model training run and hyperparameters
 - Model versions and deployments
 - Every prediction made (batch and realtime)
@@ -56,6 +61,7 @@ Each major information system has its own Registry + Store pair that acts as the
 - A/B test results and champion/challenger status
 
 **Key Events**:
+
 - `MODEL_TRAINED` - Training completed
 - `MODEL_DEPLOYED` - Model promoted to production
 - `PREDICTION_EMITTED` - Inference performed
@@ -70,6 +76,7 @@ Each major information system has its own Registry + Store pair that acts as the
 **Responsibility**: All trading decisions and signals
 
 **What It Tracks**:
+
 - Every signal generated
 - Strategy state and parameters
 - Position recommendations
@@ -77,6 +84,7 @@ Each major information system has its own Registry + Store pair that acts as the
 - Strategy performance metrics
 
 **Key Events**:
+
 - `SIGNAL_EMITTED` - Trading signal generated
 - `POSITION_RECOMMENDED` - Size/direction suggested
 - `RISK_LIMIT_BREACHED` - Safety threshold exceeded
@@ -164,12 +172,14 @@ ML Pipeline Overview:
 
 ### 1. **Complete Auditability**
 Every action in the pipeline is recorded with who/what/when/why:
+
 - Regulatory compliance (MiFID II, SEC requirements)
 - Post-mortem analysis of trading decisions
 - Debugging production issues
 
 ### 2. **Automatic Orchestration**
 Bookkeepers can trigger downstream actions:
+
 - Data gaps → Automatic backfill
 - Feature drift → Model retraining
 - Model degradation → Strategy adjustment
@@ -177,6 +187,7 @@ Bookkeepers can trigger downstream actions:
 
 ### 3. **Time Travel Debugging**
 Reconstruct exact state at any point:
+
 ```python
 # Replay the exact conditions that led to a trade
 coordinator.replay_pipeline_state(
@@ -187,6 +198,7 @@ coordinator.replay_pipeline_state(
 
 ### 4. **Cost Attribution**
 Track resource usage per domain:
+
 - Data ingestion costs (API calls, storage)
 - Feature computation costs (CPU hours)
 - Model inference costs (GPU time)

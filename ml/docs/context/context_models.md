@@ -5,6 +5,7 @@
 The ML models framework in Nautilus Trader provides a production-ready infrastructure for training, exporting, and deploying machine learning models optimized for financial time series prediction. The framework emphasizes hot-path performance, ONNX export capabilities, and seamless integration with the broader ML pipeline including registries, stores, and inference actors.
 
 Operational notes:
+
 - Persistence: Model predictions are written via `ModelStore` with nanosecond timestamps; store write paths defensively normalize and log if smaller units are detected. See `context_stores.md` → "Timestamp Policy & Normalization".
 - DB readiness: Apply registry/store migrations and run a DB preflight before deployments. See `context_deployment.md` and `context_registry.md`.
 
@@ -21,6 +22,7 @@ Operational notes:
 ### Models Directory Structure
 
 The `/ml/models/` directory currently contains:
+
 - **Dummy Models**: Pre-generated test models in pickle format (for testing only)
   - `dummy_bullish_model.pkl` - Bullish bias test model
   - `dummy_bearish_model.pkl` - Bearish bias test model
@@ -90,11 +92,13 @@ The `/ml/models/` directory currently contains:
 **Base Implementation**: `BaseTeacher` abstract class in `ml/training/teacher/base.py`
 
 **Components:**
+
 - **BaseTeacher**: Abstract interface for teacher models
 - **TeacherConfig**: Configuration dataclass for teacher models
 - **TFT Teacher**: Temporal Fusion Transformer implementation (in development)
 
 **Features:**
+
 - Platt calibration for probability adjustment
 - Soft label generation for student distillation
 - Feature schema validation
@@ -106,6 +110,7 @@ The `/ml/models/` directory currently contains:
 
 #### Dummy Models (`ml/models/` and `ml/examples/`)
 **Implementations**:
+
 - `DummyModel` class in `ml/models/save_dummy_model.py`
 - Extended version in `ml/examples/create_dummy_model.py`
 
@@ -167,6 +172,7 @@ BaseMLTrainer(ABC)
 The `BaseMLTrainer` abstract class provides a comprehensive training pipeline with:
 
 **Core Features:**
+
 - Standardized data preparation pipeline
 - Feature engineering integration via FeatureStore
 - Cross-validation support (time-series and k-fold)
@@ -176,6 +182,7 @@ The `BaseMLTrainer` abstract class provides a comprehensive training pipeline wi
 - Trading-specific metrics calculation
 
 **Training Pipeline Methods:**
+
 - `train()`: Orchestrates complete training pipeline
 - `prepare_data()`: Abstract method for data preparation
 - `prepare_data_with_feature_store()`: FeatureStore integration for training/inference parity
@@ -184,6 +191,7 @@ The `BaseMLTrainer` abstract class provides a comprehensive training pipeline wi
 - `get_feature_importance()`: Extract feature importance from models
 
 **Cross-Validation Support:**
+
 - Time-series CV for temporal data
 - Standard k-fold CV with sklearn fallback
 - Purged walk-forward validation integration
@@ -257,12 +265,14 @@ The framework provides two main model loaders for production use:
 **Purpose**: General-purpose model loader with security restrictions
 
 **Supported Formats:**
+
 - **ONNX** (`.onnx`) - Preferred for production
 - **XGBoost JSON** (`.json`) - Native XGBoost format
 - **Joblib** (`.joblib`) - For sklearn models
 - **LightGBM** (`.lgb`, `.txt`) - Native LightGBM format
 
 **Security Policy:**
+
 - **Pickle formats explicitly rejected** - Raises `ValueError` for `.pkl` or `.pickle` files
 - Only safe, inspectable formats allowed in production
 
@@ -270,12 +280,14 @@ The framework provides two main model loaders for production use:
 **Purpose**: Optimized ONNX model loading with runtime configuration
 
 **Features:**
+
 - Configurable execution providers (CUDA, TensorRT, CPU)
 - Session optimization options
 - Memory arena configuration
 - Threading optimization for inference
 
 **Configuration**: Uses `OnnxRuntimeConfig` for fine-tuning:
+
 - Provider selection and fallback chain
 - Thread pool configuration
 - Memory optimization settings

@@ -137,7 +137,7 @@ class OrderBookImbalance(Strategy):
         """
         self.check_trigger()
 
-    def check_trigger(self) -> None:  # noqa: C901 (too complex)
+    def check_trigger(self) -> None:
         """
         Check for trigger conditions.
         """

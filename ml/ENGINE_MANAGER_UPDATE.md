@@ -6,6 +6,7 @@ Successfully updated all ML store implementations to use the new EngineManager s
 ## Files Updated
 
 ### Store Implementations
+
 1. **ml/stores/feature_store.py**
    - Replaced `create_engine()` with `EngineManager.get_engine()`
    - Added import for `EngineManager`
@@ -27,6 +28,7 @@ Successfully updated all ML store implementations to use the new EngineManager s
    - Added import for `EngineManager`
 
 ### Other Components
+
 6. **ml/actors/base.py**
    - Updated PostgreSQL availability check to use `EngineManager.get_engine()`
    - Added import for `EngineManager`
@@ -42,17 +44,20 @@ Successfully updated all ML store implementations to use the new EngineManager s
 ## Benefits
 
 ### Connection Pool Management
+
 - **Single Engine per Connection String**: Each unique database connection string now gets exactly one SQLAlchemy engine instance
 - **Prevents Pool Exhaustion**: Eliminates "too many clients already" errors in PostgreSQL
 - **Thread-Safe**: Uses proper locking for concurrent access
 - **Automatic Cleanup**: Provides `dispose_all()` method for test teardown
 
 ### Performance Improvements
+
 - **Reduced Connection Overhead**: Reuses existing connections instead of creating new ones
 - **Conservative Test Settings**: Automatically uses smaller pool sizes for test environments
 - **Better Resource Utilization**: Shares connection pools across all stores
 
 ### Backward Compatibility
+
 - **Transparent Integration**: No changes required to existing store APIs
 - **Same Functionality**: All stores work exactly as before, just with better resource management
 - **Test Compatible**: Works with both PostgreSQL and SQLite (with appropriate handling)

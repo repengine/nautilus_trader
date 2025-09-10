@@ -129,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_user ON registry_audit_log(user_id);
 
 -- Active models view
 CREATE OR REPLACE VIEW active_models AS
-SELECT 
+SELECT
     m.*,
     COUNT(DISTINCT c.model_id) as num_children,
     p.model_id as parent_model_id,
@@ -143,7 +143,7 @@ GROUP BY m.id, p.model_id, p.role;
 -- Feature lineage view
 CREATE OR REPLACE VIEW feature_lineage AS
 WITH RECURSIVE feature_tree AS (
-    SELECT 
+    SELECT
         feature_set_id,
         name,
         version,
@@ -152,10 +152,10 @@ WITH RECURSIVE feature_tree AS (
         ARRAY[feature_set_id] as path
     FROM features
     WHERE parent_feature_set_id IS NULL
-    
+
     UNION ALL
-    
-    SELECT 
+
+    SELECT
         f.feature_set_id,
         f.name,
         f.version,
@@ -169,10 +169,10 @@ SELECT * FROM feature_tree;
 
 -- Strategy compatibility view
 CREATE OR REPLACE VIEW strategy_compatibility AS
-SELECT 
+SELECT
     s1.strategy_id as strategy_1,
     s2.strategy_id as strategy_2,
-    CASE 
+    CASE
         WHEN s2.strategy_id = ANY(s1.incompatible_strategies) THEN 'incompatible'
         WHEN s1.strategy_id = ANY(s2.incompatible_strategies) THEN 'incompatible'
         ELSE 'compatible'
@@ -218,14 +218,14 @@ RETURNS TABLE(
 BEGIN
     -- Get parent model
     RETURN QUERY
-    SELECT 
+    SELECT
         'parent_model'::VARCHAR(50) as dependency_type,
         m.parent_id as dependency_id,
         p.architecture as dependency_name
     FROM models m
     LEFT JOIN models p ON m.parent_id = p.model_id
     WHERE m.model_id = p_model_id AND m.parent_id IS NOT NULL;
-    
+
     -- Get required features (from strategies that use this model)
     RETURN QUERY
     SELECT DISTINCT
@@ -248,17 +248,17 @@ BEGIN
             RAISE EXCEPTION 'Parent model % does not exist', NEW.parent_id;
         END IF;
     END IF;
-    
+
     -- Validate deployment status
     IF NEW.deployment_status NOT IN ('inactive', 'active', 'testing', 'retired', 'failed') THEN
         RAISE EXCEPTION 'Invalid deployment status: %', NEW.deployment_status;
     END IF;
-    
+
     -- Validate role
     IF NEW.role NOT IN ('teacher', 'student', 'inference', 'ensemble', 'feature') THEN
         RAISE EXCEPTION 'Invalid model role: %', NEW.role;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

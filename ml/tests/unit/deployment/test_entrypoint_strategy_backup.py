@@ -3,6 +3,7 @@
 Unit tests for ML Trading Strategy deployment entrypoint.
 
 Tests container startup, dry run mode, signal consumption, and risk management.
+
 """
 
 from __future__ import annotations
@@ -26,18 +27,39 @@ from ml.deployment.entrypoint_strategy import main
 @pytest.mark.slow
 @pytest.mark.unit
 class TestMLStrategyNode:
-    """Test MLStrategyNode container entrypoint."""
+    """
+    Test MLStrategyNode container entrypoint.
+    """
 
     @pytest.fixture
     def clean_env(self, monkeypatch):
-        """Clean environment for isolated testing."""
+        """
+        Clean environment for isolated testing.
+        """
         for key in list(os.environ.keys()):
-            if key.startswith(("ML_", "DATABENTO_", "DB_", "STRATEGY_", "POSITION_", "MIN_", "MAX_", "STOP_", "TAKE_", "USE_", "PERSIST_", "EXECUTE_")):
+            if key.startswith(
+                (
+                    "ML_",
+                    "DATABENTO_",
+                    "DB_",
+                    "STRATEGY_",
+                    "POSITION_",
+                    "MIN_",
+                    "MAX_",
+                    "STOP_",
+                    "TAKE_",
+                    "USE_",
+                    "PERSIST_",
+                    "EXECUTE_",
+                ),
+            ):
                 monkeypatch.delenv(key, raising=False)
 
     @pytest.fixture
     def valid_env(self, monkeypatch):
-        """Set up valid environment variables for testing."""
+        """
+        Set up valid environment variables for testing.
+        """
         monkeypatch.setenv("DB_CONNECTION", "postgresql://test:test@localhost:5432/test")
         monkeypatch.setenv("STRATEGY_ID", "MLStrategy-TEST-001")
         monkeypatch.setenv("ML_SIGNAL_SOURCE", "MLSignalActor-001")
@@ -54,11 +76,15 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_setup_with_dry_run_mode(self, valid_env):
-        """Test setup in dry run mode (default)."""
+        """
+        Test setup in dry run mode (default).
+        """
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode") as mock_node_class:
-            with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy") as mock_strategy_class:
+            with patch(
+                "ml.deployment.entrypoint_strategy.MLTradingStrategy",
+            ) as mock_strategy_class:
                 mock_node = Mock()
                 mock_node_class.return_value = mock_node
                 mock_strategy = Mock()
@@ -78,13 +104,17 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_setup_with_live_mode(self, valid_env, monkeypatch):
-        """Test setup in live trading mode."""
+        """
+        Test setup in live trading mode.
+        """
         monkeypatch.setenv("EXECUTE_TRADES", "true")
 
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode") as mock_node_class:
-            with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy") as mock_strategy_class:
+            with patch(
+                "ml.deployment.entrypoint_strategy.MLTradingStrategy",
+            ) as mock_strategy_class:
                 mock_node = Mock()
                 mock_node_class.return_value = mock_node
                 mock_strategy = Mock()
@@ -99,11 +129,15 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_setup_risk_parameters(self, valid_env):
-        """Test risk parameters are correctly parsed."""
+        """
+        Test risk parameters are correctly parsed.
+        """
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode"):
-            with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy") as mock_strategy_class:
+            with patch(
+                "ml.deployment.entrypoint_strategy.MLTradingStrategy",
+            ) as mock_strategy_class:
                 mock_strategy = Mock()
                 mock_strategy_class.return_value = mock_strategy
 
@@ -120,11 +154,15 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_setup_with_strategy_store(self, valid_env):
-        """Test setup with strategy store enabled."""
+        """
+        Test setup with strategy store enabled.
+        """
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode"):
-            with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy") as mock_strategy_class:
+            with patch(
+                "ml.deployment.entrypoint_strategy.MLTradingStrategy",
+            ) as mock_strategy_class:
                 mock_strategy = Mock()
                 mock_strategy_class.return_value = mock_strategy
 
@@ -134,7 +172,10 @@ class TestMLStrategyNode:
                 strategy_config = mock_strategy_class.call_args[1]["config"]
                 assert strategy_config.use_strategy_store is True
                 assert strategy_config.strategy_store_config is not None
-                assert strategy_config.strategy_store_config["connection_string"] == "postgresql://test:test@localhost:5432/test"
+                assert (
+                    strategy_config.strategy_store_config["connection_string"]
+                    == "postgresql://test:test@localhost:5432/test"
+                )
                 assert strategy_config.strategy_store_config["batch_size"] == 100
                 assert strategy_config.strategy_store_config["flush_interval_ms"] == 1000
                 assert strategy_config.persist_all_signals is True
@@ -142,13 +183,17 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_setup_without_strategy_store(self, valid_env, monkeypatch):
-        """Test setup with strategy store disabled."""
+        """
+        Test setup with strategy store disabled.
+        """
         monkeypatch.setenv("USE_STRATEGY_STORE", "false")
 
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode"):
-            with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy") as mock_strategy_class:
+            with patch(
+                "ml.deployment.entrypoint_strategy.MLTradingStrategy",
+            ) as mock_strategy_class:
                 mock_strategy = Mock()
                 mock_strategy_class.return_value = mock_strategy
 
@@ -162,7 +207,9 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_setup_with_databento_api_key(self, valid_env, monkeypatch):
-        """Test setup with Databento API key for market data."""
+        """
+        Test setup with Databento API key for market data.
+        """
         monkeypatch.setenv("DATABENTO_API_KEY", "test_api_key")
 
         node = MLStrategyNode()
@@ -183,7 +230,9 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_setup_without_databento_api_key(self, valid_env):
-        """Test setup without Databento API key."""
+        """
+        Test setup without Databento API key.
+        """
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode") as mock_node_class:
@@ -199,7 +248,9 @@ class TestMLStrategyNode:
 
     @pytest.mark.asyncio
     async def test_run_successful(self, valid_env):
-        """Test successful run of strategy node."""
+        """
+        Test successful run of strategy node.
+        """
         node = MLStrategyNode()
 
         # Mock the trading node
@@ -214,7 +265,9 @@ class TestMLStrategyNode:
 
     @pytest.mark.asyncio
     async def test_run_handles_error(self, valid_env):
-        """Test run handles errors gracefully."""
+        """
+        Test run handles errors gracefully.
+        """
         node = MLStrategyNode()
 
         # Mock the trading node to raise an error
@@ -230,7 +283,9 @@ class TestMLStrategyNode:
 
     @pytest.mark.asyncio
     async def test_run_without_node_raises(self):
-        """Test run raises error when node not initialized."""
+        """
+        Test run raises error when node not initialized.
+        """
         node = MLStrategyNode()
         node.node = None
 
@@ -240,7 +295,9 @@ class TestMLStrategyNode:
 
     @pytest.mark.asyncio
     async def test_shutdown_with_signal(self, valid_env):
-        """Test graceful shutdown with signal."""
+        """
+        Test graceful shutdown with signal.
+        """
         node = MLStrategyNode()
 
         # Mock the trading node and strategy
@@ -261,7 +318,9 @@ class TestMLStrategyNode:
 
     @pytest.mark.asyncio
     async def test_shutdown_prints_statistics(self, valid_env, capsys):
-        """Test shutdown prints final statistics."""
+        """
+        Test shutdown prints final statistics.
+        """
         node = MLStrategyNode()
 
         # Mock the trading node and strategy with statistics
@@ -284,7 +343,9 @@ class TestMLStrategyNode:
 
     @pytest.mark.asyncio
     async def test_signal_handlers_setup(self, valid_env):
-        """Test signal handlers are properly set up."""
+        """
+        Test signal handlers are properly set up.
+        """
         node = MLStrategyNode()
 
         # Mock the trading node
@@ -308,7 +369,9 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_environment_variable_parsing(self, monkeypatch):
-        """Test correct parsing of various environment variable formats."""
+        """
+        Test correct parsing of various environment variable formats.
+        """
         # Set custom values
         monkeypatch.setenv("STRATEGY_ID", "CustomStrategy-999")
         monkeypatch.setenv("ML_SIGNAL_SOURCE", "CustomActor-456")
@@ -323,7 +386,9 @@ class TestMLStrategyNode:
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode"):
-            with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy") as mock_strategy_class:
+            with patch(
+                "ml.deployment.entrypoint_strategy.MLTradingStrategy",
+            ) as mock_strategy_class:
                 mock_strategy = Mock()
                 mock_strategy_class.return_value = mock_strategy
 
@@ -344,7 +409,9 @@ class TestMLStrategyNode:
     @pytest.mark.database
     @pytest.mark.serial
     def test_dry_run_mode_output(self, valid_env, capsys):
-        """Test dry run mode warning is displayed."""
+        """
+        Test dry run mode warning is displayed.
+        """
         node = MLStrategyNode()
 
         with patch("ml.deployment.entrypoint_strategy.TradingNode"):
@@ -359,12 +426,16 @@ class TestMLStrategyNode:
 @pytest.mark.database
 @pytest.mark.serial
 class TestMainFunction:
-    """Test the main entry point function."""
+    """
+    Test the main entry point function.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
     def test_main_successful_run(self, valid_env):
-        """Test successful main function execution."""
+        """
+        Test successful main function execution.
+        """
         with patch("ml.deployment.entrypoint_strategy.MLStrategyNode") as mock_node_class:
             with patch("asyncio.run") as mock_asyncio_run:
                 mock_node = Mock()
@@ -380,7 +451,9 @@ class TestMainFunction:
     @pytest.mark.database
     @pytest.mark.serial
     def test_main_handles_keyboard_interrupt(self, valid_env):
-        """Test main handles KeyboardInterrupt gracefully."""
+        """
+        Test main handles KeyboardInterrupt gracefully.
+        """
         with patch("ml.deployment.entrypoint_strategy.MLStrategyNode") as mock_node_class:
             with patch("asyncio.run", side_effect=KeyboardInterrupt):
                 mock_node = Mock()
@@ -394,7 +467,9 @@ class TestMainFunction:
     @pytest.mark.database
     @pytest.mark.serial
     def test_main_handles_fatal_error(self, valid_env):
-        """Test main handles fatal errors with sys.exit."""
+        """
+        Test main handles fatal errors with sys.exit.
+        """
         with patch("ml.deployment.entrypoint_strategy.MLStrategyNode") as mock_node_class:
             with patch("asyncio.run", side_effect=RuntimeError("Fatal error")):
                 mock_node = Mock()
@@ -408,7 +483,9 @@ class TestMainFunction:
     @pytest.mark.database
     @pytest.mark.serial
     def test_main_prints_startup_info(self, valid_env, capsys):
-        """Test main prints startup information."""
+        """
+        Test main prints startup information.
+        """
         with patch("ml.deployment.entrypoint_strategy.MLStrategyNode") as mock_node_class:
             with patch("asyncio.run"):
                 mock_node = Mock()

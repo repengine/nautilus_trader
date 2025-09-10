@@ -2,8 +2,9 @@
 """
 Validate that metrics are acquired via ml.common.metrics_bootstrap or ml.common.metrics.
 
-Flags any direct usages of prometheus_client or direct instantiation of Counter/Gauge/Histogram
-within the ml/ package, excluding allowed modules.
+Flags any direct usages of prometheus_client or direct instantiation of
+Counter/Gauge/Histogram within the ml/ package, excluding allowed modules.
+
 """
 
 from __future__ import annotations

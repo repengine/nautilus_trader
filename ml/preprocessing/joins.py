@@ -103,7 +103,9 @@ def _asof_join_polars(
     tolerance: str | None,
     direction: DirectionType,
 ) -> pl.DataFrame:
-    """Polars implementation of as-of join."""
+    """
+    Polars implementation of as-of join.
+    """
     # Ensure on is a string for Polars
     if isinstance(on, list):
         if len(on) != 1:
@@ -139,7 +141,9 @@ def _asof_join_pandas(
     tolerance: str | pd.Timedelta | None,
     direction: DirectionType,
 ) -> pd.DataFrame:
-    """Pandas implementation of as-of join."""
+    """
+    Pandas implementation of as-of join.
+    """
     # Convert direction naming
     pd_direction = {
         "backward": "backward",
@@ -222,11 +226,19 @@ def embargo_window(
     """
     if isinstance(df, pl.DataFrame):
         return _embargo_window_polars(
-            df, event_timestamps, embargo_before_ns, embargo_after_ns, timestamp_col
+            df,
+            event_timestamps,
+            embargo_before_ns,
+            embargo_after_ns,
+            timestamp_col,
         )
     else:
         return _embargo_window_pandas(
-            df, event_timestamps, embargo_before_ns, embargo_after_ns, timestamp_col
+            df,
+            event_timestamps,
+            embargo_before_ns,
+            embargo_after_ns,
+            timestamp_col,
         )
 
 
@@ -237,7 +249,9 @@ def _embargo_window_polars(
     embargo_after_ns: int,
     timestamp_col: str,
 ) -> pl.DataFrame:
-    """Polars implementation of embargo window."""
+    """
+    Polars implementation of embargo window.
+    """
     # Initialize embargo column as False
     embargo_mask = pl.lit(False)
 
@@ -261,7 +275,9 @@ def _embargo_window_pandas(
     embargo_after_ns: int,
     timestamp_col: str,
 ) -> pd.DataFrame:
-    """Pandas implementation of embargo window."""
+    """
+    Pandas implementation of embargo window.
+    """
     # Initialize embargo column
     df = df.copy()
     df["embargo"] = False
@@ -385,7 +401,9 @@ def _create_lag_features_polars(
     group_by: str | list[str] | None,
     timestamp_col: str,
 ) -> pl.DataFrame:
-    """Polars implementation of lag features."""
+    """
+    Polars implementation of lag features.
+    """
     # Sort by timestamp
     df = df.sort(timestamp_col)
 
@@ -409,7 +427,9 @@ def _create_lag_features_pandas(
     group_by: str | list[str] | None,
     timestamp_col: str,
 ) -> pd.DataFrame:
-    """Pandas implementation of lag features."""
+    """
+    Pandas implementation of lag features.
+    """
     # Sort by timestamp
     df = df.sort_values(timestamp_col).copy()
 

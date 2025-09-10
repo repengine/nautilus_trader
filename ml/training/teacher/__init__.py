@@ -1,1 +1,3 @@
-"""Teacher models and CLIs for training pipelines."""
+"""
+Teacher models and CLIs for training pipelines.
+"""

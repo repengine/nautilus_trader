@@ -8,18 +8,23 @@ import pytest
 @pytest.mark.serial
 @pytest.mark.integration
 def test_can_import_core_modules():
-    """Can we import the essential modules?"""
+    """
+    Can we import the essential modules?
+    """
     from ml.actors.signal import MLSignalActor
     from ml.data.collector import DataCollector
     from ml.features.engineering import FeatureEngineer
     from ml.stores.feature_store import FeatureStore
+
     assert True  # Got here = success
 
 
 @pytest.mark.database
 @pytest.mark.serial
 def test_can_create_feature_engineer():
-    """Can we create a feature engineer?"""
+    """
+    Can we create a feature engineer?
+    """
     from ml.features.engineering import FeatureConfig
     from ml.features.engineering import FeatureEngineer
 
@@ -33,7 +38,9 @@ def test_can_create_feature_engineer():
 @pytest.mark.database
 @pytest.mark.serial
 def test_can_compute_basic_features():
-    """Can we compute basic features from price data?"""
+    """
+    Can we compute basic features from price data?
+    """
     from ml.features.engineering import FeatureConfig
     from ml.features.engineering import FeatureEngineer
 
@@ -63,7 +70,9 @@ def test_can_compute_basic_features():
 @pytest.mark.database
 @pytest.mark.serial
 def test_can_create_ml_signal():
-    """Can we create an ML signal object?"""
+    """
+    Can we create an ML signal object?
+    """
     from nautilus_trader.model.identifiers import InstrumentId
     from nautilus_trader.model.identifiers import Symbol
     from nautilus_trader.model.identifiers import Venue
@@ -79,7 +88,9 @@ def test_can_create_ml_signal():
 @pytest.mark.database
 @pytest.mark.serial
 def test_can_initialize_feature_store(postgres_connection):
-    """Can we initialize a feature store with PostgreSQL?"""
+    """
+    Can we initialize a feature store with PostgreSQL?
+    """
     from ml.stores.feature_store import FeatureStore
 
     # Use PostgreSQL connection from fixture
@@ -92,6 +103,7 @@ def test_can_initialize_feature_store(postgres_connection):
         store.initialize_tables()
     except Exception:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
             "FeatureStore.initialize_tables failed in smoke test; continuing",
             exc_info=True,
@@ -101,7 +113,9 @@ def test_can_initialize_feature_store(postgres_connection):
 @pytest.mark.database
 @pytest.mark.serial
 def test_registry_can_initialize():
-    """Can we initialize the registry system?"""
+    """
+    Can we initialize the registry system?
+    """
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -114,6 +128,7 @@ def test_registry_can_initialize():
         except Exception:
             # If that doesn't work, just check import
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
                 "ModelRegistry init failed in smoke test; continuing",
                 exc_info=True,
@@ -123,7 +138,9 @@ def test_registry_can_initialize():
 @pytest.mark.database
 @pytest.mark.serial
 def test_can_load_config():
-    """Can we load basic configuration?"""
+    """
+    Can we load basic configuration?
+    """
     # Just verify we can import config classes
     from ml.config.base import MLActorConfig
     from ml.config.base import StatsConfig

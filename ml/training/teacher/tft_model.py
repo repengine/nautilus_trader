@@ -9,7 +9,7 @@ from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
 
 
-@dataclass
+@dataclass(frozen=True)
 class TFTTeacherConfig(TeacherConfig):
     """
     Configuration for a TFT teacher model.

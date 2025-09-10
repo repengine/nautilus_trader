@@ -10,6 +10,7 @@ Runs quick checks and prints a concise report:
 - Optional tools: pip-audit/bandit/vulture/deptry if installed
 
 Exit code 0 always (advisory). Use Make target: `make sanity`.
+
 """
 
 from __future__ import annotations
@@ -66,7 +67,9 @@ def check_mypy() -> None:
 
 
 def rg(pattern: str) -> list[str]:
-    """Return matching lines (path:line:content)."""
+    """
+    Return matching lines (path:line:content).
+    """
     if shutil.which("rg"):
         code, out = run(["rg", "-n", "-S", pattern])
         return [l for l in out.splitlines() if l.strip()]
@@ -86,7 +89,9 @@ def rg(pattern: str) -> list[str]:
 
 def check_legacy_schema_refs() -> None:
     header("Legacy schema/ references (should use ml/stores/migrations)")
-    hits = rg(r"\bml/schema/|/schema/|docker-entrypoint-initdb\.d/00_init\.sql|features\.sql|models\.sql|strategies\.sql")
+    hits = rg(
+        r"\bml/schema/|/schema/|docker-entrypoint-initdb\.d/00_init\.sql|features\.sql|models\.sql|strategies\.sql",
+    )
     filtered = [h for h in hits if "/schema/sql" not in h and "crates/" not in h]
     if filtered:
         print("Found legacy references:\n" + "\n".join(filtered))
@@ -158,4 +163,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

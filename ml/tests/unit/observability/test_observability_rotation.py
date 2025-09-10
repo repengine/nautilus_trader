@@ -10,7 +10,12 @@ from ml.observability.persistence import ObservabilityPersistor
 
 
 def _ts_for(
-    year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0,
+    second: int = 0,
 ) -> int:
     dt = datetime(year, month, day, hour, minute, second, tzinfo=UTC)
     return int(dt.timestamp() * 1e9)
@@ -27,7 +32,7 @@ def test_rotate_daily_writes_to_day_directory(tmp_path: Path) -> None:
                 "ts_stage_start": day_ts,
                 "ts_stage_end": day_ts + 1_000_000,
             },
-        ]
+        ],
     )
 
     per = ObservabilityPersistor(base_path=tmp_path, file_format="jsonl", rotate_daily=True)
@@ -44,10 +49,10 @@ def test_compact_daily_concatenates_shards(tmp_path: Path) -> None:
     day_dir.mkdir(parents=True, exist_ok=True)
     # Create two shards
     (day_dir / "metrics-120000000000.jsonl").write_text(
-        '{"metric_name":"a","metric_type":"counter","value":1.0,"timestamp":1,"labels":"{}"}\n'
+        '{"metric_name":"a","metric_type":"counter","value":1.0,"timestamp":1,"labels":"{}"}\n',
     )
     (day_dir / "metrics-130000000000.jsonl").write_text(
-        '{"metric_name":"b","metric_type":"counter","value":2.0,"timestamp":2,"labels":"{}"}\n'
+        '{"metric_name":"b","metric_type":"counter","value":2.0,"timestamp":2,"labels":"{}"}\n',
     )
 
     per = ObservabilityPersistor(base_path=tmp_path, file_format="jsonl", rotate_daily=True)

@@ -5,6 +5,7 @@ This module provides a minimal, typed service to collect observability rows
 and materialize Pandas DataFrames using the DTO builders in
 ``ml.observability.pipeline``. All heavy work remains off the hot path; hot
 loops should only record cheap counters/histograms via metrics bootstrap.
+
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ class ObservabilityService:
       batch workflows. In hot loops, prefer direct metric observation via
       ``ml.common.metrics_bootstrap``.
     - The service does not persist; callers own storage concerns.
+
     """
 
     def __init__(self) -> None:
@@ -55,7 +57,7 @@ class ObservabilityService:
                 "pipeline_stage": pipeline_stage,
                 "ts_stage_start": int(ts_stage_start),
                 "ts_stage_end": int(ts_stage_end),
-            }
+            },
         )
 
     def add_metric(
@@ -74,7 +76,7 @@ class ObservabilityService:
                 "value": float(value),
                 "timestamp": int(timestamp),
                 "labels": labels or {},
-            }
+            },
         )
 
     def add_correlation(
@@ -99,7 +101,7 @@ class ObservabilityService:
                 "lineage_depth": int(lineage_depth),
                 "ts_event": int(ts_event),
                 "propagation_path": propagation_path,
-            }
+            },
         )
 
     def add_health(
@@ -118,25 +120,33 @@ class ObservabilityService:
                 "subsystem_scores": subsystem_scores,
                 "timestamp": int(timestamp),
                 "measurement_window_ms": int(measurement_window_ms),
-            }
+            },
         )
 
     # --------------------- DataFrame materialization ----------------------
 
     def latency_watermarks_df(self) -> pd.DataFrame:
-        """Return latency watermark DataFrame (may be empty)."""
+        """
+        Return latency watermark DataFrame (may be empty).
+        """
         return build_latency_watermarks(self._latency_rows)
 
     def metrics_collection_df(self) -> pd.DataFrame:
-        """Return metrics collection DataFrame (may be empty)."""
+        """
+        Return metrics collection DataFrame (may be empty).
+        """
         return build_metrics_collection(self._metric_rows)
 
     def event_correlation_df(self) -> pd.DataFrame:
-        """Return event correlation/lineage DataFrame (may be empty)."""
+        """
+        Return event correlation/lineage DataFrame (may be empty).
+        """
         return build_event_correlation(self._corr_rows)
 
     def health_scores_df(self) -> pd.DataFrame:
-        """Return health scores DataFrame (may be empty)."""
+        """
+        Return health scores DataFrame (may be empty).
+        """
         return build_health_scores(self._health_rows)
 
 

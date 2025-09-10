@@ -20,7 +20,7 @@ Usage:
 from __future__ import annotations
 
 import re
-from typing import Final
+from typing import Final, overload
 
 from ml.config.events import Stage
 
@@ -108,3 +108,73 @@ def map_stage_to_topic_segments(stage: Stage) -> tuple[str, str]:
 
 
 __all__ = ["build_topic", "map_stage_to_topic_segments"]
+
+
+@overload
+def build_stage_topic(
+    stage: Stage,
+    instrument_id: str | None = None,
+    *,
+    prefix: str = "events.ml",
+) -> str: ...
+
+
+@overload
+def build_stage_topic(
+    stage: str,
+    instrument_id: str | None = None,
+    *,
+    prefix: str = "events.ml",
+) -> str: ...
+
+
+def build_stage_topic(
+    stage: Stage | str,
+    instrument_id: str | None = None,
+    *,
+    prefix: str = "events.ml",
+) -> str:
+    """
+    Build a stage-first topic string.
+
+    Format: ``{prefix}.{STAGE}[.{instrument_id}]`` where STAGE is the enum value
+    (e.g., FEATURE_COMPUTED). The instrument suffix is optional and normalized
+    using the same rules as ``build_topic``.
+
+    Examples
+    --------
+    >>> build_stage_topic(Stage.FEATURE_COMPUTED, "EURUSD/SIM")
+    'events.ml.FEATURE_COMPUTED.EURUSD.SIM'
+    >>> build_stage_topic("CATALOG_WRITTEN")
+    'events.ml.CATALOG_WRITTEN'
+
+    """
+    stage_value = stage.value if isinstance(stage, Stage) else str(stage)
+    base = f"{prefix}.{stage_value}"
+    if instrument_id is None or instrument_id == "":
+        return base
+    return f"{base}.{_normalize_instrument_id(instrument_id)}"
+
+
+def build_topic_for_stage(
+    stage: Stage,
+    instrument_id: str,
+    *,
+    scheme: str = "domain_op",
+    prefix: str = "events.ml",
+) -> str:
+    """
+    Build a topic for the given stage under a selectable scheme.
+
+    - ``domain_op`` (default): Uses canonical ``ml.{domain}.{operation}.{instrument}``
+      via ``map_stage_to_topic_segments`` and ``build_topic``.
+    - ``stage_first``: Uses ``build_stage_topic`` with the provided ``prefix``.
+
+    """
+    if scheme == "stage_first":
+        return build_stage_topic(stage, instrument_id, prefix=prefix)
+    domain, op = map_stage_to_topic_segments(stage)
+    return build_topic(domain, op, instrument_id)
+
+
+__all__ += ["build_stage_topic", "build_topic_for_stage"]

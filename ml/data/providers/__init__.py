@@ -1,8 +1,9 @@
 """
 Data providers for ML features.
 
-This package provides data providers for loading static and time-varying
-features from various sources for ML models.
+This package provides data providers for loading static and time-varying features from
+various sources for ML models.
+
 """
 
 from ml.data.providers.base import BaseDataProvider

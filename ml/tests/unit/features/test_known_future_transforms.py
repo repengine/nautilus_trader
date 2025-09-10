@@ -26,10 +26,14 @@ from ml.registry.base import DataRequirements
 @pytest.mark.parallel_safe
 @pytest.mark.unit
 class TestCalendarTransform:
-    """Test calendar-based known-future features."""
+    """
+    Test calendar-based known-future features.
+    """
 
     def test_calendar_transform_cyclic_encoding(self) -> None:
-        """Test calendar transform with cyclic encoding."""
+        """
+        Test calendar transform with cyclic encoding.
+        """
         transform = _CalendarTransform()
 
         params = {
@@ -53,7 +57,9 @@ class TestCalendarTransform:
         assert "days_to_month_end" in features
 
     def test_calendar_transform_fourier_encoding(self) -> None:
-        """Test calendar transform with Fourier encoding."""
+        """
+        Test calendar transform with Fourier encoding.
+        """
         transform = _CalendarTransform()
 
         params = {
@@ -70,7 +76,9 @@ class TestCalendarTransform:
             assert f"hour_cos_{h}" in features
 
     def test_calendar_transform_onehot_encoding(self) -> None:
-        """Test calendar transform with one-hot encoding."""
+        """
+        Test calendar transform with one-hot encoding.
+        """
         transform = _CalendarTransform()
 
         params = {
@@ -93,7 +101,9 @@ class TestCalendarTransform:
             assert f"month_{m}" in features
 
     def test_calendar_transform_minute_granularity(self) -> None:
-        """Test calendar transform with minute granularity."""
+        """
+        Test calendar transform with minute granularity.
+        """
         transform = _CalendarTransform()
 
         params = {
@@ -108,7 +118,9 @@ class TestCalendarTransform:
         assert "minute_cos" in features
 
     def test_calendar_transform_requires_l1_only(self) -> None:
-        """Test that calendar transform only requires L1 data."""
+        """
+        Test that calendar transform only requires L1 data.
+        """
         transform = _CalendarTransform()
         assert transform.requires() == DataRequirements.L1_ONLY
 
@@ -140,10 +152,14 @@ class TestCalendarTransform:
 
 
 class TestEventScheduleTransform:
-    """Test scheduled event features."""
+    """
+    Test scheduled event features.
+    """
 
     def test_event_schedule_default_params(self) -> None:
-        """Test event schedule with default parameters."""
+        """
+        Test event schedule with default parameters.
+        """
         transform = _EventScheduleTransform()
 
         features = transform.feature_names({})
@@ -167,7 +183,9 @@ class TestEventScheduleTransform:
         assert "is_fomc_week" in features
 
     def test_event_schedule_custom_events(self) -> None:
-        """Test event schedule with custom event types."""
+        """
+        Test event schedule with custom event types.
+        """
         transform = _EventScheduleTransform()
 
         params = {
@@ -189,7 +207,9 @@ class TestEventScheduleTransform:
         assert "hours_to_fed_meeting" not in features
 
     def test_event_schedule_requires_l1_only(self) -> None:
-        """Test that event schedule only requires L1 data."""
+        """
+        Test that event schedule only requires L1 data.
+        """
         transform = _EventScheduleTransform()
         assert transform.requires() == DataRequirements.L1_ONLY
 
@@ -231,10 +251,14 @@ class TestEventScheduleTransform:
 
 
 class TestMacroIndicatorsTransform:
-    """Test macroeconomic indicator features."""
+    """
+    Test macroeconomic indicator features.
+    """
 
     def test_macro_indicators_default_params(self) -> None:
-        """Test macro indicators with default parameters."""
+        """
+        Test macro indicators with default parameters.
+        """
         transform = _MacroIndicatorsTransform()
 
         features = transform.feature_names({})
@@ -258,7 +282,9 @@ class TestMacroIndicatorsTransform:
         assert "rate_cycle_phase" in features
 
     def test_macro_indicators_custom_indicators(self) -> None:
-        """Test macro indicators with custom selection."""
+        """
+        Test macro indicators with custom selection.
+        """
         transform = _MacroIndicatorsTransform()
 
         params = {
@@ -281,7 +307,9 @@ class TestMacroIndicatorsTransform:
         assert "treasury_10y" not in features
 
     def test_macro_indicators_requires_l1_only(self) -> None:
-        """Test that macro indicators only require L1 data."""
+        """
+        Test that macro indicators only require L1 data.
+        """
         transform = _MacroIndicatorsTransform()
         assert transform.requires() == DataRequirements.L1_ONLY
 
@@ -324,17 +352,21 @@ class TestMacroIndicatorsTransform:
 
 
 class TestPipelineIntegration:
-    """Test integration of known-future transforms in pipeline."""
+    """
+    Test integration of known-future transforms in pipeline.
+    """
 
     def test_pipeline_with_known_future_transforms(self) -> None:
-        """Test pipeline can include known-future transforms."""
+        """
+        Test pipeline can include known-future transforms.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(name="returns"),
                 TransformSpec(name="calendar", params={"encoding": "cyclic"}),
                 TransformSpec(name="event_schedule"),
                 TransformSpec(name="macro_indicators"),
-            ]
+            ],
         )
 
         runner = PipelineRunner(spec, DataRequirements.L1_ONLY)
@@ -349,17 +381,19 @@ class TestPipelineIntegration:
         assert any("vix" in f for f in features)
 
     def test_pipeline_signature_with_known_future(self) -> None:
-        """Test pipeline signature includes known-future transforms."""
+        """
+        Test pipeline signature includes known-future transforms.
+        """
         spec1 = PipelineSpec(
             transforms=[
                 TransformSpec(name="calendar", params={"encoding": "cyclic"}),
-            ]
+            ],
         )
 
         spec2 = PipelineSpec(
             transforms=[
                 TransformSpec(name="calendar", params={"encoding": "onehot"}),
-            ]
+            ],
         )
 
         runner1 = PipelineRunner(spec1, DataRequirements.L1_ONLY)
@@ -372,13 +406,15 @@ class TestPipelineIntegration:
         assert sig1 != sig2
 
     def test_known_future_transforms_l1_compatible(self) -> None:
-        """Test all known-future transforms work with L1-only data."""
+        """
+        Test all known-future transforms work with L1-only data.
+        """
         spec = PipelineSpec(
             transforms=[
                 TransformSpec(name="calendar"),
                 TransformSpec(name="event_schedule"),
                 TransformSpec(name="macro_indicators"),
-            ]
+            ],
         )
 
         # Should work with L1_ONLY requirement
@@ -393,10 +429,14 @@ class TestPipelineIntegration:
 
 
 class TestStaticCovariatesTransform:
-    """Test static covariate features for TFT models."""
+    """
+    Test static covariate features for TFT models.
+    """
 
     def test_static_covariates_default_params(self) -> None:
-        """Test static covariates with default parameters."""
+        """
+        Test static covariates with default parameters.
+        """
         transform = _StaticCovariatesTransform()
 
         features = transform.feature_names({})
@@ -417,7 +457,9 @@ class TestStaticCovariatesTransform:
         assert "market_segment" in features
 
     def test_static_covariates_custom_params(self) -> None:
-        """Test static covariates with custom parameters."""
+        """
+        Test static covariates with custom parameters.
+        """
         transform = _StaticCovariatesTransform()
 
         params = {
@@ -431,7 +473,9 @@ class TestStaticCovariatesTransform:
         assert set(features) == {"tick_size", "lot_size", "exchange", "asset_class"}
 
     def test_static_covariates_requires_l1_only(self) -> None:
-        """Test that static covariates only require L1 data."""
+        """
+        Test that static covariates only require L1 data.
+        """
         transform = _StaticCovariatesTransform()
         assert transform.requires() == DataRequirements.L1_ONLY
 

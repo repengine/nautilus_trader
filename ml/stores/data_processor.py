@@ -36,8 +36,10 @@ def create_engine(connection_string: str, **kwargs: Any) -> Engine:
     Module-level factory for tests to monkeypatch.
 
     Delegates to EngineManager in production; tests patch this symbol.
+
     """
     return EngineManager.get_engine(connection_string, **kwargs)
+
 
 class QualityFlags(IntFlag):
     """
@@ -684,6 +686,7 @@ class DataProcessor:
 
         if self.enable_caching and cache_key in self._metadata_cache:
             from typing import cast
+
             return cast(dict[str, Any], self._metadata_cache[cache_key])
 
         with self.engine.connect() as conn:
@@ -740,6 +743,7 @@ class DataProcessor:
         if self.enable_caching and cache_key in self._statistics_cache:
             if time.time() - self._cache_timestamp < 300:  # 5 minute cache
                 from typing import cast
+
                 return cast(dict[str, float], self._statistics_cache[cache_key])
 
         with self.engine.connect() as conn:

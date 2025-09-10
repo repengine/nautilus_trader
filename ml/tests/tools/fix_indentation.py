@@ -22,6 +22,7 @@ def fix_test_file_indentation(filepath: Path) -> bool:
     -------
     bool
         True if file was modified
+
     """
     try:
         content = filepath.read_text()
@@ -83,7 +84,9 @@ def fix_test_file_indentation(filepath: Path) -> bool:
 
 
 def main():
-    """Fix indentation in all test files."""
+    """
+    Fix indentation in all test files.
+    """
     test_dir = Path(__file__).parent.parent
 
     print(f"Fixing indentation in test files under: {test_dir}")

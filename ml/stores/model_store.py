@@ -32,8 +32,7 @@ from typing_extensions import override
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic
-from ml.common.message_topics import map_stage_to_topic_segments
+from ml.common.message_topics import build_topic_for_stage
 from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
 from ml.stores.base import ModelPrediction
@@ -46,6 +45,7 @@ if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
     from nautilus_trader.common.clock import Clock
 
+from ml.config.events import EventStatus
 from ml.config.events import Stage
 
 
@@ -152,6 +152,16 @@ class ModelStore(BaseStore):
         self._enable_publishing = bool(enable_publishing)
         self.publisher: MessagePublisherProtocol | None = publisher
         self._publish_mode: Literal["batch", "row", "both"] = publish_mode
+        # Topic scheme/prefix (env-driven defaults)
+        try:
+            from ml.config.bus import MessageBusConfig as _MBC
+
+            _cfg = _MBC.from_env()
+            self._topic_scheme: str = str(_cfg.scheme)
+            self._topic_prefix: str = str(_cfg.topic_prefix)
+        except Exception:  # pragma: no cover - defensive
+            self._topic_scheme = "domain_op"
+            self._topic_prefix = "events.ml"
 
         # Allow tests to inject a mock persistence manager directly
         if persistence_manager is not None:
@@ -238,6 +248,7 @@ class ModelStore(BaseStore):
         ----------
         registry : RegistryProtocol
             The shared registry instance to use.
+
         """
         self._data_registry = registry
 
@@ -306,13 +317,17 @@ class ModelStore(BaseStore):
             self.clock.timestamp_ns()
             if self.clock
             else sanitize_timestamp_ns(
-                time.time_ns(), logger=logger, context="ModelStore.write_prediction:ts_init"
+                time.time_ns(),
+                logger=logger,
+                context="ModelStore.write_prediction:ts_init",
             )
         )
 
         # Normalize timestamp defensively
         ts_event_norm = sanitize_timestamp_ns(
-            int(ts_event), logger=logger, context="ModelStore.write_prediction"
+            int(ts_event),
+            logger=logger,
+            context="ModelStore.write_prediction",
         )
 
         data = ModelPrediction(
@@ -374,7 +389,10 @@ class ModelStore(BaseStore):
         if emit_events:
             self._emit_prediction_events(data)
 
-    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover  # noqa: C901 - upsert + normalization + dedup
+    def _execute_write(
+        self,
+        values: list[dict[str, Any]],
+    ) -> None:  # pragma: no cover
         """
         Upsert predictions (patchable in tests).
         """
@@ -386,7 +404,7 @@ class ModelStore(BaseStore):
             import random
 
             sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:  # noqa: S311 - sampled audit logging only
+            if sample > 0 and random.randint(1, sample) == 1:
                 logger.info(
                     "AUDIT ModelStore._execute_write: n=%d keys=%s",
                     len(values),
@@ -400,11 +418,15 @@ class ModelStore(BaseStore):
         for v in values:
             if "ts_event" in v and isinstance(v["ts_event"], int):
                 v["ts_event"] = sanitize_timestamp_ns(
-                    int(v["ts_event"]), logger=logger, context="ModelStore._execute_write"
+                    int(v["ts_event"]),
+                    logger=logger,
+                    context="ModelStore._execute_write",
                 )
             if "ts_init" in v and isinstance(v["ts_init"], int):
                 v["ts_init"] = sanitize_timestamp_ns(
-                    int(v["ts_init"]), logger=logger, context="ModelStore._execute_write"
+                    int(v["ts_init"]),
+                    logger=logger,
+                    context="ModelStore._execute_write",
                 )
         # De-duplicate within the same batch to avoid ON CONFLICT updating the same
         # row twice in a single INSERT .. ON CONFLICT statement.
@@ -437,9 +459,13 @@ class ModelStore(BaseStore):
         ):
             try:
                 stage = Stage.PREDICTION_EMITTED
-                domain, operation = map_stage_to_topic_segments(stage)
                 instrument_id = str(batch_list[0]["instrument_id"]) if batch_list else "UNKNOWN"
-                topic = build_topic(domain, operation, instrument_id)
+                topic = build_topic_for_stage(
+                    stage,
+                    instrument_id,
+                    scheme=self._topic_scheme,
+                    prefix=self._topic_prefix,
+                )
                 ts_min = min(int(v["ts_event"]) for v in batch_list)
                 ts_max = max(int(v["ts_event"]) for v in batch_list)
                 payload: dict[str, Any] = {
@@ -451,7 +477,7 @@ class ModelStore(BaseStore):
                     "ts_min": ts_min,
                     "ts_max": ts_max,
                     "count": len(batch_list),
-                    "status": "success",
+                    "status": EventStatus.SUCCESS.value,
                 }
                 self.publisher.publish(topic, payload)
             except Exception:
@@ -465,10 +491,14 @@ class ModelStore(BaseStore):
         ):
             try:
                 stage = Stage.PREDICTION_EMITTED
-                domain, operation = map_stage_to_topic_segments(stage)
                 for v in batch_list:
                     instrument_id = str(v.get("instrument_id", "UNKNOWN"))
-                    topic = build_topic(domain, operation, instrument_id)
+                    topic = build_topic_for_stage(
+                        stage,
+                        instrument_id,
+                        scheme=self._topic_scheme,
+                        prefix=self._topic_prefix,
+                    )
                     ts_e = int(v.get("ts_event", 0))
                     row_payload: dict[str, Any] = {
                         "dataset_id": "predictions",
@@ -479,13 +509,11 @@ class ModelStore(BaseStore):
                         "ts_min": ts_e,
                         "ts_max": ts_e,
                         "count": 1,
-                        "status": "success",
+                        "status": EventStatus.SUCCESS.value,
                     }
-                self.publisher.publish(topic, row_payload)
+                    self.publisher.publish(topic, row_payload)
             except Exception:
                 logger.debug("ModelStore per-row publish failed", exc_info=True)
-
-    
 
     # Backwards-compatible alias used in some tests
     def write_predictions(self, data: list[ModelPrediction]) -> None:
@@ -736,10 +764,14 @@ class ModelStore(BaseStore):
         from ml.common.timestamps import sanitize_timestamp_ns
 
         start_ns = sanitize_timestamp_ns(
-            int(start_ns), logger=logger, context="ModelStore.get_predictions:start"
+            int(start_ns),
+            logger=logger,
+            context="ModelStore.get_predictions:start",
         )
         end_ns = sanitize_timestamp_ns(
-            int(end_ns), logger=logger, context="ModelStore.get_predictions:end"
+            int(end_ns),
+            logger=logger,
+            context="ModelStore.get_predictions:end",
         )
 
         if instrument_id is None:
@@ -762,7 +794,10 @@ class ModelStore(BaseStore):
                 return pd.read_sql_query(sql, conn, params=params2)
         else:
             return self.read_predictions(
-                model_id=model_id, instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns
+                model_id=model_id,
+                instrument_id=instrument_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
             )
 
     @override
@@ -968,7 +1003,7 @@ class ModelStore(BaseStore):
                     ts_min=ts_min,
                     ts_max=ts_max,
                     count=len(group_preds),
-                    status="success",
+                    status=EventStatus.SUCCESS.value,
                     metadata={"model_id": model_id},
                 )
 
@@ -989,7 +1024,7 @@ class ModelStore(BaseStore):
                         component=model_id,
                         stage=Stage.PREDICTION_EMITTED.value,
                         source=source,
-                        status="success",
+                        status=EventStatus.SUCCESS.value,
                     ).inc()
 
                 logger.debug(

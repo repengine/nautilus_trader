@@ -677,8 +677,19 @@ class BaseMLTrainer(ABC):
             Cross-validation results for each fold.
 
         """
-        n_folds = getattr(self._config, "cv_folds", 5)
+        n_folds: int = getattr(self._config, "cv_folds", 5)
         cv_strategy = getattr(self._config, "cv_strategy", "time_series")
+        n_samples: int = len(X)
+
+        # Guard against too few samples for requested folds
+        if n_folds > n_samples:
+            self._log_warning(
+                f"cv_folds ({n_folds}) > samples ({n_samples}); reducing folds to {n_samples}",
+            )
+            n_folds = n_samples
+        if n_folds < 2 or n_samples < 2:
+            self._log_warning("Insufficient samples for cross-validation; skipping CV")
+            return []
 
         self._log_info(f"Starting {n_folds}-fold {cv_strategy} cross-validation")
 
@@ -714,9 +725,15 @@ class BaseMLTrainer(ABC):
             CV results.
 
         """
-        n_samples = len(X)
-        fold_size = n_samples // (n_folds + 1)
-        results = []
+        n_samples: int = len(X)
+        fold_size: int = int(n_samples // (n_folds + 1))
+        results: list[dict[str, float]] = []
+
+        if fold_size < 1:
+            self._log_warning(
+                f"Time-series CV fold_size={fold_size} too small for {n_folds} folds; skipping CV",
+            )
+            return results
 
         for i in range(n_folds):
             train_end = (i + 1) * fold_size
@@ -780,8 +797,13 @@ class BaseMLTrainer(ABC):
                 raise ImportError
             from sklearn.model_selection import KFold
 
-            kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
-            results = []
+            # Ensure valid n_splits
+            n_splits: int = int(min(max(2, n_folds), len(X)))
+            if n_splits < 2:
+                self._log_warning("Insufficient samples for KFold; skipping CV")
+                return []
+            kf: KFold = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+            results: list[dict[str, float]] = []
 
             for train_idx, val_idx in kf.split(X):
                 X_train_cv = X[train_idx]

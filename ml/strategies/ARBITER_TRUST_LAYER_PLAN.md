@@ -24,6 +24,7 @@ with the current architecture (actors → strategies → stores/registry/monitor
 ### MLSignal.metadata (actor → strategy)
 
 Add these keys to `MLSignal.metadata` (all optional; actor remains compatible without them):
+
 - `mu`: float, expected short-horizon mark-out (post-costs if available)
 - `sigma`: float, uncertainty of mark-out (ensemble SD or residual proxy)
 - `p`: float, probability-of-profit at the specified horizon
@@ -41,6 +42,7 @@ downstream decisioning and logging without changing model inputs.
 ### StrategyStore.execution_params (decision persistence)
 
 Extend execution params for decisions with:
+
 - `arm`: "A" (heuristic) or "B" (bandit/RL)
 - `propensity`: float in [0,1] logged at decision time
 - `action`: e.g., "market", "limit@0t", "limit@1t"
@@ -155,4 +157,3 @@ policy:
 - Where to store calibrator params long-term: StrategyStore JSONB vs. Registry manifest section?
 - How to parameterize horizon(s) per instrument for heterogeneous universes?
 - Which uncertainty proxy to use initially (ensemble SD vs. residual EWMA) for `sigma`?
-

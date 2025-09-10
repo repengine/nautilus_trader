@@ -150,7 +150,7 @@ class FREDIndicator:
     description: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class FREDConfig:
     """
     Configuration for FRED data loader.
@@ -190,7 +190,7 @@ class FREDConfig:
         Validate configuration after initialization.
         """
         if self.api_key is None:
-            self.api_key = os.getenv("FRED_API_KEY")
+            object.__setattr__(self, "api_key", os.getenv("FRED_API_KEY"))
             if not self.api_key:
                 raise ValueError(
                     "FRED API key not provided. Set FRED_API_KEY environment variable "

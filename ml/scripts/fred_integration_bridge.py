@@ -57,7 +57,7 @@ def convert_simple_to_ml_format():
                         "timestamp_ns": timestamp_ns,
                         "series_id": col,
                         "value": float(value),
-                    }
+                    },
                 )
 
     # Create ML-format DataFrame
@@ -134,7 +134,7 @@ def convert_simple_to_ml_format():
 
                     combined_df.to_parquet(original_file)
                     print(
-                        f"🔄 Updated original file with {len(combined_df) - len(original_df)} new rows"
+                        f"🔄 Updated original file with {len(combined_df) - len(original_df)} new rows",
                     )
                 else:
                     print(f"⚠️  Gap of {gap_days} days - not merging automatically")
@@ -185,11 +185,11 @@ def test_ml_integration():
     print("=" * 30)
 
     try:
-        # Test importing ML components
-        from ml.data.loaders.fred_loader import FREDConfig
-        from ml.data.loaders.fred_loader import FREDDataLoader
-        from ml.registry.data_registry import DataRegistry
-        from ml.stores.data_store import DataStore
+        # Test importing ML components (introspection only)
+        from ml.data.loaders.fred_loader import FREDConfig  # noqa: F401
+        from ml.data.loaders.fred_loader import FREDDataLoader  # noqa: F401
+        from ml.registry.data_registry import DataRegistry  # noqa: F401
+        from ml.stores.data_store import DataStore  # noqa: F401
 
         print("✅ ML imports successful")
 
@@ -198,7 +198,7 @@ def test_ml_integration():
         if os.path.exists(ml_file):
             df = pl.read_parquet(ml_file)
             print(
-                f"✅ ML format data loads: {len(df)} rows, {len(df['series_id'].unique())} series"
+                f"✅ ML format data loads: {len(df)} rows, {len(df['series_id'].unique())} series",
             )
 
         print("✅ Integration test passed")
@@ -277,7 +277,7 @@ def main():
     print("\nNext steps:")
     print("1. Use ML-format data in feature engineering:")
     print(
-        "   python -c \"import polars as pl; df=pl.read_parquet('data/fred/fred_indicators_ml_format.parquet'); print(df.head())\""
+        "   python -c \"import polars as pl; df=pl.read_parquet('data/fred/fred_indicators_ml_format.parquet'); print(df.head())\"",
     )
     print("2. Integrate with TFT training pipeline")
     print("3. Set up automatic daily updates with cron")

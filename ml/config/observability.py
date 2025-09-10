@@ -69,7 +69,8 @@ class ObservabilityConfig(NautilusConfig, kw_only=True, frozen=True):
 
         sink_obj = kwargs.get("sink", "file")
         sink_val: _Lit["file", "db"] = cast(
-            _Lit["file", "db"], sink_obj if sink_obj in {"file", "db"} else "file"
+            _Lit["file", "db"],
+            sink_obj if sink_obj in {"file", "db"} else "file",
         )
         base_obj = kwargs.get("base_path", "./observability")
         base_path_val: str = str(base_obj)

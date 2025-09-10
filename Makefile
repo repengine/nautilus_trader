@@ -156,6 +156,19 @@ db-migrate-hardening:  #-- Apply schema hardening migrations (unique keys, creat
 	psql $$DATABASE_URL -f ml/stores/migrations/005_views.sql
 	$(info $(GREEN)DB hardening migrations applied.$(RESET))
 
+.PHONY: db-migrate-cli
+db-migrate-cli:  #-- Apply ML DB migrations via CLI runner (use DATABASE_URL, optional FULL=1, SCHEMA=stores|registry|both)
+	$(info $(M) Applying ML DB migrations via CLI runner...)
+	$Q uv run --active --no-sync python -m ml.scripts.apply_migrations $(if $(DATABASE_URL),--db-url $(DATABASE_URL)) $(if $(FULL),--full,) $(if $(SCHEMA),--schema $(SCHEMA),)
+
+.PHONY: db-migrate-cli-print
+db-migrate-cli-print:  #-- Show planned migration files without executing
+	$Q uv run --active --no-sync python -m ml.scripts.apply_migrations --print-only
+
+.PHONY: db-migrate-cli-dry-run
+db-migrate-cli-dry-run:  #-- Dry-run migrations (no execution)
+	$Q uv run --active --no-sync python -m ml.scripts.apply_migrations $(if $(DATABASE_URL),--db-url $(DATABASE_URL)) --dry-run $(if $(FULL),--full,) $(if $(SCHEMA),--schema $(SCHEMA),)
+
 .PHONY: ruff
 ruff:  #-- Run ruff linter with automatic fixes
 	uv run --active --no-sync ruff check . --fix

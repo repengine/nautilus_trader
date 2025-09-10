@@ -51,7 +51,7 @@ def test_apply_retention_deletes_old_rows(tmp_path: Path) -> None:
             "metrics": pd.DataFrame(),
             "correlation": pd.DataFrame(),
             "health": pd.DataFrame(),
-        }
+        },
     )
 
     # Apply retention keeping last 5 days

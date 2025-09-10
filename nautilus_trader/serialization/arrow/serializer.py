@@ -128,7 +128,7 @@ class ArrowSerializer:
         return data
 
     @staticmethod
-    def rust_defined_to_record_batch(  # noqa: C901 (too complex)
+    def rust_defined_to_record_batch(
         data: list[Data],
         data_cls: type,
     ) -> pa.Table | pa.RecordBatch:

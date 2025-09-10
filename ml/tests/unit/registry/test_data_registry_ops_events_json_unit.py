@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ml.config.events import Stage
+from ml.config.events import EventStatus, Stage
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -53,7 +53,13 @@ class TestDataRegistryOpsEventsJson:
             e.get("dataset_id") == ds_id and e.get("stage") == Stage.CATALOG_WRITTEN.value
             for e in events
         )
-        assert any(e.get("dataset_id") == ds_id and e.get("status") == "deprecated" for e in events)
+        # Deprecation now uses status=success with metadata flag
+        assert any(
+            e.get("dataset_id") == ds_id
+            and e.get("status") == EventStatus.SUCCESS.value
+            and (e.get("metadata") or {}).get("deprecated") is True
+            for e in events
+        )
         # Correlation id should be present on events
         assert all(
             "correlation_id" in (e.get("metadata") or {})

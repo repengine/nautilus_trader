@@ -22,7 +22,7 @@ BEGIN
         FOR v_year IN 2023..2024 LOOP
             FOR v_month IN 1..12 LOOP
                 v_partition_name := v_table || '_' || v_year || '_' || LPAD(v_month::TEXT, 2, '0');
-                
+
                 -- Calculate nanosecond timestamps
                 v_start_ts := EXTRACT(EPOCH FROM DATE(v_year || '-' || LPAD(v_month::TEXT, 2, '0') || '-01')) * 1000000000;
                 IF v_month = 12 THEN
@@ -30,11 +30,11 @@ BEGIN
                 ELSE
                     v_end_ts := EXTRACT(EPOCH FROM DATE(v_year || '-' || LPAD((v_month + 1)::TEXT, 2, '0') || '-01')) * 1000000000;
                 END IF;
-                
+
                 -- Check if partition exists
                 IF NOT EXISTS (
-                    SELECT 1 FROM pg_tables 
-                    WHERE schemaname = 'public' 
+                    SELECT 1 FROM pg_tables
+                    WHERE schemaname = 'public'
                     AND tablename = v_partition_name
                 ) THEN
                     BEGIN
@@ -54,13 +54,13 @@ BEGIN
 END $$;
 
 -- 3. Verify partitions exist
-SELECT 
+SELECT
     parent.relname AS table_name,
     COUNT(child.relname) AS partition_count,
     MIN(substring(child.relname from '(\d{4}_\d{2})$')) AS oldest_partition,
     MAX(substring(child.relname from '(\d{4}_\d{2})$')) AS newest_partition
 FROM pg_inherits
-JOIN pg_class parent ON pg_inherits.inhparent = parent.oid  
+JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 JOIN pg_class child ON pg_inherits.inhrelid = child.oid
 WHERE parent.relname IN ('ml_feature_values', 'ml_model_predictions', 'ml_strategy_signals')
 GROUP BY parent.relname;

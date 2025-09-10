@@ -64,4 +64,3 @@ def test_strategy_store_per_row_publishing(tmp_path) -> None:
     store.write_batch([ss1, ss2])
     topics = [t for t, _ in pub.calls]
     assert topics.count("ml.strategies.created.EURUSD.SIM") >= 2
-

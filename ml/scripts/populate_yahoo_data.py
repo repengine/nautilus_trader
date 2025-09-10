@@ -13,6 +13,7 @@ Free data that adds value for TFT:
 Usage:
     python ml/scripts/populate_yahoo_data.py --all
     python ml/scripts/populate_yahoo_data.py --category sectors
+
 """
 
 import argparse
@@ -29,7 +30,7 @@ import yfinance as yf
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -46,23 +47,21 @@ SUPPLEMENTARY_UNIVERSE = {
         "XLY",  # Consumer Discretionary
         "XLP",  # Consumer Staples
         "XLB",  # Materials
-        "XLRE", # Real Estate
+        "XLRE",  # Real Estate
         "XLU",  # Utilities
         "XLC",  # Communication Services
     ],
-
     # Style/Factor ETFs
     "factors": [
         "IWF",  # Growth
         "IWD",  # Value
         "IWM",  # Small Cap
         "IWB",  # Large Cap
-        "MTUM", # Momentum
-        "QUAL", # Quality
-        "USMV", # Low Volatility
-        "SIZE", # Size Factor
+        "MTUM",  # Momentum
+        "QUAL",  # Quality
+        "USMV",  # Low Volatility
+        "SIZE",  # Size Factor
     ],
-
     # International Markets (for global regime)
     "international": [
         "EWJ",  # Japan
@@ -72,11 +71,10 @@ SUPPLEMENTARY_UNIVERSE = {
         "EWZ",  # Brazil
         "EWA",  # Australia
         "EWC",  # Canada
-        "INDA", # India
+        "INDA",  # India
         "EEM",  # Emerging Markets
         "EFA",  # Developed ex-US
     ],
-
     # Commodities (inflation/growth signals)
     "commodities": [
         "GLD",  # Gold
@@ -86,9 +84,8 @@ SUPPLEMENTARY_UNIVERSE = {
         "DBA",  # Agriculture
         "DBB",  # Base Metals
         "DBC",  # Broad Commodities
-        "COPX", # Copper Miners (copper = economic indicator)
+        "COPX",  # Copper Miners (copper = economic indicator)
     ],
-
     # Bonds/Rates (yield curve, risk-off)
     "bonds": [
         "SHY",  # 1-3 Year Treasury
@@ -100,7 +97,6 @@ SUPPLEMENTARY_UNIVERSE = {
         "EMB",  # Emerging Market Bonds
         "AGG",  # Aggregate Bond
     ],
-
     # Currencies (risk sentiment)
     "currencies": [
         "UUP",  # US Dollar
@@ -112,34 +108,34 @@ SUPPLEMENTARY_UNIVERSE = {
         "FXF",  # Swiss Franc (safe haven)
         "UDN",  # Dollar Bear
     ],
-
     # Volatility (beyond VIX)
     "volatility": [
         "VXX",  # Short-term VIX futures
-        "VIXY", # VIX ETF
+        "VIXY",  # VIX ETF
         "VXZ",  # Mid-term VIX futures
-        "SVXY", # Inverse VIX
-        "UVXY", # Ultra VIX
-        "VIXM", # VIX mid-term
-        "VIIX", # VIX Index ETN
+        "SVXY",  # Inverse VIX
+        "UVXY",  # Ultra VIX
+        "VIXM",  # VIX mid-term
+        "VIIX",  # VIX Index ETN
     ],
-
     # Thematic/Sentiment
     "thematic": [
-        "ARKK", # Innovation (risk appetite)
-        "ICLN", # Clean Energy
-        "JETS", # Airlines (recovery play)
+        "ARKK",  # Innovation (risk appetite)
+        "ICLN",  # Clean Energy
+        "JETS",  # Airlines (recovery play)
         "XRT",  # Retail (consumer strength)
         "XHB",  # Homebuilders (housing)
         "KRE",  # Regional Banks
         "XME",  # Metals & Mining
-        "GDXJ", # Junior Gold Miners (speculation)
-    ]
+        "GDXJ",  # Junior Gold Miners (speculation)
+    ],
 }
 
 
 class YahooDataLoader:
-    """Load supplementary data from Yahoo Finance."""
+    """
+    Load supplementary data from Yahoo Finance.
+    """
 
     def __init__(self):
         self.symbols_cache = {}
@@ -148,9 +144,11 @@ class YahooDataLoader:
         self,
         symbols: list[str],
         start_date: datetime,
-        end_date: datetime
+        end_date: datetime,
     ) -> pd.DataFrame:
-        """Fetch historical data for symbols."""
+        """
+        Fetch historical data for symbols.
+        """
         logger.info(f"Fetching Yahoo data for {len(symbols)} symbols...")
 
         all_data = []
@@ -163,7 +161,7 @@ class YahooDataLoader:
                 hist = ticker.history(
                     start=start_date,
                     end=end_date,
-                    interval="1d"
+                    interval="1d",
                 )
 
                 if hist.empty:
@@ -197,7 +195,9 @@ class YahooDataLoader:
         return pd.DataFrame()
 
     def fetch_info(self, symbols: list[str]) -> pd.DataFrame:
-        """Fetch symbol info and fundamentals."""
+        """
+        Fetch symbol info and fundamentals.
+        """
         logger.info(f"Fetching symbol info for {len(symbols)} symbols...")
 
         info_data = []
@@ -233,16 +233,18 @@ class YahooDataLoader:
         self,
         data: pd.DataFrame,
         base_symbols: list[str],
-        window: int = 60
+        window: int = 60,
     ) -> pd.DataFrame:
-        """Calculate rolling correlations with base symbols."""
+        """
+        Calculate rolling correlations with base symbols.
+        """
         logger.info("Calculating rolling correlations...")
 
         # Pivot data to have symbols as columns
         pivot = data.pivot_table(
             index="Date",
             columns="symbol",
-            values="returns"
+            values="returns",
         )
 
         correlations = []
@@ -258,13 +260,15 @@ class YahooDataLoader:
                 # Calculate rolling correlation
                 corr = pivot[base].rolling(window).corr(pivot[symbol])
 
-                corr_df = pd.DataFrame({
-                    "date": corr.index,
-                    "base_symbol": base,
-                    "corr_symbol": symbol,
-                    "correlation": corr.to_numpy(),
-                    f"corr_{window}d": corr.to_numpy(),
-                })
+                corr_df = pd.DataFrame(
+                    {
+                        "date": corr.index,
+                        "base_symbol": base,
+                        "corr_symbol": symbol,
+                        "correlation": corr.to_numpy(),
+                        f"corr_{window}d": corr.to_numpy(),
+                    },
+                )
 
                 correlations.append(corr_df)
 
@@ -274,14 +278,16 @@ class YahooDataLoader:
         return pd.DataFrame()
 
     def calculate_spreads(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Calculate important spreads and ratios."""
+        """
+        Calculate important spreads and ratios.
+        """
         logger.info("Calculating spreads and ratios...")
 
         # Pivot data
         pivot = data.pivot_table(
             index="Date",
             columns="symbol",
-            values="Close"
+            values="Close",
         )
 
         spreads = pd.DataFrame(index=pivot.index)
@@ -302,9 +308,8 @@ class YahooDataLoader:
                 spreads[spread_name] = pivot[long_sym] / pivot[short_sym]
                 spreads[f"{spread_name}_ma20"] = spreads[spread_name].rolling(20).mean()
                 spreads[f"{spread_name}_zscore"] = (
-                    (spreads[spread_name] - spreads[spread_name].rolling(60).mean()) /
-                    spreads[spread_name].rolling(60).std()
-                )
+                    spreads[spread_name] - spreads[spread_name].rolling(60).mean()
+                ) / spreads[spread_name].rolling(60).std()
 
         return spreads
 
@@ -312,15 +317,28 @@ class YahooDataLoader:
 def main():
     parser = argparse.ArgumentParser(description="Populate Yahoo Finance data")
 
-    parser.add_argument("--all", action="store_true",
-                       help="Download all categories")
-    parser.add_argument("--category", choices=list(SUPPLEMENTARY_UNIVERSE.keys()),
-                       help="Specific category to download")
-    parser.add_argument("--years", type=int, default=2,
-                       help="Years of history to download")
-    parser.add_argument("--output-dir", type=Path,
-                       default=Path("data/supplementary"),
-                       help="Output directory")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Download all categories",
+    )
+    parser.add_argument(
+        "--category",
+        choices=list(SUPPLEMENTARY_UNIVERSE.keys()),
+        help="Specific category to download",
+    )
+    parser.add_argument(
+        "--years",
+        type=int,
+        default=2,
+        help="Years of history to download",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/supplementary"),
+        help="Output directory",
+    )
 
     args = parser.parse_args()
 

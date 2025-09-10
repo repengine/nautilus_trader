@@ -3,6 +3,7 @@
 Test for the plan-backfill CLI command.
 
 This test verifies the plan_backfill function works correctly.
+
 """
 
 from __future__ import annotations
@@ -41,7 +42,12 @@ def test_plan_backfill_with_gaps(tmp_path: Path) -> None:
                 "location": "/data/bars",
                 "partitioning": {"by": "ts_event", "interval": "daily"},
                 "retention_days": 90,
-                "schema": {"instrument_id": "string", "ts_event": "int64", "ts_init": "int64", "open": "float64"},
+                "schema": {
+                    "instrument_id": "string",
+                    "ts_event": "int64",
+                    "ts_init": "int64",
+                    "open": "float64",
+                },
                 "ts_field": "ts_event",
                 "seq_field": None,
                 "primary_keys": ["instrument_id", "ts_event"],
@@ -61,7 +67,12 @@ def test_plan_backfill_with_gaps(tmp_path: Path) -> None:
                 "location": "/data/mbp1",
                 "partitioning": {"by": "ts_event", "interval": "daily"},
                 "retention_days": 90,
-                "schema": {"instrument_id": "string", "ts_event": "int64", "ts_init": "int64", "bid": "float64"},
+                "schema": {
+                    "instrument_id": "string",
+                    "ts_event": "int64",
+                    "ts_init": "int64",
+                    "bid": "float64",
+                },
                 "ts_field": "ts_event",
                 "seq_field": None,
                 "primary_keys": ["instrument_id", "ts_event"],
@@ -191,7 +202,12 @@ def test_plan_backfill_no_gaps(tmp_path: Path) -> None:
                 "location": "/data/bars",
                 "partitioning": {"by": "ts_event", "interval": "daily"},
                 "retention_days": 90,
-                "schema": {"instrument_id": "string", "ts_event": "int64", "ts_init": "int64", "open": "float64"},
+                "schema": {
+                    "instrument_id": "string",
+                    "ts_event": "int64",
+                    "ts_init": "int64",
+                    "open": "float64",
+                },
                 "ts_field": "ts_event",
                 "seq_field": None,
                 "primary_keys": ["instrument_id", "ts_event"],
@@ -211,7 +227,12 @@ def test_plan_backfill_no_gaps(tmp_path: Path) -> None:
                 "location": "/data/mbp1",
                 "partitioning": {"by": "ts_event", "interval": "daily"},
                 "retention_days": 90,
-                "schema": {"instrument_id": "string", "ts_event": "int64", "ts_init": "int64", "bid": "float64"},
+                "schema": {
+                    "instrument_id": "string",
+                    "ts_event": "int64",
+                    "ts_init": "int64",
+                    "bid": "float64",
+                },
                 "ts_field": "ts_event",
                 "seq_field": None,
                 "primary_keys": ["instrument_id", "ts_event"],

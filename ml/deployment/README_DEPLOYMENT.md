@@ -22,8 +22,19 @@ This directory contains the Docker Compose configuration for deploying the Nauti
 
    ```bash
    make health
+   ```
 
-4. **Verify DB prerequisites (recommended):**
+4. **Apply DB migrations (one-time):**
+
+   ```bash
+   # Baseline migrations (host Postgres default mapped to 5433)
+   make db-migrate-cli DATABASE_URL=postgresql://postgres:postgres@localhost:5433/nautilus
+
+   # Full migrations (includes hardening, views, optional fixes)
+   make db-migrate-cli DATABASE_URL=postgresql://postgres:postgres@localhost:5433/nautilus FULL=1
+   ```
+
+5. **Verify DB prerequisites (recommended):**
 
    Ensure required DB functions and current-month partitions are present. From your host:
 
@@ -31,7 +42,9 @@ This directory contains the Docker Compose configuration for deploying the Nauti
    # Note: deployment maps Postgres to localhost:5433 by default.
    # If you need 5432 instead, set POSTGRES_HOST_PORT=5432 in your environment before `make up`.
    python -c "import os; from ml.stores.db_preflight import check_db_prereqs; \
+
 print(check_db_prereqs('postgresql://postgres:postgres@localhost:' + os.environ.get('POSTGRES_HOST_PORT','5433') + '/nautilus'))"
+
    ```
    ```
 
@@ -176,8 +189,9 @@ docker compose exec -T postgres psql -U postgres nautilus -f /app/ml/stores/migr
 ```
 
 # pgAdmin web interface (if using override)
-# http://localhost:5050
-# Login: admin@nautilus.local / admin
+# <http://localhost:5050>
+# Login: <admin@nautilus.local> / admin
+
 ```
 
 ## Troubleshooting

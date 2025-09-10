@@ -11,6 +11,7 @@ Shows practical examples of:
 2. Creating ML features from economic data
 3. Generating trading signals and regime indicators
 4. Market regime analysis and trading applications
+
 """
 
 import argparse
@@ -25,7 +26,9 @@ warnings.filterwarnings("ignore")
 
 
 def load_fred_data():
-    """Load FRED data from available sources."""
+    """
+    Load FRED data from available sources.
+    """
     print("📊 Loading FRED Economic Data")
     print("=" * 40)
 
@@ -38,7 +41,9 @@ def load_fred_data():
         try:
             if file_path == ml_file:
                 df = pl.read_parquet(file_path)
-                print(f"✅ Loaded ML format: {df.shape[0]} rows, {df['series_id'].n_unique()} indicators")
+                print(
+                    f"✅ Loaded ML format: {df.shape[0]} rows, {df['series_id'].n_unique()} indicators",
+                )
                 return df, "ml_format"
             else:
                 df = pd.read_parquet(file_path)
@@ -53,7 +58,9 @@ def load_fred_data():
 
 
 def explore_indicators(df, format_type):
-    """Explore available economic indicators."""
+    """
+    Explore available economic indicators.
+    """
     print("\n🔍 Economic Indicators Overview")
     print("=" * 40)
 
@@ -66,11 +73,19 @@ def explore_indicators(df, format_type):
 
         # Group by category
         categories = {
-            "Interest Rates": ["DGS1", "DGS2", "DGS10", "DGS30", "SOFR", "MORTGAGE30US", "FEDFUNDS"],
+            "Interest Rates": [
+                "DGS1",
+                "DGS2",
+                "DGS10",
+                "DGS30",
+                "SOFR",
+                "MORTGAGE30US",
+                "FEDFUNDS",
+            ],
             "Volatility": ["VIXCLS"],
             "Credit Risk": ["BAMLH0A0HYM2", "BAMLC0A0CM"],
             "Currency": ["DTWEXBGS", "DEXUSEU"],
-            "Economic": ["GDP", "GDPC1", "CPIAUCSL", "CPILFESL", "UNRATE", "PAYEMS", "UMCSENT"]
+            "Economic": ["GDP", "GDPC1", "CPIAUCSL", "CPILFESL", "UNRATE", "PAYEMS", "UMCSENT"],
         }
 
         for category, series_list in categories.items():
@@ -104,7 +119,9 @@ def explore_indicators(df, format_type):
 
 
 def create_regime_features(df, format_type):
-    """Create market regime features from FRED data."""
+    """
+    Create market regime features from FRED data.
+    """
     print("\n🎯 Market Regime Feature Engineering")
     print("=" * 40)
 
@@ -113,7 +130,7 @@ def create_regime_features(df, format_type):
         wide_df = df.pivot_table(
             index="timestamp",
             columns="series_id",
-            values="value"
+            values="value",
         ).sort("timestamp")
         wide_pd = wide_df.to_pandas()
         wide_pd = wide_pd.set_index("timestamp")
@@ -135,7 +152,9 @@ def create_regime_features(df, format_type):
         low_pct = features["vol_regime_low"].mean() * 100
         normal_pct = features["vol_regime_normal"].mean() * 100
         high_pct = features["vol_regime_high"].mean() * 100
-        print(f"   Distribution: Low {low_pct:.1f}%, Normal {normal_pct:.1f}%, High {high_pct:.1f}%")
+        print(
+            f"   Distribution: Low {low_pct:.1f}%, Normal {normal_pct:.1f}%, High {high_pct:.1f}%",
+        )
 
     # 2. Interest Rate Environment
     if "DGS10" in wide_pd.columns:
@@ -153,9 +172,15 @@ def create_regime_features(df, format_type):
         if "DGS30" in wide_pd.columns:
             features["yield_curvature"] = 2 * wide_pd["DGS10"] - wide_pd["DGS2"] - wide_pd["DGS30"]
 
-        current_slope = features["yield_slope"].dropna().iloc[-1] if not features["yield_slope"].dropna().empty else np.nan
+        current_slope = (
+            features["yield_slope"].dropna().iloc[-1]
+            if not features["yield_slope"].dropna().empty
+            else np.nan
+        )
         inversion_days = features["yield_inversion"].sum()
-        print(f"✅ Yield Curve: Current slope = {current_slope:.2f}%, Inversions = {inversion_days} days")
+        print(
+            f"✅ Yield Curve: Current slope = {current_slope:.2f}%, Inversions = {inversion_days} days",
+        )
 
     # 4. Credit Risk Environment
     if "BAMLH0A0HYM2" in wide_pd.columns:
@@ -166,14 +191,18 @@ def create_regime_features(df, format_type):
 
         current_spread = hy_spread.iloc[-1] if not hy_spread.empty else np.nan
         stress_days = features["credit_stress"].sum()
-        print(f"✅ Credit Risk: Current HY spread = {current_spread:.2f}%, Stress days = {stress_days}")
+        print(
+            f"✅ Credit Risk: Current HY spread = {current_spread:.2f}%, Stress days = {stress_days}",
+        )
 
     print(f"\n📈 Created {len(features.columns)} regime features")
     return features
 
 
 def generate_trading_signals(features):
-    """Generate trading signals from regime features."""
+    """
+    Generate trading signals from regime features.
+    """
     print("\n⚡ Trading Signal Generation")
     print("=" * 35)
 
@@ -220,12 +249,17 @@ def generate_trading_signals(features):
 
 
 def market_regime_analysis(features):
-    """Analyze historical market regimes."""
+    """
+    Analyze historical market regimes.
+    """
     print("\n📈 Historical Market Regime Analysis")
     print("=" * 40)
 
     # Volatility regimes
-    if all(col in features.columns for col in ["vol_regime_low", "vol_regime_normal", "vol_regime_high"]):
+    if all(
+        col in features.columns
+        for col in ["vol_regime_low", "vol_regime_normal", "vol_regime_high"]
+    ):
         vol_regimes = features[["vol_regime_low", "vol_regime_normal", "vol_regime_high"]]
         regime_pcts = vol_regimes.mean() * 100
 
@@ -235,7 +269,10 @@ def market_regime_analysis(features):
         print(f"  📈 High Vol (>25):   {regime_pcts['vol_regime_high']:.1f}%")
 
     # Interest rate regimes
-    if all(col in features.columns for col in ["rate_regime_low", "rate_regime_normal", "rate_regime_high"]):
+    if all(
+        col in features.columns
+        for col in ["rate_regime_low", "rate_regime_normal", "rate_regime_high"]
+    ):
         rate_regimes = features[["rate_regime_low", "rate_regime_normal", "rate_regime_high"]]
         regime_pcts = rate_regimes.mean() * 100
 
@@ -257,7 +294,9 @@ def market_regime_analysis(features):
 
 
 def integration_examples():
-    """Show integration examples with ML pipeline."""
+    """
+    Show integration examples with ML pipeline.
+    """
     print("\n💡 ML Pipeline Integration Examples")
     print("=" * 40)
 
@@ -292,10 +331,16 @@ def integration_examples():
 
 
 def main():
-    """Run FRED examples with CLI interface."""
+    """
+    Run FRED examples with CLI interface.
+    """
     parser = argparse.ArgumentParser(description="FRED Economic Data Examples")
-    parser.add_argument("--example", choices=["explore", "features", "signals", "regimes", "integration", "all"],
-                       default="all", help="Type of example to run")
+    parser.add_argument(
+        "--example",
+        choices=["explore", "features", "signals", "regimes", "integration", "all"],
+        default="all",
+        help="Type of example to run",
+    )
 
     args = parser.parse_args()
 

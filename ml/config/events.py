@@ -1,8 +1,9 @@
 """
 Canonical event constants for ML pipeline stages and sources.
 
-Use these to avoid ad-hoc string literals across the codebase.
-Values are persisted to the database and must match schema constraints.
+Use these to avoid ad-hoc string literals across the codebase. Values are persisted to
+the database and must match schema constraints.
+
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ class Stage(str, Enum):
     Processing stages for ML pipeline events.
 
     Values must match database check constraints.
+
     """
 
     DATA_INGESTED = "INGESTED"
@@ -34,4 +36,18 @@ class Source(str, Enum):
     BACKFILL = "backfill"
 
 
-__all__ = ["Source", "Stage"]
+class EventStatus(str, Enum):
+    """
+    Standardized status values for emitted events.
+
+    Values are persisted and validated by Pandera/DB contracts. Use ``.value`` when
+    storing to the database or serializing payloads.
+
+    """
+
+    SUCCESS = "success"
+    FAILED = "failed"
+    PARTIAL = "partial"
+
+
+__all__ = ["EventStatus", "Source", "Stage"]

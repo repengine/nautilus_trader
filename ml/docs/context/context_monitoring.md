@@ -5,6 +5,7 @@
 The ML monitoring infrastructure for Nautilus Trader provides comprehensive observability for machine learning components through a Prometheus/Grafana/AlertManager stack. This production-ready system offers real-time metrics collection, visualization, and alerting across data quality, feature engineering, model lifecycle, performance degradation, and resource utilization.
 
 Operational notes:
+
 - Include DB preflight status and engine pool telemetry in dashboards where useful. Preflight utility: `ml/stores/db_preflight.py`. Pool status: `EngineManager.get_pool_status()`.
 
 ### Key Features
@@ -160,36 +161,42 @@ Operational notes:
 ### Extended Collectors (Implemented)
 
 #### DataQualityCollector (ml/monitoring/collectors/data.py)
+
 - Data loading performance and cache efficiency
 - Missing values and data quality ratios
 - Outlier detection and validation failures
 - Data staleness and freshness monitoring
 
 #### FeatureEngineeringCollector (ml/monitoring/collectors/features.py)
+
 - Feature computation performance
 - Feature drift detection and scoring
 - Cache hit ratios and efficiency
 - Feature importance tracking
 
 #### ModelLifecycleCollector (ml/monitoring/collectors/model.py)
+
 - Model deployment metadata and versioning
 - Training duration and performance tracking
 - Model size and loading time monitoring
 - Model errors and deployment failures
 
 #### PerformanceDegradationCollector (ml/monitoring/collectors/performance.py)
+
 - Rolling accuracy and performance tracking
 - Prediction distribution shift detection
 - Inference timeout monitoring
 - Retraining requirement indicators
 
 #### ResourceUtilizationCollector (ml/monitoring/collectors/resources.py)
+
 - Memory and CPU utilization tracking
 - GPU utilization monitoring (when available)
 - Disk I/O and storage metrics
 - Feature store and model registry size
 
 #### RegistryHealthCollector (ml/monitoring/collectors/registry.py)
+
 - Registry operation metrics
 - Schema validation tracking
 - Manifest registration events
@@ -312,11 +319,13 @@ Operational notes:
 - Resource utilization display
 
 **Usage**:
+
 ```bash
 python ml/monitoring/realtime_dashboard.py
 ```
 
 The terminal dashboard provides:
+
 - Live data ingestion metrics (L0/L1/L2 symbols, size, rates)
 - Feature computation statistics
 - Model performance indicators
@@ -722,6 +731,7 @@ Pipeline health monitoring is implemented through SQL views (located in ml/store
 - **ml.data_quality_metrics**: Comprehensive quality tracking
 
 These views provide:
+
 - Nanosecond timestamp support with helper functions
 - Health scoring algorithms
 - Performance percentiles (P95, P99)
@@ -747,6 +757,7 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 ## Key Implementation Files
 
 ### Core Components
+
 - **ml/monitoring/__init__.py**: Package exports (MLMetricsCollector, MetricsServer, MonitoringConfig)
 - **ml/monitoring/collector.py**: Main MLMetricsCollector implementation
 - **ml/monitoring/_config.py**: MonitoringConfig dataclass
@@ -754,6 +765,7 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 - **ml/common/metrics.py**: Centralized Prometheus metrics definitions
 
 ### Specialized Collectors
+
 - **ml/monitoring/collectors/base.py**: BaseMetricsCollector abstract class
 - **ml/monitoring/collectors/data.py**: DataQualityCollector
 - **ml/monitoring/collectors/features.py**: FeatureEngineeringCollector
@@ -763,17 +775,20 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 - **ml/monitoring/collectors/registry.py**: RegistryHealthCollector
 
 ### Dashboards and Visualization
+
 - **ml/monitoring/realtime_dashboard.py**: Terminal-based real-time dashboard
 - **ml/monitoring/dashboard_factory.py**: Programmatic dashboard generation
 - **ml/monitoring/grafana_client.py**: Grafana API client
 - **ml/monitoring/grafana/dashboards/**: JSON dashboard definitions
 
 ### Health Monitoring
+
 - **ml/scripts/check_pipeline_health.py**: Pipeline health check script
 - **ml/stores/migrations/005_views.sql**: SQL health monitoring views
 - **ml/stores/migrations/005_views.sql**: Monitoring views (canonical)
 
 ### Configuration
+
 - **ml/monitoring/docker-compose.yml**: Standalone monitoring stack (optional)
 - **ml/monitoring/prometheus/prometheus.yml**: Prometheus configuration
 - **ml/monitoring/alertmanager/alertmanager.yml**: Alert routing configuration
@@ -790,6 +805,7 @@ This monitoring infrastructure provides the foundation for production-ready ML s
 - **Deployment**: See `context_deployment.md` for containerization
 - **Actors**: See `context_actors.md` for inference actors
 - **Models**: See `context_models.md` for model implementations
+
 ### Health Summary
 
 - `MLIntegrationManager.aggregate_health()` aggregates per-component health into domain and system summaries using the universal protocol.

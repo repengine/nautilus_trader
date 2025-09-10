@@ -17,17 +17,18 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ContextManager, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic
-from ml.common.message_topics import map_stage_to_topic_segments
+from ml.common.message_topics import build_topic_for_stage
 from ml.common.protocols import MLComponentMixin
+from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.dataclasses import DataContract
@@ -58,19 +59,15 @@ logger = logging.getLogger(__name__)
 
 
 class _CounterLike(Protocol):
-    def labels(self, **kwargs: object) -> _CounterLike:
-        ...
+    def labels(self, **kwargs: object) -> _CounterLike: ...
 
-    def inc(self, *args: object, **kwargs: object) -> None:
-        ...
+    def inc(self, *args: object, **kwargs: object) -> None: ...
 
 
 class _HistogramLike(Protocol):
-    def labels(self, **kwargs: object) -> _HistogramLike:
-        ...
+    def labels(self, **kwargs: object) -> _HistogramLike: ...
 
-    def observe(self, *args: object, **kwargs: object) -> None:
-        ...
+    def observe(self, *args: object, **kwargs: object) -> None: ...
 
 
 class _NoOpMetric:
@@ -318,6 +315,7 @@ class DataStore(MLComponentMixin):
                 from ml.registry.data_registry import DataRegistry
                 from ml.registry.persistence import BackendType
                 from ml.registry.persistence import PersistenceConfig
+
                 persistence_config = PersistenceConfig(
                     backend=BackendType.POSTGRES,
                     connection_string=connection_string,
@@ -359,6 +357,17 @@ class DataStore(MLComponentMixin):
         self.batch_size = batch_size
         self.allow_schema_migration = allow_schema_migration
         self.schema_migration_window_hours = schema_migration_window_hours
+
+        # Topic scheme/prefix (env-driven defaults for bus publishing parity)
+        try:
+            from ml.config.bus import MessageBusConfig as _MBC
+
+            _cfg = _MBC.from_env()
+            self._topic_scheme: str = str(_cfg.scheme)
+            self._topic_prefix: str = str(_cfg.topic_prefix)
+        except Exception:  # pragma: no cover - defensive
+            self._topic_scheme = "domain_op"
+            self._topic_prefix = "events.ml"
 
         # Initialize underlying stores
         self.feature_store = feature_store or FeatureStore(connection_string)
@@ -428,11 +437,12 @@ class DataStore(MLComponentMixin):
         count : int
             Number of records processed.
         status : str
-            Status string ("success", "failed", or "partial").
+            Status string (EventStatus.value: "success", "failed", or "partial").
         error : str | None
             Error message if status is failed.
         metadata : dict[str, Any] | None
             Additional metadata to attach to the event.
+
         """
         stage_val = stage.value if isinstance(stage, Stage) else str(stage)
         # Normalize source to allowed values
@@ -469,10 +479,14 @@ class DataStore(MLComponentMixin):
             metadata=event_metadata,
         )
 
-        # Optionally publish to message bus using canonical topic
+        # Optionally publish to message bus using selected topic scheme
         if self.publisher is not None:
-            domain, operation = map_stage_to_topic_segments(Stage(stage_val))
-            topic = build_topic(domain, operation, instrument_id)
+            topic = build_topic_for_stage(
+                Stage(stage_val),
+                instrument_id,
+                scheme=self._topic_scheme,
+                prefix=self._topic_prefix,
+            )
             payload: dict[str, Any] = {
                 "dataset_id": dataset_id,
                 "instrument_id": instrument_id,
@@ -881,7 +895,7 @@ class DataStore(MLComponentMixin):
                 ts_min=ts_min,
                 ts_max=ts_max,
                 record_count=len(df),
-                status="success",
+                status=EventStatus.SUCCESS.value,
                 metadata={
                     "quality_score": quality_report.quality_score,
                     "processing_time_ms": (time.perf_counter() - start_time) * 1000,
@@ -898,7 +912,7 @@ class DataStore(MLComponentMixin):
                 ts_min=ts_min,
                 ts_max=ts_max,
                 count=len(df),
-                status="success",
+                status=EventStatus.SUCCESS.value,
             )
 
             # Update watermark (test hook patchable via _update_watermark)
@@ -932,7 +946,7 @@ class DataStore(MLComponentMixin):
                 ts_min=ts_min if "ts_min" in locals() else 0,
                 ts_max=ts_max if "ts_max" in locals() else 0,
                 record_count=0,
-                status="failed",
+                status=EventStatus.FAILED.value,
                 error_message=str(e),
             )
 
@@ -946,7 +960,7 @@ class DataStore(MLComponentMixin):
                 ts_min=0,
                 ts_max=0,
                 count=0,
-                status="failed",
+                status=EventStatus.FAILED.value,
                 error=str(e),
             )
 
@@ -1022,7 +1036,7 @@ class DataStore(MLComponentMixin):
         ts_min = min(f.ts_event for f in features)
         ts_max = max(f.ts_event for f in features)
 
-            # Create event and emit/update registry watermarks
+        # Create event and emit/update registry watermarks
         event = DataEvent(
             event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
             dataset_id=dataset_id,
@@ -1033,7 +1047,7 @@ class DataStore(MLComponentMixin):
             ts_min=ts_min,
             ts_max=ts_max,
             record_count=len(features),
-            status="success",
+            status=EventStatus.SUCCESS.value,
         )
         self._emit_success_event_and_update(
             dataset_id=dataset_id,
@@ -1117,7 +1131,7 @@ class DataStore(MLComponentMixin):
             ts_min=ts_min,
             ts_max=ts_max,
             record_count=len(predictions),
-            status="success",
+            status=EventStatus.SUCCESS.value,
             metadata={"model_id": model_id},
         )
         self._emit_success_event_and_update(
@@ -1207,7 +1221,7 @@ class DataStore(MLComponentMixin):
             ts_min=ts_min,
             ts_max=ts_max,
             record_count=len(signals),
-            status="success",
+            status=EventStatus.SUCCESS.value,
             metadata={"strategy_id": strategy_id},
         )
         self._emit_success_event_and_update(
@@ -1232,8 +1246,6 @@ class DataStore(MLComponentMixin):
     # ---------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------
-
-
 
     def _emit_success_event_and_update(
         self,
@@ -1271,7 +1283,7 @@ class DataStore(MLComponentMixin):
                 ts_min=ts_min,
                 ts_max=ts_max,
                 count=count,
-                status="success",
+                status=EventStatus.SUCCESS.value,
                 metadata={"correlation_id": correlation_id},
             )
             self.registry.update_watermark(
@@ -1283,13 +1295,22 @@ class DataStore(MLComponentMixin):
                 completeness_pct=completeness_pct,
             )
 
-            # Optionally publish to message bus using canonical topic mapping
+            # Optionally publish to message bus using selected topic mapping
             if self.publisher is not None:
                 try:
-                    domain, operation = map_stage_to_topic_segments(Stage(stage))
+                    topic = build_topic_for_stage(
+                        Stage(stage),
+                        instrument_id,
+                        scheme=self._topic_scheme,
+                        prefix=self._topic_prefix,
+                    )
                 except Exception:
-                    domain, operation = ("data", "updated")
-                topic = build_topic(domain, operation, instrument_id)
+                    topic = build_topic_for_stage(
+                        Stage.CATALOG_WRITTEN,
+                        instrument_id,
+                        scheme=self._topic_scheme,
+                        prefix=self._topic_prefix,
+                    )
                 payload: dict[str, Any] = {
                     "dataset_id": dataset_id,
                     "instrument_id": instrument_id,
@@ -1634,7 +1655,8 @@ class DataStore(MLComponentMixin):
 
         # Convert list of dicts to DataFrame
         if isinstance(data, list) and data and isinstance(data[0], dict):
-            return pl.DataFrame(data)
+            # Cast to DataFrameLike for strict typing compliance
+            return cast(DataFrameLike, pl.DataFrame(data))
 
         # Return as is for other formats
         return data
@@ -2484,7 +2506,7 @@ class DataStore(MLComponentMixin):
 
     def _begin_transaction(
         self,
-    ) -> ContextManager[object]:  # pragma: no cover (test hook for patching)
+    ) -> AbstractContextManager[object]:  # pragma: no cover (test hook for patching)
         """
         Return a no-op context manager for tests to patch.
         """

@@ -803,7 +803,7 @@ def ib_contract_to_instrument_id(
         raise NotImplementedError(f"{symbology_method} not implemented")
 
 
-def ib_contract_to_instrument_id_simplified_symbology(  # noqa: C901 (too complex)
+def ib_contract_to_instrument_id_simplified_symbology(
     contract: IBContract,
     venue: str,
     contract_details_map: dict[int, IBContractDetails] | None = None,
@@ -947,7 +947,7 @@ def instrument_id_to_ib_contract(
         raise NotImplementedError(f"{symbology_method} not implemented")
 
 
-def instrument_id_to_ib_contract_simplified_symbology(  # noqa: C901 (too complex)
+def instrument_id_to_ib_contract_simplified_symbology(
     instrument_id: InstrumentId,
     exchange: str,
     contract_details_map: dict[InstrumentId, IBContractDetails] | None = None,

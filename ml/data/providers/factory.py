@@ -387,7 +387,10 @@ class TransformProviderAdapter:
         if transform.name == "calendar":
             return cast(pl.DataFrame, provider.compute_features(timestamps))
         elif transform.name == "event_schedule":
-            return cast(pl.DataFrame, provider.compute_features(timestamps, instruments=instruments))
+            return cast(
+                pl.DataFrame,
+                provider.compute_features(timestamps, instruments=instruments),
+            )
         else:
             return provider.load_timeseries(instruments, timestamps)
 
@@ -401,10 +404,15 @@ class TransformProviderAdapter:
         Load data from custom/mock providers.
         """
         if hasattr(provider, "compute_features"):
-            return cast(pl.DataFrame, provider.compute_features(timestamps, instruments=instruments))
+            return cast(
+                pl.DataFrame,
+                provider.compute_features(timestamps, instruments=instruments),
+            )
         elif hasattr(provider, "load_timeseries"):
             if timestamps is None:
-                logger.warning("No timestamps provided for time series provider; returning empty DataFrame")
+                logger.warning(
+                    "No timestamps provided for time series provider; returning empty DataFrame",
+                )
                 return pl.DataFrame()
             return provider.load_timeseries(instruments, timestamps)
         elif hasattr(provider, "load_metadata"):

@@ -1,9 +1,10 @@
 """
 Lightweight database preflight checks for ML stores.
 
-Verifies presence of required SQL functions and current-month partitions
-for time-partitioned tables. Intended for optional use at service startup
-or in operational scripts.
+Verifies presence of required SQL functions and current-month partitions for time-
+partitioned tables. Intended for optional use at service startup or in operational
+scripts.
+
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
     Checks:
     - Required SQL functions exist
     - Current-month partition exists for partitioned tables
+
     """
     engine = EngineManager.get_engine(connection_string)
     summary: dict[str, bool | str] = {"ok": True}
@@ -90,4 +92,3 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
         summary["error"] = str(e)
 
     return summary
-

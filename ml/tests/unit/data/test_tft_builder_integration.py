@@ -41,7 +41,7 @@ def test_tft_builder_macro_and_micro(monkeypatch, tmp_path) -> None:
             base2 = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
             ts2 = [base2 + timedelta(minutes=i) for i in range(5)]
             return pl.DataFrame(
-                {"timestamp": ts2, "midprice": [100.05, 100.1, 100.2, 100.3, 100.4]}
+                {"timestamp": ts2, "midprice": [100.05, 100.1, 100.2, 100.3, 100.4]},
             )
 
     import ml.features.micro_aggregate as micro_mod

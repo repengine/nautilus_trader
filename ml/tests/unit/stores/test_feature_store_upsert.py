@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, Column, MetaData, Table
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import JSON
+from sqlalchemy import Column
+from sqlalchemy import MetaData
+from sqlalchemy import Table
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import insert
 
 
 def test_upsert_uses_bracket_style_for_values() -> None:
@@ -10,6 +13,7 @@ def test_upsert_uses_bracket_style_for_values() -> None:
     Ensure upsert compiles when referencing EXCLUDED["values"].
 
     Using attribute access can break for reserved column names like "values".
+
     """
     md = MetaData()
     tbl = Table(
@@ -22,13 +26,15 @@ def test_upsert_uses_bracket_style_for_values() -> None:
         Column("values", JSON),
     )
 
-    stmt = insert(tbl).values({
-        "feature_set_id": "f",
-        "instrument_id": "i",
-        "ts_event": 1,
-        "ts_init": 1,
-        "values": {},
-    })
+    stmt = insert(tbl).values(
+        {
+            "feature_set_id": "f",
+            "instrument_id": "i",
+            "ts_event": 1,
+            "ts_init": 1,
+            "values": {},
+        },
+    )
 
     stmt = stmt.on_conflict_do_update(
         index_elements=["feature_set_id", "instrument_id", "ts_event"],
@@ -40,4 +46,3 @@ def test_upsert_uses_bracket_style_for_values() -> None:
 
     # Compilation to PostgreSQL dialect should not raise
     _ = str(stmt.compile(dialect=postgresql.dialect()))
-

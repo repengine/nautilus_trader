@@ -10,14 +10,25 @@ from sqlalchemy import inspect
 from ml.observability.migrations import apply_observability_indices
 
 
+_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+
+
+def _pg_available(url: str) -> bool:
+    try:
+        eng = create_engine(url)
+        with eng.connect() as conn:
+            conn.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
 @pytest.mark.skipif(
-    os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test"
-    ).startswith("sqlite"),
-    reason="PostgreSQL not available",
+    not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
+    reason="PostgreSQL not reachable",
 )
 def test_apply_observability_indices_creates_brin_and_composites() -> None:
-    url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test")
+    url = os.getenv("DATABASE_URL", _DEFAULT_URL)
     eng = create_engine(url)
 
     # Ensure tables exist (empty frames are fine)
@@ -32,7 +43,7 @@ def test_apply_observability_indices_creates_brin_and_composites() -> None:
                     "ts_stage_end": 2,
                     "stage_latency_ns": 1,
                     "cumulative_latency_ns": 1,
-                }
+                },
             ],
         ).to_sql("obs_latency_watermarks", conn, if_exists="append", index=False)
         pd.DataFrame(
@@ -43,8 +54,8 @@ def test_apply_observability_indices_creates_brin_and_composites() -> None:
                     "value": 1.0,
                     "timestamp": 1,
                     "labels": "{}",
-                }
-            ]
+                },
+            ],
         ).to_sql(
             "obs_metrics",
             conn,
@@ -63,7 +74,7 @@ def test_apply_observability_indices_creates_brin_and_composites() -> None:
                     "ts_event": 1,
                     "propagation_path": "[]",
                 },
-            ]
+            ],
         ).to_sql("obs_event_correlation", conn, if_exists="append", index=False)
         pd.DataFrame(
             [
@@ -75,7 +86,7 @@ def test_apply_observability_indices_creates_brin_and_composites() -> None:
                     "measurement_window_ms": 1000,
                     "alert_threshold": 0.8,
                 },
-            ]
+            ],
         ).to_sql("obs_health_scores", conn, if_exists="append", index=False)
 
     apply_observability_indices(eng)

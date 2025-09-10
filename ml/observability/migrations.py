@@ -95,7 +95,7 @@ def ensure_monthly_partitions(engine: Engine, table: str, ts_col: str) -> None:
             # Fallback if template not present: define minimal schema with ts column
             conn.execute(
                 text(
-                    f"DO $$ BEGIN\n"  # noqa: S608
+                    f"DO $$ BEGIN\n"
                     f"IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{table}') THEN\n"
                     f"EXECUTE 'CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})';\n"
                     f"END IF;\nEND $$;",
@@ -113,23 +113,23 @@ def ensure_monthly_partitions(engine: Engine, table: str, ts_col: str) -> None:
                 ).scalar_one(),
             )
             if not is_partitioned:
-                rowcount = conn.execute(text(f"SELECT COUNT(1) FROM {table}"))  # noqa: S608
+                rowcount = conn.execute(text(f"SELECT COUNT(1) FROM {table}"))
                 rowcount = rowcount.scalar_one()
                 if int(rowcount or 0) == 0:
                     conn.execute(text(f"DROP TABLE {table} CASCADE"))
                     # Create partitioned parent
                     conn.execute(
                         text(
-                            f"CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})"
-                        )
+                            f"CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})",
+                        ),
                     )
                     is_partitioned = True
         else:
             # Fresh create
             conn.execute(
                 text(
-                    f"CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})"
-                )
+                    f"CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})",
+                ),
             )
             is_partitioned = True
 
@@ -154,8 +154,8 @@ def ensure_monthly_partitions(engine: Engine, table: str, ts_col: str) -> None:
             # BRIN index on partition child
             conn.execute(
                 text(
-                    f"CREATE INDEX IF NOT EXISTS {part_name}_{ts_col}_brin ON {part_name} USING BRIN ({ts_col})"
-                )
+                    f"CREATE INDEX IF NOT EXISTS {part_name}_{ts_col}_brin ON {part_name} USING BRIN ({ts_col})",
+                ),
             )
 
 

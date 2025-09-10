@@ -42,9 +42,19 @@ from ml._imports import check_ml_dependencies
 from ml._imports import ort
 from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
+from ml.actors.ml_domain_events import DomainEventBridge
+from ml.common.correlation import make_correlation_id
+from ml.common.message_bus import publisher_from_config
+from ml.common.message_topics import build_topic_for_stage
+from ml.common.throttler import Throttler
+from ml.config.actor_bus import ActorBusConfig
 from ml.config.actors import MLSignalActorConfig as _BaseMLSignalActorConfig
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
+from ml.config.bus import MessageBusConfig
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
 from ml.config.names import FEATURE_TIME_BUCKETS
 from ml.config.names import LABEL_ACTOR_ID
 from ml.config.names import LABEL_FEATURE_SET_ID
@@ -75,6 +85,10 @@ if TYPE_CHECKING:
 # NOTE: We provide a local subclass to add optional test-friendly fields while keeping
 # compatibility with the base config used by the platform.
 class MLSignalActorConfig(_BaseMLSignalActorConfig, kw_only=True, frozen=True):
+    """
+    Signal actor configuration with optional test-friendly actor_id.
+    """
+
     actor_id: str | None = None
 
 
@@ -959,9 +973,15 @@ class MLSignalActor(BaseMLInferenceActor):
         # - Else, if db_connection differs from the default, treat as explicit and persist
         # - Else, do not persist by default (backward compatibility)
         default_conn = "postgresql://postgres:postgres@localhost:5432/nautilus"
-        has_use_flag = hasattr(config, "use_feature_store") and bool(getattr(config, "use_feature_store"))
-        db_conn_val = getattr(config, "db_connection", "") if hasattr(config, "db_connection") else ""
-        is_explicit_conn = isinstance(db_conn_val, str) and db_conn_val and db_conn_val != default_conn
+        has_use_flag = hasattr(config, "use_feature_store") and bool(
+            getattr(config, "use_feature_store"),
+        )
+        db_conn_val = (
+            getattr(config, "db_connection", "") if hasattr(config, "db_connection") else ""
+        )
+        is_explicit_conn = (
+            isinstance(db_conn_val, str) and db_conn_val and db_conn_val != default_conn
+        )
         if has_use_flag:
             self._persist_features = bool(getattr(config, "persist_features", True))
         elif hasattr(config, "persist_features") and getattr(config, "persist_features") is False:
@@ -1070,6 +1090,55 @@ class MLSignalActor(BaseMLInferenceActor):
         # Optimized components (lazy initialized)
         self._optimized_buffers: dict[str, Any] = {}
 
+        # Optional actor-side message bus bridge (off by default)
+        self._actor_bus_bridge: DomainEventBridge | None = None
+        self._topic_scheme: str = "domain_op"
+        self._topic_prefix: str = "events.ml"
+        try:
+            _actor_bus_cfg = ActorBusConfig.from_env()
+            _bus_cfg = MessageBusConfig.from_env()
+            # Honor actor-path publishing only when explicitly enabled and bus enabled
+            if _actor_bus_cfg.from_actor and _bus_cfg.enabled:
+                pub = publisher_from_config(_bus_cfg)
+                throttler = (
+                    Throttler(
+                        rate_per_sec=float(_actor_bus_cfg.throttle_rate_per_sec),
+                        burst=int(_actor_bus_cfg.throttle_burst),
+                    )
+                    if _actor_bus_cfg.throttle_enabled
+                    else None
+                )
+                bridge = DomainEventBridge(pub, max_queue=4096, throttler=throttler)
+                bridge.start()
+                self._actor_bus_bridge = bridge
+                # Select topic scheme/prefix from actor config
+                self._topic_scheme = str(_actor_bus_cfg.scheme)
+                self._topic_prefix = str(_actor_bus_cfg.prefix)
+                # Mutual exclusion: disable store-path publishers to avoid duplicate publishes
+                try:
+                    stores = [
+                        getattr(self, "_feature_store", None),
+                        getattr(self, "_model_store", None),
+                        getattr(self, "_strategy_store", None),
+                        getattr(self, "_data_store", None),
+                    ]
+                    for st in stores:
+                        if st is None:
+                            continue
+                        if hasattr(st, "publisher"):
+                            setattr(st, "publisher", None)
+                        # Best-effort; attribute may not exist
+                        if hasattr(st, "_enable_publishing"):
+                            try:
+                                setattr(st, "_enable_publishing", False)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception:
+            # Keep optional components best-effort and off hot path
+            self._actor_bus_bridge = None
+
         # Handle both enum and string for logging
         strategy_name = config.signal_strategy
         if isinstance(strategy_name, SignalStrategy):
@@ -1079,6 +1148,66 @@ class MLSignalActor(BaseMLInferenceActor):
             f"Initialized MLSignalActor with strategy: {strategy_name}, optimization: {self._opt_config.level}, features: {n_features}",
         )
 
+    def _publish_signal(self, signal: MLSignal) -> None:
+        """
+        Publish ML signal to Nautilus and optionally enqueue a domain event on the actor
+        bus.
+
+        This override preserves the base behavior (Nautilus publish) and, when the
+        actor-side bridge is configured via environment, enqueues a SIGNAL_EMITTED event
+        to the configured message bus without blocking the actor thread.
+
+        """
+        # Preserve existing publish behavior
+        super()._publish_signal(signal)
+
+        # Optional actor-side bus publish (non-blocking)
+        bridge = self._actor_bus_bridge
+        if bridge is None:
+            return
+        try:
+            instrument = str(signal.instrument_id)
+            stage = Stage.SIGNAL_EMITTED
+            topic = build_topic_for_stage(
+                stage,
+                instrument,
+                scheme=self._topic_scheme,
+                prefix=self._topic_prefix,
+            )
+
+            # Construct deterministic correlation id
+            run_id = f"actor_{self.id or 'unknown'}"
+            ts_e = int(getattr(signal, "ts_event", 0))
+            ts_i = int(getattr(signal, "ts_init", ts_e))
+            corr_id = make_correlation_id(
+                run_id=run_id,
+                dataset_id="signals",
+                instrument_id=instrument,
+                ts_min=ts_e,
+                ts_max=ts_e,
+                count=1,
+            )
+            payload: dict[str, Any] = {
+                "dataset_id": "signals",
+                "instrument_id": instrument,
+                "stage": stage.value,
+                "source": Source.LIVE.value,
+                "run_id": run_id,
+                "ts_min": ts_e,
+                "ts_max": ts_e,
+                "count": 1,
+                "status": EventStatus.SUCCESS.value,
+                "metadata": {
+                    "correlation_id": corr_id,
+                    "ts_init": ts_i,
+                    "model_id": getattr(signal, "model_id", "unknown"),
+                },
+            }
+            bridge.publish(topic, payload)
+        except Exception:
+            # Do not impact hot path
+            return
+
     def get_signal_statistics(self) -> dict[str, Any]:
         """
         Return lightweight runtime statistics for testing and diagnostics.
@@ -1087,6 +1216,7 @@ class MLSignalActor(BaseMLInferenceActor):
         -------
         dict[str, Any]
             A dictionary including bars processed and performance counters.
+
         """
         stats: dict[str, Any] = {}
         # Bars processed is tracked by the base class; fall back to 0 if missing
@@ -1611,6 +1741,7 @@ class MLSignalActor(BaseMLInferenceActor):
         -------
         bool
             True if hot reload is enabled and it's time to check for updates.
+
         """
         if not self._config.enable_hot_reload:
             return False
@@ -1654,6 +1785,7 @@ class MLSignalActor(BaseMLInferenceActor):
         ----------
         error : Exception
             The error that occurred during prediction.
+
         """
         self.log.error(f"Prediction error: {error}")
 
@@ -1694,6 +1826,7 @@ class MLSignalActor(BaseMLInferenceActor):
         ----------
         bar : Bar
             The current bar.
+
         """
         # Simple regime detection based on volatility
         if hasattr(self, "_volatility_window"):
@@ -1720,6 +1853,7 @@ class MLSignalActor(BaseMLInferenceActor):
             The confidence score.
         bar : Bar
             The current bar.
+
         """
         # Update prediction window
         if hasattr(self, "_prediction_window"):
@@ -1732,7 +1866,9 @@ class MLSignalActor(BaseMLInferenceActor):
         # Update volatility window with price change
         if hasattr(self, "_volatility_window") and hasattr(self, "_last_close_price"):
             price_change = (
-                abs(bar.close.as_double() - self._last_close_price) if self._last_close_price is not None else 0.0
+                abs(bar.close.as_double() - self._last_close_price)
+                if self._last_close_price is not None
+                else 0.0
             )
             self._volatility_window[self._window_index] = price_change
 

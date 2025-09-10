@@ -3,6 +3,7 @@
 Emit a JSONL symbol index for Python files under `ml/`.
 
 Each line: {kind: class|function, name, file, lineno, col_offset, ...}
+
 """
 from __future__ import annotations
 
@@ -32,8 +33,10 @@ def index_file(path: Path) -> list[dict[str, Any]]:
                     "lineno": node.lineno,
                     "col_offset": node.col_offset,
                     "args": [a.arg for a in node.args.args],
-                    "returns": ast.unparse(node.returns) if getattr(node, "returns", None) else None,
-                }
+                    "returns": (
+                        ast.unparse(node.returns) if getattr(node, "returns", None) else None
+                    ),
+                },
             )
         elif isinstance(node, ast.ClassDef):
             items.append(
@@ -44,7 +47,7 @@ def index_file(path: Path) -> list[dict[str, Any]]:
                     "lineno": node.lineno,
                     "col_offset": node.col_offset,
                     "bases": [ast.unparse(b) for b in node.bases],
-                }
+                },
             )
     return items
 
@@ -58,4 +61,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

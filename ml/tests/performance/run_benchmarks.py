@@ -8,6 +8,7 @@ production latency requirements.
 
 Usage:
     python ml/tests/performance/run_benchmarks.py
+
 """
 
 import subprocess
@@ -16,7 +17,9 @@ from pathlib import Path
 
 
 def run_benchmarks():
-    """Run all ML hot path benchmarks and generate report."""
+    """
+    Run all ML hot path benchmarks and generate report.
+    """
     print("=" * 80)
     print("ML HOT PATH PERFORMANCE BENCHMARK REPORT")
     print("=" * 80)
@@ -98,7 +101,9 @@ def run_benchmarks():
 
 
 def run_memory_tests():
-    """Run memory allocation and leak detection tests."""
+    """
+    Run memory allocation and leak detection tests.
+    """
     print("\n" + "=" * 80)
     print("MEMORY ALLOCATION TESTS")
     print("=" * 80)
@@ -142,7 +147,9 @@ def run_memory_tests():
 
 
 def main():
-    """Main entry point."""
+    """
+    Main entry point.
+    """
     print("\nStarting ML Hot Path Performance Validation\n")
 
     # Run performance benchmarks

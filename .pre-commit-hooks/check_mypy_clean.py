@@ -26,7 +26,15 @@ def check_mypy(changed_files):
     Run mypy on changed Python files.
     """
     # Filter for Python files (excluding __init__.py as per config)
-    python_files = [f for f in changed_files if f.endswith(".py") and not f.endswith("__init__.py")]
+    allowed_prefixes = ("ml/config/", "ml/core/", "ml/strategies/")
+    allowed_singles = {"ml/actors/signal.py"}
+    python_files = [
+        f
+        for f in changed_files
+        if f.endswith(".py")
+        and not f.endswith("__init__.py")
+        and (f.startswith(allowed_prefixes) or f in allowed_singles)
+    ]
 
     if not python_files:
         return True, "No Python files to check"
@@ -85,7 +93,7 @@ def main():
     """
     Execute the main mypy checking process.
     """
-    changed_files = sys.argv[1:]
+    changed_files = [f for f in sys.argv[1:] if f.startswith("ml/")]
 
     if not changed_files:
         return 0

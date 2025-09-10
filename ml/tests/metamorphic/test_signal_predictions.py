@@ -1,8 +1,9 @@
 """
 Metamorphic tests for signal predictions.
 
-These tests verify that ML predictions and signals maintain expected relationships
-under controlled transformations, without requiring exact output values.
+These tests verify that ML predictions and signals maintain expected relationships under
+controlled transformations, without requiring exact output values.
+
 """
 
 from __future__ import annotations
@@ -29,13 +30,15 @@ from nautilus_trader.model.identifiers import Venue
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestSignalPredictionMetamorphic:
-    """Metamorphic tests for signal generation and predictions."""
+    """
+    Metamorphic tests for signal generation and predictions.
+    """
 
     @given(
         base_features=st.lists(
             st.floats(min_value=-2.0, max_value=2.0, allow_nan=False),
             min_size=10,
-            max_size=50
+            max_size=50,
         ),
         time_shift=st.integers(min_value=1, max_value=10),
     )
@@ -63,14 +66,14 @@ class TestSignalPredictionMetamorphic:
             pred_original,
             pred_shifted,
             rtol=1e-10,
-            err_msg="Time shift affected predictions for stationary features"
+            err_msg="Time shift affected predictions for stationary features",
         )
 
     @given(
         features=st.lists(
             st.floats(min_value=-2.0, max_value=2.0, allow_nan=False),
             min_size=10,
-            max_size=50
+            max_size=50,
         ),
         confidence_threshold=st.floats(min_value=0.1, max_value=0.9),
     )
@@ -98,15 +101,16 @@ class TestSignalPredictionMetamorphic:
 
         # Metamorphic relation: Higher confidence -> stronger or equal signal
         if confidence_threshold < high_confidence_pred:
-            assert abs(high_signal) >= abs(low_signal), \
-                "Higher confidence should produce stronger or equal signal"
+            assert abs(high_signal) >= abs(
+                low_signal,
+            ), "Higher confidence should produce stronger or equal signal"
 
     @given(
         n_models=st.integers(min_value=2, max_value=5),
         features=st.lists(
             st.floats(min_value=-2.0, max_value=2.0, allow_nan=False),
             min_size=10,
-            max_size=30
+            max_size=30,
         ),
     )
     @settings(max_examples=30, deadline=5000)
@@ -132,8 +136,9 @@ class TestSignalPredictionMetamorphic:
         # 1. Ensemble should be within bounds of individual predictions
         min_pred = min(individual_predictions)
         max_pred = max(individual_predictions)
-        assert min_pred <= ensemble_pred <= max_pred, \
-            f"Ensemble prediction {ensemble_pred} outside bounds [{min_pred}, {max_pred}]"
+        assert (
+            min_pred <= ensemble_pred <= max_pred
+        ), f"Ensemble prediction {ensemble_pred} outside bounds [{min_pred}, {max_pred}]"
 
         # 2. Ensemble variance should be less than or equal to max individual variance
         individual_variance = np.var(individual_predictions)
@@ -145,7 +150,7 @@ class TestSignalPredictionMetamorphic:
         scale_factors=st.lists(
             st.floats(min_value=0.5, max_value=2.0),
             min_size=2,
-            max_size=5
+            max_size=5,
         ),
     )
     @settings(max_examples=30, deadline=5000)
@@ -169,8 +174,9 @@ class TestSignalPredictionMetamorphic:
                 if abs(base_prediction) < tiny or abs(pred) < tiny:
                     # Treat as effectively zero; sign is not meaningful
                     continue
-                assert np.sign(pred) == np.sign(base_prediction) or base_prediction == 0, \
-                    "Scaling should preserve prediction sign"
+                assert (
+                    np.sign(pred) == np.sign(base_prediction) or base_prediction == 0
+                ), "Scaling should preserve prediction sign"
 
         # 2. Relative ordering should be preserved
         sorted_scales = sorted(scale_factors)
@@ -181,17 +187,19 @@ class TestSignalPredictionMetamorphic:
         # Check monotonicity (considering clipping)
         for i in range(len(clipped_sorted) - 1):
             if base_prediction >= 0:
-                assert clipped_sorted[i] <= clipped_sorted[i+1], \
-                    "Positive predictions should maintain order after scaling"
+                assert (
+                    clipped_sorted[i] <= clipped_sorted[i + 1]
+                ), "Positive predictions should maintain order after scaling"
             else:
-                assert clipped_sorted[i] >= clipped_sorted[i+1], \
-                    "Negative predictions should maintain reverse order after scaling"
+                assert (
+                    clipped_sorted[i] >= clipped_sorted[i + 1]
+                ), "Negative predictions should maintain reverse order after scaling"
 
     @given(
         features=st.lists(
             st.floats(min_value=-2.0, max_value=2.0, allow_nan=False),
             min_size=20,
-            max_size=50
+            max_size=50,
         ),
         noise_std=st.floats(min_value=0.01, max_value=0.5),
     )
@@ -206,7 +214,7 @@ class TestSignalPredictionMetamorphic:
         # Mock model with simple linear behavior
         mock_model = MagicMock()
         mock_model.predict = MagicMock(
-            side_effect=lambda x: np.tanh(np.mean(x, axis=1))  # Bounded output
+            side_effect=lambda x: np.tanh(np.mean(x, axis=1)),  # Bounded output
         )
 
         # Original prediction
@@ -223,18 +231,21 @@ class TestSignalPredictionMetamorphic:
         # For tanh activation, sensitivity is at most 1
         max_expected_change = min(1.0, noise_std * 2)  # Heuristic bound
 
-        assert prediction_change <= max_expected_change, \
-            f"Prediction changed too much ({prediction_change:.3f}) for noise level {noise_std:.3f}"
+        assert (
+            prediction_change <= max_expected_change
+        ), f"Prediction changed too much ({prediction_change:.3f}) for noise level {noise_std:.3f}"
 
 
 class TestSignalThresholdMetamorphic:
-    """Test metamorphic properties of signal thresholding."""
+    """
+    Test metamorphic properties of signal thresholding.
+    """
 
     @given(
         predictions=st.lists(
             st.floats(min_value=-1.0, max_value=1.0),
             min_size=10,
-            max_size=100
+            max_size=100,
         ),
         base_threshold=st.floats(min_value=0.1, max_value=0.5),
         threshold_delta=st.floats(min_value=0.05, max_value=0.3),
@@ -258,16 +269,18 @@ class TestSignalThresholdMetamorphic:
         signals_high = np.sum(confidences > threshold_high)
 
         # Metamorphic relation: Higher threshold -> fewer or equal signals
-        assert signals_high <= signals_low, \
-            f"Higher threshold ({threshold_high:.2f}) produced more signals than lower ({threshold_low:.2f})"
+        assert (
+            signals_high <= signals_low
+        ), f"Higher threshold ({threshold_high:.2f}) produced more signals than lower ({threshold_low:.2f})"
 
         # Additional property: Signal subset relationship
         signals_mask_low = confidences > threshold_low
         signals_mask_high = confidences > threshold_high
 
         # All high-threshold signals should also be low-threshold signals
-        assert np.all(signals_mask_high <= signals_mask_low), \
-            "High threshold signals should be subset of low threshold signals"
+        assert np.all(
+            signals_mask_high <= signals_mask_low,
+        ), "High threshold signals should be subset of low threshold signals"
 
     @given(
         n_instruments=st.integers(min_value=2, max_value=10),
@@ -307,14 +320,15 @@ class TestSignalThresholdMetamorphic:
             agreement = np.mean(signals1 == signals2)
 
             # High correlation should lead to high agreement
-            assert agreement > 0.5, \
-                f"High correlation ({correlation:.2f}) should produce similar signals (agreement: {agreement:.2f})"
+            assert (
+                agreement > 0.5
+            ), f"High correlation ({correlation:.2f}) should produce similar signals (agreement: {agreement:.2f})"
 
     @given(
         prediction_sequence=st.lists(
             st.floats(min_value=-1.0, max_value=1.0),
             min_size=20,
-            max_size=100
+            max_size=100,
         ),
         lookback=st.integers(min_value=3, max_value=10),
     )
@@ -333,7 +347,7 @@ class TestSignalThresholdMetamorphic:
         # Smoothed signals (require persistence over lookback period)
         smoothed_signals = np.zeros_like(raw_signals, dtype=bool)
         for i in range(lookback, len(predictions)):
-            window = predictions[i-lookback:i]
+            window = predictions[i - lookback : i]
             # Signal only if majority of window exceeds threshold
             smoothed_signals[i] = np.mean(np.abs(window) > threshold) > 0.5
 
@@ -347,8 +361,9 @@ class TestSignalThresholdMetamorphic:
         smoothed_switches = count_switches(smoothed_signals)
 
         # Metamorphic relation: Smoothing should reduce switching
-        assert smoothed_switches <= raw_switches, \
-            f"Smoothing increased switches ({smoothed_switches} > {raw_switches})"
+        assert (
+            smoothed_switches <= raw_switches
+        ), f"Smoothing increased switches ({smoothed_switches} > {raw_switches})"
 
         # Additional property: Smoothed signals should be subset of extended raw signals
         # (i.e., smoothing doesn't create signals from nothing)
@@ -356,5 +371,6 @@ class TestSignalThresholdMetamorphic:
         total_smoothed_signals = np.sum(smoothed_signals)
 
         # Smoothing should generally reduce total signals
-        assert total_smoothed_signals <= total_raw_signals * 1.5, \
-            "Smoothing created too many additional signals"
+        assert (
+            total_smoothed_signals <= total_raw_signals * 1.5
+        ), "Smoothing created too many additional signals"

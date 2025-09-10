@@ -156,7 +156,7 @@ class DataCollector:
         """
         Load list of symbols we already have basic data for.
         """
-        symbols = []
+        symbols: list[str] = []
         # Check if data_dir exists first
         if not Path(self.data_dir).exists():
             return symbols

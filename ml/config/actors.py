@@ -96,7 +96,9 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     strategy: StrategyConfig | None = None
 
     def __post_init__(self) -> None:
-        """Map backward-compat alias fields to canonical fields while frozen."""
+        """
+        Map backward-compat alias fields to canonical fields while frozen.
+        """
         # Map optimization -> optimization_config
         if self.optimization is not None and getattr(self, "optimization_config", None) is None:
             try:

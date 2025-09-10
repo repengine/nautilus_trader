@@ -2,8 +2,9 @@
 """
 Entrypoint for ML Signal Actor container.
 
-Run the ML Signal Actor with Databento data feed and optional PostgreSQL
-persistence in a containerized environment.
+Run the ML Signal Actor with Databento data feed and optional PostgreSQL persistence in
+a containerized environment.
+
 """
 
 import asyncio
@@ -42,7 +43,10 @@ class MLSignalActorNode:
         Set up the trading node with ML Signal Actor.
         """
         # Get configuration from environment
-        db_connection = os.getenv("DB_CONNECTION", "postgresql://postgres:postgres@localhost:5432/nautilus")
+        db_connection = os.getenv(
+            "DB_CONNECTION",
+            "postgresql://postgres:postgres@localhost:5432/nautilus",
+        )
         databento_api_key = os.getenv("DATABENTO_API_KEY")
 
         model_path = os.getenv("MODEL_PATH", "/app/models/model.pkl")
@@ -151,9 +155,11 @@ class MLSignalActorNode:
         # Set up graceful shutdown
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
+
             def _handler(sig_local: signal.Signals = sig) -> None:
                 task = asyncio.create_task(self.shutdown(sig_local))
                 self._tasks.append(task)
+
             loop.add_signal_handler(sig, _handler)
 
         # Run the node

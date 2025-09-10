@@ -67,7 +67,9 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+    """
+    Parse command line arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Populate FRED economic data for ML pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -130,7 +132,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Main entry point for FRED data population."""
+    """
+    Main entry point for FRED data population.
+    """
     args = parse_args()
 
     # Set logging level
@@ -226,7 +230,9 @@ def main() -> None:
     # Show data preview
     if not combined_df.is_empty():
         logger.info("\nData preview (last 5 rows):")
-        preview_cols = [c for c in combined_df.columns if c not in ["timestamp", "timestamp_ns"]][:5]
+        preview_cols = [c for c in combined_df.columns if c not in ["timestamp", "timestamp_ns"]][
+            :5
+        ]
         if "timestamp" in combined_df.columns:
             preview_df = combined_df.select(["timestamp"] + preview_cols).tail(5)
         else:
@@ -252,7 +258,7 @@ def main() -> None:
                 # Assume PostgreSQL
                 connection_string = os.getenv(
                     "ML_DB_CONNECTION",
-                    "postgresql://user:password@localhost:5432/nautilus_ml"
+                    "postgresql://user:password@localhost:5432/nautilus_ml",
                 )
 
             # Initialize stores
@@ -309,7 +315,9 @@ def main() -> None:
     if not args.dry_run:
         logger.info("\nNext steps:")
         logger.info("1. Verify data in database:")
-        logger.info(f"   sqlite3 {args.db_path} 'SELECT COUNT(*) FROM ingestion_data;'")  # noqa: S608 - printing help text only
+        logger.info(
+            f"   sqlite3 {args.db_path} 'SELECT COUNT(*) FROM ingestion_data;'",
+        )
         logger.info("2. Schedule regular updates:")
         logger.info("   python ml/scripts/populate_fred_data.py --update-only")
         logger.info("3. Use data in ML pipeline:")

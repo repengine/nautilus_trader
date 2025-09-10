@@ -1,5 +1,4 @@
 # Docker Compose v2 format - no version needed
-name: ml
 
 services:
   # PostgreSQL Database for ML persistence

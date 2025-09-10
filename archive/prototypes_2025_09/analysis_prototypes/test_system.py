@@ -16,6 +16,7 @@ try:
     from ml.data.scheduler import DataScheduler
     from ml.registry.data_registry import DataRegistry
     from nautilus_trader.persistence.catalog import ParquetDataCatalog
+
     print("   ✅ All core modules import successfully")
 except Exception as e:
     print(f"   ❌ Import error: {e}")
@@ -34,9 +35,10 @@ try:
     # Initialize registry
     from ml.registry.persistence import BackendType
     from ml.registry.persistence import PersistenceConfig
+
     config = PersistenceConfig(
         backend=BackendType.JSON,
-        json_path=Path.home() / ".nautilus" / "ml" / "registry"
+        json_path=Path.home() / ".nautilus" / "ml" / "registry",
     )
     registry = DataRegistry(persistence_config=config)
     print("   ✅ DataRegistry initialized")
@@ -49,10 +51,11 @@ except Exception as e:
 print("\n3. Testing Coverage CLI...")
 try:
     import subprocess
+
     result = subprocess.run(
         ["python", "-m", "ml.cli.coverage", "--help"],
         capture_output=True,
-        text=True
+        text=True,
     )
     if result.returncode == 0:
         print("   ✅ Coverage CLI is working")

@@ -39,17 +39,19 @@ ml/common/
 **Purpose**: Standardizes health reporting, performance metrics, and configuration validation across all ML components.
 
 **Key Features**:
+
 - Runtime-checkable protocol with `@runtime_checkable` decorator
 - Standard interface for health status, performance metrics, and configuration validation
 - Safe default implementations via `MLComponentMixin`
 - Designed to keep methods out of hot path
 
 **Protocol Definition**:
+
 ```python
 @runtime_checkable
 class MLComponentProtocol(Protocol):
     def get_health_status(self) -> dict[str, Any]
-    def get_performance_metrics(self) -> dict[str, float]  
+    def get_performance_metrics(self) -> dict[str, float]
     def validate_configuration(self) -> list[str]
 ```
 
@@ -60,11 +62,13 @@ class MLComponentProtocol(Protocol):
 **Purpose**: Provides safe, idempotent metric creation to avoid duplicate registration and prometheus-client conflicts.
 
 **Key Functions**:
+
 - `get_counter()`: Creates or retrieves Counter metrics
 - `get_histogram()`: Creates or retrieves Histogram metrics with optional buckets
 - `get_gauge()`: Creates or retrieves Gauge metrics
 
 **Design Pattern**:
+
 ```python
 from ml.common.metrics_bootstrap import get_counter
 counter = get_counter("ml_predictions_total", "Total predictions made")
@@ -77,6 +81,7 @@ counter = get_counter("ml_predictions_total", "Total predictions made")
 **Purpose**: Defines all Prometheus metrics once to avoid duplication and registration conflicts.
 
 **Metric Categories**:
+
 - **Data Pipeline**: Event tracking, watermark lag, coverage, contract violations
 - **Data Collection**: Duration, errors, catalog operations
 - **Feature Store**: Operations, computation duration, drift scores
@@ -86,6 +91,7 @@ counter = get_counter("ml_predictions_total", "Total predictions made")
 - **System Health**: Pipeline health, readiness status
 
 **Helper Functions**:
+
 - `record_pipeline_event()`: Consistent event recording with proper labeling
 - `update_pipeline_health()`: Health score updates
 
@@ -96,12 +102,14 @@ counter = get_counter("ml_predictions_total", "Total predictions made")
 **Purpose**: Normalizes UNIX timestamps to Nautilus-standard nanoseconds with configurable policies.
 
 **Core Functions**:
+
 - `normalize_timestamp_ns()`: Heuristic-based conversion (seconds/ms/μs → ns)
 - `sanitize_timestamp_ns()`: Policy-driven sanitization with logging
 
 **Policies**:
+
 - `warn` (default): Normalize and log warnings
-- `normalize`: Normalize silently  
+- `normalize`: Normalize silently
 - `reject`: Raise ValueError for non-nanosecond timestamps
 
 **Integration**: Used throughout stores for consistent timestamp handling.
@@ -111,9 +119,11 @@ counter = get_counter("ml_predictions_total", "Total predictions made")
 **Purpose**: Ensures safe construction of Nautilus Price/Quantity objects by clamping float precision.
 
 **Key Function**:
+
 - `clamp_price_str()`: Clamps floats to safe decimal precision (≤16 decimals)
 
 **Usage Pattern**:
+
 ```python
 price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.456789012"
 ```
@@ -123,9 +133,11 @@ price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.45678901
 **Purpose**: Generates deterministic correlation IDs for tracing events across the Data → Features → Predictions → Signals pipeline.
 
 **Key Function**:
+
 - `make_correlation_id()`: Creates SHA256-based correlation ID from run metadata
 
 **Parameters**:
+
 - `run_id`: Pipeline run identifier
 - `dataset_id`: Dataset type (features, predictions, signals)
 - `instrument_id`: Instrument identifier
@@ -137,6 +149,7 @@ price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.45678901
 **Purpose**: Supports cross-domain event cascades with correlation preservation for testing and integration.
 
 **Key Components**:
+
 - `EventDict`: TypedDict for event structure
 - `emit_cascade()`: Creates cascaded events preserving correlation
 
@@ -147,6 +160,7 @@ price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.45678901
 **Purpose**: Provides minimal, typed interface for message bus publishing with safe default implementation.
 
 **Components**:
+
 - `MessagePublisherProtocol`: Protocol for message publishers
 - `NoopPublisher`: Safe default implementation (returns False)
 
@@ -159,23 +173,27 @@ price_str = clamp_price_str(123.456789012345678901, decimals=9)  # "123.45678901
 **Topic Format**: `ml.{domain}.{operation}.{instrument_id}`
 
 **Key Functions**:
+
 - `build_topic()`: Validates and constructs canonical topic strings
 - `map_stage_to_topic_segments()`: Maps pipeline stages to topic segments
 - `_normalize_instrument_id()`: Sanitizes instrument IDs for topic safety
 
 **Validation Rules**:
+
 - Domain: lowercase letters only `[a-z]+`
-- Operation: lowercase letters and underscore `[a-z_]+`  
+- Operation: lowercase letters and underscore `[a-z_]+`
 - Instrument: alphanumeric with `_.-` after normalization
 
 ## Dependencies
 
 ### Internal Dependencies
+
 - `ml.config.events`: For Stage enum (message_topics.py only)
 - `prometheus_client`: Direct import for base metric types
 - Self-referential: `metrics_bootstrap.py` imports from `metrics.py`
 
 ### External Dependencies
+
 - `typing`: Protocol, runtime_checkable, TypedDict
 - `hashlib`: SHA256 for correlation IDs
 - `logging`: For timestamp sanitization warnings
@@ -194,6 +212,7 @@ The common module is widely imported across the ML system:
 ## Usage Patterns
 
 ### 1. Component Standardization Pattern
+
 ```python
 from ml.common.protocols import MLComponentMixin
 
@@ -203,6 +222,7 @@ class MyMLComponent(MLComponentMixin):
 ```
 
 ### 2. Safe Metrics Creation Pattern
+
 ```python
 from ml.common.metrics_bootstrap import get_counter, get_histogram
 
@@ -217,12 +237,13 @@ class MyActor:
 ```
 
 ### 3. Event Pipeline Pattern
+
 ```python
 from ml.common.metrics import record_pipeline_event
 
 record_pipeline_event(
     dataset_type="features",
-    component="technical_indicators", 
+    component="technical_indicators",
     stage="FEATURE_COMPUTED",
     status="success",
     count=batch_size
@@ -230,6 +251,7 @@ record_pipeline_event(
 ```
 
 ### 4. Timestamp Normalization Pattern
+
 ```python
 from ml.common.timestamps import sanitize_timestamp_ns
 
@@ -244,21 +266,25 @@ normalized_ts = sanitize_timestamp_ns(
 ## Integration Points
 
 ### With Nautilus Trader Core
+
 - **Precision Integration**: `precision.py` ensures compatibility with Nautilus Price/Quantity constraints
 - **Component Protocol**: Provides standardized interface that aligns with Nautilus component patterns
 
 ### With ML Stores
+
 - **Base Integration**: All stores inherit from `MLComponentMixin`
 - **Timestamp Handling**: Consistent nanosecond timestamps across all stores
 - **Event Correlation**: Tracking data lineage through correlation IDs
 - **Message Bus**: Event publication for external systems
 
 ### With ML Actors
+
 - **Metrics Bootstrap**: Centralized metric creation preventing registry conflicts
 - **Component Health**: Standardized health reporting for monitoring
 - **Performance Tracking**: Consistent latency and throughput metrics
 
 ### With ML Monitoring
+
 - **Centralized Metrics**: Single source of truth for all system metrics
 - **Health Reporting**: Standardized component health interface
 - **Event Tracing**: Correlation-based observability
@@ -266,26 +292,31 @@ normalized_ts = sanitize_timestamp_ns(
 ## Implementation Notes
 
 ### Performance Considerations
+
 - **Hot Path Safety**: All utilities designed to avoid heavy computation in inference paths
 - **Pre-allocated Patterns**: Metrics are created once and reused
 - **Lazy Imports**: Some modules use local imports to avoid circular dependencies
 
 ### Error Handling
+
 - **Graceful Degradation**: `NoopPublisher` provides safe defaults
 - **Validation with Recovery**: Timestamp sanitization can normalize or reject based on policy
 - **Type Safety**: Protocol-based design ensures compile-time type checking
 
 ### Testing Strategy
+
 - **Protocol Compliance**: Tests verify protocol implementation across components
 - **Idempotency**: Metrics bootstrap tested for repeated calls
 - **Edge Cases**: Timestamp normalization covers all magnitude ranges
 - **Topic Safety**: Message topic validation tested with various instrument ID formats
 
 ### Configuration Management
+
 - **Environment Variables**: Timestamp normalization mode configurable via `ML_TS_NORMALIZATION_MODE`
 - **Policy-Driven**: Components can specify behavior via parameters rather than hard-coding
 
 ### Memory Management
+
 - **Singleton Pattern**: Metrics registry prevents duplicate allocations
 - **Minimal State**: Most components are stateless utilities
 - **Efficient Hashing**: Correlation IDs use SHA256 for deterministic results

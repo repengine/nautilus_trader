@@ -1,9 +1,10 @@
 """
 Precision helpers for constructing nautilus Price/Quantity safely.
 
-Nautilus enforces a maximum precision of 16 decimal places for Prices.
-This module provides small helpers to clamp floating values to a safe
-number of decimals before constructing string representations.
+Nautilus enforces a maximum precision of 16 decimal places for Prices. This module
+provides small helpers to clamp floating values to a safe number of decimals before
+constructing string representations.
+
 """
 
 from __future__ import annotations
@@ -29,9 +30,9 @@ def clamp_price_str(value: float, decimals: int = 9) -> str:
     -------
     str
         A string representation with at most `decimals` decimals.
+
     """
     if decimals > MAX_PRICE_DECIMALS:
         decimals = MAX_PRICE_DECIMALS
     fmt = f"{{:.{decimals}f}}"
     return fmt.format(value)
-

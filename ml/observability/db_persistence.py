@@ -116,7 +116,11 @@ class ObservabilityDBPersistor:
         with self.engine.begin() as conn:
             if (df := tables.get("latency")) is not None and not df.empty:
                 df.to_sql(
-                    "obs_latency_watermarks", conn, if_exists="append", index=False, method="multi"
+                    "obs_latency_watermarks",
+                    conn,
+                    if_exists="append",
+                    index=False,
+                    method="multi",
                 )
                 written["latency"] = len(df)
             if (df := tables.get("metrics")) is not None and not df.empty:
@@ -124,12 +128,20 @@ class ObservabilityDBPersistor:
                 written["metrics"] = len(df)
             if (df := tables.get("correlation")) is not None and not df.empty:
                 df.to_sql(
-                    "obs_event_correlation", conn, if_exists="append", index=False, method="multi"
+                    "obs_event_correlation",
+                    conn,
+                    if_exists="append",
+                    index=False,
+                    method="multi",
                 )
                 written["correlation"] = len(df)
             if (df := tables.get("health")) is not None and not df.empty:
                 df.to_sql(
-                    "obs_health_scores", conn, if_exists="append", index=False, method="multi"
+                    "obs_health_scores",
+                    conn,
+                    if_exists="append",
+                    index=False,
+                    method="multi",
                 )
                 written["health"] = len(df)
         return written
@@ -180,7 +192,7 @@ class ObservabilityDBPersistor:
                     # Use parameterized DELETE to work across SQLite/PostgreSQL
                     result = conn.execute(
                         _text(
-                            f"DELETE FROM {table} WHERE {ts_col} < :cutoff",  # noqa: S608 - controlled identifiers
+                            f"DELETE FROM {table} WHERE {ts_col} < :cutoff",
                         ),
                         {"cutoff": int(cutoff_ns)},
                     )

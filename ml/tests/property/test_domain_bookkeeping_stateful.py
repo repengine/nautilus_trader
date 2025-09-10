@@ -1,10 +1,11 @@
 """
 Stateful property-based tests for Domain Bookkeeping complex workflows.
 
-These tests verify complex sequences of operations using state machines to
-discover bugs in state management and workflow orchestration.
+These tests verify complex sequences of operations using state machines to discover bugs
+in state management and workflow orchestration.
 
 Following the "write less tests, get more coverage" philosophy from TESTING_STRATEGY.md
+
 """
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ from nautilus_trader.core.uuid import UUID4
 
 
 class PipelineState(Enum):
-    """Pipeline execution states."""
+    """
+    Pipeline execution states.
+    """
 
     IDLE = "idle"
     DATA_INGESTION = "data_ingestion"
@@ -42,7 +45,9 @@ class PipelineState(Enum):
 
 
 class EventType(Enum):
-    """Types of events in the system."""
+    """
+    Types of events in the system.
+    """
 
     DATA_RECEIVED = "data_received"
     FEATURES_COMPUTED = "features_computed"
@@ -53,7 +58,9 @@ class EventType(Enum):
 
 @dataclass
 class SystemEvent:
-    """Represents an event in the domain bookkeeping system."""
+    """
+    Represents an event in the domain bookkeeping system.
+    """
 
     event_id: str
     event_type: EventType
@@ -67,7 +74,9 @@ class SystemEvent:
 
 @dataclass
 class PipelineExecution:
-    """Represents a pipeline execution instance."""
+    """
+    Represents a pipeline execution instance.
+    """
 
     execution_id: str
     correlation_id: str
@@ -80,7 +89,9 @@ class PipelineExecution:
 
 
 class DomainBookkeepingStateMachine(RuleBasedStateMachine):
-    """State machine for testing domain bookkeeping workflows."""
+    """
+    State machine for testing domain bookkeeping workflows.
+    """
 
     # Bundles for state machine objects
     events = Bundle("events")
@@ -98,24 +109,28 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
             "data_store": 1.0,
             "feature_store": 1.0,
             "model_store": 1.0,
-            "strategy_store": 1.0
+            "strategy_store": 1.0,
         }
         self.message_bus_state = {
             "connected": True,
             "message_count": 0,
-            "failed_messages": 0
+            "failed_messages": 0,
         }
 
     @initialize()
     def init_system(self):
-        """Initialize the domain bookkeeping system."""
+        """
+        Initialize the domain bookkeeping system.
+        """
         # Initialize with default healthy state
         self.mock_integration_manager.get_system_health.return_value = 0.95
         self.mock_integration_manager.is_message_bus_connected.return_value = True
 
     @rule(target=correlations)
     def create_correlation_id(self) -> str:
-        """Create a new correlation ID for tracking related events."""
+        """
+        Create a new correlation ID for tracking related events.
+        """
         correlation_id = str(UUID4())
         self.correlation_tracking[correlation_id] = []
         return correlation_id
@@ -123,10 +138,16 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
     @rule(
         target=pipelines,
         correlation_id=correlations,
-        instrument_id=st.text(min_size=5, max_size=15)
+        instrument_id=st.text(min_size=5, max_size=15),
     )
-    def start_pipeline_execution(self, correlation_id: str, instrument_id: str) -> PipelineExecution:
-        """Start a new pipeline execution."""
+    def start_pipeline_execution(
+        self,
+        correlation_id: str,
+        instrument_id: str,
+    ) -> PipelineExecution:
+        """
+        Start a new pipeline execution.
+        """
         execution_id = str(UUID4())
         timestamp = len(self.event_history) * 1000 + 1000000  # Monotonic timestamps
 
@@ -135,7 +156,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
             correlation_id=correlation_id,
             instrument_id=instrument_id,
             state=PipelineState.IDLE,
-            start_timestamp=timestamp
+            start_timestamp=timestamp,
         )
 
         self.active_pipelines[execution_id] = pipeline
@@ -145,10 +166,17 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
         target=events,
         pipeline=pipelines,
         event_type=st.sampled_from(EventType),
-        domain=st.sampled_from(["data", "features", "models", "strategies"])
+        domain=st.sampled_from(["data", "features", "models", "strategies"]),
     )
-    def emit_event(self, pipeline: PipelineExecution, event_type: EventType, domain: str) -> SystemEvent:
-        """Emit an event in the context of a pipeline execution."""
+    def emit_event(
+        self,
+        pipeline: PipelineExecution,
+        event_type: EventType,
+        domain: str,
+    ) -> SystemEvent:
+        """
+        Emit an event in the context of a pipeline execution.
+        """
         event_id = str(UUID4())
         timestamp = len(self.event_history) * 1000 + 1000000
 
@@ -166,7 +194,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
             timestamp=timestamp,
             domain=domain,
             parent_event_id=parent_event_id,
-            payload={"pipeline_state": pipeline.state.value}
+            payload={"pipeline_state": pipeline.state.value},
         )
 
         # Update tracking structures
@@ -184,28 +212,34 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
 
     @rule(pipeline=pipelines)
     def complete_pipeline(self, pipeline: PipelineExecution):
-        """Mark a pipeline execution as completed."""
+        """
+        Mark a pipeline execution as completed.
+        """
         if pipeline.state not in [PipelineState.COMPLETED, PipelineState.FAILED]:
             pipeline.state = PipelineState.COMPLETED
             pipeline.end_timestamp = len(self.event_history) * 1000 + 1000000
 
             # Collect metrics for completed pipeline
             duration = pipeline.end_timestamp - (pipeline.start_timestamp or 0)
-            self.metrics_collected.append({
-                "metric_name": "pipeline_duration_ms",
-                "value": duration / 1000000,  # Convert to ms
-                "labels": {
-                    "instrument_id": pipeline.instrument_id,
-                    "correlation_id": pipeline.correlation_id
-                }
-            })
+            self.metrics_collected.append(
+                {
+                    "metric_name": "pipeline_duration_ms",
+                    "value": duration / 1000000,  # Convert to ms
+                    "labels": {
+                        "instrument_id": pipeline.instrument_id,
+                        "correlation_id": pipeline.correlation_id,
+                    },
+                },
+            )
 
     @rule(
         component=st.sampled_from(["data_store", "feature_store", "model_store", "strategy_store"]),
-        health_change=st.floats(min_value=-0.3, max_value=0.3)
+        health_change=st.floats(min_value=-0.3, max_value=0.3),
     )
     def update_component_health(self, component: str, health_change: float):
-        """Update the health score of a system component."""
+        """
+        Update the health score of a system component.
+        """
         current_health = self.health_scores[component]
         new_health = max(0.0, min(1.0, current_health + health_change))
         self.health_scores[component] = new_health
@@ -218,13 +252,17 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
                     # Low health might cause pipeline failure
                     if new_health < 0.5:
                         pipeline.state = PipelineState.FAILED
-                        pipeline.error_message = f"Component {component} health too low: {new_health}"
+                        pipeline.error_message = (
+                            f"Component {component} health too low: {new_health}"
+                        )
 
     @rule(
-        failure_rate=st.floats(min_value=0.0, max_value=0.1)
+        failure_rate=st.floats(min_value=0.0, max_value=0.1),
     )
     def simulate_message_bus_issues(self, failure_rate: float):
-        """Simulate message bus connectivity or delivery issues."""
+        """
+        Simulate message bus connectivity or delivery issues.
+        """
         if failure_rate > 0.05:  # 5% failure rate threshold
             self.message_bus_state["connected"] = False
             self.message_bus_state["failed_messages"] += int(failure_rate * 100)
@@ -241,7 +279,9 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
             self.message_bus_state["connected"] = True
 
     def _update_pipeline_state(self, pipeline: PipelineExecution, event_type: EventType):
-        """Update pipeline state based on event type."""
+        """
+        Update pipeline state based on event type.
+        """
         state_transitions = {
             EventType.DATA_RECEIVED: PipelineState.DATA_INGESTION,
             EventType.FEATURES_COMPUTED: PipelineState.FEATURE_COMPUTATION,
@@ -259,18 +299,25 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
             else:
                 # Invalid transition - mark as failed
                 pipeline.state = PipelineState.FAILED
-                pipeline.error_message = f"Invalid state transition: {pipeline.state} -> {new_state}"
+                pipeline.error_message = (
+                    f"Invalid state transition: {pipeline.state} -> {new_state}"
+                )
 
     def _is_valid_transition(self, current_state: PipelineState, new_state: PipelineState) -> bool:
-        """Check if state transition is valid."""
+        """
+        Check if state transition is valid.
+        """
         valid_transitions = {
             PipelineState.IDLE: [PipelineState.DATA_INGESTION, PipelineState.FAILED],
             PipelineState.DATA_INGESTION: [PipelineState.FEATURE_COMPUTATION, PipelineState.FAILED],
-            PipelineState.FEATURE_COMPUTATION: [PipelineState.MODEL_INFERENCE, PipelineState.FAILED],
+            PipelineState.FEATURE_COMPUTATION: [
+                PipelineState.MODEL_INFERENCE,
+                PipelineState.FAILED,
+            ],
             PipelineState.MODEL_INFERENCE: [PipelineState.SIGNAL_GENERATION, PipelineState.FAILED],
             PipelineState.SIGNAL_GENERATION: [PipelineState.COMPLETED, PipelineState.FAILED],
             PipelineState.COMPLETED: [],  # Terminal state
-            PipelineState.FAILED: [],     # Terminal state
+            PipelineState.FAILED: [],  # Terminal state
         }
 
         return new_state in valid_transitions.get(current_state, [])
@@ -279,28 +326,36 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
 
     @invariant()
     def event_timestamps_monotonic(self):
-        """Event timestamps must be monotonically increasing."""
+        """
+        Event timestamps must be monotonically increasing.
+        """
         timestamps = [event.timestamp for event in self.event_history]
         if len(timestamps) > 1:
-            assert timestamps == sorted(timestamps), \
-                "Event timestamps must be monotonically increasing"
+            assert timestamps == sorted(
+                timestamps,
+            ), "Event timestamps must be monotonically increasing"
 
     @invariant()
     def correlation_consistency(self):
-        """All events with same correlation ID must have consistent instrument_id."""
+        """
+        All events with same correlation ID must have consistent instrument_id.
+        """
         correlation_instruments = {}
         for event in self.event_history:
             corr_id = event.correlation_id
             if corr_id not in correlation_instruments:
                 correlation_instruments[corr_id] = event.instrument_id
             else:
-                assert correlation_instruments[corr_id] == event.instrument_id, \
-                    f"Correlation {corr_id} has inconsistent instruments: " \
+                assert correlation_instruments[corr_id] == event.instrument_id, (
+                    f"Correlation {corr_id} has inconsistent instruments: "
                     f"{correlation_instruments[corr_id]} vs {event.instrument_id}"
+                )
 
     @invariant()
     def pipeline_state_consistency(self):
-        """Pipeline states must be consistent with their events."""
+        """
+        Pipeline states must be consistent with their events.
+        """
         for pipeline in self.active_pipelines.values():
             # Terminal states should have end timestamps
             if pipeline.state in [PipelineState.COMPLETED, PipelineState.FAILED]:
@@ -315,63 +370,76 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
 
             # Pipelines should have at least start timestamp if not idle
             if pipeline.state != PipelineState.IDLE:
-                assert pipeline.start_timestamp is not None, \
-                    f"Non-idle pipeline {pipeline.execution_id} missing start timestamp"
+                assert (
+                    pipeline.start_timestamp is not None
+                ), f"Non-idle pipeline {pipeline.execution_id} missing start timestamp"
 
     @invariant()
     def event_lineage_consistency(self):
-        """Event lineage chains must be consistent."""
+        """
+        Event lineage chains must be consistent.
+        """
         event_lookup = {event.event_id: event for event in self.event_history}
 
         for event in self.event_history:
             if event.parent_event_id is not None:
                 # Parent event must exist
-                assert event.parent_event_id in event_lookup, \
-                    f"Event {event.event_id} has non-existent parent {event.parent_event_id}"
+                assert (
+                    event.parent_event_id in event_lookup
+                ), f"Event {event.event_id} has non-existent parent {event.parent_event_id}"
 
                 parent_event = event_lookup[event.parent_event_id]
 
                 # Parent must have same correlation ID
-                assert parent_event.correlation_id == event.correlation_id, \
-                    f"Event {event.event_id} correlation mismatch with parent"
+                assert (
+                    parent_event.correlation_id == event.correlation_id
+                ), f"Event {event.event_id} correlation mismatch with parent"
 
                 # Parent must have earlier timestamp
-                assert parent_event.timestamp <= event.timestamp, \
-                    f"Event {event.event_id} timestamp before parent timestamp"
+                assert (
+                    parent_event.timestamp <= event.timestamp
+                ), f"Event {event.event_id} timestamp before parent timestamp"
 
     @invariant()
     def health_scores_valid_range(self):
-        """All health scores must be in valid range [0,1]."""
+        """
+        All health scores must be in valid range [0,1].
+        """
         for component, health in self.health_scores.items():
-            assert 0.0 <= health <= 1.0, \
-                f"Component {component} health out of range: {health}"
+            assert 0.0 <= health <= 1.0, f"Component {component} health out of range: {health}"
 
     @invariant()
     def message_bus_metrics_consistency(self):
-        """Message bus metrics must be consistent."""
-        assert self.message_bus_state["message_count"] >= 0, \
-            "Message count cannot be negative"
+        """
+        Message bus metrics must be consistent.
+        """
+        assert self.message_bus_state["message_count"] >= 0, "Message count cannot be negative"
 
-        assert self.message_bus_state["failed_messages"] >= 0, \
-            "Failed message count cannot be negative"
+        assert (
+            self.message_bus_state["failed_messages"] >= 0
+        ), "Failed message count cannot be negative"
 
-        assert self.message_bus_state["failed_messages"] <= self.message_bus_state["message_count"], \
-            "Failed messages cannot exceed total messages"
+        assert (
+            self.message_bus_state["failed_messages"] <= self.message_bus_state["message_count"]
+        ), "Failed messages cannot exceed total messages"
 
 
 @pytest.mark.property
 @pytest.mark.stateful
 @pytest.mark.slow  # Stateful tests can be slower
 class TestDomainBookkeepingStateful:
-    """Stateful property-based tests for domain bookkeeping."""
+    """
+    Stateful property-based tests for domain bookkeeping.
+    """
 
     @settings(max_examples=50, stateful_step_count=50, deadline=10000)
     def test_domain_bookkeeping_workflow_state_machine(self):
         """
         Test domain bookkeeping workflows using state machine exploration.
 
-        This test will explore various sequences of operations and verify
-        that all invariants hold throughout the execution.
+        This test will explore various sequences of operations and verify that all
+        invariants hold throughout the execution.
+
         """
         # Run the state machine
         state_machine = DomainBookkeepingStateMachine()
@@ -381,39 +449,41 @@ class TestDomainBookkeepingStateful:
         self._validate_final_state(state_machine)
 
     def _validate_final_state(self, state_machine: DomainBookkeepingStateMachine):
-        """Perform additional validation of the final state."""
+        """
+        Perform additional validation of the final state.
+        """
         # Check that all correlations are properly tracked
         for correlation_id, event_ids in state_machine.correlation_tracking.items():
             correlation_events = [
-                e for e in state_machine.event_history
-                if e.correlation_id == correlation_id
+                e for e in state_machine.event_history if e.correlation_id == correlation_id
             ]
 
-            assert len(correlation_events) == len(event_ids), \
-                f"Correlation {correlation_id} tracking inconsistency"
+            assert len(correlation_events) == len(
+                event_ids,
+            ), f"Correlation {correlation_id} tracking inconsistency"
 
         # Check that completed pipelines have valid metrics
         completed_pipelines = [
-            p for p in state_machine.active_pipelines.values()
-            if p.state == PipelineState.COMPLETED
+            p for p in state_machine.active_pipelines.values() if p.state == PipelineState.COMPLETED
         ]
 
         pipeline_metrics = [
-            m for m in state_machine.metrics_collected
-            if m["metric_name"] == "pipeline_duration_ms"
+            m for m in state_machine.metrics_collected if m["metric_name"] == "pipeline_duration_ms"
         ]
 
         # Each completed pipeline should have generated duration metrics
         # (allowing for some lag in metrics collection)
-        assert len(pipeline_metrics) <= len(completed_pipelines), \
-            "Pipeline metrics count should not exceed completed pipelines"
+        assert len(pipeline_metrics) <= len(
+            completed_pipelines,
+        ), "Pipeline metrics count should not exceed completed pipelines"
 
         # Check system health consistency
-        average_health = sum(state_machine.health_scores.values()) / len(state_machine.health_scores)
+        average_health = sum(state_machine.health_scores.values()) / len(
+            state_machine.health_scores,
+        )
 
         failed_pipelines = [
-            p for p in state_machine.active_pipelines.values()
-            if p.state == PipelineState.FAILED
+            p for p in state_machine.active_pipelines.values() if p.state == PipelineState.FAILED
         ]
 
         # Low system health should correlate with more failures
@@ -429,11 +499,18 @@ class TestDomainBookkeepingStateful:
             depth = self._calculate_lineage_depth(event, event_lookup)
             max_lineage_depth = max(max_lineage_depth, depth)
 
-        assert max_lineage_depth <= 20, \
-            f"Lineage depth too deep: {max_lineage_depth} (may indicate circular references)"
+        assert (
+            max_lineage_depth <= 20
+        ), f"Lineage depth too deep: {max_lineage_depth} (may indicate circular references)"
 
-    def _calculate_lineage_depth(self, event: SystemEvent, event_lookup: dict[str, SystemEvent]) -> int:
-        """Calculate the depth of an event in its lineage chain."""
+    def _calculate_lineage_depth(
+        self,
+        event: SystemEvent,
+        event_lookup: dict[str, SystemEvent],
+    ) -> int:
+        """
+        Calculate the depth of an event in its lineage chain.
+        """
         if event.parent_event_id is None:
             return 0
 
@@ -446,8 +523,11 @@ class TestDomainBookkeepingStateful:
 
 # Focused stateful tests for specific workflow scenarios
 
+
 class PipelineRecoveryStateMachine(RuleBasedStateMachine):
-    """Focused state machine for testing pipeline recovery scenarios."""
+    """
+    Focused state machine for testing pipeline recovery scenarios.
+    """
 
     pipelines = Bundle("pipelines")
 
@@ -459,7 +539,9 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
 
     @rule(target=pipelines, instrument_id=st.text(min_size=5, max_size=15))
     def create_pipeline(self, instrument_id: str) -> str:
-        """Create a new pipeline for testing recovery."""
+        """
+        Create a new pipeline for testing recovery.
+        """
         pipeline_id = str(UUID4())
         correlation_id = str(UUID4())
 
@@ -468,15 +550,20 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
             correlation_id=correlation_id,
             instrument_id=instrument_id,
             state=PipelineState.DATA_INGESTION,
-            start_timestamp=len(self.pipelines_dict) * 1000 + 1000000
+            start_timestamp=len(self.pipelines_dict) * 1000 + 1000000,
         )
 
         self.pipelines_dict[pipeline_id] = pipeline
         return pipeline_id
 
-    @rule(pipeline_id=pipelines, failure_type=st.sampled_from(["network", "timeout", "data_quality"]))
+    @rule(
+        pipeline_id=pipelines,
+        failure_type=st.sampled_from(["network", "timeout", "data_quality"]),
+    )
     def inject_failure(self, pipeline_id: str, failure_type: str):
-        """Inject a failure into a pipeline."""
+        """
+        Inject a failure into a pipeline.
+        """
         if pipeline_id in self.pipelines_dict:
             pipeline = self.pipelines_dict[pipeline_id]
 
@@ -486,7 +573,9 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
 
     @rule(pipeline_id=pipelines)
     def attempt_recovery(self, pipeline_id: str):
-        """Attempt to recover a failed pipeline."""
+        """
+        Attempt to recover a failed pipeline.
+        """
         if pipeline_id in self.pipelines_dict:
             pipeline = self.pipelines_dict[pipeline_id]
 
@@ -515,28 +604,34 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
 
     @invariant()
     def recovery_rate_reasonable(self):
-        """Recovery success rate should be reasonable."""
+        """
+        Recovery success rate should be reasonable.
+        """
         if self.recovery_attempts > 0:
             recovery_rate = self.successful_recoveries / self.recovery_attempts
             # Should have some successful recoveries but not 100%
-            assert 0.0 <= recovery_rate <= 1.0, \
-                f"Recovery rate out of bounds: {recovery_rate}"
+            assert 0.0 <= recovery_rate <= 1.0, f"Recovery rate out of bounds: {recovery_rate}"
 
 
 @pytest.mark.property
 @pytest.mark.stateful
 @pytest.mark.slow
 class TestPipelineRecoveryStateful:
-    """Stateful tests focused on pipeline recovery scenarios."""
+    """
+    Stateful tests focused on pipeline recovery scenarios.
+    """
 
     @settings(max_examples=30, stateful_step_count=30, deadline=8000)
     def test_pipeline_recovery_workflows(self):
-        """Test pipeline recovery workflows with various failure patterns."""
+        """
+        Test pipeline recovery workflows with various failure patterns.
+        """
         state_machine = PipelineRecoveryStateMachine()
         state_machine.run()
 
         # Validate recovery behavior
         if state_machine.recovery_attempts > 10:
             # Should have had some successful recoveries
-            assert state_machine.successful_recoveries > 0, \
-                "Should have some successful recoveries with many attempts"
+            assert (
+                state_machine.successful_recoveries > 0
+            ), "Should have some successful recoveries with many attempts"

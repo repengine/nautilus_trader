@@ -544,7 +544,11 @@ class FeatureRegistry(MLComponentMixin):
         return result
 
     # Quality gating
-    def validate_and_promote(self, feature_set_id: str, gates: list[QualityGate]) -> bool:  # noqa: C901 - gate evaluation flow is intentionally explicit
+    def validate_and_promote(
+        self,
+        feature_set_id: str,
+        gates: list[QualityGate],
+    ) -> bool:
         """
         Validate a feature set against quality gates and promote to PROD if passed.
 
@@ -623,6 +627,7 @@ class FeatureRegistry(MLComponentMixin):
             Artifact mapping to store alongside manifest in metadata
         stage : FeatureStage | None
             Optional stage update
+
         """
         with self._lock:
             info = self._features.get(feature_set_id)
@@ -660,6 +665,7 @@ class FeatureRegistry(MLComponentMixin):
             Artifact logical name (e.g., "dataset_report")
         path : str
             Artifact path or URI
+
         """
         self.update_manifest(feature_set_id, artifacts={name: path})
 
@@ -673,5 +679,6 @@ class FeatureRegistry(MLComponentMixin):
             The feature set to update
         artifacts : dict[str, str]
             Mapping from artifact name to path/URI
+
         """
         self.update_manifest(feature_set_id, artifacts=artifacts)

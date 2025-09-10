@@ -191,6 +191,7 @@ class StrategyStoreProtocol(Protocol):
 Legacy SQL files under `ml/schema/` are retained for reference only.
 
 **📝 ADDITION:** Recent schema enhancements include:
+
 - **006_disable_partition_triggers.sql**: Disables race-prone automatic partition triggers
 - **007_add_event_metadata.sql**: Adds JSONB metadata column to events table
 - **007_brin_indexes.sql**: BRIN indexes for efficient time-range queries
@@ -202,7 +203,7 @@ All ML tables use sophisticated time-based partitioning managed by PostgreSQL na
 #### Core Tables
 
 1. **ml_feature_values** - Partitioned by ts_event (monthly partitions)
-2. **ml_model_predictions** - Partitioned by ts_event (monthly partitions)  
+2. **ml_model_predictions** - Partitioned by ts_event (monthly partitions)
 3. **ml_strategy_signals** - Partitioned by ts_event (monthly partitions)
 
 #### Partition Management
@@ -277,7 +278,7 @@ REQUIRED_FUNCTIONS = [
 
 PARTITIONED_TABLES = [
     "ml_feature_values",
-    "ml_model_predictions", 
+    "ml_model_predictions",
     "ml_strategy_signals",
 ]
 ```
@@ -285,7 +286,7 @@ PARTITIONED_TABLES = [
 #### 002_auto_partitioning.sql
 
 - Implements automatic partition creation functions
-- Sets up triggers for on-demand partition creation  
+- Sets up triggers for on-demand partition creation
 - Provides cleanup functions for old partitions
 - Optional pg_cron integration for scheduled maintenance
 - **⚠️ CORRECTION:** Triggers have been disabled in favor of pre-created partitions
@@ -334,7 +335,7 @@ CREATE INDEX idx_ml_strategy_signals_type
 -- **📝 ADDITION:** BRIN indexes for efficient range scans
 CREATE INDEX IF NOT EXISTS brin_ml_feature_values_ts
     ON ml_feature_values USING BRIN (ts_event);
-CREATE INDEX IF NOT EXISTS brin_ml_model_predictions_ts  
+CREATE INDEX IF NOT EXISTS brin_ml_model_predictions_ts
     ON ml_model_predictions USING BRIN (ts_event);
 CREATE INDEX IF NOT EXISTS brin_ml_strategy_signals_ts
     ON ml_strategy_signals USING BRIN (ts_event);
@@ -450,6 +451,7 @@ Events are published to standardized topics based on pipeline stages:
 **Topic Format:** `ml.{domain}.{operation}.{instrument_id}`
 
 **Stage Mappings:**
+
 - `Stage.FEATURE_COMPUTED` → `ml.features.updated.{instrument}`
 - `Stage.PREDICTION_EMITTED` → `ml.models.created.{instrument}`
 - `Stage.SIGNAL_EMITTED` → `ml.strategies.created.{instrument}`
@@ -458,6 +460,7 @@ Events are published to standardized topics based on pipeline stages:
 ### Publishing Modes
 
 **Batch Publishing (Default):**
+
 ```python
 # Publishes summary after batch operations
 payload = {
@@ -471,11 +474,12 @@ payload = {
 ```
 
 **Per-Row Publishing:**
+
 ```python
 # Publishes individual events for each row
 for row in batch_data:
     payload = {
-        "dataset_id": "features", 
+        "dataset_id": "features",
         "instrument_id": row["instrument_id"],
         "ts_event": row["ts_event"],
         "correlation_id": generate_correlation_id(...),
@@ -495,7 +499,7 @@ from ml.common.correlation import make_correlation_id
 # Deterministic correlation ID generation
 correlation_id = make_correlation_id(
     run_id="scheduler_001",
-    dataset_id="features_v1", 
+    dataset_id="features_v1",
     instrument_id="EURUSD",
     ts_min=start_time,
     ts_max=end_time,
@@ -506,11 +510,13 @@ correlation_id = make_correlation_id(
 ### Event Metadata Storage
 
 **PostgreSQL Backend:**
+
 - Uses `emit_data_event_ext()` function with JSONB metadata column
 - Fallback to legacy `emit_data_event()` when extended function unavailable
 - Migration `007_add_event_metadata.sql` adds metadata support
 
 **JSON Backend:**
+
 - Metadata stored directly in event dictionaries
 - Full metadata preservation with schema validation
 
@@ -524,7 +530,7 @@ from ml.common.cascade import emit_cascade, EventDict
 # Source event from data ingestion
 source_event = EventDict(
     domain="data",
-    event_type="catalog_written", 
+    event_type="catalog_written",
     correlation_id="abc123",
     instrument_id="EURUSD",
     ts_event=1693747200000000000,
@@ -973,9 +979,9 @@ ts_init: int   # Initialization timestamp in nanoseconds
 ts_event = int(datetime.utcnow().timestamp() * 1e9)
 
 # **✨ ENHANCEMENT:** Defensive normalization with warning logging
-# The stores defensively normalize incoming timestamps to nanoseconds when they appear 
-# to be in seconds, milliseconds, or microseconds. This is a safety net for integration 
-# edges; a warning is logged when normalization occurs. Production writers should still 
+# The stores defensively normalize incoming timestamps to nanoseconds when they appear
+# to be in seconds, milliseconds, or microseconds. This is a safety net for integration
+# edges; a warning is logged when normalization occurs. Production writers should still
 # emit nanoseconds directly.
 ```
 
@@ -1179,7 +1185,7 @@ Key strengths:
 - **Event-Driven**: Full integration with DataRegistry for observability and watermark tracking
 - **Live Recording**: Automatic capture of all market data with LiveDataRecorder
 - **✨ ENHANCEMENT:** Protocol-based interfaces for type safety and testing compatibility
-- **✨ ENHANCEMENT:** Centralized engine management for resource optimization  
+- **✨ ENHANCEMENT:** Centralized engine management for resource optimization
 - **✨ ENHANCEMENT:** Message bus integration for real-time event distribution
 - **📝 ADDITION:** Advanced preflight validation with comprehensive type checking
 - **📝 ADDITION:** BRIN indexes for efficient time-range query performance

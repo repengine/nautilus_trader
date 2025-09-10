@@ -427,7 +427,7 @@ class DYDXExecutionClient(LiveExecutionClient):
 
         return result
 
-    async def generate_order_status_report(  # noqa: C901
+    async def generate_order_status_report(
         self,
         command: GenerateOrderStatusReport,
     ) -> OrderStatusReport | None:
@@ -746,7 +746,7 @@ class DYDXExecutionClient(LiveExecutionClient):
         self._log.info(f"Received {len(reports)} PositionStatusReport{plural}")
         return reports
 
-    def _handle_ws_message(self, raw: bytes) -> None:  # noqa: C901
+    def _handle_ws_message(self, raw: bytes) -> None:
         try:
             ws_message = self._decoder_ws_msg_general.decode(raw)
             ws_message_channel = ws_message.channel
@@ -1088,7 +1088,7 @@ class DYDXExecutionClient(LiveExecutionClient):
         for order in command.order_list.orders:
             await self._submit_order_single(order=order)
 
-    async def _submit_order_single(self, order: Order) -> None:  # noqa: C901
+    async def _submit_order_single(self, order: Order) -> None:
         """
         Submit a single order.
         """
@@ -1353,7 +1353,7 @@ class DYDXExecutionClient(LiveExecutionClient):
                 client_order_id=order.client_order_id,
             )
 
-    async def _cancel_short_term_orders(self, orders: list[Order]) -> None:  # noqa: C901
+    async def _cancel_short_term_orders(self, orders: list[Order]) -> None:
         """
         Cancel multiple short order terms at once.
         """

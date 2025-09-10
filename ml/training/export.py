@@ -62,6 +62,7 @@ def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
             return ModelType.ONNX
     except Exception:
         import logging as _logging
+
         _logging.getLogger(__name__).debug("ONNX detection failed", exc_info=True)
 
     if HAS_XGBOOST and xgb is not None:
@@ -70,6 +71,7 @@ def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
                 return ModelType.XGBOOST
         except Exception:
             import logging as _logging
+
             _logging.getLogger(__name__).debug("XGBoost detection failed", exc_info=True)
 
     if HAS_LIGHTGBM and lgb is not None:
@@ -78,6 +80,7 @@ def detect_model_type(model: Any, file_path: Path | None = None) -> ModelType:
                 return ModelType.LIGHTGBM
         except Exception:
             import logging as _logging
+
             _logging.getLogger(__name__).debug("LightGBM detection failed", exc_info=True)
 
     # Fallback: sklearn-like
@@ -171,6 +174,7 @@ def _save_lightgbm_model(model: Any, path: Path) -> Path:
             return model_path
     except Exception:
         import logging as _logging
+
         _logging.getLogger(__name__).debug("LightGBM save_model (primary) failed", exc_info=True)
     # Fallback: try common save_model API or pickle
     try:
@@ -206,7 +210,11 @@ def _generate_version(model: Any) -> str:
             parts.append(f"params={len(params)}")
         except Exception:
             import logging as _logging
-            _logging.getLogger(__name__).debug("get_params failed for version generation", exc_info=True)
+
+            _logging.getLogger(__name__).debug(
+                "get_params failed for version generation",
+                exc_info=True,
+            )
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:8]
 
 
@@ -305,11 +313,12 @@ def convert_to_torchscript(
 
     def _jit_trace(mod: object, example: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.
+        # mypy: torch.jit.trace is untyped in stubs; this is a deliberate runtime call.
         return torch.jit.trace(mod, example)  # type: ignore[no-untyped-call]
 
     def _jit_script(mod: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.
-        return torch.jit.script(mod)
+        return torch.jit.script(mod)  # type: ignore[no-untyped-call]
 
     with torch.inference_mode():
         if sample_input is not None:

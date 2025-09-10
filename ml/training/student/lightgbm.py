@@ -146,7 +146,7 @@ class LightGBMStudentDistiller:
             fobj = self._obj_hybrid
         else:
             raise ValueError(f"Unknown objective: {self.objective}")
-        train_args = {
+        train_args: dict[str, Any] = {
             "params": params,
             "train_set": train_set,
             "valid_sets": [val_set],
@@ -154,7 +154,7 @@ class LightGBMStudentDistiller:
         }
         if fobj is not None:
             train_args["fobj"] = fobj
-        self.model = lgb.train(**train_args)  # type: ignore[arg-type]
+        self.model = lgb.train(**train_args)
         self.best_iteration = getattr(self.model, "best_iteration", None)
         if y_val_true is not None:
             z_val = self._predict_raw(X_val)

@@ -23,6 +23,7 @@ Examples
        --logits_key z \
        --y_key y \
        --out_json /tmp/metrics.json
+
 """
 
 from __future__ import annotations
@@ -109,4 +110,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

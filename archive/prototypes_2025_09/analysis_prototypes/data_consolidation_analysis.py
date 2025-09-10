@@ -148,11 +148,11 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
 
             if tier1_days > enhanced_days:
                 recommendations.append(
-                    f"✅ Keep tier1 L2 data ({tier1_days} days vs {enhanced_days} days)"
+                    f"✅ Keep tier1 L2 data ({tier1_days} days vs {enhanced_days} days)",
                 )
             else:
                 recommendations.append(
-                    f"⚠️  Enhanced L2 may be more complete ({enhanced_days} days vs {tier1_days} days)"
+                    f"⚠️  Enhanced L2 may be more complete ({enhanced_days} days vs {tier1_days} days)",
                 )
 
         # Compare trade data
@@ -166,7 +166,7 @@ def analyze_symbol_data(symbol: str, base_path: Path) -> dict:
             )
 
             recommendations.append(
-                f"🔍 Compare: tier1 trades ({tier1_days} days, {tier1_trades.get('records', 0):,} records) vs enhanced trades ({len(enhanced_trades_years)} years, {enhanced_total_records:,} records)"
+                f"🔍 Compare: tier1 trades ({tier1_days} days, {tier1_trades.get('records', 0):,} records) vs enhanced trades ({len(enhanced_trades_years)} years, {enhanced_total_records:,} records)",
             )
 
     elif results["tier1"]:
@@ -239,7 +239,7 @@ def main():
 
                 for data_type, info in results["tier1"].items():
                     print(
-                        f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)"
+                        f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)",
                     )
 
             # Enhanced summary
@@ -249,7 +249,7 @@ def main():
 
                 for data_type, info in results["enhanced"].items():
                     print(
-                        f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)"
+                        f"    {data_type}: {info['date_range']} ({info['records']:,} records, {info['size_mb']:.1f} MB)",
                     )
 
             # Recommendations

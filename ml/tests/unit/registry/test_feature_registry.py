@@ -7,6 +7,7 @@ This file consolidates tests from:
 - ml/tests/unit/registry/test_feature_registry_basic.py (merged)
 
 Consolidation performed on 2025-08-25.
+
 """
 
 from __future__ import annotations

@@ -42,7 +42,7 @@ def create_instrument_info(instrument: Instrument) -> nautilus_pyo3.InstrumentMi
     )
 
 
-def infer_tardis_exchange_str(instrument: Instrument) -> str:  # noqa: C901 (too complex)
+def infer_tardis_exchange_str(instrument: Instrument) -> str:
     venue = instrument.venue.value
 
     match venue:

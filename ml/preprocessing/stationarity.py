@@ -22,18 +22,22 @@ except Exception:  # pragma: no cover - numba optional
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+
 def jit_typed(*jit_args: Any, **jit_kwargs: Any) -> Callable[[F], F]:
     """
     Typed wrapper around numba.jit that degrades to identity when unavailable.
 
     This preserves function type for type checkers while applying JIT at runtime.
+
     """
+
     def decorator(func: F) -> F:
         if _numba_jit is None:
             return func
         # Apply numba.jit with the provided args/kwargs
         compiled = _numba_jit(*jit_args, **jit_kwargs)(func)
         return cast(F, compiled)
+
     return decorator
 
 
@@ -435,9 +439,6 @@ class MarketMicrostructureFeatures:
         return float(np.mean(vpin_values)) if vpin_values else 0.0
 
 
-
-
-
 class FeatureLagGenerator:
     """
     Generate lagged features for time series models.
@@ -783,15 +784,13 @@ class PurgedCrossValidator:
             test_indices = indices[test_start:test_end]
 
             # Train indices with purging
-            train_indices_before = indices[:max(0, test_start - self.purge_gap)]
-            train_indices_after = indices[min(n_samples, test_end + self.purge_gap):]
+            train_indices_before = indices[: max(0, test_start - self.purge_gap)]
+            train_indices_after = indices[min(n_samples, test_end + self.purge_gap) :]
 
             # Apply embargo - remove samples after test set
             if embargo_size > 0 and i < self.n_splits - 1:
                 embargo_end = min(n_samples, test_end + embargo_size)
-                train_indices_after = train_indices_after[
-                    train_indices_after >= embargo_end
-                ]
+                train_indices_after = train_indices_after[train_indices_after >= embargo_end]
 
             # Combine train indices
             train_indices = np.concatenate([train_indices_before, train_indices_after])

@@ -1,10 +1,12 @@
 """
 Contract/Schema tests for Domain Bookkeeping: Message Bus Integration & Event Flow.
 
-These tests define and validate data contracts at component boundaries using Pandera schemas.
-Ensures that message bus integration maintains consistent data formats and interfaces.
+These tests define and validate data contracts at component boundaries using Pandera
+schemas. Ensures that message bus integration maintains consistent data formats and
+interfaces.
 
 Following the "write less tests, get more coverage" philosophy from TESTING_STRATEGY.md
+
 """
 
 from __future__ import annotations
@@ -25,197 +27,228 @@ from nautilus_trader.core.uuid import UUID4
 
 # Message Bus Event Schemas
 class EventMessageSchema(pa.DataFrameModel):
-    """Schema for events published to Nautilus Message Bus."""
+    """
+    Schema for events published to Nautilus Message Bus.
+    """
 
     event_id: Series[str] = pa.Field(
         regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        description="UUID4 event identifier"
+        description="UUID4 event identifier",
     )
     correlation_id: Series[str] = pa.Field(
         regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        description="UUID4 correlation identifier for event tracing"
+        description="UUID4 correlation identifier for event tracing",
     )
     instrument_id: Series[str] = pa.Field(
         str_length={"min_value": 5, "max_value": 50},
-        description="Nautilus instrument identifier"
+        description="Nautilus instrument identifier",
     )
     ts_event: Series[int] = pa.Field(
         ge=0,
-        le=2**63-1,
-        description="Event timestamp in nanoseconds since epoch"
+        le=2**63 - 1,
+        description="Event timestamp in nanoseconds since epoch",
     )
     ts_init: Series[int] = pa.Field(
         ge=0,
-        le=2**63-1,
-        description="Initialization timestamp in nanoseconds since epoch"
+        le=2**63 - 1,
+        description="Initialization timestamp in nanoseconds since epoch",
     )
     domain: Series[str] = pa.Field(
         isin=["data", "features", "models", "strategies"],
-        description="Domain bookkeeper responsible for this event"
+        description="Domain bookkeeper responsible for this event",
     )
     operation: Series[str] = pa.Field(
         isin=["created", "updated", "deprecated", "deleted"],
-        description="Operation performed on the domain entity"
+        description="Operation performed on the domain entity",
     )
 
     @pa.dataframe_check()
     def check_timestamp_ordering(cls, df: pd.DataFrame) -> bool:
-        """ts_init must be >= ts_event (initialization after or during event)."""
+        """
+        ts_init must be >= ts_event (initialization after or during event).
+        """
         return (df["ts_init"] >= df["ts_event"]).all()
 
 
 class MessageTopicSchema(pa.DataFrameModel):
-    """Schema for message bus topic routing."""
+    """
+    Schema for message bus topic routing.
+    """
 
     topic: Series[str] = pa.Field(
         regex=r"^ml\.[a-z]+\.[a-z_]+\.[a-zA-Z0-9_.-]+$",
-        description="Topic following ml.{domain}.{operation}.{instrument_id} pattern"
+        description="Topic following ml.{domain}.{operation}.{instrument_id} pattern",
     )
     subscriber_count: Series[int] = pa.Field(
         ge=0,
-        description="Number of active subscribers to this topic"
+        description="Number of active subscribers to this topic",
     )
     message_count: Series[int] = pa.Field(
         ge=0,
-        description="Total messages published to this topic"
+        description="Total messages published to this topic",
     )
     last_published: Series[int] = pa.Field(
         ge=0,
         nullable=True,
         coerce=True,
-        description="Timestamp of last published message (nanoseconds)"
+        description="Timestamp of last published message (nanoseconds)",
     )
 
 
 class CrossDomainEventSchema(pa.DataFrameModel):
-    """Schema for events that propagate across domains."""
+    """
+    Schema for events that propagate across domains.
+    """
 
     source_domain: Series[str] = pa.Field(
         isin=["data", "features", "models", "strategies"],
-        description="Domain that initiated the event cascade"
+        description="Domain that initiated the event cascade",
     )
     target_domain: Series[str] = pa.Field(
         isin=["data", "features", "models", "strategies"],
-        description="Domain receiving the cascaded event"
+        description="Domain receiving the cascaded event",
     )
     source_event_id: Series[str] = pa.Field(
         regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        description="Original event ID that triggered cascade"
+        description="Original event ID that triggered cascade",
     )
     propagation_delay_ms: Series[int] = pa.Field(
         ge=0,
         le=10000,  # Max 10 second propagation delay
-        description="Time delay in milliseconds for event propagation"
+        description="Time delay in milliseconds for event propagation",
     )
 
     @pa.dataframe_check()
     def check_valid_propagation_path(cls, df: pd.DataFrame) -> bool:
-        """Validate that domain propagation follows expected paths."""
+        """
+        Validate that domain propagation follows expected paths.
+        """
         valid_paths = {
             "data": ["features"],
             "features": ["models"],
             "models": ["strategies"],
-            "strategies": []  # Terminal domain
+            "strategies": [],  # Terminal domain
         }
-        return all(df.apply(lambda r: r["target_domain"] in valid_paths.get(r["source_domain"], []), axis=1))
+        return all(
+            df.apply(
+                lambda r: r["target_domain"] in valid_paths.get(r["source_domain"], []),
+                axis=1,
+            ),
+        )
 
 
 class SubscriptionFilterSchema(pa.DataFrameModel):
-    """Schema for message bus subscription filters."""
+    """
+    Schema for message bus subscription filters.
+    """
 
     subscriber_id: Series[str] = pa.Field(
         str_length={"min_value": 3, "max_value": 50},
-        description="Unique identifier for message subscriber"
+        description="Unique identifier for message subscriber",
     )
     domain_filter: Series[str] = pa.Field(
         isin=["data", "features", "models", "strategies", "*"],
-        description="Domain filter pattern (* for all domains)"
+        description="Domain filter pattern (* for all domains)",
     )
     operation_filter: Series[str] = pa.Field(
         isin=["created", "updated", "deprecated", "deleted", "*"],
-        description="Operation filter pattern (* for all operations)"
+        description="Operation filter pattern (* for all operations)",
     )
     instrument_filter: Series[str] = pa.Field(
         str_length={"min_value": 1, "max_value": 50},
-        description="Instrument filter pattern (* for all instruments)"
+        description="Instrument filter pattern (* for all instruments)",
     )
     is_active: Series[bool] = pa.Field(
-        description="Whether subscription is currently active"
+        description="Whether subscription is currently active",
     )
     created_at: Series[int] = pa.Field(
         ge=0,
-        description="Subscription creation timestamp (nanoseconds)"
+        description="Subscription creation timestamp (nanoseconds)",
     )
 
 
 @pytest.mark.contracts
 @pytest.mark.parallel_safe
 class TestEventMessageContracts:
-    """Contract tests for message bus event schemas."""
+    """
+    Contract tests for message bus event schemas.
+    """
 
     def test_event_message_schema_validation(self):
-        """Test that event messages conform to expected schema."""
+        """
+        Test that event messages conform to expected schema.
+        """
         # Valid event data
-        valid_events = pd.DataFrame([
-            {
-                "event_id": str(UUID4()),
-                "correlation_id": str(UUID4()),
-                "instrument_id": "EURUSD.SIM",
-                "ts_event": 1609459200000000000,  # 2021-01-01T00:00:00Z
-                "ts_init": 1609459200000001000,   # Slightly after ts_event
-                "domain": "data",
-                "operation": "created",
-            },
-            {
-                "event_id": str(UUID4()),
-                "correlation_id": str(UUID4()),
-                "instrument_id": "BTCUSDT.BINANCE",
-                "ts_event": 1609459260000000000,  # 2021-01-01T00:01:00Z
-                "ts_init": 1609459260000000000,   # Same as ts_event (valid)
-                "domain": "features",
-                "operation": "updated",
-            }
-        ])
+        valid_events = pd.DataFrame(
+            [
+                {
+                    "event_id": str(UUID4()),
+                    "correlation_id": str(UUID4()),
+                    "instrument_id": "EURUSD.SIM",
+                    "ts_event": 1609459200000000000,  # 2021-01-01T00:00:00Z
+                    "ts_init": 1609459200000001000,  # Slightly after ts_event
+                    "domain": "data",
+                    "operation": "created",
+                },
+                {
+                    "event_id": str(UUID4()),
+                    "correlation_id": str(UUID4()),
+                    "instrument_id": "BTCUSDT.BINANCE",
+                    "ts_event": 1609459260000000000,  # 2021-01-01T00:01:00Z
+                    "ts_init": 1609459260000000000,  # Same as ts_event (valid)
+                    "domain": "features",
+                    "operation": "updated",
+                },
+            ],
+        )
 
         # Schema validation should pass
         validated_df = EventMessageSchema.validate(valid_events)
         assert len(validated_df) == 2
 
     def test_event_message_schema_rejects_invalid_data(self):
-        """Test that invalid event data is rejected by schema."""
+        """
+        Test that invalid event data is rejected by schema.
+        """
         # Invalid event data (ts_init < ts_event)
-        invalid_events = pd.DataFrame([
-            {
-                "event_id": str(UUID4()),
-                "correlation_id": str(UUID4()),
-                "instrument_id": "INVALID",
-                "ts_event": 1609459200000000000,
-                "ts_init": 1609459199000000000,  # Before ts_event (invalid)
-                "domain": "invalid_domain",  # Invalid domain
-                "operation": "created",
-            }
-        ])
+        invalid_events = pd.DataFrame(
+            [
+                {
+                    "event_id": str(UUID4()),
+                    "correlation_id": str(UUID4()),
+                    "instrument_id": "INVALID",
+                    "ts_event": 1609459200000000000,
+                    "ts_init": 1609459199000000000,  # Before ts_event (invalid)
+                    "domain": "invalid_domain",  # Invalid domain
+                    "operation": "created",
+                },
+            ],
+        )
 
         # Schema validation should fail
         with pytest.raises(pa.errors.SchemaError):
             EventMessageSchema.validate(invalid_events)
 
     def test_topic_schema_naming_convention(self):
-        """Test that message topics follow naming convention."""
-        valid_topics = pd.DataFrame([
-            {
-                "topic": "ml.data.created.EURUSD.SIM",
-                "subscriber_count": 3,
-                "message_count": 150,
-                "last_published": 1609459200000000000,
-            },
-            {
-                "topic": "ml.features.updated.BTCUSDT.BINANCE",
-                "subscriber_count": 1,
-                "message_count": 42,
-                "last_published": 0,  # Use 0 for no messages yet to avoid dtype ambiguity
-            }
-        ])
+        """
+        Test that message topics follow naming convention.
+        """
+        valid_topics = pd.DataFrame(
+            [
+                {
+                    "topic": "ml.data.created.EURUSD.SIM",
+                    "subscriber_count": 3,
+                    "message_count": 150,
+                    "last_published": 1609459200000000000,
+                },
+                {
+                    "topic": "ml.features.updated.BTCUSDT.BINANCE",
+                    "subscriber_count": 1,
+                    "message_count": 42,
+                    "last_published": 0,  # Use 0 for no messages yet to avoid dtype ambiguity
+                },
+            ],
+        )
         # Ensure integer dtype
         valid_topics["last_published"] = valid_topics["last_published"].astype("int64")
 
@@ -224,41 +257,49 @@ class TestEventMessageContracts:
         assert len(validated_df) == 2
 
     def test_cross_domain_event_propagation_paths(self):
-        """Test that cross-domain events follow valid propagation paths."""
-        valid_propagations = pd.DataFrame([
-            {
-                "source_domain": "data",
-                "target_domain": "features",
-                "source_event_id": str(UUID4()),
-                "propagation_delay_ms": 50,
-            },
-            {
-                "source_domain": "features",
-                "target_domain": "models",
-                "source_event_id": str(UUID4()),
-                "propagation_delay_ms": 100,
-            },
-            {
-                "source_domain": "models",
-                "target_domain": "strategies",
-                "source_event_id": str(UUID4()),
-                "propagation_delay_ms": 25,
-            }
-        ])
+        """
+        Test that cross-domain events follow valid propagation paths.
+        """
+        valid_propagations = pd.DataFrame(
+            [
+                {
+                    "source_domain": "data",
+                    "target_domain": "features",
+                    "source_event_id": str(UUID4()),
+                    "propagation_delay_ms": 50,
+                },
+                {
+                    "source_domain": "features",
+                    "target_domain": "models",
+                    "source_event_id": str(UUID4()),
+                    "propagation_delay_ms": 100,
+                },
+                {
+                    "source_domain": "models",
+                    "target_domain": "strategies",
+                    "source_event_id": str(UUID4()),
+                    "propagation_delay_ms": 25,
+                },
+            ],
+        )
 
         validated_df = CrossDomainEventSchema.validate(valid_propagations)
         assert len(validated_df) == 3
 
     def test_invalid_propagation_paths_rejected(self):
-        """Test that invalid domain propagation paths are rejected."""
-        invalid_propagations = pd.DataFrame([
-            {
-                "source_domain": "strategies",  # Terminal domain
-                "target_domain": "data",        # Invalid reverse flow
-                "source_event_id": str(UUID4()),
-                "propagation_delay_ms": 50,
-            }
-        ])
+        """
+        Test that invalid domain propagation paths are rejected.
+        """
+        invalid_propagations = pd.DataFrame(
+            [
+                {
+                    "source_domain": "strategies",  # Terminal domain
+                    "target_domain": "data",  # Invalid reverse flow
+                    "source_event_id": str(UUID4()),
+                    "propagation_delay_ms": 50,
+                },
+            ],
+        )
 
         with pytest.raises(pa.errors.SchemaError):
             CrossDomainEventSchema.validate(invalid_propagations)
@@ -267,28 +308,34 @@ class TestEventMessageContracts:
 @pytest.mark.contracts
 @pytest.mark.parallel_safe
 class TestSubscriptionFilterContracts:
-    """Contract tests for message subscription filtering."""
+    """
+    Contract tests for message subscription filtering.
+    """
 
     def test_subscription_filter_schema_validation(self):
-        """Test that subscription filters conform to expected schema."""
-        valid_subscriptions = pd.DataFrame([
-            {
-                "subscriber_id": "ml_signal_actor_001",
-                "domain_filter": "models",
-                "operation_filter": "updated",
-                "instrument_filter": "EURUSD.SIM",
-                "is_active": True,
-                "created_at": 1609459200000000000,
-            },
-            {
-                "subscriber_id": "monitoring_service",
-                "domain_filter": "*",  # All domains
-                "operation_filter": "*",  # All operations
-                "instrument_filter": "*",  # All instruments
-                "is_active": True,
-                "created_at": 1609459200000000000,
-            }
-        ])
+        """
+        Test that subscription filters conform to expected schema.
+        """
+        valid_subscriptions = pd.DataFrame(
+            [
+                {
+                    "subscriber_id": "ml_signal_actor_001",
+                    "domain_filter": "models",
+                    "operation_filter": "updated",
+                    "instrument_filter": "EURUSD.SIM",
+                    "is_active": True,
+                    "created_at": 1609459200000000000,
+                },
+                {
+                    "subscriber_id": "monitoring_service",
+                    "domain_filter": "*",  # All domains
+                    "operation_filter": "*",  # All operations
+                    "instrument_filter": "*",  # All instruments
+                    "is_active": True,
+                    "created_at": 1609459200000000000,
+                },
+            ],
+        )
 
         validated_df = SubscriptionFilterSchema.validate(valid_subscriptions)
         assert len(validated_df) == 2
@@ -297,12 +344,14 @@ class TestSubscriptionFilterContracts:
 @pytest.mark.contracts
 @pytest.mark.integration
 class TestMessageBusIntegrationContracts:
-    """Integration contract tests for message bus components."""
+    """
+    Integration contract tests for message bus components.
+    """
 
     @given(
         domain=st.sampled_from(["data", "features", "models", "strategies"]),
         operation=st.sampled_from(["created", "updated", "deprecated"]),
-        instrument_id=st.text(min_size=5, max_size=20)
+        instrument_id=st.text(min_size=5, max_size=20),
     )
     def test_event_emission_preserves_schema(self, domain, operation, instrument_id):
         """
@@ -352,12 +401,16 @@ class TestMessageBusIntegrationContracts:
             generated_topic = f"ml.{domain}.{operation}.{instrument}"
 
             # Validate against topic schema
-            topic_df = pd.DataFrame([{
-                "topic": generated_topic,
-                "subscriber_count": 0,
-                "message_count": 0,
-                "last_published": 0,
-            }])
+            topic_df = pd.DataFrame(
+                [
+                    {
+                        "topic": generated_topic,
+                        "subscriber_count": 0,
+                        "message_count": 0,
+                        "last_published": 0,
+                    },
+                ],
+            )
 
             try:
                 validated_topic = MessageTopicSchema.validate(topic_df)
@@ -369,7 +422,9 @@ class TestMessageBusIntegrationContracts:
 @pytest.mark.contracts
 @pytest.mark.parallel_safe
 class TestEventCorrelationContracts:
-    """Contract tests for event correlation and tracing."""
+    """
+    Contract tests for event correlation and tracing.
+    """
 
     def test_correlation_id_preservation_contract(self):
         """

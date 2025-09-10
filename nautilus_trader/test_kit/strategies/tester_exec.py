@@ -303,7 +303,7 @@ class ExecTester(Strategy):
             params=self.config.order_params,
         )
 
-    def on_stop(self) -> None:  # noqa: C901 (too complex)
+    def on_stop(self) -> None:
         """
         Actions to be performed when the strategy is stopped.
         """

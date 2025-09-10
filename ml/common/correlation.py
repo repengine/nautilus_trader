@@ -1,8 +1,9 @@
 """
 Correlation utilities for event tracing.
 
-Provides helpers to generate deterministic correlation IDs that can be used to
-trace a single flow across Data → Features → Predictions → Signals.
+Provides helpers to generate deterministic correlation IDs that can be used to trace a
+single flow across Data → Features → Predictions → Signals.
+
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ def make_correlation_id(
     -------
     str
         Hex-encoded SHA256 digest as correlation ID.
+
     """
     h = hashlib.sha256()
     h.update(run_id.encode("utf-8"))
@@ -58,4 +60,3 @@ def make_correlation_id(
 
 
 __all__ = ["make_correlation_id"]
-

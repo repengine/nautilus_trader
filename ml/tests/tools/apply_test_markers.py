@@ -2,8 +2,9 @@
 """
 Apply pytest markers to tests based on their characteristics.
 
-This tool analyzes test files and automatically suggests or applies
-appropriate markers based on imports, fixtures, and content.
+This tool analyzes test files and automatically suggests or applies appropriate markers
+based on imports, fixtures, and content.
+
 """
 
 import ast
@@ -14,7 +15,9 @@ import click
 
 
 def detect_test_characteristics(filepath: Path) -> dict[str, bool]:
-    """Detect characteristics of a test file to determine appropriate markers."""
+    """
+    Detect characteristics of a test file to determine appropriate markers.
+    """
     with open(filepath) as f:
         content = f.read()
 
@@ -92,6 +95,7 @@ def detect_test_characteristics(filepath: Path) -> dict[str, bool]:
                     characteristics["flaky"] = True
     except Exception:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
             "AST parse failed while detecting test characteristics",
             exc_info=True,
@@ -101,7 +105,9 @@ def detect_test_characteristics(filepath: Path) -> dict[str, bool]:
 
 
 def suggest_markers(characteristics: dict[str, bool]) -> list[str]:
-    """Suggest pytest markers based on test characteristics."""
+    """
+    Suggest pytest markers based on test characteristics.
+    """
     markers = []
 
     # Priority order matters - most specific first
@@ -136,7 +142,9 @@ def suggest_markers(characteristics: dict[str, bool]) -> list[str]:
 
 
 def apply_markers_to_file(filepath: Path, markers: list[str], dry_run: bool = True) -> str:
-    """Apply markers to a test file."""
+    """
+    Apply markers to a test file.
+    """
     with open(filepath) as f:
         lines = f.readlines()
 
@@ -184,7 +192,9 @@ def apply_markers_to_file(filepath: Path, markers: list[str], dry_run: bool = Tr
 
 
 def analyze_test_directory(test_dir: Path) -> dict[str, list[str]]:
-    """Analyze all test files and suggest markers."""
+    """
+    Analyze all test files and suggest markers.
+    """
     suggestions = {}
 
     for filepath in test_dir.rglob("test_*.py"):
@@ -201,7 +211,9 @@ def analyze_test_directory(test_dir: Path) -> dict[str, list[str]]:
 @click.option("--apply", is_flag=True, help="Actually apply markers (default is dry run)")
 @click.option("--output", default=None, help="Output file for suggestions")
 def main(test_dir, apply, output):
-    """Analyze tests and suggest or apply appropriate markers."""
+    """
+    Analyze tests and suggest or apply appropriate markers.
+    """
     test_path = Path(test_dir)
     if not test_path.exists():
         click.echo(f"Error: {test_path} does not exist")

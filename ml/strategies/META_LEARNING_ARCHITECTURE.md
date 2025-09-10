@@ -7,6 +7,7 @@ This document outlines the architecture for using machine learning to dynamicall
 ## Current Architecture
 
 ### Signal Flow
+
 ```
 Actor 1 (Model A) ──┐
 Actor 2 (Model B) ──┼──> Strategy (Static Aggregation) ──> Trade Decision
@@ -14,6 +15,7 @@ Actor 3 (Model C) ──┘
 ```
 
 ### Current Limitations
+
 - **Static Weights**: Model weights don't adapt to market conditions
 - **Simple Aggregation**: Basic voting or weighted average
 - **No Learning**: Doesn't improve aggregation over time
@@ -22,6 +24,7 @@ Actor 3 (Model C) ──┘
 ## Proposed Meta-Learning Architecture
 
 ### Enhanced Signal Flow
+
 ```
 Actor 1 (Model A) ──┐
 Actor 2 (Model B) ──┼──> Meta-Strategy (ML Orchestrator) ──> Adaptive Trade Decision
@@ -184,6 +187,7 @@ class BayesianEnsembleStrategy(BaseMLStrategy):
 ## Meta-Model Training Pipeline
 
 ### 1. Data Collection Phase
+
 ```python
 def collect_meta_training_data():
     """
@@ -216,6 +220,7 @@ def collect_meta_training_data():
 ```
 
 ### 2. Meta-Model Training
+
 ```python
 def train_meta_model(meta_data: list):
     """
@@ -245,6 +250,7 @@ def train_meta_model(meta_data: list):
 ```
 
 ### 3. Online Learning Component
+
 ```python
 class OnlineMetaLearner:
     """
@@ -363,6 +369,7 @@ class MetaPerformanceTracker:
 ## Integration with Existing System
 
 ### 1. Configuration
+
 ```python
 # ml/config/meta_strategy.py
 @dataclass
@@ -387,6 +394,7 @@ class MetaStrategyConfig(MLStrategyConfig):
 ```
 
 ### 2. Deployment
+
 ```python
 # ml/deployment/deploy_meta_strategy.py
 def deploy_meta_strategy():

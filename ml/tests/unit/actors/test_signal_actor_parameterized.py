@@ -6,6 +6,7 @@ and property-based testing approaches as outlined in TESTING_STRATEGY.md.
 
 Original: 1,622 lines with 49 tests
 Target: ~1,180 lines (27% reduction) with improved coverage
+
 """
 
 import contextlib
@@ -57,7 +58,9 @@ from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 
 
 class MockTestModel:
-    """Mock model for testing."""
+    """
+    Mock model for testing.
+    """
 
     def predict(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         return np.array([0.8])
@@ -70,10 +73,14 @@ class MockTestModel:
 @pytest.mark.slow
 @pytest.mark.unit
 class TestMLSignalActorParameterized:
-    """Parameterized test cases for MLSignalActor."""
+    """
+    Parameterized test cases for MLSignalActor.
+    """
 
     def setup_method(self) -> None:
-        """Set up test fixtures."""
+        """
+        Set up test fixtures.
+        """
         # Clear Prometheus metrics registry to avoid duplicates
         try:
             import gc
@@ -95,7 +102,7 @@ class TestMLSignalActorParameterized:
         self.model_factory = TestModelFactory()
         # The factory methods return a Path to the saved model
         self.temp_model_file_path = self.model_factory.create_onnx_model(
-            output_path=self.temp_dir / "test_model.onnx"
+            output_path=self.temp_dir / "test_model.onnx",
         )
 
         # Setup Nautilus components
@@ -172,9 +179,12 @@ class TestMLSignalActorParameterized:
         )
 
     def create_test_actor(
-        self, config: MLSignalActorConfig | None = None
+        self,
+        config: MLSignalActorConfig | None = None,
     ) -> MLSignalActor:
-        """Create a test actor instance."""
+        """
+        Create a test actor instance.
+        """
         if config is None:
             config = self.config
 
@@ -189,7 +199,9 @@ class TestMLSignalActorParameterized:
         return actor
 
     def create_test_bar(self, close_price: float = 1.1000) -> Bar:
-        """Create a test bar."""
+        """
+        Create a test bar.
+        """
         ts_event = self.clock.timestamp_ns()
         ts_init = ts_event + 1
 
@@ -248,7 +260,9 @@ class TestMLSignalActorParameterized:
         threshold: float,
         expected_signal_range: tuple[float, float],
     ) -> None:
-        """Test various signal generation strategies with different inputs."""
+        """
+        Test various signal generation strategies with different inputs.
+        """
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
@@ -307,7 +321,9 @@ class TestMLSignalActorParameterized:
         model_factory_method: str,
         has_proba: bool,
     ) -> None:
-        """Test different model types and their prediction methods."""
+        """
+        Test different model types and their prediction methods.
+        """
         # Create model using factory - it returns the path
         model_path = self.temp_dir / f"test_{model_type}.pkl"
 
@@ -317,7 +333,7 @@ class TestMLSignalActorParameterized:
 
         # Call the factory method which creates and saves the model
         model_path = getattr(self.model_factory, model_factory_method)(
-            output_path=model_path
+            output_path=model_path,
         )
 
         config = MLSignalActorConfig(
@@ -353,7 +369,7 @@ class TestMLSignalActorParameterized:
         [
             (1, SignalStrategy.MOMENTUM, False),  # Insufficient for momentum
             (2, SignalStrategy.EXTREMES, False),  # Insufficient for extremes
-            (5, SignalStrategy.MOMENTUM, True),   # Sufficient for momentum
+            (5, SignalStrategy.MOMENTUM, True),  # Sufficient for momentum
             (10, SignalStrategy.EXTREMES, True),  # Sufficient for extremes
         ],
         ids=[
@@ -369,7 +385,9 @@ class TestMLSignalActorParameterized:
         strategy: SignalStrategy,
         should_generate_signal: bool,
     ) -> None:
-        """Test strategies handle insufficient history correctly."""
+        """
+        Test strategies handle insufficient history correctly.
+        """
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
@@ -442,7 +460,7 @@ class TestMLSignalActorParameterized:
             st.floats(min_value=0.5, max_value=2.0),
             min_size=35,
             max_size=50,
-        )
+        ),
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_monotonic_bar_processing(
@@ -507,7 +525,9 @@ class TestMLSignalActorParameterized:
         failure_count: int,
         expected_state: CircuitBreakerState,
     ) -> None:
-        """Test circuit breaker state transitions with different failure counts."""
+        """
+        Test circuit breaker state transitions with different failure counts.
+        """
         config = MLSignalActorConfig(
             model_id="test_model",
             component_id="MLSignalActor-001",
@@ -535,7 +555,10 @@ class TestMLSignalActorParameterized:
         assert actor._circuit_breaker.state == expected_state
 
     def teardown_method(self) -> None:
-        """Clean up test resources."""
+        """
+        Clean up test resources.
+        """
         import shutil
+
         if self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)

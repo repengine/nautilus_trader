@@ -1,5 +1,5 @@
 -- Disable Automatic Partition Triggers for Testing
--- 
+--
 -- This migration disables the automatic partition creation triggers that were
 -- created in 002_auto_partitioning.sql. These triggers have race conditions
 -- and can cause sub-partition creation attempts that fail during testing.
@@ -35,7 +35,7 @@ BEGIN
         FOR v_year IN 2023..2026 LOOP
             FOR v_month IN 1..12 LOOP
                 v_partition_name := v_table || '_' || v_year || '_' || LPAD(v_month::TEXT, 2, '0');
-                
+
                 -- Calculate nanosecond timestamps
                 v_start_ts := EXTRACT(EPOCH FROM DATE(v_year || '-' || LPAD(v_month::TEXT, 2, '0') || '-01')) * 1000000000;
                 IF v_month = 12 THEN
@@ -43,11 +43,11 @@ BEGIN
                 ELSE
                     v_end_ts := EXTRACT(EPOCH FROM DATE(v_year || '-' || LPAD((v_month + 1)::TEXT, 2, '0') || '-01')) * 1000000000;
                 END IF;
-                
+
                 -- Check if partition exists before creating
                 IF NOT EXISTS (
-                    SELECT 1 FROM pg_tables 
-                    WHERE schemaname = 'public' 
+                    SELECT 1 FROM pg_tables
+                    WHERE schemaname = 'public'
                     AND tablename = v_partition_name
                 ) THEN
                     BEGIN
@@ -65,7 +65,7 @@ BEGIN
             END LOOP;
         END LOOP;
     END LOOP;
-    
+
     RAISE NOTICE 'Test partitions created successfully';
 END $$;
 
@@ -74,7 +74,7 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (
-        SELECT 1 FROM pg_tables 
+        SELECT 1 FROM pg_tables
         WHERE tablename IN ('ml_strategy_signals_2023_11', 'ml_feature_values_2023_11', 'ml_model_predictions_2023_11')
     ) THEN
         RAISE NOTICE 'Critical test partitions verified';

@@ -655,7 +655,7 @@ class TestStoreBenchmarks:
                     "ts_event": time.time_ns(),
                     "signal": np.random.choice([-1, 0, 1]),
                     "confidence": np.random.random(),
-                }
+                },
             )
 
         # Measure directly to compute a robust P99

@@ -354,7 +354,7 @@ def _get_nautilus_version() -> str:
 def _get_clang_version() -> str:
     try:
         result = subprocess.run(
-            ["clang", "--version"],  # noqa
+            ["clang", "--version"],
             check=True,
             capture_output=True,
         )
@@ -377,7 +377,7 @@ def _get_clang_version() -> str:
 def _get_rustc_version() -> str:
     try:
         result = subprocess.run(
-            ["rustc", "--version"],  # noqa
+            ["rustc", "--version"],
             check=True,
             capture_output=True,
         )

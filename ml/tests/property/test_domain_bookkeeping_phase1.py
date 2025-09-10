@@ -30,22 +30,26 @@ from nautilus_trader.model.identifiers import InstrumentId
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestEventEmissionInvariant:
-    """Property-based tests for event emission infrastructure invariants."""
+    """
+    Property-based tests for event emission infrastructure invariants.
+    """
 
     @given(
         events=st.lists(
-            st.fixed_dictionaries({
-                "event_id": st.uuids().map(str),
-                "instrument_id": st.text(min_size=5, max_size=20),
-                "ts_event": st.integers(min_value=0, max_value=2**63-1),
-                "ts_init": st.integers(min_value=0, max_value=2**63-1),
-                "domain": st.sampled_from(["data", "features", "models", "strategies"]),
-                "operation": st.sampled_from(["created", "updated", "deprecated"]),
-                "payload": st.dictionaries(st.text(), st.text(), max_size=5)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "event_id": st.uuids().map(str),
+                    "instrument_id": st.text(min_size=5, max_size=20),
+                    "ts_event": st.integers(min_value=0, max_value=2**63 - 1),
+                    "ts_init": st.integers(min_value=0, max_value=2**63 - 1),
+                    "domain": st.sampled_from(["data", "features", "models", "strategies"]),
+                    "operation": st.sampled_from(["created", "updated", "deprecated"]),
+                    "payload": st.dictionaries(st.text(), st.text(), max_size=5),
+                },
+            ),
             min_size=1,
-            max_size=100
-        )
+            max_size=100,
+        ),
     )
     @settings(max_examples=50, deadline=5000)
     def test_event_ordering_invariant(self, events):
@@ -70,21 +74,24 @@ class TestEventEmissionInvariant:
             emitted_timestamps.append(event["ts_event"])
 
         # Property: Emitted timestamps must be monotonically increasing
-        assert emitted_timestamps == sorted(emitted_timestamps), \
-            "Event emission must preserve chronological ordering"
+        assert emitted_timestamps == sorted(
+            emitted_timestamps,
+        ), "Event emission must preserve chronological ordering"
 
     @given(
         correlation_id=st.uuids().map(str),
         domain_events=st.lists(
-            st.fixed_dictionaries({
-                "domain": st.sampled_from(["data", "features", "models", "strategies"]),
-                "event_type": st.text(min_size=3, max_size=20),
-                "correlation_id": st.uuids().map(str),
-                "sequence_number": st.integers(min_value=0, max_value=1000),
-            }),
+            st.fixed_dictionaries(
+                {
+                    "domain": st.sampled_from(["data", "features", "models", "strategies"]),
+                    "event_type": st.text(min_size=3, max_size=20),
+                    "correlation_id": st.uuids().map(str),
+                    "sequence_number": st.integers(min_value=0, max_value=1000),
+                },
+            ),
             min_size=2,
-            max_size=20
-        )
+            max_size=20,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_cross_domain_correlation_invariant(self, correlation_id, domain_events):
@@ -113,19 +120,25 @@ class TestEventEmissionInvariant:
             mock_integration_manager.emit_cross_domain_event(event)
 
         # Property: All correlation IDs must match the original
-        assert all(cid == correlation_id for cid in emitted_correlations), \
-            "Cross-domain event propagation must preserve correlation IDs"
+        assert all(
+            cid == correlation_id for cid in emitted_correlations
+        ), "Cross-domain event propagation must preserve correlation IDs"
 
     @given(
         instrument_id=st.text(min_size=5, max_size=15),
         event_count=st.integers(min_value=1, max_value=50),
         message_failures=st.lists(
             st.integers(min_value=0, max_value=49),  # Index of failed messages
-            max_size=5
-        )
+            max_size=5,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_message_delivery_reliability_invariant(self, instrument_id, event_count, message_failures):
+    def test_message_delivery_reliability_invariant(
+        self,
+        instrument_id,
+        event_count,
+        message_failures,
+    ):
         """
         Property: Message delivery must guarantee eventual consistency despite transient failures.
 
@@ -135,13 +148,15 @@ class TestEventEmissionInvariant:
         # Generate events for the instrument
         events = []
         for i in range(event_count):
-            events.append({
-                "event_id": str(UUID4()),
-                "instrument_id": instrument_id,
-                "sequence": i,
-                "ts_event": i * 1000,  # Sequential timestamps
-                "retry_count": 0
-            })
+            events.append(
+                {
+                    "event_id": str(UUID4()),
+                    "instrument_id": instrument_id,
+                    "sequence": i,
+                    "ts_event": i * 1000,  # Sequential timestamps
+                    "retry_count": 0,
+                },
+            )
 
         mock_message_bus = MagicMock()
         delivered_events = []
@@ -168,18 +183,22 @@ class TestEventEmissionInvariant:
         delivered_sequences = [e["sequence"] for e in delivered_events]
         expected_sequences = list(range(event_count))
 
-        assert sorted(delivered_sequences) == sorted(expected_sequences), \
-            "Message delivery must ensure all events reach destination after retries"
+        assert sorted(delivered_sequences) == sorted(
+            expected_sequences,
+        ), "Message delivery must ensure all events reach destination after retries"
 
         # Property: No duplicate deliveries
-        assert len(delivered_sequences) == len(set(delivered_sequences)), \
-            "Message delivery must not create duplicates during retry"
+        assert len(delivered_sequences) == len(
+            set(delivered_sequences),
+        ), "Message delivery must not create duplicates during retry"
 
 
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestMessageTopicRoutingInvariant:
-    """Property-based tests for message bus topic routing invariants."""
+    """
+    Property-based tests for message bus topic routing invariants.
+    """
 
     @given(
         domain=st.sampled_from(["data", "features", "models", "strategies"]),
@@ -187,11 +206,17 @@ class TestMessageTopicRoutingInvariant:
         instrument_id=st.text(min_size=5, max_size=20),
         invalid_chars=st.lists(
             st.sampled_from(["/", "*", "#", "+", "$"]),  # Invalid topic characters
-            max_size=3
-        )
+            max_size=3,
+        ),
     )
     @settings(max_examples=30, deadline=3000)
-    def test_topic_naming_convention_invariant(self, domain, operation, instrument_id, invalid_chars):
+    def test_topic_naming_convention_invariant(
+        self,
+        domain,
+        operation,
+        instrument_id,
+        invalid_chars,
+    ):
         """
         Property: Topic names must follow ml.{domain}.{operation}.{instrument_id} convention.
 
@@ -217,30 +242,38 @@ class TestMessageTopicRoutingInvariant:
         actual_topic = generate_topic(domain, operation, instrument_id)
 
         # Property: Generated topic must match expected convention
-        assert actual_topic == expected_topic, \
-            f"Topic naming must follow convention: {expected_topic}, got {actual_topic}"
+        assert (
+            actual_topic == expected_topic
+        ), f"Topic naming must follow convention: {expected_topic}, got {actual_topic}"
 
         # Property: Topics must not contain invalid characters
         invalid_chars_in_topic = any(char in actual_topic for char in ["/", "*", "#", "+", "$"])
-        assert not invalid_chars_in_topic, \
-            "Topic names must not contain message bus reserved characters"
+        assert (
+            not invalid_chars_in_topic
+        ), "Topic names must not contain message bus reserved characters"
 
     @given(
         subscriptions=st.lists(
-            st.fixed_dictionaries({
-                "subscriber_id": st.text(min_size=3, max_size=15),
-                "domain_filter": st.sampled_from(["data", "features", "models", "strategies", "*"]),
-                "operation_filter": st.sampled_from(["created", "updated", "deprecated", "*"]),
-                "instrument_filter": st.text(min_size=3, max_size=15)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "subscriber_id": st.text(min_size=3, max_size=15),
+                    "domain_filter": st.sampled_from(
+                        ["data", "features", "models", "strategies", "*"],
+                    ),
+                    "operation_filter": st.sampled_from(["created", "updated", "deprecated", "*"]),
+                    "instrument_filter": st.text(min_size=3, max_size=15),
+                },
+            ),
             min_size=1,
-            max_size=10
+            max_size=10,
         ),
-        published_event=st.fixed_dictionaries({
-            "domain": st.sampled_from(["data", "features", "models", "strategies"]),
-            "operation": st.sampled_from(["created", "updated", "deprecated"]),
-            "instrument_id": st.text(min_size=3, max_size=15)
-        })
+        published_event=st.fixed_dictionaries(
+            {
+                "domain": st.sampled_from(["data", "features", "models", "strategies"]),
+                "operation": st.sampled_from(["created", "updated", "deprecated"]),
+                "instrument_id": st.text(min_size=3, max_size=15),
+            },
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_subscription_filtering_invariant(self, subscriptions, published_event):
@@ -250,13 +283,20 @@ class TestMessageTopicRoutingInvariant:
         Subscribers register with domain/operation/instrument filters, and events
         should be delivered only to those with matching patterns.
         """
+
         def matches_filter(event, subscription):
-            domain_match = (subscription["domain_filter"] == "*" or
-                          subscription["domain_filter"] == event["domain"])
-            operation_match = (subscription["operation_filter"] == "*" or
-                             subscription["operation_filter"] == event["operation"])
-            instrument_match = (subscription["instrument_filter"] == "*" or
-                              subscription["instrument_filter"] == event["instrument_id"])
+            domain_match = (
+                subscription["domain_filter"] == "*"
+                or subscription["domain_filter"] == event["domain"]
+            )
+            operation_match = (
+                subscription["operation_filter"] == "*"
+                or subscription["operation_filter"] == event["operation"]
+            )
+            instrument_match = (
+                subscription["instrument_filter"] == "*"
+                or subscription["instrument_filter"] == event["instrument_id"]
+            )
             return domain_match and operation_match and instrument_match
 
         # Determine which subscribers should receive the event
@@ -280,24 +320,29 @@ class TestMessageTopicRoutingInvariant:
                 mock_message_bus.deliver_to_subscriber(sub["subscriber_id"], published_event)
 
         # Property: All matching subscribers must receive the event
-        assert sorted(actual_recipients) == sorted(expected_recipients), \
-            "Event routing must deliver to all subscribers with matching filters"
+        assert sorted(actual_recipients) == sorted(
+            expected_recipients,
+        ), "Event routing must deliver to all subscribers with matching filters"
 
 
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestEventPropagationInvariant:
-    """Property-based tests for cross-domain event propagation invariants."""
+    """
+    Property-based tests for cross-domain event propagation invariants.
+    """
 
     @given(
-        initial_event=st.fixed_dictionaries({
-            "domain": st.just("data"),  # Always start with data domain
-            "operation": st.sampled_from(["created", "updated"]),
-            "instrument_id": st.text(min_size=5, max_size=15),
-            "ts_event": st.integers(min_value=1000, max_value=2**32),
-            "payload": st.dictionaries(st.text(), st.text(), max_size=3)
-        }),
-        propagation_delay_ms=st.integers(min_value=1, max_value=100)
+        initial_event=st.fixed_dictionaries(
+            {
+                "domain": st.just("data"),  # Always start with data domain
+                "operation": st.sampled_from(["created", "updated"]),
+                "instrument_id": st.text(min_size=5, max_size=15),
+                "ts_event": st.integers(min_value=1000, max_value=2**32),
+                "payload": st.dictionaries(st.text(), st.text(), max_size=3),
+            },
+        ),
+        propagation_delay_ms=st.integers(min_value=1, max_value=100),
     )
     @settings(max_examples=30, deadline=5000)
     def test_cascading_event_propagation_invariant(self, initial_event, propagation_delay_ms):
@@ -320,7 +365,7 @@ class TestEventPropagationInvariant:
                 "instrument_id": source_event["instrument_id"],
                 "ts_event": source_event["ts_event"] + propagation_delay_ms,
                 "source_event_id": source_event.get("event_id", "unknown"),
-                "correlation_id": source_event.get("correlation_id", "test-correlation")
+                "correlation_id": source_event.get("correlation_id", "test-correlation"),
             }
             propagated_events.append(cascaded_event)
             return cascaded_event
@@ -336,16 +381,19 @@ class TestEventPropagationInvariant:
 
         # Property: Cascade must create events in all dependent domains
         propagated_domains = [e["domain"] for e in propagated_events]
-        assert propagated_domains == expected_cascade, \
-            "Event cascade must propagate through all dependent domains in order"
+        assert (
+            propagated_domains == expected_cascade
+        ), "Event cascade must propagate through all dependent domains in order"
 
         # Property: Timestamps must be increasing (respecting propagation delays)
         propagated_timestamps = [e["ts_event"] for e in propagated_events]
-        assert propagated_timestamps == sorted(propagated_timestamps), \
-            "Cascaded event timestamps must be monotonically increasing"
+        assert propagated_timestamps == sorted(
+            propagated_timestamps,
+        ), "Cascaded event timestamps must be monotonically increasing"
 
         # Property: All cascaded events must have same instrument_id
         propagated_instruments = [e["instrument_id"] for e in propagated_events]
         expected_instruments = [initial_event["instrument_id"]] * len(expected_cascade)
-        assert propagated_instruments == expected_instruments, \
-            "Cascaded events must preserve instrument_id across domains"
+        assert (
+            propagated_instruments == expected_instruments
+        ), "Cascaded events must preserve instrument_id across domains"

@@ -12,4 +12,5 @@ conform to expected interfaces and behaviors. These tests focus on:
 
 Contract tests ensure components can be safely composed and that breaking
 changes to interfaces are caught early.
+
 """

@@ -14,12 +14,16 @@ class _FlakyRegistry:
         self.fail_on = fail_on
 
     def emit_event(self, **kwargs: Any) -> None:
-        """Raise on demand"""
+        """
+        Raise on demand.
+        """
         if self.fail_on == "emit":
             raise RuntimeError("emit fail")
 
     def update_watermark(self, **kwargs: Any) -> None:
-        """Raise on demand"""
+        """
+        Raise on demand.
+        """
         if self.fail_on == "wm":
             raise RuntimeError("wm fail")
 
@@ -41,7 +45,13 @@ def test_write_features_tolerates_registry_emit_error() -> None:
 
     from ml.stores.base import FeatureData
 
-    fd = FeatureData(feature_set_id="fs", instrument_id="X.SIM", values={"a": 1.0}, _ts_event=1, _ts_init=1)
+    fd = FeatureData(
+        feature_set_id="fs",
+        instrument_id="X.SIM",
+        values={"a": 1.0},
+        _ts_event=1,
+        _ts_init=1,
+    )
     # Should not raise even if registry emit_event fails internally
     event = DataStore.write_features(ds, instrument_id="X.SIM", features=[fd])
     assert event.record_count == 1
@@ -59,6 +69,12 @@ def test_write_features_tolerates_watermark_error() -> None:
 
     from ml.stores.base import FeatureData
 
-    fd = FeatureData(feature_set_id="fs", instrument_id="X.SIM", values={"a": 1.0}, _ts_event=1, _ts_init=1)
+    fd = FeatureData(
+        feature_set_id="fs",
+        instrument_id="X.SIM",
+        values={"a": 1.0},
+        _ts_event=1,
+        _ts_init=1,
+    )
     event = DataStore.write_features(ds, instrument_id="X.SIM", features=[fd])
     assert event.status == "success"

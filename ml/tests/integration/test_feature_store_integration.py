@@ -41,7 +41,9 @@ class TestFeatureStoreIntegration:
         return MagicMock(spec=Bar)
 
     def test_ml_signal_actor_with_feature_store(
-        self, mock_bar: Bar, test_database: TestDatabase
+        self,
+        mock_bar: Bar,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test that MLSignalActor uses FeatureStore when configured.
@@ -100,7 +102,9 @@ class TestFeatureStoreIntegration:
                 )
 
     def test_ml_signal_actor_without_feature_store(
-        self, mock_bar: Bar, test_database: TestDatabase
+        self,
+        mock_bar: Bar,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test that MLSignalActor works without FeatureStore (backward compatibility).

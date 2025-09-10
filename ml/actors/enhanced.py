@@ -1,9 +1,10 @@
 """
 Enhanced ML inference actor focused on hot-path feature computation behavior.
 
-This minimal, test-focused implementation ensures that feature computation
-returns a view into a pre-allocated buffer to guarantee zero-allocation
-semantics, while keeping strict typing and alignment with the base actor API.
+This minimal, test-focused implementation ensures that feature computation returns a
+view into a pre-allocated buffer to guarantee zero-allocation semantics, while keeping
+strict typing and alignment with the base actor API.
+
 """
 
 from __future__ import annotations
@@ -28,8 +29,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
     """
     Minimal enhanced inference actor used in performance tests.
 
-    Guarantees that computed features are returned as a view of a
-    pre-allocated buffer for zero-allocation hot-path behavior.
+    Guarantees that computed features are returned as a view of a pre-allocated buffer
+    for zero-allocation hot-path behavior.
+
     """
 
     def __init__(self, config: MLActorConfig) -> None:
@@ -51,12 +53,16 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
     # Base API overrides -----------------------------------------------------
     def _initialize_features(self) -> None:
-        """Initialize feature state; no heavy work required here."""
+        """
+        Initialize feature state; no heavy work required here.
+        """
         # No-op: state is initialized in __init__
         return None
 
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
-        """Compute features for a Bar and return a view of the buffer."""
+        """
+        Compute features for a Bar and return a view of the buffer.
+        """
         # Update indicator history with bar data (hot path operations)
         self._indicator_manager.price_history["closes"].append(float(bar.close))
         self._indicator_manager.price_history["volumes"].append(float(bar.volume))
@@ -84,7 +90,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
     # Non-essential methods kept minimal ------------------------------------
     def _load_model(self) -> None:
-        """Override to avoid loading a model in test-focused actor."""
+        """
+        Override to avoid loading a model in test-focused actor.
+        """
         self._model = None
         self._model_metadata: dict[str, Any] = {}
         return None
@@ -109,9 +117,16 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
                 data: Any | None = None,
             ) -> None:
                 return None
+
             def flush(self) -> None:
                 return None
-            def compute_realtime(self, bar: Any, store: bool = True, indicator_manager: Any | None = None) -> Any:
+
+            def compute_realtime(
+                self,
+                bar: Any,
+                store: bool = True,
+                indicator_manager: Any | None = None,
+            ) -> Any:
                 return {}
 
         class _NullModelStore(ModelStoreProtocol):
@@ -127,12 +142,27 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
                 is_live: bool = False,
             ) -> None:
                 return None
+
             def write_batch(self, data: list[Any], emit_events: bool = True) -> None:
                 return None
-            def read_predictions(self, model_id: str, instrument_id: str, start_ns: int, end_ns: int) -> Any:
+
+            def read_predictions(
+                self,
+                model_id: str,
+                instrument_id: str,
+                start_ns: int,
+                end_ns: int,
+            ) -> Any:
                 return []
-            def get_model_performance(self, model_id: str, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, Any]:
+
+            def get_model_performance(
+                self,
+                model_id: str,
+                start_ns: int | None = None,
+                end_ns: int | None = None,
+            ) -> dict[str, Any]:
                 return {}
+
             def flush(self) -> None:
                 return None
 
@@ -150,14 +180,35 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
                 is_live: bool = False,
             ) -> None:
                 return None
+
             def write_batch(self, data: list[Any]) -> None:
                 return None
-            def read_signals(self, strategy_id: str, instrument_id: str, start_ns: int, end_ns: int) -> Any:
+
+            def read_signals(
+                self,
+                strategy_id: str,
+                instrument_id: str,
+                start_ns: int,
+                end_ns: int,
+            ) -> Any:
                 return []
-            def get_strategy_performance(self, strategy_id: str, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, Any]:
+
+            def get_strategy_performance(
+                self,
+                strategy_id: str,
+                start_ns: int | None = None,
+                end_ns: int | None = None,
+            ) -> dict[str, Any]:
                 return {}
-            def get_signal_distribution(self, strategy_id: str | None = None, start_ns: int | None = None, end_ns: int | None = None) -> dict[str, int]:
+
+            def get_signal_distribution(
+                self,
+                strategy_id: str | None = None,
+                start_ns: int | None = None,
+                end_ns: int | None = None,
+            ) -> dict[str, int]:
                 return {}
+
             def flush(self) -> None:
                 return None
 

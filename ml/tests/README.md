@@ -83,6 +83,7 @@ ml/tests/
 ## What Actually Works
 
 Without any setup, these work:
+
 - `test_smoke.py` - Core system validation
 - Some feature engineering tests
 - Some configuration tests
@@ -144,6 +145,7 @@ A: Unrealistic with current state. 70% of valuable tests is a better goal.
 ## Files to Ignore
 
 These files contain aspirational or incorrect information:
+
 - `TEST_HEALTH_REPORT.md` - Claims 95% success (false)
 - `COVERAGE_IMPLEMENTATION_SUMMARY.md` - Overly optimistic
 - Any file claiming high test coverage or success
@@ -151,6 +153,7 @@ These files contain aspirational or incorrect information:
 ## Files to Trust
 
 These files contain honest assessments:
+
 - `HONEST_TEST_STATUS.md` - The real situation
 - `TEST_REALITY_ANALYSIS.md` - Why the gap exists
 - `FAILURE_CATEGORIZATION.md` - Actual failure analysis
@@ -158,8 +161,8 @@ These files contain honest assessments:
 
 ## Bottom Line
 
-**The ML system works** (proven by smoke test).  
-**The test suite is broken** (database confusion, bad tests, wrong mocks).  
+**The ML system works** (proven by smoke test).
+**The test suite is broken** (database confusion, bad tests, wrong mocks).
 **That's OK** - if smoke test passes, you can deploy.
 
 Focus on keeping the smoke test green. Everything else is progressive improvement.

@@ -83,7 +83,7 @@ class OrderHelper:
     """
 
     @staticmethod
-    def calculate_time_in_force(  # noqa: C901
+    def calculate_time_in_force(
         order_type: DYDXGRPCOrderType,
         time_in_force: Order.TimeInForce,
         post_only: bool = False,

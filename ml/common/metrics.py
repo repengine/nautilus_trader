@@ -3,6 +3,7 @@ Centralized Prometheus metrics for the ML system.
 
 This module defines all metrics once to avoid duplication and registration conflicts.
 All components should import metrics from here rather than defining their own.
+
 """
 
 from prometheus_client import Counter
@@ -119,16 +120,18 @@ model_confidence = Gauge(
 MODEL_INFERENCE_TIMER = model_inference_duration
 FEATURE_CALCULATION_TIMER = feature_computation_duration
 
+
 # Prediction counter (compat alias for tests) – avoid duplicate registration
 class _ProxyMetric:
-    def labels(self, **kwargs):  # type: ignore[no-untyped-def]
+    def labels(self, **kwargs: object) -> "_ProxyMetric":
         return self
 
-    def inc(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def inc(self, _amount: float = 1.0, **kwargs: object) -> None:
         return None
 
-    def observe(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def observe(self, _amount: float = 0.0, **kwargs: object) -> None:
         return None
+
 
 PREDICTION_COUNTER = _ProxyMetric()
 
@@ -206,8 +209,41 @@ system_ready = Gauge(
 )
 
 # ============================================================================
+# BACKPRESSURE & CIRCUIT BREAKER METRICS
+# ============================================================================
+
+# Backpressure drops (e.g., throttled, queue_full)
+backpressure_drops_total = Counter(
+    "nautilus_ml_backpressure_drops_total",
+    "Total events dropped due to backpressure",
+    ["component", "reason"],
+)
+
+# Optional queue depth gauge for actor-side bridge
+backpressure_queue_depth = Gauge(
+    "nautilus_ml_backpressure_queue_depth",
+    "Current depth of actor-side domain event queue",
+    ["component"],
+)
+
+# Circuit breaker state (0=closed, 0.5=half_open, 1=open)
+circuit_breaker_state = Gauge(
+    "nautilus_ml_circuit_breaker_state",
+    "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
+    ["component"],
+)
+
+# Circuit breaker transitions counter
+circuit_breaker_trips_total = Counter(
+    "nautilus_ml_circuit_breaker_trips_total",
+    "Total circuit breaker transitions",
+    ["component", "to_state"],
+)
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def record_pipeline_event(
     dataset_type: str,

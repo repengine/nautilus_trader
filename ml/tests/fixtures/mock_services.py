@@ -9,6 +9,7 @@ This module provides mock implementations of external services:
 - Yahoo Finance mock
 - Redis mock
 - PostgreSQL mock for unit tests
+
 """
 
 from __future__ import annotations
@@ -29,7 +30,9 @@ import pandas as pd
 
 
 class MockDatabentoClient:
-    """Mock Databento client for testing."""
+    """
+    Mock Databento client for testing.
+    """
 
     def __init__(self, api_key: str = "test_key", fail_on_request: bool = False):
         """
@@ -63,14 +66,18 @@ class MockDatabentoClient:
         }
 
     def list_datasets(self) -> list[str]:
-        """List available datasets."""
+        """
+        List available datasets.
+        """
         if self.fail_on_request:
             raise ConnectionError("Mock connection error")
         self.request_count += 1
         return list(self.datasets.keys())
 
     def get_dataset_range(self, dataset: str) -> dict[str, str]:
-        """Get date range for dataset."""
+        """
+        Get date range for dataset.
+        """
         if self.fail_on_request:
             raise ConnectionError("Mock connection error")
         if dataset not in self.datasets:
@@ -91,7 +98,9 @@ class MockDatabentoClient:
         end: str | datetime,
         **kwargs: Any,
     ) -> pd.DataFrame:
-        """Get mock market data."""
+        """
+        Get mock market data.
+        """
         if self.fail_on_request:
             raise ConnectionError("Mock connection error")
 
@@ -119,7 +128,9 @@ class MockDatabentoClient:
         start: str | datetime,
         end: str | datetime,
     ) -> pd.DataFrame:
-        """Generate mock OHLCV data."""
+        """
+        Generate mock OHLCV data.
+        """
         if isinstance(start, str):
             start = pd.Timestamp(start)
         if isinstance(end, str):
@@ -140,15 +151,17 @@ class MockDatabentoClient:
                 low_price = open_price * (1 - abs(np.random.normal(0, 0.0005)))
                 close_price = open_price * (1 + np.random.normal(0, 0.0003))
 
-                data.append({
-                    "symbol": symbol,
-                    "timestamp": ts,
-                    "open": open_price,
-                    "high": max(high_price, open_price, close_price),
-                    "low": min(low_price, open_price, close_price),
-                    "close": close_price,
-                    "volume": np.random.uniform(1000, 10000),
-                })
+                data.append(
+                    {
+                        "symbol": symbol,
+                        "timestamp": ts,
+                        "open": open_price,
+                        "high": max(high_price, open_price, close_price),
+                        "low": min(low_price, open_price, close_price),
+                        "close": close_price,
+                        "volume": np.random.uniform(1000, 10000),
+                    },
+                )
 
                 base_price = close_price  # Update for next iteration
 
@@ -160,7 +173,9 @@ class MockDatabentoClient:
         start: str | datetime,
         end: str | datetime,
     ) -> pd.DataFrame:
-        """Generate mock trades data."""
+        """
+        Generate mock trades data.
+        """
         if isinstance(start, str):
             start = pd.Timestamp(start)
         if isinstance(end, str):
@@ -182,13 +197,15 @@ class MockDatabentoClient:
                 size = np.random.uniform(1, 1000)
                 side = np.random.choice(["buy", "sell"])
 
-                data.append({
-                    "symbol": symbol,
-                    "timestamp": ts,
-                    "price": price,
-                    "size": size,
-                    "side": side,
-                })
+                data.append(
+                    {
+                        "symbol": symbol,
+                        "timestamp": ts,
+                        "price": price,
+                        "size": size,
+                        "side": side,
+                    },
+                )
 
         return pd.DataFrame(data)
 
@@ -198,7 +215,9 @@ class MockDatabentoClient:
         start: str | datetime,
         end: str | datetime,
     ) -> pd.DataFrame:
-        """Generate mock L2 market depth data."""
+        """
+        Generate mock L2 market depth data.
+        """
         if isinstance(start, str):
             start = pd.Timestamp(start)
         if isinstance(end, str):
@@ -221,15 +240,17 @@ class MockDatabentoClient:
                     bid_size = np.random.uniform(100, 1000) * (6 - level)  # Larger at better prices
                     ask_size = np.random.uniform(100, 1000) * (6 - level)
 
-                    data.append({
-                        "symbol": symbol,
-                        "timestamp": ts,
-                        "level": level,
-                        "bid_price": bid_price,
-                        "bid_size": bid_size,
-                        "ask_price": ask_price,
-                        "ask_size": ask_size,
-                    })
+                    data.append(
+                        {
+                            "symbol": symbol,
+                            "timestamp": ts,
+                            "level": level,
+                            "bid_price": bid_price,
+                            "bid_size": bid_size,
+                            "ask_price": ask_price,
+                            "ask_size": ask_size,
+                        },
+                    )
 
         return pd.DataFrame(data)
 
@@ -239,7 +260,9 @@ class MockDatabentoClient:
         start: str | datetime,
         end: str | datetime,
     ) -> pd.DataFrame:
-        """Generate mock top-of-book data."""
+        """
+        Generate mock top-of-book data.
+        """
         if isinstance(start, str):
             start = pd.Timestamp(start)
         if isinstance(end, str):
@@ -255,14 +278,16 @@ class MockDatabentoClient:
                 mid_price = base_price * (1 + np.random.normal(0, 0.0002))
                 spread = np.random.uniform(0.01, 0.05)
 
-                data.append({
-                    "symbol": symbol,
-                    "timestamp": ts,
-                    "bid_price": mid_price - spread / 2,
-                    "bid_size": np.random.uniform(100, 5000),
-                    "ask_price": mid_price + spread / 2,
-                    "ask_size": np.random.uniform(100, 5000),
-                })
+                data.append(
+                    {
+                        "symbol": symbol,
+                        "timestamp": ts,
+                        "bid_price": mid_price - spread / 2,
+                        "bid_size": np.random.uniform(100, 5000),
+                        "ask_price": mid_price + spread / 2,
+                        "ask_size": np.random.uniform(100, 5000),
+                    },
+                )
 
                 base_price = mid_price
 
@@ -270,10 +295,14 @@ class MockDatabentoClient:
 
 
 class MockFredClient:
-    """Mock FRED API client for testing."""
+    """
+    Mock FRED API client for testing.
+    """
 
     def __init__(self, api_key: str = "test_fred_key"):
-        """Initialize mock FRED client."""
+        """
+        Initialize mock FRED client.
+        """
         self.api_key = api_key
         self.request_count = 0
 
@@ -287,7 +316,9 @@ class MockFredClient:
         }
 
     def get_series(self, series_id: str, **kwargs: Any) -> pd.DataFrame:
-        """Get economic series data."""
+        """
+        Get economic series data.
+        """
         self.request_count += 1
 
         if series_id not in self.series_data:
@@ -304,7 +335,9 @@ class MockFredClient:
         return data
 
     def _generate_treasury_data(self) -> pd.DataFrame:
-        """Generate mock 10-year treasury rate data."""
+        """
+        Generate mock 10-year treasury rate data.
+        """
         dates = pd.date_range("2020-01-01", "2024-12-31", freq="D")
         # Simulate realistic treasury rates with trend
         base_rate = 2.0
@@ -316,7 +349,9 @@ class MockFredClient:
         return pd.DataFrame({"value": rates}, index=dates)
 
     def _generate_exchange_rate_data(self) -> pd.DataFrame:
-        """Generate mock USD/EUR exchange rate data."""
+        """
+        Generate mock USD/EUR exchange rate data.
+        """
         dates = pd.date_range("2020-01-01", "2024-12-31", freq="D")
         # Simulate exchange rate around 1.10-1.20
         base_rate = 1.15
@@ -327,7 +362,9 @@ class MockFredClient:
         return pd.DataFrame({"value": rates}, index=dates)
 
     def _generate_vix_data(self) -> pd.DataFrame:
-        """Generate mock VIX volatility data."""
+        """
+        Generate mock VIX volatility data.
+        """
         dates = pd.date_range("2020-01-01", "2024-12-31", freq="D")
         # VIX typically between 10-40, occasionally spikes
         base_vix = 20
@@ -340,7 +377,9 @@ class MockFredClient:
         return pd.DataFrame({"value": vix}, index=dates)
 
     def _generate_unemployment_data(self) -> pd.DataFrame:
-        """Generate mock unemployment rate data."""
+        """
+        Generate mock unemployment rate data.
+        """
         dates = pd.date_range("2020-01-01", "2024-12-31", freq="MS")  # Monthly
         # Simulate unemployment rate 3-10%
         base_rate = 5.0
@@ -352,7 +391,9 @@ class MockFredClient:
         return pd.DataFrame({"value": rates}, index=dates)
 
     def _generate_cpi_data(self) -> pd.DataFrame:
-        """Generate mock CPI data."""
+        """
+        Generate mock CPI data.
+        """
         dates = pd.date_range("2020-01-01", "2024-12-31", freq="MS")  # Monthly
         # Simulate CPI with upward trend
         base_cpi = 250
@@ -365,10 +406,14 @@ class MockFredClient:
 
 
 class MockYahooClient:
-    """Mock Yahoo Finance client for testing."""
+    """
+    Mock Yahoo Finance client for testing.
+    """
 
     def __init__(self):
-        """Initialize mock Yahoo client."""
+        """
+        Initialize mock Yahoo client.
+        """
         self.request_count = 0
         self.symbols = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "TSLA", "GOOGL"]
 
@@ -379,7 +424,9 @@ class MockYahooClient:
         end: str | datetime | None = None,
         interval: str = "1d",
     ) -> pd.DataFrame:
-        """Get historical price data."""
+        """
+        Get historical price data.
+        """
         self.request_count += 1
 
         if symbol not in self.symbols:
@@ -404,14 +451,17 @@ class MockYahooClient:
         returns = np.random.normal(0.0005, 0.02, len(dates))
         prices = base_price * np.exp(np.cumsum(returns))
 
-        data = pd.DataFrame({
-            "Open": prices * (1 + np.random.normal(0, 0.005, len(dates))),
-            "High": prices * (1 + np.abs(np.random.normal(0, 0.01, len(dates)))),
-            "Low": prices * (1 - np.abs(np.random.normal(0, 0.01, len(dates)))),
-            "Close": prices,
-            "Volume": np.random.uniform(1e6, 1e8, len(dates)),
-            "Adj Close": prices,
-        }, index=dates)
+        data = pd.DataFrame(
+            {
+                "Open": prices * (1 + np.random.normal(0, 0.005, len(dates))),
+                "High": prices * (1 + np.abs(np.random.normal(0, 0.01, len(dates)))),
+                "Low": prices * (1 - np.abs(np.random.normal(0, 0.01, len(dates)))),
+                "Close": prices,
+                "Volume": np.random.uniform(1e6, 1e8, len(dates)),
+                "Adj Close": prices,
+            },
+            index=dates,
+        )
 
         # Ensure high >= max(open, close) and low <= min(open, close)
         data["High"] = data[["Open", "High", "Close"]].max(axis=1)
@@ -420,7 +470,9 @@ class MockYahooClient:
         return data
 
     def get_info(self, symbol: str) -> dict[str, Any]:
-        """Get symbol information."""
+        """
+        Get symbol information.
+        """
         self.request_count += 1
 
         if symbol not in self.symbols:
@@ -438,16 +490,22 @@ class MockYahooClient:
 
 
 class MockRedis:
-    """Mock Redis client for testing."""
+    """
+    Mock Redis client for testing.
+    """
 
     def __init__(self):
-        """Initialize mock Redis."""
+        """
+        Initialize mock Redis.
+        """
         self.data: dict[str, Any] = {}
         self.expiry: dict[str, datetime] = {}
         self.pubsub_channels: dict[str, list[Callable]] = defaultdict(list)
 
     def get(self, key: str) -> bytes | None:
-        """Get value by key."""
+        """
+        Get value by key.
+        """
         if key in self.expiry and datetime.now() > self.expiry[key]:
             del self.data[key]
             del self.expiry[key]
@@ -461,7 +519,9 @@ class MockRedis:
         ex: int | None = None,
         px: int | None = None,
     ) -> bool:
-        """Set key-value pair."""
+        """
+        Set key-value pair.
+        """
         if isinstance(value, str):
             value = value.encode()
         self.data[key] = value
@@ -474,7 +534,9 @@ class MockRedis:
         return True
 
     def delete(self, *keys: str) -> int:
-        """Delete keys."""
+        """
+        Delete keys.
+        """
         count = 0
         for key in keys:
             if key in self.data:
@@ -485,7 +547,9 @@ class MockRedis:
         return count
 
     def exists(self, *keys: str) -> int:
-        """Check if keys exist."""
+        """
+        Check if keys exist.
+        """
         count = 0
         for key in keys:
             if key in self.data:
@@ -497,7 +561,9 @@ class MockRedis:
         return count
 
     def lpush(self, key: str, *values: Any) -> int:
-        """Push values to list."""
+        """
+        Push values to list.
+        """
         if key not in self.data:
             self.data[key] = []
         for value in reversed(values):
@@ -505,13 +571,17 @@ class MockRedis:
         return len(self.data[key])
 
     def rpop(self, key: str) -> bytes | None:
-        """Pop from right of list."""
+        """
+        Pop from right of list.
+        """
         if self.data.get(key):
             return self.data[key].pop()
         return None
 
     def hset(self, name: str, key: str, value: Any) -> int:
-        """Set hash field."""
+        """
+        Set hash field.
+        """
         if name not in self.data:
             self.data[name] = {}
         is_new = key not in self.data[name]
@@ -519,45 +589,61 @@ class MockRedis:
         return 1 if is_new else 0
 
     def hget(self, name: str, key: str) -> Any:
-        """Get hash field."""
+        """
+        Get hash field.
+        """
         if name in self.data and isinstance(self.data[name], dict):
             return self.data[name].get(key)
         return None
 
     def publish(self, channel: str, message: Any) -> int:
-        """Publish message to channel."""
+        """
+        Publish message to channel.
+        """
         subscribers = self.pubsub_channels.get(channel, [])
         for callback in subscribers:
             callback(message)
         return len(subscribers)
 
     def subscribe(self, channel: str, callback: Callable) -> None:
-        """Subscribe to channel."""
+        """
+        Subscribe to channel.
+        """
         self.pubsub_channels[channel].append(callback)
 
     def ping(self) -> bool:
-        """Ping Redis."""
+        """
+        Ping Redis.
+        """
         return True
 
     def flushdb(self) -> bool:
-        """Clear all data."""
+        """
+        Clear all data.
+        """
         self.data.clear()
         self.expiry.clear()
         return True
 
 
 class MockPostgreSQL:
-    """Mock PostgreSQL for unit tests (simulates basic operations)."""
+    """
+    Mock PostgreSQL for unit tests (simulates basic operations).
+    """
 
     def __init__(self):
-        """Initialize mock PostgreSQL."""
+        """
+        Initialize mock PostgreSQL.
+        """
         self.tables: dict[str, pd.DataFrame] = {}
         self.sequences: dict[str, int] = defaultdict(int)
         self.transaction_active = False
         self.transaction_data: dict[str, pd.DataFrame] = {}
 
     def execute(self, query: str, params: tuple | None = None) -> Mock:
-        """Execute SQL query."""
+        """
+        Execute SQL query.
+        """
         query_lower = query.lower().strip()
 
         if query_lower.startswith("create table"):
@@ -589,9 +675,12 @@ class MockPostgreSQL:
         return result
 
     def _handle_create_table(self, query: str) -> Mock:
-        """Handle CREATE TABLE query."""
+        """
+        Handle CREATE TABLE query.
+        """
         # Extract table name (simplified)
         import re
+
         match = re.search(r"create\s+table\s+(?:if\s+not\s+exists\s+)?(\w+)", query, re.IGNORECASE)
         if match:
             table_name = match.group(1)
@@ -602,9 +691,12 @@ class MockPostgreSQL:
         return result
 
     def _handle_insert(self, query: str, params: tuple | None) -> Mock:
-        """Handle INSERT query."""
+        """
+        Handle INSERT query.
+        """
         # Simplified insert handling
         import re
+
         match = re.search(r"insert\s+into\s+(\w+)", query, re.IGNORECASE)
         if match:
             table_name = match.group(1)
@@ -617,7 +709,9 @@ class MockPostgreSQL:
         return result
 
     def _handle_select(self, query: str, params: tuple | None) -> Mock:
-        """Handle SELECT query."""
+        """
+        Handle SELECT query.
+        """
         # Very simplified select handling
         result = Mock()
         result.fetchall = Mock(return_value=[])
@@ -626,38 +720,52 @@ class MockPostgreSQL:
         return result
 
     def _handle_update(self, query: str, params: tuple | None) -> Mock:
-        """Handle UPDATE query."""
+        """
+        Handle UPDATE query.
+        """
         result = Mock()
         result.rowcount = 0
         return result
 
     def _handle_delete(self, query: str, params: tuple | None) -> Mock:
-        """Handle DELETE query."""
+        """
+        Handle DELETE query.
+        """
         result = Mock()
         result.rowcount = 0
         return result
 
 
 def create_mock_databento_client(**kwargs: Any) -> MockDatabentoClient:
-    """Factory function to create mock Databento client."""
+    """
+    Factory function to create mock Databento client.
+    """
     return MockDatabentoClient(**kwargs)
 
 
 def create_mock_fred_client(**kwargs: Any) -> MockFredClient:
-    """Factory function to create mock FRED client."""
+    """
+    Factory function to create mock FRED client.
+    """
     return MockFredClient(**kwargs)
 
 
 def create_mock_yahoo_client(**kwargs: Any) -> MockYahooClient:
-    """Factory function to create mock Yahoo client."""
+    """
+    Factory function to create mock Yahoo client.
+    """
     return MockYahooClient(**kwargs)
 
 
 def create_mock_redis(**kwargs: Any) -> MockRedis:
-    """Factory function to create mock Redis."""
+    """
+    Factory function to create mock Redis.
+    """
     return MockRedis(**kwargs)
 
 
 def create_mock_postgresql(**kwargs: Any) -> MockPostgreSQL:
-    """Factory function to create mock PostgreSQL."""
+    """
+    Factory function to create mock PostgreSQL.
+    """
     return MockPostgreSQL(**kwargs)

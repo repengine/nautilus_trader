@@ -5,11 +5,13 @@ This directory contains redundant ML scripts removed during the complete cleanup
 ## Scripts Archived
 
 ### FRED Data Scripts (1 script)
+
 - `populate_fred_data.py` - **REDUNDANT** with `simple_fred_updater.py`
   - Complex ML integration version replaced by simpler, more reliable updater
   - Our `simple_fred_updater.py` + `fred_integration_bridge.py` provides same functionality
 
-### Test Scripts (4 scripts)  
+### Test Scripts (4 scripts)
+
 - `test_databento_connection.py` - Connection testing
 - `test_databento_datasets.py` - Dataset validation testing
 - `test_databento_scheduler.py` - Scheduler testing
@@ -18,6 +20,7 @@ This directory contains redundant ML scripts removed during the complete cleanup
 **Reason**: All test functionality now handled by proper unit tests in `ml/tests/`
 
 ### Analysis Utilities (2 scripts)
+
 - `analysis/symbol_index.py` - Symbol indexing utility
 - `analysis/usage_map.py` - Usage mapping utility
 
@@ -26,6 +29,7 @@ This directory contains redundant ML scripts removed during the complete cleanup
 ## Functionality Replacement
 
 ### FRED Data Population
+
 ```bash
 # OLD: Complex ML-integrated FRED loader
 python ml/scripts/populate_fred_data.py --backfill-years 10
@@ -36,6 +40,7 @@ python fred_integration_bridge.py  # Convert to ML format
 ```
 
 ### Testing
+
 ```bash
 # OLD: Individual test scripts
 python ml/scripts/test_databento_connection.py
@@ -47,6 +52,7 @@ pytest ml/tests/unit/
 ```
 
 ### Analysis
+
 ```bash
 # OLD: Small utility scripts
 python ml/scripts/analysis/symbol_index.py
@@ -59,6 +65,7 @@ python tools/data_analysis.py --analysis all
 ## Remaining ML Scripts (11 production scripts)
 
 ### Core Production Scripts
+
 - `build_production_dataset.py` - Production dataset builder
 - `check_databento_subscription.py` - Subscription validation
 - `check_pipeline_health.py` - Health monitoring
@@ -72,8 +79,9 @@ python tools/data_analysis.py --analysis all
 - `train_tft_quick.py` - TFT model training
 
 ### Why These Were Kept
+
 - **No redundancy**: Each serves a unique production purpose
-- **Active usage**: Still used in ML pipeline workflows  
+- **Active usage**: Still used in ML pipeline workflows
 - **Core functionality**: Essential for ML data processing
 - **No better alternatives**: These are the canonical implementations
 
@@ -87,14 +95,15 @@ python tools/data_analysis.py --analysis all
 ## Script Count Reduction
 
 - **Before**: 18 ML scripts
-- **After**: 11 ML production scripts  
+- **After**: 11 ML production scripts
 - **Reduction**: 39% fewer scripts
 - **Archived**: 7 redundant scripts safely preserved
 
 ## Restoration Notes
 
 If any archived functionality is needed:
-- FRED: Use `simple_fred_updater.py` + `fred_integration_bridge.py` 
+
+- FRED: Use `simple_fred_updater.py` + `fred_integration_bridge.py`
 - Testing: Check `ml/tests/` for proper test implementations
 - Analysis: Use `tools/data_analysis.py` comprehensive tool
 

@@ -2,6 +2,7 @@
 Signal separation gating test using MLSignalActor._try_generate_signal.
 
 Verifies that min_signal_separation_bars prevents publishing too frequently.
+
 """
 
 from __future__ import annotations
@@ -32,7 +33,10 @@ def test_signal_separation_gates_publishing() -> None:
     actor._last_signal_bar = 1
     actor._bars_processed = 2
     actor._model_id = "m1"
-    actor._signal_config = SimpleNamespace(min_signal_separation_bars=2, signal_strategy="threshold")
+    actor._signal_config = SimpleNamespace(
+        min_signal_separation_bars=2,
+        signal_strategy="threshold",
+    )
     actor._config = SimpleNamespace(log_predictions=False)
     actor.id = SimpleNamespace(value="actor-1")
     actor._prediction_history = []
@@ -56,4 +60,3 @@ def test_signal_separation_gates_publishing() -> None:
     actor._bars_processed = 3
     MLSignalActor._try_generate_signal(actor, _stub_bar(), 0.1, 0.9, np.zeros(1, dtype=np.float32))  # type: ignore[misc]
     assert published
-

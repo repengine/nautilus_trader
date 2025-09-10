@@ -7,6 +7,7 @@ Combines functionality from:
 - analyze_data_completeness.py
 - analyze_coverage_patterns.py
 - data_consolidation_analysis.py
+
 """
 
 import argparse
@@ -19,7 +20,9 @@ import polars as pl
 
 
 def analyze_data_gaps(data_dir="data/tier1"):
-    """Analyze gaps in existing data files."""
+    """
+    Analyze gaps in existing data files.
+    """
     print("🔍 Data Gap Analysis")
     print("=" * 40)
 
@@ -74,7 +77,9 @@ def analyze_data_gaps(data_dir="data/tier1"):
 
 
 def analyze_data_completeness(data_dir="data/tier1"):
-    """Analyze completeness of data within files."""
+    """
+    Analyze completeness of data within files.
+    """
     print("\n🎯 Data Completeness Analysis")
     print("=" * 40)
 
@@ -115,7 +120,9 @@ def analyze_data_completeness(data_dir="data/tier1"):
 
 
 def analyze_coverage_patterns(data_dir="data/tier1"):
-    """Analyze coverage patterns across schemas and dates."""
+    """
+    Analyze coverage patterns across schemas and dates.
+    """
     print("\n📈 Coverage Pattern Analysis")
     print("=" * 40)
 
@@ -146,21 +153,27 @@ def analyze_coverage_patterns(data_dir="data/tier1"):
                 "size_mb": total_size / (1024 * 1024),
                 "date_range": (dates[0], dates[-1]),
                 "days_covered": len(dates),
-                "days_total": (dates[-1] - dates[0]).days + 1 if dates else 0
+                "days_total": (dates[-1] - dates[0]).days + 1 if dates else 0,
             }
 
     # Display results
     for schema, stats in sorted(schema_stats.items()):
-        coverage_pct = (stats["days_covered"] / stats["days_total"]) * 100 if stats["days_total"] > 0 else 0
+        coverage_pct = (
+            (stats["days_covered"] / stats["days_total"]) * 100 if stats["days_total"] > 0 else 0
+        )
 
         print(f"\n📊 {schema}:")
         print(f"   Files: {stats['files']}, Size: {stats['size_mb']:.1f} MB")
         print(f"   Range: {stats['date_range'][0]} to {stats['date_range'][1]}")
-        print(f"   Coverage: {stats['days_covered']}/{stats['days_total']} days ({coverage_pct:.1f}%)")
+        print(
+            f"   Coverage: {stats['days_covered']}/{stats['days_total']} days ({coverage_pct:.1f}%)",
+        )
 
 
 def consolidation_recommendations(data_dir="data/tier1"):
-    """Provide data consolidation recommendations."""
+    """
+    Provide data consolidation recommendations.
+    """
     print("\n💡 Consolidation Recommendations")
     print("=" * 40)
 
@@ -176,7 +189,9 @@ def consolidation_recommendations(data_dir="data/tier1"):
         small_files = [f for f in files if f.stat().st_size < 1024 * 1024]  # < 1MB
 
         if len(small_files) > 10:
-            recommendations.append(f"📦 {schema_dir.name}: {len(small_files)} small files (<1MB) could be consolidated")
+            recommendations.append(
+                f"📦 {schema_dir.name}: {len(small_files)} small files (<1MB) could be consolidated",
+            )
 
     # Check for missing recent data
     cutoff_date = datetime.now().date() - timedelta(days=7)
@@ -201,7 +216,9 @@ def consolidation_recommendations(data_dir="data/tier1"):
 
         if latest_date and latest_date < cutoff_date:
             days_behind = (cutoff_date - latest_date).days
-            recommendations.append(f"📅 {schema_dir.name}: {days_behind} days behind (latest: {latest_date})")
+            recommendations.append(
+                f"📅 {schema_dir.name}: {days_behind} days behind (latest: {latest_date})",
+            )
 
     if recommendations:
         for rec in recommendations:
@@ -211,11 +228,17 @@ def consolidation_recommendations(data_dir="data/tier1"):
 
 
 def main():
-    """Run data analysis with CLI interface."""
+    """
+    Run data analysis with CLI interface.
+    """
     parser = argparse.ArgumentParser(description="Consolidated data analysis tool")
     parser.add_argument("--data-dir", default="data/tier1", help="Data directory to analyze")
-    parser.add_argument("--analysis", choices=["gaps", "completeness", "patterns", "recommendations", "all"],
-                       default="all", help="Type of analysis to run")
+    parser.add_argument(
+        "--analysis",
+        choices=["gaps", "completeness", "patterns", "recommendations", "all"],
+        default="all",
+        help="Type of analysis to run",
+    )
 
     args = parser.parse_args()
 

@@ -90,13 +90,22 @@ def check_docker_compose() -> bool:
     """
     Check if Docker Compose services are running.
 
-    Robust to non-JSON output by falling back to plain text check.
-    Honors COMPOSE_FILE if set in the environment.
+    Robust to non-JSON output by falling back to plain text check. Honors COMPOSE_FILE
+    if set in the environment.
+
     """
-    env = dict(**{k: v for k, v in dict(**{
-        # forward COMPOSE_FILE if present
-        "COMPOSE_FILE": os.environ.get("COMPOSE_FILE", ""),
-    }).items() if v})
+    env = dict(
+        **{
+            k: v
+            for k, v in dict(
+                **{
+                    # forward COMPOSE_FILE if present
+                    "COMPOSE_FILE": os.environ.get("COMPOSE_FILE", ""),
+                },
+            ).items()
+            if v
+        },
+    )
 
     result = subprocess.run(
         ["docker", "compose", "ps", "--format", "json"],
@@ -119,11 +128,14 @@ def check_docker_compose() -> bool:
 
     # Fallback: plain text check without JSON
     result_text = subprocess.run(
-        ["docker", "compose", "ps"], capture_output=True, text=True, env=env or None
+        ["docker", "compose", "ps"],
+        capture_output=True,
+        text=True,
+        env=env or None,
     )
     text = (result_text.stdout or "") + (result_text.stderr or "")
     lc = text.lower()
-    return ("ml_pipeline" in lc and "postgres" in lc and ("up" in lc or "healthy" in lc))
+    return "ml_pipeline" in lc and "postgres" in lc and ("up" in lc or "healthy" in lc)
 
 
 def main() -> None:

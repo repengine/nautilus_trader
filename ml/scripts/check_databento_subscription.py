@@ -9,6 +9,7 @@ This script queries your Databento subscription to determine:
 4. Estimated costs (should be $0 if within subscription)
 
 Run this BEFORE downloading any data to ensure you stay within your subscription.
+
 """
 
 import json
@@ -30,23 +31,29 @@ import pandas as pd
 
 
 class SubscriptionChecker:
-    """Check Databento subscription limits and available data."""
+    """
+    Check Databento subscription limits and available data.
+    """
 
     def __init__(self):
-        """Initialize the subscription checker."""
+        """
+        Initialize the subscription checker.
+        """
         self.client = db.Historical(os.getenv("DATABENTO_API_KEY"))
         self.results = {
             "datasets": {},
             "costs": {},
             "warnings": [],
-            "recommendations": []
+            "recommendations": [],
         }
 
     def check_available_datasets(self) -> list[str]:
-        """Get list of datasets available to this subscription."""
-        print("\n" + "="*60)
+        """
+        Get list of datasets available to this subscription.
+        """
+        print("\n" + "=" * 60)
         print("CHECKING AVAILABLE DATASETS")
-        print("="*60)
+        print("=" * 60)
 
         try:
             datasets = self.client.metadata.list_datasets()
@@ -62,7 +69,9 @@ class SubscriptionChecker:
             return []
 
     def check_dataset_range(self, dataset: str) -> dict[str, Any]:
-        """Check the available date range for a dataset under your subscription."""
+        """
+        Check the available date range for a dataset under your subscription.
+        """
         print(f"\n📊 Checking range for {dataset}...")
 
         try:
@@ -87,7 +96,7 @@ class SubscriptionChecker:
                     "start": start_date,
                     "end": end_date,
                     "days": days,
-                    "years": years
+                    "years": years,
                 }
 
             return range_info
@@ -97,7 +106,9 @@ class SubscriptionChecker:
             return {}
 
     def check_available_schemas(self, dataset: str) -> list[str]:
-        """Check what schemas (L0/L1/L2/L3) are available for a dataset."""
+        """
+        Check what schemas (L0/L1/L2/L3) are available for a dataset.
+        """
         print(f"\n📈 Checking schemas for {dataset}...")
 
         try:
@@ -112,7 +123,7 @@ class SubscriptionChecker:
                 "tbbo": "L1 (Top of Book)",
                 "mbp-1": "L2 (Market Depth 1-level)",
                 "mbp-10": "L2 (Market Depth 10-level)",
-                "mbo": "L3 (Full Order Book)"
+                "mbo": "L3 (Full Order Book)",
             }
 
             print("   Available schemas:")
@@ -127,12 +138,19 @@ class SubscriptionChecker:
             print(f"   ⚠️ Could not check schemas: {e}")
             return []
 
-    def estimate_cost(self, dataset: str, symbols: list[str], schema: str,
-                     start_date: str, end_date: str) -> float:
+    def estimate_cost(
+        self,
+        dataset: str,
+        symbols: list[str],
+        schema: str,
+        start_date: str,
+        end_date: str,
+    ) -> float:
         """
         Estimate the cost for downloading data.
 
         If cost is $0, it's included in your subscription!
+
         """
         try:
             cost = self.client.metadata.get_cost(
@@ -140,7 +158,7 @@ class SubscriptionChecker:
                 symbols=symbols[:10],  # Test with first 10 symbols
                 schema=schema,
                 start=start_date,
-                end=end_date
+                end=end_date,
             )
 
             return cost
@@ -153,9 +171,9 @@ class SubscriptionChecker:
         """
         Check what data levels and ranges are covered by the subscription.
         """
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("CHECKING SUBSCRIPTION COVERAGE")
-        print("="*60)
+        print("=" * 60)
 
         # Common US equity datasets
         test_datasets = [
@@ -170,7 +188,7 @@ class SubscriptionChecker:
         # Test date ranges
         today = datetime.now()
         test_ranges = {
-            "7 years": (today - timedelta(days=7*365), today),
+            "7 years": (today - timedelta(days=7 * 365), today),
             "1 year": (today - timedelta(days=365), today),
             "30 days": (today - timedelta(days=30), today),
             "1 day": (today - timedelta(days=1), today),
@@ -181,7 +199,7 @@ class SubscriptionChecker:
             "L0": ["ohlcv-1d", "ohlcv-1h"],
             "L1": ["trades", "tbbo"],
             "L2": ["mbp-1", "mbp-10"],
-            "L3": ["mbo"]
+            "L3": ["mbo"],
         }
 
         print("\n🔍 Testing data access levels...")
@@ -210,7 +228,7 @@ class SubscriptionChecker:
                             symbols=test_symbols,
                             schema=schema,
                             start_date=start.strftime("%Y-%m-%d"),
-                            end_date=end.strftime("%Y-%m-%d")
+                            end_date=end.strftime("%Y-%m-%d"),
                         )
 
                         if cost == 0:
@@ -218,23 +236,25 @@ class SubscriptionChecker:
                         elif cost > 0:
                             print(f"    💰 {range_name}: ${cost:.2f} (extra cost)")
                             self.results["warnings"].append(
-                                f"{level} data for {range_name} would cost ${cost:.2f}"
+                                f"{level} data for {range_name} would cost ${cost:.2f}",
                             )
                         else:
                             print(f"    ⚠️ {range_name}: Could not check")
 
     def generate_safe_config(self):
-        """Generate a configuration that stays within subscription limits."""
-        print("\n" + "="*60)
+        """
+        Generate a configuration that stays within subscription limits.
+        """
+        print("\n" + "=" * 60)
         print("GENERATING SAFE CONFIGURATION")
-        print("="*60)
+        print("=" * 60)
 
         # Analyze results to find safe ranges
         safe_config = {
             "datasets": [],
             "date_ranges": {},
             "schemas": {},
-            "warnings": []
+            "warnings": [],
         }
 
         # Find the best dataset
@@ -265,10 +285,12 @@ class SubscriptionChecker:
         return safe_config
 
     def run_full_check(self):
-        """Run complete subscription check."""
-        print("\n" + "="*70)
+        """
+        Run complete subscription check.
+        """
+        print("\n" + "=" * 70)
         print("   DATABENTO SUBSCRIPTION CHECKER")
-        print("="*70)
+        print("=" * 70)
 
         # 1. Check available datasets
         datasets = self.check_available_datasets()
@@ -289,9 +311,9 @@ class SubscriptionChecker:
         _safe_config = self.generate_safe_config()
 
         # 5. Print summary
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("SUBSCRIPTION SUMMARY")
-        print("="*60)
+        print("=" * 60)
 
         if not self.results["warnings"]:
             print("\n✅ ALL CLEAR! Your subscription covers:")
@@ -305,9 +327,9 @@ class SubscriptionChecker:
                 print(f"   • {warning}")
             print("\n💡 Recommendation: Adjust date ranges to stay within subscription")
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Next step: Run populate_universe_safe.py to download your data")
-        print("="*60)
+        print("=" * 60)
 
 
 if __name__ == "__main__":

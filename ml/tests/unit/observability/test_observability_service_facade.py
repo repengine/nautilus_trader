@@ -64,7 +64,9 @@ class TestObservabilityServiceFacade:
         df_health = svc.health_scores_df()
 
         # Basic contract checks
-        assert set(["correlation_id", "pipeline_stage", "stage_latency_ns"]).issubset(set(df_latency.columns))
+        assert set(["correlation_id", "pipeline_stage", "stage_latency_ns"]).issubset(
+            set(df_latency.columns),
+        )
         assert set(["metric_name", "metric_type", "labels"]).issubset(set(df_metrics.columns))
         assert set(["correlation_id", "event_id", "lineage_depth"]).issubset(set(df_corr.columns))
         assert set(["component_id", "health_score"]).issubset(set(df_health.columns))
@@ -106,4 +108,3 @@ class TestIntegrationObservability:
         # Verify latency table has our entry
         lat = tables["latency"]
         assert getattr(lat, "empty", True) is False
-

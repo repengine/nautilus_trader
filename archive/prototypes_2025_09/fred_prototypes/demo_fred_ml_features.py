@@ -21,7 +21,7 @@ def load_fred_ml_data():
     try:
         df = pl.read_parquet("data/fred/fred_indicators_ml_format.parquet")
         print(
-            f"📊 Loaded FRED ML data: {df.shape[0]} rows, {df['series_id'].n_unique()} indicators"
+            f"📊 Loaded FRED ML data: {df.shape[0]} rows, {df['series_id'].n_unique()} indicators",
         )
         return df
     except Exception as e:

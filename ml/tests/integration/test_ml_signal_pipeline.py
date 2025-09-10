@@ -11,6 +11,7 @@ We explicitly avoid testing implementation details like:
 - Private attributes (_bars_processed, _prediction_count)
 - Internal state machines
 - Specific algorithm implementations
+
 """
 
 from pathlib import Path
@@ -66,6 +67,7 @@ class TestMLSignalPipeline:
         2. Signals are published to the message bus
         3. Strategy receives signals
         4. System completes without errors
+
         """
         if not HAS_ONNX:
             pytest.skip("ONNX Runtime not installed")
@@ -107,13 +109,17 @@ class TestMLSignalPipeline:
         received_signals: list[Data] = []
 
         class SignalCapture:
-            """Helper to capture signals from message bus."""
+            """
+            Helper to capture signals from message bus.
+            """
 
             def __init__(self) -> None:
                 self.signals: list[Data] = []
 
             def handle_signal(self, data: Data) -> None:
-                """Capture ML signals."""
+                """
+                Capture ML signals.
+                """
                 self.signals.append(data)
 
         capture = SignalCapture()
@@ -176,8 +182,9 @@ class TestMLSignalPipeline:
         """
         Test that the ML pipeline can generate trades.
 
-        This test uses a synthetic model that always predicts BUY
-        to verify the complete pipeline from signal to trade.
+        This test uses a synthetic model that always predicts BUY to verify the complete
+        pipeline from signal to trade.
+
         """
         if not HAS_ONNX:
             pytest.skip("ONNX Runtime not installed")
@@ -261,8 +268,9 @@ class TestMLSignalPipeline:
         """
         Test that the ML pipeline handles errors gracefully.
 
-        This test uses a mismatched model to trigger errors
-        and verifies the circuit breaker works.
+        This test uses a mismatched model to trigger errors and verifies the circuit
+        breaker works.
+
         """
         if not HAS_ONNX:
             pytest.skip("ONNX Runtime not installed")

@@ -7,6 +7,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 ## Current Status Analysis
 
 **Previous Universe**: 15-20 core symbols focused on major indices and mega-cap tech stocks
+
 - Core holdings: SPY, QQQ, IWM, AAPL, MSFT, NVDA, AMZN, META, TSLA
 - Limited sector diversity and cross-asset coverage
 - Databento subscription allows up to 750+ symbols at no extra cost
@@ -17,12 +18,14 @@ This document outlines the comprehensive tiered trading universe designed for Na
 **File**: `universe_tier1.json`
 
 **Criteria**:
+
 - Minimum average daily volume: $50M
 - Minimum market cap: $10B
 - Data requirement: 7 years clean data
 - Update frequency: Quarterly
 
 **Composition**:
+
 - 14 Essential ETF proxies (SPY, QQQ, IWM, sector ETFs, TLT, GLD, etc.)
 - 28 Mega-cap stocks (AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, etc.)
 - 60+ High-volume leaders across all sectors
@@ -32,6 +35,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 - 10+ High-beta momentum plays and crypto exposure
 
 **Use Cases**:
+
 - High-frequency trading
 - Cross-sectional momentum
 - Market regime detection
@@ -41,12 +45,14 @@ This document outlines the comprehensive tiered trading universe designed for Na
 **File**: `universe_tier2.json`
 
 **Criteria**:
+
 - Minimum average daily volume: $10M
 - Minimum market cap: $5B
 - Data requirement: 5 years clean data
 - Update frequency: Monthly
 
 **Composition**:
+
 - All Tier 1 symbols plus:
 - Expanded S&P 500 coverage
 - Additional sector ETFs (XLP, XLY, XLU, XLB, XLRE)
@@ -58,6 +64,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 - Commodities expansion (PDBC, DBA, PALL, PPLT)
 
 **Use Cases**:
+
 - Sector rotation strategies
 - Cross-sectional factor models
 - Pairs trading identification
@@ -67,12 +74,14 @@ This document outlines the comprehensive tiered trading universe designed for Na
 **File**: `universe_tier3.json`
 
 **Criteria**:
+
 - Minimum average daily volume: $5M
 - Minimum market cap: $1B
 - Data requirement: 3 years clean data
 - Update frequency: Quarterly
 
 **Composition**:
+
 - All Tier 1 & 2 symbols plus:
 - Remaining S&P 500 members
 - Mid-cap leaders and growth stocks
@@ -84,6 +93,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 - Gaming, entertainment, and emerging sectors
 
 **Use Cases**:
+
 - Global macro strategies
 - Market structure analysis
 - Specialty factor strategies
@@ -93,6 +103,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 **File**: `universe_proxies.json`
 
 **Comprehensive ETF proxy collection organized by**:
+
 - Equity indices (US broad market, sectors, international)
 - Fixed income (treasuries, corporate, municipal, international)
 - Commodities (precious metals, energy, agriculture, diversified)
@@ -106,24 +117,28 @@ This document outlines the comprehensive tiered trading universe designed for Na
 
 ### Cross-Sectional Momentum
 **Recommended Symbols**: SPY, QQQ, XLK, XLF, XLE, XLV, IWM, EFA, EEM
+
 - Focus on liquid ETFs with distinct factor exposures
 - Use Tier 1 for real-time signals
 - Expand to Tier 2 for broader opportunity set
 
 ### Sector Rotation Models
 **Recommended Symbols**: All XL* sector ETFs, style factors, defensive proxies
+
 - Monitor relative performance across 11 GICS sectors
 - Include international exposure for global rotation
 - Use factor ETFs to identify style preferences
 
 ### Pairs Trading
 **Recommended Symbols**: SPY/QQQ, TLT/HYG, GLD/USO, EFA/EEM
+
 - Focus on liquid pairs with economic relationships
 - Cross-asset pairs for regime changes
 - Use correlation analysis across tiers
 
 ### Market Regime Detection
 **Recommended Symbols**: VIX, UVXY, TLT, GLD, UUP, HYG, LQD, EEM
+
 - Volatility products for fear/greed measurement
 - Flight-to-quality assets (TLT, GLD)
 - Risk-on/risk-off indicators (HYG vs TLT)
@@ -131,6 +146,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 
 ### Global Macro Strategies
 **Recommended Symbols**: SPY, EFA, EEM, TLT, GLD, USO, UUP, FXE, FXY, VIX
+
 - Multi-asset approach across equities, bonds, commodities, currencies
 - Regional equity exposure through ETFs
 - Commodity and currency proxies for macro themes
@@ -138,6 +154,7 @@ This document outlines the comprehensive tiered trading universe designed for Na
 ## Implementation Guidelines
 
 ### Data Collection Priority
+
 1. **Phase 1**: Collect Tier 1 (150 symbols) first
    - 7 years of L0 (OHLCV) data
    - 1 year of L1 (quotes/trades) data
@@ -153,12 +170,14 @@ This document outlines the comprehensive tiered trading universe designed for Na
    - Selective L1/L2 based on strategy needs
 
 ### Computational Considerations
+
 - **Real-time inference**: Use Tier 1 only (150 symbols)
 - **Feature engineering**: Tier 1 + selective Tier 2 (200-250 symbols)
 - **Research and backtesting**: Full universe as needed
 - **Cross-sectional models**: Focus on liquid subset within each tier
 
 ### Update Schedule
+
 - **Tier 1**: Quarterly review, annual major updates
 - **Tier 2**: Monthly monitoring, quarterly updates
 - **Tier 3**: Quarterly review for additions/removals
@@ -167,16 +186,19 @@ This document outlines the comprehensive tiered trading universe designed for Na
 ## Risk Management
 
 ### Liquidity Risk
+
 - All Tier 1 symbols exceed $50M daily volume
 - Tier 2/3 symbols monitored for liquidity deterioration
 - Alternative proxies identified for each major exposure
 
 ### Data Quality
+
 - Minimum data history requirements enforced
 - Regular quality checks for gaps, outliers, corporate actions
 - Backup data sources identified for critical symbols
 
 ### Concentration Risk
+
 - Maximum 10% allocation to any single sector in portfolios
 - Geographic diversification through international ETFs
 - Asset class diversification through fixed income and commodity proxies
@@ -184,12 +206,14 @@ This document outlines the comprehensive tiered trading universe designed for Na
 ## Future Enhancements
 
 ### Potential Additions
+
 - Cryptocurrency ETFs (if approved and liquid)
 - Additional international single-country ETFs
 - ESG-focused factor ETFs
 - Options-based strategy ETFs
 
 ### Dynamic Universe Management
+
 - Automated liquidity monitoring
 - Momentum-based inclusions/exclusions
 - Regime-dependent universe selection

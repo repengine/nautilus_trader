@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List
-
 import builtins
 import types
+from pathlib import Path
+from typing import List
 
 from ml.deployment import migrations as mig
 
@@ -33,7 +32,7 @@ def test_apply_migrations_builds_compose_commands(monkeypatch: object, tmp_path:
     file.write_text("SELECT 1;", encoding="utf-8")
 
     # Patch subprocess.run to capture calls
-    calls: List[list[str]] = []
+    calls: list[list[str]] = []
 
     def fake_run(cmd: list[str], input: str, text: bool, check: bool) -> types.SimpleNamespace:  # type: ignore[no-redef]
         calls.append(cmd)
@@ -46,4 +45,3 @@ def test_apply_migrations_builds_compose_commands(monkeypatch: object, tmp_path:
 
     mig.apply_migrations_via_compose(compose_file=None, migrations=[file])
     assert len(calls) == 1
-

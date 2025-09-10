@@ -141,6 +141,7 @@ class DashboardConfig(NautilusConfig, kw_only=True, frozen=True):
         JSON file path for L1 ingestion progress.
     feature_progress_file : str
         JSON file path for feature computation progress.
+
     """
 
     data_dir: str = "./data/tier1"

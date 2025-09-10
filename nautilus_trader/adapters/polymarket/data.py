@@ -360,7 +360,7 @@ class PolymarketDataClient(LiveMarketDataClient):
     async def _request_bars(self, request: RequestBars) -> None:
         self._log.error("Cannot request historical bars: not published by Polymarket")
 
-    def _handle_ws_message(self, raw: bytes) -> None:  # noqa: C901 (too complex)
+    def _handle_ws_message(self, raw: bytes) -> None:
         # Uncomment for development
         # self._log.info(str(raw), LogColor.MAGENTA)
         try:

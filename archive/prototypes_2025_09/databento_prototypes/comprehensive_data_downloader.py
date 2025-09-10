@@ -180,13 +180,26 @@ def download_data_range(
     if total_days <= batch_days:
         # Single request
         return _download_single_batch(
-            client, symbol, schema, dataset, start_date, end_date, output_file
+            client,
+            symbol,
+            schema,
+            dataset,
+            start_date,
+            end_date,
+            output_file,
         )
     else:
         # Multiple batches
         logger.info(f"Large request - splitting into {batch_days}-day batches")
         return _download_multiple_batches(
-            client, symbol, schema, dataset, start_date, end_date, output_file, batch_days
+            client,
+            symbol,
+            schema,
+            dataset,
+            start_date,
+            end_date,
+            output_file,
+            batch_days,
         )
 
 
@@ -263,7 +276,13 @@ def _download_multiple_batches(
         logger.info(f"  Batch {batch_num + 1}: {current_start.date()} to {batch_end.date()}")
 
         if _download_single_batch(
-            client, symbol, schema, dataset, current_start, batch_end, batch_file
+            client,
+            symbol,
+            schema,
+            dataset,
+            current_start,
+            batch_end,
+            batch_file,
         ):
             batch_files.append(batch_file)
         else:
@@ -297,12 +316,14 @@ def _download_multiple_batches(
         if HAS_POLARS:
             combined_df = pl.concat(dfs)
             final_df = combined_df.sort("ts_event").unique(
-                subset=["symbol", "ts_event"], keep="last"
+                subset=["symbol", "ts_event"],
+                keep="last",
             )
         else:
             combined_df = pd.concat(dfs, ignore_index=True)
             final_df = combined_df.sort_values("ts_event").drop_duplicates(
-                subset=["symbol", "ts_event"], keep="last"
+                subset=["symbol", "ts_event"],
+                keep="last",
             )
 
         # Save final result
@@ -370,14 +391,16 @@ def merge_data_files(base_file: Path, new_files: list[Path], output_file: Path) 
 
             # Sort by timestamp and remove duplicates
             final_df = combined_df.sort("ts_event").unique(
-                subset=["symbol", "ts_event"], keep="last"
+                subset=["symbol", "ts_event"],
+                keep="last",
             )
         else:
             combined_df = pd.concat(dfs, ignore_index=True)
 
             # Sort by timestamp and remove duplicates
             final_df = combined_df.sort_values("ts_event").drop_duplicates(
-                subset=["symbol", "ts_event"], keep="last"
+                subset=["symbol", "ts_event"],
+                keep="last",
             )
 
         # Save merged result
@@ -692,7 +715,7 @@ def main():
 
             target_range = date_ranges[schema_type]
             logger.info(
-                f"  {schema_type.upper()}: {target_range[0].date()} to {target_range[1].date()}"
+                f"  {schema_type.upper()}: {target_range[0].date()} to {target_range[1].date()}",
             )
 
             # Process each schema variant
@@ -748,7 +771,7 @@ def main():
     else:
         success_rate = (total_success / total_attempted) * 100 if total_attempted > 0 else 0
         logger.info(
-            f"Overall success rate: {total_success}/{total_attempted} ({success_rate:.1f}%)"
+            f"Overall success rate: {total_success}/{total_attempted} ({success_rate:.1f}%)",
         )
 
         if total_success == total_attempted:
@@ -761,7 +784,7 @@ def main():
 
     logger.info("\nNext steps:")
     logger.info(
-        "1. Verify data completeness with: python comprehensive_data_downloader.py --dry-run"
+        "1. Verify data completeness with: python comprehensive_data_downloader.py --dry-run",
     )
     logger.info("2. Set up incremental updates (daily)")
     logger.info("3. Configure TFT training with comprehensive dataset")

@@ -213,7 +213,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
                 f"Line {node.lineno}: Strategy '{node.name}' has __init__ but no on_start() method",
             )
 
-    def _validate_config_patterns(self, node):  # noqa: C901
+    def _validate_config_patterns(self, node):
         """
         Validate Config class patterns.
 
@@ -225,6 +225,22 @@ class NautilusPatternValidator(ast.NodeVisitor):
         """
         # Check for frozen=True in class decorators or bases
         has_frozen = False
+        # Detect @dataclass(frozen=True) on class decorators
+        for dec in getattr(node, "decorator_list", []):
+            if isinstance(dec, ast.Call):
+                fn = dec.func
+                is_dc = (isinstance(fn, ast.Name) and fn.id == "dataclass") or (
+                    isinstance(fn, ast.Attribute) and fn.attr == "dataclass"
+                )
+                if is_dc:
+                    for kw in dec.keywords or []:
+                        if (
+                            kw.arg == "frozen"
+                            and isinstance(kw.value, ast.Constant)
+                            and kw.value.value is True
+                        ):
+                            has_frozen = True
+                            break
 
         # Check bases for frozen parameter
         for base in node.bases:
@@ -356,7 +372,7 @@ def check_file(filepath: str) -> tuple[bool, list[str], list[str]]:
         return False, [f"Failed to parse {filepath}: {e}"], []
 
 
-def main():  # noqa: C901
+def main():
     """
     Execute the main Nautilus pattern checking process.
 

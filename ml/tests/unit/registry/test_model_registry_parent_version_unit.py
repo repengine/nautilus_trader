@@ -16,7 +16,10 @@ from ml.registry.persistence import PersistenceConfig
 
 def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
     reg_dir = tmp_path / "registry"
-    reg = ModelRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    reg = ModelRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     # Prepare dummy model files
     teacher_path = reg_dir / "teacher.onnx"
@@ -65,4 +68,3 @@ def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
     assert student_id in t_info.manifest.children_ids
     # Student version auto-increments patch component when blank
     assert s_info.manifest.version.endswith(".1")
-

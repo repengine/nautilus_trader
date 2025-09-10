@@ -827,7 +827,7 @@ def third_friday_of_month(year: int, month: int) -> dt.date:
     return third_friday
 
 
-def get_contract_month_code(expiry_month: int) -> str:  # noqa: C901 (too complex)
+def get_contract_month_code(expiry_month: int) -> str:
     match expiry_month:
         case 1:
             return "F"
@@ -954,9 +954,9 @@ class TestDataGenerator:
         gen = np.random.default_rng()
 
         def sim():
-            if random.random() <= prob_increase:  # noqa: S311
+            if random.random() <= prob_increase:
                 return gen.uniform(0, max_diff)
-            elif random.random() <= prob_decrease:  # noqa: S311
+            elif random.random() <= prob_decrease:
                 return -gen.uniform(0, max_diff)
             else:
                 return 0

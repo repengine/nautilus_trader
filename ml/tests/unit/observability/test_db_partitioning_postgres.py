@@ -17,15 +17,25 @@ from ml.observability.migrations import ensure_monthly_partitions
 pytestmark = pytest.mark.serial
 
 
+def _pg_available(url: str) -> bool:
+    try:
+        eng = create_engine(url)
+        with eng.connect() as conn:  # type: ignore[unused-ignore]
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
+_DEFAULT_URL = "postgresql://postgres:postgres@localhost:5432/nautilus_test"
+
+
 @pytest.mark.skipif(
-    os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/nautilus_test",
-    ).startswith("sqlite"),
-    reason="PostgreSQL not available",
+    not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
+    reason="PostgreSQL not reachable",
 )
 def test_partition_creation_on_empty_table() -> None:
-    url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test")
+    url = os.getenv("DATABASE_URL", _DEFAULT_URL)
     eng: Engine = create_engine(url)
     table = "obs_part_test_latency"
     ts_col = "ts_stage_end"
@@ -61,14 +71,11 @@ def test_partition_creation_on_empty_table() -> None:
 
 
 @pytest.mark.skipif(
-    os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/nautilus_test",
-    ).startswith("sqlite"),
-    reason="PostgreSQL not available",
+    not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
+    reason="PostgreSQL not reachable",
 )
 def test_skip_partition_when_not_empty() -> None:
-    url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus_test")
+    url = os.getenv("DATABASE_URL", _DEFAULT_URL)
     eng: Engine = create_engine(url)
     table = "obs_part_test_metrics"
     ts_col = "timestamp"
@@ -76,7 +83,7 @@ def test_skip_partition_when_not_empty() -> None:
         conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
         conn.execute(text(f"CREATE TABLE {table} ({ts_col} BIGINT NOT NULL)"))
         # Insert a row to make it non-empty
-        conn.execute(text(f"INSERT INTO {table} ({ts_col}) VALUES (1)"))  # noqa: S608
+        conn.execute(text(f"INSERT INTO {table} ({ts_col}) VALUES (1)"))
 
     ensure_monthly_partitions(eng, table, ts_col)
 

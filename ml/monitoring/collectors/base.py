@@ -279,6 +279,7 @@ class BaseMetricsCollector(ABC):
             # In production, we might want to log this error
             # For now, graceful degradation means we silently continue
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
                 "Metric operation '%s' failed; continuing",
                 operation_name,

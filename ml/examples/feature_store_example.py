@@ -85,7 +85,11 @@ def example_training_with_feature_store() -> BaseMLTrainer:
         Example trainer using FeatureStore.
         """
 
-        def prepare_data(self, data: Any, target_col: str = "target") -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
+        def prepare_data(
+            self,
+            data: Any,
+            target_col: str = "target",
+        ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
             return np.empty((0, 0), dtype=np.float64), np.empty((0,), dtype=np.float64), {}
 
         def _train_model(
@@ -98,10 +102,20 @@ def example_training_with_feature_store() -> BaseMLTrainer:
         ) -> dict[str, Any]:
             return {"model": object(), "metrics": {}}
 
-        def predict(self, model: Any, X: npt.NDArray[np.float64], **_: Any) -> npt.NDArray[np.float32]:
+        def predict(
+            self,
+            model: Any,
+            X: npt.NDArray[np.float64],
+            **_: Any,
+        ) -> npt.NDArray[np.float32]:
             return np.zeros(len(X), dtype=np.float32)
 
-        def evaluate(self, model: Any, X: npt.NDArray[np.float64], y: npt.NDArray[np.float64]) -> dict[str, float]:
+        def evaluate(
+            self,
+            model: Any,
+            X: npt.NDArray[np.float64],
+            y: npt.NDArray[np.float64],
+        ) -> dict[str, float]:
             return {"accuracy": 0.0}
 
         def _create_model(self, params: dict[str, Any]) -> Any:

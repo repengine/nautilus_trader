@@ -204,8 +204,9 @@ class TestFeatureTransformMetamorphic:
 
                 # Use absolute bound when baseline is near zero relative to noise
                 if abs(original_val) < max(1e-6, noise_level * 0.5):
-                    assert (
-                        abs(noisy_val) <= max(1e-6, noise_level * 10)
+                    assert abs(noisy_val) <= max(
+                        1e-6,
+                        noise_level * 10,
                     ), f"Feature {key} changed too much from ~0 baseline for {noise_level:.2%} noise"
                 else:
                     denom = abs(original_val)

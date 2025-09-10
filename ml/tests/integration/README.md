@@ -12,6 +12,7 @@ Integration tests validate that individual components interact properly when com
 
 #### `test_integration_pipeline.py`
 End-to-end ML pipeline validation:
+
 - Training → Model Saving → Loading → Inference → Signal → Trading
 - Multi-model coordination and deployment
 - Model hot-reloading without system interruption
@@ -19,6 +20,7 @@ End-to-end ML pipeline validation:
 
 #### `test_training_inference_pipeline.py`
 Training and inference pipeline integration:
+
 - Feature parity between training and inference
 - Model serialization/deserialization workflows
 - Data preprocessing consistency
@@ -26,6 +28,7 @@ Training and inference pipeline integration:
 
 #### `test_training_pipeline_integration.py`
 Training workflow integration:
+
 - Data loading → Feature engineering → Model training
 - Configuration propagation across pipeline stages
 - Error handling and recovery mechanisms
@@ -35,6 +38,7 @@ Training workflow integration:
 
 #### `test_ml_signal_pipeline.py`
 ML signal generation and propagation:
+
 - Actor → Signal → Strategy communication
 - Signal quality and timing validation
 - Multi-instrument signal coordination
@@ -42,6 +46,7 @@ ML signal generation and propagation:
 
 #### `test_ml_strategy_backtest.py`
 Strategy integration with backtesting:
+
 - ML signals → Trading decisions → P&L tracking
 - Historical data pipeline integration
 - Performance metrics calculation
@@ -49,6 +54,7 @@ Strategy integration with backtesting:
 
 #### `test_nautilus_data_pipeline.py`
 Integration with Nautilus data systems:
+
 - Market data → Feature computation → Model inference
 - Data catalog integration
 - Indicator computation consistency
@@ -58,6 +64,7 @@ Integration with Nautilus data systems:
 
 #### `test_databento_setup.py`
 External data provider integration:
+
 - Data source connectivity and authentication
 - Data format compatibility
 - Error handling for network issues
@@ -65,6 +72,7 @@ External data provider integration:
 
 #### `test_registry_integration.py`
 Model registry system integration:
+
 - Model deployment workflows
 - Version management across environments
 - Metadata propagation
@@ -74,6 +82,7 @@ Model registry system integration:
 
 #### `test_infrastructure.py`
 System infrastructure integration:
+
 - Component lifecycle management
 - Resource allocation and cleanup
 - Service discovery and communication
@@ -82,6 +91,7 @@ System infrastructure integration:
 ## Integration Test Patterns
 
 ### Service Communication
+
 ```python
 def test_signal_actor_to_strategy_communication():
     """Test actor publishes signals that strategies receive."""
@@ -98,6 +108,7 @@ def test_signal_actor_to_strategy_communication():
 ```
 
 ### Data Flow Validation
+
 ```python
 def test_training_to_inference_parity():
     """Ensure training features match inference features exactly."""
@@ -115,6 +126,7 @@ def test_training_to_inference_parity():
 ## When to Add Integration Tests
 
 Add integration tests when:
+
 - Connecting new components together
 - Integrating with external systems
 - Adding new data flows or pipelines
@@ -124,6 +136,7 @@ Add integration tests when:
 ## Coverage and Performance
 
 Integration tests should:
+
 - **Focus on interfaces** between components
 - **Validate data flow** correctness
 - **Test error propagation** across boundaries

@@ -7,7 +7,7 @@ I tested the claimed "mandatory 4-store + 4-registry integration" in the Nautilu
 ## Test Methodology
 
 - Created comprehensive test scripts to verify each store and registry
-- Tested both PostgreSQL and fallback scenarios  
+- Tested both PostgreSQL and fallback scenarios
 - Attempted to initialize BaseMLInferenceActor with various configurations
 - Tested CRUD operations on each component
 - Verified database schema existence
@@ -16,6 +16,7 @@ I tested the claimed "mandatory 4-store + 4-registry integration" in the Nautilu
 ## Results Summary
 
 ✅ **What Actually Works:**
+
 - Database connection and schema (ml_feature_values, ml_model_predictions, ml_strategy_signals tables exist)
 - FeatureStore, ModelStore basic initialization with PostgreSQL
 - All 4 registries (FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry) initialize
@@ -44,13 +45,13 @@ use_dummy_stores = getattr(self._config, "use_dummy_stores", False)
 # Line 1185 - BROKEN - uses dict-style access
 "values": stmt.excluded["values"],
 
-# Other parts correctly use attribute access:  
+# Other parts correctly use attribute access:
 "values": stmt.excluded.values,
 ```
 
 **Error:** `KeyError: 'values'` when attempting to write features.
 
-### 3. StrategyStore API Inconsistency  
+### 3. StrategyStore API Inconsistency
 **Problem:** The `write_signal()` method signature doesn't match the expected parameters from documentation:
 
 ```python
@@ -58,7 +59,7 @@ use_dummy_stores = getattr(self._config, "use_dummy_stores", False)
 store.write_signal(confidence=0.9, ...)
 
 # Actual signature:
-def write_signal(self, strategy_id, instrument_id, signal_type, strength, 
+def write_signal(self, strategy_id, instrument_id, signal_type, strength,
                  model_predictions, risk_metrics, execution_params, ts_event, ...)
 ```
 
@@ -66,7 +67,8 @@ def write_signal(self, strategy_id, instrument_id, signal_type, strength,
 
 ### 4. Protocol Conformance Issues
 **Problem:** Stores do not properly conform to their declared protocols:
-- `FeatureStore` does not conform to `FeatureStoreProtocol`  
+
+- `FeatureStore` does not conform to `FeatureStoreProtocol`
 - Protocol checking failed during runtime
 
 ### 5. Documentation-Code Mismatch
@@ -75,7 +77,8 @@ def write_signal(self, strategy_id, instrument_id, signal_type, strength,
 > "All ML actors MUST use the four required stores + four registries"
 > "These stores and registries are initialized automatically in BaseMLInferenceActor"
 
-**Reality:** 
+**Reality:**
+
 - MLActorConfig lacks the required fields
 - BaseMLInferenceActor cannot be instantiated without manual configuration patching
 - No clear way to configure database connections in standard MLActorConfig
@@ -96,15 +99,16 @@ def write_signal(self, strategy_id, instrument_id, signal_type, strength,
 | Registry | File-based | PostgreSQL | Notes |
 |----------|------------|------------|-------|
 | FeatureRegistry | ✅ | ✅ | Working |
-| ModelRegistry | ✅ | ✅ | Working |  
+| ModelRegistry | ✅ | ✅ | Working |
 | StrategyRegistry | ✅ | ✅ | Working |
 | DataRegistry | ✅ | ✅ | Working |
 
 ### Database Schema Status
 
 ✅ **Database tables exist:**
+
 - `ml_feature_values`
-- `ml_model_predictions`  
+- `ml_model_predictions`
 - `ml_strategy_signals`
 - `ml_strategy_performance`
 
@@ -113,6 +117,7 @@ def write_signal(self, strategy_id, instrument_id, signal_type, strength,
 ### Progressive Fallback Status
 
 ✅ **Partial Success:**
+
 - DummyStore and DummyRegistry implementations exist
 - BaseMLInferenceActor detects PostgreSQL unavailability
 - Automatic fallback logic is implemented
@@ -123,17 +128,20 @@ def write_signal(self, strategy_id, instrument_id, signal_type, strength,
 
 ### 1. **Cannot Create Working ML Actors**
 The "mandatory 4-store + 4-registry integration" cannot be used in practice because:
+
 - MLActorConfig is incompatible with BaseMLInferenceActor expectations
 - No documented way to configure database connections
 - Test examples in documentation would fail
 
-### 2. **Data Loss Risk**  
+### 2. **Data Loss Risk**
 The FeatureStore bug means:
+
 - Features cannot be persisted to database
 - Training/inference parity is broken
 - Silent failures possible in production
 
 ### 3. **API Inconsistencies**
+
 - StrategyStore API doesn't match documented interface
 - Different stores have different initialization patterns
 - Protocol conformance is not enforced
@@ -143,6 +151,7 @@ The FeatureStore bug means:
 ### Immediate Fixes Required
 
 1. **Fix FeatureStore SQLAlchemy Bug**
+
    ```python
    # Change line 1185 from:
    "values": stmt.excluded["values"],
@@ -151,6 +160,7 @@ The FeatureStore bug means:
    ```
 
 2. **Add Missing MLActorConfig Fields**
+
    ```python
    class MLActorConfig(NautilusConfig, kw_only=True, frozen=True):
        # ... existing fields ...
@@ -168,7 +178,7 @@ The FeatureStore bug means:
    - Add runtime checks to ensure stores conform to protocols
    - Use `isinstance()` checks or formal protocol validation
 
-2. **Configuration Validation**  
+2. **Configuration Validation**
    - Add validation in BaseMLInferenceActor `__init__` to check for required config fields
    - Provide clear error messages when configuration is invalid
 

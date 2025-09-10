@@ -742,7 +742,7 @@ class BybitExecutionClient(LiveExecutionClient):
         finally:
             await self._retry_manager_pool.release(retry_manager)
 
-    async def _batch_cancel_orders(  # noqa: C901 (too complex)
+    async def _batch_cancel_orders(
         self,
         command: BatchCancelOrders,
     ) -> None:
@@ -949,7 +949,7 @@ class BybitExecutionClient(LiveExecutionClient):
         finally:
             await self._retry_manager_pool.release(retry_manager)
 
-    async def _submit_order_list(  # noqa: C901 (too complex)
+    async def _submit_order_list(
         self,
         command: SubmitOrderList,
     ) -> None:
@@ -1342,7 +1342,7 @@ class BybitExecutionClient(LiveExecutionClient):
             ts_event=millis_to_nanos(float(execution.execTime)),
         )
 
-    def _handle_account_order_update(self, raw: bytes) -> None:  # noqa: C901 (too complex)
+    def _handle_account_order_update(self, raw: bytes) -> None:
         try:
             msg = self._decoder_ws_account_order_update.decode(raw)
             for bybit_order in msg.data:

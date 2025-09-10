@@ -86,7 +86,7 @@ class DatabentoInstrumentProvider(InstrumentProvider):
             "(potentially millions)",
         )
 
-    async def load_ids_async(  # noqa: C901 (too complex)
+    async def load_ids_async(
         self,
         instrument_ids: list[InstrumentId],
         filters: dict | None = None,

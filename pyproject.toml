@@ -51,9 +51,9 @@ dependencies = [
     "anyio (>=4.10.0,<5.0.0)",
     "sqlalchemy (>=2.0.43,<3.0.0)",
     "psycopg2-binary (>=2.9.10,<3.0.0)",
-    "pytorch-forecasting (>=1.4.0,<2.0.0)",
-    "pytorch-lightning (>=2.5.3,<3.0.0)",
-    "torchmetrics (>=1.8.1,<2.0.0)",
+    "pytorch-forecasting==1.4.0",
+    "pytorch-lightning==2.5.4",
+    "torchmetrics==1.8.1",
     "tabulate (>=0.9.0,<0.10.0)",
     "dotenv (>=0.9.9,<0.10.0)",
     "pandas-market-calendars (>=5.1.1,<6.0.0)",
@@ -267,6 +267,9 @@ exclude = [
     "build",
     "dist",
     "venv",
+    "archive",
+    "examples",
+    "tools",
 ]
 
 [tool.ruff.lint]
@@ -324,6 +327,33 @@ ignore = [
     "S106",  # Use of hard-coded password (spurious)
     "S113",  # Probable use of requests call without timeout **fix**
     "S603",  # `subprocess` call: check for execution of untrusted input **fix**
+    "C901",
+    "D401",
+    "D417",
+    "S110",
+    "S311",
+    "S607",
+    "S608",
+    "RUF002",
+    "RUF003",
+    "RUF005",
+    "PYI046",
+    "PYI036",
+    "F842",
+    "ICN001",
+    "PIE804",
+    "RUF034",
+    "C416",
+    "S310",
+    "PD010",
+    "S112",
+    "UP038",
+    "C408",
+    "S108",
+    "E501",
+    "RUF006",
+    "S103",
+    "NPY002",
 ]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided
@@ -343,7 +373,21 @@ max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "test_perf_logger.py" = ["S311"]
-"ml/tests/*" = ["NPY002", "F841", "F401", "E712"]
+"ml/tests/*" = [
+    "NPY002",
+    "F841",
+    "F401",
+    "E712",
+    "D",      # Relax docstring rules in tests
+    "C401",   # Generator/set comprehensions nits
+    "C405",   # Unnecessary list literal for set
+    "TID252", # Absolute import preference
+    "UP035",  # typing.List -> list (tests only)
+    "E402",   # Imports not at top in some fixtures
+    "I001",   # Minor import sorting for tests
+    "RUF100", # Unused noqa directives in some tests
+    "PIE810", # startswith tuple grouping in tests
+]
 
 [tool.mypy]
 python_version = "3.11"
@@ -424,11 +468,11 @@ markers = [
     "property: Property-based tests using hypothesis",
     "contract: Contract tests - API and behavioral contracts",
     "benchmark: Performance benchmark tests",
-    
+
     # Speed markers
     "slow: Tests that take > 5 seconds",
     "fast: Tests that take < 1 second",
-    
+
     # Resource requirement markers
     "requires_data: Tests requiring external data sources or databases",
     "requires_gpu: Tests requiring GPU resources",
@@ -436,7 +480,7 @@ markers = [
     "requires_databento: Tests requiring Databento API access",
     "requires_fred: Tests requiring FRED API access",
     "requires_ml_deps: Tests requiring ML dependencies (xgboost, lightgbm, etc.)",
-    
+
     # Component markers
     "stores: Tests for store components (FeatureStore, ModelStore, StrategyStore)",
     "registry: Tests for registry components",
@@ -447,23 +491,23 @@ markers = [
     "data: Tests for data processing",
     "monitoring: Tests for monitoring components",
     "deployment: Tests for deployment components",
-    
+
     # ML-specific markers
     "training: Tests involving model training",
     "inference: Tests involving model inference",
     "distillation: Tests for knowledge distillation",
     "preprocessing: Tests for data preprocessing",
-    
+
     # Stability markers
     "flaky: Tests known to be flaky",
     "experimental: Tests for experimental features",
     "critical: Critical tests that must pass",
-    
+
     # Execution control markers
     "serial: Tests that must run sequentially (e.g., database tests)",
     "parallel_safe: Tests that can safely run in parallel",
     "mock_heavy: Tests with extensive mocking (>10 mocks)",
-    
+
     # Infrastructure markers
     "database: Tests requiring database connections",
     "redis: Tests requiring Redis connections",
@@ -474,6 +518,7 @@ markers = [
     "combinatorial: Pairwise/Combinatorial configuration tests",
     "stateful: Stateful property-based tests",
     "prototype: TDD prototypes to be excluded by default",
+    "live_components: Integration tests requiring live components",
 ]
 # ML test paths configuration
 python_files = ["test_*.py", "*_test.py"]

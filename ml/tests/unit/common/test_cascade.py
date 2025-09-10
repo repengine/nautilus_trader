@@ -19,4 +19,3 @@ class TestCascade:
         assert out["correlation_id"] == source["correlation_id"]
         assert out["ts_event"] == 1025
         assert out["source_event_id"] == source["event_id"]
-

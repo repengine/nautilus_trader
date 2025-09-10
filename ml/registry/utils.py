@@ -100,9 +100,11 @@ def assert_features_compatible(
     feature_dtypes: list[str] | None = None,
 ) -> None:
     """
-    Validate that the provided feature order (and optional dtypes) match the model manifest.
+    Validate that the provided feature order (and optional dtypes) match the model
+    manifest.
 
     Raises ValueError on mismatch.
+
     """
     expected_names = list(manifest.feature_schema.keys())
     if feature_names != expected_names:

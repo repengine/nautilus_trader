@@ -1,8 +1,9 @@
 """
 FeatureRegistry JSON backend functional tests.
 
-Covers register/get, promote, resolve_by_schema_hash, and validate_and_promote
-with basic quality gate conditions. Focus on functional outcomes.
+Covers register/get, promote, resolve_by_schema_hash, and validate_and_promote with
+basic quality gate conditions. Focus on functional outcomes.
+
 """
 
 from __future__ import annotations
@@ -38,7 +39,10 @@ def _mk_manifest(schema_hash: str) -> FeatureManifest:
 
 def test_feature_registry_register_get_promote(tmp_path: Path) -> None:
     reg_dir = tmp_path / "registry"
-    reg = FeatureRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    reg = FeatureRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     schema_hash = compute_schema_hash(["f1", "f2"], ["float32", "float32"], "sig")
     fid = reg.register_feature_set(_mk_manifest(schema_hash))
@@ -57,7 +61,10 @@ def test_feature_registry_register_get_promote(tmp_path: Path) -> None:
 
 def test_validate_and_promote_with_quality_gates(tmp_path: Path) -> None:
     reg_dir = tmp_path / "registry"
-    reg = FeatureRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    reg = FeatureRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     schema_hash = compute_schema_hash(["f1"], ["float32"], "sig2")
     m = _mk_manifest(schema_hash)
@@ -75,4 +82,3 @@ def test_validate_and_promote_with_quality_gates(tmp_path: Path) -> None:
     ok = reg.validate_and_promote("fsX", gates)
     assert ok is True
     assert reg.get_feature_set("fsX").manifest.stage == FeatureStage.PROD  # type: ignore[union-attr]
-

@@ -1,14 +1,3 @@
-from __future__ import annotations
-
-import argparse
-import logging
-from pathlib import Path
-
-import pandas as pd
-
-from ml.observability.db_persistence import ObservabilityDBPersistor
-
-
 """
 Backfill observability tables from persisted JSONL files.
 
@@ -19,7 +8,18 @@ Notes:
 - Expects files under `<src>/<YYYY-MM-DD>/*` or `<src>/*` with names matching
   latency.jsonl, metrics.jsonl, correlation.jsonl, health.jsonl (or suffixed shards).
 - Designed for small to moderate volumes; for large backfills prefer COPY.
+
 """
+
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
+
+import pandas as pd
+
+from ml.observability.db_persistence import ObservabilityDBPersistor
 
 
 def _load_jsonl_files(base: Path, name: str) -> list[pd.DataFrame]:

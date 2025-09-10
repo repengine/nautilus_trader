@@ -5,6 +5,7 @@
 The ml/ root module provides the foundational infrastructure for the Nautilus ML package, managing package initialization, optional dependency handling, type definitions, and testing configuration. This module establishes the core patterns that enable the ML package to integrate seamlessly with Nautilus Trader's high-performance trading infrastructure while maintaining strict separation between optional ML dependencies and core functionality.
 
 **Key Features:**
+
 - Centralized dependency management with graceful fallbacks
 - Type-only imports for static analysis without runtime overhead
 - Hot/cold path performance architecture documentation
@@ -42,10 +43,12 @@ __version__ = "0.1.0"
 ```
 
 **Key Documentation Sections:**
+
 - **Cold Path (Training)**: Polars-based data loading, XGBoost/LightGBM training, Optuna optimization, MLflow registry
 - **Hot Path (Inference)**: Real-time numpy computation, <5ms latency requirements, actor-based signals, message bus integration
 
 **Performance Requirements Documented:**
+
 - Hot path: <5ms end-to-end latency requirement
 - Real-time feature computation with numpy
 - Actor-based signal generation with message bus integration
@@ -55,6 +58,7 @@ __version__ = "0.1.0"
 **Purpose**: Centralized management of all optional ML dependencies with proper error handling and availability flags.
 
 **Core Pattern:**
+
 ```python
 try:
     import optional_package as pkg
@@ -67,6 +71,7 @@ except ImportError as e:
 ```
 
 **Supported Dependencies:**
+
 - **Core ML**: `onnxruntime`, `onnx`, `polars`, `xgboost`, `lightgbm`, `sklearn`
 - **Optimization**: `optuna`, `torch`
 - **Data Sources**: `pandas`, `fredapi`, `databento`, `pandas_market_calendars`
@@ -74,16 +79,19 @@ except ImportError as e:
 - **Export Tools**: `onnxmltools`, `skl2onnx`
 
 **Security Features:**
+
 - **MLflow Deprecation**: Intentionally disabled to prevent telemetry activation
 - **Databento Conditional**: Only imported when API key present or explicitly enabled
 - **Pickle Security**: Not managed here but mentioned in architecture guidance
 
 **Dummy Implementations:**
+
 - Complete Prometheus client fallbacks (`Counter`, `Gauge`, `Histogram`)
 - Registry and metrics generation with no-op implementations
 - Method chaining support for transparent operation
 
 **Public API:**
+
 ```python
 def check_ml_dependencies(required: list[str]) -> None:
     """Validate required dependencies with helpful error messages."""
@@ -99,6 +107,7 @@ REGISTRY: object  # Prometheus registry (real or dummy)
 **Purpose**: Provides type aliases for optional dependencies without runtime overhead.
 
 **Type-Only Imports Pattern:**
+
 ```python
 if TYPE_CHECKING:
     import pandas as _pd
@@ -112,6 +121,7 @@ else:
 ```
 
 **Public Type Aliases:**
+
 ```python
 PandasDF = _pd.DataFrame
 PandasSeries = _pd.Series
@@ -127,6 +137,7 @@ StandardScaler = _StandardScaler
 ```
 
 **Benefits:**
+
 - Zero runtime cost when dependencies absent
 - Full static type checking with mypy/ruff
 - Clean public API without underscore prefixes
@@ -137,12 +148,14 @@ StandardScaler = _StandardScaler
 **Purpose**: Configures pytest to handle ML-specific testing requirements and prevent common conflicts.
 
 **Primary Function:**
+
 ```python
 def pytest_ignore_collect(collection_path: Any, config: Any) -> bool:
     """Ignore training modules during test collection to avoid naming conflicts."""
 ```
 
 **Ignored Patterns:**
+
 - `ml/training/non_distilled/lightgbm.py`
 - `ml/training/non_distilled/xgboost.py`
 - `ml/training/student/lightgbm.py`
@@ -155,10 +168,12 @@ Training modules have same names as installed packages (lightgbm, xgboost), caus
 ## Dependencies
 
 ### Internal Dependencies
+
 - **Nautilus Core**: Integrates with core Nautilus infrastructure (not imported directly)
 - **Type System**: Uses modern Python typing features (`typing`, `TYPE_CHECKING`)
 
 ### External Dependencies (All Optional)
+
 - **ML Frameworks**: `xgboost`, `lightgbm`, `sklearn`, `torch`
 - **Data Processing**: `polars`, `pandas`
 - **Model Runtime**: `onnxruntime`, `onnx`
@@ -168,6 +183,7 @@ Training modules have same names as installed packages (lightgbm, xgboost), caus
 - **Export**: `onnxmltools`, `skl2onnx`
 
 ### Environment Variables
+
 - `ML_ENABLE_DATABENTO`: Enable Databento import without API key
 - `DATABENTO_API_KEY`: Triggers automatic Databento import
 - `ML_STRICT_PROTOCOL_VALIDATION`: Enables strict protocol validation (referenced in architecture)
@@ -175,6 +191,7 @@ Training modules have same names as installed packages (lightgbm, xgboost), caus
 ## Usage Patterns
 
 ### Dependency Checking Pattern
+
 ```python
 from ml._imports import HAS_XGBOOST, xgb, check_ml_dependencies
 
@@ -186,6 +203,7 @@ model = xgb.XGBClassifier()
 ```
 
 ### Type Annotation Pattern
+
 ```python
 from ml.typing import DataFrameLike, StandardScaler
 
@@ -201,6 +219,7 @@ def create_scaler() -> StandardScaler:
 ```
 
 ### Prometheus Metrics Pattern
+
 ```python
 from ml._imports import Counter, Gauge, generate_latest, REGISTRY
 
@@ -213,6 +232,7 @@ metrics_data = generate_latest(REGISTRY)
 ```
 
 ### Testing with Dummy Implementations
+
 ```python
 # Tests work even without prometheus_client installed
 from ml._imports import Counter
@@ -226,17 +246,20 @@ def test_metrics():
 ## Integration Points
 
 ### Nautilus Trader Integration
+
 - **Performance Requirements**: Documents <5ms hot path latency requirement
 - **Message Bus**: References actor-based signal generation integration
 - **Data Model**: Emphasizes nanosecond timestamp requirements (ts_event, ts_init)
 
 ### ML Package Integration
+
 - **Store Protocols**: Type definitions support structural typing in stores
 - **Feature Engineering**: DataFrameLike types enable flexible data processing
 - **Model Registry**: Optional dependency management supports model deployment
 - **Training Pipeline**: Dependency flags control training module availability
 
 ### Testing Integration
+
 - **Pytest Configuration**: Prevents collection conflicts with training modules
 - **Mock Support**: Dummy implementations enable testing without dependencies
 - **CI/CD**: Environment variable controls enable stable test environments
@@ -245,30 +268,36 @@ def test_metrics():
 
 ### Hot/Cold Path Separation
 The package documentation establishes critical performance boundaries:
+
 - **Hot Path**: Real-time inference with <5ms requirement, numpy-based
 - **Cold Path**: Training operations, heavy I/O, Polars-based data processing
 
 ### Security Considerations
+
 - **MLflow Deprecation**: Explicitly disabled to prevent unwanted telemetry
 - **Pickle Avoidance**: Architecture guidance discourages pickle usage
 - **Conditional Imports**: Network-dependent packages only imported when safe
 
 ### Error Handling Philosophy
+
 - **Descriptive Errors**: `check_ml_dependencies()` provides installation hints
 - **Graceful Degradation**: Dummy implementations allow operation without dependencies
 - **Early Validation**: Import-time checks prevent runtime surprises
 
 ### Type Safety Strategy
+
 - **TYPE_CHECKING Guards**: Zero runtime cost for type-only imports
 - **Union Types**: Modern Python typing for flexible APIs
 - **Structural Typing**: Enables protocol-based interfaces in stores
 
 ### Testing Philosophy
+
 - **Name Conflict Prevention**: Explicit pytest exclusions for problematic modules
 - **Environment Isolation**: Conditional imports prevent network dependencies in tests
 - **Mock Support**: Dummy implementations ensure tests pass in any environment
 
 ### Performance Considerations
+
 - **Lazy Imports**: All ML dependencies imported on-demand
 - **Memory Efficiency**: Type stubs have minimal memory footprint
 - **Import Time**: Fast package initialization with deferred heavy imports
@@ -277,6 +306,7 @@ The package documentation establishes critical performance boundaries:
 
 ### Import Error Preservation
 All import errors are captured and stored for diagnostic purposes:
+
 ```python
 except ImportError as e:
     HAS_PACKAGE = False
@@ -287,6 +317,7 @@ This enables `check_ml_dependencies()` to provide detailed error information inc
 
 ### Prometheus Registry Handling
 The module provides both real and dummy Prometheus registries with identical interfaces:
+
 ```python
 # Real implementation
 from prometheus_client import REGISTRY as _REAL_REGISTRY
@@ -302,6 +333,7 @@ Runtime type stubs provide just enough structure to prevent AttributeError durin
 
 ### Configuration Compatibility
 Environment variable handling supports various deployment scenarios:
+
 - Development: Manual enablement via `ML_ENABLE_DATABENTO`
 - Production: Automatic detection via `DATABENTO_API_KEY`
 - Testing: Default disabled state for stable CI/CD

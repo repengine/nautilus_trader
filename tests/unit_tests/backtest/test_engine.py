@@ -1128,7 +1128,7 @@ class TestBacktestEngineStreaming:
             # Reset for next iteration
             self.engine.clear_data()
 
-    def test_extreme_varying_density_large_chunks(self):  # noqa: C901 (too complex)
+    def test_extreme_varying_density_large_chunks(self):
         """
         Test extreme varying density with large chunks (100k elements) to verify time
         ordering is maintained across streams with different data densities.

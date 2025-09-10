@@ -15,6 +15,7 @@ Free/cheap data sources that add value:
 Usage:
     python ml/scripts/populate_alternative_data.py --all
     python ml/scripts/populate_alternative_data.py --source cboe
+
 """
 
 import argparse
@@ -39,18 +40,22 @@ if not HAS_POLARS:
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
 class CBOEDataLoader:
-    """Load CBOE options and volatility data."""
+    """
+    Load CBOE options and volatility data.
+    """
 
     BASE_URL = "https://www.cboe.com/api/global/delayed_quotes"
 
     def fetch_put_call_ratio(self) -> pl.DataFrame:
-        """Fetch daily put/call ratio data."""
+        """
+        Fetch daily put/call ratio data.
+        """
         logger.info("Fetching CBOE Put/Call Ratio...")
 
         # CBOE provides delayed data for free
@@ -65,7 +70,7 @@ class CBOEDataLoader:
                 "total_pc_ratio": [0.85],
                 "equity_pc_ratio": [0.75],
                 "index_pc_ratio": [1.2],
-                "vix_pc_ratio": [0.95]
+                "vix_pc_ratio": [0.95],
             }
 
             df = pl.DataFrame(data)
@@ -77,7 +82,9 @@ class CBOEDataLoader:
             return pl.DataFrame()
 
     def fetch_term_structure(self) -> pl.DataFrame:
-        """Fetch VIX term structure data."""
+        """
+        Fetch VIX term structure data.
+        """
         logger.info("Fetching VIX Term Structure...")
 
         # VIX futures term structure
@@ -87,7 +94,7 @@ class CBOEDataLoader:
             "timestamp": [],
             "symbol": [],
             "value": [],
-            "days_to_expiry": []
+            "days_to_expiry": [],
         }
 
         # Would fetch actual data from CBOE
@@ -97,10 +104,14 @@ class CBOEDataLoader:
 
 
 class AAIISentimentLoader:
-    """Load AAII Investor Sentiment Survey data."""
+    """
+    Load AAII Investor Sentiment Survey data.
+    """
 
     def fetch_sentiment(self) -> pl.DataFrame:
-        """Fetch weekly AAII sentiment data."""
+        """
+        Fetch weekly AAII sentiment data.
+        """
         logger.info("Fetching AAII Sentiment...")
 
         # AAII provides historical data
@@ -114,19 +125,23 @@ class AAIISentimentLoader:
             "bullish": [],
             "neutral": [],
             "bearish": [],
-            "bull_bear_spread": []
+            "bull_bear_spread": [],
         }
 
         return pl.DataFrame(data)
 
 
 class COTReportLoader:
-    """Load CFTC Commitment of Traders reports."""
+    """
+    Load CFTC Commitment of Traders reports.
+    """
 
     BASE_URL = "https://www.cftc.gov/files/dea/cotarchives"
 
     def fetch_cot_data(self, symbols: list[str]) -> pl.DataFrame:
-        """Fetch COT positioning data for futures."""
+        """
+        Fetch COT positioning data for futures.
+        """
         logger.info("Fetching COT Reports...")
 
         # COT reports are free from CFTC
@@ -135,12 +150,12 @@ class COTReportLoader:
         # Key futures to track:
         _futures = {
             "ES": "E-MINI S&P 500",  # Equity index
-            "NQ": "E-MINI NASDAQ",   # Tech index
-            "VX": "VIX FUTURES",      # Volatility
-            "GC": "GOLD",             # Safe haven
-            "CL": "CRUDE OIL",        # Energy
-            "ZB": "30-YEAR BOND",    # Bonds
-            "DX": "US DOLLAR INDEX"  # Currency
+            "NQ": "E-MINI NASDAQ",  # Tech index
+            "VX": "VIX FUTURES",  # Volatility
+            "GC": "GOLD",  # Safe haven
+            "CL": "CRUDE OIL",  # Energy
+            "ZB": "30-YEAR BOND",  # Bonds
+            "DX": "US DOLLAR INDEX",  # Currency
         }
 
         data = {
@@ -152,7 +167,7 @@ class COTReportLoader:
             "noncommercial_long": [],
             "noncommercial_short": [],
             "noncommercial_net": [],
-            "open_interest": []
+            "open_interest": [],
         }
 
         # Would download actual CSV files from CFTC
@@ -160,10 +175,14 @@ class COTReportLoader:
 
 
 class ShortInterestLoader:
-    """Load short interest data."""
+    """
+    Load short interest data.
+    """
 
     def fetch_short_interest(self, symbols: list[str]) -> pl.DataFrame:
-        """Fetch bi-monthly short interest data."""
+        """
+        Fetch bi-monthly short interest data.
+        """
         logger.info("Fetching Short Interest...")
 
         # Sources:
@@ -176,7 +195,7 @@ class ShortInterestLoader:
             "short_interest": [],
             "avg_daily_volume": [],
             "days_to_cover": [],
-            "short_percent_float": []
+            "short_percent_float": [],
         }
 
         # Would fetch from FINRA API or scrape
@@ -184,10 +203,14 @@ class ShortInterestLoader:
 
 
 class MarketMicrostructureLoader:
-    """Calculate market microstructure metrics from existing data."""
+    """
+    Calculate market microstructure metrics from existing data.
+    """
 
     def calculate_metrics(self, symbol: str) -> pl.DataFrame:
-        """Calculate microstructure metrics from L1/L2 data."""
+        """
+        Calculate microstructure metrics from L1/L2 data.
+        """
         logger.info(f"Calculating microstructure metrics for {symbol}...")
 
         # Load existing L1/L2 data
@@ -211,7 +234,7 @@ class MarketMicrostructureLoader:
             "amihud_illiquidity": [],  # Illiquidity measure
             # Toxicity metrics
             "vpin": [],  # Volume-synchronized PIN
-            "order_flow_toxicity": []
+            "order_flow_toxicity": [],
         }
 
         # Would calculate from actual L1/L2 data
@@ -219,10 +242,14 @@ class MarketMicrostructureLoader:
 
 
 class NewsSentimentLoader:
-    """Load news sentiment data from free sources."""
+    """
+    Load news sentiment data from free sources.
+    """
 
     def fetch_news_sentiment(self, symbols: list[str]) -> pl.DataFrame:
-        """Fetch news sentiment scores."""
+        """
+        Fetch news sentiment scores.
+        """
         logger.info("Fetching News Sentiment...")
 
         # Free sources:
@@ -237,17 +264,21 @@ class NewsSentimentLoader:
             "article_sentiment": [],
             "social_sentiment": [],
             "mention_count": [],
-            "sentiment_volatility": []
+            "sentiment_volatility": [],
         }
 
         return pl.DataFrame(data)
 
 
 class EarningsCalendarLoader:
-    """Load earnings calendar and estimates."""
+    """
+    Load earnings calendar and estimates.
+    """
 
     def fetch_earnings_calendar(self, symbols: list[str]) -> pl.DataFrame:
-        """Fetch earnings dates and estimates."""
+        """
+        Fetch earnings dates and estimates.
+        """
         logger.info("Fetching Earnings Calendar...")
 
         # Sources:
@@ -263,17 +294,21 @@ class EarningsCalendarLoader:
             "revenue_estimate": [],
             "revenue_actual": [],
             "surprise_percent": [],
-            "days_until_earnings": []
+            "days_until_earnings": [],
         }
 
         return pl.DataFrame(data)
 
 
 class SectorIndustryLoader:
-    """Load sector and industry classifications."""
+    """
+    Load sector and industry classifications.
+    """
 
     def fetch_classifications(self, symbols: list[str]) -> pl.DataFrame:
-        """Fetch GICS sector/industry classifications."""
+        """
+        Fetch GICS sector/industry classifications.
+        """
         logger.info("Fetching Sector/Industry Classifications...")
 
         # Map symbols to sectors/industries
@@ -286,14 +321,16 @@ class SectorIndustryLoader:
             "gics_industry": [],
             "gics_sub_industry": [],
             "market_cap_category": [],  # large/mid/small
-            "style_category": []  # value/growth/blend
+            "style_category": [],  # value/growth/blend
         }
 
         return pl.DataFrame(data)
 
 
 class AlternativeDataPopulator:
-    """Main class to populate all alternative data sources."""
+    """
+    Main class to populate all alternative data sources.
+    """
 
     def __init__(self):
         self.cboe_loader = CBOEDataLoader()
@@ -306,7 +343,9 @@ class AlternativeDataPopulator:
         self.sector_loader = SectorIndustryLoader()
 
     def populate_all(self, symbols: list[str]) -> dict[str, pl.DataFrame]:
-        """Populate all alternative data sources."""
+        """
+        Populate all alternative data sources.
+        """
         logger.info("Populating all alternative data sources...")
 
         results = {}
@@ -338,7 +377,9 @@ class AlternativeDataPopulator:
         return results
 
     def save_data(self, data: dict[str, pl.DataFrame], output_dir: Path) -> None:
-        """Save alternative data to parquet files."""
+        """
+        Save alternative data to parquet files.
+        """
         output_dir.mkdir(parents=True, exist_ok=True)
 
         for name, df in data.items():
@@ -349,7 +390,9 @@ class AlternativeDataPopulator:
 
 
 def get_tier1_symbols() -> list[str]:
-    """Get Tier 1 symbols from L1 progress."""
+    """
+    Get Tier 1 symbols from L1 progress.
+    """
     progress_file = Path("tier1_l1_progress.json")
     if progress_file.exists():
         with open(progress_file) as f:
@@ -361,16 +404,36 @@ def get_tier1_symbols() -> list[str]:
 def main():
     parser = argparse.ArgumentParser(description="Populate alternative data sources")
 
-    parser.add_argument("--all", action="store_true",
-                       help="Populate all data sources")
-    parser.add_argument("--source", choices=[
-        "cboe", "aaii", "cot", "short", "micro", "news", "earnings", "sector"
-    ], help="Specific data source to populate")
-    parser.add_argument("--symbols", nargs="+",
-                       help="Specific symbols (default: Tier 1)")
-    parser.add_argument("--output-dir", type=Path,
-                       default=Path("data/alternative"),
-                       help="Output directory for alternative data")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Populate all data sources",
+    )
+    parser.add_argument(
+        "--source",
+        choices=[
+            "cboe",
+            "aaii",
+            "cot",
+            "short",
+            "micro",
+            "news",
+            "earnings",
+            "sector",
+        ],
+        help="Specific data source to populate",
+    )
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        help="Specific symbols (default: Tier 1)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/alternative"),
+        help="Output directory for alternative data",
+    )
 
     args = parser.parse_args()
 

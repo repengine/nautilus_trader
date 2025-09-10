@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from ml.core.integration import MLIntegrationManager
 
@@ -31,4 +31,3 @@ def test_integration_manager_fallback_to_dummy(monkeypatch: object) -> None:
         assert hasattr(mgr, "model_store")
         assert hasattr(mgr, "strategy_store")
         assert hasattr(mgr, "data_registry")
-

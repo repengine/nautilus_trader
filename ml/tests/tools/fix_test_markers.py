@@ -4,6 +4,7 @@ Fix pytest markers for all test files.
 
 This script ensures all database tests are properly marked with both
 @pytest.mark.database and @pytest.mark.serial markers.
+
 """
 
 from __future__ import annotations
@@ -62,10 +63,14 @@ DATABASE_INDICATORS = {
 
 
 class TestMarkerFixer:
-    """Fix pytest markers in test files."""
+    """
+    Fix pytest markers in test files.
+    """
 
     def __init__(self) -> None:
-        """Initialize fixer."""
+        """
+        Initialize fixer.
+        """
         self.stats = {
             "files_processed": 0,
             "files_fixed": 0,
@@ -285,10 +290,12 @@ class TestMarkerFixer:
 
         """
         if isinstance(decorator, ast.Attribute):
-            if (isinstance(decorator.value, ast.Attribute) and
-                isinstance(decorator.value.value, ast.Name) and
-                decorator.value.value.id == "pytest" and
-                decorator.value.attr == "mark"):
+            if (
+                isinstance(decorator.value, ast.Attribute)
+                and isinstance(decorator.value.value, ast.Name)
+                and decorator.value.value.id == "pytest"
+                and decorator.value.attr == "mark"
+            ):
                 return decorator.attr
         elif isinstance(decorator, ast.Call):
             if isinstance(decorator.func, ast.Attribute):
@@ -365,7 +372,9 @@ class TestMarkerFixer:
                 print(f"  ✓ Fixed {relative_path}")
 
     def print_summary(self) -> None:
-        """Print summary of fixes applied."""
+        """
+        Print summary of fixes applied.
+        """
         print("\n" + "=" * 60)
         print("MARKER FIX SUMMARY")
         print("=" * 60)
@@ -378,7 +387,9 @@ class TestMarkerFixer:
 
 
 def main():
-    """Run the marker fixer."""
+    """
+    Run the marker fixer.
+    """
     import sys
 
     # Get test directory

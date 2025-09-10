@@ -165,7 +165,8 @@ class TestSchedulerFeatureStoreIntegration:
         from dataclasses import replace as _replace
 
         self.config = _replace(
-            self.config, feature_store_connection=test_database.connection_string
+            self.config,
+            feature_store_connection=test_database.connection_string,
         )
         # Create scheduler
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
@@ -344,7 +345,8 @@ class TestSchedulerFeatureStoreIntegration:
         from dataclasses import replace as _replace
 
         self.config = _replace(
-            self.config, feature_store_connection=test_database.connection_string
+            self.config,
+            feature_store_connection=test_database.connection_string,
         )
         with patch("ml.stores.feature_store.FeatureStore") as mock_feature_store_class:
             mock_feature_store = MagicMock()

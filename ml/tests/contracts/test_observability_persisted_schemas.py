@@ -40,8 +40,8 @@ def test_persisted_jsonl_conforms_to_contracts(tmp_path: Path) -> None:
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": 1609459200000000000,
                 "ts_stage_end": 1609459200001000000,
-            }
-        ]
+            },
+        ],
     )
     met = build_metrics_collection(
         [
@@ -51,8 +51,8 @@ def test_persisted_jsonl_conforms_to_contracts(tmp_path: Path) -> None:
                 "value": 0.001,
                 "timestamp": 1609459200001000000,
                 "labels": {"instrument_id": "EURUSD.SIM", "domain": "features"},
-            }
-        ]
+            },
+        ],
     )
     cor = build_event_correlation(
         [
@@ -65,8 +65,8 @@ def test_persisted_jsonl_conforms_to_contracts(tmp_path: Path) -> None:
                 "lineage_depth": 0,
                 "ts_event": 1609459200000000000,
                 "propagation_path": ["data", "features"],
-            }
-        ]
+            },
+        ],
     )
     hea = build_health_scores(
         [
@@ -76,17 +76,19 @@ def test_persisted_jsonl_conforms_to_contracts(tmp_path: Path) -> None:
                 "subsystem_scores": {"db": 1.0},
                 "timestamp": 1609459200002000000,
                 "measurement_window_ms": 1000,
-            }
-        ]
+            },
+        ],
     )
 
     sink = ObservabilityPersistor(base_path=tmp_path, file_format="jsonl")
-    out = sink.persist({
-        "latency": lat,
-        "metrics": met,
-        "correlation": cor,
-        "health": hea,
-    })
+    out = sink.persist(
+        {
+            "latency": lat,
+            "metrics": met,
+            "correlation": cor,
+            "health": hea,
+        },
+    )
 
     # All files written
     assert set(out.keys()) == {"latency", "metrics", "correlation", "health"}

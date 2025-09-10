@@ -31,6 +31,7 @@ Usage:
 
     # Force restart (ignore progress)
     python ml/scripts/populate_universe.py --force
+
 """
 
 from __future__ import annotations
@@ -63,14 +64,16 @@ if not HAS_POLARS:
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class UniverseConfig:
-    """Configuration for universe population."""
+    """
+    Configuration for universe population.
+    """
 
     # Data levels
     levels: list[str]  # ["L0", "L1", "L2", "L3"]
@@ -102,7 +105,9 @@ class UniverseConfig:
 
 
 class DataLevel:
-    """Data level definitions."""
+    """
+    Data level definitions.
+    """
 
     L0 = "L0"  # OHLCV bars
     L1 = "L1"  # Quotes/trades (BBO)
@@ -115,18 +120,22 @@ class DataLevel:
 
     @classmethod
     def get_schema(cls, level: str) -> str:
-        """Get Databento schema for level."""
+        """
+        Get Databento schema for level.
+        """
         mapping = {
             cls.L0: "ohlcv-1m",
             cls.L1: "trades",  # Will also fetch "bbo-1s"
             cls.L2: "mbp-10",
-            cls.L3: "mbp-1"
+            cls.L3: "mbp-1",
         }
         return mapping.get(level, "trades")
 
     @classmethod
     def get_date_range(cls, level: str, config: UniverseConfig) -> tuple[datetime, datetime]:
-        """Get date range for data level."""
+        """
+        Get date range for data level.
+        """
         # For EQUS.MINI, we need to account for data delay
         # L2/L3 data requires avoiding very recent dates
         if level in [cls.L2, cls.L3]:
@@ -147,7 +156,9 @@ class DataLevel:
 
 
 class ProgressTracker:
-    """Track and persist progress."""
+    """
+    Track and persist progress.
+    """
 
     def __init__(self, config: UniverseConfig):
         self.config = config
@@ -155,7 +166,9 @@ class ProgressTracker:
         self.progress = self._load_progress()
 
     def _load_progress(self) -> dict[str, Any]:
-        """Load existing progress."""
+        """
+        Load existing progress.
+        """
         if self.progress_file.exists() and self.config.resume:
             with open(self.progress_file) as f:
                 return json.load(f)
@@ -164,21 +177,27 @@ class ProgressTracker:
             "tier": self.config.tier,
             "levels": {level: {"completed": [], "failed": []} for level in DataLevel.all()},
             "last_update": None,
-            "stats": {}
+            "stats": {},
         }
 
     def save(self) -> None:
-        """Save current progress."""
+        """
+        Save current progress.
+        """
         self.progress["last_update"] = datetime.now().isoformat()
         with open(self.progress_file, "w") as f:
             json.dump(self.progress, f, indent=2)
 
     def is_completed(self, level: str, symbol: str) -> bool:
-        """Check if symbol is completed for level."""
+        """
+        Check if symbol is completed for level.
+        """
         return symbol in self.progress["levels"].get(level, {}).get("completed", [])
 
     def mark_completed(self, level: str, symbol: str) -> None:
-        """Mark symbol as completed."""
+        """
+        Mark symbol as completed.
+        """
         if level not in self.progress["levels"]:
             self.progress["levels"][level] = {"completed": [], "failed": []}
 
@@ -192,17 +211,23 @@ class ProgressTracker:
             failed.remove(symbol)
 
     def mark_failed(self, level: str, symbol: str, error: str) -> None:
-        """Mark symbol as failed."""
+        """
+        Mark symbol as failed.
+        """
         if level not in self.progress["levels"]:
             self.progress["levels"][level] = {"completed": [], "failed": []}
 
         failed = self.progress["levels"][level]["failed"]
         if symbol not in [f.get("symbol") for f in failed if isinstance(f, dict)]:
-            failed.append({"symbol": symbol, "error": str(error), "timestamp": datetime.now().isoformat()})
+            failed.append(
+                {"symbol": symbol, "error": str(error), "timestamp": datetime.now().isoformat()},
+            )
 
 
 class UniversePopulator:
-    """Main class for populating universe data."""
+    """
+    Main class for populating universe data.
+    """
 
     def __init__(self, config: UniverseConfig):
         self.config = config
@@ -211,7 +236,9 @@ class UniversePopulator:
         self.symbols = self._load_symbols()
 
     def _init_client(self) -> db.Historical:
-        """Initialize Databento client."""
+        """
+        Initialize Databento client.
+        """
         api_key = os.getenv("DATABENTO_API_KEY")
         if not api_key:
             raise ValueError("DATABENTO_API_KEY not found in environment")
@@ -219,7 +246,9 @@ class UniversePopulator:
         return db.Historical(api_key)
 
     def _load_symbols(self) -> list[str]:
-        """Load symbols for tier."""
+        """
+        Load symbols for tier.
+        """
         if self.config.symbols:
             return self.config.symbols
 
@@ -227,7 +256,7 @@ class UniversePopulator:
         tier_files = {
             1: "ml/config/tier1_universe.json",
             2: "ml/config/tier2_universe.json",
-            3: "ml/config/tier3_universe.json"
+            3: "ml/config/tier3_universe.json",
         }
 
         universe_file = Path(tier_files.get(self.config.tier, tier_files[1]))
@@ -242,44 +271,104 @@ class UniversePopulator:
             return data.get("symbols", [])
 
     def _get_default_tier1_symbols(self) -> list[str]:
-        """Get default Tier 1 symbols (top 78 liquid stocks)."""
+        """
+        Get default Tier 1 symbols (top 78 liquid stocks).
+        """
         return [
             # Major indices and ETFs
-            "SPY", "QQQ", "IWM", "DIA", "VTI", "XLF", "XLK", "XLE", "XLV", "XLI",
-            "TLT", "GLD", "SLV", "VIX",
-
+            "SPY",
+            "QQQ",
+            "IWM",
+            "DIA",
+            "VTI",
+            "XLF",
+            "XLK",
+            "XLE",
+            "XLV",
+            "XLI",
+            "TLT",
+            "GLD",
+            "SLV",
+            "VIX",
             # Mega-cap tech
-            "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK.B", "AMD",
-
+            "AAPL",
+            "MSFT",
+            "NVDA",
+            "GOOGL",
+            "AMZN",
+            "META",
+            "TSLA",
+            "BRK.B",
+            "AMD",
             # Large-cap leaders
-            "JPM", "JNJ", "V", "PG", "UNH", "HD", "MA", "DIS", "BAC", "ADBE",
-            "CRM", "NFLX", "KO", "PEP", "TMO", "ABBV", "CVX", "WMT", "MRK", "LLY",
-            "AVGO", "NKE", "ORCL", "ACN", "COST", "MCD", "ABT", "TXN",
-
+            "JPM",
+            "JNJ",
+            "V",
+            "PG",
+            "UNH",
+            "HD",
+            "MA",
+            "DIS",
+            "BAC",
+            "ADBE",
+            "CRM",
+            "NFLX",
+            "KO",
+            "PEP",
+            "TMO",
+            "ABBV",
+            "CVX",
+            "WMT",
+            "MRK",
+            "LLY",
+            "AVGO",
+            "NKE",
+            "ORCL",
+            "ACN",
+            "COST",
+            "MCD",
+            "ABT",
+            "TXN",
             # Financials
-            "GS", "MS", "WFC", "C",
-
+            "GS",
+            "MS",
+            "WFC",
+            "C",
             # Energy & Industrials
-            "XOM", "COP", "CAT", "BA", "GE", "MMM",
-
+            "XOM",
+            "COP",
+            "CAT",
+            "BA",
+            "GE",
+            "MMM",
             # Telecom
-            "VZ", "T",
-
+            "VZ",
+            "T",
             # International ETFs
-            "EFA", "EEM", "VEA", "VWO",
-
+            "EFA",
+            "EEM",
+            "VEA",
+            "VWO",
             # Currency & Commodities
-            "UUP", "FXE", "USO", "UNG",
-
+            "UUP",
+            "FXE",
+            "USO",
+            "UNG",
             # High-growth / Meme stocks
-            "PLTR", "SOFI", "RIVN", "LCID", "COIN", "MSTR",
-
+            "PLTR",
+            "SOFI",
+            "RIVN",
+            "LCID",
+            "COIN",
+            "MSTR",
             # REITs
-            "VNQ"
+            "VNQ",
         ]
 
     async def estimate_costs(self) -> dict[str, Any]:
-        """Estimate costs for data download."""
+        """
+        Estimate costs for data download.
+        """
         estimates = {}
 
         for level in self.config.levels:
@@ -287,14 +376,13 @@ class UniversePopulator:
             start_date, end_date = DataLevel.get_date_range(level, self.config)
 
             # Count symbols not yet completed
-            pending_symbols = [s for s in self.symbols
-                             if not self.tracker.is_completed(level, s)]
+            pending_symbols = [s for s in self.symbols if not self.tracker.is_completed(level, s)]
 
             if not pending_symbols:
                 estimates[level] = {
                     "symbols": 0,
                     "cost_usd": 0.0,
-                    "status": "completed"
+                    "status": "completed",
                 }
                 continue
 
@@ -307,14 +395,14 @@ class UniversePopulator:
                         symbols=pending_symbols[:5],  # Sample
                         schema="trades",
                         start=start_date,
-                        end=end_date
+                        end=end_date,
                     )
                     cost_quotes = self.client.metadata.get_cost(
                         dataset="GLBX.MDP3",
                         symbols=pending_symbols[:5],
                         schema="bbo-1s",
                         start=start_date,
-                        end=end_date
+                        end=end_date,
                     )
                     # Extrapolate
                     cost_per_symbol = (cost_trades + cost_quotes) / 5
@@ -325,7 +413,7 @@ class UniversePopulator:
                         symbols=pending_symbols[:5],
                         schema=schema,
                         start=start_date,
-                        end=end_date
+                        end=end_date,
                     )
                     cost_per_symbol = cost / 5
                     total_cost = cost_per_symbol * len(pending_symbols)
@@ -334,7 +422,7 @@ class UniversePopulator:
                     "symbols": len(pending_symbols),
                     "cost_usd": float(total_cost),
                     "date_range": f"{start_date.date()} to {end_date.date()}",
-                    "schema": schema
+                    "schema": schema,
                 }
 
             except Exception:
@@ -344,7 +432,7 @@ class UniversePopulator:
                     "cost_usd": 0.0,
                     "date_range": f"{start_date.date()} to {end_date.date()}",
                     "schema": schema,
-                    "note": "Using EQUS.MINI subscription (no additional cost)"
+                    "note": "Using EQUS.MINI subscription (no additional cost)",
                 }
 
         estimates["total_cost_usd"] = sum(e.get("cost_usd", 0) for e in estimates.values())
@@ -353,15 +441,16 @@ class UniversePopulator:
         return estimates
 
     async def populate_level(self, level: str) -> dict[str, Any]:
-        """Populate data for a specific level."""
+        """
+        Populate data for a specific level.
+        """
         logger.info(f"Starting population of {level} data for Tier {self.config.tier}")
 
         _schema = DataLevel.get_schema(level)
         start_date, end_date = DataLevel.get_date_range(level, self.config)
 
         # Filter pending symbols
-        pending_symbols = [s for s in self.symbols
-                         if not self.tracker.is_completed(level, s)]
+        pending_symbols = [s for s in self.symbols if not self.tracker.is_completed(level, s)]
 
         if not pending_symbols:
             logger.info(f"All symbols already completed for {level}")
@@ -374,7 +463,7 @@ class UniversePopulator:
 
         # Process in batches
         for i in range(0, len(pending_symbols), self.config.batch_size):
-            batch = pending_symbols[i:i + self.config.batch_size]
+            batch = pending_symbols[i : i + self.config.batch_size]
             logger.info(f"Processing batch {i//self.config.batch_size + 1}: {batch}")
 
             for symbol in batch:
@@ -420,11 +509,19 @@ class UniversePopulator:
             "level": level,
             "completed": completed,
             "failed": failed,
-            "total": len(pending_symbols)
+            "total": len(pending_symbols),
         }
 
-    async def _download_ohlcv(self, symbol: str, start: datetime, end: datetime, output_dir: Path) -> None:
-        """Download OHLCV data."""
+    async def _download_ohlcv(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        output_dir: Path,
+    ) -> None:
+        """
+        Download OHLCV data.
+        """
         output_file = output_dir / f"{symbol}_ohlcv.parquet"
 
         if output_file.exists():
@@ -437,15 +534,23 @@ class UniversePopulator:
             symbols=[symbol],
             schema="ohlcv-1m",
             start=start,
-            end=end
+            end=end,
         ).to_df()
 
         if not df.empty:
             df.to_parquet(output_file)
             logger.info(f"Saved {len(df)} OHLCV records for {symbol}")
 
-    async def _download_l1(self, symbol: str, start: datetime, end: datetime, output_dir: Path) -> None:
-        """Download L1 (quotes and trades) data."""
+    async def _download_l1(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        output_dir: Path,
+    ) -> None:
+        """
+        Download L1 (quotes and trades) data.
+        """
         # Download trades
         trades_file = output_dir / f"{symbol}_trades.parquet"
         if not trades_file.exists():
@@ -454,7 +559,7 @@ class UniversePopulator:
                 symbols=[symbol],
                 schema="trades",
                 start=start,
-                end=end
+                end=end,
             ).to_df()
 
             if not df_trades.empty:
@@ -469,15 +574,24 @@ class UniversePopulator:
                 symbols=[symbol],
                 schema="bbo-1s",
                 start=start,
-                end=end
+                end=end,
             ).to_df()
 
             if not df_quotes.empty:
                 df_quotes.to_parquet(quotes_file)
                 logger.info(f"Saved {len(df_quotes)} BBO quotes for {symbol}")
 
-    async def _download_depth(self, symbol: str, level: str, start: datetime, end: datetime, output_dir: Path) -> None:
-        """Download market depth data."""
+    async def _download_depth(
+        self,
+        symbol: str,
+        level: str,
+        start: datetime,
+        end: datetime,
+        output_dir: Path,
+    ) -> None:
+        """
+        Download market depth data.
+        """
         schema = "mbp-10" if level == DataLevel.L2 else "mbp-1"
         output_file = output_dir / f"{symbol}_{schema}.parquet"
 
@@ -492,7 +606,7 @@ class UniversePopulator:
             symbols=[symbol],
             schema=schema,
             start=start,
-            end=end
+            end=end,
         ).to_df()
 
         if not df.empty:
@@ -500,7 +614,9 @@ class UniversePopulator:
             logger.info(f"Saved {len(df)} depth records for {symbol}")
 
     async def run(self) -> None:
-        """Run the population process."""
+        """
+        Run the population process.
+        """
         logger.info(f"Starting universe population for Tier {self.config.tier}")
         logger.info(f"Levels to populate: {self.config.levels}")
         logger.info(f"Total symbols: {len(self.symbols)}")
@@ -512,7 +628,9 @@ class UniversePopulator:
         logger.info("COST ESTIMATES:")
         for level, est in estimates.items():
             if isinstance(est, dict):
-                logger.info(f"  {level}: {est.get('symbols', 0)} symbols, ${est.get('cost_usd', 0):.2f}")
+                logger.info(
+                    f"  {level}: {est.get('symbols', 0)} symbols, ${est.get('cost_usd', 0):.2f}",
+                )
         logger.info(f"  TOTAL: ${estimates.get('total_cost_usd', 0):.2f}")
         logger.info("=" * 50)
 
@@ -521,7 +639,9 @@ class UniversePopulator:
             return
 
         if estimates.get("total_cost_usd", 0) > self.config.max_cost_usd:
-            logger.error(f"Cost ${estimates['total_cost_usd']:.2f} exceeds limit ${self.config.max_cost_usd:.2f}")
+            logger.error(
+                f"Cost ${estimates['total_cost_usd']:.2f} exceeds limit ${self.config.max_cost_usd:.2f}",
+            )
             logger.error("Use --force to override or increase --max-cost")
             if not self.config.force:
                 return
@@ -540,54 +660,115 @@ class UniversePopulator:
         logger.info("=" * 50)
         logger.info("POPULATION COMPLETE:")
         for result in results:
-            logger.info(f"  {result['level']}: {result['completed']} completed, {result['failed']} failed")
+            logger.info(
+                f"  {result['level']}: {result['completed']} completed, {result['failed']} failed",
+            )
         logger.info("=" * 50)
 
 
 def main():
-    """Main entry point."""
+    """
+    Main entry point.
+    """
     parser = argparse.ArgumentParser(description="Populate ML universe data")
 
     # Data selection
-    parser.add_argument("--level", choices=["L0", "L1", "L2", "L3"],
-                       help="Specific level to populate (default: all)")
-    parser.add_argument("--levels", nargs="+", choices=["L0", "L1", "L2", "L3"],
-                       help="Multiple levels to populate")
-    parser.add_argument("--tier", type=int, default=1, choices=[1, 2, 3],
-                       help="Universe tier (default: 1)")
+    parser.add_argument(
+        "--level",
+        choices=["L0", "L1", "L2", "L3"],
+        help="Specific level to populate (default: all)",
+    )
+    parser.add_argument(
+        "--levels",
+        nargs="+",
+        choices=["L0", "L1", "L2", "L3"],
+        help="Multiple levels to populate",
+    )
+    parser.add_argument(
+        "--tier",
+        type=int,
+        default=1,
+        choices=[1, 2, 3],
+        help="Universe tier (default: 1)",
+    )
     parser.add_argument("--symbols", nargs="+", help="Specific symbols to populate")
 
     # Date ranges
-    parser.add_argument("--l0-years", type=int, default=7,
-                       help="Years of L0 data (default: 7)")
-    parser.add_argument("--l1-years", type=int, default=1,
-                       help="Years of L1 data (default: 1)")
-    parser.add_argument("--l2-days", type=int, default=30,
-                       help="Days of L2/L3 data (default: 30)")
+    parser.add_argument(
+        "--l0-years",
+        type=int,
+        default=7,
+        help="Years of L0 data (default: 7)",
+    )
+    parser.add_argument(
+        "--l1-years",
+        type=int,
+        default=1,
+        help="Years of L1 data (default: 1)",
+    )
+    parser.add_argument(
+        "--l2-days",
+        type=int,
+        default=30,
+        help="Days of L2/L3 data (default: 30)",
+    )
 
     # Processing
-    parser.add_argument("--batch-size", type=int, default=10,
-                       help="Batch size for processing")
-    parser.add_argument("--rate-limit", type=int, default=100,
-                       help="API calls per minute")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=10,
+        help="Batch size for processing",
+    )
+    parser.add_argument(
+        "--rate-limit",
+        type=int,
+        default=100,
+        help="API calls per minute",
+    )
 
     # Paths
-    parser.add_argument("--data-dir", type=Path, default=Path("data/tier1"),
-                       help="Data directory")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("data/tier1"),
+        help="Data directory",
+    )
 
     # Safeguards
-    parser.add_argument("--max-cost", type=float, default=0.0,
-                       help="Maximum cost in USD (default: 0)")
-    parser.add_argument("--estimate-only", action="store_true",
-                       help="Only estimate costs")
-    parser.add_argument("--dry-run", action="store_true",
-                       help="Dry run without downloading")
-    parser.add_argument("--force", action="store_true",
-                       help="Force download even if cost exceeds limit")
-    parser.add_argument("--resume", action="store_true", default=True,
-                       help="Resume from progress (default: True)")
-    parser.add_argument("--no-resume", dest="resume", action="store_false",
-                       help="Start fresh, ignore progress")
+    parser.add_argument(
+        "--max-cost",
+        type=float,
+        default=0.0,
+        help="Maximum cost in USD (default: 0)",
+    )
+    parser.add_argument(
+        "--estimate-only",
+        action="store_true",
+        help="Only estimate costs",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Dry run without downloading",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force download even if cost exceeds limit",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=True,
+        help="Resume from progress (default: True)",
+    )
+    parser.add_argument(
+        "--no-resume",
+        dest="resume",
+        action="store_false",
+        help="Start fresh, ignore progress",
+    )
 
     args = parser.parse_args()
 
@@ -615,7 +796,7 @@ def main():
         estimate_only=args.estimate_only,
         dry_run=args.dry_run,
         force=args.force,
-        resume=args.resume
+        resume=args.resume,
     )
 
     # Run

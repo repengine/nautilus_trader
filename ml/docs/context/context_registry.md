@@ -378,6 +378,7 @@ def check_compatibility(
 - **Performance**: Fast for small datasets, limited scalability
 
 Deterministic persistence for tests/tools:
+
 - The JSON backend persists immediately on initialization and provides a `flush()` method to force immediate persistence of pending changes. This improves assertions on file presence/content immediately after registry operations.
 
 #### PostgreSQL Backend (Production)
@@ -947,6 +948,7 @@ session = model_registry.load_model("lgb_student_v1")
 ## Deployment and Integration
 
 Register new models and features using the registry system:
+
 - FeatureRegistry: Register feature manifests with schema hashes
 - ModelRegistry: Register model manifests with semantic versions
 - StrategyRegistry: Register strategy manifests with compatibility checks
@@ -958,26 +960,30 @@ Provide proper version hashes using compute_schema_hash for features and semanti
 MANDATORY: All ML actors must use the four required stores + four registries:
 
 **Stores** (initialized automatically in BaseMLInferenceActor):
+
 - **FeatureStore**: Persists feature values for training/inference parity with schema validation
-- **ModelStore**: Persists predictions and model performance metrics with deployment tracking  
+- **ModelStore**: Persists predictions and model performance metrics with deployment tracking
 - **StrategyStore**: Persists strategy state and trading decisions with compatibility checking
 - **DataStore**: Unified facade with contract validation, event emission, and watermark management
 
 **Registries** (initialized automatically in BaseMLInferenceActor):
+
 - **FeatureRegistry**: Feature schema validation, lifecycle management, and quality gate promotion
 - **ModelRegistry**: Model deployment tracking, A/B testing, canary deployments, and hot reload capabilities
 - **StrategyRegistry**: Strategy compatibility validation, requirement checking, and performance constraints
 - **DataRegistry**: Dataset manifest management, lineage tracking, event recording, and watermark updates
 
 **📝 ADDITION:** Progressive fallback pattern ensures graceful degradation:
+
 - PostgreSQL → DummyStore (no persistence, warnings logged)
-- Registry loading → Direct file loading (with model path fallback) 
+- Registry loading → Direct file loading (with model path fallback)
 - Configuration: PostgreSQL backend → JSON file backend
 - Network failures → Local caches where possible
 
 These stores and registries are initialized automatically in BaseMLInferenceActor. Do not create custom storage layers outside these components.
 
 When creating ML actors:
+
 1. Extend BaseMLInferenceActor for custom inference actors
 2. Use MLSignalActor for signal generation with built-in features
 3. Extend MLTradingStrategy for full trading strategies

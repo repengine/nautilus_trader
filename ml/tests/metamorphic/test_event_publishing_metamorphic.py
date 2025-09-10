@@ -10,6 +10,7 @@ Key relationships tested:
 - Event ordering preservation under load
 - Backpressure behavior consistency
 - Rollback/rollforward symmetry
+
 """
 
 from __future__ import annotations
@@ -36,11 +37,16 @@ from ml.config.events import Stage
 # METAMORPHIC TEST STRATEGIES
 # ============================================================================
 
+
 @st.composite
 def event_payloads(draw):
-    """Generate event payloads for metamorphic testing."""
+    """
+    Generate event payloads for metamorphic testing.
+    """
     return {
-        "dataset_id": draw(st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=5, max_size=15)),
+        "dataset_id": draw(
+            st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=5, max_size=15),
+        ),
         "correlation_id": str(uuid.uuid4()),
         "timestamp": int(datetime.now().timestamp() * 1e9),
         "stage": draw(st.sampled_from(list(Stage))),
@@ -52,7 +58,9 @@ def event_payloads(draw):
 
 @st.composite
 def event_sequences(draw, min_length=1, max_length=10):
-    """Generate sequences of related events."""
+    """
+    Generate sequences of related events.
+    """
     length = draw(st.integers(min_value=min_length, max_value=max_length))
     correlation_id = str(uuid.uuid4())
     base_timestamp = int(datetime.now().timestamp() * 1e9)
@@ -60,7 +68,9 @@ def event_sequences(draw, min_length=1, max_length=10):
     events = []
     for i in range(length):
         event = {
-            "dataset_id": draw(st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=5, max_size=15)),
+            "dataset_id": draw(
+                st.text(alphabet="abcdefghijklmnopqrstuvwxyz_", min_size=5, max_size=15),
+            ),
             "correlation_id": correlation_id,  # Same for all events in sequence
             "timestamp": base_timestamp + (i * 1_000_000_000),  # 1 second apart
             "stage": draw(st.sampled_from(list(Stage))),
@@ -77,9 +87,12 @@ def event_sequences(draw, min_length=1, max_length=10):
 # METAMORPHIC TESTS
 # ============================================================================
 
+
 @pytest.mark.parallel_safe
 class TestEventPublishingMetamorphic:
-    """Metamorphic tests for event publishing behavior."""
+    """
+    Metamorphic tests for event publishing behavior.
+    """
 
     @given(events=st.lists(event_payloads(), min_size=1, max_size=50))
     @settings(max_examples=20, deadline=10000)
@@ -98,12 +111,16 @@ class TestEventPublishingMetamorphic:
         bus_active = Mock()
 
         def shadow_publisher(db, bus, event):
-            """Publisher with bus disabled (shadow mode)."""
+            """
+            Publisher with bus disabled (shadow mode).
+            """
             db.append(copy.deepcopy(event))
             # Bus is None or disabled - no publishing
 
         def active_publisher(db, bus, event):
-            """Publisher with bus enabled (active mode)."""
+            """
+            Publisher with bus enabled (active mode).
+            """
             db.append(copy.deepcopy(event))
             bus.publish(f"events.ml.data.{event['stage']}", event)
 
@@ -171,7 +188,7 @@ class TestEventPublishingMetamorphic:
 
     @given(
         events=st.lists(event_payloads(), min_size=5, max_size=30),
-        backpressure_threshold=st.integers(min_value=3, max_value=10)
+        backpressure_threshold=st.integers(min_value=3, max_value=10),
     )
     @settings(max_examples=15, deadline=15000)
     def test_backpressure_behavior_consistency(self, events, backpressure_threshold):
@@ -208,7 +225,7 @@ class TestEventPublishingMetamorphic:
                     queue_size -= 1
 
         # Split events into manageable vs high-load scenarios
-        normal_load = events[:min(len(events), backpressure_threshold - 1)]
+        normal_load = events[: min(len(events), backpressure_threshold - 1)]
         high_load = events
 
         normal_processor(normal_load)
@@ -246,7 +263,9 @@ class TestEventPublishingMetamorphic:
             return new_state
 
         def rollback_state(state, events):
-            """Remove all models that were added by events."""
+            """
+            Remove all models that were added by events.
+            """
             rolled_back = copy.deepcopy(state)
             for event in events:
                 if event["status"] == "SUCCESS":
@@ -266,7 +285,7 @@ class TestEventPublishingMetamorphic:
 
     @given(
         events=st.lists(event_payloads(), min_size=2, max_size=20),
-        duplicate_factor=st.integers(min_value=2, max_value=5)
+        duplicate_factor=st.integers(min_value=2, max_value=5),
     )
     @settings(max_examples=15, deadline=10000)
     def test_duplicate_event_idempotency(self, events, duplicate_factor):
@@ -300,7 +319,7 @@ class TestEventPublishingMetamorphic:
 
     @given(
         events=event_sequences(min_length=3, max_length=10),
-        noise_factor=st.floats(min_value=0.1, max_value=2.0)
+        noise_factor=st.floats(min_value=0.1, max_value=2.0),
     )
     @settings(max_examples=15, deadline=10000)
     def test_timestamp_perturbation_stability(self, events, noise_factor):
@@ -316,7 +335,9 @@ class TestEventPublishingMetamorphic:
         for event in events:
             perturbed_event = copy.deepcopy(event)
             # Add small random perturbation (within noise_factor seconds)
-            perturbation_ns = int(noise_factor * 1_000_000_000 * (0.5 - hash(event["correlation_id"]) % 1000 / 1000))
+            perturbation_ns = int(
+                noise_factor * 1_000_000_000 * (0.5 - hash(event["correlation_id"]) % 1000 / 1000),
+            )
             perturbed_event["timestamp"] += perturbation_ns
             perturbed_events.append(perturbed_event)
 
@@ -347,9 +368,12 @@ class TestEventPublishingMetamorphic:
         Transformation: Different aggregation orders
         Invariant: Final aggregated result identical
         """
+
         # Mock event aggregator for metrics
         def aggregate_counts(events):
-            """Aggregate event counts by dataset_id."""
+            """
+            Aggregate event counts by dataset_id.
+            """
             aggregates = {}
             for event in events:
                 dataset_id = event["dataset_id"]
@@ -358,7 +382,9 @@ class TestEventPublishingMetamorphic:
             return aggregates
 
         def aggregate_counts_reverse_order(events):
-            """Aggregate in reverse order."""
+            """
+            Aggregate in reverse order.
+            """
             return aggregate_counts(reversed(events))
 
         # Process in different orders

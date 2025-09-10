@@ -224,29 +224,43 @@ class HealthMonitor:
 
 class CircuitBreaker:
     """
-    Circuit breaker implementation for fault tolerance.
+    Circuit breaker implementation for fault tolerance with metrics.
 
-    Prevents cascade failures by temporarily stopping operations when error rates exceed
-    thresholds.
+    Prevents cascade failures by temporarily stopping operations when error rates
+    exceed thresholds. Emits Prometheus metrics on state changes.
+
+    Parameters
+    ----------
+    config : CircuitBreakerConfig | None, optional
+        Circuit breaker configuration.
+    component_id : str, default "ml_actor"
+        Component label for metrics (kept low-cardinality).
 
     """
 
-    def __init__(self, config: CircuitBreakerConfig | None = None) -> None:
-        """
-        Initialize circuit breaker.
+    def __init__(
+        self,
+        config: CircuitBreakerConfig | None = None,
+        *,
+        component_id: str = "ml_actor",
+    ) -> None:
+        from ml.common.metrics import circuit_breaker_state
+        from ml.common.metrics import circuit_breaker_trips_total
 
-        Parameters
-        ----------
-        config : CircuitBreakerConfig, optional
-            Circuit breaker configuration.
-
-        """
         self._config = config or CircuitBreakerConfig()
         self._state = CircuitBreakerState.CLOSED
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time = 0.0
         self._next_attempt = 0.0
+        self._component_id = component_id
+        self._cb_state_gauge = circuit_breaker_state
+        self._cb_trips_counter = circuit_breaker_trips_total
+        # Initialize gauge
+        try:
+            self._cb_state_gauge.labels(component=self._component_id).set(0.0)
+        except Exception:
+            pass
 
     @property
     def state(self) -> CircuitBreakerState:
@@ -257,7 +271,10 @@ class CircuitBreaker:
 
     def can_execute(self) -> bool:
         """
-        Check if operation can be executed.
+        Check if operation can be executed based on current state.
+
+        Transitions OPEN -> HALF_OPEN when recovery timeout elapses.
+
         """
         current_time = time.time()
 
@@ -267,6 +284,14 @@ class CircuitBreaker:
             if current_time >= self._next_attempt:
                 self._state = CircuitBreakerState.HALF_OPEN
                 self._success_count = 0
+                try:
+                    self._cb_state_gauge.labels(component=self._component_id).set(0.5)
+                    self._cb_trips_counter.labels(
+                        component=self._component_id,
+                        to_state="half_open",
+                    ).inc()
+                except Exception:
+                    pass
                 return True
             return False
         else:  # HALF_OPEN
@@ -281,6 +306,14 @@ class CircuitBreaker:
             if self._success_count >= self._config.success_threshold:
                 self._state = CircuitBreakerState.CLOSED
                 self._failure_count = 0
+                try:
+                    self._cb_state_gauge.labels(component=self._component_id).set(0.0)
+                    self._cb_trips_counter.labels(
+                        component=self._component_id,
+                        to_state="closed",
+                    ).inc()
+                except Exception:
+                    pass
         elif self._state == CircuitBreakerState.CLOSED:
             self._failure_count = max(0, self._failure_count - 1)
 
@@ -294,12 +327,22 @@ class CircuitBreaker:
         if self._state == CircuitBreakerState.HALF_OPEN:
             self._state = CircuitBreakerState.OPEN
             self._next_attempt = self._last_failure_time + self._config.recovery_timeout
+            try:
+                self._cb_state_gauge.labels(component=self._component_id).set(1.0)
+                self._cb_trips_counter.labels(component=self._component_id, to_state="open").inc()
+            except Exception:
+                pass
         elif (
             self._state == CircuitBreakerState.CLOSED
             and self._failure_count >= self._config.failure_threshold
         ):
             self._state = CircuitBreakerState.OPEN
             self._next_attempt = self._last_failure_time + self._config.recovery_timeout
+            try:
+                self._cb_state_gauge.labels(component=self._component_id).set(1.0)
+                self._cb_trips_counter.labels(component=self._component_id, to_state="open").inc()
+            except Exception:
+                pass
 
     def get_stats(self) -> dict[str, Any]:
         """
@@ -721,12 +764,25 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 self.log.warning("PostgreSQL not available; using DummyStore (no persistence)")
         else:
             backend_type = BackendType.POSTGRES
+            # Probe provided connection string; fallback to DummyStore if unreachable (progressive fallback)
+            try:
+                from sqlalchemy import text as _text
 
-        # Create persistence config
-        persistence_config = PersistenceConfig(
-            backend=backend_type,
-            connection_string=db_connection,
-        )
+                from ml.core.db_engine import EngineManager as _EM
+
+                _eng = _EM.get_engine(str(db_connection))
+                with _eng.connect() as _conn:
+                    _conn.execute(_text("SELECT 1"))
+            except Exception:
+                if getattr(self._config, "allow_dummy_fallback", True):
+                    use_dummy = True
+                    backend_type = BackendType.JSON
+                    self.log.warning(
+                        "Database not reachable (%s); using DummyStore (no persistence)",
+                        db_connection,
+                    )
+                else:
+                    raise
 
         # Initialize stores - use DummyStore only in test mode
         use_dummy_stores = getattr(self._config, "use_dummy_stores", False) or use_dummy
@@ -752,6 +808,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             return  # Skip the rest of initialization
         else:
             # Production mode - stores MUST initialize successfully
+            # Create persistence config only when not in dummy mode
+            persistence_config = PersistenceConfig(
+                backend=backend_type,
+                connection_string=db_connection,
+            )
             try:
                 self._feature_store = FeatureStore(
                     connection_string=db_connection,
@@ -787,7 +848,10 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         registry_path.mkdir(parents=True, exist_ok=True)
 
         self._persistence_manager = PersistenceManager(persistence_config)
-        self._feature_registry = FeatureRegistry(registry_path, persistence_config=persistence_config)
+        self._feature_registry = FeatureRegistry(
+            registry_path,
+            persistence_config=persistence_config,
+        )
         self._model_registry = ModelRegistry(registry_path, persistence_config=persistence_config)
         self._strategy_registry = StrategyRegistry(registry_path)
 
@@ -798,10 +862,12 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         )
         # Inject shared DataRegistry into stores when available
         try:
-            if hasattr(self._feature_store, "set_data_registry"):
-                self._feature_store.set_data_registry(self._data_registry)  # type: ignore[attr-defined]
-            if hasattr(self._model_store, "set_data_registry"):
-                self._model_store.set_data_registry(self._data_registry)  # type: ignore[attr-defined]
+            setter = getattr(self._feature_store, "set_data_registry", None)
+            if callable(setter):
+                setter(self._data_registry)
+            setter2 = getattr(self._model_store, "set_data_registry", None)
+            if callable(setter2):
+                setter2(self._data_registry)
         except Exception:
             self.log.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
 
@@ -1010,7 +1076,11 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             f"Circuit breaker: {str(self._circuit_breaker.state) if self._circuit_breaker else 'disabled'}",
         )
 
-    def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:  # noqa: C901 - performance-sensitive orchestration
+    def _generate_prediction_protected(
+        self,
+        bar: Bar,
+        features: npt.NDArray[np.float32],
+    ) -> None:
         """
         Generate ML prediction with circuit breaker protection.
 
@@ -1040,11 +1110,14 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             feature_dict: dict[str, float]
             try:
                 fid = getattr(self._config, "feature_set_id", None)
-                manifest = (
-                    self._feature_registry.get_feature_manifest(fid) if fid else None  # type: ignore[attr-defined]
-                )
+                manifest = None
+                getter = getattr(self._feature_registry, "get_feature_manifest", None)
+                if fid and callable(getter):
+                    manifest = getter(fid)
                 if manifest is not None and len(manifest.feature_names) == len(features):
-                    feature_dict = {manifest.feature_names[i]: float(features[i]) for i in range(len(features))}
+                    feature_dict = {
+                        manifest.feature_names[i]: float(features[i]) for i in range(len(features))
+                    }
                 else:
                     feature_dict = {f"feature_{i}": float(v) for i, v in enumerate(features)}
             except Exception:

@@ -24,6 +24,7 @@ Usage:
 
     # Check and fill gaps in existing data
     python ml/scripts/populate_l2_efficient.py --tier 1 --start-date 2025-07-26 --end-date 2025-08-29 --check-gaps
+
 """
 
 import argparse
@@ -45,13 +46,15 @@ import pyarrow.parquet as pq
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
 def validate_data_integrity(file_path: Path, symbol: str, expected_date: datetime) -> bool:
-    """Validate that a data file contains reasonable data for the given date."""
+    """
+    Validate that a data file contains reasonable data for the given date.
+    """
     if not file_path.exists():
         return False
 
@@ -70,23 +73,29 @@ def validate_data_integrity(file_path: Path, symbol: str, expected_date: datetim
         max_date = pd.to_datetime(max_ts, unit="ns").date()
 
         if min_date != expected_date.date() or max_date != expected_date.date():
-            logger.warning(f"  {expected_date.date()}: Data spans {min_date} to {max_date} (date mismatch)")
+            logger.warning(
+                f"  {expected_date.date()}: Data spans {min_date} to {max_date} (date mismatch)",
+            )
             return False
 
         # Check for reasonable amount of L2 data
         record_count = len(df)
         if record_count < 1000:  # Very low for a full trading day
-            logger.warning(f"  {expected_date.date()}: Only {record_count:,} records (likely incomplete)")
+            logger.warning(
+                f"  {expected_date.date()}: Only {record_count:,} records (likely incomplete)",
+            )
             return False
 
         # Check for data during market hours (rough validation)
         market_hours_data = df.filter(
-            (pl.from_epoch("ts_event", time_unit="ns").dt.hour() >= 9) &
-            (pl.from_epoch("ts_event", time_unit="ns").dt.hour() <= 16)
+            (pl.from_epoch("ts_event", time_unit="ns").dt.hour() >= 9)
+            & (pl.from_epoch("ts_event", time_unit="ns").dt.hour() <= 16),
         )
 
         if len(market_hours_data) < record_count * 0.8:  # Most data should be during market hours
-            logger.warning(f"  {expected_date.date()}: Low market hours coverage ({len(market_hours_data)}/{record_count} records)")
+            logger.warning(
+                f"  {expected_date.date()}: Low market hours coverage ({len(market_hours_data)}/{record_count} records)",
+            )
 
         return True
 
@@ -96,7 +105,9 @@ def validate_data_integrity(file_path: Path, symbol: str, expected_date: datetim
 
 
 def get_business_dates(start_date: datetime, end_date: datetime) -> list[datetime]:
-    """Get list of business dates (Monday-Friday) in the range."""
+    """
+    Get list of business dates (Monday-Friday) in the range.
+    """
     dates = []
     current = start_date
     while current <= end_date:
@@ -106,8 +117,16 @@ def get_business_dates(start_date: datetime, end_date: datetime) -> list[datetim
     return dates
 
 
-def detect_data_gaps(symbol: str, output_dir: Path, start_date: datetime, end_date: datetime) -> list[datetime]:
-    """Detect missing dates in existing L2 data for a symbol, including integrity validation."""
+def detect_data_gaps(
+    symbol: str,
+    output_dir: Path,
+    start_date: datetime,
+    end_date: datetime,
+) -> list[datetime]:
+    """
+    Detect missing dates in existing L2 data for a symbol, including integrity
+    validation.
+    """
     final_file = output_dir / f"{symbol}_mbp-10.parquet"
 
     if not final_file.exists():
@@ -116,7 +135,9 @@ def detect_data_gaps(symbol: str, output_dir: Path, start_date: datetime, end_da
 
     # Validate the existing file integrity first
     if not validate_data_integrity(final_file, symbol, start_date):
-        logger.warning("Existing data file failed integrity check - will re-download affected dates")
+        logger.warning(
+            "Existing data file failed integrity check - will re-download affected dates",
+        )
 
     try:
         # Read existing data to find covered dates
@@ -125,9 +146,13 @@ def detect_data_gaps(symbol: str, output_dir: Path, start_date: datetime, end_da
             return get_business_dates(start_date, end_date)
 
         # Get unique dates from existing data
-        existing_dates = df.select(
-            pl.from_epoch("ts_event", time_unit="ns").dt.date().alias("date")
-        ).unique().sort("date")
+        existing_dates = (
+            df.select(
+                pl.from_epoch("ts_event", time_unit="ns").dt.date().alias("date"),
+            )
+            .unique()
+            .sort("date")
+        )
 
         dates_in_data = set(existing_dates.to_series().to_list())
 
@@ -154,7 +179,9 @@ def detect_data_gaps(symbol: str, output_dir: Path, start_date: datetime, end_da
 
 
 def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
-    """Merge new daily files with existing L2 data, maintaining chronological order."""
+    """
+    Merge new daily files with existing L2 data, maintaining chronological order.
+    """
     daily_files = sorted(output_dir.glob(f"{symbol}_mbp10_*.parquet"))
     if not daily_files:
         return
@@ -220,7 +247,9 @@ def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
 
 
 def get_tier1_symbols() -> list[str]:
-    """Get list of Tier 1 symbols."""
+    """
+    Get list of Tier 1 symbols.
+    """
     # Try to get from completed L1 data
     progress_file = Path("tier1_l1_progress.json")
     if progress_file.exists():
@@ -232,14 +261,83 @@ def get_tier1_symbols() -> list[str]:
 
     # Fallback to default list (minus VIX)
     return [
-        "SPY", "QQQ", "IWM", "DIA", "VTI", "XLF", "XLK", "XLE", "XLV", "XLI",
-        "TLT", "GLD", "SLV", "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META",
-        "TSLA", "BRK.B", "AMD", "JPM", "JNJ", "V", "PG", "UNH", "HD", "MA",
-        "DIS", "BAC", "ADBE", "CRM", "NFLX", "KO", "PEP", "TMO", "ABBV", "CVX",
-        "WMT", "MRK", "LLY", "AVGO", "NKE", "ORCL", "ACN", "COST", "MCD", "ABT",
-        "TXN", "GS", "MS", "WFC", "C", "XOM", "COP", "CAT", "BA", "GE",
-        "MMM", "VZ", "T", "EFA", "EEM", "VEA", "VWO", "UUP", "FXE", "USO",
-        "UNG", "PLTR", "SOFI", "RIVN", "LCID", "COIN", "MSTR", "VNQ"
+        "SPY",
+        "QQQ",
+        "IWM",
+        "DIA",
+        "VTI",
+        "XLF",
+        "XLK",
+        "XLE",
+        "XLV",
+        "XLI",
+        "TLT",
+        "GLD",
+        "SLV",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "GOOGL",
+        "AMZN",
+        "META",
+        "TSLA",
+        "BRK.B",
+        "AMD",
+        "JPM",
+        "JNJ",
+        "V",
+        "PG",
+        "UNH",
+        "HD",
+        "MA",
+        "DIS",
+        "BAC",
+        "ADBE",
+        "CRM",
+        "NFLX",
+        "KO",
+        "PEP",
+        "TMO",
+        "ABBV",
+        "CVX",
+        "WMT",
+        "MRK",
+        "LLY",
+        "AVGO",
+        "NKE",
+        "ORCL",
+        "ACN",
+        "COST",
+        "MCD",
+        "ABT",
+        "TXN",
+        "GS",
+        "MS",
+        "WFC",
+        "C",
+        "XOM",
+        "COP",
+        "CAT",
+        "BA",
+        "GE",
+        "MMM",
+        "VZ",
+        "T",
+        "EFA",
+        "EEM",
+        "VEA",
+        "VWO",
+        "UUP",
+        "FXE",
+        "USO",
+        "UNG",
+        "PLTR",
+        "SOFI",
+        "RIVN",
+        "LCID",
+        "COIN",
+        "MSTR",
+        "VNQ",
     ]
 
 
@@ -247,9 +345,11 @@ def download_l2_daily(
     client: db.Historical,
     symbol: str,
     date: datetime,
-    output_dir: Path
+    output_dir: Path,
 ) -> int:
-    """Download L2 data for a single day with basic retries."""
+    """
+    Download L2 data for a single day with basic retries.
+    """
     start = date.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
@@ -309,8 +409,11 @@ def download_l2_daily(
             # Retry on 5xx, timeouts, and 429
             transient = any(code in msg for code in ("504", "502", "500", "timeout", "429"))
             if transient and attempt < attempts:
-                logger.warning(f"  {date.date()}: Transient error (attempt {attempt}/{attempts}) - {msg}")
+                logger.warning(
+                    f"  {date.date()}: Transient error (attempt {attempt}/{attempts}) - {msg}",
+                )
                 import time
+
                 time.sleep(delay_secs)
                 delay_secs *= 2.0
                 continue
@@ -323,7 +426,9 @@ def download_l2_daily(
 
 
 def _clean_stale_temp_files(symbol: str, output_dir: Path) -> None:
-    """Remove any leftover temp parquet chunks from previous runs."""
+    """
+    Remove any leftover temp parquet chunks from previous runs.
+    """
     for pattern in (f"{symbol}_temp_chunk_*.parquet", f"{symbol}_temp_merged_*.parquet"):
         for f in output_dir.glob(pattern):
             try:
@@ -333,7 +438,9 @@ def _clean_stale_temp_files(symbol: str, output_dir: Path) -> None:
 
 
 def _validate_daily_file(file_path: Path) -> bool:
-    """Validate that a daily parquet file is readable and not corrupted."""
+    """
+    Validate that a daily parquet file is readable and not corrupted.
+    """
     try:
         # Quick validation - try to read parquet metadata
         pf = pq.ParquetFile(file_path)
@@ -346,7 +453,9 @@ def _validate_daily_file(file_path: Path) -> bool:
 
 
 def _stream_merge_daily_files(daily_files: list[Path], tmp_output: Path) -> None:
-    """Stream row groups from daily files into a single Parquet file."""
+    """
+    Stream row groups from daily files into a single Parquet file.
+    """
     writer: pq.ParquetWriter | None = None
     valid_files = []
 
@@ -355,7 +464,9 @@ def _stream_merge_daily_files(daily_files: list[Path], tmp_output: Path) -> None
         if _validate_daily_file(file):
             valid_files.append(file)
         else:
-            logger.warning(f"  Skipping corrupted file: {file.name} (will be re-downloaded on next run)")
+            logger.warning(
+                f"  Skipping corrupted file: {file.name} (will be re-downloaded on next run)",
+            )
             # Don't auto-delete here - let the main script handle re-downloading
 
     if not valid_files:
@@ -374,7 +485,9 @@ def _stream_merge_daily_files(daily_files: list[Path], tmp_output: Path) -> None
                     writer.write_table(table)
                 if idx % 3 == 0 or idx == len(valid_files):
                     mem_percent = psutil.virtual_memory().percent
-                    logger.info(f"  Appended {idx}/{len(valid_files)} daily files (Memory: {mem_percent:.1f}%)")
+                    logger.info(
+                        f"  Appended {idx}/{len(valid_files)} daily files (Memory: {mem_percent:.1f}%)",
+                    )
             except Exception as e:
                 logger.error(f"  Error processing {file.name}: {e}")
                 # Don't fail entire operation for one bad file
@@ -385,7 +498,9 @@ def _stream_merge_daily_files(daily_files: list[Path], tmp_output: Path) -> None
 
 
 def combine_daily_files(symbol: str, output_dir: Path) -> None:
-    """Combine daily L2 files into a single Parquet via streaming writes."""
+    """
+    Combine daily L2 files into a single Parquet via streaming writes.
+    """
     _clean_stale_temp_files(symbol, output_dir)
 
     daily_files = sorted(output_dir.glob(f"{symbol}_mbp10_*.parquet"))
@@ -430,16 +545,31 @@ def main():
     parser.add_argument("--symbols", nargs="+", help="Specific symbols to download")
     parser.add_argument("--tier", type=int, choices=[1], help="Use Tier 1 symbols")
     parser.add_argument("--days", type=int, default=30, help="Number of days to download")
-    parser.add_argument("--data-dir", type=Path, default=Path("data/tier1"),
-                       help="Data directory")
-    parser.add_argument("--resume", action="store_true", default=True,
-                       help="Resume from existing data")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("data/tier1"),
+        help="Data directory",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=True,
+        help="Resume from existing data",
+    )
     parser.add_argument("--start-date", type=str, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end-date", type=str, help="End date (YYYY-MM-DD)")
-    parser.add_argument("--check-gaps", action="store_true", default=True,
-                       help="Check for and fill data gaps")
-    parser.add_argument("--force", action="store_true",
-                       help="Re-download all data, ignoring existing files")
+    parser.add_argument(
+        "--check-gaps",
+        action="store_true",
+        default=True,
+        help="Check for and fill data gaps",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-download all data, ignoring existing files",
+    )
 
     args = parser.parse_args()
 

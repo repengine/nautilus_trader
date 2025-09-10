@@ -16,7 +16,10 @@ from ml.registry.persistence import PersistenceConfig
 @pytest.mark.integration
 def test_update_manifest_persists_postgres(tmp_path: Path) -> None:
     # Use default or env-provided connection string
-    conn = os.getenv("NAUTILUS_REGISTRY_DB_URL", "postgresql://postgres:postgres@localhost:5432/nautilus")
+    conn = os.getenv(
+        "NAUTILUS_REGISTRY_DB_URL",
+        "postgresql://postgres:postgres@localhost:5432/nautilus",
+    )
     pc = PersistenceConfig(backend=BackendType.POSTGRES, connection_string=conn)
     # Skip if DB is not reachable
     try:

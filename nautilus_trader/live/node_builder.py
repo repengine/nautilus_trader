@@ -198,7 +198,7 @@ class TradingNodeBuilder:
 
                 self._data_engine.register_venue_routing(client, venue)
 
-    def build_exec_clients(  # noqa: C901 (too complex)
+    def build_exec_clients(
         self,
         config: dict[str, LiveExecClientConfig],
     ) -> None:

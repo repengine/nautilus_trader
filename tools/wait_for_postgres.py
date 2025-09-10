@@ -2,8 +2,9 @@
 """
 Wait for PostgreSQL to become available.
 
-Reads DATABASE_URL from environment or uses a sensible default for local tests.
-Exits with code 0 when a connection succeeds, non-zero on timeout.
+Reads DATABASE_URL from environment or uses a sensible default for local tests. Exits
+with code 0 when a connection succeeds, non-zero on timeout.
+
 """
 
 from __future__ import annotations

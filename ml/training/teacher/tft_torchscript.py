@@ -31,8 +31,8 @@ class TFTScriptAdapter(nn.Module):
         self.model = model
         self.input_keys = list(input_keys)
 
-    def forward(self, *args: torch.Tensor) -> torch.Tensor:
-        inputs: dict[str, torch.Tensor] = {k: v for k, v in zip(self.input_keys, args)}
+    def forward(self, *args: Any) -> Any:
+        inputs: dict[str, Any] = {k: v for k, v in zip(self.input_keys, args)}
         out_obj: object = self.model(**inputs)
         if isinstance(out_obj, torch.Tensor):
             return out_obj
@@ -43,7 +43,7 @@ class TFTScriptAdapter(nn.Module):
 
             for key in ("pred", "prediction", "logits"):
                 if key in out_obj and isinstance(out_obj[key], torch.Tensor):
-                    return cast(torch.Tensor, out_obj[key])
+                    return cast(Any, out_obj[key])
             # Else take first tensor value
             for v in out_obj.values():
                 if isinstance(v, torch.Tensor):
@@ -53,7 +53,7 @@ class TFTScriptAdapter(nn.Module):
 
 def export_tft_to_torchscript_from_batch(
     tft_module: nn.Module,
-    batch_x: dict[str, torch.Tensor],
+    batch_x: dict[str, Any],
     out_path: str | Path,
     key_filter: Iterable[str] | None = None,
 ) -> Path:
@@ -95,6 +95,7 @@ def export_tft_to_torchscript_from_batch(
     adapter = TFTScriptAdapter(tft_module, input_keys)
 
     def _jit_trace(mod: object, example: object) -> Any:
+        # Torch JIT APIs are untyped in stubs; safe to ignore here.
         return torch.jit.trace(mod, example)  # type: ignore[no-untyped-call]
 
     with torch.inference_mode():

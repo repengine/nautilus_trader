@@ -827,7 +827,7 @@ class BetfairExecutionClient(LiveExecutionClient):
         else:
             raise RuntimeError(f"Cannot handle order stream update: {update}")
 
-    async def _handle_order_stream_update(self, order_change_message: OCM) -> None:  # noqa: C901
+    async def _handle_order_stream_update(self, order_change_message: OCM) -> None:
         for market in order_change_message.oc or []:
             if market.orc is not None:
                 for selection in market.orc:
@@ -1007,7 +1007,7 @@ class BetfairExecutionClient(LiveExecutionClient):
                 )
                 self._published_executions[client_order_id].append(trade_id)
 
-    def _handle_stream_execution_complete_order_update(  # noqa: C901 (too complex)
+    def _handle_stream_execution_complete_order_update(
         self,
         unmatched_order: UnmatchedOrder,
     ) -> None:

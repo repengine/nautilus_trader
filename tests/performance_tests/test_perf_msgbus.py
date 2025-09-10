@@ -29,10 +29,10 @@ def generate_topics(n: int, seed: int) -> list[str]:
     topics: list[str] = []
 
     for _ in range(n):
-        c = random.choice(cat)  # noqa: S311
-        m = random.choice(model)  # noqa: S311
-        v = random.choice(venue)  # noqa: S311
-        i = random.choice(instrument)  # noqa: S311
+        c = random.choice(cat)
+        m = random.choice(model)
+        v = random.choice(venue)
+        i = random.choice(instrument)
         topics.append(f"{c}.{m}.{v}.{i}")
 
     return topics

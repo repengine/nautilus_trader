@@ -37,7 +37,7 @@ def map_file(path: Path) -> list[dict[str, object]]:
                     "lineno": getattr(node, "lineno", 0),
                     "arg_count": len(getattr(node, "args", [])),
                     "keywords": [kw.arg or "" for kw in getattr(node, "keywords", [])],
-                }
+                },
             )
     return calls
 
@@ -51,4 +51,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

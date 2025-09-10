@@ -17,4 +17,3 @@ def test_cli_flush_db(tmp_path: Path) -> None:
     code = main(["flush-db", "--db-url", f"sqlite:///{db}", "--seed-sample"])
     assert code == 0
     assert db.exists()
-

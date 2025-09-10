@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Test different Databento datasets to find the right one for our symbols."""
+"""
+Test different Databento datasets to find the right one for our symbols.
+"""
 
 import os
 import sys
@@ -12,8 +14,11 @@ import pytest
 # Add parent to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
+
 def test_datasets():
-    """Test different datasets to find what works."""
+    """
+    Test different datasets to find what works.
+    """
     # Setup
     api_key = os.getenv("DATABENTO_API_KEY")
     if not api_key:
@@ -21,6 +26,7 @@ def test_datasets():
 
     pytest.importorskip("databento", reason="databento package not installed")
     import databento as db
+
     client = db.Historical(api_key)
 
     # Test parameters - use a date we know has data
@@ -33,8 +39,8 @@ def test_datasets():
     # Datasets to try
     datasets = [
         "XNAS.ITCH",  # Nasdaq TotalView-ITCH
-        "GLBX.MDP3",   # CME Globex MDP 3.0
-        "OPRA.PILLAR", # OPRA
+        "GLBX.MDP3",  # CME Globex MDP 3.0
+        "OPRA.PILLAR",  # OPRA
         "DBEQ.BASIC",  # Databento Equities Basic
         "BATS.PITCH",  # Cboe Europe
     ]
@@ -55,7 +61,7 @@ def test_datasets():
                     start=test_date,
                     end=end_date,
                     schema="ohlcv-1d",
-                    limit=10
+                    limit=10,
                 )
 
                 df = data.to_df()
@@ -70,7 +76,7 @@ def test_datasets():
                 print(f"  ✗ {symbol}: Error - {error_msg}")
 
     # Now test what we know works from the pilot
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Testing known working configuration (from pilot):")
     print("-" * 40)
 
@@ -82,7 +88,7 @@ def test_datasets():
             start=datetime(2024, 1, 1),
             end=datetime(2024, 1, 31),
             schema="ohlcv-1d",
-            limit=100
+            limit=100,
         )
 
         df = data.to_df()

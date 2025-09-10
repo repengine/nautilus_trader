@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-"""Smoke script for enhanced collector on a single symbol."""
+"""
+Smoke script for enhanced collector on a single symbol.
+"""
 
 
 from ml.data.enhanced_collector import EnhancedDataCollector

@@ -7,6 +7,10 @@ This plan delivers a production-grade Domain Bookkeeping and Unified Observabili
 Highlights
 
 - Phase 1: Message bus integration, event flow, and cross-domain propagation.
+  - Topic helpers: stage-first builder + compatibility mapping; see `ml/common/message_topics.py`.
+  - Optional bus (off by default), env-driven config + Redis Streams adapter; see `ml/config/bus.py`, `ml/common/message_bus.py`.
+  - Actor-side non-blocking bridge (enqueue on actor thread); see `ml/actors/ml_domain_events.py`.
+  - In-memory pub/sub + wildcard filters and idempotent consumer examples for tests/e2e; see `ml/common/in_memory_bus.py`, `ml/common/topic_filters.py`, `ml/consumers/idempotent.py`.
 - Phase 2: Unified observability pipeline for latency, metrics, and lineage.
 - TDD prototypes authored (property, contract, metamorphic, pairwise, stateful) and marked `prototype` to avoid blocking CI until implementation lands.
 - Strict contracts via Pandera schemas (normalized to the installed Pandera version), canonical topic building, and deterministic correlation IDs across domains.
@@ -18,12 +22,14 @@ Highlights
 - 4-store + 4-registry initialized by `MLIntegrationManager`; partitioning and migrations available.
 - `MLComponentProtocol` implemented; health/metrics/config validation standardized.
 - Idempotent metrics via `ml.common.metrics_bootstrap` adopted in actors/strategies.
+- Standardized event status via `EventStatus` (`success|failed|partial`) in `ml.config.events`.
 - DataRegistry supports JSON/PG backends, events, watermarks, and metadata including correlation_id.
 
 🔄 Needs Integration/Hardening
 
-- ML-side message bus façade and canonical topic naming; DataStore lacks `emit_event` façade.
+- ML-side message bus façade and canonical topic naming: implemented with optional publisher + topic builders. DataStore emit_event façade present.
 - Unified observability pipeline entity (latency watermarks, metrics collection, lineage/correlation DTOs).
+- Actor/store mutual exclusion when actor‑path publishing is enabled (actor publishes via bridge; stores do not publish) to prevent duplicates.
 - A few repo tests import external adapters (non-ML) and can fail at collection; addressed via targeting/markers.
 
 ## Standards Alignment (Authoritative)
@@ -34,7 +40,7 @@ This plan explicitly aligns with CODING_STANDARDS, TESTING_STRATEGY, and CLAUDE 
 - Imports: Centralized ML deps and metrics; no direct `prometheus_client` usage. Use `ml.common.metrics_bootstrap` for collectors; record into central `ml.common.metrics` where applicable.
 - Config: No hardcoded constants; tunables via configs/ctor params with validation. No versioned filenames.
 - Timestamps: All data writes enforce `instrument_id`, `ts_event`, `ts_init` (ns). Events carry `ts_min`/`ts_max` in ns.
-- Event constants: Use `ml.config.events.Stage` for stages/topic mapping; avoid raw literals.
+- Event constants: Use `ml.config.events.Stage` for stages/topic mapping; avoid raw literals. For stage-first topics, use `build_stage_topic` or `build_topic_for_stage`.
 - Hot/cold separation: DTO building and publishing off hot path; only metric observations in loops with reused buffers/labels.
 - Layering: Preserve 4‑store + 4‑registry boundaries; protocol‑first integration to avoid interface drift.
 
@@ -42,7 +48,8 @@ Quality gates for this work:
 
 - Lint: `make ruff` (py311, line length 100) — new code clean.
 - Types: `uv run --active --no-sync mypy ml --strict` — zero errors.
-- Tests: `make pytest` targeted to ML scopes; ≥90% coverage for new modules.
+- Tests: ML unit tests gated in CI with coverage ≥90% (see `ml-tests` job). Prototype/property suites remain optional.
+- Events: wildcard filters and idempotent consumer invariants covered in unit/e2e tests.
 
 ## Pre‑Phase Coverage Uplift (Targeted, High ROI)
 
@@ -213,6 +220,9 @@ Schema Guidance (Pandera)
 - [x] Phase‑1 publisher and cascade helpers implemented:
   - Bus publisher Protocol + Noop with tests.
   - DataStore emit_event façade optionally publishes canonical topics.
+- [x] Standardize status across emitters using `EventStatus.value`; updated unit tests and docs.
+- [x] Actor bridge wired with mutual exclusion (store publishers disabled when actor bus is enabled); unit test coverage for actor‑thread enqueue.
+- [x] CI: added ML‑only job (ruff/mypy/pytest with coverage ≥90%) and micro‑bench (soft gate) with artifact upload.
   - Cross-domain cascade helper wired via IntegrationManager adapter.
 - [x] Expanded publisher wiring to additional emit points:
   - DataStore now publishes bus events for predictions/signals via internal success path

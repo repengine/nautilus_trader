@@ -37,4 +37,3 @@ def test_evaluate_predictions_from_logits(tmp_path: Path) -> None:
     metrics = json.loads(out_json.read_text())
     assert 0.9 <= metrics["roc_auc"] <= 1.0
     assert metrics["logloss"] > 0.0
-

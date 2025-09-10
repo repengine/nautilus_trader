@@ -3,12 +3,14 @@
 ## Currently Implemented ✅
 
 ### 1. Market Data (Databento)
+
 - **L0**: 7 years OHLCV bars
 - **L1**: 1 year quotes/trades
 - **L2**: 30 days market depth (in progress)
 - **Cost**: $0 with EQUS.MINI subscription
 
 ### 2. Economic Indicators (FRED)
+
 - **24 indicators** including:
   - Interest rates (Fed funds, Treasury yields, SOFR)
   - Economic data (GDP, CPI, unemployment, retail sales)
@@ -68,6 +70,7 @@
 **Why valuable**: Execution quality and toxicity metrics
 
 Calculate from L1/L2 data:
+
 - **Effective/Realized Spread**
 - **Kyle's Lambda** (price impact)
 - **Amihud Illiquidity**
@@ -79,6 +82,7 @@ Calculate from L1/L2 data:
 ## Nice-to-Have Additions 📊
 
 ### 8. Alternative Data
+
 - **News Sentiment** (NewsAPI free tier: 100 req/day)
 - **Social Sentiment** (Reddit API - WSB mentions)
 - **Earnings Calendar** (Yahoo Finance)
@@ -86,6 +90,7 @@ Calculate from L1/L2 data:
 - **Sector/Industry Maps** (for factor exposures)
 
 ### 9. Macro Indicators
+
 - **AAII Sentiment Survey** (weekly)
 - **Michigan Consumer Sentiment** (via FRED)
 - **Baltic Dry Index** (global trade)
@@ -94,17 +99,20 @@ Calculate from L1/L2 data:
 ## Implementation Priority 📋
 
 1. **Yahoo supplementary data** ← Start here (easy, high value)
+
    ```bash
    pip install yfinance
    python ml/scripts/populate_yahoo_data.py --all --years 2
    ```
 
 2. **FRED economic data** ← Already done
+
    ```bash
    python ml/scripts/populate_fred_data.py --backfill --years 10
    ```
 
 3. **Market microstructure** ← After L2 completes
+
    ```bash
    python ml/scripts/populate_alternative_data.py --source micro
    ```
@@ -116,6 +124,7 @@ Calculate from L1/L2 data:
 ## Data Schema for TFT
 
 All data should be aligned to daily frequency with these columns:
+
 - `timestamp` (datetime)
 - `symbol` (str)
 - `feature_name` (str)
@@ -137,21 +146,25 @@ This allows joining with the main OHLCV data on (timestamp, symbol).
 ## Next Steps
 
 1. Run Yahoo data population:
+
    ```bash
    python ml/scripts/populate_yahoo_data.py --all --years 2
    ```
 
 2. Verify FRED data is complete:
+
    ```bash
    python ml/scripts/populate_fred_data.py --status
    ```
 
 3. Once L2 completes, calculate microstructure:
+
    ```bash
    python ml/scripts/populate_alternative_data.py --source micro
    ```
 
 These additional sources will significantly enhance the TFT model's ability to:
+
 - Detect regime changes
 - Understand cross-asset correlations
 - Anticipate volatility shifts

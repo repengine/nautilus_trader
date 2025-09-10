@@ -53,7 +53,10 @@ def test_data_registry_postgres_backend_smoke(tmp_path: Path) -> None:
     db_url = os.getenv("NAUTILUS_REGISTRY_DB_URL") or os.getenv("DATABASE_URL")
     registry = DataRegistry(
         registry_path=tmp_path / "registry",
-        persistence_config=PersistenceConfig(backend=BackendType.POSTGRES, connection_string=db_url),
+        persistence_config=PersistenceConfig(
+            backend=BackendType.POSTGRES,
+            connection_string=db_url,
+        ),
     )
     # Smoke: ensure emit_event doesn't raise; migrations must be applied in env
     registry.emit_event(
@@ -67,4 +70,3 @@ def test_data_registry_postgres_backend_smoke(tmp_path: Path) -> None:
         count=1,
         status="success",
     )
-

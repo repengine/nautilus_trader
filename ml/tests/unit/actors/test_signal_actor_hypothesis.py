@@ -39,7 +39,9 @@ class TestMLSignalActorProperties:
 
     @pytest.fixture(autouse=True)
     def setup_dummy_model(self):
-        """Create a dummy model for all tests in this class."""
+        """
+        Create a dummy model for all tests in this class.
+        """
         self.dummy_model_path = create_dummy_onnx_model()
         yield
         # Cleanup
@@ -47,6 +49,7 @@ class TestMLSignalActorProperties:
             self.dummy_model_path.unlink()
         except Exception:
             import logging as _logging
+
             _logging.getLogger(__name__).debug("Failed to unlink dummy model path", exc_info=True)
 
     @given(
@@ -416,14 +419,20 @@ class MLSignalActorStateMachine(RuleBasedStateMachine):
         assert self.circuit_breaker_trips >= 0, "Negative circuit breaker trips"
 
     def teardown(self) -> None:
-        """Clean up resources after state machine tests."""
+        """
+        Clean up resources after state machine tests.
+        """
         # Clean up the dummy model file
         try:
             if hasattr(self, "dummy_model_path") and self.dummy_model_path.exists():
                 self.dummy_model_path.unlink()
         except Exception:
             import logging as _logging
-            _logging.getLogger(__name__).debug("Failed to unlink dummy model path (teardown)", exc_info=True)
+
+            _logging.getLogger(__name__).debug(
+                "Failed to unlink dummy model path (teardown)",
+                exc_info=True,
+            )
 
 
 # Create the stateful test

@@ -35,4 +35,3 @@ def test_update_manifest_persists_perf_digest_json(tmp_path: Path) -> None:
     assert info is not None
     assert abs(info.manifest.perf_digest.get("pr_auc", 0.0) - 0.71) < 1e-12
     assert abs(info.manifest.perf_digest.get("logloss", 1.0) - 0.59) < 1e-12
-

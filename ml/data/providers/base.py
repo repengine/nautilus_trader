@@ -1,8 +1,9 @@
 """
 Base classes and protocols for data providers.
 
-This module defines the abstract interfaces and base implementations
-for all data providers, following SOLID principles.
+This module defines the abstract interfaces and base implementations for all data
+providers, following SOLID principles.
+
 """
 
 from __future__ import annotations
@@ -34,8 +35,9 @@ class DataProvider(Protocol):
     """
     Base protocol that all data providers must implement.
 
-    This protocol defines the minimal interface for any data provider,
-    ensuring consistency across different implementations.
+    This protocol defines the minimal interface for any data provider, ensuring
+    consistency across different implementations.
+
     """
 
     def load_data(
@@ -60,6 +62,7 @@ class DataProvider(Protocol):
         -------
         pl.DataFrame
             Loaded data
+
         """
         ...
 
@@ -76,6 +79,7 @@ class DataProvider(Protocol):
         -------
         bool
             True if valid, False otherwise
+
         """
         ...
 
@@ -87,13 +91,16 @@ class DataProvider(Protocol):
         -------
         dict[str, type]
             Mapping of column names to types
+
         """
         ...
 
 
 @runtime_checkable
 class CacheableProvider(Protocol):
-    """Protocol for providers that support caching."""
+    """
+    Protocol for providers that support caching.
+    """
 
     def cache_key(self, params: dict[str, Any]) -> str:
         """
@@ -108,6 +115,7 @@ class CacheableProvider(Protocol):
         -------
         str
             Cache key
+
         """
         ...
 
@@ -124,6 +132,7 @@ class CacheableProvider(Protocol):
         -------
         pl.DataFrame | None
             Cached data or None if not found
+
         """
         ...
 
@@ -137,13 +146,16 @@ class CacheableProvider(Protocol):
             Cache key
         data : pl.DataFrame
             Data to cache
+
         """
         ...
 
 
 @runtime_checkable
 class StaticDataProvider(Protocol):
-    """Protocol for providers of time-invariant data."""
+    """
+    Protocol for providers of time-invariant data.
+    """
 
     def load_metadata(self, instruments: list[str]) -> pl.DataFrame:
         """
@@ -158,13 +170,16 @@ class StaticDataProvider(Protocol):
         -------
         pl.DataFrame
             Metadata for instruments
+
         """
         ...
 
 
 @runtime_checkable
 class TimeSeriesProvider(Protocol):
-    """Protocol for providers of time-varying data."""
+    """
+    Protocol for providers of time-varying data.
+    """
 
     def load_timeseries(
         self,
@@ -185,6 +200,7 @@ class TimeSeriesProvider(Protocol):
         -------
         pl.DataFrame
             Time series data
+
         """
         ...
 
@@ -203,21 +219,28 @@ class BaseDataProvider:
     - Metrics collection
     - Common validation logic
     - Error handling
+
     """
 
     def __init__(self) -> None:
-        """Initialize base provider."""
+        """
+        Initialize base provider.
+        """
         self.logger = self._setup_logging()
         self.metrics = self._setup_metrics()
 
     def _setup_logging(self) -> logging.Logger:
-        """Set up logging for the provider."""
+        """
+        Set up logging for the provider.
+        """
         logger = logging.getLogger(self.__class__.__name__)
         logger.setLevel(logging.INFO)
         return logger
 
     def _setup_metrics(self) -> dict[str, int]:
-        """Set up metrics collection."""
+        """
+        Set up metrics collection.
+        """
         return defaultdict(int)
 
     def validate_data(self, data: pl.DataFrame) -> bool:
@@ -238,6 +261,7 @@ class BaseDataProvider:
         -------
         bool
             True if valid, False otherwise
+
         """
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
@@ -268,6 +292,7 @@ class BaseDataProvider:
         ----------
         error : Exception
             Error to handle
+
         """
         self.logger.error(f"Provider error: {error}")
         self.metrics["provider_errors"] += 1
@@ -278,6 +303,7 @@ class CachedDataProvider(BaseDataProvider):
     Base class with caching support.
 
     Implements Template Method pattern for caching logic.
+
     """
 
     def __init__(self, cache_ttl_hours: int = 24) -> None:
@@ -288,6 +314,7 @@ class CachedDataProvider(BaseDataProvider):
         ----------
         cache_ttl_hours : int, default 24
             Cache time-to-live in hours
+
         """
         super().__init__()
         self.cache_ttl = cache_ttl_hours
@@ -308,6 +335,7 @@ class CachedDataProvider(BaseDataProvider):
         -------
         str
             Cache key
+
         """
         # Convert datetime objects to ISO format for serialization
         serializable_params: dict[str, Any] = {}
@@ -337,6 +365,7 @@ class CachedDataProvider(BaseDataProvider):
         -------
         pl.DataFrame | None
             Cached data or None
+
         """
         return self._cache.get(key)
 
@@ -350,6 +379,7 @@ class CachedDataProvider(BaseDataProvider):
             Cache key
         data : pl.DataFrame
             Data to cache
+
         """
         self._cache[key] = data
         self.metrics["cache_writes"] += 1
@@ -376,6 +406,7 @@ class CachedDataProvider(BaseDataProvider):
         -------
         pl.DataFrame
             Loaded data
+
         """
         # Generate cache key
         params = {"instruments": instruments, "start": start, "end": end}
@@ -413,6 +444,7 @@ class CachedDataProvider(BaseDataProvider):
         Abstract method to be implemented by subclasses.
 
         This is where the actual data loading logic goes.
+
         """
         raise NotImplementedError
 
@@ -422,10 +454,13 @@ class BaseStaticProvider(BaseDataProvider):
     Base class for static data providers.
 
     Static data is cached indefinitely since it doesn't change.
+
     """
 
     def __init__(self) -> None:
-        """Initialize static provider."""
+        """
+        Initialize static provider.
+        """
         super().__init__()
         self._metadata_cache: dict[str, pl.DataFrame] = {}
 
@@ -442,6 +477,7 @@ class BaseStaticProvider(BaseDataProvider):
         -------
         pl.DataFrame
             Metadata
+
         """
         # Create cache key from sorted instruments
         cache_key = "_".join(sorted(instruments))
@@ -464,7 +500,9 @@ class BaseStaticProvider(BaseDataProvider):
 
     @abstractmethod
     def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
-        """To be implemented by subclasses."""
+        """
+        To be implemented by subclasses.
+        """
         raise NotImplementedError
 
 
@@ -473,6 +511,7 @@ class BaseTimeSeriesProvider(BaseDataProvider):
     Base class for time series data providers.
 
     Provides validation for time series data.
+
     """
 
     def load_timeseries(
@@ -494,6 +533,7 @@ class BaseTimeSeriesProvider(BaseDataProvider):
         -------
         pl.DataFrame
             Time series data
+
         """
         # Validate timestamps
         if not timestamps.is_sorted():
@@ -517,5 +557,7 @@ class BaseTimeSeriesProvider(BaseDataProvider):
         instruments: list[str],
         timestamps: pl.Series,
     ) -> pl.DataFrame:
-        """To be implemented by subclasses."""
+        """
+        To be implemented by subclasses.
+        """
         raise NotImplementedError

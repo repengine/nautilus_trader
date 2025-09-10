@@ -174,7 +174,9 @@ class ValidationRule:
     description: str
 
     def __post_init__(self) -> None:
-        """Validate rule configuration."""
+        """
+        Validate rule configuration.
+        """
         if self.severity not in (QualityFlag.WARN, QualityFlag.FAIL):
             raise ValueError(f"Invalid severity: {self.severity}. Must be WARN or FAIL")
 
@@ -252,11 +254,13 @@ class DataContract:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate contract configuration."""
+        """
+        Validate contract configuration.
+        """
         if self.enforcement_mode not in ("strict", "lenient", "monitor_only"):
             raise ValueError(
                 f"Invalid enforcement_mode: {self.enforcement_mode}. "
-                "Must be 'strict', 'lenient', or 'monitor_only'"
+                "Must be 'strict', 'lenient', or 'monitor_only'",
             )
 
         if not self.validation_rules:
@@ -266,7 +270,7 @@ class DataContract:
         for metric, threshold in self.quality_thresholds.items():
             if not 0.0 <= threshold <= 1.0:
                 raise ValueError(
-                    f"Quality threshold '{metric}' value {threshold} must be between 0 and 1"
+                    f"Quality threshold '{metric}' value {threshold} must be between 0 and 1",
                 )
 
 
@@ -396,7 +400,9 @@ class DatasetManifest:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate manifest configuration."""
+        """
+        Validate manifest configuration.
+        """
         # Validate required timestamp field is in schema
         if self.ts_field not in self.schema:
             raise ValueError(f"Timestamp field '{self.ts_field}' not found in schema")
@@ -426,7 +432,7 @@ class DatasetManifest:
                 if field not in self.schema:
                     raise ValueError(
                         f"Nautilus required field '{field}' not found in schema "
-                        f"for dataset type {self.dataset_type.value}"
+                        f"for dataset type {self.dataset_type.value}",
                     )
 
         # Validate retention days is positive

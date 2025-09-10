@@ -10,6 +10,7 @@ in the ML pipeline's event-driven architecture. They validate:
 4. Watermark progression consistency
 
 Following Phase 1 of the event-driven refactor plan.
+
 """
 
 from __future__ import annotations
@@ -35,8 +36,11 @@ from nautilus_trader.model.identifiers import InstrumentId
 # EVENT PAYLOAD SCHEMAS
 # ============================================================================
 
+
 class MLDataEventSchema(pa.DataFrameModel):
-    """Schema for events.ml.data.* payloads."""
+    """
+    Schema for events.ml.data.* payloads.
+    """
 
     dataset_id: Series[str] = pa.Field(nullable=False)
     instrument_id: Series[str] = pa.Field(nullable=False, regex=r"^[A-Z0-9]+\.[A-Z]+$")
@@ -51,14 +55,21 @@ class MLDataEventSchema(pa.DataFrameModel):
 
     @pa.dataframe_check()
     def check_timestamp_ordering(cls, df: DataFrame[Any]) -> Series[bool]:
-        """Ensure ts_max >= ts_min."""
+        """
+        Ensure ts_max >= ts_min.
+        """
         return df["ts_max"] >= df["ts_min"]
 
 
 class MLRegistryEventSchema(pa.DataFrameModel):
-    """Schema for events.ml.{features|models|strategies}.* payloads."""
+    """
+    Schema for events.ml.{features|models|strategies}.* payloads.
+    """
 
-    operation: Series[str] = pa.Field(nullable=False, isin=["REGISTER", "UPDATE", "DEPLOY", "ROLLBACK"])
+    operation: Series[str] = pa.Field(
+        nullable=False,
+        isin=["REGISTER", "UPDATE", "DEPLOY", "ROLLBACK"],
+    )
     registry_type: Series[str] = pa.Field(nullable=False, isin=["features", "models", "strategies"])
     entity_id: Series[str] = pa.Field(nullable=False)
     version: Series[str] = pa.Field(nullable=False)
@@ -71,47 +82,60 @@ class MLRegistryEventSchema(pa.DataFrameModel):
 # CONTRACT TESTS
 # ============================================================================
 
+
 @pytest.mark.parallel_safe
 class TestEventBusContracts:
-    """Test event-driven architecture contracts for MessageBus integration."""
+    """
+    Test event-driven architecture contracts for MessageBus integration.
+    """
 
     def test_ml_data_event_schema_validation(self):
-        """Test MLDataEventSchema validates correct payloads."""
-        valid_event = pd.DataFrame({
-            "dataset_id": ["eurusd_bars_2024"],
-            "instrument_id": ["EURUSD.SIM"],
-            "stage": [Stage.DATA_INGESTED.value],
-            "source": [Source.LIVE.value],
-            "status": ["SUCCESS"],
-            "run_id": [str(uuid.uuid4())],
-            "ts_min": [int(datetime(2024, 1, 1).timestamp() * 1e9)],
-            "ts_max": [int(datetime(2024, 1, 1, 1).timestamp() * 1e9)],
-            "count": [1000],
-            "correlation_id": [str(uuid.uuid4())],
-        })
+        """
+        Test MLDataEventSchema validates correct payloads.
+        """
+        valid_event = pd.DataFrame(
+            {
+                "dataset_id": ["eurusd_bars_2024"],
+                "instrument_id": ["EURUSD.SIM"],
+                "stage": [Stage.DATA_INGESTED.value],
+                "source": [Source.LIVE.value],
+                "status": ["SUCCESS"],
+                "run_id": [str(uuid.uuid4())],
+                "ts_min": [int(datetime(2024, 1, 1).timestamp() * 1e9)],
+                "ts_max": [int(datetime(2024, 1, 1, 1).timestamp() * 1e9)],
+                "count": [1000],
+                "correlation_id": [str(uuid.uuid4())],
+            },
+        )
 
         # Should pass validation
         validated = MLDataEventSchema.validate(valid_event)
         assert len(validated) == 1
 
     def test_ml_registry_event_schema_validation(self):
-        """Test MLRegistryEventSchema validates registry operations."""
-        valid_event = pd.DataFrame({
-            "operation": ["REGISTER"],
-            "registry_type": ["models"],
-            "entity_id": ["xgb_predictor_v1"],
-            "version": ["1.0.0"],
-            "status": ["SUCCESS"],
-            "correlation_id": [str(uuid.uuid4())],
-            "timestamp": [int(datetime.now().timestamp() * 1e9)],
-        })
+        """
+        Test MLRegistryEventSchema validates registry operations.
+        """
+        valid_event = pd.DataFrame(
+            {
+                "operation": ["REGISTER"],
+                "registry_type": ["models"],
+                "entity_id": ["xgb_predictor_v1"],
+                "version": ["1.0.0"],
+                "status": ["SUCCESS"],
+                "correlation_id": [str(uuid.uuid4())],
+                "timestamp": [int(datetime.now().timestamp() * 1e9)],
+            },
+        )
 
         # Should pass validation
         validated = MLRegistryEventSchema.validate(valid_event)
         assert len(validated) == 1
 
     def test_single_thread_boundary_contract(self):
-        """Test that MessageBus interactions happen only in actor thread."""
+        """
+        Test that MessageBus interactions happen only in actor thread.
+        """
         # Mock MessageBus and Actor
         mock_msgbus = Mock()
         mock_actor = Mock()
@@ -120,7 +144,10 @@ class TestEventBusContracts:
         # Contract: All bus.publish() calls must happen from actor thread
         def assert_actor_thread(*args, **kwargs):
             # In real implementation, this would check threading.current_thread().ident
-            assert hasattr(mock_actor, "thread_id"), "MessageBus publish must be called from actor thread"
+            assert hasattr(
+                mock_actor,
+                "thread_id",
+            ), "MessageBus publish must be called from actor thread"
 
         mock_msgbus.publish.side_effect = assert_actor_thread
 
@@ -133,14 +160,18 @@ class TestEventBusContracts:
         mock_msgbus.publish.assert_called_once()
 
     def test_idempotency_contract_via_correlation_id(self):
-        """Test that events are idempotent using correlation_id."""
+        """
+        Test that events are idempotent using correlation_id.
+        """
         correlation_id = str(uuid.uuid4())
 
         # Mock consumer that tracks processed correlation_ids
         processed_correlations = set()
 
         def idempotent_consumer(topic: str, payload: dict[str, Any]) -> bool:
-            """Returns True if event was processed, False if already seen."""
+            """
+            Returns True if event was processed, False if already seen.
+            """
             corr_id = payload.get("correlation_id")
             if corr_id in processed_correlations:
                 return False  # Already processed
@@ -156,12 +187,19 @@ class TestEventBusContracts:
         assert idempotent_consumer("events.ml.data.INGESTED", event2) is False
 
     def test_watermark_progression_contract(self):
-        """Test that watermarks progress monotonically."""
+        """
+        Test that watermarks progress monotonically.
+        """
         # Mock watermark tracking
         watermarks = {}
 
         def update_watermark(dataset_id: str, new_watermark: int) -> bool:
-            """Update watermark if it progresses. Return True if updated."""
+            """
+            Update watermark if it progresses.
+
+            Return True if updated.
+
+            """
             current = watermarks.get(dataset_id, 0)
             if new_watermark >= current:
                 watermarks[dataset_id] = new_watermark
@@ -179,12 +217,16 @@ class TestEventBusContracts:
         assert update_watermark(dataset_id, 1500) is False
 
     def test_optional_bus_contract(self):
-        """Test that msgbus=None means no-op publishing."""
+        """
+        Test that msgbus=None means no-op publishing.
+        """
         # When msgbus is None, publishing should be a no-op
         msgbus = None
 
         def safe_publish(bus, topic: str, payload: dict[str, Any]) -> bool:
-            """Safe publish that handles None bus."""
+            """
+            Safe publish that handles None bus.
+            """
             if bus is None:
                 return False  # No-op
             bus.publish(topic, payload)
@@ -195,7 +237,9 @@ class TestEventBusContracts:
         assert result is False
 
     def test_wildcard_topic_filtering_contract(self):
-        """Test that wildcard filters work for event subscription."""
+        """
+        Test that wildcard filters work for event subscription.
+        """
         # Mock subscription system
         subscriptions = {
             "events.ml.data.*": ["consumer1", "consumer2"],
@@ -203,7 +247,9 @@ class TestEventBusContracts:
         }
 
         def find_matching_consumers(topic: str) -> list[str]:
-            """Find consumers that match topic pattern."""
+            """
+            Find consumers that match topic pattern.
+            """
             consumers = []
             for pattern, consumer_list in subscriptions.items():
                 if pattern.endswith("*"):
@@ -226,7 +272,9 @@ class TestEventBusContracts:
         assert "consumer1" not in consumers
 
     def test_event_payload_immutability_contract(self):
-        """Test that event payloads are immutable after publishing."""
+        """
+        Test that event payloads are immutable after publishing.
+        """
         import copy
 
         original_payload = {
@@ -249,10 +297,14 @@ class TestEventBusContracts:
 
 @pytest.mark.parallel_safe
 class TestEventOrdering:
-    """Test event ordering contracts for the ML pipeline."""
+    """
+    Test event ordering contracts for the ML pipeline.
+    """
 
     def test_stage_transition_ordering(self):
-        """Test that events follow correct stage transitions."""
+        """
+        Test that events follow correct stage transitions.
+        """
         # Define allowed stage transitions
         allowed_transitions = {
             Stage.DATA_INGESTED: [Stage.CATALOG_WRITTEN, Stage.FEATURE_COMPUTED],
@@ -263,7 +315,9 @@ class TestEventOrdering:
         }
 
         def validate_transition(from_stage: Stage, to_stage: Stage) -> bool:
-            """Validate stage transition is allowed."""
+            """
+            Validate stage transition is allowed.
+            """
             return to_stage in allowed_transitions.get(from_stage, [])
 
         # Valid transitions
@@ -275,18 +329,22 @@ class TestEventOrdering:
         assert validate_transition(Stage.PREDICTION_EMITTED, Stage.DATA_INGESTED) is False
 
     def test_correlation_lineage_tracing(self):
-        """Test that correlation_id enables lineage tracing across stages."""
+        """
+        Test that correlation_id enables lineage tracing across stages.
+        """
         correlation_id = str(uuid.uuid4())
 
         # Mock event log
         event_log = []
 
         def log_event(stage: Stage, correlation_id: str, timestamp: int):
-            event_log.append({
-                "stage": stage,
-                "correlation_id": correlation_id,
-                "timestamp": timestamp,
-            })
+            event_log.append(
+                {
+                    "stage": stage,
+                    "correlation_id": correlation_id,
+                    "timestamp": timestamp,
+                },
+            )
 
         # Simulate pipeline flow with same correlation_id
         base_ts = int(datetime.now().timestamp() * 1e9)
@@ -305,5 +363,10 @@ class TestEventOrdering:
 
         # Should cover full pipeline
         stages = {event["stage"] for event in lineage}
-        expected_stages = {Stage.DATA_INGESTED, Stage.FEATURE_COMPUTED, Stage.PREDICTION_EMITTED, Stage.SIGNAL_EMITTED}
+        expected_stages = {
+            Stage.DATA_INGESTED,
+            Stage.FEATURE_COMPUTED,
+            Stage.PREDICTION_EMITTED,
+            Stage.SIGNAL_EMITTED,
+        }
         assert stages == expected_stages

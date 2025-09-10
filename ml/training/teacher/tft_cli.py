@@ -135,8 +135,12 @@ def main(argv: list[str] | None = None) -> int:
     # Ensure either training CSV or NPZ path provided
     if not args.train_data_csv and not args.student_window_npz:
         raise SystemExit(
-            "Provide either --train_data_csv for training or --student_window_npz for calibration"
+            "Provide either --train_data_csv for training or --student_window_npz for calibration",
         )
+
+    # Initialize outputs (populated below depending on mode)
+    q_train: npt.NDArray[np.float32] | None = None
+    q_val: npt.NDArray[np.float32] | None = None
 
     # If training data is provided, run training mode
     if args.train_data_csv:
@@ -159,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
                 import logging as _logging
 
                 _logging.getLogger(__name__).debug(
-                    "Torch seeding failed; continuing", exc_info=True
+                    "Torch seeding failed; continuing",
+                    exc_info=True,
                 )
             random.seed(args.seed)
             _np.random.seed(args.seed)
@@ -167,14 +172,16 @@ def main(argv: list[str] | None = None) -> int:
         missing = [c for c in feature_names if c not in df.columns]
         if missing:
             raise SystemExit(f"Training CSV missing required feature columns: {missing}")
-        # Use last 20% as validation for logits and calibration
+        # Use last 20% as validation; keep train/val slices explicit
         df_sorted = df.sort_values(args.time_index_col)
         cutoff = int(len(df_sorted) * 0.8)
+        _df_train = df_sorted.iloc[:cutoff]
         df_val = df_sorted.iloc[cutoff:]
         y_val_true = np.asarray(df_val[args.target_col], dtype=np.float64).reshape(-1)
 
         # Try TFT teacher; if unavailable or fails, fall back to a simple linear model producing logits
         z_val_vec: npt.NDArray[np.float64]
+        z_train_vec: npt.NDArray[np.float64]
         used_tft = False
         try:  # pragma: no cover - exercised in integration path when dependencies ok
             from ml.training.teacher.tft_teacher import TFTTeacher
@@ -211,7 +218,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             teacher_tft.fit(df)
             z_all = teacher_tft.predict_logits(df_sorted)
-            z_val_vec = z_all[-len(df_val) :]
+            # Split logits into train/val according to cutoff
+            z_train_vec = z_all[:cutoff]
+            z_val_vec = z_all[cutoff:]
             used_tft = True
         except Exception:
             # Fallback: scikit-learn logistic regression as a simple teacher proxy
@@ -225,15 +234,28 @@ def main(argv: list[str] | None = None) -> int:
             y = np.asarray(df_sorted[args.target_col].to_numpy(), dtype=int)
             X_train, X_val_arr = X[:cutoff], X[cutoff:]
             y_train = y[:cutoff]
+            # Impute NaNs with training column means for logistic regression fallback
+            if np.isnan(X_train).any() or np.isnan(X_val_arr).any():
+                col_means = np.nanmean(X_train, axis=0)
+                # Replace NaNs in training set
+                inds_tr = np.where(np.isnan(X_train))
+                if inds_tr[0].size > 0:
+                    X_train[inds_tr] = np.take(col_means, inds_tr[1])
+                # Replace NaNs in validation set using training means
+                inds_va = np.where(np.isnan(X_val_arr))
+                if inds_va[0].size > 0:
+                    X_val_arr[inds_va] = np.take(col_means, inds_va[1])
             lr = LogisticRegression(max_iter=200)
             lr.fit(X_train, y_train)
             # decision_function gives logits for binary classifier
+            z_train_vec = lr.decision_function(X_train).astype(np.float64)
             z_val_vec = lr.decision_function(X_val_arr).astype(np.float64)
 
         # Calibrate and produce calibrated probabilities
         teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
         teacher.calibrate(z_val_vec.reshape(-1, 1), y_val_true)
-        q_cal = teacher.predict_proba(z_val_vec.reshape(-1, 1)).astype(np.float32)
+        q_val = teacher.predict_proba(z_val_vec.reshape(-1, 1)).astype(np.float32)
+        q_train = teacher.predict_proba(z_train_vec.reshape(-1, 1)).astype(np.float32)
 
         # Optional interpretability save
         if used_tft and args.save_interpretability:
@@ -332,7 +354,9 @@ def main(argv: list[str] | None = None) -> int:
                         "format": "safetensors",
                     }
                     with open(
-                        st_path.with_suffix(".safetensors.meta.json"), "w", encoding="utf-8"
+                        st_path.with_suffix(".safetensors.meta.json"),
+                        "w",
+                        encoding="utf-8",
                     ) as f:
                         _json.dump(meta, f, indent=2)
                     model_path = st_path
@@ -444,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
             session = mreg.load_model(args.teacher_model_id)
             if session is None:
                 raise SystemExit(
-                    f"Failed to load teacher model {args.teacher_model_id} from registry"
+                    f"Failed to load teacher model {args.teacher_model_id} from registry",
                 )
             # Run inference
             try:
@@ -472,18 +496,28 @@ def main(argv: list[str] | None = None) -> int:
         teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
         teacher.calibrate(z_val.reshape(-1, 1), y_val_true)
         q_cal = teacher.predict_proba(z_val.reshape(-1, 1)).astype(np.float32)
+        q_val = q_cal
 
     # Persist outputs
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     preds_path = out_dir / "teacher_preds.npz"
-    # Save both q_train and y_val_true for student calibration convenience
+    # Save q_train (if available) and q_val for student distillation
     assert y_val_true is not None
-    np.savez_compressed(
-        preds_path,
-        q_train=q_cal.squeeze(),
-        y_val_true=y_val_true.astype(np.float32),
-    )
+    if q_train is not None:
+        np.savez_compressed(
+            preds_path,
+            q_train=q_train.squeeze(),
+            q_val=(q_val.squeeze() if q_val is not None else np.array([], dtype=np.float32)),
+            y_val_true=y_val_true.astype(np.float32),
+        )
+    else:
+        # Calibration-only/ONNX path — save validation predictions only
+        np.savez_compressed(
+            preds_path,
+            q_val=(q_val.squeeze() if q_val is not None else np.array([], dtype=np.float32)),
+            y_val_true=y_val_true.astype(np.float32),
+        )
     meta_path = out_dir / "teacher_meta.json"
     meta = {
         "model_id": args.model_id,

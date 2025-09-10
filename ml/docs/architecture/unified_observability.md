@@ -327,21 +327,25 @@ class IntelligentCircuitBreaker:
 ## 🎯 The Ultimate Benefits
 
 ### 1. **Complete Observability**
+
 - Every event tracked (Registries)
 - Every metric measured (Prometheus)
 - Every message traced (Message Bus)
 
 ### 2. **Intelligent Automation**
+
 - Self-healing pipelines
 - Auto-scaling based on load
 - Automatic model retraining
 
 ### 3. **Real-Time Decision Making**
+
 - Circuit breakers with context
 - Dynamic risk adjustment
 - Performance attribution
 
 ### 4. **Time Travel Debugging**
+
 ```python
 # Reconstruct exact state at any moment
 state = pipeline.reconstruct_state(
@@ -358,21 +362,25 @@ print(f"Messages in flight: {state.msgbus}")
 ## 🚀 Implementation Roadmap
 
 ### Phase 1: Core Integration (Current)
+
 - ✅ Domain bookkeepers implemented
 - ✅ Basic Prometheus metrics
 - ⚠️ Partial message bus integration
 
 ### Phase 2: Full Wiring
+
 - Wire all bookkeepers to message bus
 - Add comprehensive Prometheus metrics
 - Implement event correlation
 
 ### Phase 3: Intelligence Layer
+
 - Add anomaly detection
 - Implement auto-recovery
 - Build circuit breakers
 
 ### Phase 4: Advanced Features
+
 - Real-time performance attribution
 - Predictive maintenance
 - Self-optimizing pipelines
@@ -404,6 +412,7 @@ Unified ML Pipeline Dashboard:
 ```
 
 The combination of these 5 systems gives you:
+
 - **Eyes** (Prometheus metrics)
 - **Memory** (Registry/Store bookkeepers)
 - **Nervous System** (Message Bus)

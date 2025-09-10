@@ -25,7 +25,7 @@ def _stub_build_main(argv: list[str] | None = None) -> int:  # type: ignore[no-r
         },
     )
     df.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))).write_parquet(
-        str(out_dir / "dataset.parquet")
+        str(out_dir / "dataset.parquet"),
     )
     df.write_csv(str(out_dir / "dataset.csv"))
     return 0

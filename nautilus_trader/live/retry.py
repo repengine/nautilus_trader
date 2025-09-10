@@ -61,7 +61,7 @@ def get_exponential_backoff(
     delay = min(delay_max_ms, delay_initial_ms * backoff_factor ** (num_attempts - 1))
 
     if jitter:
-        return randint(delay_initial_ms, delay)  # noqa: S311
+        return randint(delay_initial_ms, delay)
 
     return delay
 

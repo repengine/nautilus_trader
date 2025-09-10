@@ -2,11 +2,14 @@
 L2 order book feature aggregation (per-minute) from MBP-10 snapshots.
 
 This module computes robust per-minute features from Databento MBP-10 snapshots.
+
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from ml._imports import HAS_POLARS
@@ -78,8 +81,14 @@ def aggregate_l2_minute_pl(l2: pl.DataFrame, *, timestamp_col: str = "ts_event")
 
         # Depth-weighted price across top-k
         dwp_num = pl.sum_horizontal(
-            [pl.col(px).cast(pl.Float64) * pl.col(sz).cast(pl.Float64) for px, sz in zip(bid_px_cols, bid_sz_cols)]
-            + [pl.col(px).cast(pl.Float64) * pl.col(sz).cast(pl.Float64) for px, sz in zip(ask_px_cols, ask_sz_cols)]
+            [
+                pl.col(px).cast(pl.Float64) * pl.col(sz).cast(pl.Float64)
+                for px, sz in zip(bid_px_cols, bid_sz_cols)
+            ]
+            + [
+                pl.col(px).cast(pl.Float64) * pl.col(sz).cast(pl.Float64)
+                for px, sz in zip(ask_px_cols, ask_sz_cols)
+            ],
         )
         dwp = _safe_div(dwp_num, total_sz)
         dwp_bps = 10000.0 * _safe_div(dwp - mid, mid)
@@ -123,8 +132,84 @@ class L2Aggregator:
         except Exception:
             return None
 
-    def compute_for_symbol(self, symbol: str) -> pl.DataFrame:
-        df = self._load_l2(symbol)
-        if df is None or df.is_empty():
+    def compute_for_symbol(
+        self,
+        symbol: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> pl.DataFrame:
+        _ensure_polars()
+        logger = logging.getLogger(__name__)
+        l2_dir = self.base_dir / symbol / "l2"
+        if not l2_dir.exists():
+            logger.debug("L2 dir missing for %s: %s", symbol, l2_dir)
             return pl.DataFrame({"timestamp": []})
-        return aggregate_l2_minute_pl(df)
+        paths = sorted(p for p in l2_dir.glob("*.parquet"))
+        if not paths:
+            logger.debug("No L2 parquet files for %s", symbol)
+            return pl.DataFrame({"timestamp": []})
+        latest = paths[-1]
+        try:
+            logger.info("L2: using %s (%0.2f MB)", latest, latest.stat().st_size / (1024 * 1024))
+            # Read only necessary columns to reduce memory
+            cols = ["ts_event"]
+            for i in range(10):
+                cols += [f"bid_px_{i:02d}", f"ask_px_{i:02d}", f"bid_sz_{i:02d}", f"ask_sz_{i:02d}"]
+            lf = pl.scan_parquet(str(latest)).select(cols)
+            # Ensure datetime type on ts_event
+            lf = lf.with_columns(pl.col("ts_event").cast(pl.Datetime("ns", "UTC")))
+            if start is not None or end is not None:
+                cond = pl.lit(True)
+                if start is not None:
+                    start_ns = int(start.timestamp() * 1_000_000_000)
+                    cond = cond & (pl.col("ts_event").cast(pl.Int64) >= start_ns)
+                if end is not None:
+                    end_ns = int(end.timestamp() * 1_000_000_000)
+                    cond = cond & (pl.col("ts_event").cast(pl.Int64) < end_ns)
+                lf = lf.filter(cond)
+            # Materialize only filtered rows
+            df = lf.collect()
+            est = getattr(df, "estimated_size", None)
+            size_b = est() if callable(est) else 0
+            logger.info(
+                "L2 scan for %s produced %d rows, est_size=%s bytes",
+                symbol,
+                len(df),
+                size_b,
+            )
+        except Exception:
+            # Fallback to eager read
+            logger.warning(
+                "L2 lazy scan failed; falling back to eager read for %s",
+                symbol,
+                exc_info=True,
+            )
+            df_fallback = self._load_l2(symbol)
+            if df_fallback is None or df_fallback.is_empty():
+                return pl.DataFrame({"timestamp": []})
+            if start is not None or end is not None:
+                if df_fallback["ts_event"].dtype != pl.Datetime:
+                    df_fallback = df_fallback.with_columns(
+                        pl.col("ts_event").cast(pl.Datetime("ns", "UTC")),
+                    )
+                cond = pl.lit(True)
+                if start is not None:
+                    start_ns = int(start.timestamp() * 1_000_000_000)
+                    cond = cond & (pl.col("ts_event").cast(pl.Int64) >= start_ns)
+                if end is not None:
+                    end_ns = int(end.timestamp() * 1_000_000_000)
+                    cond = cond & (pl.col("ts_event").cast(pl.Int64) < end_ns)
+                df_fallback = df_fallback.filter(cond)
+            df_final = df_fallback
+        else:
+            df_final = df
+        from typing import cast as _cast
+
+        out = aggregate_l2_minute_pl(_cast(pl.DataFrame, df_final))
+        logger.info(
+            "L2 aggregated %s: %d rows -> %d minutes",
+            symbol,
+            len(_cast(pl.DataFrame, df_final)),
+            len(out),
+        )
+        return out

@@ -49,4 +49,3 @@ class TestIntegrationProtocolValidation:
         mgr = self._make_manager_with_components()
         with pytest.raises(RuntimeError):
             mgr._validate_protocol_compliance(strict=True)
-

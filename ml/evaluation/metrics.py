@@ -2,6 +2,7 @@
 Lightweight binary classification metrics without heavy dependencies.
 
 Provides ROC AUC, PR AUC (approx), and log loss using numpy only.
+
 """
 
 from __future__ import annotations
@@ -10,7 +11,11 @@ import numpy as np
 import numpy.typing as npt
 
 
-def binary_logloss(y_true: npt.NDArray[np.float64], p: npt.NDArray[np.float64], eps: float = 1e-12) -> float:
+def binary_logloss(
+    y_true: npt.NDArray[np.float64],
+    p: npt.NDArray[np.float64],
+    eps: float = 1e-12,
+) -> float:
     y = y_true.astype(np.float64).reshape(-1)
     p = np.clip(p.reshape(-1), eps, 1.0 - eps)
     return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
@@ -32,7 +37,11 @@ def roc_auc(y_true: npt.NDArray[np.float64], scores: npt.NDArray[np.float64]) ->
     return float(auc)
 
 
-def pr_auc(y_true: npt.NDArray[np.float64], scores: npt.NDArray[np.float64], num_thresholds: int = 200) -> float:
+def pr_auc(
+    y_true: npt.NDArray[np.float64],
+    scores: npt.NDArray[np.float64],
+    num_thresholds: int = 200,
+) -> float:
     y = y_true.astype(np.float64).reshape(-1)
     s = scores.astype(np.float64).reshape(-1)
     if y.sum() == 0:

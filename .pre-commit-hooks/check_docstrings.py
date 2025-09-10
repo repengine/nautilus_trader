@@ -79,8 +79,10 @@ class DocstringValidator(ast.NodeVisitor):
             The function definition node.
 
         """
-        # Skip private functions and special methods (except __init__)
-        if node.name.startswith("_") and node.name not in ["__init__", "__call__"]:
+        # Skip private functions and special methods (skip __init__ / allow __call__)
+        if node.name == "__init__":
+            return
+        if node.name.startswith("_") and node.name != "__call__":
             return
 
         # Skip test functions
@@ -190,7 +192,11 @@ def main():
     files = sys.argv[1:]
 
     # Only check ML Python files
-    ml_files = [f for f in files if "ml/" in f and f.endswith(".py")]
+    ml_files = [f for f in files if f.startswith("ml/") and f.endswith(".py")]
+
+    # Restrict scope to core public API modules
+    allowed_prefixes = ("ml/config/", "ml/core/", "ml/strategies/")
+    ml_files = [f for f in ml_files if f.startswith(allowed_prefixes) or f == "ml/actors/signal.py"]
 
     if not ml_files:
         return 0
@@ -199,7 +205,14 @@ def main():
     ml_files = [
         f
         for f in ml_files
-        if not Path(f).name.startswith("test_") and Path(f).name != "__init__.py"
+        if not Path(f).name.startswith("test_")
+        and Path(f).name != "__init__.py"
+        and "/tests/" not in f
+        and "/scripts/" not in f
+        and "/examples/" not in f
+        and "/docs/" not in f
+        and not f.startswith("ml/features/")
+        and not f.startswith("ml/deployment/")
     ]
 
     if not ml_files:

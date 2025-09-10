@@ -7,4 +7,5 @@ This package contains unit tests for individual registry components:
 - Registry canary tests (health checks)
 - Model metadata management
 - Version management utilities
+
 """

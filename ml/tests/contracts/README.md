@@ -9,6 +9,7 @@ Contract tests define **what** components must do, not **how** they do it. They 
 ## Test Categories
 
 ### Actor Contracts (`test_actor_contracts.py`)
+
 - MLSignal publication on market data
 - Model identification in signals
 - Multi-instrument handling
@@ -16,6 +17,7 @@ Contract tests define **what** components must do, not **how** they do it. They 
 - Lifecycle management (start, stop, reset)
 
 ### Model Contracts (`test_model_contracts.py`)
+
 - Prediction interface compliance
 - Model serialization/deserialization
 - Feature dimension compatibility
@@ -23,18 +25,21 @@ Contract tests define **what** components must do, not **how** they do it. They 
 - Performance guarantees
 
 ### Strategy Contracts (`test_strategy_contracts.py`)
+
 - Signal processing behavior
 - Position management
 - Risk controls activation
 - State persistence across restarts
 
 ### Training Contracts (`test_training_contracts.py`)
+
 - Data preprocessing pipelines
 - Model training workflows
 - Validation procedures
 - Model persistence formats
 
 ### Registry Contracts (`test_registry_contracts.py`)
+
 - Model versioning behavior
 - Metadata management
 - Hot-swap capabilities
@@ -43,6 +48,7 @@ Contract tests define **what** components must do, not **how** they do it. They 
 ## When to Add Contract Tests
 
 Add contract tests when:
+
 - Defining a new interface that multiple components will implement
 - Creating base classes with expected behaviors
 - Establishing performance or reliability guarantees

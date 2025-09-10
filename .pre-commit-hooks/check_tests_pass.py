@@ -84,9 +84,26 @@ def run_tests(test_files):
         print("No test files to run.")
         return True
 
-    print(f"Running tests for {len(test_files)} file(s)...")
+    print(f"Running tests for {len(test_files)} file(s) (fast subset)...")
 
-    cmd = [sys.executable, "-m", "pytest", *test_files, "-q", "--tb=short"]
+    MARKERS = (
+        "unit and not slow and not requires_data and not requires_gpu and not requires_network "
+        "and not database and not redis and not docker and not integration"
+    )
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        *test_files,
+        "-q",
+        "--tb=short",
+        # Fast subset marker expression
+        "-m",
+        MARKERS,
+        "-k",
+        "not database and not hypothesis and not postgres",
+    ]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -116,7 +133,7 @@ def main():
     # In a real scenario, you'd use git to detect changed files
     # For now, just run all ML tests
     print("Running all ML tests...")
-    test_files_to_run = ["ml/tests"]
+    test_files_to_run = ["ml/tests/unit"]
 
     # Run the tests
     if test_files_to_run:

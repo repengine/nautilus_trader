@@ -546,15 +546,15 @@ class ModelRegistry(MLComponentMixin):
                     freg = FeatureRegistry(self.registry_path)
                     finfo = freg.get_feature_set(manifest.feature_set_id)
                     if finfo is None:
-                        msg = f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry"
+                        msg = (
+                            f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry"
+                        )
                         if strict_parity:
                             raise ValueError(msg)
                         logger.warning(msg)
                     else:
                         if finfo.manifest.schema_hash != manifest.feature_schema_hash:
-                            msg = (
-                                "feature_schema_hash mismatch between model manifest and feature manifest"
-                            )
+                            msg = "feature_schema_hash mismatch between model manifest and feature manifest"
                             if strict_parity:
                                 raise ValueError(msg)
                             logger.warning(msg)
@@ -814,7 +814,9 @@ class ModelRegistry(MLComponentMixin):
 
         """
         candidates = self.list_compatible(
-            schema_hash=schema_hash, role=role, architecture=architecture
+            schema_hash=schema_hash,
+            role=role,
+            architecture=architecture,
         )
         if not candidates:
             return None
@@ -919,6 +921,7 @@ class ModelRegistry(MLComponentMixin):
             if model_id in self._model_cache:
                 self._cache_access_times[model_id] = time.time()
                 from typing import cast as _cast
+
                 return _cast(object, self._model_cache[model_id])
 
             # Load from disk
@@ -979,6 +982,7 @@ class ModelRegistry(MLComponentMixin):
                 self._cache_access_times[model_id] = time.time()
 
                 from typing import cast as _cast
+
                 return _cast(object, model)
 
             except Exception as e:

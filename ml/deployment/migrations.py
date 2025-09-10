@@ -22,20 +22,21 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List
 
 
 MIGRATIONS_DIR: Path = Path("ml/stores/migrations").resolve()
 
 
-def list_migration_files() -> List[Path]:
+def list_migration_files() -> list[Path]:
     """
     Return migration files sorted by filename (lexicographic).
 
     Only ``.sql`` files are included. The function never raises for a missing
     directory; it returns an empty list instead to allow tests to run in
     isolation.
+
     """
     if not MIGRATIONS_DIR.exists():
         return []
@@ -71,6 +72,7 @@ def apply_migrations_via_compose(
     migrations : Iterable[Path] | None
         Explicit set of migration files. If None, the canonical list from
         :func:`list_migration_files` is used.
+
     """
     files = list(migrations) if migrations is not None else list_migration_files()
     for file in files:
@@ -114,4 +116,3 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover - CLI glue
     main()
-

@@ -41,7 +41,13 @@ def test_failed_event_source_normalized_to_live() -> None:
 
     from ml.stores.base import FeatureData
 
-    fd = FeatureData(feature_set_id="fs", instrument_id="X.SIM", values={"a": 1.0}, _ts_event=1, _ts_init=1)
+    fd = FeatureData(
+        feature_set_id="fs",
+        instrument_id="X.SIM",
+        values={"a": 1.0},
+        _ts_event=1,
+        _ts_init=1,
+    )
     with pytest.raises(RuntimeError):
         DataStore.write_features(ds, instrument_id="X.SIM", features=[fd], source="unit")
     # Check last event has normalized source

@@ -3,6 +3,7 @@ Live data recorder for automatic capture of all market data.
 
 This module provides a recorder that intercepts live data flow and automatically
 persists it with event tracking and validation.
+
 """
 
 import asyncio
@@ -11,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
@@ -67,12 +69,16 @@ class LiveDataRecorder:
         self._running = False
 
     async def start(self) -> None:
-        """Start the recorder with periodic flushing."""
+        """
+        Start the recorder with periodic flushing.
+        """
         self._running = True
         self._flush_task = asyncio.create_task(self._periodic_flush())
 
     async def stop(self) -> None:
-        """Stop the recorder and flush remaining data."""
+        """
+        Stop the recorder and flush remaining data.
+        """
         self._running = False
         if self._flush_task:
             self._flush_task.cancel()
@@ -80,7 +86,9 @@ class LiveDataRecorder:
         await self.flush_all()
 
     async def _periodic_flush(self) -> None:
-        """Periodically flush buffers."""
+        """
+        Periodically flush buffers.
+        """
         while self._running:
             await asyncio.sleep(self.flush_interval_ms / 1000.0)
             await self.flush_all()
@@ -203,7 +211,7 @@ class LiveDataRecorder:
                     ts_min=metadata["ts_min"],
                     ts_max=metadata["ts_max"],
                     count=metadata["count"],
-                    status="success",
+                    status=EventStatus.SUCCESS.value,
                 )
 
                 # Update watermark
@@ -227,13 +235,15 @@ class LiveDataRecorder:
                 ts_min=0,
                 ts_max=0,
                 count=0,
-                status="failed",
+                status=EventStatus.FAILED.value,
                 error=str(e),
             )
             raise
 
     async def _persist_quotes(self, quotes: list[QuoteTick], metadata: dict[str, Any]) -> None:
-        """Persist quote ticks to storage."""
+        """
+        Persist quote ticks to storage.
+        """
         # Group by instrument
         by_instrument: dict[InstrumentId, list[QuoteTick]] = defaultdict(list)
         for quote in quotes:
@@ -251,11 +261,15 @@ class LiveDataRecorder:
             print(f"Would write {len(instrument_quotes)} quotes to {path}")
 
     async def _persist_trades(self, trades: list[TradeTick], metadata: dict[str, Any]) -> None:
-        """Persist trade ticks to storage."""
+        """
+        Persist trade ticks to storage.
+        """
         # Similar to quotes
 
     async def _persist_bars(self, bars: list[Bar], metadata: dict[str, Any]) -> None:
-        """Persist bars to storage."""
+        """
+        Persist bars to storage.
+        """
         # Group by instrument
         by_instrument: dict[InstrumentId, list[Bar]] = defaultdict(list)
         for bar in bars:
@@ -273,7 +287,9 @@ class LiveDataRecorder:
             print(f"Would write {len(instrument_bars)} bars to {path}")
 
     async def flush_all(self) -> None:
-        """Flush all buffered data."""
+        """
+        Flush all buffered data.
+        """
         tasks = []
         for dataset_id in list(self.buffers.keys()):
             if self.buffers[dataset_id]:
@@ -286,8 +302,8 @@ class LiveDataInterceptor:
     """
     Intercepts live data flow in Nautilus and routes it to the recorder.
 
-    This should be integrated into your Actor or Strategy to automatically
-    record all incoming data.
+    This should be integrated into your Actor or Strategy to automatically record all
+    incoming data.
 
     """
 
@@ -295,13 +311,19 @@ class LiveDataInterceptor:
         self.recorder = recorder
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
-        """Intercept and record quote tick."""
+        """
+        Intercept and record quote tick.
+        """
         self.recorder.on_quote(tick)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        """Intercept and record trade tick."""
+        """
+        Intercept and record trade tick.
+        """
         self.recorder.on_trade(tick)
 
     def on_bar(self, bar: Bar) -> None:
-        """Intercept and record bar."""
+        """
+        Intercept and record bar.
+        """
         self.recorder.on_bar(bar)

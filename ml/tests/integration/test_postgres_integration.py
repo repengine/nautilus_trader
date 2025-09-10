@@ -45,7 +45,7 @@ def test_database_cleanup(test_database):
                 WHERE table_schema = 'public'
                 AND table_name = 'ml_feature_values'
             )
-        """
+        """,
             ),
         )
         table_exists = result.scalar()
@@ -63,7 +63,7 @@ def test_database_cleanup(test_database):
                 INSERT INTO ml_feature_values
                 (feature_set_id, instrument_id, ts_event, ts_init, values)
                 VALUES ('test', 'EUR/USD', 1000000000, 1000000001, '{}')
-            """
+            """,
                 ),
             )
             conn.commit()
@@ -123,7 +123,7 @@ def test_migrations_applied(test_database):
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind = 'p'  -- partitioned table
             AND n.nspname = 'public'
-        """
+        """,
             ),
         )
         partition_count = result.scalar()
@@ -145,7 +145,7 @@ def test_postgres_specific_features(test_database):
                 SELECT 1 FROM pg_proc
                 WHERE proname = 'create_monthly_partitions'
             )
-        """
+        """,
             ),
         )
         function_exists = result.scalar()
@@ -158,7 +158,7 @@ def test_postgres_specific_features(test_database):
             SELECT NOW()::DATE AS today,
                    EXTRACT(EPOCH FROM NOW()) AS epoch,
                    ARRAY[1,2,3] AS test_array
-        """
+        """,
             ),
         )
         row = result.first()

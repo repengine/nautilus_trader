@@ -342,7 +342,7 @@ class StreamingFeatherWriter:
 
         return metadata
 
-    def write(self, obj: object) -> None:  # noqa: C901
+    def write(self, obj: object) -> None:
         """
         Write the object to the stream.
 

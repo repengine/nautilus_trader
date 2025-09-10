@@ -1,8 +1,9 @@
 """
 Timestamp normalization and sanitization utilities.
 
-Centralizes policy for UNIX timestamp units and provides a single helper for
-normalizing to nanoseconds with optional logging and modes.
+Centralizes policy for UNIX timestamp units and provides a single helper for normalizing
+to nanoseconds with optional logging and modes.
+
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ def normalize_timestamp_ns(ts_value: int) -> tuple[int, bool]:
     - < 1e14   -> milliseconds
     - < 1e17   -> microseconds
     - otherwise -> nanoseconds
+
     """
     try:
         ts = int(ts_value)
@@ -57,6 +59,7 @@ def sanitize_timestamp_ns(
     - warn (default): normalize and log a warning if unit was < ns
     - normalize: normalize silently
     - reject: raise ValueError if normalization would be required
+
     """
     norm, changed = normalize_timestamp_ns(ts_value)
     effective_mode = _get_mode(mode)
@@ -64,5 +67,10 @@ def sanitize_timestamp_ns(
         if effective_mode == "reject":
             raise ValueError(f"Non-ns ts encountered ({ts_value}) in {context}")
         if effective_mode == "warn" and logger is not None:
-            logger.warning("Normalized timestamp to ns in %s: %s -> %s", context or "write", ts_value, norm)
+            logger.warning(
+                "Normalized timestamp to ns in %s: %s -> %s",
+                context or "write",
+                ts_value,
+                norm,
+            )
     return norm

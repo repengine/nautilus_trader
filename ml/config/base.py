@@ -136,7 +136,10 @@ class CircuitBreakerConfig(NautilusConfig, kw_only=True, frozen=True):
         Normalize legacy aliases while preserving immutability.
         """
         # Map legacy `half_open_attempts` to `success_threshold` if provided.
-        if self.half_open_attempts is not None and self.half_open_attempts != self.success_threshold:
+        if (
+            self.half_open_attempts is not None
+            and self.half_open_attempts != self.success_threshold
+        ):
             object.__setattr__(self, "success_threshold", int(self.half_open_attempts))
 
 
@@ -533,7 +536,9 @@ class DataLoaderConfig(NautilusConfig, kw_only=True, frozen=True):
 
 
 class RegistryPolicyConfig(NautilusConfig, kw_only=True, frozen=True):
-    pass  # Moved to ml.config.registry
+    """
+    Compatibility shim; see ml.config.registry.RegistryPolicyConfig.
+    """
 
 
 class StatsConfig(NautilusConfig, kw_only=True, frozen=True):

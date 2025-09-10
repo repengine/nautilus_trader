@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Data completeness analysis for L2 market data across all symbols.
+
 Identifies missing dates, inconsistent coverage, and temporal alignment issues.
+
 """
 from datetime import timedelta
 from pathlib import Path
@@ -11,12 +13,17 @@ import polars as pl
 
 
 def get_parquet_files():
-    """Get all L2 parquet files."""
+    """
+    Get all L2 parquet files.
+    """
     data_dir = Path("data/tier1")
     return list(data_dir.glob("**/l2/*_mbp-10.parquet"))
 
+
 def analyze_file_metadata(file_path):
-    """Analyze basic metadata of a parquet file without loading full data."""
+    """
+    Analyze basic metadata of a parquet file without loading full data.
+    """
     try:
         # Read just schema and basic stats
         df = pl.scan_parquet(file_path)
@@ -35,7 +42,7 @@ def analyze_file_metadata(file_path):
                 "file_size_mb": file_size_mb,
                 "record_count": 0,
                 "date_range": None,
-                "error": "Empty file"
+                "error": "Empty file",
             }
 
         # Extract date range from ts_event (assuming it's in nanoseconds)
@@ -56,7 +63,7 @@ def analyze_file_metadata(file_path):
             "min_date": min_date,
             "max_date": max_date,
             "date_range_days": (max_date - min_date).days + 1,
-            "error": None
+            "error": None,
         }
 
     except Exception as e:
@@ -66,15 +73,16 @@ def analyze_file_metadata(file_path):
             "file_size_mb": file_path.stat().st_size / (1024 * 1024),
             "record_count": None,
             "date_range": None,
-            "error": str(e)
+            "error": str(e),
         }
+
 
 def analyze_trading_days():
     """Generate expected trading days for the period Aug 3 - Sep 1, 2025."""
     from datetime import date
 
     start_date = date(2025, 8, 3)  # Sunday
-    end_date = date(2025, 9, 1)   # Sunday
+    end_date = date(2025, 9, 1)  # Sunday
 
     trading_days = []
     current = start_date
@@ -86,6 +94,7 @@ def analyze_trading_days():
         current += timedelta(days=1)
 
     return trading_days
+
 
 def main():
     print("🔍 Analyzing L2 Data Completeness and Alignment")
@@ -157,13 +166,15 @@ def main():
         days_coverage = result["date_range_days"]
 
         if days_coverage < expected_count - 2:  # Allow 2-day tolerance for weekends/holidays
-            coverage_issues.append({
-                "symbol": symbol,
-                "days": days_coverage,
-                "missing_days": expected_count - days_coverage,
-                "start": result["min_date"],
-                "end": result["max_date"]
-            })
+            coverage_issues.append(
+                {
+                    "symbol": symbol,
+                    "days": days_coverage,
+                    "missing_days": expected_count - days_coverage,
+                    "start": result["min_date"],
+                    "end": result["max_date"],
+                },
+            )
         else:
             perfect_coverage.append(symbol)
 
@@ -175,9 +186,11 @@ def main():
         coverage_issues.sort(key=lambda x: x["missing_days"], reverse=True)
 
         for issue in coverage_issues[:10]:  # Show top 10 worst
-            print(f"    {issue['symbol']:6s}: {issue['days']:2d} days "
-                  f"(missing {issue['missing_days']:2d}) "
-                  f"[{issue['start']} to {issue['end']}]")
+            print(
+                f"    {issue['symbol']:6s}: {issue['days']:2d} days "
+                f"(missing {issue['missing_days']:2d}) "
+                f"[{issue['start']} to {issue['end']}]",
+            )
 
         if len(coverage_issues) > 10:
             print(f"    ... and {len(coverage_issues) - 10} more symbols")
@@ -190,13 +203,17 @@ def main():
 
     print("  Top 5 Highest Volume:")
     for result in complete_files[:5]:
-        print(f"    {result['symbol']:6s}: {result['record_count']:>12,} records "
-              f"({result['file_size_mb']:6.1f} MB)")
+        print(
+            f"    {result['symbol']:6s}: {result['record_count']:>12,} records "
+            f"({result['file_size_mb']:6.1f} MB)",
+        )
 
     print("  Bottom 5 Lowest Volume:")
     for result in complete_files[-5:]:
-        print(f"    {result['symbol']:6s}: {result['record_count']:>12,} records "
-              f"({result['file_size_mb']:6.1f} MB)")
+        print(
+            f"    {result['symbol']:6s}: {result['record_count']:>12,} records "
+            f"({result['file_size_mb']:6.1f} MB)",
+        )
 
     # Summary statistics
     total_records = sum(r["record_count"] for r in complete_files)
@@ -234,8 +251,9 @@ def main():
         "coverage_issues": len(coverage_issues),
         "errors": len(errors),
         "perfect_alignment": start_aligned and end_aligned,
-        "total_records": total_records
+        "total_records": total_records,
     }
+
 
 if __name__ == "__main__":
     main()

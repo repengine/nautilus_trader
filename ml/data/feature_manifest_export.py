@@ -1,8 +1,9 @@
 """
 Feature manifest export utilities for the TFT training pipeline.
 
-Provides helpers to infer feature columns, compute a pipeline signature,
-and register a FeatureManifest with the local FeatureRegistry.
+Provides helpers to infer feature columns, compute a pipeline signature, and register a
+FeatureManifest with the local FeatureRegistry.
+
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ def infer_feature_columns(df: Any) -> list[str]:
     Infer numeric feature column names from a Polars or pandas DataFrame.
 
     Excludes control columns (timestamp/time_index/instrument_id/y/ts_event).
+
     """
     exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
     if pl is not None and isinstance(df, pl.DataFrame):
@@ -50,7 +52,7 @@ def build_pipeline_signature(flags: dict[str, Any]) -> str:
     return h.hexdigest()
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class FeatureExportConfig:
     registry_path: Path
     role: FeatureRole = FeatureRole.TEACHER
@@ -98,4 +100,3 @@ def export_feature_manifest(
     freg = FeatureRegistry(cfg.registry_path)
     fid = freg.register_feature_set(manifest)
     return fid
-

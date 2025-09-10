@@ -5,6 +5,7 @@
 The `ml/data/` module provides a comprehensive data pipeline infrastructure for machine learning workflows within Nautilus Trader. The module has been refactored to eliminate redundant components and use Nautilus native components directly, following a clean architecture with clear separation of concerns.
 
 Operational notes:
+
 - Timestamps: All pipeline timestamps are UNIX nanoseconds. Store write paths perform defensive normalization from seconds/ms/us to ns and log a warning if triggered. See `context_stores.md` → "Timestamp Policy & Normalization".
 - DB readiness: Apply canonical migrations and run a DB preflight before running ingestion/backfills to ensure required functions and partitions exist. See `context_deployment.md`.
 
@@ -114,6 +115,7 @@ graph TB
 - **Priority Symbols**: SPY, QQQ, IWM, AAPL, MSFT, NVDA, etc.
 
 **Methods**:
+
 - `collect_l2_depth(symbols, days)`: Collect L2 market depth data
 - `collect_l1_trades(symbols, years)`: Collect historical trades
 - `collect_tbbo_quotes(symbols, days)`: Collect top-of-book quotes
@@ -189,7 +191,7 @@ def bars_to_dataframe(
 
 - **DataRegistry Integration**:
   - Emits CATALOG_WRITTEN events for data lineage with SHA256-based correlation IDs
-  - Updates watermarks for dataset freshness tracking 
+  - Updates watermarks for dataset freshness tracking
   - Supports both PostgreSQL and JSON backends
   - Cross-domain event correlation for end-to-end pipeline tracing
 - **Comprehensive Metrics** (15+ Prometheus metrics):
@@ -210,6 +212,7 @@ def bars_to_dataframe(
   - Support for batch processing of multiple instruments
 
 **Methods**:
+
 - `run_daily_update()`: Complete daily pipeline execution
 - `_collect_latest_data()`: Fetch data from Databento
 - `_collect_symbol_data()`: Per-symbol collection with metrics
@@ -866,6 +869,7 @@ fred_config = FREDConfig(
 3. **`FREDDataLoader`**: Main loader implementation
 
 **Default Indicators** (25+ series):
+
 - **Interest Rates**: Treasury yields (1Y, 2Y, 10Y, 30Y), Fed funds, SOFR
 - **Volatility**: VIX index
 - **Economic Indicators**: GDP, CPI, PCE, unemployment, payrolls
@@ -875,6 +879,7 @@ fred_config = FREDConfig(
 - **Credit Spreads**: High yield, investment grade
 
 **Key Features**:
+
 - **Caching System**:
   - Parquet file cache with metadata
   - Configurable TTL (default: 24 hours)
@@ -891,6 +896,7 @@ fred_config = FREDConfig(
   - API error tracking
 
 **Methods**:
+
 - `fetch_indicator(series_id)`: Fetch single indicator with caching
 - `fetch_all_indicators()`: Batch fetch all configured indicators
 - `combine_indicators(data)`: Merge indicators into wide format
@@ -898,6 +904,7 @@ fred_config = FREDConfig(
 - `update_realtime()`: Fetch recent data for updates
 
 **Usage Example**:
+
 ```python
 config = FREDConfig(api_key="your_key")
 loader = FREDDataLoader(config)
@@ -910,6 +917,7 @@ loader.update_realtime(data_store, data_registry)
 ```
 
 **Current Status**: ✅ Complete implementation
+
 - Full FRED API integration with robust error handling
 - DataStore and DataRegistry integration
 - Comprehensive metrics and caching

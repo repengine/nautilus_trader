@@ -174,6 +174,7 @@ def test_configuration_options() -> None:
     universe = UniverseConfig(expansion_mode="aggressive")
     logger.info(f"Aggressive universe: {len(universe.get_full_universe())} symbols")
 
+
 def main() -> None:
     """
     Run entry point for testing.

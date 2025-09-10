@@ -139,7 +139,7 @@ class PolymarketInstrumentProvider(InstrumentProvider):
             except ValueError as e:
                 self._log.error(f"Unable to parse market: {e}, {response}")
 
-    async def _load_markets(  # noqa: C901 (too complex)
+    async def _load_markets(
         self,
         instrument_ids: list[InstrumentId],
         filters: dict | None = None,

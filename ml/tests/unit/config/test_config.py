@@ -7,6 +7,7 @@ This module provides:
 - Mock service configurations
 - Environment variable handling
 - Test isolation utilities
+
 """
 
 
@@ -25,7 +26,9 @@ import pytest
 @pytest.mark.redis
 @pytest.mark.unit
 class TestEnvironment(Enum):
-    """Test environment types."""
+    """
+    Test environment types.
+    """
 
     UNIT = "unit"
     INTEGRATION = "integration"
@@ -35,7 +38,9 @@ class TestEnvironment(Enum):
 
 @dataclass(frozen=True)
 class DatabaseConfig:
-    """Database configuration for tests."""
+    """
+    Database configuration for tests.
+    """
 
     backend: str
     connection_string: str
@@ -47,7 +52,9 @@ class DatabaseConfig:
 
     @classmethod
     def for_unit_tests(cls) -> "DatabaseConfig":
-        """Create config for unit tests (PostgreSQL)."""
+        """
+        Create config for unit tests (PostgreSQL).
+        """
         # Always use PostgreSQL for all tests
         pg_connection = os.environ.get(
             "DATABASE_URL",
@@ -65,7 +72,9 @@ class DatabaseConfig:
 
     @classmethod
     def for_integration_tests(cls) -> "DatabaseConfig":
-        """Create config for integration tests (PostgreSQL only)."""
+        """
+        Create config for integration tests (PostgreSQL only).
+        """
         # Always use PostgreSQL - required for ML stores
         pg_connection = os.environ.get(
             "DATABASE_URL",
@@ -83,7 +92,9 @@ class DatabaseConfig:
 
     @classmethod
     def for_e2e_tests(cls) -> "DatabaseConfig":
-        """Create config for E2E tests (persistent PostgreSQL database)."""
+        """
+        Create config for E2E tests (persistent PostgreSQL database).
+        """
         # Always use PostgreSQL for E2E tests
         pg_connection = os.environ.get(
             "DATABASE_URL",
@@ -102,7 +113,9 @@ class DatabaseConfig:
 
 @dataclass(frozen=True)
 class ExternalServiceConfig:
-    """Configuration for external service mocks."""
+    """
+    Configuration for external service mocks.
+    """
 
     databento_api_key: str = "test_key_123"
     databento_datasets: list[str] | None = None
@@ -122,22 +135,30 @@ class ExternalServiceConfig:
     redis_password: str | None = None
 
     def __post_init__(self) -> None:
-        """Initialize default values for mutable fields."""
+        """
+        Initialize default values for mutable fields.
+        """
         if self.databento_datasets is None:
             object.__setattr__(self, "databento_datasets", ["XNAS.ITCH", "GLBX.MDP3"])
         if self.fred_series is None:
-            object.__setattr__(self, "fred_series", {
-                "DGS10": "10-Year Treasury Rate",
-                "DEXUSEU": "USD/EUR Exchange Rate",
-                "VIXCLS": "VIX Volatility Index",
-            })
+            object.__setattr__(
+                self,
+                "fred_series",
+                {
+                    "DGS10": "10-Year Treasury Rate",
+                    "DEXUSEU": "USD/EUR Exchange Rate",
+                    "VIXCLS": "VIX Volatility Index",
+                },
+            )
         if self.yahoo_symbols is None:
             object.__setattr__(self, "yahoo_symbols", ["SPY", "QQQ", "IWM", "AAPL", "MSFT"])
 
 
 @dataclass(frozen=True)
 class MockDataConfig:
-    """Configuration for mock data generation."""
+    """
+    Configuration for mock data generation.
+    """
 
     n_bars: int = 1000
     n_instruments: int = 3
@@ -157,25 +178,37 @@ class MockDataConfig:
     lot_size: float = 1000
 
     def __post_init__(self) -> None:
-        """Initialize default values."""
+        """
+        Initialize default values.
+        """
         if self.base_prices is None:
-            object.__setattr__(self, "base_prices", {
-                "EURUSD": 1.0900,
-                "GBPUSD": 1.2700,
-                "USDJPY": 148.50,
-            })
+            object.__setattr__(
+                self,
+                "base_prices",
+                {
+                    "EURUSD": 1.0900,
+                    "GBPUSD": 1.2700,
+                    "USDJPY": 148.50,
+                },
+            )
         if self.correlation_matrix is None:
-            object.__setattr__(self, "correlation_matrix", [
-                [1.0, 0.7, -0.3],  # EURUSD
-                [0.7, 1.0, -0.2],  # GBPUSD
-                [-0.3, -0.2, 1.0], # USDJPY
-            ])
+            object.__setattr__(
+                self,
+                "correlation_matrix",
+                [
+                    [1.0, 0.7, -0.3],  # EURUSD
+                    [0.7, 1.0, -0.2],  # GBPUSD
+                    [-0.3, -0.2, 1.0],  # USDJPY
+                ],
+            )
 
 
 @pytest.mark.database
 @pytest.mark.serial
 class TestConfig:
-    """Central test configuration manager."""
+    """
+    Central test configuration manager.
+    """
 
     def __init__(self, environment: TestEnvironment | None = None):
         """
@@ -201,10 +234,14 @@ class TestConfig:
         self.use_real_databento = os.environ.get("ML_USE_REAL_DATABENTO", "false").lower() == "true"
         self.use_real_fred = os.environ.get("ML_USE_REAL_FRED", "false").lower() == "true"
         self.enable_slow_tests = os.environ.get("ML_ENABLE_SLOW_TESTS", "false").lower() == "true"
-        self.enable_ml_deps_tests = os.environ.get("ML_ENABLE_ML_DEPS_TESTS", "true").lower() == "true"
+        self.enable_ml_deps_tests = (
+            os.environ.get("ML_ENABLE_ML_DEPS_TESTS", "true").lower() == "true"
+        )
 
     def _detect_environment(self) -> TestEnvironment:
-        """Auto-detect test environment."""
+        """
+        Auto-detect test environment.
+        """
         # Check CI environment variables
         if any(os.environ.get(var) for var in ["CI", "GITHUB_ACTIONS", "JENKINS", "GITLAB_CI"]):
             return TestEnvironment.CI
@@ -220,7 +257,9 @@ class TestConfig:
         return TestEnvironment.UNIT
 
     def _get_database_config(self) -> DatabaseConfig:
-        """Get database config for current environment."""
+        """
+        Get database config for current environment.
+        """
         if self.environment == TestEnvironment.UNIT:
             return DatabaseConfig.for_unit_tests()
         elif self.environment == TestEnvironment.INTEGRATION:
@@ -234,7 +273,9 @@ class TestConfig:
             return DatabaseConfig.for_unit_tests()
 
     def _get_external_services_config(self) -> ExternalServiceConfig:
-        """Get external services config, respecting environment overrides."""
+        """
+        Get external services config, respecting environment overrides.
+        """
         return ExternalServiceConfig(
             databento_api_key=os.environ.get("DATABENTO_API_KEY", "test_key_123"),
             fred_api_key=os.environ.get("FRED_API_KEY", "test_fred_key"),
@@ -244,14 +285,18 @@ class TestConfig:
         )
 
     def _get_mock_data_config(self) -> MockDataConfig:
-        """Get mock data generation config."""
+        """
+        Get mock data generation config.
+        """
         return MockDataConfig(
             n_bars=int(os.environ.get("ML_TEST_N_BARS", "1000")),
             n_instruments=int(os.environ.get("ML_TEST_N_INSTRUMENTS", "3")),
         )
 
     def _get_timeout(self) -> int:
-        """Get test timeout based on environment."""
+        """
+        Get test timeout based on environment.
+        """
         timeouts = {
             TestEnvironment.UNIT: 10,
             TestEnvironment.INTEGRATION: 60,
@@ -262,7 +307,9 @@ class TestConfig:
         return int(os.environ.get("ML_TEST_TIMEOUT", str(default)))
 
     def _get_parallel_workers(self) -> int:
-        """Get number of parallel workers for test execution."""
+        """
+        Get number of parallel workers for test execution.
+        """
         if self.environment == TestEnvironment.CI:
             # Use fewer workers in CI to avoid resource contention
             return min(2, os.cpu_count() or 1)
@@ -271,14 +318,18 @@ class TestConfig:
         return int(os.environ.get("ML_TEST_WORKERS", str((os.cpu_count() or 1) // 2)))
 
     def get_temp_dir(self) -> Path:
-        """Get temporary directory for test artifacts."""
+        """
+        Get temporary directory for test artifacts.
+        """
         base_temp = Path(tempfile.gettempdir())
         test_dir = base_temp / "nautilus_ml_tests" / self.environment.value
         test_dir.mkdir(parents=True, exist_ok=True)
         return test_dir
 
     def get_schema_files(self) -> list[Path]:
-        """Get SQL schema files for database initialization."""
+        """
+        Get SQL schema files for database initialization.
+        """
         migrations_dir = Path(__file__).parent.parent.parent / "stores" / "migrations"
 
         # Return files in order
@@ -296,7 +347,9 @@ class TestConfig:
         return [f for f in schema_files if f.exists()]
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert configuration to dictionary."""
+        """
+        Convert configuration to dictionary.
+        """
         return {
             "environment": self.environment.value,
             "database": {
@@ -334,7 +387,9 @@ _test_config: TestConfig | None = None
 
 
 def get_test_config() -> TestConfig:
-    """Get or create global test configuration."""
+    """
+    Get or create global test configuration.
+    """
     global _test_config
     if _test_config is None:
         _test_config = TestConfig()
@@ -342,6 +397,8 @@ def get_test_config() -> TestConfig:
 
 
 def reset_test_config() -> None:
-    """Reset global test configuration (useful for testing)."""
+    """
+    Reset global test configuration (useful for testing).
+    """
     global _test_config
     _test_config = None

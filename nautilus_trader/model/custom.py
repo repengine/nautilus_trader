@@ -32,8 +32,8 @@ from nautilus_trader.serialization.base import register_serializable_type
 T = TypeVar("T")
 
 
-def customdataclass(*args: Any, **kwargs: Any) -> Any:  # noqa: C901 (too complex)
-    def wrapper(cls: type[Any]) -> type[Any]:  # noqa: C901 (too complex)
+def customdataclass(*args: Any, **kwargs: Any) -> Any:
+    def wrapper(cls: type[Any]) -> type[Any]:
         create_init = False
         create_repr = False
 

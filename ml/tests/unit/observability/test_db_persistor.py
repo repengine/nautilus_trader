@@ -73,7 +73,7 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
             "metrics": met,
             "correlation": cor,
             "health": hea,
-        }
+        },
     )
     assert set(written.keys()) == {"latency", "metrics", "correlation", "health"}
 

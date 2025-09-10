@@ -91,10 +91,13 @@ class TestIntegrationFlush:
         )
 
         # Act: flush to disk as JSONL
-        out = MLIntegrationManager.flush_observability_to_path(mgr, base_path=tmp_path, file_format="jsonl")
+        out = MLIntegrationManager.flush_observability_to_path(
+            mgr,
+            base_path=tmp_path,
+            file_format="jsonl",
+        )
 
         # Assert files exist for non-empty tables
         assert out["latency"].exists()  # type: ignore[index]
         assert out["health"].exists()  # type: ignore[index]
         # metrics and correlation may be empty in this scenario and may be absent
-

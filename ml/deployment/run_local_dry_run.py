@@ -2,8 +2,9 @@
 """
 Run ML Trading System locally in dry run mode with real components.
 
-This script runs the ML actor and strategy locally (not in containers)
-but connects to real PostgreSQL and Databento data feed.
+This script runs the ML actor and strategy locally (not in containers) but connects to
+real PostgreSQL and Databento data feed.
+
 """
 
 import asyncio
@@ -57,16 +58,19 @@ class LocalDryRunSystem:
         # Check PostgreSQL connection
         self.db_connection = os.getenv(
             "DB_CONNECTION",
-            "postgresql://postgres:postgres@localhost:5432/nautilus"
+            "postgresql://postgres:postgres@localhost:5432/nautilus",
         )
 
         # Test PostgreSQL connection
         try:
             import psycopg2
+
             conn_params = self._parse_connection_string(self.db_connection)
             conn = psycopg2.connect(**conn_params)
             conn.close()
-            print(f"✓ PostgreSQL connected: {conn_params['host']}:{conn_params['port']}/{conn_params['database']}")
+            print(
+                f"✓ PostgreSQL connected: {conn_params['host']}:{conn_params['port']}/{conn_params['database']}",
+            )
         except Exception as e:
             print(f"⚠ PostgreSQL not available: {e}")
             print("  Will use SQLite fallback for persistence")
@@ -87,6 +91,7 @@ class LocalDryRunSystem:
         """
         # postgresql://user:password@host:port/database
         import re
+
         pattern = r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)"
         match = re.match(pattern, conn_str)
         if match:
@@ -105,12 +110,12 @@ class LocalDryRunSystem:
         """
         import pickle
 
-
         # Define at module level to avoid pickle issues
         Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Use the existing dummy model from create_dummy_model.py
         import sys
+
         sys.path.append(str(Path(__file__).parent.parent / "examples"))
         from create_dummy_model import DummyModel
 
@@ -131,7 +136,9 @@ class LocalDryRunSystem:
         # Configuration for US equities
         # Using SPY (S&P 500 ETF) as our test instrument
         instrument_id = InstrumentId.from_str("SPY.XNAS")  # SPY on NASDAQ
-        bar_type = BarType.from_str("SPY.XNAS-1-MINUTE-LAST-EXTERNAL")  # 1-minute bars with EXTERNAL suffix
+        bar_type = BarType.from_str(
+            "SPY.XNAS-1-MINUTE-LAST-EXTERNAL",
+        )  # 1-minute bars with EXTERNAL suffix
 
         # Use SQLite if PostgreSQL not available
         use_dummy_stores = "sqlite" in self.db_connection
@@ -177,18 +184,24 @@ class LocalDryRunSystem:
             stop_loss_pct=0.02,
             take_profit_pct=0.04,
             use_strategy_store=not use_dummy_stores,
-            strategy_store_config={
-                "connection_string": self.db_connection,
-                "batch_size": 100,
-                "flush_interval_ms": 1000,
-            } if not use_dummy_stores else None,
+            strategy_store_config=(
+                {
+                    "connection_string": self.db_connection,
+                    "batch_size": 100,
+                    "flush_interval_ms": 1000,
+                }
+                if not use_dummy_stores
+                else None
+            ),
             persist_all_signals=True,
             execute_trades=False,  # DRY RUN MODE
         )
 
         print(f"Instrument: {instrument_id}")
         print(f"Bar Type: {bar_type}")
-        print(f"Database: {self.db_connection.split('@')[1] if '@' in self.db_connection else 'SQLite'}")
+        print(
+            f"Database: {self.db_connection.split('@')[1] if '@' in self.db_connection else 'SQLite'}",
+        )
         print("Mode: DRY RUN (execute_trades=False)")
         print("=" * 80)
 
@@ -248,6 +261,7 @@ class LocalDryRunSystem:
         if self.node:
             # Get statistics
             from typing import Any as _Any
+
             strategies = self.node.trader.strategies()
             strategies_dict: dict[str, Any] = strategies if isinstance(strategies, dict) else {}
             for strategy in strategies_dict.values():
@@ -280,6 +294,7 @@ async def main() -> None:
     except Exception as e:
         print(f"\nError: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

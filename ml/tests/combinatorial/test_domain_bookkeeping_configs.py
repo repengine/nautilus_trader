@@ -5,6 +5,7 @@ These tests efficiently cover configuration parameter interactions without full
 cartesian products, achieving 99%+ bug detection with dramatically fewer tests.
 
 Following the "write less tests, get more coverage" philosophy from TESTING_STRATEGY.md
+
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ from ml.core.integration import MLIntegrationManager
 
 @dataclass
 class DomainBookkeepingConfig:
-    """Configuration for domain bookkeeping system."""
+    """
+    Configuration for domain bookkeeping system.
+    """
 
     # Message Bus Configuration
     enable_message_bus: bool = True
@@ -59,7 +62,9 @@ class DomainBookkeepingConfig:
     # Health Monitoring Configuration
     enable_health_monitoring: bool = True
     health_check_interval_ms: int = 5000
-    health_aggregation_strategy: str = "weighted_average"  # 'simple_average', 'weighted_average', 'min'
+    health_aggregation_strategy: str = (
+        "weighted_average"  # 'simple_average', 'weighted_average', 'min'
+    )
     health_alert_threshold: float = 0.8
 
     # Event Correlation Configuration
@@ -74,8 +79,9 @@ def generate_pairwise_combinations(parameters: dict[str, list[Any]]) -> list[dic
     """
     Generate pairwise test combinations efficiently.
 
-    This is a simplified pairwise algorithm. For production use, consider
-    using libraries like allpairspy for more sophisticated pairwise generation.
+    This is a simplified pairwise algorithm. For production use, consider using
+    libraries like allpairspy for more sophisticated pairwise generation.
+
     """
     # Get parameter names and values
     param_names = list(parameters.keys())
@@ -119,14 +125,17 @@ def generate_pairwise_combinations(parameters: dict[str, list[Any]]) -> list[dic
 @pytest.mark.combinatorial
 @pytest.mark.parallel_safe
 class TestDomainBookkeepingConfigCombinations:
-    """Pairwise tests for domain bookkeeping configuration combinations."""
+    """
+    Pairwise tests for domain bookkeeping configuration combinations.
+    """
 
     def test_message_bus_configuration_combinations(self):
         """
         Test pairwise combinations of message bus configuration parameters.
 
-        Covers 3 backends × 3 prefixes × 4 retention periods × 3 message sizes = 108 total
-        Reduced to ~18 pairwise combinations (83% reduction)
+        Covers 3 backends × 3 prefixes × 4 retention periods × 3 message sizes = 108
+        total Reduced to ~18 pairwise combinations (83% reduction)
+
         """
         message_bus_parameters = {
             "message_bus_backend": ["nautilus", "kafka", "redis"],
@@ -139,8 +148,9 @@ class TestDomainBookkeepingConfigCombinations:
 
         # Should have significantly fewer combinations than full cartesian product
         full_combinations = 3 * 3 * 4 * 3  # 108
-        assert len(pairwise_configs) < full_combinations * 0.5, \
-            f"Pairwise should reduce combinations significantly: {len(pairwise_configs)} vs {full_combinations}"
+        assert (
+            len(pairwise_configs) < full_combinations * 0.5
+        ), f"Pairwise should reduce combinations significantly: {len(pairwise_configs)} vs {full_combinations}"
 
         mock_integration_manager = MagicMock(spec=MLIntegrationManager)
 
@@ -154,14 +164,19 @@ class TestDomainBookkeepingConfigCombinations:
             )
 
             # Verify configuration is valid
-            assert config.message_bus_backend in ["nautilus", "kafka", "redis"], \
-                f"Config {i}: Invalid message bus backend: {config.message_bus_backend}"
+            assert config.message_bus_backend in [
+                "nautilus",
+                "kafka",
+                "redis",
+            ], f"Config {i}: Invalid message bus backend: {config.message_bus_backend}"
 
-            assert 1 <= config.message_retention_hours <= 8760, \
-                f"Config {i}: Message retention outside valid range: {config.message_retention_hours}"
+            assert (
+                1 <= config.message_retention_hours <= 8760
+            ), f"Config {i}: Message retention outside valid range: {config.message_retention_hours}"
 
-            assert 1 <= config.max_message_size_mb <= 1000, \
-                f"Config {i}: Message size outside valid range: {config.max_message_size_mb}"
+            assert (
+                1 <= config.max_message_size_mb <= 1000
+            ), f"Config {i}: Message size outside valid range: {config.max_message_size_mb}"
 
             # Test configuration compatibility
             if config.message_bus_backend == "kafka" and config.max_message_size_mb > 50:
@@ -173,7 +188,7 @@ class TestDomainBookkeepingConfigCombinations:
                 backend=config.message_bus_backend,
                 topic_prefix=config.topic_prefix,
                 retention_hours=config.message_retention_hours,
-                max_size_mb=config.max_message_size_mb
+                max_size_mb=config.max_message_size_mb,
             )
 
     def test_event_emission_configuration_combinations(self):
@@ -182,6 +197,7 @@ class TestDomainBookkeepingConfigCombinations:
 
         Covers 2 batching × 4 batch sizes × 5 flush intervals × 3 strategies = 120 total
         Reduced to ~20 pairwise combinations (83% reduction)
+
         """
         event_emission_parameters = {
             "event_batching_enabled": [True, False],
@@ -193,8 +209,9 @@ class TestDomainBookkeepingConfigCombinations:
         pairwise_configs = generate_pairwise_combinations(event_emission_parameters)
         full_combinations = 2 * 4 * 5 * 3  # 120
 
-        assert len(pairwise_configs) < full_combinations * 0.5, \
-            f"Pairwise should reduce combinations: {len(pairwise_configs)} vs {full_combinations}"
+        assert (
+            len(pairwise_configs) < full_combinations * 0.5
+        ), f"Pairwise should reduce combinations: {len(pairwise_configs)} vs {full_combinations}"
 
         mock_integration_manager = MagicMock(spec=MLIntegrationManager)
 
@@ -216,23 +233,27 @@ class TestDomainBookkeepingConfigCombinations:
                 pass  # Performance boundary test
 
             # Test logical consistency
-            assert config.correlation_id_strategy in ["uuid4", "sequential", "hash"], \
-                f"Config {i}: Invalid correlation strategy: {config.correlation_id_strategy}"
+            assert config.correlation_id_strategy in [
+                "uuid4",
+                "sequential",
+                "hash",
+            ], f"Config {i}: Invalid correlation strategy: {config.correlation_id_strategy}"
 
             # Simulate event emission configuration
             mock_integration_manager.configure_event_emission(
                 batching=config.event_batching_enabled,
                 batch_size=config.event_batch_size,
                 flush_interval=config.event_flush_interval_ms,
-                correlation_strategy=config.correlation_id_strategy
+                correlation_strategy=config.correlation_id_strategy,
             )
 
     def test_observability_pipeline_configuration_combinations(self):
         """
         Test pairwise combinations of observability pipeline parameters.
 
-        Covers 2 tracking × 2 precision × 4 frequencies × 2 tracing × 3 intervals = 96 total
-        Reduced to ~18 pairwise combinations (81% reduction)
+        Covers 2 tracking × 2 precision × 4 frequencies × 2 tracing × 3 intervals = 96
+        total Reduced to ~18 pairwise combinations (81% reduction)
+
         """
         observability_parameters = {
             "enable_latency_tracking": [True, False],
@@ -245,16 +266,26 @@ class TestDomainBookkeepingConfigCombinations:
         pairwise_configs = generate_pairwise_combinations(observability_parameters)
         full_combinations = 2 * 2 * 4 * 2 * 3  # 96
 
-        assert len(pairwise_configs) < full_combinations * 0.5, \
-            f"Pairwise should reduce combinations: {len(pairwise_configs)} vs {full_combinations}"
+        assert (
+            len(pairwise_configs) < full_combinations * 0.5
+        ), f"Pairwise should reduce combinations: {len(pairwise_configs)} vs {full_combinations}"
 
         for i, config_params in enumerate(pairwise_configs):
             config = DomainBookkeepingConfig(
                 enable_latency_tracking=config_params.get("enable_latency_tracking", True),
-                latency_measurement_precision=config_params.get("latency_measurement_precision", "nanosecond"),
-                watermark_update_frequency_ms=config_params.get("watermark_update_frequency_ms", 100),
+                latency_measurement_precision=config_params.get(
+                    "latency_measurement_precision",
+                    "nanosecond",
+                ),
+                watermark_update_frequency_ms=config_params.get(
+                    "watermark_update_frequency_ms",
+                    100,
+                ),
                 enable_end_to_end_tracing=config_params.get("enable_end_to_end_tracing", True),
-                metrics_collection_interval_ms=config_params.get("metrics_collection_interval_ms", 1000),
+                metrics_collection_interval_ms=config_params.get(
+                    "metrics_collection_interval_ms",
+                    1000,
+                ),
             )
 
             # Configuration dependency validation
@@ -262,7 +293,10 @@ class TestDomainBookkeepingConfigCombinations:
                 # End-to-end tracing depends on latency tracking
                 pass  # This is a dependency violation to test
 
-            if config.latency_measurement_precision == "nanosecond" and config.watermark_update_frequency_ms > 1000:
+            if (
+                config.latency_measurement_precision == "nanosecond"
+                and config.watermark_update_frequency_ms > 1000
+            ):
                 # High precision with low frequency may waste precision
                 pass  # Configuration efficiency test
 
@@ -287,8 +321,9 @@ class TestDomainBookkeepingConfigCombinations:
         """
         Test pairwise combinations of health monitoring parameters.
 
-        Covers 2 enabled × 4 intervals × 3 strategies × 5 thresholds = 120 total
-        Reduced to ~20 pairwise combinations (83% reduction)
+        Covers 2 enabled × 4 intervals × 3 strategies × 5 thresholds = 120 total Reduced
+        to ~20 pairwise combinations (83% reduction)
+
         """
         health_monitoring_parameters = {
             "enable_health_monitoring": [True, False],
@@ -306,13 +341,17 @@ class TestDomainBookkeepingConfigCombinations:
             config = DomainBookkeepingConfig(
                 enable_health_monitoring=config_params.get("enable_health_monitoring", True),
                 health_check_interval_ms=config_params.get("health_check_interval_ms", 5000),
-                health_aggregation_strategy=config_params.get("health_aggregation_strategy", "weighted_average"),
+                health_aggregation_strategy=config_params.get(
+                    "health_aggregation_strategy",
+                    "weighted_average",
+                ),
                 health_alert_threshold=config_params.get("health_alert_threshold", 0.8),
             )
 
             # Validate health threshold range
-            assert 0.0 <= config.health_alert_threshold <= 1.0, \
-                f"Config {i}: Health threshold out of range: {config.health_alert_threshold}"
+            assert (
+                0.0 <= config.health_alert_threshold <= 1.0
+            ), f"Config {i}: Health threshold out of range: {config.health_alert_threshold}"
 
             # Test strategy compatibility
             if config.health_aggregation_strategy == "min" and config.health_alert_threshold > 0.9:
@@ -327,7 +366,9 @@ class TestDomainBookkeepingConfigCombinations:
 @pytest.mark.combinatorial
 @pytest.mark.parallel_safe
 class TestCriticalThreeWayInteractions:
-    """Tests for critical three-way parameter interactions that pairwise might miss."""
+    """
+    Tests for critical three-way parameter interactions that pairwise might miss.
+    """
 
     def test_event_batching_flush_timeout_interaction(self):
         """
@@ -337,11 +378,11 @@ class TestCriticalThreeWayInteractions:
         """
         critical_combinations = [
             # (batching_enabled, flush_interval_ms, propagation_timeout_ms)
-            (True, 5000, 1000),   # Long flush, short timeout - potential loss
-            (True, 100, 10000),   # Short flush, long timeout - good
+            (True, 5000, 1000),  # Long flush, short timeout - potential loss
+            (True, 100, 10000),  # Short flush, long timeout - good
             (False, 1000, 5000),  # No batching - flush interval irrelevant
-            (True, 1000, 1000),   # Equal flush and timeout - boundary condition
-            (True, 2000, 1500),   # Flush > timeout - definite loss scenario
+            (True, 1000, 1000),  # Equal flush and timeout - boundary condition
+            (True, 2000, 1500),  # Flush > timeout - definite loss scenario
         ]
 
         mock_integration_manager = MagicMock(spec=MLIntegrationManager)
@@ -354,7 +395,10 @@ class TestCriticalThreeWayInteractions:
             )
 
             # Critical interaction validation
-            if config.event_batching_enabled and config.event_flush_interval_ms > config.propagation_timeout_ms:
+            if (
+                config.event_batching_enabled
+                and config.event_flush_interval_ms > config.propagation_timeout_ms
+            ):
                 # This is a dangerous configuration that could cause message loss
                 pass  # Should be caught by validation logic
 
@@ -363,7 +407,7 @@ class TestCriticalThreeWayInteractions:
                 mock_integration_manager.configure_event_system(
                     batching=config.event_batching_enabled,
                     flush_interval=config.event_flush_interval_ms,
-                    timeout=config.propagation_timeout_ms
+                    timeout=config.propagation_timeout_ms,
                 )
 
                 # If this is a risky configuration, should log warnings
@@ -382,11 +426,11 @@ class TestCriticalThreeWayInteractions:
         """
         memory_intensive_combinations = [
             # (metrics_interval_ms, health_interval_ms, correlation_window_seconds)
-            (100, 1000, 3600),    # Fast metrics, long correlation window
-            (1000, 5000, 300),    # Standard configuration
-            (50, 500, 1800),      # Very fast metrics, medium correlation
-            (5000, 10000, 60),    # Slow metrics, short correlation
-            (100, 100, 7200),     # Fast everything, very long correlation
+            (100, 1000, 3600),  # Fast metrics, long correlation window
+            (1000, 5000, 300),  # Standard configuration
+            (50, 500, 1800),  # Very fast metrics, medium correlation
+            (5000, 10000, 60),  # Slow metrics, short correlation
+            (100, 100, 7200),  # Fast everything, very long correlation
         ]
 
         for metrics_ms, health_ms, correlation_sec in memory_intensive_combinations:
@@ -420,11 +464,11 @@ class TestCriticalThreeWayInteractions:
         """
         performance_combinations = [
             # (precision, watermark_freq_ms, end_to_end_tracing)
-            ("nanosecond", 50, True),    # Maximum overhead
-            ("microsecond", 100, False), # Moderate overhead
-            ("nanosecond", 1000, False), # High precision, low frequency
-            ("microsecond", 50, True),   # Medium precision, high frequency
-            ("nanosecond", 100, True),   # High precision, medium frequency
+            ("nanosecond", 50, True),  # Maximum overhead
+            ("microsecond", 100, False),  # Moderate overhead
+            ("nanosecond", 1000, False),  # High precision, low frequency
+            ("microsecond", 50, True),  # Medium precision, high frequency
+            ("nanosecond", 100, True),  # High precision, medium frequency
         ]
 
         for precision, freq_ms, tracing in performance_combinations:
@@ -454,7 +498,9 @@ class TestCriticalThreeWayInteractions:
 @pytest.mark.combinatorial
 @pytest.mark.integration
 class TestConfigurationValidationIntegration:
-    """Integration tests for configuration validation across the domain bookkeeping system."""
+    """
+    Integration tests for configuration validation across the domain bookkeeping system.
+    """
 
     def test_full_configuration_validation_sample(self):
         """
@@ -462,6 +508,7 @@ class TestConfigurationValidationIntegration:
 
         Uses pairwise reduction to test the most important configuration interactions
         without exhaustive enumeration.
+
         """
         # Representative configuration parameters for integration testing
         integration_parameters = {
@@ -475,8 +522,9 @@ class TestConfigurationValidationIntegration:
         pairwise_configs = generate_pairwise_combinations(integration_parameters)
 
         # Should cover most important interactions with minimal test count
-        assert len(pairwise_configs) <= 20, \
-            f"Integration test should be manageable: {len(pairwise_configs)} configs"
+        assert (
+            len(pairwise_configs) <= 20
+        ), f"Integration test should be manageable: {len(pairwise_configs)} configs"
 
         mock_integration_manager = MagicMock(spec=MLIntegrationManager)
 
@@ -518,10 +566,12 @@ class TestConfigurationValidationIntegration:
                 print(f"Config {i} invalid: {e}")
 
         # Expect most configurations to be valid
-        assert valid_configs >= len(pairwise_configs) * 0.7, \
-            f"Most configurations should be valid: {valid_configs}/{len(pairwise_configs)}"
+        assert (
+            valid_configs >= len(pairwise_configs) * 0.7
+        ), f"Most configurations should be valid: {valid_configs}/{len(pairwise_configs)}"
 
         # But some edge case configurations may be invalid
         if invalid_configs > 0:
-            assert invalid_configs <= len(pairwise_configs) * 0.3, \
-                f"Invalid configurations should be minority: {invalid_configs}/{len(pairwise_configs)}"
+            assert (
+                invalid_configs <= len(pairwise_configs) * 0.3
+            ), f"Invalid configurations should be minority: {invalid_configs}/{len(pairwise_configs)}"

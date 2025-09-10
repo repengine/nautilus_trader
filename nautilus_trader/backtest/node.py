@@ -160,7 +160,7 @@ class BacktestNode:
             if not engine.trader.is_disposed:
                 engine.dispose()
 
-    def _validate_configs(self, configs: list[BacktestRunConfig]) -> None:  # noqa: C901
+    def _validate_configs(self, configs: list[BacktestRunConfig]) -> None:
         venue_ids: list[Venue] = []
 
         for config in configs:
@@ -511,7 +511,7 @@ class BacktestNode:
 
         return engine.get_result()
 
-    def _run_streaming(  # noqa: C901
+    def _run_streaming(
         self,
         run_config_id: str,
         engine: BacktestEngine,

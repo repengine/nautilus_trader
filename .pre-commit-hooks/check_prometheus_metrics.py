@@ -125,7 +125,7 @@ class PrometheusMetricsValidator(ast.NodeVisitor):
 
         self.generic_visit(node)
 
-    def _check_metric_initialization(self, node):  # noqa: C901
+    def _check_metric_initialization(self, node):
         """
         Check if metrics are initialized in __init__.
 
@@ -308,7 +308,7 @@ def check_file(filepath: str) -> tuple[bool, list[str], list[str]]:
         return False, [f"Failed to parse {filepath}: {e}"], []
 
 
-def main():  # noqa: C901
+def main():
     """
     Run the pre-commit hook for Prometheus metrics validation.
 

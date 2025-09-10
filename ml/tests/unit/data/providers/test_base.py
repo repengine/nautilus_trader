@@ -2,6 +2,7 @@
 Unit tests for data provider base classes and protocols.
 
 Following TDD approach - tests written before implementation.
+
 """
 
 from __future__ import annotations
@@ -26,10 +27,14 @@ if TYPE_CHECKING:
 @pytest.mark.parallel_safe
 @pytest.mark.unit
 class TestProviderProtocols:
-    """Test that provider protocols are properly enforced."""
+    """
+    Test that provider protocols are properly enforced.
+    """
 
     def test_data_provider_protocol_enforcement(self) -> None:
-        """Test that DataProvider protocol is enforced."""
+        """
+        Test that DataProvider protocol is enforced.
+        """
         from ml.data.providers.base import DataProvider
 
         # This should fail at runtime if protocol not satisfied
@@ -60,7 +65,9 @@ class TestProviderProtocols:
         assert not hasattr(invalid, "load_data")
 
     def test_static_provider_protocol(self) -> None:
-        """Test StaticDataProvider protocol."""
+        """
+        Test StaticDataProvider protocol.
+        """
         from ml.data.providers.base import StaticDataProvider
 
         class ValidStaticProvider:
@@ -72,7 +79,9 @@ class TestProviderProtocols:
         assert len(result) == 1
 
     def test_cacheable_provider_protocol(self) -> None:
-        """Test CacheableProvider protocol."""
+        """
+        Test CacheableProvider protocol.
+        """
         from ml.data.providers.base import CacheableProvider
 
         class ValidCacheableProvider:
@@ -90,10 +99,14 @@ class TestProviderProtocols:
 
 
 class TestBaseDataProvider:
-    """Test base data provider implementation."""
+    """
+    Test base data provider implementation.
+    """
 
     def test_base_provider_initialization(self) -> None:
-        """Test that base provider initializes correctly."""
+        """
+        Test that base provider initializes correctly.
+        """
         from ml.data.providers.base import BaseDataProvider
 
         provider = BaseDataProvider()
@@ -101,7 +114,9 @@ class TestBaseDataProvider:
         assert provider.metrics is not None
 
     def test_base_provider_validation(self) -> None:
-        """Test data validation in base provider."""
+        """
+        Test data validation in base provider.
+        """
         from ml.data.providers.base import BaseDataProvider
 
         if not HAS_POLARS:
@@ -110,11 +125,13 @@ class TestBaseDataProvider:
         provider = BaseDataProvider()
 
         # Valid data with required columns
-        valid_df = pl.DataFrame({
-            "instrument_id": ["SPY", "QQQ"],
-            "timestamp": [100, 200],
-            "value": [1.0, 2.0],
-        })
+        valid_df = pl.DataFrame(
+            {
+                "instrument_id": ["SPY", "QQQ"],
+                "timestamp": [100, 200],
+                "value": [1.0, 2.0],
+            },
+        )
         assert provider.validate_data(valid_df)
 
         # Empty dataframe should fail
@@ -122,14 +139,18 @@ class TestBaseDataProvider:
         assert not provider.validate_data(empty_df)
 
         # Data with nulls in required columns should fail
-        null_df = pl.DataFrame({
-            "instrument_id": ["SPY", None],
-            "timestamp": [100, 200],
-        })
+        null_df = pl.DataFrame(
+            {
+                "instrument_id": ["SPY", None],
+                "timestamp": [100, 200],
+            },
+        )
         assert not provider.validate_data(null_df)
 
     def test_base_provider_error_handling(self) -> None:
-        """Test error handling in base provider."""
+        """
+        Test error handling in base provider.
+        """
         from ml.data.providers.base import BaseDataProvider
 
         provider = BaseDataProvider()
@@ -143,10 +164,14 @@ class TestBaseDataProvider:
 
 
 class TestCachedDataProvider:
-    """Test cached data provider implementation."""
+    """
+    Test cached data provider implementation.
+    """
 
     def test_cached_provider_initialization(self) -> None:
-        """Test cached provider initialization."""
+        """
+        Test cached provider initialization.
+        """
         from ml.data.providers.base import CachedDataProvider
 
         class DummyCachedProvider(CachedDataProvider):
@@ -163,7 +188,9 @@ class TestCachedDataProvider:
         assert provider._cache == {}
 
     def test_cache_key_generation(self) -> None:
-        """Test cache key generation."""
+        """
+        Test cache key generation.
+        """
         from ml.data.providers.base import CachedDataProvider
 
         class DummyCachedProvider(CachedDataProvider):
@@ -218,7 +245,9 @@ class TestCachedDataProvider:
         assert provider.cache_ttl == ttl_hours
 
     def test_cache_hit_and_miss(self) -> None:
-        """Test cache hit and miss scenarios."""
+        """
+        Test cache hit and miss scenarios.
+        """
         from ml.data.providers.base import CachedDataProvider
 
         if not HAS_POLARS:
@@ -258,10 +287,14 @@ class TestCachedDataProvider:
 
 
 class TestBaseStaticProvider:
-    """Test base static data provider."""
+    """
+    Test base static data provider.
+    """
 
     def test_static_provider_caching(self) -> None:
-        """Test that static providers cache by default."""
+        """
+        Test that static providers cache by default.
+        """
         from ml.data.providers.base import BaseStaticProvider
 
         if not HAS_POLARS:
@@ -274,10 +307,12 @@ class TestBaseStaticProvider:
 
             def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
                 self.load_count += 1
-                return pl.DataFrame({
-                    "instrument_id": instruments,
-                    "tick_size": [0.01] * len(instruments),
-                })
+                return pl.DataFrame(
+                    {
+                        "instrument_id": instruments,
+                        "tick_size": [0.01] * len(instruments),
+                    },
+                )
 
         provider = TestStaticProvider()
 
@@ -295,10 +330,14 @@ class TestBaseStaticProvider:
 
 
 class TestBaseTimeSeriesProvider:
-    """Test base time series provider."""
+    """
+    Test base time series provider.
+    """
 
     def test_timeseries_provider_validation(self) -> None:
-        """Test that time series providers validate timestamps."""
+        """
+        Test that time series providers validate timestamps.
+        """
         from ml.data.providers.base import BaseTimeSeriesProvider
 
         if not HAS_POLARS:
@@ -310,10 +349,12 @@ class TestBaseTimeSeriesProvider:
                 instruments: list[str],
                 timestamps: pl.Series,
             ) -> pl.DataFrame:
-                return pl.DataFrame({
-                    "timestamp": timestamps,
-                    "instrument_id": instruments[0],
-                })
+                return pl.DataFrame(
+                    {
+                        "timestamp": timestamps,
+                        "instrument_id": instruments[0],
+                    },
+                )
 
         provider = TestTimeSeriesProvider()
 

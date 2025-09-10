@@ -12,12 +12,23 @@ from ml.stores.base import ModelPrediction
 from ml.stores.model_store import ModelStore
 
 
-def test_model_store_emits_event_to_data_registry_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_store_emits_event_to_data_registry_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Shared DataRegistry (JSON backend)
-    reg = DataRegistry(tmp_path / "datasets", persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=tmp_path / "datasets"))
+    reg = DataRegistry(
+        tmp_path / "datasets",
+        persistence_config=PersistenceConfig(
+            backend=BackendType.JSON,
+            json_path=tmp_path / "datasets",
+        ),
+    )
 
     # ModelStore using Postgres for storage (or default); events go to JSON registry via injection
-    ms = ModelStore(persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=tmp_path / "json"))
+    ms = ModelStore(
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=tmp_path / "json"),
+    )
     ms.set_data_registry(reg)
     # Avoid DB dependency in unit test by stubbing out the actual write
     monkeypatch.setattr(ms, "_execute_write", lambda values: None)

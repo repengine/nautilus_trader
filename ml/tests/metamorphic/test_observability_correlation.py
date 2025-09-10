@@ -24,21 +24,27 @@ from nautilus_trader.core.uuid import UUID4
 @pytest.mark.metamorphic
 @pytest.mark.parallel_safe
 class TestMetricsAggregationMetamorphic:
-    """Metamorphic tests for metrics aggregation transformations."""
+    """
+    Metamorphic tests for metrics aggregation transformations.
+    """
 
     @given(
         base_metrics=st.lists(
-            st.fixed_dictionaries({
-                "metric_name": st.sampled_from(["ml_predictions_total", "ml_features_computed_total"]),
-                "domain": st.sampled_from(["models", "features"]),
-                "instrument_id": st.text(min_size=5, max_size=15),
-                "value": st.floats(min_value=0.0, max_value=1000.0),
-                "timestamp": st.integers(min_value=1000000, max_value=2**32)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "metric_name": st.sampled_from(
+                        ["ml_predictions_total", "ml_features_computed_total"],
+                    ),
+                    "domain": st.sampled_from(["models", "features"]),
+                    "instrument_id": st.text(min_size=5, max_size=15),
+                    "value": st.floats(min_value=0.0, max_value=1000.0),
+                    "timestamp": st.integers(min_value=1000000, max_value=2**32),
+                },
+            ),
             min_size=10,
-            max_size=50
+            max_size=50,
         ),
-        aggregation_window_factor=st.integers(min_value=2, max_value=10)
+        aggregation_window_factor=st.integers(min_value=2, max_value=10),
     )
     @settings(max_examples=30, deadline=5000)
     def test_temporal_aggregation_preserves_totals(self, base_metrics, aggregation_window_factor):
@@ -58,7 +64,12 @@ class TestMetricsAggregationMetamorphic:
                 # Determine which window this metric falls into
                 window_start = (metric["timestamp"] // window_size) * window_size
 
-                key = (metric["metric_name"], metric["domain"], metric["instrument_id"], window_start)
+                key = (
+                    metric["metric_name"],
+                    metric["domain"],
+                    metric["instrument_id"],
+                    window_start,
+                )
                 if key not in aggregated:
                     aggregated[key] = {
                         "metric_name": metric["metric_name"],
@@ -66,7 +77,7 @@ class TestMetricsAggregationMetamorphic:
                         "instrument_id": metric["instrument_id"],
                         "window_start": window_start,
                         "total_value": 0.0,
-                        "sample_count": 0
+                        "sample_count": 0,
                     }
                 aggregated[key]["total_value"] += metric["value"]
                 aggregated[key]["sample_count"] += 1
@@ -91,29 +102,37 @@ class TestMetricsAggregationMetamorphic:
         # Metamorphic relation: Total values preserved across aggregation windows
         for key in original_totals:
             if key in extended_totals:
-                assert abs(original_totals[key] - extended_totals[key]) < 1e-10, \
-                    f"Total value for {key} should be preserved across aggregation windows"
+                assert (
+                    abs(original_totals[key] - extended_totals[key]) < 1e-10
+                ), f"Total value for {key} should be preserved across aggregation windows"
 
         # Metamorphic relation: Extended windows should generally have fewer buckets
         # (unless all metrics fall in different extended windows)
         if len(base_metrics) > aggregation_window_factor:
-            assert len(extended_aggregation) <= len(original_aggregation), \
-                "Extended aggregation windows should generally create fewer time buckets"
+            assert len(extended_aggregation) <= len(
+                original_aggregation,
+            ), "Extended aggregation windows should generally create fewer time buckets"
 
     @given(
         health_components=st.lists(
-            st.fixed_dictionaries({
-                "component_id": st.sampled_from(["data_store", "feature_store", "model_store"]),
-                "base_health": st.floats(min_value=0.1, max_value=1.0),
-                "subsystem_count": st.integers(min_value=1, max_value=8),
-            }),
+            st.fixed_dictionaries(
+                {
+                    "component_id": st.sampled_from(["data_store", "feature_store", "model_store"]),
+                    "base_health": st.floats(min_value=0.1, max_value=1.0),
+                    "subsystem_count": st.integers(min_value=1, max_value=8),
+                },
+            ),
             min_size=3,
-            max_size=10
+            max_size=10,
         ),
-        health_adjustment_factor=st.floats(min_value=0.8, max_value=1.2)
+        health_adjustment_factor=st.floats(min_value=0.8, max_value=1.2),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_health_score_scaling_preserves_ordering(self, health_components, health_adjustment_factor):
+    def test_health_score_scaling_preserves_ordering(
+        self,
+        health_components,
+        health_adjustment_factor,
+    ):
         """
         Metamorphic relation: Uniformly scaling health scores should preserve
         relative ordering between components while maintaining bounds [0,1].
@@ -138,24 +157,27 @@ class TestMetricsAggregationMetamorphic:
             # Calculate component health as average of subsystems
             component_health = sum(subsystem_scores) / len(subsystem_scores)
 
-            original_health_data.append({
-                "component_id": component["component_id"],
-                "health_score": component_health,
-                "subsystem_scores": subsystem_scores
-            })
+            original_health_data.append(
+                {
+                    "component_id": component["component_id"],
+                    "health_score": component_health,
+                    "subsystem_scores": subsystem_scores,
+                },
+            )
 
             # Create scaled version (clipped to [0,1] bounds)
             scaled_health = min(1.0, max(0.0, component_health * health_adjustment_factor))
             scaled_subsystem_scores = [
-                min(1.0, max(0.0, score * health_adjustment_factor))
-                for score in subsystem_scores
+                min(1.0, max(0.0, score * health_adjustment_factor)) for score in subsystem_scores
             ]
 
-            scaled_health_data.append({
-                "component_id": component["component_id"],
-                "health_score": scaled_health,
-                "subsystem_scores": scaled_subsystem_scores
-            })
+            scaled_health_data.append(
+                {
+                    "component_id": component["component_id"],
+                    "health_score": scaled_health,
+                    "subsystem_scores": scaled_subsystem_scores,
+                },
+            )
 
         # Extract health scores for comparison
         original_scores = [item["health_score"] for item in original_health_data]
@@ -167,33 +189,44 @@ class TestMetricsAggregationMetamorphic:
             scaled_order = sorted(range(len(scaled_scores)), key=lambda i: scaled_scores[i])
 
             # Check if scaling factor keeps most values within bounds
-            clipped_count = sum(1 for score in [s * health_adjustment_factor for s in original_scores]
-                              if score < 0.0 or score > 1.0)
+            clipped_count = sum(
+                1
+                for score in [s * health_adjustment_factor for s in original_scores]
+                if score < 0.0 or score > 1.0
+            )
 
             if clipped_count <= len(original_scores) * 0.3:  # Less than 30% clipped
-                assert original_order == scaled_order, \
-                    "Health score scaling should preserve component ordering when not heavily clipped"
+                assert (
+                    original_order == scaled_order
+                ), "Health score scaling should preserve component ordering when not heavily clipped"
 
         # Metamorphic relation: All scaled scores must remain in valid range
         for score in scaled_scores:
-            assert 0.0 <= score <= 1.0, \
-                f"Scaled health score {score} must remain in valid range [0,1]"
+            assert (
+                0.0 <= score <= 1.0
+            ), f"Scaled health score {score} must remain in valid range [0,1]"
 
     @given(
         metric_labels=st.lists(
-            st.fixed_dictionaries({
-                "instrument_id": st.text(min_size=5, max_size=15),
-                "model_id": st.text(min_size=3, max_size=10),
-                "domain": st.sampled_from(["models", "features", "strategies"]),
-                "metric_value": st.floats(min_value=0.0, max_value=1000.0)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "instrument_id": st.text(min_size=5, max_size=15),
+                    "model_id": st.text(min_size=3, max_size=10),
+                    "domain": st.sampled_from(["models", "features", "strategies"]),
+                    "metric_value": st.floats(min_value=0.0, max_value=1000.0),
+                },
+            ),
             min_size=10,
-            max_size=50
+            max_size=50,
         ),
-        label_cardinality_change=st.sampled_from(["add_dimension", "remove_dimension"])
+        label_cardinality_change=st.sampled_from(["add_dimension", "remove_dimension"]),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_label_cardinality_affects_aggregation_granularity(self, metric_labels, label_cardinality_change):
+    def test_label_cardinality_affects_aggregation_granularity(
+        self,
+        metric_labels,
+        label_cardinality_change,
+    ):
         """
         Metamorphic relation: Adding label dimensions should increase aggregation
         granularity, removing dimensions should decrease granularity.
@@ -215,7 +248,12 @@ class TestMetricsAggregationMetamorphic:
             for metric in metric_labels:
                 # Add timestamp bucket as new dimension
                 timestamp_bucket = hash(metric["instrument_id"]) % 4  # 4 time buckets
-                key = (metric["instrument_id"], metric["model_id"], metric["domain"], timestamp_bucket)
+                key = (
+                    metric["instrument_id"],
+                    metric["model_id"],
+                    metric["domain"],
+                    timestamp_bucket,
+                )
                 if key not in modified_aggregation:
                     modified_aggregation[key] = 0.0
                 modified_aggregation[key] += metric["metric_value"]
@@ -233,39 +271,50 @@ class TestMetricsAggregationMetamorphic:
         modified_total = sum(modified_aggregation.values())
 
         # Metamorphic relation: Total values preserved regardless of aggregation granularity
-        assert abs(original_total - modified_total) < 1e-10, \
-            "Total metric values should be preserved across aggregation granularity changes"
+        assert (
+            abs(original_total - modified_total) < 1e-10
+        ), "Total metric values should be preserved across aggregation granularity changes"
 
         # Metamorphic relation: Granularity changes affect bucket count predictably
         if label_cardinality_change == "add_dimension":
-            assert len(modified_aggregation) >= len(original_aggregation), \
-                "Adding dimensions should increase or maintain aggregation bucket count"
+            assert len(modified_aggregation) >= len(
+                original_aggregation,
+            ), "Adding dimensions should increase or maintain aggregation bucket count"
         else:  # remove_dimension
-            assert len(modified_aggregation) <= len(original_aggregation), \
-                "Removing dimensions should decrease or maintain aggregation bucket count"
+            assert len(modified_aggregation) <= len(
+                original_aggregation,
+            ), "Removing dimensions should decrease or maintain aggregation bucket count"
 
 
 @pytest.mark.metamorphic
 @pytest.mark.parallel_safe
 class TestEventCorrelationMetamorphic:
-    """Metamorphic tests for event correlation transformations."""
+    """
+    Metamorphic tests for event correlation transformations.
+    """
 
     @given(
         event_lineages=st.lists(
-            st.fixed_dictionaries({
-                "lineage_id": st.uuids().map(str),
-                "event_count": st.integers(min_value=3, max_value=15),
-                "branching_factor": st.integers(min_value=1, max_value=3),
-                "correlation_id": st.uuids().map(str),
-                "root_timestamp": st.integers(min_value=1000000, max_value=2**32)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "lineage_id": st.uuids().map(str),
+                    "event_count": st.integers(min_value=3, max_value=15),
+                    "branching_factor": st.integers(min_value=1, max_value=3),
+                    "correlation_id": st.uuids().map(str),
+                    "root_timestamp": st.integers(min_value=1000000, max_value=2**32),
+                },
+            ),
             min_size=5,
-            max_size=20
+            max_size=20,
         ),
-        timestamp_compression_factor=st.floats(min_value=0.1, max_value=0.9)
+        timestamp_compression_factor=st.floats(min_value=0.1, max_value=0.9),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_temporal_compression_preserves_causality(self, event_lineages, timestamp_compression_factor):
+    def test_temporal_compression_preserves_causality(
+        self,
+        event_lineages,
+        timestamp_compression_factor,
+    ):
         """
         Metamorphic relation: Compressing event timestamps should preserve
         causal relationships while reducing total lineage duration.
@@ -283,7 +332,7 @@ class TestEventCorrelationMetamorphic:
                     "correlation_id": lineage_spec["correlation_id"],
                     "timestamp": root_timestamp + i * 1000000,  # 1ms spacing
                     "sequence": i,
-                    "lineage_depth": min(i, 10)  # Cap depth
+                    "lineage_depth": min(i, 10),  # Cap depth
                 }
                 events.append(event)
             return events
@@ -302,7 +351,9 @@ class TestEventCorrelationMetamorphic:
 
             for i, event in enumerate(original_events):
                 # Compress time intervals between events
-                compressed_timestamp = root_timestamp + int(i * 1000000 * timestamp_compression_factor)
+                compressed_timestamp = root_timestamp + int(
+                    i * 1000000 * timestamp_compression_factor,
+                )
                 compressed_event = event.copy()
                 compressed_event["timestamp"] = compressed_timestamp
                 compressed_events.append(compressed_event)
@@ -320,17 +371,20 @@ class TestEventCorrelationMetamorphic:
                 original_timestamps = [e["timestamp"] for e in original_events]
                 compressed_timestamps = [e["timestamp"] for e in compressed_events]
 
-                assert original_timestamps == sorted(original_timestamps), \
-                    "Original events should be chronologically ordered"
-                assert compressed_timestamps == sorted(compressed_timestamps), \
-                    "Compressed events should maintain chronological ordering"
+                assert original_timestamps == sorted(
+                    original_timestamps,
+                ), "Original events should be chronologically ordered"
+                assert compressed_timestamps == sorted(
+                    compressed_timestamps,
+                ), "Compressed events should maintain chronological ordering"
 
                 # Metamorphic relation: Sequence order preserved
                 original_sequences = [e["sequence"] for e in original_events]
                 compressed_sequences = [e["sequence"] for e in compressed_events]
 
-                assert original_sequences == compressed_sequences, \
-                    "Event sequence should be preserved under timestamp compression"
+                assert (
+                    original_sequences == compressed_sequences
+                ), "Event sequence should be preserved under timestamp compression"
 
                 # Metamorphic relation: Total duration reduced by compression factor
                 original_duration = original_timestamps[-1] - original_timestamps[0]
@@ -341,24 +395,31 @@ class TestEventCorrelationMetamorphic:
                     expected_compression = timestamp_compression_factor
 
                     # Allow some tolerance for discrete timestamp rounding
-                    assert abs(actual_compression - expected_compression) < 0.1, \
-                        f"Temporal compression should achieve expected ratio: {expected_compression}, got {actual_compression}"
+                    assert (
+                        abs(actual_compression - expected_compression) < 0.1
+                    ), f"Temporal compression should achieve expected ratio: {expected_compression}, got {actual_compression}"
 
     @given(
         correlation_networks=st.lists(
-            st.fixed_dictionaries({
-                "network_id": st.uuids().map(str),
-                "node_count": st.integers(min_value=4, max_value=20),
-                "edge_density": st.floats(min_value=0.2, max_value=0.8),
-                "correlation_strength": st.floats(min_value=0.1, max_value=1.0)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "network_id": st.uuids().map(str),
+                    "node_count": st.integers(min_value=4, max_value=20),
+                    "edge_density": st.floats(min_value=0.2, max_value=0.8),
+                    "correlation_strength": st.floats(min_value=0.1, max_value=1.0),
+                },
+            ),
             min_size=3,
-            max_size=10
+            max_size=10,
         ),
-        network_pruning_threshold=st.floats(min_value=0.3, max_value=0.7)
+        network_pruning_threshold=st.floats(min_value=0.3, max_value=0.7),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_correlation_network_pruning_preserves_connectivity(self, correlation_networks, network_pruning_threshold):
+    def test_correlation_network_pruning_preserves_connectivity(
+        self,
+        correlation_networks,
+        network_pruning_threshold,
+    ):
         """
         Metamorphic relation: Pruning weak correlations should reduce network
         complexity while preserving strong correlation pathways.
@@ -378,6 +439,7 @@ class TestEventCorrelationMetamorphic:
             target_edge_count = int(total_possible_edges * edge_density)
 
             import random
+
             random.seed(hash(network_spec["network_id"]) % 2**32)  # Deterministic for test
 
             for i in range(min(target_edge_count, total_possible_edges)):
@@ -395,7 +457,8 @@ class TestEventCorrelationMetamorphic:
 
             # Prune edges below threshold
             pruned_edges = [
-                (n1, n2, strength) for n1, n2, strength in original_edges
+                (n1, n2, strength)
+                for n1, n2, strength in original_edges
                 if strength >= network_pruning_threshold
             ]
 
@@ -429,37 +492,47 @@ class TestEventCorrelationMetamorphic:
 
             # Metamorphic relations
             # 1. Pruning should reduce total edge count
-            assert len(pruned_edges) <= len(original_edges), \
-                "Pruning should reduce or maintain edge count"
+            assert len(pruned_edges) <= len(
+                original_edges,
+            ), "Pruning should reduce or maintain edge count"
 
             # 2. Strong correlations should be preserved
             strong_original_edges = [e for e in original_edges if e[2] >= network_pruning_threshold]
-            assert len(pruned_edges) == len(strong_original_edges), \
-                "Pruning should preserve all edges above threshold"
+            assert len(pruned_edges) == len(
+                strong_original_edges,
+            ), "Pruning should preserve all edges above threshold"
 
             # 3. Network connectivity should not degrade dramatically
             if len(original_edges) > 0:
                 connectivity_ratio = pruned_components / max(original_components, 1)
                 # Allow a tolerant bound; small graphs can fragment more on random pruning.
                 # Accept up to max(10, node_count) multiplier to reduce brittleness.
-                assert connectivity_ratio <= max(10.0, float(len(nodes))), \
-                    "Pruning should not dramatically fragment the correlation network"
+                assert connectivity_ratio <= max(
+                    10.0,
+                    float(len(nodes)),
+                ), "Pruning should not dramatically fragment the correlation network"
 
     @given(
         lineage_trees=st.lists(
-            st.fixed_dictionaries({
-                "tree_id": st.uuids().map(str),
-                "depth": st.integers(min_value=2, max_value=6),
-                "width": st.integers(min_value=2, max_value=5),  # Children per node
-                "root_correlation_id": st.uuids().map(str)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "tree_id": st.uuids().map(str),
+                    "depth": st.integers(min_value=2, max_value=6),
+                    "width": st.integers(min_value=2, max_value=5),  # Children per node
+                    "root_correlation_id": st.uuids().map(str),
+                },
+            ),
             min_size=3,
-            max_size=8
+            max_size=8,
         ),
-        tree_transformation=st.sampled_from(["invert", "mirror", "rotate"])
+        tree_transformation=st.sampled_from(["invert", "mirror", "rotate"]),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_lineage_tree_transformations_preserve_structure(self, lineage_trees, tree_transformation):
+    def test_lineage_tree_transformations_preserve_structure(
+        self,
+        lineage_trees,
+        tree_transformation,
+    ):
         """
         Metamorphic relation: Tree transformations should preserve structural
         properties like node count, depth relationships, and connectivity.
@@ -482,7 +555,7 @@ class TestEventCorrelationMetamorphic:
                         "level": level,
                         "parent": None,
                         "children": [],
-                        "correlation_id": tree_spec["root_correlation_id"]
+                        "correlation_id": tree_spec["root_correlation_id"],
                     }
                     current_level_nodes = [root_id]
                     node_counter += 1
@@ -490,13 +563,15 @@ class TestEventCorrelationMetamorphic:
                     # Create children for previous level
                     next_level_nodes = []
                     for parent_id in current_level_nodes:
-                        for i in range(min(width, depth - level + 1)):  # Fewer children at deeper levels
+                        for i in range(
+                            min(width, depth - level + 1),
+                        ):  # Fewer children at deeper levels
                             child_id = f"node_{node_counter}"
                             tree_nodes[child_id] = {
                                 "level": level,
                                 "parent": parent_id,
                                 "children": [],
-                                "correlation_id": tree_spec["root_correlation_id"]
+                                "correlation_id": tree_spec["root_correlation_id"],
                             }
                             tree_nodes[parent_id]["children"].append(child_id)
                             next_level_nodes.append(child_id)
@@ -521,7 +596,7 @@ class TestEventCorrelationMetamorphic:
                         "level": tree_spec["depth"] - 1 - node_data["level"],
                         "parent": None,  # Will be set in second pass
                         "children": [],
-                        "correlation_id": node_data["correlation_id"]
+                        "correlation_id": node_data["correlation_id"],
                     }
 
                 # Set new parent-child relationships
@@ -538,7 +613,7 @@ class TestEventCorrelationMetamorphic:
                         "level": node_data["level"],
                         "parent": node_data["parent"],
                         "children": list(reversed(node_data["children"])),
-                        "correlation_id": node_data["correlation_id"]
+                        "correlation_id": node_data["correlation_id"],
                     }
 
             else:  # rotate
@@ -555,23 +630,28 @@ class TestEventCorrelationMetamorphic:
                         "level": node_data["level"],
                         "parent": node_data["parent"],
                         "children": rotated_children,
-                        "correlation_id": node_data["correlation_id"]
+                        "correlation_id": node_data["correlation_id"],
                     }
 
             # Verify structural properties preserved
             # 1. Same number of nodes
-            assert len(transformed_tree) == len(original_tree), \
-                "Tree transformation should preserve node count"
+            assert len(transformed_tree) == len(
+                original_tree,
+            ), "Tree transformation should preserve node count"
 
             # 2. All correlation IDs preserved
             original_correlations = set(node["correlation_id"] for node in original_tree.values())
-            transformed_correlations = set(node["correlation_id"] for node in transformed_tree.values())
-            assert original_correlations == transformed_correlations, \
-                "Tree transformation should preserve correlation IDs"
+            transformed_correlations = set(
+                node["correlation_id"] for node in transformed_tree.values()
+            )
+            assert (
+                original_correlations == transformed_correlations
+            ), "Tree transformation should preserve correlation IDs"
 
             # 3. Connectivity preserved (every non-root node has exactly one parent)
             non_root_original = [n for n in original_tree.values() if n["parent"] is not None]
             non_root_transformed = [n for n in transformed_tree.values() if n["parent"] is not None]
 
-            assert len(non_root_original) == len(non_root_transformed), \
-                "Tree transformation should preserve parent-child connectivity count"
+            assert len(non_root_original) == len(
+                non_root_transformed,
+            ), "Tree transformation should preserve parent-child connectivity count"

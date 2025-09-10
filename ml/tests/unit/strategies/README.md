@@ -10,6 +10,7 @@ This directory contains unit tests for ML trading strategies.
 ## What Belongs Here
 
 Unit tests for:
+
 - Strategy initialization and configuration
 - Strategy lifecycle methods
 - Order placement logic based on ML signals

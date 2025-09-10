@@ -214,61 +214,7 @@ class TFTDatasetBuilder:
                 dataset = self._add_static_features_polars(dataset)
                 dataset = self._add_known_future_features_polars(dataset)
 
-                # Optionally join microstructure features (per-minute)
-                if self.include_micro:
-                    try:
-                        from pathlib import Path as _Path
-
-                        from ml.features.micro_aggregate import MicrostructureAggregator
-
-                        base_dir = self.micro_base_dir or "data/tier1"
-                        agg = MicrostructureAggregator(_Path(base_dir))
-                        sym = instrument_id.split(".")[0]
-                        micro = agg.compute_for_symbol(sym)
-                        if not micro.is_empty():
-                            if micro["timestamp"].dtype != pl.Datetime:
-                                micro = micro.with_columns(
-                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
-                                )
-                            dataset = dataset.join(micro, on="timestamp", how="left")
-                    except Exception as exc:  # pragma: no cover - best-effort path
-                        logger.debug(f"Microstructure join failed for {instrument_id}: {exc}")
-
-                # Optionally join L2 features (per-minute)
-                if self.include_l2:
-                    try:
-                        from pathlib import Path as _Path
-
-                        from ml.features.l2_aggregate import L2Aggregator
-
-                        base_dir = self.l2_base_dir or "data/tier1"
-                        agg_l2 = L2Aggregator(_Path(base_dir))
-                        sym = instrument_id.split(".")[0]
-                        l2 = agg_l2.compute_for_symbol(sym)
-                        if not l2.is_empty():
-                            if l2["timestamp"].dtype != pl.Datetime:
-                                l2 = l2.with_columns(
-                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
-                                )
-                            dataset = dataset.join(l2, on="timestamp", how="left")
-                    except Exception as exc:  # pragma: no cover
-                        logger.debug(f"L2 feature join failed for {instrument_id}: {exc}")
-
-                # Optionally add event-based known-future features
-                if self.include_events:
-                    try:
-                        from ml.data.providers.events import EventScheduleProvider
-                        from ml.data.sources.events import MockEventSource
-
-                        provider = EventScheduleProvider(MockEventSource())
-                        ts_series = dataset.select(pl.col("timestamp").cast(pl.Int64))["timestamp"]
-                        ev = provider.compute_features(ts_series, [instrument_id])
-                        if not ev.is_empty():
-                            ev = ev.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
-                            dataset = dataset.join(ev, on="timestamp", how="left")
-                    except Exception as exc:  # pragma: no cover - best-effort path
-                        logger.debug(f"Event feature join failed for {instrument_id}: {exc}")
-
+                # Append dataset for this instrument
                 all_data.append(dataset)
 
             except Exception as e:
@@ -478,6 +424,8 @@ class TFTDatasetBuilder:
             min_return_threshold=min_return_threshold,
             lookback_periods=lookback_periods,
             use_polars=use_polars,
+            start=start,
+            end=end,
         )
 
     def _build_training_dataset_direct(
@@ -486,6 +434,8 @@ class TFTDatasetBuilder:
         min_return_threshold: float = 0.001,
         lookback_periods: int = 30,
         use_polars: bool = True,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> pd.DataFrame | pl.DataFrame:
         """
         Build training dataset using direct feature computation.
@@ -533,7 +483,7 @@ class TFTDatasetBuilder:
                 for venue in candidate_venues:
                     instrument_id = f"{symbol}.{venue}"
                     try:
-                        df = bars_to_dataframe(self.catalog, [instrument_id], start=None, end=None)
+                        df = bars_to_dataframe(self.catalog, [instrument_id], start=start, end=end)
                         if not df.is_empty():
                             break
                     except Exception as e_inner:  # pragma: no cover - catalog differences
@@ -562,10 +512,10 @@ class TFTDatasetBuilder:
                                 df = df.rename({"ts_event": "timestamp"})
                             if "timestamp" in df.columns and df["timestamp"].dtype != pl.Datetime:
                                 df = df.with_columns(
-                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
+                                    pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
                                 )
                             df = df.sort(
-                                "timestamp" if "timestamp" in df.columns else df.columns[0]
+                                "timestamp" if "timestamp" in df.columns else df.columns[0],
                             )
                         else:
                             # No files found; log and skip
@@ -601,8 +551,23 @@ class TFTDatasetBuilder:
                         horizon_minutes,
                         min_return_threshold,
                         lookback_periods,
+                        start=start,
+                        end=end,
                     )
                     if processed is not None:
+                        # Optional date filtering
+                        if (
+                            start is not None or end is not None
+                        ) and "timestamp" in processed.columns:
+                            ts = pl.col("timestamp").cast(pl.Int64)
+                            cond = pl.lit(True)
+                            if start is not None:
+                                start_ns = int(start.timestamp() * 1_000_000_000)
+                                cond = cond & (ts >= start_ns)
+                            if end is not None:
+                                end_ns = int(end.timestamp() * 1_000_000_000)
+                                cond = cond & (ts < end_ns)
+                            processed = processed.filter(cond)
                         assert isinstance(processed, pl.DataFrame)
                         all_data_pl.append(processed)
             else:
@@ -622,6 +587,19 @@ class TFTDatasetBuilder:
                     lookback_periods,
                 )
                 if processed is not None:
+                    # Optional date filtering
+                    if (start is not None or end is not None) and "timestamp" in processed.columns:
+                        try:
+                            import pandas as _pd
+
+                            s_ts = _pd.Timestamp(start, tz="UTC") if start is not None else None
+                            e_ts = _pd.Timestamp(end, tz="UTC") if end is not None else None
+                            if s_ts is not None:
+                                processed = processed[processed["timestamp"] >= s_ts]
+                            if e_ts is not None:
+                                processed = processed[processed["timestamp"] < e_ts]
+                        except Exception:
+                            pass
                     assert isinstance(processed, pd.DataFrame)
                     all_data_pd.append(processed)
 
@@ -649,6 +627,8 @@ class TFTDatasetBuilder:
         horizon_minutes: int,
         threshold: float,
         lookback_periods: int,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> pl.DataFrame | None:
         """
         Process single symbol with Polars.
@@ -704,7 +684,7 @@ class TFTDatasetBuilder:
                 if not micro.is_empty():
                     if micro["timestamp"].dtype != pl.Datetime:
                         micro = micro.with_columns(
-                            pl.col("timestamp").cast(pl.Datetime("ns", "UTC"))
+                            pl.col("timestamp").cast(pl.Datetime("ns", "UTC")),
                         )
                     dataset = dataset.join(micro, on="timestamp", how="left")
             except Exception as exc:  # pragma: no cover
@@ -719,7 +699,7 @@ class TFTDatasetBuilder:
 
                 base_dir = self.l2_base_dir or "data/tier1"
                 agg_l2 = L2Aggregator(_Path(base_dir))
-                l2 = agg_l2.compute_for_symbol(symbol)
+                l2 = agg_l2.compute_for_symbol(symbol, start=start, end=end)
                 if not l2.is_empty():
                     if l2["timestamp"].dtype != pl.Datetime:
                         l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
@@ -839,7 +819,8 @@ class TFTDatasetBuilder:
                 provider = EventScheduleProvider(MockEventSource())
                 if "timestamp" in dataset.columns:
                     ts_series = pl.Series(
-                        "timestamp", dataset["timestamp"].astype("datetime64[ns]")
+                        "timestamp",
+                        dataset["timestamp"].astype("datetime64[ns]"),
                     ).cast(pl.Int64)
                     ev_pl = provider.compute_features(ts_series, [symbol])
                     ev_pl = ev_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))

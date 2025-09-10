@@ -16,7 +16,10 @@ from ml.registry.persistence import PersistenceConfig
 
 def test_get_model_returns_info(tmp_path: Path) -> None:
     reg_dir = tmp_path / "registry"
-    reg = ModelRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    reg = ModelRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     model_path = reg_dir / "m.onnx"
     model_path.write_bytes(b"onnx")
@@ -37,4 +40,3 @@ def test_get_model_returns_info(tmp_path: Path) -> None:
     assert info is not None
     assert info.manifest.model_id == mid
     assert info.model_path.name.endswith(".onnx")
-

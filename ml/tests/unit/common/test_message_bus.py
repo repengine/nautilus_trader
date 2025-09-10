@@ -25,4 +25,3 @@ class TestMessageBus:
         pub: MessagePublisherProtocol = DummyPublisher()
         ok = pub.publish("ml.data.created.EURUSD.SIM", {"x": 1})
         assert ok is True
-

@@ -1,9 +1,10 @@
 """
 Smoke test for MLSignalActor hot path using stubs (no Nautilus runtime).
 
-We bypass heavy initialization by constructing the object without calling
-the base initializer and invoking the internal signal generation helper
-directly with a stubbed bar and strategy.
+We bypass heavy initialization by constructing the object without calling the base
+initializer and invoking the internal signal generation helper directly with a stubbed
+bar and strategy.
+
 """
 
 from __future__ import annotations
@@ -37,7 +38,10 @@ def test_ml_signal_actor_try_generate_signal_smoke() -> None:
     actor._last_signal_bar = -999
     actor._bars_processed = 0
     actor._model_id = "m1"
-    actor._signal_config = SimpleNamespace(min_signal_separation_bars=0, signal_strategy="threshold")
+    actor._signal_config = SimpleNamespace(
+        min_signal_separation_bars=0,
+        signal_strategy="threshold",
+    )
     actor._config = SimpleNamespace(log_predictions=False)
     actor.id = SimpleNamespace(value="actor-1")
     actor._prediction_history = []

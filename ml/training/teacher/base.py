@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class TeacherConfig:
     architecture: str = "TFT"
     version: str = "0.1.0"

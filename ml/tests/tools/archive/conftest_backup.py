@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
-"""Common pytest fixtures and configuration for ML module tests."""
+"""
+Common pytest fixtures and configuration for ML module tests.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from pathlib import Path
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
+
     env_file = Path(__file__).parent / ".env"
     if env_file.exists():
         load_dotenv(env_file)
@@ -59,7 +62,9 @@ DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST
 
 
 def pytest_configure(config):
-    """Configure pytest for optimal parallel execution."""
+    """
+    Configure pytest for optimal parallel execution.
+    """
     try:
         import multiprocessing
 
@@ -76,7 +81,9 @@ def pytest_configure(config):
 
 
 def pytest_sessionstart(session):
-    """Start PostgreSQL before any tests run."""
+    """
+    Start PostgreSQL before any tests run.
+    """
     # Check if PostgreSQL is already running
     try:
         conn = psycopg2.connect(
@@ -85,7 +92,7 @@ def pytest_sessionstart(session):
             user=POSTGRES_USER,
             password=POSTGRES_PASSWORD,
             database="postgres",
-            connect_timeout=3
+            connect_timeout=3,
         )
         conn.close()
         print("PostgreSQL is already running")
@@ -97,7 +104,7 @@ def pytest_sessionstart(session):
             ["docker-compose", "up", "-d", "postgres"],
             cwd=ml_dir,
             capture_output=True,
-            text=True
+            text=True,
         )
         if result.returncode != 0:
             pytest.exit(f"Failed to start PostgreSQL: {result.stderr}")
@@ -113,7 +120,7 @@ def pytest_sessionstart(session):
                     user=POSTGRES_USER,
                     password=POSTGRES_PASSWORD,
                     database="postgres",
-                    connect_timeout=3
+                    connect_timeout=3,
                 )
                 conn.close()
                 print("PostgreSQL is ready")
@@ -130,7 +137,7 @@ def pytest_sessionstart(session):
             port=POSTGRES_PORT,
             user=POSTGRES_USER,
             password=POSTGRES_PASSWORD,
-            database="postgres"
+            database="postgres",
         )
         conn.set_isolation_level(0)  # Set autocommit mode
         cursor = conn.cursor()
@@ -138,7 +145,7 @@ def pytest_sessionstart(session):
         # Check if test database exists
         cursor.execute(
             "SELECT 1 FROM pg_database WHERE datname = %s",
-            (POSTGRES_DB,)
+            (POSTGRES_DB,),
         )
         if not cursor.fetchone():
             print(f"Creating test database '{POSTGRES_DB}'...")
@@ -149,6 +156,7 @@ def pytest_sessionstart(session):
 
         # Apply migrations to test database
         from ml.core.db_engine import EngineManager
+
         engine = EngineManager.get_engine(
             DATABASE_URL,
             pool_size=2,  # Conservative for tests
@@ -162,11 +170,13 @@ def pytest_sessionstart(session):
 
         with engine.connect() as conn:
             # Check if core tables exist
-            result = conn.execute(text(
-                "SELECT COUNT(*) FROM information_schema.tables "
-                "WHERE table_schema = 'public' "
-                "AND table_name IN ('ml_feature_values', 'ml_model_predictions', 'ml_strategy_signals')"
-            ))
+            result = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_schema = 'public' "
+                    "AND table_name IN ('ml_feature_values', 'ml_model_predictions', 'ml_strategy_signals')",
+                ),
+            )
             table_count = result.scalar()
             if table_count >= 3:
                 print(f"Core tables exist ({table_count} found), skipping migrations...")
@@ -174,7 +184,7 @@ def pytest_sessionstart(session):
 
             ml_dir = Path(__file__).parent.parent
             migration_files = sorted(
-                (ml_dir / "stores" / "migrations").glob("*.sql")
+                (ml_dir / "stores" / "migrations").glob("*.sql"),
             )
 
             for migration_file in migration_files:
@@ -261,7 +271,7 @@ def pytest_sessionstart(session):
                 start_year=2023,
                 start_month=1,
                 end_year=2026,
-                end_month=12
+                end_month=12,
             )
             print(f"Created {created} test partitions")
 
@@ -282,7 +292,9 @@ def pytest_sessionstart(session):
 
 # Auto-marking configuration based on directory structure
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-apply markers based on test file location."""
+    """
+    Auto-apply markers based on test file location.
+    """
     for item in items:
         # Get the relative path from ml/tests/
         test_path = Path(item.fspath)
@@ -324,7 +336,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
         # Component markers based on subdirectory
         if len(relative_parts) > 1:
-            component = relative_parts[1] if test_type in ["unit", "integration"] else relative_parts[0]
+            component = (
+                relative_parts[1] if test_type in ["unit", "integration"] else relative_parts[0]
+            )
 
             component_markers = {
                 "stores": pytest.mark.stores,
@@ -374,57 +388,75 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 # Common Fixtures
 @pytest.fixture
 def test_data_dir() -> Path:
-    """Provide path to test data directory."""
+    """
+    Provide path to test data directory.
+    """
     return get_test_data_dir()
 
 
 @pytest.fixture
 def model_registry_dir() -> Path:
-    """Provide path to test model registry."""
+    """
+    Provide path to test model registry.
+    """
     return get_model_registry_dir()
 
 
 @pytest.fixture
 def model_registry_rollout_dir() -> Path:
-    """Provide path to test model registry for rollout testing."""
+    """
+    Provide path to test model registry for rollout testing.
+    """
     return get_model_registry_rollout_dir()
 
 
 @pytest.fixture
 def xgb_v1_model_path(model_registry_dir: Path) -> Path:
-    """Provide path to XGBoost v1 test model."""
+    """
+    Provide path to XGBoost v1 test model.
+    """
     return model_registry_dir / "models" / "xgb_v1.json"
 
 
 @pytest.fixture
 def xgb_v2_model_path(model_registry_dir: Path) -> Path:
-    """Provide path to XGBoost v2 test model."""
+    """
+    Provide path to XGBoost v2 test model.
+    """
     return model_registry_dir / "models" / "xgb_v2.json"
 
 
 @pytest.fixture
 def prod_onnx_model_path(model_registry_rollout_dir: Path) -> Path:
-    """Provide path to production ONNX test model."""
+    """
+    Provide path to production ONNX test model.
+    """
     return model_registry_rollout_dir / "models" / "prod.onnx"
 
 
 @pytest.fixture
 def new_onnx_model_path(model_registry_rollout_dir: Path) -> Path:
-    """Provide path to new ONNX test model."""
+    """
+    Provide path to new ONNX test model.
+    """
     return model_registry_rollout_dir / "models" / "new.onnx"
 
 
 # Test configuration fixtures
 @pytest.fixture(scope="session")
 def test_config() -> TestConfig:
-    """Get test configuration for current environment."""
+    """
+    Get test configuration for current environment.
+    """
     return get_test_config()
 
 
 # Database fixtures for testing stores
 @pytest.fixture
 def temp_db_path(tmp_path: Path) -> Path:
-    """Create a temporary database path."""
+    """
+    Create a temporary database path.
+    """
     return tmp_path / "test.db"
 
 
@@ -433,8 +465,9 @@ def test_database(test_config: TestConfig) -> Generator[TestDatabase, None, None
     """
     Create test database with automatic cleanup.
 
-    Always uses PostgreSQL for consistency with production.
-    Each test gets a clean database state.
+    Always uses PostgreSQL for consistency with production. Each test gets a clean
+    database state.
+
     """
     # Import EngineManager locally to avoid circular dependencies
     from ml.core.db_engine import EngineManager
@@ -448,18 +481,22 @@ def test_database(test_config: TestConfig) -> Generator[TestDatabase, None, None
         pool_size=2,  # Conservative for tests
         max_overflow=3,  # Conservative for tests
         pool_pre_ping=True,
-        echo=test_config.database.echo
+        echo=test_config.database.echo,
     )
 
     # Clean all test data before each test
     with engine.connect() as conn:
         # Truncate all tables except schema management
-        result = conn.execute(text("""
+        result = conn.execute(
+            text(
+                """
             SELECT tablename FROM pg_tables
             WHERE schemaname = 'public'
             AND tablename NOT LIKE 'pg_%'
             AND tablename NOT LIKE 'sql_%'
-        """))
+        """,
+            ),
+        )
 
         for row in result:
             table_name = row[0]
@@ -472,7 +509,7 @@ def test_database(test_config: TestConfig) -> Generator[TestDatabase, None, None
     db = TestDatabase(
         engine=engine,
         connection_string=connection_string,
-        auto_rollback=False  # Use transactions for each operation
+        auto_rollback=False,  # Use transactions for each operation
     )
 
     try:
@@ -484,34 +521,44 @@ def test_database(test_config: TestConfig) -> Generator[TestDatabase, None, None
 
 @pytest.fixture
 def test_db_engine(test_database: TestDatabase):
-    """Create a test database engine (compatibility fixture)."""
+    """
+    Create a test database engine (compatibility fixture).
+    """
     return test_database.engine
 
 
 @pytest.fixture
 def test_db_session(test_database: TestDatabase) -> Generator[Session, None, None]:
-    """Create a test database session with automatic rollback."""
+    """
+    Create a test database session with automatic rollback.
+    """
     with test_database.get_session() as session:
         yield session
 
 
 @pytest.fixture
 def seeded_database(test_database: TestDatabase) -> TestDatabase:
-    """Create test database with seed data."""
+    """
+    Create test database with seed data.
+    """
     test_database.seed_test_data("basic")
     return test_database
 
 
 @pytest.fixture
 def database_snapshot(test_database: TestDatabase) -> DatabaseSnapshot:
-    """Create database snapshot utility for state management."""
+    """
+    Create database snapshot utility for state management.
+    """
     return DatabaseSnapshot(test_database)
 
 
 # Mock fixtures for external dependencies
 @pytest.fixture
 def mock_databento_client(test_config: TestConfig) -> Any:
-    """Mock Databento client for testing."""
+    """
+    Mock Databento client for testing.
+    """
     if test_config.use_real_databento:
         # Return real client if configured
         pytest.skip("Real Databento client not implemented in test mode")
@@ -524,7 +571,9 @@ def mock_databento_client(test_config: TestConfig) -> Any:
 
 @pytest.fixture
 def mock_fred_client(test_config: TestConfig) -> Any:
-    """Mock FRED API client for testing."""
+    """
+    Mock FRED API client for testing.
+    """
     if test_config.use_real_fred:
         # Return real client if configured
         pytest.skip("Real FRED client not implemented in test mode")
@@ -536,13 +585,17 @@ def mock_fred_client(test_config: TestConfig) -> Any:
 
 @pytest.fixture
 def mock_yahoo_client() -> Any:
-    """Mock Yahoo Finance client for testing."""
+    """
+    Mock Yahoo Finance client for testing.
+    """
     return create_mock_yahoo_client()
 
 
 @pytest.fixture
 def mock_redis(test_config: TestConfig) -> Any:
-    """Mock Redis client for testing."""
+    """
+    Mock Redis client for testing.
+    """
     # For unit tests, always use mock
     if test_config.environment == TestEnvironment.UNIT:
         return create_mock_redis()
@@ -550,6 +603,7 @@ def mock_redis(test_config: TestConfig) -> Any:
     # For integration/E2E, try real Redis first
     try:
         import redis
+
         client = redis.Redis(
             host=test_config.external_services.redis_host,
             port=test_config.external_services.redis_port,
@@ -568,13 +622,17 @@ def mock_redis(test_config: TestConfig) -> Any:
 
 @pytest.fixture
 def postgres_connection() -> str:
-    """Get PostgreSQL connection string for tests."""
+    """
+    Get PostgreSQL connection string for tests.
+    """
     return DATABASE_URL
 
 
 @pytest.fixture(scope="function")
 def clean_postgres_db():
-    """Ensure clean PostgreSQL database state for each test."""
+    """
+    Ensure clean PostgreSQL database state for each test.
+    """
     from ml.core.db_engine import EngineManager
 
     # Get engine from EngineManager (reuses existing or creates new)
@@ -589,12 +647,16 @@ def clean_postgres_db():
         conn.execute(text("SET CONSTRAINTS ALL DEFERRED"))
 
         # Get all tables
-        result = conn.execute(text("""
+        result = conn.execute(
+            text(
+                """
             SELECT tablename FROM pg_tables
             WHERE schemaname = 'public'
             AND tablename NOT LIKE 'pg_%'
             AND tablename NOT LIKE 'sql_%'
-        """))
+        """,
+            ),
+        )
 
         # Truncate all data tables
         for row in result:
@@ -610,12 +672,16 @@ def clean_postgres_db():
 
     # Clean after test as well
     with engine.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text(
+                """
             SELECT tablename FROM pg_tables
             WHERE schemaname = 'public'
             AND tablename NOT LIKE 'pg_%'
             AND tablename NOT LIKE 'sql_%'
-        """))
+        """,
+            ),
+        )
 
         for row in result:
             table_name = row[0]
@@ -630,7 +696,9 @@ def clean_postgres_db():
 
 @pytest.fixture
 def mock_mlflow_client() -> MagicMock:
-    """Mock MLflow client for testing."""
+    """
+    Mock MLflow client for testing.
+    """
     mock = MagicMock()
     mock.get_experiment_by_name.return_value = MagicMock(experiment_id="1")
     mock.create_run.return_value = MagicMock(info=MagicMock(run_id="test_run_id"))
@@ -640,7 +708,9 @@ def mock_mlflow_client() -> MagicMock:
 # Patching fixtures for automatic mocking
 @pytest.fixture(autouse=True)
 def auto_mock_external_services(request, monkeypatch, test_config: TestConfig):
-    """Automatically mock external services based on test configuration."""
+    """
+    Automatically mock external services based on test configuration.
+    """
     # Skip for tests that explicitly want real services
     if "no_mock" in request.keywords:
         return
@@ -656,6 +726,7 @@ def auto_mock_external_services(request, monkeypatch, test_config: TestConfig):
         mock_client = create_mock_fred_client()
         try:
             import fredapi
+
             monkeypatch.setattr("fredapi.Fred", lambda api_key: mock_client)
         except (ImportError, AttributeError):
             pass  # fredapi not installed
@@ -670,7 +741,9 @@ def auto_mock_external_services(request, monkeypatch, test_config: TestConfig):
 # Environment fixtures
 @pytest.fixture(autouse=True)
 def set_test_environment(monkeypatch) -> None:
-    """Set environment variables for testing."""
+    """
+    Set environment variables for testing.
+    """
     monkeypatch.setenv("ML_ENV", "test")
     monkeypatch.setenv("ML_LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("ML_DISABLE_METRICS", "true")
@@ -683,7 +756,9 @@ def set_test_environment(monkeypatch) -> None:
 
 @pytest.fixture
 def clean_environment(monkeypatch) -> None:
-    """Clean environment for isolated testing."""
+    """
+    Clean environment for isolated testing.
+    """
     # Remove any ML-related environment variables
     for key in list(os.environ.keys()):
         if key.startswith(("ML_", "NAUTILUS_")):
@@ -693,7 +768,9 @@ def clean_environment(monkeypatch) -> None:
 # Performance testing fixtures
 @pytest.fixture
 def benchmark_timer():
-    """Simple timer for benchmark tests."""
+    """
+    Simple timer for benchmark tests.
+    """
     import time
 
     class Timer:
@@ -722,7 +799,9 @@ def benchmark_timer():
 # Temporary directory fixtures with cleanup
 @pytest.fixture
 def temp_model_dir(tmp_path: Path) -> Path:
-    """Create a temporary directory for model storage."""
+    """
+    Create a temporary directory for model storage.
+    """
     model_dir = tmp_path / "models"
     model_dir.mkdir(exist_ok=True)
     return model_dir
@@ -730,7 +809,9 @@ def temp_model_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def temp_feature_dir(tmp_path: Path) -> Path:
-    """Create a temporary directory for feature storage."""
+    """
+    Create a temporary directory for feature storage.
+    """
     feature_dir = tmp_path / "features"
     feature_dir.mkdir(exist_ok=True)
     return feature_dir
@@ -739,28 +820,37 @@ def temp_feature_dir(tmp_path: Path) -> Path:
 # Store initialization fixtures
 @pytest.fixture
 def feature_store_connection(test_database: TestDatabase) -> str:
-    """Get connection string for FeatureStore."""
+    """
+    Get connection string for FeatureStore.
+    """
     return test_database.connection_string
 
 
 @pytest.fixture
 def model_store_connection(test_database: TestDatabase) -> str:
-    """Get connection string for ModelStore."""
+    """
+    Get connection string for ModelStore.
+    """
     return test_database.connection_string
 
 
 @pytest.fixture
 def strategy_store_connection(test_database: TestDatabase) -> str:
-    """Get connection string for StrategyStore."""
+    """
+    Get connection string for StrategyStore.
+    """
     return test_database.connection_string
 
 
 # Test isolation helpers
 @pytest.fixture(autouse=True)
 def reset_singletons():
-    """Reset singleton instances between tests."""
+    """
+    Reset singleton instances between tests.
+    """
     # Reset test config singleton
     from ml.tests.unit.config.test_config import reset_test_config
+
     reset_test_config()
 
     # Reset any other singletons here
@@ -772,7 +862,9 @@ def reset_singletons():
 
 @pytest.fixture
 def capture_metrics():
-    """Capture Prometheus metrics for testing."""
+    """
+    Capture Prometheus metrics for testing.
+    """
     metrics = {}
 
     def capture(metric_name: str, value: float, labels: dict[str, str] | None = None):
@@ -788,7 +880,9 @@ def capture_metrics():
 # Session-scoped engine to prevent connection exhaustion
 @pytest.fixture(scope="session")
 def session_engine():
-    """Single engine for entire test session to prevent connection exhaustion."""
+    """
+    Single engine for entire test session to prevent connection exhaustion.
+    """
     from ml.core.db_engine import EngineManager
 
     engine = EngineManager.get_engine(
@@ -814,10 +908,12 @@ def cleanup_engines():
     - Hypothesis property-based tests that create many instances
     - Integration tests that create multiple stores
     - Tests that don't properly clean up their database connections
+
     """
     yield
     # Clean up all engines after the test completes
     from ml.core.db_engine import EngineManager
+
     EngineManager.dispose_all()
 
 
@@ -833,6 +929,7 @@ def connection_monitor():
     -------
     dict
         Dictionary with 'initial_count', 'peak_count', and 'final_count' keys
+
     """
     from ml.core.db_engine import EngineManager
 
@@ -856,8 +953,9 @@ def connection_monitor():
     # Log if there's a potential leak
     if monitor["final_count"] > monitor["initial_count"]:
         import warnings
+
         warnings.warn(
             f"Potential connection leak detected: "
             f"Started with {monitor['initial_count']} engines, "
-            f"ended with {monitor['final_count']} engines"
+            f"ended with {monitor['final_count']} engines",
         )

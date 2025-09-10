@@ -1,9 +1,10 @@
 """
 Unit tests for store write/read logic using patched DB writes.
 
-These tests patch the private _execute_write methods to avoid database
-dependencies while still exercising the public write APIs and ensuring
-payload integrity and timestamp normalization.
+These tests patch the private _execute_write methods to avoid database dependencies
+while still exercising the public write APIs and ensuring payload integrity and
+timestamp normalization.
+
 """
 
 from __future__ import annotations
@@ -115,4 +116,3 @@ def test_strategy_store_write_batch(monkeypatch: Any) -> None:
     assert len(out) == 2
     assert out[0]["strategy_id"] == "s1"
     assert out[0]["signal_type"] in ("BUY", "SELL")
-

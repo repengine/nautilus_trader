@@ -75,4 +75,3 @@ class TestDataRegistryJSON:
         assert evt["status"] == "success"
         assert "created_at" in evt
         assert isinstance(evt.get("metadata", {}), dict)
-

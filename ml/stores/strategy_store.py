@@ -29,8 +29,8 @@ from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic
-from ml.common.message_topics import map_stage_to_topic_segments
+from ml.common.message_topics import build_topic_for_stage
+from ml.config.events import EventStatus
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
 from ml.stores.base import BaseStore
@@ -57,8 +57,22 @@ except Exception:
 
 
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
-def create_engine(connection_string: str, **kwargs: object) -> Engine:
-    return EngineManager.get_engine(connection_string, **kwargs)  # type: ignore[arg-type]
+def create_engine(connection_string: str) -> Engine:
+    """
+    Compatibility wrapper returning a SQLAlchemy Engine.
+
+    Parameters
+    ----------
+    connection_string : str
+        Database URL.
+
+    Returns
+    -------
+    Engine
+        SQLAlchemy engine managed by EngineManager.
+
+    """
+    return EngineManager.get_engine(connection_string)
 
 
 class StrategyStore(BaseStore):
@@ -143,6 +157,16 @@ class StrategyStore(BaseStore):
         self._enable_publishing = bool(enable_publishing)
         self.publisher: MessagePublisherProtocol | None = publisher
         self._publish_mode: Literal["batch", "row", "both"] = publish_mode
+        # Topic scheme/prefix (env-driven defaults)
+        try:
+            from ml.config.bus import MessageBusConfig as _MBC
+
+            _cfg = _MBC.from_env()
+            self._topic_scheme: str = str(_cfg.scheme)
+            self._topic_prefix: str = str(_cfg.topic_prefix)
+        except Exception:  # pragma: no cover - defensive
+            self._topic_scheme = "domain_op"
+            self._topic_prefix = "events.ml"
 
         # Allow tests to inject a mock persistence manager directly
         if persistence_manager is not None:
@@ -438,9 +462,13 @@ class StrategyStore(BaseStore):
         ):
             try:
                 stage = Stage.SIGNAL_EMITTED
-                domain, operation = map_stage_to_topic_segments(stage)
                 instrument_id = str(batch_list[0]["instrument_id"]) if batch_list else "UNKNOWN"
-                topic = build_topic(domain, operation, instrument_id)
+                topic = build_topic_for_stage(
+                    stage,
+                    instrument_id,
+                    scheme=self._topic_scheme,
+                    prefix=self._topic_prefix,
+                )
                 ts_min = min(int(v["ts_event"]) for v in batch_list)
                 ts_max = max(int(v["ts_event"]) for v in batch_list)
                 payload: dict[str, Any] = {
@@ -452,7 +480,7 @@ class StrategyStore(BaseStore):
                     "ts_min": ts_min,
                     "ts_max": ts_max,
                     "count": len(batch_list),
-                    "status": "success",
+                    "status": EventStatus.SUCCESS.value,
                 }
                 self.publisher.publish(topic, payload)
             except Exception:
@@ -466,10 +494,14 @@ class StrategyStore(BaseStore):
         ):
             try:
                 stage = Stage.SIGNAL_EMITTED
-                domain, operation = map_stage_to_topic_segments(stage)
                 for v in batch_list:
                     instrument_id = str(v.get("instrument_id", "UNKNOWN"))
-                    topic = build_topic(domain, operation, instrument_id)
+                    topic = build_topic_for_stage(
+                        stage,
+                        instrument_id,
+                        scheme=self._topic_scheme,
+                        prefix=self._topic_prefix,
+                    )
                     ts_e = int(v.get("ts_event", 0))
                     row_payload: dict[str, Any] = {
                         "dataset_id": "signals",
@@ -480,7 +512,7 @@ class StrategyStore(BaseStore):
                         "ts_min": ts_e,
                         "ts_max": ts_e,
                         "count": 1,
-                        "status": "success",
+                        "status": EventStatus.SUCCESS.value,
                     }
                     self.publisher.publish(topic, row_payload)
             except Exception:
@@ -549,7 +581,15 @@ class StrategyStore(BaseStore):
                     "end_ns": int(end_ns),
                 },
             )
-            df = pd.read_sql_query(sql, conn, params=_params)  # type: ignore[arg-type]
+            from collections.abc import Mapping
+            from typing import Any as _Any
+            from typing import cast as _cast
+
+            _params = _cast(
+                Mapping[str, _Any],
+                {"instrument_id": instrument_id, "limit": int(limit)},
+            )
+            df = pd.read_sql_query(sql, conn, params=cast(Mapping[str, _Any], _params))
         return df
 
     @override
@@ -639,10 +679,18 @@ class StrategyStore(BaseStore):
                 """,
         )
         with self.engine.connect() as conn:
+            from collections.abc import Mapping
+            from typing import Any as _Any
+            from typing import cast as _cast
+
+            _params = _cast(
+                Mapping[str, _Any],
+                {"instrument_id": instrument_id, "limit": int(limit)},
+            )
             df = pd.read_sql_query(
                 sql,
                 conn,
-                params={"instrument_id": instrument_id, "limit": int(limit)},  # type: ignore[arg-type]
+                params=_params,
             )
         return df
 
@@ -800,7 +848,7 @@ class StrategyStore(BaseStore):
                     ts_min=ts_min,
                     ts_max=ts_max,
                     count=len(group_signals),
-                    status="success",
+                    status=EventStatus.SUCCESS.value,
                 )
 
                 # Update watermark for tracking progress
@@ -820,7 +868,7 @@ class StrategyStore(BaseStore):
                         component=strategy_id,
                         stage=Stage.SIGNAL_EMITTED.value,
                         source=source,
-                        status="success",
+                        status=EventStatus.SUCCESS.value,
                     ).inc()
 
                 logger.debug(
@@ -1262,10 +1310,14 @@ class StrategyStore(BaseStore):
         from ml.common.timestamps import sanitize_timestamp_ns
 
         start_ns = sanitize_timestamp_ns(
-            int(start_ns), logger=logger, context="StrategyStore.get_signals:start"
+            int(start_ns),
+            logger=logger,
+            context="StrategyStore.get_signals:start",
         )
         end_ns = sanitize_timestamp_ns(
-            int(end_ns), logger=logger, context="StrategyStore.get_signals:end"
+            int(end_ns),
+            logger=logger,
+            context="StrategyStore.get_signals:end",
         )
 
         if instrument_id is not None:

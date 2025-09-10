@@ -180,7 +180,7 @@ def analyze_symbol_gaps(symbol_dir: Path, entitlements: dict) -> dict:
                                 "days": (gap_end - gap_start).days,
                                 "output_file": symbol_dir / output_file,
                                 "data_type": data_type,
-                            }
+                            },
                         )
         else:
             # No existing data - need full range
@@ -195,7 +195,7 @@ def analyze_symbol_gaps(symbol_dir: Path, entitlements: dict) -> dict:
                         "days": (target_end - target_start).days,
                         "output_file": symbol_dir / output_file,
                         "data_type": data_type,
-                    }
+                    },
                 )
 
     return analysis
@@ -213,13 +213,13 @@ def download_gap(client: db.Historical, download_info: dict, dry_run: bool = Fal
 
     if dry_run:
         print(
-            f"  [DRY RUN] Would download {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)"
+            f"  [DRY RUN] Would download {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)",
         )
         return True
 
     try:
         print(
-            f"Downloading {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)"
+            f"Downloading {schema} for {symbol}: {start_date.date()} to {end_date.date()} ({download_info['days']} days)",
         )
 
         # Download data
@@ -311,10 +311,10 @@ def main():
     entitlements = get_subscription_entitlements()
     print("📊 Databento Subscription Entitlements:")
     print(
-        f"  Core (OHLCV): {entitlements['core'][0].date()} to {entitlements['core'][1].date()} (7 years)"
+        f"  Core (OHLCV): {entitlements['core'][0].date()} to {entitlements['core'][1].date()} (7 years)",
     )
     print(
-        f"  L1 (BBO/Trades): {entitlements['l1'][0].date()} to {entitlements['l1'][1].date()} (1 year)"
+        f"  L1 (BBO/Trades): {entitlements['l1'][0].date()} to {entitlements['l1'][1].date()} (1 year)",
     )
     print(f"  L2 (MBP): {entitlements['l2'][0].date()} to {entitlements['l2'][1].date()} (30 days)")
 

@@ -720,7 +720,7 @@ class ParquetDataCatalog(BaseDataCatalog):
                 ensure_contiguous_files=ensure_contiguous_files,
             )
 
-    def consolidate_data_by_period(  # noqa: C901
+    def consolidate_data_by_period(
         self,
         data_cls: type,
         identifier: str | None = None,
@@ -875,7 +875,7 @@ class ParquetDataCatalog(BaseDataCatalog):
         for file in existing_files:
             self.fs.rm(file)
 
-    def _prepare_consolidation_queries(  # noqa: C901
+    def _prepare_consolidation_queries(
         self,
         data_cls: type,
         identifier: str | None,
@@ -1146,7 +1146,7 @@ class ParquetDataCatalog(BaseDataCatalog):
 
         return data_cls, identifier
 
-    def delete_data_range(  # noqa: C901
+    def delete_data_range(
         self,
         data_cls: type,
         identifier: str | None = None,
@@ -1734,7 +1734,7 @@ class ParquetDataCatalog(BaseDataCatalog):
         where: str | None = None,
     ) -> str:
         # Build datafusion SQL query
-        query = f"SELECT * FROM {table}"  # noqa (possible SQL injection)
+        query = f"SELECT * FROM {table}"
         conditions: list[str] = [] + ([where] if where else [])
 
         if start:

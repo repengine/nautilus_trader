@@ -1,9 +1,10 @@
 """
 Focused unit tests for DataRegistry JSON backend and schema/parity enforcement.
 
-These tests avoid database dependencies by using the JSON backend and
-temporary directories. They validate event emission, watermark tracking,
-lineage linking, and model-feature schema enforcement via environment flags.
+These tests avoid database dependencies by using the JSON backend and temporary
+directories. They validate event emission, watermark tracking, lineage linking, and
+model-feature schema enforcement via environment flags.
+
 """
 
 from __future__ import annotations
@@ -110,7 +111,10 @@ def test_data_registry_json_emit_event_and_watermark(tmp_path: Path) -> None:
 def test_model_feature_schema_enforcement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Prepare feature registry JSON with a known schema_hash
     reg_dir = tmp_path / "registry"
-    freg = FeatureRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    freg = FeatureRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     feature_names = ["f1", "f2"]
     feature_dtypes = ["float32", "float32"]

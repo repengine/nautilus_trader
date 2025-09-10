@@ -218,13 +218,13 @@ def main():
     print("=" * 80)
     print("Subscription entitlements:")
     print(
-        f"  📊 OHLCV Daily/1m: 7 years ({target_coverage['ohlcv_daily'][0].date()} to {target_coverage['ohlcv_daily'][1].date()})"
+        f"  📊 OHLCV Daily/1m: 7 years ({target_coverage['ohlcv_daily'][0].date()} to {target_coverage['ohlcv_daily'][1].date()})",
     )
     print(
-        f"  📈 L1 BBO/Trades: 1 year ({target_coverage['l1_bbo'][0].date()} to {target_coverage['l1_bbo'][1].date()})"
+        f"  📈 L1 BBO/Trades: 1 year ({target_coverage['l1_bbo'][0].date()} to {target_coverage['l1_bbo'][1].date()})",
     )
     print(
-        f"  📊 L2 MBP: 30 days ({target_coverage['l2_mbp'][0].date()} to {target_coverage['l2_mbp'][1].date()})"
+        f"  📊 L2 MBP: 30 days ({target_coverage['l2_mbp'][0].date()} to {target_coverage['l2_mbp'][1].date()})",
     )
     print()
 

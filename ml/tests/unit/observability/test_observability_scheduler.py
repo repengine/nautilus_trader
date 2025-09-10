@@ -68,4 +68,3 @@ class TestIntegrationFlusher:
         assert out is not None
         assert out.get("health") is not None
         assert out["health"].exists()  # type: ignore[index]
-

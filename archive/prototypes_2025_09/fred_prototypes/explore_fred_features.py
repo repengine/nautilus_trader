@@ -126,7 +126,7 @@ def create_ml_features(df):
             features[f"{indicator.lower()}_yoy"] = df[indicator].pct_change(252)  # ~1 year
 
     print(
-        f"✅ Economic indicators: {len([c for c in economic_indicators if c in df.columns])} series"
+        f"✅ Economic indicators: {len([c for c in economic_indicators if c in df.columns])} series",
     )
 
     # 6. Regime Classifications
@@ -150,10 +150,10 @@ def create_ml_features(df):
     print("\nFeature Summary:")
     print(f"  Total features created: {len(features.columns)}")
     print(
-        f"  Date range: {features.index.min().strftime('%Y-%m-%d')} to {features.index.max().strftime('%Y-%m-%d')}"
+        f"  Date range: {features.index.min().strftime('%Y-%m-%d')} to {features.index.max().strftime('%Y-%m-%d')}",
     )
     print(
-        f"  Non-null coverage: {(features.count().sum() / (len(features) * len(features.columns)) * 100):.1f}%"
+        f"  Non-null coverage: {(features.count().sum() / (len(features) * len(features.columns)) * 100):.1f}%",
     )
 
     return features
@@ -212,7 +212,7 @@ def main():
     df = load_fred_data()
     print(f"Loaded FRED data: {len(df)} observations, {len(df.columns)} series")
     print(
-        f"Date range: {df.index.min().strftime('%Y-%m-%d')} to {df.index.max().strftime('%Y-%m-%d')}"
+        f"Date range: {df.index.min().strftime('%Y-%m-%d')} to {df.index.max().strftime('%Y-%m-%d')}",
     )
 
     # Regime analysis

@@ -11,6 +11,7 @@ What it DOES require:
 - Nautilus Trader installation
 - ML module components
 - Market data (can use historical data)
+
 """
 
 from datetime import datetime
@@ -108,8 +109,9 @@ def setup_backtest_engine(configs: dict[str, Any]) -> BacktestEngine:
     """
     Set up backtest engine for dry run testing.
 
-    We use the backtest engine to simulate market conditions
-    and test our ML pipeline without live market connection.
+    We use the backtest engine to simulate market conditions and test our ML pipeline
+    without live market connection.
+
     """
     # Engine configuration
     engine_config = BacktestEngineConfig()
@@ -132,6 +134,7 @@ def setup_backtest_engine(configs: dict[str, Any]) -> BacktestEngine:
     # Add instrument (you'd normally load this from catalog)
     # For now, we'll use a simple stub
     from nautilus_trader.test_kit.providers import TestInstrumentProvider
+
     provider = TestInstrumentProvider()
     btcusdt = provider.btcusdt_binance()
     engine.add_instrument(btcusdt)
@@ -151,6 +154,7 @@ def run_dry_run_backtest() -> None:
     - Live market connection
     - Real broker
     - Real money risk
+
     """
     print("=" * 80)
     print("ML TRADING SYSTEM - DRY RUN MODE")
@@ -176,6 +180,7 @@ def run_dry_run_backtest() -> None:
     # In production, you would load real historical data
     # For this example, we'll generate synthetic data
     from nautilus_trader.test_kit.providers import TestDataProvider
+
     provider = TestDataProvider()
 
     # Generate sample bars
@@ -225,8 +230,9 @@ def run_dry_run_live() -> None:
     """
     Run a dry run with live market data connection.
 
-    This requires setting up a live data feed but still
-    operates in dry run mode (no actual trades).
+    This requires setting up a live data feed but still operates in dry run mode (no
+    actual trades).
+
     """
     print("=" * 80)
     print("ML TRADING SYSTEM - LIVE DRY RUN MODE")

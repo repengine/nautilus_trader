@@ -83,24 +83,28 @@ chmod +x run_dry_run.sh
 ## Components
 
 ### 1. ML Signal Actor
+
 - Connects to Databento for real market data
 - Calculates technical indicators and features
 - Runs model inference
 - Publishes ML signals
 
-### 2. ML Trading Strategy  
+### 2. ML Trading Strategy
+
 - Subscribes to ML signals
 - Makes trading decisions
 - **DRY RUN MODE**: Logs decisions but doesn't execute trades
 - Persists all decisions to database
 
 ### 3. PostgreSQL Database
+
 - Stores features for analysis
 - Stores model predictions
 - Stores strategy decisions
 - Enables backtesting and analysis
 
 ### 4. Monitoring (Optional)
+
 - Prometheus: Metrics collection
 - Grafana: Visualization dashboards
 
@@ -144,12 +148,14 @@ Check Databento documentation for full list.
 ### Logs
 
 **Local:**
+
 ```bash
 # Logs are printed to console
 python run_local_dry_run.py
 ```
 
 **Docker:**
+
 ```bash
 # View all logs
 docker compose logs -f
@@ -177,10 +183,11 @@ SELECT * FROM public.ml_model_predictions ORDER BY ts_event DESC LIMIT 10;
 
 ### Metrics
 
-Access Prometheus: http://localhost:9090
-Access Grafana: http://localhost:3000 (admin/admin)
+Access Prometheus: <http://localhost:9090>
+Access Grafana: <http://localhost:3000> (admin/admin)
 
 Key metrics to monitor:
+
 - `ml_signals_generated_total`: Number of signals generated
 - `ml_signal_generation_seconds`: Signal generation latency
 - `ml_feature_computation_seconds`: Feature calculation time
@@ -216,6 +223,7 @@ Before going live:
 When ready for real trading:
 
 1. **Set up execution client**
+
    ```python
    # Add to node config
    exec_clients={
@@ -224,11 +232,13 @@ When ready for real trading:
    ```
 
 2. **Enable trading**
+
    ```bash
    export EXECUTE_TRADES=true
    ```
 
 3. **Start with minimal risk**
+
    ```bash
    export POSITION_SIZE_PCT=0.001  # 0.1% per trade
    export MAX_POSITIONS=1
@@ -242,6 +252,7 @@ When ready for real trading:
 ## Troubleshooting
 
 ### "Connection refused" for PostgreSQL
+
 ```bash
 # Start PostgreSQL
 sudo systemctl start postgresql
@@ -253,11 +264,13 @@ brew services start postgresql
 Check your Databento API key and dataset access
 
 ### "No signals generated"
+
 - Check warm_up_period (need 20+ bars)
 - Verify market is open
 - Check model is loading correctly
 
 ### "Database schema not found"
+
 ```bash
 # Apply canonical migrations (not the legacy schema/ files)
 psql nautilus -f ../stores/migrations/001_stores_schema.sql
@@ -274,6 +287,6 @@ python -c "from ml.stores.db_preflight import check_db_prereqs; print(check_db_p
 
 ## Support
 
-- Nautilus Trader: https://nautilustrader.io/
-- Databento: https://databento.com/docs
+- Nautilus Trader: <https://nautilustrader.io/>
+- Databento: <https://databento.com/docs>
 - Issues: Create issue in ml/issues/

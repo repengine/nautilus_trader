@@ -7,6 +7,7 @@ ensuring consistent naming and avoiding orphaned events.
 
 Usage:
     python -m ml.registry.bootstrap_datasets [--backend postgres|json] [--registry-path PATH]
+
 """
 
 import argparse
@@ -28,7 +29,9 @@ from ml.registry.persistence import PersistenceConfig
 
 
 def create_standard_manifests() -> list[DatasetManifest]:
-    """Create standard dataset manifests for all pipeline stages."""
+    """
+    Create standard dataset manifests for all pipeline stages.
+    """
     manifests = []
 
     # BARS/OHLCV dataset
@@ -171,7 +174,9 @@ def create_standard_manifests() -> list[DatasetManifest]:
 
 
 def create_standard_contracts() -> dict[str, DataContract]:
-    """Create standard data contracts for each dataset type."""
+    """
+    Create standard data contracts for each dataset type.
+    """
     contracts = {}
 
     # Helper to create validation rules
@@ -181,7 +186,7 @@ def create_standard_contracts() -> dict[str, DataContract]:
             field_name=field,
             parameters=params,
             severity=QualityFlag.FAIL,
-            description=f"{rule_type.value} check for {field}"
+            description=f"{rule_type.value} check for {field}",
         )
 
     # Bars contract - lenient mode for market data
@@ -273,13 +278,15 @@ def bootstrap_datasets(
     backend: BackendType = BackendType.JSON,
     registry_path: Path | None = None,
 ) -> None:
-    """Bootstrap the data registry with standard dataset manifests."""
+    """
+    Bootstrap the data registry with standard dataset manifests.
+    """
     # Setup persistence configuration
     if backend == BackendType.POSTGRES:
         db_url = os.getenv("NAUTILUS_REGISTRY_DB_URL")
         if not db_url:
             raise ValueError(
-                "NAUTILUS_REGISTRY_DB_URL environment variable must be set for PostgreSQL backend"
+                "NAUTILUS_REGISTRY_DB_URL environment variable must be set for PostgreSQL backend",
             )
         persistence_config = PersistenceConfig(
             backend=BackendType.POSTGRES,
@@ -287,7 +294,9 @@ def bootstrap_datasets(
         )
     else:
         effective_registry_path: Path = (
-            registry_path if registry_path is not None else Path.home() / ".nautilus" / "ml" / "registry"
+            registry_path
+            if registry_path is not None
+            else Path.home() / ".nautilus" / "ml" / "registry"
         )
         persistence_config = PersistenceConfig(
             backend=BackendType.JSON,
@@ -315,6 +324,7 @@ def bootstrap_datasets(
                 continue
         except Exception:
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
                 "Manifest lookup failed (expected if new); proceeding to register",
                 exc_info=True,
@@ -339,7 +349,9 @@ def bootstrap_datasets(
 
 
 def main() -> None:
-    """Main entry point for bootstrap script."""
+    """
+    Main entry point for bootstrap script.
+    """
     parser = argparse.ArgumentParser(
         description="Bootstrap standard dataset manifests for ML pipeline",
     )

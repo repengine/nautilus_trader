@@ -466,7 +466,7 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
 
         return report
 
-    def _transform_order_to_ib_order(self, order: Order) -> IBOrder:  # noqa: C901 11 > 10
+    def _transform_order_to_ib_order(self, order: Order) -> IBOrder:
         if order.is_post_only:
             raise ValueError("`post_only` not supported by Interactive Brokers")
 
@@ -748,7 +748,7 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
 
         self._account_summary_loaded.set()
 
-    def _handle_order_event(  # noqa: C901
+    def _handle_order_event(
         self,
         status: OrderStatus,
         order: Order,
@@ -823,7 +823,7 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
             # TODO: Is there more better approach for this use case?
             # This tells the details about Pre and Post margin changes, user can request by setting whatIf flag
             # order will not be placed by IB and instead returns simulation.
-            # example={'status': 'PreSubmitted', 'initMarginBefore': '52.88', 'maintMarginBefore': '52.88', 'equityWithLoanBefore': '23337.31', 'initMarginChange': '2517.5099999999998', 'maintMarginChange': '2517.5099999999998', 'equityWithLoanChange': '-0.6200000000026193', 'initMarginAfter': '2570.39', 'maintMarginAfter': '2570.39', 'equityWithLoanAfter': '23336.69', 'commission': 2.12362, 'minCommission': 1.7976931348623157e+308, 'maxCommission': 1.7976931348623157e+308, 'commissionCurrency': 'USD', 'warningText': '', 'completedTime': '', 'completedStatus': ''}  # noqa
+            # example={'status': 'PreSubmitted', 'initMarginBefore': '52.88', 'maintMarginBefore': '52.88', 'equityWithLoanBefore': '23337.31', 'initMarginChange': '2517.5099999999998', 'maintMarginChange': '2517.5099999999998', 'equityWithLoanChange': '-0.6200000000026193', 'initMarginAfter': '2570.39', 'maintMarginAfter': '2570.39', 'equityWithLoanAfter': '23336.69', 'commission': 2.12362, 'minCommission': 1.7976931348623157e+308, 'maxCommission': 1.7976931348623157e+308, 'commissionCurrency': 'USD', 'warningText': '', 'completedTime': '', 'completedStatus': ''}
             self._handle_order_event(
                 status=OrderStatus.REJECTED,
                 order=nautilus_order,

@@ -3,8 +3,8 @@
 """
 Persistence layer for registry with configurable backends (JSON or PostgreSQL).
 
-This module provides a unified interface for persisting registry data to either
-local JSON files or PostgreSQL database based on configuration.
+This module provides a unified interface for persisting registry data to either local
+JSON files or PostgreSQL database based on configuration.
 
 """
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -40,14 +41,18 @@ Base = declarative_base()
 
 
 class BackendType(Enum):
-    """Registry backend type."""
+    """
+    Registry backend type.
+    """
 
     JSON = "json"
     POSTGRES = "postgres"
 
 
 class ModelTable(Base):
-    """SQLAlchemy model for model registry."""
+    """
+    SQLAlchemy model for model registry.
+    """
 
     __tablename__ = "models"
 
@@ -67,7 +72,11 @@ class ModelTable(Base):
     deployed_to: Column[list[str]] = Column(ARRAY(Text))
     version = Column(String(50), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    last_modified = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_modified = Column(
+        TIMESTAMP(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
     extra_metadata = Column("metadata", JSON)
     model_path = Column(Text, nullable=False)
     performance_history = Column(JSON)
@@ -80,7 +89,9 @@ class ModelTable(Base):
 
 
 class FeatureTable(Base):
-    """SQLAlchemy model for feature registry."""
+    """
+    SQLAlchemy model for feature registry.
+    """
 
     __tablename__ = "features"
 
@@ -103,12 +114,18 @@ class FeatureTable(Base):
     parent_feature_set_id = Column(String(255))
     stage = Column(String(50), nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    last_modified = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_modified = Column(
+        TIMESTAMP(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
     extra_metadata = Column("metadata", JSON)
 
 
 class StrategyTable(Base):
-    """SQLAlchemy model for strategy registry."""
+    """
+    SQLAlchemy model for strategy registry.
+    """
 
     __tablename__ = "strategies"
 
@@ -135,13 +152,19 @@ class StrategyTable(Base):
     backtest_metrics = Column(JSON)
     live_metrics = Column(JSON)
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    last_modified = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_modified = Column(
+        TIMESTAMP(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
     author = Column(String(255))
     description = Column(Text)
 
 
 class AuditLogTable(Base):
-    """SQLAlchemy model for audit logging."""
+    """
+    SQLAlchemy model for audit logging.
+    """
 
     __tablename__ = "registry_audit_log"
 
@@ -154,56 +177,36 @@ class AuditLogTable(Base):
     timestamp = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, index=True)
 
 
+@dataclass(frozen=True)
 class PersistenceConfig:
-    """Configuration for registry persistence."""
+    """
+    Configuration for registry persistence.
+    """
 
-    def __init__(
-        self,
-        backend: BackendType = BackendType.JSON,
-        connection_string: str | None = None,
-        json_path: Path | None = None,
-        pool_size: int = 5,
-        max_overflow: int = 10,
-        echo: bool = False,
-    ) -> None:
+    backend: BackendType = BackendType.JSON
+    connection_string: str | None = None
+    json_path: Path | None = None
+    pool_size: int = 5
+    max_overflow: int = 10
+    echo: bool = False
+
+    def __post_init__(self) -> None:
         """
-        Initialize persistence configuration.
-
-        Parameters
-        ----------
-        backend : BackendType
-            Backend type (JSON or POSTGRES)
-        connection_string : str | None
-            PostgreSQL connection string (required for POSTGRES backend)
-        json_path : Path | None
-            Path for JSON storage (required for JSON backend)
-        pool_size : int
-            Database connection pool size (PostgreSQL only)
-        max_overflow : int
-            Maximum overflow connections (PostgreSQL only)
-        echo : bool
-            Echo SQL statements for debugging
-
+        Validate and finalize configuration values.
         """
-        self.backend = backend
-        self.connection_string = connection_string or os.getenv("NAUTILUS_REGISTRY_DB_URL")
-        self.json_path = json_path
-        self.pool_size = pool_size
-        self.max_overflow = max_overflow
-        self.echo = echo
-
-        # Validate configuration
-        if backend == BackendType.POSTGRES and not self.connection_string:
-            # Default to local Nautilus PostgreSQL container
-            self.connection_string = "postgresql://postgres:postgres@localhost:5432/nautilus"
-
-        if backend == BackendType.JSON and not json_path:
-            msg = "json_path is required for JSON backend"
-            raise ValueError(msg)
+        # apply env default for connection string
+        conn = self.connection_string or os.getenv("NAUTILUS_REGISTRY_DB_URL")
+        if self.backend == BackendType.POSTGRES and not conn:
+            conn = "postgresql://postgres:postgres@localhost:5432/nautilus"
+        object.__setattr__(self, "connection_string", conn)
+        if self.backend == BackendType.JSON and self.json_path is None:
+            raise ValueError("json_path is required for JSON backend")
 
 
 class PersistenceManager:
-    """Manages persistence operations for registries."""
+    """
+    Manages persistence operations for registries.
+    """
 
     def __init__(self, config: PersistenceConfig) -> None:
         """
@@ -223,7 +226,9 @@ class PersistenceManager:
             self._init_postgres()
 
     def _init_postgres(self) -> None:
-        """Initialize PostgreSQL connection."""
+        """
+        Initialize PostgreSQL connection.
+        """
         if self.config.connection_string is None:
             raise ValueError("Connection string is required for PostgreSQL backend")
         self._engine = EngineManager.get_engine(
@@ -252,7 +257,9 @@ class PersistenceManager:
         return None
 
     def close(self) -> None:
-        """Close database connections."""
+        """
+        Close database connections.
+        """
         if self._engine:
             self._engine.dispose()
 

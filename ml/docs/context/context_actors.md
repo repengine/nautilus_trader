@@ -15,7 +15,7 @@ Operational notes:
 **Key Components:**
 
 - **BaseMLInferenceActor**: Abstract foundation class with mandatory store integration and production features
-- **MLSignalActor**: Production signal generation actor with multiple built-in strategies  
+- **MLSignalActor**: Production signal generation actor with multiple built-in strategies
 - **ONNXMLInferenceActor**: ONNX-optimized inference actor for lowest latency **✨ ENHANCEMENT:** Now includes CPU provider optimizations and configurable session options
 - **EnhancedMLInferenceActor**: **🔄 UPDATE:** Minimal test-focused implementation showcasing hot-path optimization with zero-allocation feature computation
 - **PickleMLInferenceActor**: **⚠️ CORRECTION:** DEPRECATED - Raises SecurityError to prevent insecure model loading
@@ -725,7 +725,7 @@ class MLSignalActor(BaseMLInferenceActor):
             except Exception as e:
                 manifest = None
                 self.log.warning(f"Feature registry load failed: {e}")
-            
+
             if manifest is not None:
                 expected = list(manifest.feature_names)
                 actual = self._feature_engineer.config.get_feature_names()
@@ -907,22 +907,22 @@ The framework now includes enhanced model compatibility for various model types:
 ```python
 def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
     """Enhanced prediction with comprehensive model type support."""
-    
+
     # **📝 ADDITION:** Mock support for testing environments
     if isinstance(self._model, Mock | MagicMock):
         # Handle test mock models with proper prediction interface
-        
+
     # **📝 ADDITION:** Unified model wrapper support
     elif hasattr(self._model, "predict") and hasattr(self._model, "metadata"):
         result = self._model.predict(features)
         return result[0], result[1]
-        
+
     # **📝 ADDITION:** Raw ONNX model support
     elif hasattr(self._model, "run") and "input_names" in self._model_metadata:
         features_2d = features.reshape(1, -1).astype(np.float32)
         input_name = self._model_metadata["input_names"][0]
         outputs = self._model.run(None, {input_name: features_2d})
-        
+
     # **📝 ADDITION:** XGBoost Booster support with DMatrix
     elif hasattr(self._model, "num_features") and hasattr(self._model, "get_score"):
         from ml._imports import xgb
@@ -937,7 +937,7 @@ def _predict(self, features: npt.NDArray[np.float32]) -> tuple[float, float]:
 ```python
 def _init_stores_and_registries(self) -> None:
     """Progressive fallback chain: PostgreSQL → SQLite → DummyStore."""
-    
+
     # Try PostgreSQL connection first
     try:
         test_engine = EngineManager.get_engine(
@@ -947,7 +947,7 @@ def _init_stores_and_registries(self) -> None:
             conn.execute(text("SELECT 1"))
         # PostgreSQL available - use production stores
         self._feature_store = FeatureStore(connection_string=db_connection)
-        
+
     except Exception:
         # PostgreSQL unavailable - fall back to DummyStore with warning
         self.log.warning("PostgreSQL not available; using DummyStore (no persistence)")
@@ -959,12 +959,12 @@ def _init_stores_and_registries(self) -> None:
 ```python
 def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
     """Feature computation with store delegation and fallback."""
-    
+
     # **✨ ENHANCEMENT:** Prefer FeatureStore.compute_realtime when available
     try:
         if hasattr(self, "_feature_store") and self._feature_store is not None:
             features = self._feature_store.compute_realtime(
-                bar=bar, 
+                bar=bar,
                 store=self._persist_features
             )
             if isinstance(features, np.ndarray) and features.size > 0:
@@ -972,7 +972,7 @@ def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
     except Exception as exc:
         # Fall back to local feature engineering on store failure
         self.log.debug("FeatureStore compute_realtime failed; falling back", exc_info=exc)
-    
+
     # **⚠️ CORRECTION:** Always use local FeatureEngineer as fallback
     # Implementation continues with indicator manager and feature calculation...
 ```
@@ -989,14 +989,15 @@ def get_signal_statistics(self) -> dict[str, Any]:
         "prediction_history_size": len(getattr(self, "_prediction_history", [])),
         "confidence_history_size": len(getattr(self, "_confidence_history", [])),
     }
-    
+
     # **📝 ADDITION:** Merge PerformanceMonitor stats if available
     if hasattr(self, "_performance_monitor") and self._performance_monitor is not None:
         pm_stats = self._performance_monitor.get_current_stats()
         stats.update(pm_stats)
-        
+
     return stats
 ```
+
 ## Universal Pattern Compliance
 
 The ML actors framework fully implements all 5 universal ML architecture patterns:
@@ -1059,9 +1060,11 @@ Notes:
 
 - These methods must not be called in the hot path; use them in setup, health endpoints, or scheduled checks.
 - Protocol compliance is validated by the Integration Manager (warn by default; strict mode via `ML_STRICT_PROTOCOL_VALIDATION`).
+
 ### Runtime Statistics
 
 The MLSignalActor exposes a lightweight, non–hot‑path method `get_signal_statistics()` for tests and diagnostics. It returns:
+
 - bars_processed: total bars seen by the actor **📝 ADDITION:** Tracked by BaseMLInferenceActor, falls back to 0 if missing
 - prediction_history_size, confidence_history_size: current lengths of rolling histories
 - PerformanceMonitor summary: prediction_count, signal_count, error_count, average and p99 latencies **✨ ENHANCEMENT:** Includes comprehensive performance metrics with reservoir sampling
@@ -1083,12 +1086,13 @@ from ml.common.metrics_bootstrap import get_counter, get_histogram
 
 ml_predictions_total = get_counter(
     "nautilus_ml_predictions_total",
-    "Total number of ML predictions made", 
+    "Total number of ML predictions made",
     ["actor_id", "model_name"]
 )
 ```
 
 **Benefits:**
+
 - Prevents metric registry conflicts during module reloads
 - Safe for testing environments with metric cleanup
 - Consistent naming and labeling across components
@@ -1100,7 +1104,7 @@ All actors now implement the universal component protocol via `MLComponentMixin`
 ```python
 class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     """Base actor with universal protocol compliance."""
-    
+
     def get_health_status(self) -> dict[str, Any]:
         """Enhanced health reporting with store status."""
         base_status = super().get_health_status()
@@ -1113,8 +1117,9 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 ```
 
 **Protocol Methods:**
+
 - `get_health_status()`: Comprehensive health with store/model status
-- `get_performance_metrics()`: Lightweight diagnostic metrics  
+- `get_performance_metrics()`: Lightweight diagnostic metrics
 - `validate_configuration()`: Configuration validation issues
 
 ### Store Protocol Evolution
@@ -1122,8 +1127,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 ```python
 class FeatureStoreProtocol(Protocol):
     def compute_realtime(
-        self, 
-        bar: Any, 
+        self,
+        bar: Any,
         store: bool = ...,
         indicator_manager: Any | None = ...
     ) -> Any:
@@ -1131,19 +1136,20 @@ class FeatureStoreProtocol(Protocol):
 ```
 
 **Integration Pattern:**
+
 ```python
 def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
     # Prefer FeatureStore delegation when available
     try:
         features = self._feature_store.compute_realtime(
-            bar=bar, 
+            bar=bar,
             store=self._persist_features
         )
         if isinstance(features, np.ndarray) and features.size > 0:
             return features
     except Exception as exc:
         self.log.debug("FeatureStore failed, falling back to local computation")
-    
+
     # Fallback to local feature engineering
     return self._feature_engineer.calculate_features_online(...)
 ```
@@ -1158,23 +1164,24 @@ The configuration has been extended with several new options:
 class MLSignalActorConfig(MLActorConfig):
     # **📝 ADDITION:** ONNX runtime optimization
     onnx_runtime_config: OnnxRuntimeConfig | None = None
-    
+
     # **📝 ADDITION:** Feature store integration
     use_feature_store: bool = False
     persist_features: bool = True
     feature_set_id: str | None = None
     pipeline_spec: Any | None = None
-    
+
     # **📝 ADDITION:** Test mode configuration
     use_dummy_stores: bool = False
     actor_id: str | None = None  # For test identification
-    
+
     # **⚠️ CORRECTION:** Backward compatibility mappings in __post_init__()
     optimization: OptimizationConfig | None = None  # Maps to optimization_config
     strategy: StrategyConfig | None = None          # Maps to strategy_config
 ```
 
 **Key Features:**
+
 - Automatic field mapping for backward compatibility
 - Test mode configuration with dummy stores
 - ONNX runtime provider configuration

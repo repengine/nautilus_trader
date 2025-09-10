@@ -61,7 +61,7 @@ def _parse_inline_gates(gate_args: list[str]) -> list[QualityGate]:
         return gates
     if len(gate_args) % 4 != 0:
         raise SystemExit(
-            "--gate must be provided in groups of 4: metric comparison threshold required|optional"
+            "--gate must be provided in groups of 4: metric comparison threshold required|optional",
         )
     for i in range(0, len(gate_args), 4):
         metric, comp, thresh, req = gate_args[i : i + 4]
@@ -71,7 +71,12 @@ def _parse_inline_gates(gate_args: list[str]) -> list[QualityGate]:
         except ValueError as exc:  # pragma: no cover - argparse validation should catch
             raise SystemExit(f"Invalid threshold: {thresh}") from exc
         gates.append(
-            QualityGate(metric_name=metric, threshold=threshold, comparison=comp, required=required)
+            QualityGate(
+                metric_name=metric,
+                threshold=threshold,
+                comparison=comp,
+                required=required,
+            ),
         )
     return gates
 

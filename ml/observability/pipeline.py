@@ -199,6 +199,7 @@ def scale_health_scores(
         return df
     df = df.copy()
     df["health_score"] = (df["health_score"].astype(float) * float(factor)).clip(
-        lower=0.0, upper=1.0
+        lower=0.0,
+        upper=1.0,
     )
     return df

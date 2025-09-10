@@ -1,9 +1,10 @@
 """
 Pairwise/Combinatorial tests for configuration combinations.
 
-These tests use pairwise testing to efficiently cover interactions between
-configuration parameters without testing every possible combination.
-This dramatically reduces test count while still catching most bugs.
+These tests use pairwise testing to efficiently cover interactions between configuration
+parameters without testing every possible combination. This dramatically reduces test
+count while still catching most bugs.
+
 """
 
 from __future__ import annotations
@@ -27,13 +28,16 @@ from nautilus_trader.model.identifiers import Venue
 @pytest.mark.serial
 @pytest.mark.redis
 class TestConfigurationCombinations:
-    """Test pairwise combinations of configuration parameters."""
+    """
+    Test pairwise combinations of configuration parameters.
+    """
 
     def test_feature_config_pairwise(self):
         """
         Test pairwise combinations of feature configuration parameters.
 
         Instead of testing all 2^n combinations, test pairwise interactions.
+
         """
         # Define parameter space based on actual FeatureConfig API
         parameters = {
@@ -49,24 +53,36 @@ class TestConfigurationCombinations:
         }
 
         # Generate pairwise combinations
-        pairs = list(AllPairs([
-            parameters["return_periods"],
-            parameters["momentum_periods"],
-            parameters["rsi_period"],
-            parameters["bb_period"],
-            parameters["bb_std"],
-            parameters["atr_period"],
-            parameters["volume_ma_periods"],
-            parameters["include_microstructure"],
-            parameters["include_trade_flow"],
-        ]))
+        pairs = list(
+            AllPairs(
+                [
+                    parameters["return_periods"],
+                    parameters["momentum_periods"],
+                    parameters["rsi_period"],
+                    parameters["bb_period"],
+                    parameters["bb_std"],
+                    parameters["atr_period"],
+                    parameters["volume_ma_periods"],
+                    parameters["include_microstructure"],
+                    parameters["include_trade_flow"],
+                ],
+            ),
+        )
 
         # Test each pairwise combination
         valid_configs = 0
         for combo in pairs:
-            (return_periods, momentum_periods, rsi_period, bb_period,
-             bb_std, atr_period, volume_ma_periods,
-             include_microstructure, include_trade_flow) = combo
+            (
+                return_periods,
+                momentum_periods,
+                rsi_period,
+                bb_period,
+                bb_std,
+                atr_period,
+                volume_ma_periods,
+                include_microstructure,
+                include_trade_flow,
+            ) = combo
 
             # Create configuration
             config = FeatureConfig(
@@ -94,17 +110,20 @@ class TestConfigurationCombinations:
         pairwise_count = len(pairs)
 
         # Pairwise should be much smaller
-        assert pairwise_count < full_count / 10, \
-            f"Pairwise ({pairwise_count}) should be much smaller than full ({full_count})"
+        assert (
+            pairwise_count < full_count / 10
+        ), f"Pairwise ({pairwise_count}) should be much smaller than full ({full_count})"
 
-        print(f"Pairwise testing: {pairwise_count} tests instead of {full_count} (reduction: {100*(1-pairwise_count/full_count):.1f}%)")
+        print(
+            f"Pairwise testing: {pairwise_count} tests instead of {full_count} (reduction: {100*(1-pairwise_count/full_count):.1f}%)",
+        )
 
     @pytest.mark.database
     @pytest.mark.serial
     def test_model_instrument_timeframe_pairwise(self):
         """
-        Test pairwise combinations of model configurations across
-        different instruments and timeframes.
+        Test pairwise combinations of model configurations across different instruments
+        and timeframes.
         """
         # Define parameter space
         model_types = ["xgboost", "lightgbm", "neural_net"]
@@ -115,19 +134,29 @@ class TestConfigurationCombinations:
         confidence_thresholds = [0.3, 0.5, 0.7]
 
         # Generate pairwise combinations
-        pairs = list(AllPairs([
-            model_types,
-            instruments,
-            timeframes,
-            feature_sets,
-            warm_up_periods,
-            confidence_thresholds,
-        ]))
+        pairs = list(
+            AllPairs(
+                [
+                    model_types,
+                    instruments,
+                    timeframes,
+                    feature_sets,
+                    warm_up_periods,
+                    confidence_thresholds,
+                ],
+            ),
+        )
 
         # Test each combination
         for combo in pairs:
-            (model_type, instrument, timeframe, feature_set,
-             warm_up, threshold) = combo
+            (
+                model_type,
+                instrument,
+                timeframe,
+                feature_set,
+                warm_up,
+                threshold,
+            ) = combo
 
             # Create bar type
             bar_type_str = f"{instrument}-{timeframe}-BID-EXTERNAL"
@@ -143,11 +172,19 @@ class TestConfigurationCombinations:
             )
 
         # Calculate reduction
-        full_count = len(model_types) * len(instruments) * len(timeframes) * \
-                    len(feature_sets) * len(warm_up_periods) * len(confidence_thresholds)
+        full_count = (
+            len(model_types)
+            * len(instruments)
+            * len(timeframes)
+            * len(feature_sets)
+            * len(warm_up_periods)
+            * len(confidence_thresholds)
+        )
         pairwise_count = len(pairs)
 
-        print(f"Model config testing: {pairwise_count} tests instead of {full_count} (reduction: {100*(1-pairwise_count/full_count):.1f}%)")
+        print(
+            f"Model config testing: {pairwise_count} tests instead of {full_count} (reduction: {100*(1-pairwise_count/full_count):.1f}%)",
+        )
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -164,20 +201,30 @@ class TestConfigurationCombinations:
         retention_days = [30, 90, 365]
 
         # Generate pairwise combinations
-        pairs = list(AllPairs([
-            backends,
-            batch_sizes,
-            cache_enabled,
-            compression,
-            partitioning,
-            retention_days,
-        ]))
+        pairs = list(
+            AllPairs(
+                [
+                    backends,
+                    batch_sizes,
+                    cache_enabled,
+                    compression,
+                    partitioning,
+                    retention_days,
+                ],
+            ),
+        )
 
         # Test each combination
         valid_configs = []
         for combo in pairs:
-            (backend, batch_size, cache, compress,
-             partition, retention) = combo
+            (
+                backend,
+                batch_size,
+                cache,
+                compress,
+                partition,
+                retention,
+            ) = combo
 
             # Validate store configuration
             is_valid = self._validate_store_config(
@@ -196,11 +243,19 @@ class TestConfigurationCombinations:
         assert len(valid_configs) > 0, "Should have at least some valid store configurations"
 
         # Report coverage
-        full_count = len(backends) * len(batch_sizes) * len(cache_enabled) * \
-                    len(compression) * len(partitioning) * len(retention_days)
+        full_count = (
+            len(backends)
+            * len(batch_sizes)
+            * len(cache_enabled)
+            * len(compression)
+            * len(partitioning)
+            * len(retention_days)
+        )
         pairwise_count = len(pairs)
 
-        print(f"Store config testing: {pairwise_count} tests instead of {full_count} (reduction: {100*(1-pairwise_count/full_count):.1f}%)")
+        print(
+            f"Store config testing: {pairwise_count} tests instead of {full_count} (reduction: {100*(1-pairwise_count/full_count):.1f}%)",
+        )
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -209,6 +264,7 @@ class TestConfigurationCombinations:
         Test three-way interactions for critical parameter combinations.
 
         For the most critical parameters, test 3-way interactions.
+
         """
         # Critical parameters that might interact
         model_types = ["xgboost", "neural_net"]
@@ -250,7 +306,9 @@ class TestConfigurationCombinations:
         warm_up_period: int,
         confidence_threshold: float,
     ) -> bool:
-        """Validate a model configuration combination."""
+        """
+        Validate a model configuration combination.
+        """
         # Check for known incompatibilities
 
         # Neural nets might need more warm-up
@@ -279,7 +337,9 @@ class TestConfigurationCombinations:
         partitioning: str,
         retention_days: int,
     ) -> bool:
-        """Validate a store configuration combination."""
+        """
+        Validate a store configuration combination.
+        """
         # Check for incompatibilities
 
         # Redis might not support all compressions
@@ -299,7 +359,9 @@ class TestConfigurationCombinations:
         return True
 
     def _validate_three_way_interaction(self, **kwargs) -> bool:
-        """Validate a three-way parameter interaction."""
+        """
+        Validate a three-way parameter interaction.
+        """
         # Check for complex three-way interactions
 
         model = kwargs.get("model")
@@ -317,7 +379,9 @@ class TestConfigurationCombinations:
 @pytest.mark.database
 @pytest.mark.serial
 class TestConfigurationBoundaries:
-    """Test configuration parameters at their boundaries using pairwise testing."""
+    """
+    Test configuration parameters at their boundaries using pairwise testing.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -360,7 +424,9 @@ class TestConfigurationBoundaries:
         volatility_window: int,
         batch_size: int,
     ) -> bool:
-        """Validate a combination of boundary values."""
+        """
+        Validate a combination of boundary values.
+        """
         # Check for invalid combinations at boundaries
 
         # Zero warm-up with indicators that need history
@@ -387,7 +453,9 @@ class TestConfigurationBoundaries:
 @pytest.mark.database
 @pytest.mark.serial
 class TestFeatureCombinations:
-    """Test combinations of features to ensure compatibility."""
+    """
+    Test combinations of features to ensure compatibility.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -424,15 +492,20 @@ class TestFeatureCombinations:
                     incompatible_pairs.append((feature1, feature2))
 
         # Report results
-        print(f"Feature compatibility: {len(compatible_pairs)} compatible pairs, "
-              f"{len(incompatible_pairs)} incompatible pairs")
+        print(
+            f"Feature compatibility: {len(compatible_pairs)} compatible pairs, "
+            f"{len(incompatible_pairs)} incompatible pairs",
+        )
 
         # Ensure most features are compatible
-        assert len(compatible_pairs) > len(incompatible_pairs), \
-            "Most features should be compatible with each other"
+        assert len(compatible_pairs) > len(
+            incompatible_pairs,
+        ), "Most features should be compatible with each other"
 
     def _are_features_compatible(self, feature1: str, feature2: str) -> bool:
-        """Check if two features are compatible."""
+        """
+        Check if two features are compatible.
+        """
         # Define known incompatibilities
         incompatible = [
             ("returns", "log_returns"),  # Redundant
@@ -441,8 +514,7 @@ class TestFeatureCombinations:
 
         # Check for incompatibility
         for f1, f2 in incompatible:
-            if (feature1 == f1 and feature2 == f2) or \
-               (feature1 == f2 and feature2 == f1):
+            if (feature1 == f1 and feature2 == f2) or (feature1 == f2 and feature2 == f1):
                 return False
 
         return True

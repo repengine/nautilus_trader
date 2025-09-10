@@ -1,8 +1,9 @@
 """
 Exercise feature-time metric path in MLSignalActor._compute_features.
 
-Stubs indicator manager and feature engineer to avoid heavy runtime and
-monkeypatches the module-level histogram to assert observation.
+Stubs indicator manager and feature engineer to avoid heavy runtime and monkeypatches
+the module-level histogram to assert observation.
+
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ class _DummyHist:
         self.observed: list[tuple[dict[str, str], float]] = []
 
     def labels(self, **labels: str) -> _DummyHist:
-        """Return self to allow .observe() chaining"""
+        """
+        Return self to allow .observe() chaining.
+        """
         self._labels = labels
         return self
 
@@ -43,11 +46,12 @@ def test_compute_features_records_feature_time() -> None:
     actor._feature_store = None
     # Stub indicator manager
     actor._indicator_manager = SimpleNamespace(
-        update_from_bar=lambda bar: None, all_initialized=lambda: True,
+        update_from_bar=lambda bar: None,
+        all_initialized=lambda: True,
     )
     # Stub feature engineer
     actor._feature_engineer = SimpleNamespace(
-        calculate_features_online=lambda **kwargs: np.zeros(2, dtype=np.float32)
+        calculate_features_online=lambda **kwargs: np.zeros(2, dtype=np.float32),
     )
     # Required attributes
     actor._feature_buffer = np.zeros(2, dtype=np.float32)
@@ -64,4 +68,3 @@ def test_compute_features_records_feature_time() -> None:
     assert hist.observed, "Expected feature-time histogram observation"
     labels, value = hist.observed[-1]
     assert labels.get("feature_set_id") == "fs1"
-

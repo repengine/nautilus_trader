@@ -72,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
                     f"Computed features missing required manifest columns: {missing}",
                 )
             from typing import cast
+
             out_df = cast(Any, features_df[feature_names]).copy()
         except Exception as exc:  # pragma: no cover
             raise SystemExit(f"Feature computation failed: {exc}")
@@ -83,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"Input CSV missing required feature columns: {missing}",
             )
         from typing import cast
+
         out_df = cast(Any, df[feature_names]).copy()
 
     # Prepend index/group columns if present in input

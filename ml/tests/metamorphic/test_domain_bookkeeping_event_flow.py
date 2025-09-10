@@ -24,21 +24,25 @@ from nautilus_trader.core.uuid import UUID4
 @pytest.mark.metamorphic
 @pytest.mark.parallel_safe
 class TestEventEmissionMetamorphic:
-    """Metamorphic tests for event emission transformations."""
+    """
+    Metamorphic tests for event emission transformations.
+    """
 
     @given(
         base_events=st.lists(
-            st.fixed_dictionaries({
-                "event_id": st.uuids().map(str),
-                "instrument_id": st.text(min_size=5, max_size=15),
-                "ts_event": st.integers(min_value=1000, max_value=2**32),
-                "payload_size": st.integers(min_value=1, max_value=1000),
-                "domain": st.sampled_from(["data", "features", "models"])
-            }),
+            st.fixed_dictionaries(
+                {
+                    "event_id": st.uuids().map(str),
+                    "instrument_id": st.text(min_size=5, max_size=15),
+                    "ts_event": st.integers(min_value=1000, max_value=2**32),
+                    "payload_size": st.integers(min_value=1, max_value=1000),
+                    "domain": st.sampled_from(["data", "features", "models"]),
+                },
+            ),
             min_size=5,
-            max_size=50
+            max_size=50,
         ),
-        time_shift_ns=st.integers(min_value=1, max_value=1000000)  # Nanosecond shift
+        time_shift_ns=st.integers(min_value=1, max_value=1000000),  # Nanosecond shift
     )
     @settings(max_examples=30, deadline=5000)
     def test_time_shift_preserves_event_ordering(self, base_events, time_shift_ns):
@@ -81,22 +85,27 @@ class TestEventEmissionMetamorphic:
         if len(original_order) > 1:
             # Check that ordering relationships are preserved
             for i in range(len(original_order) - 1):
-                original_diff = original_order[i+1] - original_order[i]
-                shifted_diff = shifted_order[i+1] - shifted_order[i]
+                original_diff = original_order[i + 1] - original_order[i]
+                shifted_diff = shifted_order[i + 1] - shifted_order[i]
 
-                assert original_diff == shifted_diff, \
-                    "Time shift should preserve relative timestamp differences"
+                assert (
+                    original_diff == shifted_diff
+                ), "Time shift should preserve relative timestamp differences"
 
     @given(
         events_per_instrument=st.lists(
             st.integers(min_value=1, max_value=20),
             min_size=2,
-            max_size=10
+            max_size=10,
         ),
-        duplicate_factor=st.integers(min_value=2, max_value=5)
+        duplicate_factor=st.integers(min_value=2, max_value=5),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_event_duplication_maintains_partitioning(self, events_per_instrument, duplicate_factor):
+    def test_event_duplication_maintains_partitioning(
+        self,
+        events_per_instrument,
+        duplicate_factor,
+    ):
         """
         Metamorphic relation: Duplicating events should maintain per-instrument
         partitioning ratios but scale total counts.
@@ -116,7 +125,7 @@ class TestEventEmissionMetamorphic:
                     "event_id": str(UUID4()),
                     "instrument_id": instrument,
                     "ts_event": 1000000 + j,
-                    "domain": "data"
+                    "domain": "data",
                 }
                 original_events.append(event)
 
@@ -139,8 +148,9 @@ class TestEventEmissionMetamorphic:
 
         # Metamorphic relations:
         # 1. All instruments present in both sets
-        assert set(original_counts.keys()) == set(duplicated_counts.keys()), \
-            "Duplication should preserve instrument set"
+        assert set(original_counts.keys()) == set(
+            duplicated_counts.keys(),
+        ), "Duplication should preserve instrument set"
 
         # 2. Ratios between instruments preserved
         total_original = sum(original_counts.values())
@@ -150,33 +160,41 @@ class TestEventEmissionMetamorphic:
             original_ratio = original_counts[instrument] / total_original
             duplicated_ratio = duplicated_counts[instrument] / total_duplicated
 
-            assert abs(original_ratio - duplicated_ratio) < 1e-10, \
-                "Duplication should preserve per-instrument ratios"
+            assert (
+                abs(original_ratio - duplicated_ratio) < 1e-10
+            ), "Duplication should preserve per-instrument ratios"
 
         # 3. Total count scaled by duplication factor
-        assert total_duplicated == total_original * duplicate_factor, \
-            "Total event count should scale by duplication factor"
+        assert (
+            total_duplicated == total_original * duplicate_factor
+        ), "Total event count should scale by duplication factor"
 
 
 @pytest.mark.metamorphic
 @pytest.mark.parallel_safe
 class TestCrossDomainPropagationMetamorphic:
-    """Metamorphic tests for cross-domain event propagation transformations."""
+    """
+    Metamorphic tests for cross-domain event propagation transformations.
+    """
 
     @given(
         initial_domains=st.lists(
             st.sampled_from(["data", "features", "models"]),
             min_size=5,
-            max_size=20
+            max_size=20,
         ),
         propagation_delays=st.lists(
             st.integers(min_value=1, max_value=100),
             min_size=5,
-            max_size=20
-        )
+            max_size=20,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_propagation_delay_scaling_preserves_causality(self, initial_domains, propagation_delays):
+    def test_propagation_delay_scaling_preserves_causality(
+        self,
+        initial_domains,
+        propagation_delays,
+    ):
         """
         Metamorphic relation: Scaling all propagation delays by constant factor
         should preserve causality relationships but scale total latency.
@@ -196,20 +214,24 @@ class TestCrossDomainPropagationMetamorphic:
         scaled_chain = []
 
         def track_original_propagation(source_domain, target_domain, delay):
-            original_chain.append({
-                "source": source_domain,
-                "target": target_domain,
-                "delay": delay,
-                "timestamp": len(original_chain) * 1000 + delay
-            })
+            original_chain.append(
+                {
+                    "source": source_domain,
+                    "target": target_domain,
+                    "delay": delay,
+                    "timestamp": len(original_chain) * 1000 + delay,
+                },
+            )
 
         def track_scaled_propagation(source_domain, target_domain, delay):
-            scaled_chain.append({
-                "source": source_domain,
-                "target": target_domain,
-                "delay": delay,
-                "timestamp": len(scaled_chain) * 1000 + delay
-            })
+            scaled_chain.append(
+                {
+                    "source": source_domain,
+                    "target": target_domain,
+                    "delay": delay,
+                    "timestamp": len(scaled_chain) * 1000 + delay,
+                },
+            )
 
         mock_integration_manager.propagate_event = track_original_propagation
 
@@ -233,8 +255,9 @@ class TestCrossDomainPropagationMetamorphic:
             original_relationships = [(step["source"], step["target"]) for step in original_chain]
             scaled_relationships = [(step["source"], step["target"]) for step in scaled_chain]
 
-            assert original_relationships == scaled_relationships, \
-                "Delay scaling should preserve causality relationships"
+            assert (
+                original_relationships == scaled_relationships
+            ), "Delay scaling should preserve causality relationships"
 
             # Metamorphic relation: Total latency scaled proportionally
             if len(original_chain) > 1 and len(scaled_chain) > 1:
@@ -242,15 +265,16 @@ class TestCrossDomainPropagationMetamorphic:
                 scaled_total_delay = sum(step["delay"] for step in scaled_chain)
 
                 expected_scaled_delay = int(original_total_delay * scale_factor)
-                assert abs(scaled_total_delay - expected_scaled_delay) <= len(original_chain), \
-                    "Total propagation delay should scale proportionally"
+                assert abs(scaled_total_delay - expected_scaled_delay) <= len(
+                    original_chain,
+                ), "Total propagation delay should scale proportionally"
 
     @given(
         domain_sequence=st.lists(
             st.sampled_from(["data", "features", "models", "strategies"]),
             min_size=3,
-            max_size=8
-        )
+            max_size=8,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_domain_sequence_reversal_inverts_dependencies(self, domain_sequence):
@@ -287,8 +311,9 @@ class TestCrossDomainPropagationMetamorphic:
 
         if len(forward_propagations) > 0 and len(reverse_propagations) > 0:
             # Metamorphic relation: Same number of propagation steps
-            assert len(forward_propagations) == len(reverse_propagations), \
-                "Sequence reversal should preserve propagation step count"
+            assert len(forward_propagations) == len(
+                reverse_propagations,
+            ), "Sequence reversal should preserve propagation step count"
 
             # Metamorphic relation: Dependency direction inverted
             forward_edges = set(forward_propagations)
@@ -305,30 +330,39 @@ class TestCrossDomainPropagationMetamorphic:
                 # Measure correct inversions: edges that appear reversed
                 inverted_matches = len(inverted_edges & reverse_edges)
                 required = max(1, int(len(forward_nonself) * 0.5))
-                assert inverted_matches >= required, \
-                    "Most dependencies should be inverted in reverse sequence"
+                assert (
+                    inverted_matches >= required
+                ), "Most dependencies should be inverted in reverse sequence"
 
 
 @pytest.mark.metamorphic
 @pytest.mark.parallel_safe
 class TestMessageBusTopicMetamorphic:
-    """Metamorphic tests for message bus topic routing transformations."""
+    """
+    Metamorphic tests for message bus topic routing transformations.
+    """
 
     @given(
         base_topics=st.lists(
-            st.fixed_dictionaries({
-                "domain": st.sampled_from(["data", "features", "models"]),
-                "operation": st.sampled_from(["created", "updated"]),
-                "instrument_id": st.text(min_size=5, max_size=15),
-                "subscriber_count": st.integers(min_value=0, max_value=100)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "domain": st.sampled_from(["data", "features", "models"]),
+                    "operation": st.sampled_from(["created", "updated"]),
+                    "instrument_id": st.text(min_size=5, max_size=15),
+                    "subscriber_count": st.integers(min_value=0, max_value=100),
+                },
+            ),
             min_size=10,
-            max_size=50
+            max_size=50,
         ),
-        topic_prefix_change=st.text(min_size=2, max_size=10)
+        topic_prefix_change=st.text(min_size=2, max_size=10),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_topic_prefix_transformation_preserves_structure(self, base_topics, topic_prefix_change):
+    def test_topic_prefix_transformation_preserves_structure(
+        self,
+        base_topics,
+        topic_prefix_change,
+    ):
         """
         Metamorphic relation: Changing topic prefix should preserve subscriber
         distribution patterns and relative topic popularity.
@@ -341,7 +375,9 @@ class TestMessageBusTopicMetamorphic:
 
         for topic_info in base_topics:
             # Original topic
-            original_topic = f"ml.{topic_info['domain']}.{topic_info['operation']}.{topic_info['instrument_id']}"
+            original_topic = (
+                f"ml.{topic_info['domain']}.{topic_info['operation']}.{topic_info['instrument_id']}"
+            )
             original_topic_stats[original_topic] = topic_info["subscriber_count"]
 
             # Transformed topic (different prefix)
@@ -350,15 +386,17 @@ class TestMessageBusTopicMetamorphic:
 
         # Metamorphic relations:
         # 1. Same number of topics
-        assert len(original_topic_stats) == len(transformed_topic_stats), \
-            "Topic prefix change should preserve topic count"
+        assert len(original_topic_stats) == len(
+            transformed_topic_stats,
+        ), "Topic prefix change should preserve topic count"
 
         # 2. Total subscriber count preserved
         original_total_subscribers = sum(original_topic_stats.values())
         transformed_total_subscribers = sum(transformed_topic_stats.values())
 
-        assert original_total_subscribers == transformed_total_subscribers, \
-            "Topic prefix change should preserve total subscriber count"
+        assert (
+            original_total_subscribers == transformed_total_subscribers
+        ), "Topic prefix change should preserve total subscriber count"
 
         # 3. Relative subscriber distribution preserved
         if original_total_subscribers > 0:
@@ -372,27 +410,41 @@ class TestMessageBusTopicMetamorphic:
                 original_topic = f"ml.{domain}.{operation}.{instrument_id}"
                 transformed_topic = f"{topic_prefix_change}.{domain}.{operation}.{instrument_id}"
 
-                if original_topic in original_topic_stats and transformed_topic in transformed_topic_stats:
-                    original_ratio = original_topic_stats[original_topic] / original_total_subscribers
-                    transformed_ratio = transformed_topic_stats[transformed_topic] / transformed_total_subscribers
+                if (
+                    original_topic in original_topic_stats
+                    and transformed_topic in transformed_topic_stats
+                ):
+                    original_ratio = (
+                        original_topic_stats[original_topic] / original_total_subscribers
+                    )
+                    transformed_ratio = (
+                        transformed_topic_stats[transformed_topic] / transformed_total_subscribers
+                    )
 
-                    assert abs(original_ratio - transformed_ratio) < 1e-10, \
-                        "Topic prefix change should preserve subscriber distribution ratios"
+                    assert (
+                        abs(original_ratio - transformed_ratio) < 1e-10
+                    ), "Topic prefix change should preserve subscriber distribution ratios"
 
     @given(
         subscription_patterns=st.lists(
-            st.fixed_dictionaries({
-                "domain_filter": st.sampled_from(["data", "features", "models", "*"]),
-                "operation_filter": st.sampled_from(["created", "updated", "*"]),
-                "subscriber_priority": st.integers(min_value=1, max_value=10)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "domain_filter": st.sampled_from(["data", "features", "models", "*"]),
+                    "operation_filter": st.sampled_from(["created", "updated", "*"]),
+                    "subscriber_priority": st.integers(min_value=1, max_value=10),
+                },
+            ),
             min_size=5,
-            max_size=20
+            max_size=20,
         ),
-        filter_specificity_change=st.sampled_from(["more_specific", "more_general"])
+        filter_specificity_change=st.sampled_from(["more_specific", "more_general"]),
     )
     @settings(max_examples=30, deadline=5000)
-    def test_subscription_filter_specificity_affects_match_count(self, subscription_patterns, filter_specificity_change):
+    def test_subscription_filter_specificity_affects_match_count(
+        self,
+        subscription_patterns,
+        filter_specificity_change,
+    ):
         """
         Metamorphic relation: Making filters more specific should reduce matches,
         making them more general should increase matches.
@@ -403,16 +455,19 @@ class TestMessageBusTopicMetamorphic:
         test_event = {
             "domain": "features",
             "operation": "updated",
-            "instrument_id": "TEST.SYMBOL"
+            "instrument_id": "TEST.SYMBOL",
         }
 
         # Count matches for original filters
         original_matches = 0
         for pattern in subscription_patterns:
-            domain_match = (pattern["domain_filter"] == "*" or
-                          pattern["domain_filter"] == test_event["domain"])
-            operation_match = (pattern["operation_filter"] == "*" or
-                             pattern["operation_filter"] == test_event["operation"])
+            domain_match = (
+                pattern["domain_filter"] == "*" or pattern["domain_filter"] == test_event["domain"]
+            )
+            operation_match = (
+                pattern["operation_filter"] == "*"
+                or pattern["operation_filter"] == test_event["operation"]
+            )
 
             if domain_match and operation_match:
                 original_matches += 1
@@ -438,18 +493,23 @@ class TestMessageBusTopicMetamorphic:
         # Count matches for transformed filters
         transformed_matches = 0
         for pattern in transformed_patterns:
-            domain_match = (pattern["domain_filter"] == "*" or
-                          pattern["domain_filter"] == test_event["domain"])
-            operation_match = (pattern["operation_filter"] == "*" or
-                             pattern["operation_filter"] == test_event["operation"])
+            domain_match = (
+                pattern["domain_filter"] == "*" or pattern["domain_filter"] == test_event["domain"]
+            )
+            operation_match = (
+                pattern["operation_filter"] == "*"
+                or pattern["operation_filter"] == test_event["operation"]
+            )
 
             if domain_match and operation_match:
                 transformed_matches += 1
 
         # Metamorphic relation: Specificity affects match count predictably
         if filter_specificity_change == "more_specific":
-            assert transformed_matches <= original_matches, \
-                "More specific filters should reduce or maintain match count"
+            assert (
+                transformed_matches <= original_matches
+            ), "More specific filters should reduce or maintain match count"
         else:  # more_general
-            assert transformed_matches >= original_matches, \
-                "More general filters should increase or maintain match count"
+            assert (
+                transformed_matches >= original_matches
+            ), "More general filters should increase or maintain match count"

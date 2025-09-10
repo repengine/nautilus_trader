@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import types
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -14,9 +15,11 @@ from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
 
 
-@dataclass
+@dataclass(frozen=True)
 class TFTTeacherConfig(TeacherConfig):
     architecture: str = "TFT"
+    #: Loss function name: "poisson" (default) or "bce".
+    loss_name: str = "poisson"
 
 
 class TFTTeacher(BaseTeacher):
@@ -27,6 +30,7 @@ class TFTTeacher(BaseTeacher):
     -----
     - Heavy dependencies are imported lazily to keep import-time light.
     - Designed for binary classification with logits output.
+
     """
 
     def __init__(
@@ -75,12 +79,24 @@ class TFTTeacher(BaseTeacher):
         assert pd is not None
 
         # Local imports to avoid heavy deps at import time
+        pl_module: types.ModuleType
         try:  # pragma: no cover - exercised in integration test
-            import pytorch_lightning as pl
+            try:
+                import lightning.pytorch as _lpl  # Prefer modern import to align class identity
+
+                pl_module = _lpl
+            except Exception:  # pragma: no cover
+                import pytorch_lightning as _pl  # Fallback alias
+
+                pl_module = _pl
             import torch
             from pytorch_forecasting import TemporalFusionTransformer
             from pytorch_forecasting import TimeSeriesDataSet
-            from pytorch_forecasting.metrics import TorchLoss
+
+            # Use a supported loss for single-output regression to 0/1 targets
+            from pytorch_forecasting.metrics import PoissonLoss
+
+            from ml.training.teacher.losses import BCEWithLogitsLossPF
         except Exception as exc:  # pragma: no cover
             raise ImportError(
                 "pytorch-forecasting + pytorch-lightning are required for TFT training",
@@ -101,14 +117,28 @@ class TFTTeacher(BaseTeacher):
         df_train = df_sorted.iloc[:cutoff_idx]
         _df_val = df_sorted.iloc[cutoff_idx:]
 
+        # Fill missing numeric values to satisfy TimeSeriesDataSet requirements
+        try:
+            num_cols = df_train.select_dtypes(include=["number"]).columns
+        except Exception:
+            num_cols = [c for c in df_train.columns if pd.api.types.is_numeric_dtype(df_train[c])]
+        if len(num_cols) > 0:
+            df_train.loc[:, num_cols] = df_train.loc[:, num_cols].fillna(0)
+            df_sorted.loc[:, num_cols] = df_sorted.loc[:, num_cols].fillna(0)
+
         # Default unknown reals: use all features not in control columns
         if not self.time_varying_unknown_reals:
             control_cols = {self.time_idx_col, self.group_id_col, self.target_col}
             control_cols.update(self.static_categoricals)
             control_cols.update(self.static_reals)
             control_cols.update(self.time_varying_known_reals)
+            # Only include numeric columns as unknown reals to avoid string/time fields like 'timestamp'
+            try:
+                numeric_cols = set(df.select_dtypes(include=["number"]).columns)
+            except Exception:
+                numeric_cols = {c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])}
             self.time_varying_unknown_reals = [
-                c for c in df.columns if c not in control_cols
+                c for c in df.columns if c in numeric_cols and c not in control_cols
             ]
 
         training = TimeSeriesDataSet(
@@ -126,12 +156,25 @@ class TFTTeacher(BaseTeacher):
         )
 
         # Use the full sorted dataset for validation to ensure sufficient encoder history
-        val = TimeSeriesDataSet.from_dataset(training, df_sorted, predict=False, stop_randomization=True)
+        val = TimeSeriesDataSet.from_dataset(
+            training,
+            df_sorted,
+            predict=False,
+            stop_randomization=True,
+        )
 
         train_loader = training.to_dataloader(train=True, batch_size=64, num_workers=0)
         val_loader = val.to_dataloader(train=False, batch_size=64, num_workers=0)
 
-        # Define model (binary classification via BCEWithLogitsLoss)
+        from typing import cast as _cast
+
+        cfg = _cast(TFTTeacherConfig, self.config)
+        # Define model with selected loss.
+        loss_obj: Any
+        if cfg.loss_name.lower() == "bce":
+            loss_obj = BCEWithLogitsLossPF()
+        else:
+            loss_obj = PoissonLoss()
         self._tft = TemporalFusionTransformer.from_dataset(
             training,
             learning_rate=3e-4,
@@ -139,19 +182,20 @@ class TFTTeacher(BaseTeacher):
             lstm_layers=self.lstm_layers,
             dropout=self.dropout,
             output_size=1,
-            loss=TorchLoss(torch.nn.BCEWithLogitsLoss()),
+            loss=loss_obj,
             attention_head_size=self.attention_head_size,
             log_interval=100,
         )
 
-        callbacks = pl.callbacks.EarlyStopping(monitor="val_loss", patience=1)
-        self._trainer = pl.Trainer(
+        callbacks = pl_module.callbacks.EarlyStopping(monitor="val_loss", patience=1)
+        accelerator = "gpu" if torch.cuda.is_available() else "cpu"
+        self._trainer = pl_module.Trainer(
             max_epochs=self.max_epochs,
             gradient_clip_val=1.0,
             enable_progress_bar=False,
             logger=False,
             callbacks=callbacks,
-            accelerator="cpu",
+            accelerator=accelerator,
             devices=1,
         )
         self._trainer.fit(self._tft, train_dataloaders=train_loader, val_dataloaders=val_loader)
@@ -177,7 +221,12 @@ class TFTTeacher(BaseTeacher):
 
         training = self._training_dataset
         assert training is not None
-        dataset = TimeSeriesDataSet.from_dataset(training, df, predict=True, stop_randomization=True)
+        dataset = TimeSeriesDataSet.from_dataset(
+            training,
+            df,
+            predict=True,
+            stop_randomization=True,
+        )
         loader = dataset.to_dataloader(train=False, batch_size=64, num_workers=0)
 
         # raw mode gives a dict with predictions before activation for BCEWithLogits

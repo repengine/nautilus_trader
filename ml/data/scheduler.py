@@ -673,12 +673,13 @@ class DataScheduler:
 
                         if isinstance(data[0], _MM):
                             logger.info(
-                                "Received mocked data; short-circuiting catalog write for test"
+                                "Received mocked data; short-circuiting catalog write for test",
                             )
                             return True
                     except Exception:
                         logger.debug(
-                            "Mock detection failed; proceeding with catalog write", exc_info=True
+                            "Mock detection failed; proceeding with catalog write",
+                            exc_info=True,
                         )
 
                     # Write to catalog with metrics
@@ -713,7 +714,9 @@ class DataScheduler:
 
                                 # Use the run_id from the collection run
                                 run_id = getattr(
-                                    self, "_current_run_id", f"scheduler_{time.time_ns()}"
+                                    self,
+                                    "_current_run_id",
+                                    f"scheduler_{time.time_ns()}",
                                 )
 
                                 # Determine dataset_id based on schema type
@@ -726,7 +729,7 @@ class DataScheduler:
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,
                                     instrument_id=str(
-                                        InstrumentId.from_str(f"{symbol_code}.{venue}")
+                                        InstrumentId.from_str(f"{symbol_code}.{venue}"),
                                     ),
                                     stage=_stage.CATALOG_WRITTEN.value,
                                     source=_source.HISTORICAL.value,
@@ -741,7 +744,7 @@ class DataScheduler:
                                 self._data_registry.update_watermark(
                                     dataset_id=dataset_id,
                                     instrument_id=str(
-                                        InstrumentId.from_str(f"{symbol_code}.{venue}")
+                                        InstrumentId.from_str(f"{symbol_code}.{venue}"),
                                     ),
                                     source=_source.HISTORICAL.value,
                                     last_success_ns=ts_max,
@@ -781,7 +784,9 @@ class DataScheduler:
                         if self._data_registry is not None:
                             try:
                                 run_id = getattr(
-                                    self, "_current_run_id", f"scheduler_{time.time_ns()}"
+                                    self,
+                                    "_current_run_id",
+                                    f"scheduler_{time.time_ns()}",
                                 )
                                 schema_type = self.config.databento.schema.split("-")[0].upper()
                                 dataset_id = f"{schema_type}_{symbol_code}_{venue}".lower()
@@ -789,7 +794,7 @@ class DataScheduler:
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,
                                     instrument_id=str(
-                                        InstrumentId.from_str(f"{symbol_code}.{venue}")
+                                        InstrumentId.from_str(f"{symbol_code}.{venue}"),
                                     ),
                                     stage=_stage.CATALOG_WRITTEN.value,
                                     source=_source.HISTORICAL.value,
@@ -811,7 +816,7 @@ class DataScheduler:
                                     ).inc()
                             except Exception as e:
                                 logger.warning(
-                                    f"Failed to emit failure event for {symbol_code}: {e}"
+                                    f"Failed to emit failure event for {symbol_code}: {e}",
                                 )
 
                         raise

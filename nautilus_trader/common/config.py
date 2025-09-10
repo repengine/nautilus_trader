@@ -100,7 +100,7 @@ def nautilus_schema_hook(type_: type[Any]) -> dict[str, Any]:
     raise TypeError(f"Unsupported type for schema generation: {type_}")
 
 
-def msgspec_encoding_hook(obj: Any) -> Any:  # noqa: C901 (too complex)
+def msgspec_encoding_hook(obj: Any) -> Any:
     if isinstance(obj, type):
         return str(type)
     if isinstance(obj, Decimal):
@@ -126,7 +126,7 @@ def msgspec_encoding_hook(obj: Any) -> Any:  # noqa: C901 (too complex)
     raise TypeError(f"Encoding objects of type {obj.__class__} is unsupported")
 
 
-def msgspec_decoding_hook(obj_type: type, obj: Any) -> Any:  # noqa: C901 (too complex)
+def msgspec_decoding_hook(obj_type: type, obj: Any) -> Any:
     if obj_type in (Decimal, pd.Timestamp, pd.Timedelta):
         return obj_type(obj)
     if obj_type == UUID4:

@@ -407,7 +407,11 @@ class DummyStore:
 
     # Strategy store protocol methods (dummy implementations)
     def read_signals(
-        self, strategy_id: str, instrument_id: str, start_ns: int, end_ns: int
+        self,
+        strategy_id: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
     ) -> object | None:
         return None
 

@@ -33,11 +33,11 @@ def test_fred_lag_increases_nulls(n_releases: int, n_rows: int, step: int) -> No
             "timestamp": pl.Series(fred_ts).cast(pl.Datetime("ns")),
             "series_id": ["S"] * n_releases,
             "value": list(range(n_releases)),
-        }
+        },
     )
     left_ts = _timeseries(base_ns, n_rows, step)
     left = pl.DataFrame(
-        {"timestamp": pl.Series(left_ts).cast(pl.Datetime("ns")), "x": list(range(n_rows))}
+        {"timestamp": pl.Series(left_ts).cast(pl.Datetime("ns")), "x": list(range(n_rows))},
     )
 
     out0 = join_fred_asof(left, timestamp_col="timestamp", lag_days=0)

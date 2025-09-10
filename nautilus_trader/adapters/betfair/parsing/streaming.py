@@ -75,7 +75,7 @@ PARSE_TYPES = (
 BETFAIR_SEQUENCE_COMPLETED_DATA_TYPE = DataType(BetfairSequenceCompleted)
 
 
-def market_change_to_updates(  # noqa: C901
+def market_change_to_updates(
     mc: MarketChange,
     traded_volumes: dict[InstrumentId, dict[float, float]],
     ts_event: int,

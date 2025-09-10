@@ -16,4 +16,3 @@ def test_ml_actor_config_has_integration_fields() -> None:
     )
     assert cfg.db_connection is None
     assert cfg.use_dummy_stores is True
-

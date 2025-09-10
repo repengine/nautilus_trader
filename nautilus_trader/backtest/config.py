@@ -265,7 +265,7 @@ class BacktestDataConfig(NautilusConfig, frozen=True):
             return self.data_cls
 
     @property
-    def query(self) -> dict[str, Any]:  # noqa: C901
+    def query(self) -> dict[str, Any]:
         """
         Return a catalog query object for the configuration.
 

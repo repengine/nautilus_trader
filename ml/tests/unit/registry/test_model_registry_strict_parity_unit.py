@@ -1,5 +1,6 @@
 """
-Strict parity mismatch raises in ModelRegistry when serveable and feature_set_id missing.
+Strict parity mismatch raises in ModelRegistry when serveable and feature_set_id
+missing.
 """
 
 from __future__ import annotations
@@ -17,10 +18,16 @@ from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 
 
-def test_strict_parity_requires_feature_set_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_strict_parity_requires_feature_set_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ML_STRICT_FEATURE_PARITY", "1")
     reg_dir = tmp_path / "registry"
-    reg = ModelRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    reg = ModelRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     model_path = reg_dir / "m.onnx"
     model_path.write_bytes(b"onnx")
@@ -38,4 +45,3 @@ def test_strict_parity_requires_feature_set_id(tmp_path: Path, monkeypatch: pyte
     )
     with pytest.raises(ValueError):
         reg.register_model(model_path=model_path, manifest=manifest, auto_deploy=False)
-

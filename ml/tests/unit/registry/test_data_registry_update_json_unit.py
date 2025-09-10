@@ -37,11 +37,13 @@ def _manifest(dataset_id: str) -> DatasetManifest:
 
 def test_update_manifest_and_get_json(tmp_path: Path) -> None:
     reg_dir = tmp_path / "registry"
-    reg = DataRegistry(registry_path=reg_dir, persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir))
+    reg = DataRegistry(
+        registry_path=reg_dir,
+        persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
+    )
 
     mid = reg.register_dataset(_manifest("ds1"))
     reg.update_manifest(mid, {"retention_days": 30, "version": "1.1.0"})
     m = reg.get_manifest(mid)
     assert m.retention_days == 30
     assert m.version == "1.1.0"
-

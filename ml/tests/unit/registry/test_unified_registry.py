@@ -250,6 +250,7 @@ class TestUnifiedRegistry:
             except Exception:
                 # Expected - our test data isn't valid ONNX
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Expected ONNX load failure in test",
                     exc_info=True,

@@ -14,63 +14,74 @@ Tests are organized by component type into subdirectories:
 
 #### `actors/`
 ML actor functionality:
+
 - `test_base_actor.py` - Base ML actor functionality
 - `test_inference_actor.py` - Actors that perform ML inference
 - `test_signal_actor.py` - Actors that generate trading signals
 
 #### `strategies/`
 ML trading strategies:
+
 - `test_base_strategy.py` - Base ML strategy functionality
 - `test_signal_strategies.py` - Strategies that consume ML signals
 
 #### `features/`
 Feature engineering and validation:
+
 - `test_feature_engineering.py` - Feature computation and transformation
 - `test_feature_validation.py` - Feature validation and quality checks
 - `feature_parity/` - Training/inference feature consistency tests
 
 #### `config/`
 Configuration classes and validation:
+
 - `test_config_classes.py` - General ML configuration classes
 - `test_ml_actor_config.py` - ML actor-specific configuration
 
 #### `data/`
 Data processing and loading:
+
 - `test_data_loader.py` - Data loading functionality
 - `test_data_structure.py` - ML-specific data structures
 
 #### `infrastructure/`
 Infrastructure components:
+
 - `test_dashboard_factory.py` - Monitoring dashboard creation
 - `test_grafana_client.py` - Grafana integration
 - `test_optuna_optimizer.py` - Hyperparameter optimization
 
 #### `meta/`
 Test infrastructure itself:
+
 - `test_fixtures.py` - Test fixtures and utilities
 - `test_init.py` - ML module initialization
 
 ### Legacy Specialized Subdirectories
 
-##### `collectors/`
+#### `collectors/`
 Resource monitoring and data collection components:
+
 - Base collector functionality
 - Resource usage tracking
 - Performance metrics collection
 
-##### `registry/`
+#### `registry/`
 Model registry management:
+
 - `test_registry_statistics.py` - Registry metrics and health
 - `test_registry_canary.py` - Registry health checks and monitoring
 
-##### `tracking/`
+#### `tracking/`
 Experiment and model tracking:
+
 - MLflow integration
 - Model versioning
 - Experiment metadata
 
-##### `training/`
+#### `training/`
 Training pipeline components:
+
 - Individual trainer unit tests (XGBoost, LightGBM)
 - Training configuration validation
 - Model serialization/deserialization
@@ -84,6 +95,7 @@ Training pipeline components:
 ## When to Add Unit Tests
 
 Add unit tests when:
+
 - Creating new classes or functions
 - Adding configuration options
 - Implementing data validation

@@ -33,4 +33,3 @@ def test_aggregate_health_summaries() -> None:
     assert summary["domains"]["features"]["healthy"] is True  # type: ignore[index]
     assert summary["domains"]["model"]["healthy"] is True  # type: ignore[index]
     assert summary["domains"]["strategy"]["healthy"] is True  # type: ignore[index]
-

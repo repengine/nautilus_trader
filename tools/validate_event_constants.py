@@ -21,7 +21,7 @@ STAGE_LITERALS = (
 )
 
 STAGE_ASSIGN_RE = re.compile(
-    r"stage\s*=\s*['\"](" + "|".join(map(re.escape, STAGE_LITERALS)) + r")['\"]"
+    r"stage\s*=\s*['\"](" + "|".join(map(re.escape, STAGE_LITERALS)) + r")['\"]",
 )
 
 

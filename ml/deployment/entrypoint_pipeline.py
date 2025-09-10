@@ -20,13 +20,11 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from flask import Flask
-from flask import Response, jsonify
-try:
-    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-except Exception:  # pragma: no cover - optional in non-monitoring tests
-    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
-    def generate_latest() -> bytes:  # type: ignore[override]
-        return b""  # empty payload when prometheus-client unavailable
+from flask import Response
+from flask import jsonify
+
+from ml.common.metrics_export import CONTENT_TYPE_LATEST
+from ml.common.metrics_export import generate_latest
 
 
 # Add the parent directory to the path
@@ -295,7 +293,9 @@ class PipelineRunner:
 
 
 def main() -> None:
-    """Run main entry point."""
+    """
+    Run main entry point.
+    """
     # Start health check server in background
     health_thread = threading.Thread(
         target=lambda: app.run(

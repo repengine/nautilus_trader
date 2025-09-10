@@ -41,7 +41,7 @@ ml/examples/
 1. **Foundation**: `simple_ml_actor.py` → Basic actor patterns and feature computation
 2. **Data Management**: `mandatory_stores_example.py` → Store integration and persistence
 3. **Feature Engineering**: `feature_store_example.py` → Training/inference parity
-4. **Registry Systems**: `strategy_registry_demo.py` → Component lifecycle management  
+4. **Registry Systems**: `strategy_registry_demo.py` → Component lifecycle management
 5. **Production Deployment**: `dry_run_example.py` → End-to-end system testing
 6. **Monitoring**: `scheduler_with_metrics.py` → Observability and metrics
 7. **Advanced Integration**: `tft_with_feature_store.py` → Complex model training workflows
@@ -52,6 +52,7 @@ ml/examples/
 
 #### Simple ML Actor (`simple_ml_actor.py`)
 Demonstrates fundamental ML actor implementation with technical indicators:
+
 - **BaseMLInferenceActor** inheritance with proper configuration handling
 - **Feature Computation**: Technical indicators (SMA, RSI, EMA) as feature engineering
 - **Model Loading**: Flexible model loading with fallback to dummy models
@@ -70,8 +71,9 @@ class SimpleMLActor(BaseMLInferenceActor):
 
 #### Mandatory Stores Example (`mandatory_stores_example.py`)
 Showcases the mandatory 4-store + 4-registry integration pattern:
+
 - **Automatic Store Initialization**: No configuration needed, stores work automatically
-- **Production vs Testing**: Automatic fallback from PostgreSQL to DummyStore  
+- **Production vs Testing**: Automatic fallback from PostgreSQL to DummyStore
 - **Data Persistence**: Every feature, prediction, and signal automatically stored
 - **Audit Trail**: Complete history for compliance and debugging
 - **Performance Benefits**: A/B testing, model drift detection, replay capabilities
@@ -80,6 +82,7 @@ Showcases the mandatory 4-store + 4-registry integration pattern:
 
 #### Strategy Registry Demo (`strategy_registry_demo.py`)
 Comprehensive strategy lifecycle management example:
+
 - **Strategy Manifests**: Complete metadata including performance metrics, requirements
 - **Market Regime Matching**: Query strategies by market conditions and instrument types
 - **Performance Ranking**: Sort strategies by Sharpe ratio, return, or custom metrics
@@ -89,6 +92,7 @@ Comprehensive strategy lifecycle management example:
 
 #### PostgreSQL Registry Demo (`postgres_registry_demo.py`)
 Backend comparison and migration patterns:
+
 - **Backend Types**: JSON file-based vs PostgreSQL database persistence
 - **Teacher-Student Models**: Demonstrates knowledge distillation workflows
 - **Model Deployment**: Track deployment status and target environments
@@ -99,6 +103,7 @@ Backend comparison and migration patterns:
 
 #### Dry Run Example (`dry_run_example.py`)
 Complete testing framework for ML trading systems:
+
 - **Risk-Free Testing**: Execute trades disabled, signal generation only
 - **Backtest Engine Integration**: Historical data simulation without live connections
 - **Configuration Validation**: Verify all components work together correctly
@@ -107,6 +112,7 @@ Complete testing framework for ML trading systems:
 
 #### Data Scheduler with Features (`scheduler_with_features.py`)
 Automated data collection with feature computation:
+
 - **Databento Integration**: Real-time market data ingestion configuration
 - **FeatureStore Integration**: Automatic feature computation and storage
 - **Symbol Universe Management**: Multi-asset data collection configuration
@@ -117,6 +123,7 @@ Automated data collection with feature computation:
 
 #### TFT with FeatureStore (`tft_with_feature_store.py`)
 Advanced model training with guaranteed feature parity:
+
 - **Training/Inference Parity**: Identical feature computation for both modes
 - **Dataset Builder Integration**: Polars-based efficient data preparation
 - **PostgreSQL Integration**: Direct access to Nautilus data warehouse
@@ -125,8 +132,9 @@ Advanced model training with guaranteed feature parity:
 
 #### Calendar Provider Demo (`calendar_provider_demo.py`)
 Market schedule and trading hours integration:
+
 - **Multi-Exchange Support**: NYSE, NASDAQ, LSE, JPX, crypto markets
-- **Holiday Detection**: Automatic market closure identification  
+- **Holiday Detection**: Automatic market closure identification
 - **Trading Hours**: Pre-market, regular hours, after-hours detection
 - **Time Zone Handling**: Proper UTC and local time conversions
 - **Schedule Queries**: Market open/close times and remaining trading time
@@ -134,6 +142,7 @@ Market schedule and trading hours integration:
 ## Dependencies
 
 ### Internal Dependencies
+
 - **ml.actors.base**: BaseMLInferenceActor and configuration classes
 - **ml.actors.signal**: MLSignalActor and signal generation strategies
 - **ml.stores**: All 4 mandatory stores (Feature, Model, Strategy, Data)
@@ -143,6 +152,7 @@ Market schedule and trading hours integration:
 - **ml.training.base**: BaseMLTrainer and training configuration
 
 ### External Dependencies
+
 - **nautilus_trader**: Core trading framework, data types, backtest engine
 - **numpy/polars**: Data processing and numerical computations
 - **requests**: HTTP client for metrics endpoint checking
@@ -151,6 +161,7 @@ Market schedule and trading hours integration:
 - **databento**: Real-time market data integration (optional)
 
 ### Framework Dependencies (Lazy-Loaded)
+
 - **onnxruntime**: ONNX model inference (for production models)
 - **xgboost/lightgbm**: ML framework models (for training examples)
 - **pickle**: Model serialization (DEPRECATED - security risk)
@@ -226,13 +237,15 @@ models_dir = create_dummy_models()
 ## Integration Points
 
 ### Nautilus Trader Integration
+
 - **Actor Framework**: Seamless integration with Nautilus actor lifecycle
 - **Data Types**: Proper use of InstrumentId, BarType, ComponentId
 - **Event System**: Message bus integration for signal publishing
 - **Backtest Engine**: Complete backtesting framework integration
 - **Configuration System**: msgspec-based configuration with validation
 
-### ML Pipeline Integration  
+### ML Pipeline Integration
+
 - **Store System**: Automatic integration with all 4 mandatory stores
 - **Registry System**: Component lifecycle and schema management
 - **Feature Engineering**: FeatureEngineer integration with parity validation
@@ -240,18 +253,21 @@ models_dir = create_dummy_models()
 - **Signal Generation**: Multiple signal strategies with confidence thresholds
 
 ### Data Source Integration
+
 - **Market Data**: Real-time and historical data ingestion
 - **External APIs**: Databento integration for professional market data
 - **Calendar Systems**: Trading schedule and holiday detection
 - **Database Systems**: PostgreSQL and SQLite integration
 
 ### Monitoring and Observability
+
 - **Prometheus Metrics**: Comprehensive metrics collection and export
 - **Health Monitoring**: Circuit breakers and health status tracking
 - **Performance Tracking**: Latency monitoring and SLA enforcement
 - **Audit Logging**: Complete operation trail for compliance
 
 ### Testing Framework Integration
+
 - **Mock Support**: DummyStore and DummyRegistry for isolated testing
 - **Fixture Generation**: Dummy model creation and test data generation
 - **Error Simulation**: Failure injection and recovery testing
@@ -260,30 +276,35 @@ models_dir = create_dummy_models()
 ## Implementation Notes
 
 ### Security and Safety
+
 - **Model Format Validation**: ONNX preferred, pickle deprecated (security risk)
 - **Input Sanitization**: Comprehensive validation of all user inputs
 - **Error Handling**: Graceful degradation and recovery mechanisms
 - **Audit Trail**: Complete logging of all operations for security compliance
 
 ### Performance Optimization
+
 - **Zero-Allocation Patterns**: Pre-allocated buffers in hot path
 - **Lazy Loading**: Framework dependencies loaded only when needed
 - **Efficient Data Structures**: Polars for large dataset operations
 - **Memory Management**: Bounded memory usage with reservoir sampling
 
 ### Configuration Management
+
 - **Type Safety**: Complete type annotations and validation
 - **Environment Integration**: Environment variable override support
 - **Layered Configuration**: File, environment, CLI override hierarchy
 - **Framework Detection**: Automatic adaptation based on available dependencies
 
 ### Error Handling and Resilience
+
 - **Circuit Breakers**: Prevent cascade failures in production
 - **Retry Logic**: Configurable retry policies for transient failures
 - **Fallback Mechanisms**: Graceful degradation when components unavailable
 - **Health Monitoring**: Continuous health assessment and alerting
 
 ### Development Workflow
+
 - **Progressive Complexity**: Examples ordered by difficulty and features
 - **Self-Contained**: Each example can run independently
 - **Comprehensive Documentation**: Detailed comments and docstrings
@@ -307,26 +328,31 @@ The examples module serves as the primary educational resource for ML system dev
 All examples demonstrate compliance with the 5 universal ML architecture patterns:
 
 ### ✅ Pattern 1: Mandatory 4-Store + 4-Registry Integration
+
 - Examples show automatic store initialization without configuration
 - Progressive fallback demonstrated from PostgreSQL to DummyStore
 - Property accessors showcase clean component interface
 
-### ✅ Pattern 2: Protocol-First Interface Design  
+### ✅ Pattern 2: Protocol-First Interface Design
+
 - Store protocols enable structural typing in examples
 - DummyStore compatibility demonstrated for testing scenarios
 - Clear separation between interface and implementation
 
 ### ✅ Pattern 3: Hot/Cold Path Separation
+
 - Performance budgets enforced in actor examples (<5ms P99)
 - Model loading relegated to cold path during initialization
 - Feature computation optimized for zero-allocation hot path
 
 ### ✅ Pattern 4: Progressive Fallback Chains
+
 - PostgreSQL → DummyStore fallback demonstrated with warnings
 - Registry loading → Direct file loading fallback patterns
 - Graceful degradation examples for missing dependencies
 
 ### ✅ Pattern 5: Centralized Metrics Bootstrap
+
 - All examples use `ml.common.metrics_bootstrap` for Prometheus metrics
 - No direct prometheus_client imports in example code
 - Safe metric registration patterns across module reloads

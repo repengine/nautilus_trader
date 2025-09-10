@@ -1,8 +1,9 @@
 """
 Additional branch coverage tests for MLTradingStrategy.
 
-Covers reversal and hold branches using a dummy self instance and
-stubs for methods/attributes.
+Covers reversal and hold branches using a dummy self instance and stubs for
+methods/attributes.
+
 """
 
 from __future__ import annotations
@@ -20,21 +21,34 @@ from nautilus_trader.model.identifiers import Venue
 
 class _Log:
     def info(self, *a: Any, **k: Any) -> None:
-        """No-op info"""
+        """
+        No-op info.
+        """
         return None
 
     def warning(self, *a: Any, **k: Any) -> None:
-        """No-op warn"""
+        """
+        No-op warn.
+        """
         return None
 
     def debug(self, *a: Any, **k: Any) -> None:
-        """No-op debug"""
+        """
+        No-op debug.
+        """
         return None
 
 
 def _sig(pred: float, conf: float = 0.8) -> MLSignal:
     inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
-    return MLSignal(instrument_id=inst, model_id="m1", prediction=pred, confidence=conf, ts_event=1, ts_init=1)
+    return MLSignal(
+        instrument_id=inst,
+        model_id="m1",
+        prediction=pred,
+        confidence=conf,
+        ts_event=1,
+        ts_init=1,
+    )
 
 
 def test_reversal_branch_dry_run() -> None:
@@ -87,4 +101,3 @@ def test_hold_branch_persists_decision() -> None:
     # Signal indicates BUY vs current LONG -> HOLD branch
     MLTradingStrategy._process_ml_signal(strat, _sig(0.9))  # type: ignore[misc]
     assert decisions and decisions[-1]["decision_type"] == "HOLD"
-

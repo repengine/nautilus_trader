@@ -412,7 +412,7 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
 
     # -- EXECUTION REPORTS ------------------------------------------------------------------------
 
-    async def generate_order_status_report(  # noqa: C901 (too complex)
+    async def generate_order_status_report(
         self,
         command: GenerateOrderStatusReport,
     ) -> OrderStatusReport | None:
@@ -964,7 +964,7 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
             position_side=position_side,
         )
 
-    async def _submit_trailing_stop_market_order(  # noqa: C901 (too complex)
+    async def _submit_trailing_stop_market_order(
         self,
         order: TrailingStopMarketOrder,
         position_side: BinanceFuturesPositionSide | None,

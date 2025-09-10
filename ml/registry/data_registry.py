@@ -715,6 +715,8 @@ class DataRegistry(MLComponentMixin):
                     ts_max=0,
                     count=0,
                 )
+                from ml.config.events import EventStatus
+
                 self.emit_event(
                     dataset_id=dataset_id,
                     instrument_id="*",
@@ -724,8 +726,8 @@ class DataRegistry(MLComponentMixin):
                     ts_min=0,
                     ts_max=0,
                     count=0,
-                    status="deprecated",
-                    metadata={"correlation_id": corr},
+                    status=EventStatus.SUCCESS.value,
+                    metadata={"correlation_id": corr, "deprecated": True},
                 )
             except Exception:
                 logger.debug("Failed to emit registry deprecate event", exc_info=True)

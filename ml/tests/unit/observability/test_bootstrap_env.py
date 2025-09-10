@@ -23,12 +23,13 @@ def env_vars(vars: dict[str, str]):
 
 def test_auto_start_if_configured_starts_flusher(tmp_path) -> None:
     mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
-    with env_vars({
-        "ML_OBS_SINK": "db",
-        "ML_OBS_DB_URL": f"sqlite:///{tmp_path}/obs.db",
-        "ML_OBS_INTERVAL_SECONDS": "0.01",
-    }):
+    with env_vars(
+        {
+            "ML_OBS_SINK": "db",
+            "ML_OBS_DB_URL": f"sqlite:///{tmp_path}/obs.db",
+            "ML_OBS_INTERVAL_SECONDS": "0.01",
+        },
+    ):
         auto_start_if_configured(mgr)
         assert getattr(mgr, "_obs_flusher", None) is not None
         MLIntegrationManager.stop_observability_flush(mgr)
-

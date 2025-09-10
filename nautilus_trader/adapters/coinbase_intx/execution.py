@@ -622,7 +622,7 @@ class CoinbaseIntxExecutionClient(LiveExecutionClient):
     def _is_external_order(self, client_order_id: ClientOrderId) -> bool:
         return not client_order_id or not self._cache.strategy_id_for_order(client_order_id)
 
-    def _handle_msg(self, msg: Any) -> None:  # noqa: C901 (too complex)
+    def _handle_msg(self, msg: Any) -> None:
         # Note: These FIX execution reports are using a default precision of 8 for now,
         # this avoids the need to track a separate cache down in Rust. Ensure all price
         # and quantity values are reinitialized using the instruments `make_price` and

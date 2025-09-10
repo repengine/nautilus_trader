@@ -48,7 +48,7 @@ def test_materialize_reorder_only(tmp_path: Path) -> None:
             "f2": [0.2, 0.3],
             "f1": [1.0, 2.0],
             "f3": [5.0, 6.0],
-        }
+        },
     )
     input_csv = tmp_path / "in.csv"
     output_csv = tmp_path / "out.csv"

@@ -1,9 +1,10 @@
 """
 Property-based tests for Store invariants.
 
-These tests verify mathematical properties and invariants that must hold
-regardless of the specific data or implementation details. They help catch
-edge cases and ensure correctness without brittle example-based tests.
+These tests verify mathematical properties and invariants that must hold regardless of
+the specific data or implementation details. They help catch edge cases and ensure
+correctness without brittle example-based tests.
+
 """
 
 from __future__ import annotations
@@ -36,7 +37,9 @@ from nautilus_trader.model.identifiers import Venue
 # Custom strategies for domain objects
 @st.composite
 def instrument_ids(draw):
-    """Generate valid instrument IDs."""
+    """
+    Generate valid instrument IDs.
+    """
     symbol = draw(st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=2, max_size=6))
     venue = draw(st.sampled_from(["SIM", "BINANCE", "FTX", "NASDAQ"]))
     return InstrumentId(Symbol(symbol), Venue(venue))
@@ -44,7 +47,9 @@ def instrument_ids(draw):
 
 @st.composite
 def nanosecond_timestamps(draw, min_value=None, max_value=None):
-    """Generate valid nanosecond timestamps."""
+    """
+    Generate valid nanosecond timestamps.
+    """
     if min_value is None:
         min_value = int(datetime(2020, 1, 1).timestamp() * 1e9)
     if max_value is None:
@@ -54,16 +59,20 @@ def nanosecond_timestamps(draw, min_value=None, max_value=None):
 
 @st.composite
 def feature_values(draw, n_features=None):
-    """Generate feature value dictionaries."""
+    """
+    Generate feature value dictionaries.
+    """
     if n_features is None:
         n_features = draw(st.integers(min_value=1, max_value=20))
 
     feature_names = [f"feature_{i}" for i in range(n_features)]
-    values = draw(st.lists(
-        st.floats(min_value=-1000, max_value=1000, allow_nan=False, allow_infinity=False),
-        min_size=n_features,
-        max_size=n_features
-    ))
+    values = draw(
+        st.lists(
+            st.floats(min_value=-1000, max_value=1000, allow_nan=False, allow_infinity=False),
+            min_size=n_features,
+            max_size=n_features,
+        ),
+    )
     return dict(zip(feature_names, values))
 
 
@@ -71,10 +80,14 @@ def feature_values(draw, n_features=None):
 @pytest.mark.database
 @pytest.mark.serial
 class TestFeatureStoreInvariants:
-    """Property tests for FeatureStore invariants."""
+    """
+    Property tests for FeatureStore invariants.
+    """
 
     def _create_dummy_store(self):
-        """Create a dummy feature store for testing."""
+        """
+        Create a dummy feature store for testing.
+        """
         with patch("ml.stores.feature_store.EngineManager") as mock_engine_manager:
             mock_engine = MagicMock()
             mock_engine_manager.get_engine.return_value = mock_engine
@@ -88,7 +101,7 @@ class TestFeatureStoreInvariants:
         instrument_id=instrument_ids(),
         feature_set_id=st.text(min_size=1, max_size=50),
         features=feature_values(),
-        ts_events=st.lists(nanosecond_timestamps(), min_size=1, max_size=100, unique=True)
+        ts_events=st.lists(nanosecond_timestamps(), min_size=1, max_size=100, unique=True),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -137,7 +150,7 @@ class TestFeatureStoreInvariants:
     @given(
         features1=feature_values(),
         features2=feature_values(),
-        scale_factor=st.floats(min_value=0.1, max_value=10.0, allow_nan=False)
+        scale_factor=st.floats(min_value=0.1, max_value=10.0, allow_nan=False),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -162,13 +175,14 @@ class TestFeatureStoreInvariants:
         if scale_factor != 0:
             reversed_features = {k: v / scale_factor for k, v in scaled_features.items()}
             for key in original_features:
-                assert abs(reversed_features[key] - original_features[key]) < 1e-10, \
-                    f"Feature {key} not reversible after scaling"
+                assert (
+                    abs(reversed_features[key] - original_features[key]) < 1e-10
+                ), f"Feature {key} not reversible after scaling"
 
     @given(
         n_partitions=st.integers(min_value=1, max_value=12),
         n_features=st.integers(min_value=100, max_value=1000),
-        year=st.integers(min_value=2020, max_value=2025)
+        year=st.integers(min_value=2020, max_value=2025),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -199,25 +213,27 @@ class TestFeatureStoreInvariants:
         # Property: Each timestamp should belong to exactly one partition
         for ts in timestamps:
             matching_partitions = [
-                i for i, (start, end) in enumerate(partition_boundaries)
-                if start <= ts <= end
+                i for i, (start, end) in enumerate(partition_boundaries) if start <= ts <= end
             ]
-            assert len(matching_partitions) == 1, \
-                f"Timestamp {ts} matches {len(matching_partitions)} partitions"
+            assert (
+                len(matching_partitions) == 1
+            ), f"Timestamp {ts} matches {len(matching_partitions)} partitions"
 
 
 @pytest.mark.database
 @pytest.mark.serial
 class TestModelStoreInvariants:
-    """Property tests for ModelStore invariants."""
+    """
+    Property tests for ModelStore invariants.
+    """
 
     @given(
         predictions=st.lists(
             st.floats(min_value=-1.0, max_value=1.0, allow_nan=False),
             min_size=10,
-            max_size=100
+            max_size=100,
         ),
-        confidence_threshold=st.floats(min_value=0.0, max_value=1.0)
+        confidence_threshold=st.floats(min_value=0.0, max_value=1.0),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -252,8 +268,8 @@ class TestModelStoreInvariants:
             ),
             min_size=2,
             max_size=10,
-            unique=True
-        )
+            unique=True,
+        ),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -264,6 +280,7 @@ class TestModelStoreInvariants:
 
         Invariant: Version comparisons should be transitive and consistent.
         """
+
         def version_key(v):
             return (v[0], v[1], v[2])
 
@@ -277,8 +294,7 @@ class TestModelStoreInvariants:
         for i in range(len(sorted_versions) - 1):
             v1 = sorted_versions[i]
             v2 = sorted_versions[i + 1]
-            assert version_key(v1) <= version_key(v2), \
-                f"Version order violated: {v1} > {v2}"
+            assert version_key(v1) <= version_key(v2), f"Version order violated: {v1} > {v2}"
 
         # Property: Latest version should be findable
         if sorted_versions:
@@ -289,7 +305,9 @@ class TestModelStoreInvariants:
 @pytest.mark.database
 @pytest.mark.serial
 class TestStrategyStoreInvariants:
-    """Property tests for StrategyStore invariants."""
+    """
+    Property tests for StrategyStore invariants.
+    """
 
     @given(
         signals=st.lists(
@@ -299,8 +317,8 @@ class TestStrategyStoreInvariants:
                 st.floats(min_value=0.0, max_value=1.0),  # confidence
             ),
             min_size=1,
-            max_size=100
-        )
+            max_size=100,
+        ),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -321,8 +339,9 @@ class TestStrategyStoreInvariants:
 
         # Verify order is maintained
         for i in range(len(processing_order) - 1):
-            assert processing_order[i] <= processing_order[i + 1], \
-                f"Signal order violated at index {i}"
+            assert (
+                processing_order[i] <= processing_order[i + 1]
+            ), f"Signal order violated at index {i}"
 
         # Property: Signal aggregation should preserve order
         if len(sorted_signals) > 1:
@@ -335,8 +354,8 @@ class TestStrategyStoreInvariants:
         trades=st.lists(
             st.integers(min_value=-10, max_value=10),
             min_size=0,
-            max_size=50
-        )
+            max_size=50,
+        ),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -355,19 +374,21 @@ class TestStrategyStoreInvariants:
             position_history.append(current_position)
 
             # Property: Position should equal sum of trades
-            expected_position = initial_position + sum(trades[:len(position_history) - 1])
-            assert current_position == expected_position, \
-                f"Position mismatch: {current_position} != {expected_position}"
+            expected_position = initial_position + sum(trades[: len(position_history) - 1])
+            assert (
+                current_position == expected_position
+            ), f"Position mismatch: {current_position} != {expected_position}"
 
         # Property: Final position should match total trades
         final_position = initial_position + sum(trades)
-        assert current_position == final_position, \
-            f"Final position incorrect: {current_position} != {final_position}"
+        assert (
+            current_position == final_position
+        ), f"Final position incorrect: {current_position} != {final_position}"
 
         # Property: Position changes should match trades
         if len(position_history) > 1:
             position_changes = [
-                position_history[i+1] - position_history[i]
+                position_history[i + 1] - position_history[i]
                 for i in range(len(position_history) - 1)
             ]
             assert position_changes == trades, "Position changes don't match trades"
@@ -376,15 +397,17 @@ class TestStrategyStoreInvariants:
 @pytest.mark.database
 @pytest.mark.serial
 class TestDataStoreInvariants:
-    """Property tests for DataStore invariants."""
+    """
+    Property tests for DataStore invariants.
+    """
 
     @given(
         watermarks=st.lists(
             nanosecond_timestamps(),
             min_size=1,
             max_size=100,
-            unique=True
-        )
+            unique=True,
+        ),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -399,8 +422,9 @@ class TestDataStoreInvariants:
 
         for watermark in sorted(watermarks):
             # Property: Watermark should not go backwards
-            assert watermark >= current_watermark, \
-                f"Watermark went backwards: {watermark} < {current_watermark}"
+            assert (
+                watermark >= current_watermark
+            ), f"Watermark went backwards: {watermark} < {current_watermark}"
 
             # Update watermark
             previous = current_watermark
@@ -418,8 +442,8 @@ class TestDataStoreInvariants:
                 st.integers(min_value=0, max_value=1000000),  # processing time (microseconds)
             ),
             min_size=1,
-            max_size=100
-        )
+            max_size=100,
+        ),
     )
     @pytest.mark.database
     @pytest.mark.serial
@@ -437,26 +461,20 @@ class TestDataStoreInvariants:
         for i in range(len(sorted_by_event_time) - 1):
             event1 = sorted_by_event_time[i]
             event2 = sorted_by_event_time[i + 1]
-            assert event1[0] <= event2[0], \
-                f"Event order violated: {event1[0]} > {event2[0]}"
+            assert event1[0] <= event2[0], f"Event order violated: {event1[0]} > {event2[0]}"
 
         # Property: Late events should be detectable
         processing_delays = [
-            (event[2], event[0])  # (processing_time, event_time)
-            for event in events
+            (event[2], event[0]) for event in events  # (processing_time, event_time)
         ]
 
         # Events processed significantly after their event time are "late"
         late_threshold = 1000000  # 1 second in microseconds
-        late_events = [
-            delay for delay, event_time in processing_delays
-            if delay > late_threshold
-        ]
+        late_events = [delay for delay, event_time in processing_delays if delay > late_threshold]
 
         # Late events should maintain order when reprocessed
         if late_events:
-            assert all(isinstance(e, int) for e in late_events), \
-                "Late event detection failed"
+            assert all(isinstance(e, int) for e in late_events), "Late event detection failed"
 
 
 # Stateful testing for complex workflows
@@ -465,6 +483,7 @@ class StoreStateMachine(RuleBasedStateMachine):
     Stateful property testing for store interactions.
 
     This tests complex sequences of operations to find bugs in state management.
+
     """
 
     def __init__(self):
@@ -480,48 +499,57 @@ class StoreStateMachine(RuleBasedStateMachine):
 
     @rule(target=timestamps)
     def generate_timestamp(self):
-        """Generate a new timestamp."""
+        """
+        Generate a new timestamp.
+        """
         self.current_timestamp += np.random.randint(1, 1000000000)  # Add 1ns to 1s
         return self.current_timestamp
 
     @rule(target=feature_sets, feature_set_id=st.text(min_size=1, max_size=20))
     def create_feature_set(self, feature_set_id):
-        """Create a new feature set."""
+        """
+        Create a new feature set.
+        """
         self.features[feature_set_id] = []
         return feature_set_id
 
     @rule(
         feature_set=feature_sets,
         timestamp=timestamps,
-        values=feature_values()
+        values=feature_values(),
     )
     def store_features(self, feature_set, timestamp, values):
-        """Store features and verify invariants."""
+        """
+        Store features and verify invariants.
+        """
         if feature_set in self.features:
             # Store the features
             self.features[feature_set].append((timestamp, values))
 
             # Invariant: Features should be time-ordered
             timestamps = [t for t, _ in self.features[feature_set]]
-            assert timestamps == sorted(timestamps), \
-                "Feature timestamps not in order"
+            assert timestamps == sorted(timestamps), "Feature timestamps not in order"
 
     @rule(target=model_ids, model_id=st.text(min_size=1, max_size=20))
     def register_model(self, model_id):
-        """Register a new model."""
+        """
+        Register a new model.
+        """
         self.models[model_id] = {
             "version": 1,
-            "predictions": []
+            "predictions": [],
         }
         return model_id
 
     @rule(
         model=model_ids,
         timestamp=timestamps,
-        prediction=st.floats(min_value=-1, max_value=1, allow_nan=False)
+        prediction=st.floats(min_value=-1, max_value=1, allow_nan=False),
     )
     def store_prediction(self, model, timestamp, prediction):
-        """Store a prediction and verify invariants."""
+        """
+        Store a prediction and verify invariants.
+        """
         if model in self.models:
             self.models[model]["predictions"].append((timestamp, prediction))
 
@@ -530,12 +558,13 @@ class StoreStateMachine(RuleBasedStateMachine):
 
             # Invariant: Timestamps should be monotonic
             timestamps = [t for t, _ in self.models[model]["predictions"]]
-            assert timestamps == sorted(timestamps), \
-                "Prediction timestamps not in order"
+            assert timestamps == sorted(timestamps), "Prediction timestamps not in order"
 
     @rule(new_watermark=timestamps)
     def update_watermark(self, new_watermark):
-        """Update watermark and verify it only moves forward."""
+        """
+        Update watermark and verify it only moves forward.
+        """
         # Invariant: Watermark should only increase
         if new_watermark > self.watermark:
             old_watermark = self.watermark
@@ -543,5 +572,4 @@ class StoreStateMachine(RuleBasedStateMachine):
             assert self.watermark > old_watermark, "Watermark didn't increase"
         else:
             # Watermark should not change if new value is older
-            assert self.watermark >= new_watermark, \
-                "Watermark moved backwards"
+            assert self.watermark >= new_watermark, "Watermark moved backwards"

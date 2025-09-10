@@ -268,7 +268,7 @@ class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
             ts_init=ts_init,
         )
 
-    def handle_order_trade_update(  # noqa: C901 (too complex)
+    def handle_order_trade_update(
         self,
         exec_client: BinanceCommonExecutionClient,
     ) -> None:

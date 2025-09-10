@@ -10,6 +10,10 @@ from nautilus_trader.common.config import PositiveInt
 
 
 class ModelRegistryConfig(NautilusConfig, kw_only=True, frozen=True):
+    """
+    Configuration for ML model registry (paths and retention).
+    """
+
     registry_path: str = "ml/registry"
     enable_mlflow: bool = False
     mlflow_tracking_uri: str | None = None

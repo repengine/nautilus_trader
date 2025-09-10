@@ -1,9 +1,10 @@
 """
 Smoke test for MLTradingStrategy decision flow in dry-run mode.
 
-Bypasses Nautilus base initialization by constructing an instance via
-object.__new__ and stubbing required methods/attributes. Verifies that
-_process_ml_signal records a decision and increments dry-run counters.
+Bypasses Nautilus base initialization by constructing an instance via object.__new__ and
+stubbing required methods/attributes. Verifies that _process_ml_signal records a
+decision and increments dry-run counters.
+
 """
 
 from __future__ import annotations
@@ -21,21 +22,34 @@ from nautilus_trader.model.identifiers import Venue
 
 class _Log:
     def info(self, *args: Any, **kwargs: Any) -> None:
-        """No-op info"""
+        """
+        No-op info.
+        """
         return None
 
     def warning(self, *args: Any, **kwargs: Any) -> None:
-        """No-op warning"""
+        """
+        No-op warning.
+        """
         return None
 
     def debug(self, *args: Any, **kwargs: Any) -> None:
-        """No-op debug"""
+        """
+        No-op debug.
+        """
         return None
 
 
 def _build_signal(pred: float, conf: float) -> MLSignal:
     inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
-    return MLSignal(instrument_id=inst, model_id="m1", prediction=pred, confidence=conf, ts_event=1, ts_init=1)
+    return MLSignal(
+        instrument_id=inst,
+        model_id="m1",
+        prediction=pred,
+        confidence=conf,
+        ts_event=1,
+        ts_init=1,
+    )
 
 
 def test_ml_trading_strategy_process_signal_dry_run() -> None:

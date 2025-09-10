@@ -296,7 +296,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
     # -- EXECUTION REPORTS ------------------------------------------------------------------------
 
-    async def generate_order_status_reports(  # noqa: C901
+    async def generate_order_status_reports(
         self,
         command: GenerateOrderStatusReports,
     ) -> list[OrderStatusReport]:

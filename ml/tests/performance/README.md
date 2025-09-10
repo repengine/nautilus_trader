@@ -9,12 +9,14 @@ Performance tests ensure the ML pipeline can operate within the strict timing co
 ## Performance Requirements
 
 ### Latency Targets
+
 - **Feature computation**: < 500μs per bar
 - **Model inference**: < 2ms per prediction
 - **End-to-end signal**: < 5ms from bar to signal
 - **Hot path operations**: Zero allocation guarantee
 
 ### Memory Requirements
+
 - **Stable over 24h**: No memory leaks during extended runs
 - **Bounded growth**: All data structures have maximum size limits
 - **GC pressure**: Minimal allocation in hot paths
@@ -22,18 +24,21 @@ Performance tests ensure the ML pipeline can operate within the strict timing co
 ## Test Categories
 
 ### Hot Path Tests (`test_hot_path_fixes.py`)
+
 - Zero-allocation guarantees
 - Sub-millisecond feature computation
 - Memory stability validation
 - Cache efficiency verification
 
 ### Allocation Tests (`test_zero_allocation.py`)
+
 - Memory allocation tracking
 - Garbage collection impact
 - Buffer reuse verification
 - Object pooling effectiveness
 
 ### Benchmarks (`benchmark_hot_path.py`)
+
 - Performance baseline establishment
 - Regression detection (20% tolerance)
 - Latency distribution analysis
@@ -60,6 +65,7 @@ make update-ml-baseline
 ## When to Add Performance Tests
 
 Add performance tests when:
+
 - Creating new inference pathways
 - Modifying feature computation logic
 - Adding new indicators or models

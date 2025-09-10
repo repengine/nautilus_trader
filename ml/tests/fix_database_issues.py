@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Database Issues Fix Script for ML Tests
+Database Issues Fix Script for ML Tests.
 
 This script fixes critical database issues that block ML tests:
 1. Partition violations due to missing partitions for test timestamps
@@ -14,6 +14,7 @@ Usage:
 
 Environment Variables:
     DATABASE_URL: PostgreSQL connection string (default: postgresql://postgres:postgres@localhost:5432/nautilus_test)
+
 """
 
 import logging
@@ -34,7 +35,9 @@ DATABASE_URL = os.getenv(
 
 
 def parse_database_url(url: str) -> dict[str, any]:
-    """Parse PostgreSQL connection URL into components."""
+    """
+    Parse PostgreSQL connection URL into components.
+    """
     if url.startswith("postgresql://"):
         conn_params = url.replace("postgresql://", "").split("/")
         user_pass_host = conn_params[0].split("@")
@@ -48,21 +51,35 @@ def parse_database_url(url: str) -> dict[str, any]:
             database = conn_params[1] if len(conn_params) > 1 else "postgres"
         else:
             # Fallback
-            user, password, host, port, database = "postgres", "postgres", "localhost", 5432, "nautilus_test"
+            user, password, host, port, database = (
+                "postgres",
+                "postgres",
+                "localhost",
+                5432,
+                "nautilus_test",
+            )
     else:
-        user, password, host, port, database = "postgres", "postgres", "localhost", 5432, "nautilus_test"
+        user, password, host, port, database = (
+            "postgres",
+            "postgres",
+            "localhost",
+            5432,
+            "nautilus_test",
+        )
 
     return {
         "host": host,
         "port": int(port),
         "database": database,
         "user": user,
-        "password": password
+        "password": password,
     }
 
 
 def create_partitions_for_test_years(cursor) -> None:
-    """Create partitions for years commonly used in tests (1970, 2001, 2025)."""
+    """
+    Create partitions for years commonly used in tests (1970, 2001, 2025).
+    """
     logger.info("Creating partitions for test years (1970, 2001, 2025)...")
 
     create_test_partitions_sql = """
@@ -145,7 +162,9 @@ END $$;
 
 
 def create_missing_functions(cursor) -> None:
-    """Create missing database functions required by the ML system."""
+    """
+    Create missing database functions required by the ML system.
+    """
     logger.info("Creating missing database functions...")
 
     # Create update_watermark function
@@ -304,7 +323,9 @@ $FUNC$ LANGUAGE plpgsql;
 
 
 def relax_constraints_for_testing(cursor) -> None:
-    """Relax database constraints to allow test values."""
+    """
+    Relax database constraints to allow test values.
+    """
     logger.info("Relaxing constraints for testing...")
 
     relax_constraints_sql = """
@@ -322,7 +343,9 @@ ALTER TABLE ml_data_watermarks ADD CONSTRAINT check_source_watermark
 
 
 def create_test_datasets(cursor) -> None:
-    """Create test datasets required by tests."""
+    """
+    Create test datasets required by tests.
+    """
     logger.info("Creating test datasets in registry...")
 
     create_test_datasets_sql = """
@@ -348,31 +371,39 @@ ON CONFLICT (dataset_id) DO NOTHING;
 
 
 def verify_fixes(cursor) -> None:
-    """Verify that all fixes have been applied correctly."""
+    """
+    Verify that all fixes have been applied correctly.
+    """
     logger.info("Verifying database fixes...")
 
     # Check functions exist
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT proname FROM pg_proc
         WHERE proname IN ('emit_data_event', 'update_watermark', 'emit_data_event_ext')
         ORDER BY proname;
-    """)
+    """,
+    )
     functions = [row[0] for row in cursor.fetchall()]
     logger.info(f"Functions available: {functions}")
 
     # Check partitions exist for test years
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT COUNT(*) FROM pg_tables
         WHERE tablename ~ '^ml_(feature_values|model_predictions|strategy_signals|data_events)_(1970_01|2001_|2025_)';
-    """)
+    """,
+    )
     partition_count = cursor.fetchone()[0]
     logger.info(f"Test partitions created: {partition_count}")
 
     # Check test datasets exist
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT COUNT(*) FROM ml_dataset_registry
         WHERE dataset_id IN ('features', 'test_features_v1', 'test_model', 'test_strategy');
-    """)
+    """,
+    )
     dataset_count = cursor.fetchone()[0]
     logger.info(f"Test datasets created: {dataset_count}")
 
@@ -380,7 +411,9 @@ def verify_fixes(cursor) -> None:
 
 
 def main() -> None:
-    """Apply all database fixes for ML tests."""
+    """
+    Apply all database fixes for ML tests.
+    """
     logger.info("Starting database fixes for ML tests...")
     logger.info(f"Using database: {DATABASE_URL}")
 

@@ -29,19 +29,33 @@ from nautilus_trader.core.uuid import UUID4
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestEndToEndLatencyTrackingInvariant:
-    """Property-based tests for end-to-end latency tracking invariants."""
+    """
+    Property-based tests for end-to-end latency tracking invariants.
+    """
 
     @given(
         pipeline_stages=st.lists(
-            st.fixed_dictionaries({
-                "stage": st.sampled_from(["data_ingestion", "feature_computation", "model_inference", "signal_generation"]),
-                "ts_start": st.integers(min_value=1000000, max_value=2**32),
-                "processing_time_ns": st.integers(min_value=1000, max_value=10000000),  # 1μs to 10ms
-                "instrument_id": st.text(min_size=5, max_size=15),
-            }),
+            st.fixed_dictionaries(
+                {
+                    "stage": st.sampled_from(
+                        [
+                            "data_ingestion",
+                            "feature_computation",
+                            "model_inference",
+                            "signal_generation",
+                        ],
+                    ),
+                    "ts_start": st.integers(min_value=1000000, max_value=2**32),
+                    "processing_time_ns": st.integers(
+                        min_value=1000,
+                        max_value=10000000,
+                    ),  # 1μs to 10ms
+                    "instrument_id": st.text(min_size=5, max_size=15),
+                },
+            ),
             min_size=4,
-            max_size=20
-        )
+            max_size=20,
+        ),
     )
     @settings(max_examples=50, deadline=5000)
     def test_latency_watermark_monotonicity_invariant(self, pipeline_stages):
@@ -53,7 +67,12 @@ class TestEndToEndLatencyTrackingInvariant:
         end-to-end latency calculation.
         """
         # Sort stages by their natural pipeline order
-        stage_order = ["data_ingestion", "feature_computation", "model_inference", "signal_generation"]
+        stage_order = [
+            "data_ingestion",
+            "feature_computation",
+            "model_inference",
+            "signal_generation",
+        ]
         ordered_stages = []
 
         for stage_name in stage_order:
@@ -79,44 +98,58 @@ class TestEndToEndLatencyTrackingInvariant:
                 "ts_start": stage["ts_start"],
                 "ts_end": ts_end,
                 "cumulative_latency_ns": cumulative_latency,
-                "instrument_id": stage["instrument_id"]
+                "instrument_id": stage["instrument_id"],
             }
             watermarks.append(watermark)
 
         # Property: Cumulative latency must be monotonically increasing
         if len(watermarks) > 1:
             cumulative_latencies = [w["cumulative_latency_ns"] for w in watermarks]
-            assert cumulative_latencies == sorted(cumulative_latencies), \
-                "Latency watermarks must be monotonically increasing through pipeline"
+            assert cumulative_latencies == sorted(
+                cumulative_latencies,
+            ), "Latency watermarks must be monotonically increasing through pipeline"
 
         # Property: End timestamps must respect processing time
         for watermark in watermarks:
             expected_duration = watermark["ts_end"] - watermark["ts_start"]
             # Match the closest stage instance by stage name and start time to avoid ambiguity
             candidates = [
-                s for s in pipeline_stages if s["stage"] == watermark["stage"] and s["ts_start"] == watermark["ts_start"]
+                s
+                for s in pipeline_stages
+                if s["stage"] == watermark["stage"] and s["ts_start"] == watermark["ts_start"]
             ]
             if candidates:
-                stage_data = min(candidates, key=lambda s: abs(expected_duration - s["processing_time_ns"]))
+                stage_data = min(
+                    candidates,
+                    key=lambda s: abs(expected_duration - s["processing_time_ns"]),
+                )
             else:
-                stage_data = next(s for s in pipeline_stages if s["stage"] == watermark["stage"])  # Fallback
+                stage_data = next(
+                    s for s in pipeline_stages if s["stage"] == watermark["stage"]
+                )  # Fallback
 
             # Allow for slight variations due to sorting and grouping
-            assert abs(expected_duration - stage_data["processing_time_ns"]) <= 1000, \
-                "Watermark timestamps must respect actual processing times"
+            assert (
+                abs(expected_duration - stage_data["processing_time_ns"]) <= 1000
+            ), "Watermark timestamps must respect actual processing times"
 
     @given(
         concurrent_pipelines=st.lists(
-            st.fixed_dictionaries({
-                "pipeline_id": st.uuids().map(str),
-                "instrument_id": st.text(min_size=5, max_size=15),
-                "total_latency_ns": st.integers(min_value=1000000, max_value=100000000),  # 1ms to 100ms
-                "stage_count": st.integers(min_value=2, max_value=6),
-                "correlation_id": st.uuids().map(str)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "pipeline_id": st.uuids().map(str),
+                    "instrument_id": st.text(min_size=5, max_size=15),
+                    "total_latency_ns": st.integers(
+                        min_value=1000000,
+                        max_value=100000000,
+                    ),  # 1ms to 100ms
+                    "stage_count": st.integers(min_value=2, max_value=6),
+                    "correlation_id": st.uuids().map(str),
+                },
+            ),
             min_size=5,
-            max_size=50
-        )
+            max_size=50,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_concurrent_pipeline_latency_isolation_invariant(self, concurrent_pipelines):
@@ -136,7 +169,7 @@ class TestEndToEndLatencyTrackingInvariant:
             pipeline_latencies[pipeline_id] = {
                 "instrument_id": pipeline["instrument_id"],
                 "total_latency": pipeline["total_latency_ns"],
-                "correlation_id": pipeline["correlation_id"]
+                "correlation_id": pipeline["correlation_id"],
             }
 
         # Simulate concurrent processing
@@ -147,7 +180,7 @@ class TestEndToEndLatencyTrackingInvariant:
             processed_pipelines[pipeline_id] = {
                 "measured_latency": latency_data["total_latency"],
                 "instrument": latency_data["instrument_id"],
-                "correlation": latency_data["correlation_id"]
+                "correlation": latency_data["correlation_id"],
             }
 
         # Property: Each pipeline maintains independent latency measurements
@@ -155,31 +188,34 @@ class TestEndToEndLatencyTrackingInvariant:
             original = pipeline_latencies[pipeline_id]
             processed = processed_pipelines[pipeline_id]
 
-            assert processed["measured_latency"] == original["total_latency"], \
-                f"Pipeline {pipeline_id} latency measurement was contaminated"
+            assert (
+                processed["measured_latency"] == original["total_latency"]
+            ), f"Pipeline {pipeline_id} latency measurement was contaminated"
 
-            assert processed["instrument"] == original["instrument_id"], \
-                f"Pipeline {pipeline_id} instrument tracking was contaminated"
+            assert (
+                processed["instrument"] == original["instrument_id"]
+            ), f"Pipeline {pipeline_id} instrument tracking was contaminated"
 
         # Property: No latency measurements should be shared between pipelines
         unique_latencies = set(p["measured_latency"] for p in processed_pipelines.values())
         original_unique_latencies = set(p["total_latency"] for p in pipeline_latencies.values())
 
         # Allow for some duplicate latencies in input data, but ensure no cross-contamination
-        assert len(processed_pipelines) == len(pipeline_latencies), \
-            "Pipeline isolation should preserve all pipeline measurements"
+        assert len(processed_pipelines) == len(
+            pipeline_latencies,
+        ), "Pipeline isolation should preserve all pipeline measurements"
 
     @given(
         latency_measurements=st.lists(
             st.integers(min_value=1000, max_value=50000000),  # 1μs to 50ms in nanoseconds
             min_size=10,
-            max_size=100
+            max_size=100,
         ),
         percentiles=st.lists(
             st.floats(min_value=0.5, max_value=0.99),
             min_size=3,
-            max_size=7
-        )
+            max_size=7,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_latency_histogram_percentile_invariant(self, latency_measurements, percentiles):
@@ -197,7 +233,9 @@ class TestEndToEndLatencyTrackingInvariant:
 
         # Calculate percentiles
         def calculate_percentile(data, p):
-            """Simple percentile calculation."""
+            """
+            Simple percentile calculation.
+            """
             n = len(data)
             if n == 0:
                 return 0
@@ -220,41 +258,49 @@ class TestEndToEndLatencyTrackingInvariant:
         # Property: Higher percentiles must be ≥ lower percentiles
         if len(calculated_values) > 1:
             for i in range(len(calculated_values) - 1):
-                assert calculated_values[i] <= calculated_values[i + 1], \
-                    f"Percentile P{sorted_percentiles[i]*100:.1f} ({calculated_values[i]}) " \
+                assert calculated_values[i] <= calculated_values[i + 1], (
+                    f"Percentile P{sorted_percentiles[i]*100:.1f} ({calculated_values[i]}) "
                     f"must be ≤ P{sorted_percentiles[i+1]*100:.1f} ({calculated_values[i+1]})"
+                )
 
         # Property: All percentiles must be within measurement range
         min_measurement = min(unique_measurements)
         max_measurement = max(unique_measurements)
 
         for i, value in enumerate(calculated_values):
-            assert min_measurement <= value <= max_measurement, \
-                f"P{sorted_percentiles[i]*100:.1f} ({value}) must be within measurement range " \
+            assert min_measurement <= value <= max_measurement, (
+                f"P{sorted_percentiles[i]*100:.1f} ({value}) must be within measurement range "
                 f"[{min_measurement}, {max_measurement}]"
+            )
 
 
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestMetricsCollectionInvariant:
-    """Property-based tests for comprehensive metrics collection invariants."""
+    """
+    Property-based tests for comprehensive metrics collection invariants.
+    """
 
     @given(
         metric_samples=st.lists(
-            st.fixed_dictionaries({
-                "metric_name": st.sampled_from(["ml_predictions_total", "ml_features_computed", "ml_signals_generated"]),
-                "labels": st.dictionaries(
-                    st.sampled_from(["instrument_id", "domain", "model_id"]),
-                    st.text(min_size=3, max_size=15),
-                    min_size=1,
-                    max_size=3
-                ),
-                "value": st.floats(min_value=0.0, max_value=10000.0),
-                "timestamp": st.integers(min_value=1000000, max_value=2**32)
-            }),
+            st.fixed_dictionaries(
+                {
+                    "metric_name": st.sampled_from(
+                        ["ml_predictions_total", "ml_features_computed", "ml_signals_generated"],
+                    ),
+                    "labels": st.dictionaries(
+                        st.sampled_from(["instrument_id", "domain", "model_id"]),
+                        st.text(min_size=3, max_size=15),
+                        min_size=1,
+                        max_size=3,
+                    ),
+                    "value": st.floats(min_value=0.0, max_value=10000.0),
+                    "timestamp": st.integers(min_value=1000000, max_value=2**32),
+                },
+            ),
             min_size=10,
-            max_size=100
-        )
+            max_size=100,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_metrics_aggregation_consistency_invariant(self, metric_samples):
@@ -302,37 +348,44 @@ class TestMetricsCollectionInvariant:
             labeled_inst_total = sum(sample["value"] for sample in metric_samples if "instrument_id" in sample["labels"])  # type: ignore[index]
             instrument_total = sum(by_instrument.values())
             # Allow for small floating point precision differences
-            assert abs(instrument_total - labeled_inst_total) < 1e-10, \
-                "Metrics aggregation by instrument must preserve labeled total value"
+            assert (
+                abs(instrument_total - labeled_inst_total) < 1e-10
+            ), "Metrics aggregation by instrument must preserve labeled total value"
 
         if by_domain:
             # Compare domain totals against the subset of samples that include domain labels
             labeled_total = sum(sample["value"] for sample in metric_samples if "domain" in sample["labels"])  # type: ignore[index]
             domain_total = sum(by_domain.values())
-            assert abs(domain_total - labeled_total) < 1e-10, \
-                "Metrics aggregation by domain must preserve labeled total value"
+            assert (
+                abs(domain_total - labeled_total) < 1e-10
+            ), "Metrics aggregation by domain must preserve labeled total value"
 
         if by_metric_name:
             metric_total = sum(by_metric_name.values())
-            assert abs(metric_total - total_value) < 1e-10, \
-                "Metrics aggregation by metric name must preserve total value"
+            assert (
+                abs(metric_total - total_value) < 1e-10
+            ), "Metrics aggregation by metric name must preserve total value"
 
     @given(
         health_scores=st.lists(
-            st.fixed_dictionaries({
-                "component": st.sampled_from(["data_store", "feature_store", "model_store", "strategy_store"]),
-                "health_score": st.floats(min_value=0.0, max_value=1.0),
-                "timestamp": st.integers(min_value=1000000, max_value=2**32),
-                "subsystem_scores": st.dictionaries(
-                    st.text(min_size=3, max_size=15),
-                    st.floats(min_value=0.0, max_value=1.0),
-                    min_size=1,
-                    max_size=5
-                )
-            }),
+            st.fixed_dictionaries(
+                {
+                    "component": st.sampled_from(
+                        ["data_store", "feature_store", "model_store", "strategy_store"],
+                    ),
+                    "health_score": st.floats(min_value=0.0, max_value=1.0),
+                    "timestamp": st.integers(min_value=1000000, max_value=2**32),
+                    "subsystem_scores": st.dictionaries(
+                        st.text(min_size=3, max_size=15),
+                        st.floats(min_value=0.0, max_value=1.0),
+                        min_size=1,
+                        max_size=5,
+                    ),
+                },
+            ),
             min_size=4,  # One per store minimum
-            max_size=20
-        )
+            max_size=20,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_health_score_aggregation_invariant(self, health_scores):
@@ -368,9 +421,10 @@ class TestMetricsCollectionInvariant:
 
                 # Component health should be reasonably related to subsystem health
                 # (allowing for weighting and aggregation logic). Use tolerant bounds to reduce brittleness.
-                assert (min_subsystem - 1.0) <= health_score <= (max_subsystem + 1.0), \
-                    f"Component {component} health {health_score} should be related to " \
+                assert (min_subsystem - 1.0) <= health_score <= (max_subsystem + 1.0), (
+                    f"Component {component} health {health_score} should be related to "
                     f"subsystem scores [{min_subsystem}, {max_subsystem}]"
+                )
 
         if all_scores:
             # Calculate aggregate system health (simple average)
@@ -379,33 +433,42 @@ class TestMetricsCollectionInvariant:
             max_component_health = max(all_scores)
 
             # Property: Aggregate health bounded by component health extremes
-            assert min_component_health <= system_health <= max_component_health, \
-                f"System health {system_health} must be between component extremes " \
+            assert min_component_health <= system_health <= max_component_health, (
+                f"System health {system_health} must be between component extremes "
                 f"[{min_component_health}, {max_component_health}]"
+            )
 
             # Property: All health scores must be valid probabilities
             for score in all_scores:
-                assert 0.0 <= score <= 1.0, \
-                    f"Health score {score} must be in valid range [0.0, 1.0]"
+                assert (
+                    0.0 <= score <= 1.0
+                ), f"Health score {score} must be in valid range [0.0, 1.0]"
 
 
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestEventCorrelationInvariant:
-    """Property-based tests for event correlation and lineage invariants."""
+    """
+    Property-based tests for event correlation and lineage invariants.
+    """
 
     @given(
         event_lineages=st.lists(
-            st.fixed_dictionaries({
-                "root_event_id": st.uuids().map(str),
-                "correlation_id": st.uuids().map(str),
-                "lineage_depth": st.integers(min_value=1, max_value=8),
-                "branch_factor": st.integers(min_value=1, max_value=4),  # Events spawning new events
-                "instrument_id": st.text(min_size=5, max_size=15),
-            }),
+            st.fixed_dictionaries(
+                {
+                    "root_event_id": st.uuids().map(str),
+                    "correlation_id": st.uuids().map(str),
+                    "lineage_depth": st.integers(min_value=1, max_value=8),
+                    "branch_factor": st.integers(
+                        min_value=1,
+                        max_value=4,
+                    ),  # Events spawning new events
+                    "instrument_id": st.text(min_size=5, max_size=15),
+                },
+            ),
             min_size=5,
-            max_size=30
-        )
+            max_size=30,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_event_lineage_graph_consistency_invariant(self, event_lineages):
@@ -441,7 +504,7 @@ class TestEventCorrelationInvariant:
                             "parent_id": parent_id,
                             "correlation_id": correlation_id,
                             "depth": current_depth + 1,
-                            "instrument_id": lineage_spec["instrument_id"]
+                            "instrument_id": lineage_spec["instrument_id"],
                         }
                         event_queue.append((child_id, current_depth + 1))
 
@@ -454,8 +517,9 @@ class TestEventCorrelationInvariant:
 
             # Property: All events in lineage have same correlation ID
             correlation_ids = set(event["correlation_id"] for event in lineage_tree.values())
-            assert len(correlation_ids) <= 1, \
-                f"Lineage {root_id} must have consistent correlation IDs, found {correlation_ids}"
+            assert (
+                len(correlation_ids) <= 1
+            ), f"Lineage {root_id} must have consistent correlation IDs, found {correlation_ids}"
 
             # Property: Parent-child depth relationships are consistent
             for child_id, event_data in lineage_tree.items():
@@ -464,34 +528,45 @@ class TestEventCorrelationInvariant:
 
                 if parent_id != root_id:  # Not direct child of root
                     # Find parent in lineage tree
-                    parent_events = [e for e in lineage_tree.values() if e.get("event_id") == parent_id]
+                    parent_events = [
+                        e for e in lineage_tree.values() if e.get("event_id") == parent_id
+                    ]
                     # For this test, we'll check depth consistency differently
-                    assert child_depth > 0, \
-                        f"Child event depth {child_depth} must be positive"
+                    assert child_depth > 0, f"Child event depth {child_depth} must be positive"
 
             # Property: All events in lineage have same instrument_id
             instrument_ids = set(event["instrument_id"] for event in lineage_tree.values())
-            assert len(instrument_ids) <= 1, \
-                f"Lineage {root_id} must have consistent instrument IDs, found {instrument_ids}"
+            assert (
+                len(instrument_ids) <= 1
+            ), f"Lineage {root_id} must have consistent instrument IDs, found {instrument_ids}"
 
     @given(
         correlation_groups=st.lists(
-            st.fixed_dictionaries({
-                "correlation_id": st.uuids().map(str),
-                "events": st.lists(
-                    st.fixed_dictionaries({
-                        "event_id": st.uuids().map(str),
-                        "domain": st.sampled_from(["data", "features", "models", "strategies"]),
-                        "timestamp": st.integers(min_value=1000000, max_value=2**32),
-                        "processing_duration_ns": st.integers(min_value=1000, max_value=10000000)
-                    }),
-                    min_size=1,
-                    max_size=10
-                )
-            }),
+            st.fixed_dictionaries(
+                {
+                    "correlation_id": st.uuids().map(str),
+                    "events": st.lists(
+                        st.fixed_dictionaries(
+                            {
+                                "event_id": st.uuids().map(str),
+                                "domain": st.sampled_from(
+                                    ["data", "features", "models", "strategies"],
+                                ),
+                                "timestamp": st.integers(min_value=1000000, max_value=2**32),
+                                "processing_duration_ns": st.integers(
+                                    min_value=1000,
+                                    max_value=10000000,
+                                ),
+                            },
+                        ),
+                        min_size=1,
+                        max_size=10,
+                    ),
+                },
+            ),
             min_size=3,
-            max_size=15
-        )
+            max_size=15,
+        ),
     )
     @settings(max_examples=30, deadline=5000)
     def test_correlation_time_travel_reconstruction_invariant(self, correlation_groups):
@@ -517,14 +592,15 @@ class TestEventCorrelationInvariant:
 
             # Verify chronological consistency
             timestamps = [e["timestamp"] for e in sorted_events]
-            assert timestamps == sorted(timestamps), \
-                f"Events in correlation {correlation_id} must be chronologically sortable"
+            assert timestamps == sorted(
+                timestamps,
+            ), f"Events in correlation {correlation_id} must be chronologically sortable"
 
             # Simulate state reconstruction at different time points
             reconstruction_points = [
                 sorted_events[len(sorted_events) // 4]["timestamp"],
                 sorted_events[len(sorted_events) // 2]["timestamp"],
-                sorted_events[-1]["timestamp"] + 1000  # After all events
+                sorted_events[-1]["timestamp"] + 1000,  # After all events
             ]
 
             for reconstruction_time in reconstruction_points:
@@ -552,5 +628,6 @@ class TestEventCorrelationInvariant:
                 if len(domain_positions) > 1:
                     position_values = list(domain_positions.values())
                     # Allow some flexibility, but should generally be ordered
-                    assert max(position_values) - min(position_values) < len(domain_order), \
-                        f"Domain progression in correlation {correlation_id} should be reasonable"
+                    assert max(position_values) - min(position_values) < len(
+                        domain_order,
+                    ), f"Domain progression in correlation {correlation_id} should be reasonable"

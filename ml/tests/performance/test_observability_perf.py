@@ -42,7 +42,7 @@ def test_persist_micro_bench(tmp_path: Path) -> None:
                 "cumulative_latency_ns": 1,
             }
             for _ in range(1000)
-        ]
+        ],
     )
     per = ObservabilityPersistor(base_path=tmp_path, file_format="jsonl")
     t0 = time.perf_counter()

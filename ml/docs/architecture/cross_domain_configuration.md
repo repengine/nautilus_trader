@@ -15,7 +15,7 @@ System Configuration
 ├── Environment Configuration (dev/staging/prod)
 ├── Domain-Specific Configuration
 │   ├── Data Domain Config
-│   ├── Feature Domain Config  
+│   ├── Feature Domain Config
 │   ├── Model Domain Config
 │   └── Strategy Domain Config
 ├── Component Configuration
@@ -31,6 +31,7 @@ System Configuration
 ### Core Configuration Classes
 
 #### Base Configuration
+
 ```python
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -44,32 +45,32 @@ class Environment(Enum):
 @dataclass(frozen=True)
 class BaseMLConfiguration:
     """Base configuration for all ML components."""
-    
+
     # Environment settings
     environment: Environment = Environment.DEVELOPMENT
     debug_mode: bool = False
-    
+
     # Database configuration
     db_connection: str = "postgresql://postgres:postgres@localhost:5432/nautilus"
-    
+
     # System behavior
     auto_start_postgres: bool = True
     auto_migrate: bool = True
     strict_protocol_validation: bool = True
-    
+
     # Performance settings
     enable_metrics: bool = True
     enable_health_checks: bool = True
     hot_path_optimization: bool = True
-    
+
     # Fallback configuration
     fallback_enabled: bool = True
     fallback_timeout_seconds: int = 30
-    
+
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         self._validate_configuration()
-    
+
     def _validate_configuration(self) -> None:
         """Validate configuration consistency."""
         if self.environment == Environment.PRODUCTION:
@@ -77,32 +78,33 @@ class BaseMLConfiguration:
                 raise ValueError("Debug mode not allowed in production")
             if self.auto_start_postgres:
                 raise ValueError("Auto-start postgres not allowed in production")
-        
+
         if not self.db_connection:
             raise ValueError("Database connection string required")
 ```
 
 #### Domain Configuration Classes
+
 ```python
 @dataclass(frozen=True)
 class DataDomainConfig:
     """Configuration for the Data Domain."""
-    
+
     # Data ingestion settings
     ingestion_enabled: bool = True
     max_ingestion_rate_per_second: int = 10000
     ingestion_buffer_size: int = 50000
-    
+
     # Data quality settings
     quality_checks_enabled: bool = True
     outlier_detection_enabled: bool = True
     staleness_threshold_seconds: int = 300
-    
+
     # Storage settings
     parquet_compression: str = "snappy"
     partition_by_date: bool = True
     retention_days: int = 365
-    
+
     # Backfill settings
     backfill_enabled: bool = True
     backfill_batch_size: int = 10000
@@ -111,63 +113,63 @@ class DataDomainConfig:
 @dataclass(frozen=True)
 class FeatureDomainConfig:
     """Configuration for the Feature Domain."""
-    
+
     # Feature computation settings
     enable_technical_indicators: bool = True
     enable_microstructure_features: bool = True
     enable_cross_sectional_features: bool = False
-    
+
     # Performance settings
     max_feature_computation_time_ms: float = 100.0
     feature_cache_size: int = 10000
     batch_computation_enabled: bool = True
-    
+
     # Validation settings
     parity_validation_enabled: bool = True
     parity_tolerance: float = 1e-10
     drift_detection_enabled: bool = True
-    
+
     # Pipeline settings
     pipeline_parallel_workers: int = 4
     pipeline_chunk_size: int = 1000
 
-@dataclass(frozen=True) 
+@dataclass(frozen=True)
 class ModelDomainConfig:
     """Configuration for the Model Domain."""
-    
+
     # Model loading settings
     model_cache_size: int = 32
     lazy_loading_enabled: bool = True
     model_warming_enabled: bool = True
-    
+
     # Inference settings
     max_inference_latency_ms: float = 5.0
     batch_inference_enabled: bool = True
     inference_timeout_ms: float = 10.0
-    
+
     # Model lifecycle settings
     auto_retraining_enabled: bool = False
     performance_monitoring_enabled: bool = True
     drift_detection_enabled: bool = True
-    
+
     # A/B testing settings
     ab_testing_enabled: bool = False
     champion_challenger_ratio: float = 0.9
 
 @dataclass(frozen=True)
-class StrategyDomainConfig:  
+class StrategyDomainConfig:
     """Configuration for the Strategy Domain."""
-    
+
     # Signal generation settings
     signal_generation_enabled: bool = True
     max_signal_latency_ms: float = 10.0
     signal_aggregation_enabled: bool = True
-    
+
     # Risk management settings
     risk_checks_enabled: bool = True
     position_size_limits_enabled: bool = True
     max_position_size_ratio: float = 0.1
-    
+
     # Strategy execution settings
     strategy_parallelism_enabled: bool = False
     execution_delay_ms: int = 0
@@ -175,37 +177,38 @@ class StrategyDomainConfig:
 ```
 
 #### Unified System Configuration
+
 ```python
 @dataclass(frozen=True)
 class MLSystemConfiguration(BaseMLConfiguration):
     """Complete ML system configuration integrating all domains."""
-    
+
     # Domain configurations
     data_domain: DataDomainConfig = field(default_factory=DataDomainConfig)
     feature_domain: FeatureDomainConfig = field(default_factory=FeatureDomainConfig)
     model_domain: ModelDomainConfig = field(default_factory=ModelDomainConfig)
     strategy_domain: StrategyDomainConfig = field(default_factory=StrategyDomainConfig)
-    
+
     # Cross-domain settings
     event_correlation_enabled: bool = True
     cross_domain_validation_enabled: bool = True
     unified_monitoring_enabled: bool = True
-    
+
     # Integration settings
     integration_health_check_interval_seconds: int = 60
     cross_domain_timeout_seconds: int = 30
     event_propagation_enabled: bool = True
-    
+
     def get_domain_config(self, domain: str) -> Any:
         """Get configuration for specific domain."""
         domain_configs = {
             "data": self.data_domain,
-            "feature": self.feature_domain, 
+            "feature": self.feature_domain,
             "model": self.model_domain,
             "strategy": self.strategy_domain,
         }
         return domain_configs.get(domain)
-    
+
     @classmethod
     def for_environment(cls, env: Environment) -> "MLSystemConfiguration":
         """Create configuration optimized for specific environment."""
@@ -217,7 +220,7 @@ class MLSystemConfiguration(BaseMLConfiguration):
                 auto_migrate=True,
                 strict_protocol_validation=True,
             )
-        
+
         elif env == Environment.STAGING:
             return cls(
                 environment=env,
@@ -226,7 +229,7 @@ class MLSystemConfiguration(BaseMLConfiguration):
                 auto_migrate=True,
                 strict_protocol_validation=True,
             )
-        
+
         elif env == Environment.PRODUCTION:
             return cls(
                 environment=env,
@@ -244,7 +247,7 @@ class MLSystemConfiguration(BaseMLConfiguration):
                     model_cache_size=64,                   # Larger cache
                 ),
             )
-        
+
         return cls()
 ```
 
@@ -262,15 +265,15 @@ T = TypeVar('T')
 
 class EnvironmentConfigLoader:
     """Load configuration from environment variables."""
-    
+
     @staticmethod
     def load_from_env(config_class: Type[T]) -> T:
         """Load configuration from environment variables."""
-        
+
         # Get environment configuration first
         env_name = os.getenv("ML_ENVIRONMENT", "development").lower()
         environment = Environment(env_name)
-        
+
         # Base configuration overrides
         base_overrides = {
             "environment": environment,
@@ -280,7 +283,7 @@ class EnvironmentConfigLoader:
             "auto_migrate": EnvironmentConfigLoader._get_bool("ML_AUTO_MIGRATE"),
             "strict_protocol_validation": EnvironmentConfigLoader._get_bool("ML_STRICT_VALIDATION"),
         }
-        
+
         # Domain-specific overrides
         domain_overrides = {
             "data_domain": EnvironmentConfigLoader._load_data_domain_from_env(),
@@ -288,10 +291,10 @@ class EnvironmentConfigLoader:
             "model_domain": EnvironmentConfigLoader._load_model_domain_from_env(),
             "strategy_domain": EnvironmentConfigLoader._load_strategy_domain_from_env(),
         }
-        
+
         # Filter None values
         overrides = {k: v for k, v in {**base_overrides, **domain_overrides}.items() if v is not None}
-        
+
         # Create configuration with overrides
         if hasattr(config_class, 'for_environment'):
             config = config_class.for_environment(environment)
@@ -299,7 +302,7 @@ class EnvironmentConfigLoader:
             return replace(config, **overrides)
         else:
             return config_class(**overrides)
-    
+
     @staticmethod
     def _get_bool(env_var: str, default: bool = None) -> bool | None:
         """Get boolean from environment variable."""
@@ -307,7 +310,7 @@ class EnvironmentConfigLoader:
         if value is None:
             return default
         return value.lower() in {"1", "true", "yes", "on"}
-    
+
     @staticmethod
     def _get_int(env_var: str, default: int = None) -> int | None:
         """Get integer from environment variable."""
@@ -318,7 +321,7 @@ class EnvironmentConfigLoader:
             return int(value)
         except ValueError:
             return default
-    
+
     @staticmethod
     def _get_float(env_var: str, default: float = None) -> float | None:
         """Get float from environment variable."""
@@ -329,75 +332,76 @@ class EnvironmentConfigLoader:
             return float(value)
         except ValueError:
             return default
-    
+
     @staticmethod
     def _load_data_domain_from_env() -> DataDomainConfig | None:
         """Load data domain config from environment."""
         overrides = {}
-        
+
         if (max_rate := EnvironmentConfigLoader._get_int("ML_DATA_MAX_INGESTION_RATE")) is not None:
             overrides["max_ingestion_rate_per_second"] = max_rate
-            
+
         if (buffer_size := EnvironmentConfigLoader._get_int("ML_DATA_BUFFER_SIZE")) is not None:
             overrides["ingestion_buffer_size"] = buffer_size
-            
+
         if (retention := EnvironmentConfigLoader._get_int("ML_DATA_RETENTION_DAYS")) is not None:
             overrides["retention_days"] = retention
-        
+
         return DataDomainConfig(**overrides) if overrides else None
-    
+
     @staticmethod
     def _load_feature_domain_from_env() -> FeatureDomainConfig | None:
         """Load feature domain config from environment."""
         overrides = {}
-        
+
         if (max_time := EnvironmentConfigLoader._get_float("ML_FEATURE_MAX_COMPUTATION_TIME_MS")) is not None:
             overrides["max_feature_computation_time_ms"] = max_time
-            
+
         if (cache_size := EnvironmentConfigLoader._get_int("ML_FEATURE_CACHE_SIZE")) is not None:
             overrides["feature_cache_size"] = cache_size
-            
+
         if (workers := EnvironmentConfigLoader._get_int("ML_FEATURE_PARALLEL_WORKERS")) is not None:
             overrides["pipeline_parallel_workers"] = workers
-        
+
         return FeatureDomainConfig(**overrides) if overrides else None
-    
+
     @staticmethod
     def _load_model_domain_from_env() -> ModelDomainConfig | None:
         """Load model domain config from environment."""
         overrides = {}
-        
+
         if (max_latency := EnvironmentConfigLoader._get_float("ML_MODEL_MAX_INFERENCE_LATENCY_MS")) is not None:
             overrides["max_inference_latency_ms"] = max_latency
-            
+
         if (cache_size := EnvironmentConfigLoader._get_int("ML_MODEL_CACHE_SIZE")) is not None:
             overrides["model_cache_size"] = cache_size
-        
+
         return ModelDomainConfig(**overrides) if overrides else None
-    
+
     @staticmethod
     def _load_strategy_domain_from_env() -> StrategyDomainConfig | None:
-        """Load strategy domain config from environment.""" 
+        """Load strategy domain config from environment."""
         overrides = {}
-        
+
         if (max_latency := EnvironmentConfigLoader._get_float("ML_STRATEGY_MAX_SIGNAL_LATENCY_MS")) is not None:
             overrides["max_signal_latency_ms"] = max_latency
-            
+
         if (dry_run := EnvironmentConfigLoader._get_bool("ML_STRATEGY_DRY_RUN")) is not None:
             overrides["dry_run_mode"] = dry_run
-        
+
         return StrategyDomainConfig(**overrides) if overrides else None
 ```
 
 ### Environment Variable Reference
 
 #### Core System Variables
+
 ```bash
 # Environment and debugging
 ML_ENVIRONMENT=development|staging|production
 ML_DEBUG_MODE=true|false
 
-# Database configuration  
+# Database configuration
 DB_CONNECTION=postgresql://user:pass@host:port/db
 DATABASE_URL=postgresql://user:pass@host:port/db  # Alternative
 
@@ -417,6 +421,7 @@ ML_FALLBACK_TIMEOUT_SECONDS=30
 ```
 
 #### Data Domain Variables
+
 ```bash
 # Data ingestion
 ML_DATA_INGESTION_ENABLED=true|false
@@ -440,6 +445,7 @@ ML_DATA_MAX_CONCURRENT_BACKFILLS=3
 ```
 
 #### Feature Domain Variables
+
 ```bash
 # Feature computation
 ML_FEATURE_TECHNICAL_INDICATORS=true|false
@@ -462,6 +468,7 @@ ML_FEATURE_DRIFT_DETECTION=true|false
 ```
 
 #### Model Domain Variables
+
 ```bash
 # Model loading and caching
 ML_MODEL_CACHE_SIZE=32
@@ -484,6 +491,7 @@ ML_MODEL_CHAMPION_CHALLENGER_RATIO=0.9
 ```
 
 #### Strategy Domain Variables
+
 ```bash
 # Signal generation
 ML_STRATEGY_SIGNAL_GENERATION=true|false
@@ -504,13 +512,14 @@ ML_STRATEGY_DRY_RUN=true|false
 ## Configuration Validation Patterns
 
 ### Multi-Level Validation
+
 ```python
 from typing import Protocol, Dict, List, Any
 from abc import abstractmethod
 
 class ConfigurationValidator(Protocol):
     """Protocol for configuration validators."""
-    
+
     @abstractmethod
     def validate(self, config: Any) -> List[str]:
         """Validate configuration and return list of issues."""
@@ -518,7 +527,7 @@ class ConfigurationValidator(Protocol):
 
 class BaseConfigurationValidator:
     """Base validator with common validation patterns."""
-    
+
     def validate_required_fields(self, config: Any, required_fields: List[str]) -> List[str]:
         """Validate that required fields are present and not None."""
         issues = []
@@ -528,7 +537,7 @@ class BaseConfigurationValidator:
             elif getattr(config, field) is None:
                 issues.append(f"Required field is None: {field}")
         return issues
-    
+
     def validate_ranges(self, config: Any, range_specs: Dict[str, tuple]) -> List[str]:
         """Validate that numeric fields are within specified ranges."""
         issues = []
@@ -539,7 +548,7 @@ class BaseConfigurationValidator:
                     if value < min_val or value > max_val:
                         issues.append(f"Field {field}={value} outside range [{min_val}, {max_val}]")
         return issues
-    
+
     def validate_dependencies(self, config: Any, dependencies: Dict[str, List[str]]) -> List[str]:
         """Validate field dependencies."""
         issues = []
@@ -552,72 +561,72 @@ class BaseConfigurationValidator:
 
 class SystemConfigurationValidator(BaseConfigurationValidator):
     """Validator for complete system configuration."""
-    
+
     def validate(self, config: MLSystemConfiguration) -> List[str]:
         """Validate complete system configuration."""
         issues = []
-        
+
         # Base configuration validation
         issues.extend(self._validate_base_config(config))
-        
+
         # Domain configuration validation
         issues.extend(self._validate_domain_configs(config))
-        
+
         # Cross-domain validation
         issues.extend(self._validate_cross_domain_consistency(config))
-        
+
         # Environment-specific validation
         issues.extend(self._validate_environment_specific(config))
-        
+
         return issues
-    
+
     def _validate_base_config(self, config: MLSystemConfiguration) -> List[str]:
         """Validate base configuration."""
         issues = []
-        
+
         # Required fields
         issues.extend(self.validate_required_fields(config, ["environment", "db_connection"]))
-        
+
         # Connection string validation
         if config.db_connection:
             if not config.db_connection.startswith(("postgresql://", "sqlite://")):
                 issues.append("db_connection must be postgresql:// or sqlite:// URL")
-        
+
         # Environment-specific validation
         if config.environment == Environment.PRODUCTION:
             if config.debug_mode:
                 issues.append("debug_mode must be False in production")
             if config.auto_start_postgres:
                 issues.append("auto_start_postgres must be False in production")
-        
+
         return issues
-    
+
     def _validate_domain_configs(self, config: MLSystemConfiguration) -> List[str]:
-        """Validate individual domain configurations.""" 
+        """Validate individual domain configurations."""
         issues = []
-        
+
         # Data domain validation
         data_issues = self._validate_data_domain(config.data_domain)
         issues.extend([f"data_domain.{issue}" for issue in data_issues])
-        
+
         # Feature domain validation
         feature_issues = self._validate_feature_domain(config.feature_domain)
         issues.extend([f"feature_domain.{issue}" for issue in feature_issues])
-        
+
         # Model domain validation
         model_issues = self._validate_model_domain(config.model_domain)
         issues.extend([f"model_domain.{issue}" for issue in model_issues])
-        
+
         # Strategy domain validation
         strategy_issues = self._validate_strategy_domain(config.strategy_domain)
         issues.extend([f"strategy_domain.{issue}" for issue in strategy_issues])
-        
+
         return issues
-    
+
     def _validate_data_domain(self, config: DataDomainConfig) -> List[str]:
         """Validate data domain configuration."""
         issues = []
-        
+
         # Range validation
         issues.extend(self.validate_ranges(config, {
             "max_ingestion_rate_per_second": (1, 100000),
@@ -627,19 +636,19 @@ class SystemConfigurationValidator(BaseConfigurationValidator):
             "backfill_batch_size": (100, 100000),
             "max_concurrent_backfills": (1, 10),
         }))
-        
+
         # Dependency validation
         issues.extend(self.validate_dependencies(config, {
             "backfill_enabled": ["ingestion_enabled"],
             "outlier_detection_enabled": ["quality_checks_enabled"],
         }))
-        
+
         return issues
-    
+
     def _validate_feature_domain(self, config: FeatureDomainConfig) -> List[str]:
         """Validate feature domain configuration."""
         issues = []
-        
+
         # Range validation
         issues.extend(self.validate_ranges(config, {
             "max_feature_computation_time_ms": (0.1, 1000.0),
@@ -648,19 +657,19 @@ class SystemConfigurationValidator(BaseConfigurationValidator):
             "pipeline_parallel_workers": (1, 32),
             "pipeline_chunk_size": (10, 10000),
         }))
-        
-        # Dependency validation  
+
+        # Dependency validation
         issues.extend(self.validate_dependencies(config, {
             "parity_validation_enabled": ["batch_computation_enabled"],
             "drift_detection_enabled": ["parity_validation_enabled"],
         }))
-        
+
         return issues
-    
+
     def _validate_model_domain(self, config: ModelDomainConfig) -> List[str]:
         """Validate model domain configuration."""
         issues = []
-        
+
         # Range validation
         issues.extend(self.validate_ranges(config, {
             "model_cache_size": (1, 1000),
@@ -668,86 +677,86 @@ class SystemConfigurationValidator(BaseConfigurationValidator):
             "inference_timeout_ms": (1.0, 1000.0),
             "champion_challenger_ratio": (0.0, 1.0),
         }))
-        
+
         # Consistency validation
         if config.max_inference_latency_ms >= config.inference_timeout_ms:
             issues.append("max_inference_latency_ms must be less than inference_timeout_ms")
-        
+
         # Dependency validation
         issues.extend(self.validate_dependencies(config, {
             "ab_testing_enabled": ["performance_monitoring_enabled"],
             "auto_retraining_enabled": ["drift_detection_enabled"],
         }))
-        
+
         return issues
-    
+
     def _validate_strategy_domain(self, config: StrategyDomainConfig) -> List[str]:
         """Validate strategy domain configuration."""
         issues = []
-        
+
         # Range validation
         issues.extend(self.validate_ranges(config, {
             "max_signal_latency_ms": (0.1, 100.0),
             "max_position_size_ratio": (0.001, 1.0),
             "execution_delay_ms": (0, 10000),
         }))
-        
+
         # Dependency validation
         issues.extend(self.validate_dependencies(config, {
             "position_size_limits_enabled": ["risk_checks_enabled"],
             "signal_aggregation_enabled": ["signal_generation_enabled"],
         }))
-        
+
         return issues
-    
+
     def _validate_cross_domain_consistency(self, config: MLSystemConfiguration) -> List[str]:
         """Validate consistency across domains."""
         issues = []
-        
+
         # Performance consistency
         total_latency = (
             config.feature_domain.max_feature_computation_time_ms +
             config.model_domain.max_inference_latency_ms +
             config.strategy_domain.max_signal_latency_ms
         )
-        
+
         if total_latency > 50.0:  # Total pipeline should be under 50ms
             issues.append(f"Total pipeline latency {total_latency}ms exceeds recommended 50ms")
-        
+
         # Cache consistency
         if config.model_domain.model_cache_size > config.feature_domain.feature_cache_size:
             issues.append("model_cache_size should not exceed feature_cache_size")
-        
+
         # Capability consistency
-        if (config.feature_domain.enable_microstructure_features and 
+        if (config.feature_domain.enable_microstructure_features and
             not config.data_domain.quality_checks_enabled):
             issues.append("Microstructure features require data quality checks")
-        
+
         return issues
-    
+
     def _validate_environment_specific(self, config: MLSystemConfiguration) -> List[str]:
         """Validate environment-specific constraints."""
         issues = []
-        
+
         if config.environment == Environment.PRODUCTION:
             # Production-specific validations
             if config.feature_domain.max_feature_computation_time_ms > 50.0:
                 issues.append("Feature computation time too high for production")
-            
+
             if config.model_domain.max_inference_latency_ms > 5.0:
                 issues.append("Model inference latency too high for production")
-            
+
             if not config.data_domain.quality_checks_enabled:
                 issues.append("Data quality checks required in production")
-            
+
             if not config.model_domain.performance_monitoring_enabled:
                 issues.append("Model performance monitoring required in production")
-        
+
         elif config.environment == Environment.DEVELOPMENT:
             # Development-specific validations
             if not config.debug_mode:
                 issues.append("Debug mode recommended in development")
-        
+
         return issues
 
 # Usage
@@ -767,6 +776,7 @@ else:
 ### Configuration Management Strategy
 
 #### 1. Configuration Sources Hierarchy
+
 ```python
 from enum import Enum
 from typing import Dict, Any, Optional
@@ -779,52 +789,52 @@ class ConfigSource(Enum):
 
 class ConfigurationManager:
     """Manages configuration from multiple sources with precedence."""
-    
+
     def __init__(self):
         self.sources: Dict[ConfigSource, Dict[str, Any]] = {}
         self.precedence_order = [
             ConfigSource.DEFAULT,
-            ConfigSource.FILE, 
+            ConfigSource.FILE,
             ConfigSource.ENVIRONMENT,
             ConfigSource.RUNTIME,
         ]
-    
+
     def load_configuration(self, config_class: Type[MLSystemConfiguration]) -> MLSystemConfiguration:
         """Load configuration from all sources with precedence."""
-        
+
         # 1. Load defaults
         default_config = config_class()
         self.sources[ConfigSource.DEFAULT] = asdict(default_config)
-        
+
         # 2. Load from configuration files
         file_config = self._load_from_files()
         if file_config:
             self.sources[ConfigSource.FILE] = file_config
-        
+
         # 3. Load from environment variables
         env_config = EnvironmentConfigLoader.load_from_env(config_class)
         self.sources[ConfigSource.ENVIRONMENT] = asdict(env_config)
-        
+
         # 4. Runtime overrides (if any)
         runtime_config = self._get_runtime_overrides()
         if runtime_config:
             self.sources[ConfigSource.RUNTIME] = runtime_config
-        
+
         # Merge configurations with precedence
         merged_config = self._merge_configurations()
-        
+
         # Create final configuration object
         return config_class(**merged_config)
-    
+
     def _load_from_files(self) -> Optional[Dict[str, Any]]:
         """Load configuration from files."""
         config_files = [
             "ml_config.yaml",
-            "ml_config.yml", 
+            "ml_config.yml",
             "config/ml_config.yaml",
             "/etc/nautilus/ml_config.yaml",
         ]
-        
+
         for config_file in config_files:
             try:
                 import yaml
@@ -834,41 +844,42 @@ class ConfigurationManager:
                 continue
             except Exception as e:
                 logger.warning(f"Failed to load config from {config_file}: {e}")
-        
+
         return None
-    
+
     def _get_runtime_overrides(self) -> Optional[Dict[str, Any]]:
         """Get runtime configuration overrides."""
-        # This could come from command line arguments, 
+        # This could come from command line arguments,
         # remote configuration service, etc.
         return None
-    
+
     def _merge_configurations(self) -> Dict[str, Any]:
         """Merge configurations according to precedence order."""
         merged = {}
-        
+
         for source in self.precedence_order:
             if source in self.sources:
                 merged = self._deep_merge(merged, self.sources[source])
-        
+
         return merged
-    
+
     def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
         """Deep merge two dictionaries."""
         result = base.copy()
-        
+
         for key, value in override.items():
             if key in result and isinstance(result[key], dict) and isinstance(value, dict):
                 result[key] = self._deep_merge(result[key], value)
             else:
                 result[key] = value
-        
+
         return result
 ```
 
 #### 2. Configuration File Templates
 
 ##### Development Configuration (ml_config.dev.yaml)
+
 ```yaml
 # Development Environment Configuration
 environment: "development"
@@ -893,7 +904,7 @@ feature_domain:
   feature_cache_size: 1000  # Smaller cache
 
 model_domain:
-  model_cache_size: 8  # Smaller cache  
+  model_cache_size: 8  # Smaller cache
   max_inference_latency_ms: 10.0  # More relaxed
   auto_retraining_enabled: false  # Disabled in dev
 
@@ -909,6 +920,7 @@ strict_protocol_validation: true
 ```
 
 ##### Staging Configuration (ml_config.staging.yaml)
+
 ```yaml
 # Staging Environment Configuration
 environment: "staging"
@@ -951,6 +963,7 @@ strict_protocol_validation: true
 ```
 
 ##### Production Configuration (ml_config.prod.yaml)
+
 ```yaml
 # Production Environment Configuration
 environment: "production"
@@ -1007,6 +1020,7 @@ unified_monitoring_enabled: true
 #### 3. Container and Kubernetes Configuration
 
 ##### Docker Compose for Development
+
 ```yaml
 # docker-compose.dev.yml
 version: '3.8'
@@ -1047,6 +1061,7 @@ volumes:
 ```
 
 ##### Kubernetes Configuration for Production
+
 ```yaml
 # k8s/ml-system-config.yaml
 apiVersion: v1
@@ -1062,12 +1077,12 @@ data:
   ML_ENABLE_METRICS: "true"
   ML_ENABLE_HEALTH_CHECKS: "true"
   ML_HOT_PATH_OPTIMIZATION: "true"
-  
+
   # Performance tuning
   ML_FEATURE_MAX_COMPUTATION_TIME_MS: "50.0"
   ML_MODEL_MAX_INFERENCE_LATENCY_MS: "3.0"
   ML_STRATEGY_MAX_SIGNAL_LATENCY_MS: "10.0"
-  
+
   # Cache sizes
   ML_FEATURE_CACHE_SIZE: "20000"
   ML_MODEL_CACHE_SIZE: "64"
@@ -1137,35 +1152,35 @@ spec:
 ```python
 class ConfigurationTestSuite:
     """Test suite for configuration validation."""
-    
+
     def test_development_configuration(self):
         """Test development configuration."""
         config = MLSystemConfiguration.for_environment(Environment.DEVELOPMENT)
         validator = SystemConfigurationValidator()
         issues = validator.validate(config)
-        
+
         assert len(issues) == 0, f"Development config issues: {issues}"
         assert config.debug_mode is True
         assert config.auto_start_postgres is True
-        
+
     def test_production_configuration(self):
         """Test production configuration."""
         config = MLSystemConfiguration.for_environment(Environment.PRODUCTION)
         validator = SystemConfigurationValidator()
         issues = validator.validate(config)
-        
+
         assert len(issues) == 0, f"Production config issues: {issues}"
         assert config.debug_mode is False
         assert config.auto_start_postgres is False
-        
+
     def test_environment_variable_overrides(self):
         """Test environment variable overrides."""
         import os
-        
+
         # Set test environment variables
         os.environ["ML_DEBUG_MODE"] = "false"
         os.environ["ML_FEATURE_CACHE_SIZE"] = "15000"
-        
+
         try:
             config = EnvironmentConfigLoader.load_from_env(MLSystemConfiguration)
             assert config.debug_mode is False
@@ -1174,7 +1189,7 @@ class ConfigurationTestSuite:
             # Clean up
             del os.environ["ML_DEBUG_MODE"]
             del os.environ["ML_FEATURE_CACHE_SIZE"]
-    
+
     def test_cross_domain_consistency(self):
         """Test cross-domain configuration consistency."""
         config = MLSystemConfiguration(
@@ -1182,10 +1197,10 @@ class ConfigurationTestSuite:
             model_domain=ModelDomainConfig(max_inference_latency_ms=15.0),
             strategy_domain=StrategyDomainConfig(max_signal_latency_ms=5.0),
         )
-        
+
         validator = SystemConfigurationValidator()
         issues = validator.validate(config)
-        
+
         # Should pass total latency check (30 + 15 + 5 = 50ms)
         latency_issues = [i for i in issues if "pipeline latency" in i]
         assert len(latency_issues) == 0

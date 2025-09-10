@@ -32,7 +32,7 @@ def feature_store(test_database) -> FeatureStore:
     """Provides initialized FeatureStore."""
     return FeatureStore(connection_string=test_database.connection_string)
 
-@pytest.fixture  
+@pytest.fixture
 def model_store(test_database) -> ModelStore:
     """Provides initialized ModelStore."""
     return ModelStore(connection_string=test_database.connection_string)
@@ -46,11 +46,12 @@ def strategy_store(test_database) -> StrategyStore:
 ## Usage Patterns
 
 ### Pattern 1: Using Database Fixture
+
 ```python
 def test_something(test_database):
     # Access engine
     engine = test_database.engine
-    
+
     # Get session
     with test_database.get_session() as session:
         # Use session for queries
@@ -58,6 +59,7 @@ def test_something(test_database):
 ```
 
 ### Pattern 2: Using Store Fixtures
+
 ```python
 def test_feature_store_operation(feature_store):
     # Store is already initialized with PostgreSQL
@@ -66,6 +68,7 @@ def test_feature_store_operation(feature_store):
 ```
 
 ### Pattern 3: Clean Database Each Test
+
 ```python
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_with_clean_db(test_database):
@@ -74,6 +77,7 @@ def test_with_clean_db(test_database):
 ```
 
 ### Pattern 4: Multiple Stores
+
 ```python
 def test_integration(feature_store, model_store, strategy_store):
     # All stores share same database but are independent instances
@@ -93,11 +97,12 @@ def test_integration(feature_store, model_store, strategy_store):
 ## Anti-Patterns to Avoid
 
 ❌ **Don't do this:**
+
 ```python
 # Hardcoded connection
 store = FeatureStore("sqlite:///:memory:")
 
-# Direct engine creation  
+# Direct engine creation
 engine = create_engine("postgresql://...")
 
 # Manual cleanup
@@ -105,6 +110,7 @@ session.execute("DELETE FROM ...")
 ```
 
 ✅ **Do this instead:**
+
 ```python
 # Use fixtures
 def test_store(feature_store):
@@ -113,7 +119,7 @@ def test_store(feature_store):
 # Use test_database
 def test_with_db(test_database):
     engine = test_database.engine
-    
+
 # Automatic cleanup
 @pytest.mark.usefixtures("clean_postgres_db")
 def test_isolated(test_database):

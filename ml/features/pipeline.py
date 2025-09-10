@@ -183,8 +183,8 @@ class _CalendarTransform:
     """
     Calendar-based known-future features for TFT models.
 
-    These features are deterministically known in advance based on calendar time,
-    making them suitable for TFT's known-future input category.
+    These features are deterministically known in advance based on calendar time, making
+    them suitable for TFT's known-future input category.
 
     """
 
@@ -213,10 +213,12 @@ class _CalendarTransform:
             elif encoding == "fourier":
                 n_harmonics = params.get("n_harmonics", 3)
                 for h in range(1, n_harmonics + 1):
-                    base_features.extend([
-                        f"hour_sin_{h}",
-                        f"hour_cos_{h}",
-                    ])
+                    base_features.extend(
+                        [
+                            f"hour_sin_{h}",
+                            f"hour_cos_{h}",
+                        ],
+                    )
             else:  # onehot
                 base_features.extend([f"hour_{h}" for h in range(24)])
                 if granularity == "minute":
@@ -235,15 +237,17 @@ class _CalendarTransform:
             base_features.extend([f"month_{m}" for m in range(1, 13)])
 
         # Additional calendar indicators
-        base_features.extend([
-            "is_weekend",
-            "is_month_start",
-            "is_month_end",
-            "is_quarter_start",
-            "is_quarter_end",
-            "days_to_month_end",
-            "days_from_month_start",
-        ])
+        base_features.extend(
+            [
+                "is_weekend",
+                "is_month_start",
+                "is_month_end",
+                "is_quarter_start",
+                "is_quarter_end",
+                "days_to_month_end",
+                "days_from_month_start",
+            ],
+        )
 
         return base_features
 
@@ -274,12 +278,15 @@ class _EventScheduleTransform:
             horizon_hours: Hours ahead to look for events
 
         """
-        event_types = params.get("event_types", [
-            "earnings",
-            "fed_meeting",
-            "economic_release",
-            "options_expiry",
-        ])
+        event_types = params.get(
+            "event_types",
+            [
+                "earnings",
+                "fed_meeting",
+                "economic_release",
+                "options_expiry",
+            ],
+        )
 
         horizon_hours = params.get("horizon_hours", [1, 4, 24, 72])
 
@@ -296,21 +303,25 @@ class _EventScheduleTransform:
                 features.append(f"{event}_within_{h}h")
 
         # Aggregate event density
-        features.extend([
-            "total_events_24h",
-            "total_events_week",
-            "event_density_24h",
-            "event_density_week",
-        ])
+        features.extend(
+            [
+                "total_events_24h",
+                "total_events_week",
+                "event_density_24h",
+                "event_density_week",
+            ],
+        )
 
         # Special trading conditions
-        features.extend([
-            "is_triple_witching",
-            "is_fomc_week",
-            "is_earnings_season",
-            "is_holiday_week",
-            "days_to_next_holiday",
-        ])
+        features.extend(
+            [
+                "is_triple_witching",
+                "is_fomc_week",
+                "is_earnings_season",
+                "is_holiday_week",
+                "days_to_next_holiday",
+            ],
+        )
 
         return features
 
@@ -323,8 +334,8 @@ class _MacroIndicatorsTransform:
     """
     Macroeconomic indicators as known-future features.
 
-    These are typically released on a schedule and their values are known
-    until the next release, making them suitable for TFT known-future inputs.
+    These are typically released on a schedule and their values are known until the next
+    release, making them suitable for TFT known-future inputs.
 
     """
 
@@ -341,14 +352,17 @@ class _MacroIndicatorsTransform:
             transformations: List of transformations to apply
 
         """
-        indicators = params.get("indicators", [
-            "vix",
-            "dxy",
-            "treasury_10y",
-            "treasury_2y",
-            "term_spread",
-            "fed_funds_rate",
-        ])
+        indicators = params.get(
+            "indicators",
+            [
+                "vix",
+                "dxy",
+                "treasury_10y",
+                "treasury_2y",
+                "term_spread",
+                "fed_funds_rate",
+            ],
+        )
 
         transformations = params.get("transformations", ["level", "change", "z_score"])
 
@@ -366,11 +380,13 @@ class _MacroIndicatorsTransform:
                     features.append(f"{indicator}_zscore_60d")
 
         # Regime indicators
-        features.extend([
-            "vix_regime",  # Low/Medium/High volatility
-            "yield_curve_regime",  # Normal/Flat/Inverted
-            "rate_cycle_phase",  # Hiking/Neutral/Cutting
-        ])
+        features.extend(
+            [
+                "vix_regime",  # Low/Medium/High volatility
+                "yield_curve_regime",  # Normal/Flat/Inverted
+                "rate_cycle_phase",  # Hiking/Neutral/Cutting
+            ],
+        )
 
         return features
 
@@ -406,22 +422,34 @@ class _StaticCovariatesTransform:
             categorical_features: List of categorical static features
 
         """
-        numeric_features = cast(list[str], params.get("numeric_features", [
-            "tick_size",
-            "lot_size",
-            "contract_size",
-            "min_price_increment",
-            "margin_initial",
-            "margin_maintenance",
-        ]))
+        numeric_features = cast(
+            list[str],
+            params.get(
+                "numeric_features",
+                [
+                    "tick_size",
+                    "lot_size",
+                    "contract_size",
+                    "min_price_increment",
+                    "margin_initial",
+                    "margin_maintenance",
+                ],
+            ),
+        )
 
-        categorical_features = cast(list[str], params.get("categorical_features", [
-            "exchange",
-            "asset_class",
-            "currency",
-            "fee_class",
-            "market_segment",
-        ]))
+        categorical_features = cast(
+            list[str],
+            params.get(
+                "categorical_features",
+                [
+                    "exchange",
+                    "asset_class",
+                    "currency",
+                    "fee_class",
+                    "market_segment",
+                ],
+            ),
+        )
 
         # For categoricals, we'll need encoding (one-hot or embedding indices)
         # This returns the base feature names; actual encoding happens in transform

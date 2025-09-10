@@ -21,7 +21,46 @@ from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 
-from ...meta.test_fixtures import MockPolarsModule
+try:
+    # Optional test helper; define a local fallback if absent
+    from ...meta.test_fixtures import MockPolarsModule  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - test helper fallback
+
+    class MockPolarsModule:  # minimal stub used when Polars is unavailable
+        class Series:
+            def __init__(self, name: str, data: Any) -> None:
+                self.name = name
+                self._data = np.asarray(data)
+
+            def to_numpy(self) -> npt.NDArray[np.float64]:  # type: ignore[override]
+                return np.asarray(self._data)
+
+        class DataFrame:
+            def __init__(self, data: dict[str, Any]) -> None:
+                self.data: dict[str, npt.NDArray[np.float64]] = {
+                    k: np.asarray(v) for k, v in data.items()
+                }
+                self._columns: list[str] = list(self.data.keys())
+
+            @property
+            def columns(self) -> list[str]:
+                return list(self._columns)
+
+            def __getitem__(self, key: str) -> MockPolarsModule.Series:
+                return MockPolarsModule.Series(key, self.data[key])
+
+            def with_columns(self, series: Any) -> MockPolarsModule.DataFrame:
+                # Accept a single Series or a list of Series
+                items = series if isinstance(series, list) else [series]
+                for s in items:
+                    name = getattr(s, "name", None)
+                    arr = getattr(s, "_data", None)
+                    if name is None or arr is None:
+                        continue
+                    self.data[name] = np.asarray(arr)
+                    if name not in self._columns:
+                        self._columns.append(name)
+                return self
 
 
 if TYPE_CHECKING:

@@ -32,6 +32,7 @@ The module follows a dual-dataframe approach, providing implementations for both
 
 #### StationarityTransformer
 Advanced transformer implementing fractional differencing for financial time series:
+
 - **Fractional Differencing**: Achieves stationarity while preserving memory using López de Prado's method
 - **Automatic d Selection**: Uses ADF test to find optimal differencing order (`find_optimal_d`)
 - **Weight Computation**: JIT-compiled `_compute_weights_numba` for efficient fractional weights calculation
@@ -39,14 +40,16 @@ Advanced transformer implementing fractional differencing for financial time ser
 - **Transformation Methods**: `fractional`, `standard`, or `auto` mode with optimal parameter detection
 
 Key methods:
+
 - `fractional_difference()`: Apply fractional differencing with configurable order d
 - `fit_transform()`: Combined fitting and transformation with optional auto-d detection
 - `inverse_transform()`: Approximate reconstruction of original series
 
 #### MarketMicrostructureFeatures
 Comprehensive market microstructure analytics implementation:
+
 - **Roll's Spread Estimator**: Bid-ask spread estimation from price covariance
-- **Kyle's Lambda**: Price impact measurement from signed volume regression  
+- **Kyle's Lambda**: Price impact measurement from signed volume regression
 - **Amihud Illiquidity**: Market liquidity measure based on return-to-volume ratio
 - **VPIN**: Volume-synchronized Probability of Informed Trading with volume bucket analysis
 
@@ -54,6 +57,7 @@ All methods handle edge cases (zero volume, insufficient data) and return robust
 
 #### FeatureLagGenerator
 Comprehensive lagged feature creation system:
+
 - **Simple Lags**: Configurable lag periods with proper NaN handling
 - **Rolling Statistics**: Rolling means and standard deviations with efficient convolution
 - **Exponentially Weighted Features**: EWM calculations with configurable decay spans
@@ -61,6 +65,7 @@ Comprehensive lagged feature creation system:
 
 #### DataNormalizer
 Advanced normalization techniques resistant to financial data characteristics:
+
 - **Robust Scaling**: Uses median and MAD instead of mean/std for outlier resistance
 - **Rank Transformation**: Converts to uniform then normal distribution via percentiles
 - **Box-Cox Transformation**: Power transformation with automatic lambda estimation
@@ -68,6 +73,7 @@ Advanced normalization techniques resistant to financial data characteristics:
 
 #### PurgedCrossValidator
 Industry-standard purged walk-forward cross-validation for financial ML:
+
 - **Purge Gap**: Configurable gap between train/test to prevent information leakage
 - **Embargo Period**: Percentage-based embargo after test sets
 - **Walk-Forward Logic**: Proper temporal ordering for time series validation
@@ -77,17 +83,20 @@ Industry-standard purged walk-forward cross-validation for financial ML:
 
 #### asof_join()
 Dual-implementation as-of join ensuring temporal correctness:
+
 - **Backward/Forward/Nearest**: Configurable join directions with tolerance
 - **By-Group Support**: Group-wise joins (e.g., by instrument_id)
 - **Automatic Routing**: Detects dataframe type and routes to appropriate implementation
 - **Tolerance Handling**: Time-based tolerance for match flexibility
 
 Implementation variants:
+
 - `_asof_join_polars()`: Polars-optimized implementation using join_asof
 - `_asof_join_pandas()`: Pandas implementation using merge_asof
 
 #### embargo_window()
 Event-based embargo window application:
+
 - **Event Timestamps**: List of timestamps requiring embargo periods
 - **Configurable Windows**: Before/after embargo periods in nanoseconds
 - **Boolean Marking**: Adds `embargo` column marking affected periods
@@ -95,12 +104,14 @@ Event-based embargo window application:
 
 #### validate_no_lookahead()
 Critical validation function preventing future information usage:
+
 - **Timestamp Validation**: Ensures features don't exceed target timestamps
 - **Automatic Detection**: Works with any timestamp column names
 - **Exception Raising**: Clear error messages when lookahead bias detected
 
 #### create_lag_features()
 Point-in-time correct lag feature creation:
+
 - **Group-Aware Lagging**: Proper lagging within instrument groups
 - **Temporal Ordering**: Ensures proper timestamp-based ordering before lagging
 - **Multiple Lags**: Support for multiple lag periods simultaneously
@@ -109,11 +120,13 @@ Point-in-time correct lag feature creation:
 ## Dependencies
 
 ### Internal Dependencies
+
 - **ml._imports**: Lazy loading system for Polars (`HAS_POLARS`) and Pandas (`HAS_PANDAS`)
 - **nautilus_trader.core.data**: Nanosecond timestamp handling standards
 - **ml.common.metrics_bootstrap**: Prometheus metrics integration (indirectly via actors)
 
 ### External Dependencies
+
 - **numpy**: Core numerical computations and array operations
 - **polars**: High-performance dataframe operations (lazy-loaded)
 - **pandas**: Traditional dataframe operations for compatibility (lazy-loaded)
@@ -124,6 +137,7 @@ Point-in-time correct lag feature creation:
 ## Usage Patterns
 
 ### Stationarity Transformation
+
 ```python
 from ml.preprocessing.stationarity import StationarityTransformer
 
@@ -137,6 +151,7 @@ stationary_series = transformer.fractional_difference(price_series)
 ```
 
 ### Point-in-Time Joins
+
 ```python
 from ml.preprocessing.joins import asof_join, embargo_window
 
@@ -144,7 +159,7 @@ from ml.preprocessing.joins import asof_join, embargo_window
 joined_data = asof_join(
     market_df, events_df,
     on="ts_event",
-    by="instrument_id", 
+    by="instrument_id",
     direction="backward"
 )
 
@@ -157,6 +172,7 @@ embargoed_data = embargo_window(
 ```
 
 ### Cross-Validation
+
 ```python
 from ml.preprocessing.stationarity import PurgedCrossValidator
 
@@ -175,21 +191,25 @@ for train_idx, test_idx in cv.split(X):
 ## Integration Points
 
 ### Feature Pipeline Integration
+
 - **FeatureEngineer**: Uses stationarity transformers in preprocessing pipelines
 - **Pipeline Specifications**: TransformSpec integration for declarative preprocessing
 - **Batch/Online Parity**: Ensures identical transformations in training and inference
 
 ### ML Actor Integration
+
 - **BaseMLInferenceActor**: Preprocessing transformations in data preparation phase
 - **Signal Generation**: Stationary features for improved model performance
 - **Real-time Processing**: Hot-path optimized transformations for inference
 
 ### Data Store Integration
+
 - **Temporal Validation**: Joins ensure proper ts_event/ts_init handling
 - **Instrument Grouping**: By-instrument processing maintains data isolation
 - **Schema Compliance**: All operations preserve required Nautilus timestamp fields
 
 ### Training Pipeline Integration
+
 - **Cross-Validation**: PurgedCrossValidator prevents overfitting in time series models
 - **Data Preparation**: Stationarity transformation before model training
 - **Feature Engineering**: Lag generation and microstructure features for model input
@@ -197,30 +217,35 @@ for train_idx, test_idx in cv.split(X):
 ## Implementation Notes
 
 ### Performance Optimizations
+
 - **JIT Compilation**: Numba acceleration for fractional weight computation where available
 - **Vectorization**: All operations use vectorized numpy/polars operations
 - **Memory Efficiency**: In-place operations and pre-allocated arrays where possible
 - **Lazy Evaluation**: Polars lazy evaluation patterns for large dataset processing
 
 ### Numerical Stability
+
 - **Weight Thresholding**: Drops small fractional differencing weights for stability
 - **Division by Zero**: Proper handling in microstructure calculations
 - **NaN Propagation**: Consistent NaN handling across all transformations
 - **Precision Handling**: Uses float64 throughout for numerical accuracy
 
 ### Temporal Correctness
+
 - **Strict Ordering**: All operations maintain proper temporal ordering
 - **No Lookahead**: Multiple validation layers prevent future information usage
 - **Embargo Enforcement**: Event-based embargo windows for information quarantine
 - **Point-in-Time Joins**: Guaranteed historical data usage only
 
 ### Error Handling and Validation
+
 - **Input Validation**: Comprehensive parameter validation with descriptive errors
 - **Data Quality Checks**: Automatic detection of insufficient data for operations
 - **Framework Availability**: Graceful handling when Polars/Pandas unavailable
 - **Statistical Validity**: ADF test validation for stationarity assessment
 
 ### Academic Compliance
+
 - **López de Prado Methods**: Faithful implementation of AFML techniques
 - **Statistical Rigor**: Proper statistical tests and validation procedures
 - **Literature References**: Code comments reference relevant academic sources

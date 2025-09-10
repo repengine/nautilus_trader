@@ -2,8 +2,9 @@
 """
 Entrypoint for ML Trading Strategy container.
 
-Run the ML Trading Strategy that consumes signals from the ML Signal Actor
-and makes trading decisions (dry run by default).
+Run the ML Trading Strategy that consumes signals from the ML Signal Actor and makes
+trading decisions (dry run by default).
+
 """
 
 import asyncio
@@ -39,7 +40,10 @@ class MLStrategyNode:
         Set up the trading node with ML Trading Strategy.
         """
         # Get configuration from environment
-        db_connection = os.getenv("DB_CONNECTION", "postgresql://postgres:postgres@localhost:5432/nautilus")
+        db_connection = os.getenv(
+            "DB_CONNECTION",
+            "postgresql://postgres:postgres@localhost:5432/nautilus",
+        )
 
         strategy_id = os.getenv("STRATEGY_ID", "MLStrategy-DRY-001")
         ml_signal_source = os.getenv("ML_SIGNAL_SOURCE", "MLSignalActor-001")
@@ -69,7 +73,9 @@ class MLStrategyNode:
         print(f"Strategy ID: {strategy_id}")
         print(f"Signal Source: {ml_signal_source}")
         print(f"Instrument: {instrument_id}")
-        print(f"Execute Trades: {execute_trades} {'(DRY RUN MODE)' if not execute_trades else '(LIVE MODE)'}")
+        print(
+            f"Execute Trades: {execute_trades} {'(DRY RUN MODE)' if not execute_trades else '(LIVE MODE)'}",
+        )
         print(f"Position Size: {position_size_pct*100:.1f}%")
         print(f"Min Confidence: {min_confidence:.2f}")
         print(f"Stop Loss: {stop_loss_pct*100:.1f}%")
@@ -93,11 +99,15 @@ class MLStrategyNode:
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
             use_strategy_store=use_strategy_store,
-            strategy_store_config={
-                "connection_string": db_connection,
-                "batch_size": 100,
-                "flush_interval_ms": 1000,
-            } if use_strategy_store else None,
+            strategy_store_config=(
+                {
+                    "connection_string": db_connection,
+                    "batch_size": 100,
+                    "flush_interval_ms": 1000,
+                }
+                if use_strategy_store
+                else None
+            ),
             persist_all_signals=persist_all_signals,
             execute_trades=execute_trades,  # DRY RUN CONTROL
         )
@@ -131,7 +141,9 @@ class MLStrategyNode:
             strategy = MLTradingStrategy(config=strategy_config)
         except Exception as e:
             if os.getenv("PYTEST_CURRENT_TEST") is not None:
-                print(f"Warning: failed to initialize MLTradingStrategy ({e}); using dummy strategy for tests")
+                print(
+                    f"Warning: failed to initialize MLTradingStrategy ({e}); using dummy strategy for tests",
+                )
                 strategy = cast(Any, object())
             else:
                 raise
@@ -164,9 +176,11 @@ class MLStrategyNode:
         # Set up graceful shutdown
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
+
             def _handler(sig_local: signal.Signals = sig) -> None:
                 task = asyncio.create_task(self.shutdown(sig_local))
                 self._tasks.append(task)
+
             loop.add_signal_handler(sig, _handler)
 
         # Run the node
@@ -210,7 +224,9 @@ class MLStrategyNode:
                     strategy = next(iter(strategies_dict.values()))
                     print(f"Signals Received: {getattr(strategy, '_signals_received', 0)}")
                     print(f"Dry Run Trades: {getattr(strategy, '_dry_run_trades', 0)}")
-                    print(f"Execute Trades Setting: {getattr(strategy._config, 'execute_trades', False)}")
+                    print(
+                        f"Execute Trades Setting: {getattr(strategy._config, 'execute_trades', False)}",
+                    )
                 else:
                     print("Signals Received: 0")
                     print("Dry Run Trades: 0")

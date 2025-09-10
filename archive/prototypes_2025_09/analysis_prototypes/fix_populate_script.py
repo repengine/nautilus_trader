@@ -54,7 +54,9 @@ def validate_daily_file_integrity(file_path: Path) -> bool:
 
 
 def find_corrupted_daily_files(
-    output_dir: Path, symbol: str, expected_days: list[datetime]
+    output_dir: Path,
+    symbol: str,
+    expected_days: list[datetime],
 ) -> list[datetime]:
     """
     Find corrupted daily files that need re-download.
@@ -79,7 +81,9 @@ def find_corrupted_daily_files(
 
 
 def validate_existing_data(
-    symbol: str, output_dir: Path, expected_days: list[datetime]
+    symbol: str,
+    output_dir: Path,
+    expected_days: list[datetime],
 ) -> tuple[bool, list[str]]:
     """
     Validate existing data completeness and return (is_complete, issues).
@@ -95,10 +99,10 @@ def validate_existing_data(
         if corrupted_dates:
             # If we have corrupted daily files, the final file is suspect too
             logger.info(
-                f"  Found {len(corrupted_dates)} corrupted daily files - final file needs rebuild"
+                f"  Found {len(corrupted_dates)} corrupted daily files - final file needs rebuild",
             )
             return False, [
-                f"Corrupted daily files found: {len(corrupted_dates)} files need re-download"
+                f"Corrupted daily files found: {len(corrupted_dates)} files need re-download",
             ]
 
         # Quick validation using parquet metadata
@@ -143,7 +147,7 @@ def validate_existing_data(
 
         if coverage_days < expected_days_count - 2:
             issues.append(
-                f"Insufficient coverage: {coverage_days} days vs expected ~{expected_days_count}"
+                f"Insufficient coverage: {coverage_days} days vs expected ~{expected_days_count}",
             )
 
         return len(issues) == 0, issues
@@ -313,7 +317,9 @@ def main():
     parser.add_argument("--days", type=int, default=30, help="Number of days to download")
     parser.add_argument("--data-dir", type=Path, default=Path("data/tier1"), help="Data directory")
     parser.add_argument(
-        "--force", action="store_true", help="Force re-download even if file exists"
+        "--force",
+        action="store_true",
+        help="Force re-download even if file exists",
     )
     parser.add_argument("--validate-only", action="store_true", help="Only validate existing data")
     parser.add_argument("--start-date", type=str, help="Start date (YYYY-MM-DD)")
@@ -419,7 +425,7 @@ def main():
         # Report issues
         if failed_days:
             logger.error(
-                f"  ❌ Failed days ({len(failed_days)}): {failed_days[:5]}{'...' if len(failed_days) > 5 else ''}"
+                f"  ❌ Failed days ({len(failed_days)}): {failed_days[:5]}{'...' if len(failed_days) > 5 else ''}",
             )
 
     # Summary report

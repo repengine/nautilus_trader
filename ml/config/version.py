@@ -18,6 +18,9 @@ _pkg_version: Callable[[str], str] | None = _pkg_version_fn
 
 
 def get_package_version(dist_name: str = "nautilus-trader-ml") -> str | None:
+    """
+    Return installed distribution version or None if unavailable.
+    """
     try:
         if _pkg_version is None:
             return None

@@ -72,10 +72,7 @@ class MLTradingStrategy(BaseMLStrategy):
             decision_type = "SELL"
 
         # Log signal details
-        model_id = (
-            getattr(signal, "model_id", None)
-            or signal.metadata.get("model_id", "unknown")
-        )
+        model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
         self.log.info(
             f"Processing ML signal from {model_id}: "
             f"prediction={signal.prediction:.3f}, "
@@ -117,10 +114,8 @@ class MLTradingStrategy(BaseMLStrategy):
             else:
                 self._dry_run_trades += 1
                 self.log.info(
-
-                        f"[DRY RUN] Would enter {target_side.name} position "
-                        f"(execute_trades=False) - Total dry run trades: {self._dry_run_trades}"
-
+                    f"[DRY RUN] Would enter {target_side.name} position "
+                    f"(execute_trades=False) - Total dry run trades: {self._dry_run_trades}",
                 )
 
         elif self._should_reverse_position(current_position, target_side):
@@ -139,11 +134,9 @@ class MLTradingStrategy(BaseMLStrategy):
             else:
                 self._dry_run_trades += 1
                 self.log.info(
-
-                        f"[DRY RUN] Would reverse position from {current_position.side.name} "
-                        f"to {target_side.name} (execute_trades=False) - "
-                        f"Total dry run trades: {self._dry_run_trades}"
-
+                    f"[DRY RUN] Would reverse position from {current_position.side.name} "
+                    f"to {target_side.name} (execute_trades=False) - "
+                    f"Total dry run trades: {self._dry_run_trades}",
                 )
 
         else:
@@ -189,7 +182,7 @@ class MLTradingStrategy(BaseMLStrategy):
         # Check if trading is enabled
         if not self._config.execute_trades:
             self.log.info(
-                f"[DRY RUN] Would place {side.name} order for {quantity} units (execute_trades=False)"
+                f"[DRY RUN] Would place {side.name} order for {quantity} units (execute_trades=False)",
             )
             # Still update position counter for tracking purposes
             self._active_positions += 1
@@ -200,10 +193,7 @@ class MLTradingStrategy(BaseMLStrategy):
         self._active_positions += 1
 
         # Track the signal that triggered this trade
-        model_id = (
-            getattr(signal, "model_id", None)
-            or signal.metadata.get("model_id", "unknown")
-        )
+        model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
         self.log.info(
             f"Entering {side.name} position: {quantity} units based on signal from {model_id}",
         )
@@ -242,7 +232,7 @@ class MLTradingStrategy(BaseMLStrategy):
         if not self._config.execute_trades:
             quantity = self._calculate_position_size()
             self.log.info(
-                f"[DRY RUN] Would close {current_position.side.name} position and open {target_side.name} for {quantity} units (execute_trades=False)"
+                f"[DRY RUN] Would close {current_position.side.name} position and open {target_side.name} for {quantity} units (execute_trades=False)",
             )
             return
 

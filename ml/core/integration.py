@@ -13,7 +13,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -69,6 +69,17 @@ class MLIntegrationManager:
     >>> integration.model_registry.register_model(...)
 
     """
+
+    # Public components (runtime-populated)
+    feature_store: object
+    model_store: object
+    strategy_store: object
+    data_store: object | None
+    feature_registry: object
+    model_registry: object
+    strategy_registry: object
+    data_registry: object
+    partition_manager: PartitionManager | None
 
     if TYPE_CHECKING:  # pragma: no cover - typing only
         from threading import Event
@@ -155,6 +166,8 @@ class MLIntegrationManager:
         # Validate protocol compliance (warn by default)
         self._validate_protocol_compliance(strict=strict_protocol_validation)
 
+        # Message bus is configured explicitly by callers when required.
+
     def _init_database(self) -> None:
         """
         Initialize database connection and run migrations.
@@ -172,6 +185,7 @@ class MLIntegrationManager:
         Initialize in-memory dummy components for testing fallback.
 
         This mode provides protocol-compatible components without persistence.
+
         """
         from ml.registry.base import DummyRegistry
         from ml.stores.base import DummyStore
@@ -189,7 +203,7 @@ class MLIntegrationManager:
         self.data_registry = DummyRegistry()
 
         # Partition manager is not applicable in dummy mode
-        self.partition_manager = None  # type: ignore[assignment]
+        self.partition_manager = None
 
     def _init_stores(self) -> None:
         """
@@ -219,7 +233,7 @@ class MLIntegrationManager:
         )
 
         # Initialize DataStore after registries are available (will be set in _init_registries)
-        self.data_store: DataStore | None = None
+        self.data_store = None
 
     def _init_registries(self) -> None:
         """
@@ -262,10 +276,12 @@ class MLIntegrationManager:
         )
         # Ensure FeatureStore/ModelStore publish into the same DataRegistry instance
         try:
-            if hasattr(self, "feature_store") and hasattr(self.feature_store, "set_data_registry"):
-                self.feature_store.set_data_registry(self.data_registry)  # type: ignore[attr-defined]
-            if hasattr(self, "model_store") and hasattr(self.model_store, "set_data_registry"):
-                self.model_store.set_data_registry(self.data_registry)  # type: ignore[attr-defined]
+            setter = getattr(self.feature_store, "set_data_registry", None)
+            if callable(setter):
+                setter(self.data_registry)
+            setter2 = getattr(self.model_store, "set_data_registry", None)
+            if callable(setter2):
+                setter2(self.data_registry)
         except Exception:
             logger.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
 
@@ -309,6 +325,7 @@ class MLIntegrationManager:
             raise RuntimeError("docker executable not found in PATH")
         # Prefer explicit env override, then deployment compose, then dev compose, then root
         import os
+
         candidates: list[object] = []
         env_compose = os.getenv("ML_COMPOSE_FILE")
         if env_compose:
@@ -318,7 +335,7 @@ class MLIntegrationManager:
                 Path("ml/deployment/docker-compose.yml"),
                 Path("ml/docker-compose.dev.yml"),
                 Path("docker-compose.yml"),
-            ]
+            ],
         )
         for candidate in candidates:
             try:
@@ -647,6 +664,8 @@ class MLIntegrationManager:
         Check health of partition manager.
         """
         try:
+            if self.partition_manager is None:
+                return False
             stats = self.partition_manager.get_partition_stats()
             return len(stats) > 0
         except Exception:
@@ -809,7 +828,10 @@ class MLIntegrationManager:
             }
 
     def flush_observability_to_path(
-        self, *, base_path: Path, file_format: str = "jsonl"
+        self,
+        *,
+        base_path: Path,
+        file_format: str = "jsonl",
     ) -> dict[str, Path]:
         """
         Persist current observability tables to disk (off hot-path).
@@ -820,12 +842,15 @@ class MLIntegrationManager:
 
         """
         try:
+            from typing import Any as _Any
+            from typing import cast as _cast
+
             from ml.observability.persistence import ObservabilityPersistor
 
-            tables = self.collect_observability_dataframes()
+            tables = _cast(dict[str, _Any], self.collect_observability_dataframes())
             # Collect returns DataFrame | None; persist accepts Mapping[str, DataFrame | None]
             sink = ObservabilityPersistor(base_path=base_path, file_format=file_format)
-            return sink.persist(tables)  # type: ignore[arg-type]
+            return sink.persist(tables)
         except Exception:  # pragma: no cover - defensive
             return {}
 
@@ -839,11 +864,14 @@ class MLIntegrationManager:
 
         """
         try:
+            from typing import Any as _Any
+            from typing import cast as _cast
+
             from ml.observability.db_persistence import ObservabilityDBPersistor
 
-            tables = self.collect_observability_dataframes()
+            tables = _cast(dict[str, _Any], self.collect_observability_dataframes())
             per = ObservabilityDBPersistor(connection_string=connection_string)
-            return per.persist(tables)  # type: ignore[arg-type]
+            return per.persist(tables)
         except Exception:  # pragma: no cover - defensive
             return {}
 
@@ -991,7 +1019,9 @@ class MLIntegrationManager:
         """
         if hasattr(self, "data_store") and isinstance(self.data_store, DataStore):
             # Avoid strict typing dependency here; DataStore expects a compatible publisher.
-            self.data_store.publisher = publisher  # type: ignore[assignment]
+            from typing import Any as _Any
+
+            cast(_Any, self.data_store).publisher = publisher
 
 
 # Singleton instance for global access

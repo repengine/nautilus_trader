@@ -1,6 +1,7 @@
 # Data Registry Usage Guide
 
 ## Table of Contents
+
 1. [Architecture Overview](#architecture-overview)
 2. [API Usage Examples](#api-usage-examples)
 3. [CLI Command Examples](#cli-command-examples)
@@ -323,6 +324,7 @@ python -m ml.registry.cli export \
 **Problem**: Multiple processes trying to update registry simultaneously.
 
 **Solution**:
+
 ```python
 # Use batch operations
 with registry.batch_update():
@@ -336,6 +338,7 @@ with registry.batch_update():
 **Problem**: Watermark queries return None.
 
 **Solution**:
+
 ```python
 # Check if watermark exists
 watermark = registry.get_watermark(dataset_id, instrument_id, source)
@@ -356,6 +359,7 @@ if watermark is None:
 **Problem**: Events appear out of order.
 
 **Solution**:
+
 ```python
 # Use consistent timestamps
 import time
@@ -376,6 +380,7 @@ registry.emit_event(
 **Problem**: Database connection failures.
 
 **Solution**:
+
 ```python
 # Configure connection pooling
 persistence_config = PersistenceConfig(
@@ -632,26 +637,31 @@ def health_check():
 ## Best Practices
 
 ### 1. Event Emission
+
 - Always include both ts_min and ts_max for time ranges
 - Use consistent run_id for related events
 - Include meaningful error messages for failures
 
 ### 2. Watermark Management
+
 - Update watermarks after successful processing
 - Use completeness_pct to track partial data
 - Reset watermarks when reprocessing historical data
 
 ### 3. Contract Definition
+
 - Define contracts early in development
 - Include both error and warning severity rules
 - Version contracts when making changes
 
 ### 4. Performance
+
 - Use batch operations for multiple updates
 - Enable connection pooling for PostgreSQL
 - Cache frequently accessed metadata
 
 ### 5. Monitoring
+
 - Set up alerts for critical metrics
 - Monitor watermark lag continuously
 - Track coverage trends over time

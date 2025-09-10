@@ -48,7 +48,10 @@ class TestIntegrationDBFlush:
         )
 
         db = tmp_path / "obs.db"
-        out = MLIntegrationManager.flush_observability_to_db(mgr, connection_string=f"sqlite:///{db}")
+        out = MLIntegrationManager.flush_observability_to_db(
+            mgr,
+            connection_string=f"sqlite:///{db}",
+        )
         assert out.get("latency", 0) >= 1
         assert out.get("metrics", 0) >= 1
         assert out.get("correlation", 0) >= 1
@@ -61,4 +64,3 @@ class TestIntegrationDBFlush:
         with eng.connect() as conn:
             lat_df = pd.read_sql("select * from obs_latency_watermarks", conn)
             assert not lat_df.empty
-

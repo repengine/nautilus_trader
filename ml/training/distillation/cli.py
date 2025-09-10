@@ -1,7 +1,3 @@
-# ruff: noqa: E402 - allow module docstring before imports in CLI script
-from __future__ import annotations
-
-
 """
 CLI to train and register a LightGBM student from teacher outputs.
 
@@ -21,12 +17,16 @@ Outputs
 - student.onnx
 - student.meta.json
 - registry entry (ModelRegistry)
+
 """
+
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.utils import build_feature_schema
@@ -60,19 +60,63 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kd_lambda", type=float, default=0.5)
     ap.add_argument("--early_stopping", type=int, default=200)
     ap.add_argument("--opset", type=int, default=17)
+    ap.add_argument(
+        "--use_val_for_distill",
+        action="store_true",
+        help="Train student on validation split using q_val/X_val instead of q_train/X_train",
+    )
     # Mandatory FeatureRegistry integration for parity/backfill
     ap.add_argument("--feature_registry_dir", required=True)
     ap.add_argument("--feature_set_id", required=True)
     args = ap.parse_args(argv)
 
-    X = np.load(args.features_npz, allow_pickle=True)
-    X_train = X["X_train"].astype(np.float32)
-    X_val = X["X_val"].astype(np.float32)
-    feature_names = list(X["feature_names"].tolist())
+    X_npz = np.load(args.features_npz, allow_pickle=True)
+    X_train: npt.NDArray[np.float32] = X_npz["X_train"].astype(np.float32)
+    X_val: npt.NDArray[np.float32] = X_npz["X_val"].astype(np.float32)
+    feature_names: list[str] = list(X_npz["feature_names"].tolist())
+
+    # Parity check: feature_names must match manifest exactly (name + order)
+    from ml.registry.feature_registry import FeatureRegistry
+
+    freg = FeatureRegistry(Path(args.feature_registry_dir))
+    finfo = freg.get_feature_set(args.feature_set_id)
+    if finfo is None:
+        raise SystemExit(f"Unknown feature_set_id: {args.feature_set_id}")
+    manifest_names: list[str] = list(finfo.manifest.feature_names)
+    if feature_names != manifest_names:
+        raise SystemExit(
+            "Feature schema mismatch with registry manifest:\n"
+            f"expected={manifest_names}\nactual={feature_names}",
+        )
 
     T = np.load(args.teacher_npz, allow_pickle=True)
-    q_train = T["q_train"].astype(np.float32)
-    y_val_true = T["y_val_true"].astype(np.float32) if "y_val_true" in T else None
+    q_train: npt.NDArray[np.float32] | None = (
+        T["q_train"].astype(np.float32) if "q_train" in T else None
+    )
+    q_val: npt.NDArray[np.float32] | None = T["q_val"].astype(np.float32) if "q_val" in T else None
+    y_val_true: npt.NDArray[np.float32] | None = (
+        T["y_val_true"].astype(np.float32) if "y_val_true" in T else None
+    )
+
+    # Select training split
+    if args.use_val_for_distill:
+        if q_val is None:
+            raise SystemExit("--use_val_for_distill set but teacher_npz missing 'q_val'")
+        X_train_sel: npt.NDArray[np.float32] = X_val
+        q_train_sel: npt.NDArray[np.float32] = q_val.reshape(-1)
+    else:
+        if q_train is None:
+            raise SystemExit(
+                "teacher_npz missing 'q_train' — did you run teacher CLI with training mode?",
+            )
+        X_train_sel = X_train
+        q_train_sel = q_train.reshape(-1)
+
+    # Shape validation
+    if X_train_sel.shape[0] != q_train_sel.shape[0]:
+        raise SystemExit(
+            f"Training shape mismatch: X ({X_train_sel.shape[0]}) vs q ({q_train_sel.shape[0]})",
+        )
 
     distiller = LightGBMStudentDistiller(
         objective=args.objective,
@@ -80,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         early_stopping=args.early_stopping,
         opset=args.opset,
     )
-    distiller.fit(X_train, q_train, X_val, y_val_true)
+    distiller.fit(X_train_sel, q_train_sel, X_val, y_val_true)
     onnx_path, meta_path = distiller.export_onnx(
         feature_names=feature_names,
         out_dir=args.out_dir,
@@ -93,17 +137,32 @@ def main(argv: list[str] | None = None) -> int:
     dtypes = ["float32"] * len(feature_names)
     fschema = build_feature_schema(feature_names, dtypes)
 
-    # Mandatory FeatureRegistry schema hash and pipeline identity
-    from ml.registry.feature_registry import FeatureRegistry
-
-    freg = FeatureRegistry(Path(args.feature_registry_dir))
-    finfo = freg.get_feature_set(args.feature_set_id)
-    if finfo is None:
-        raise SystemExit(f"Unknown feature_set_id: {args.feature_set_id}")
     feature_schema_hash = finfo.manifest.schema_hash
     feature_set_id = finfo.manifest.feature_set_id
     pipeline_signature = finfo.manifest.pipeline_signature
     pipeline_version = finfo.manifest.pipeline_version
+
+    # Compute validation metrics if labels available
+    performance_metrics: dict[str, float] = {}
+    if y_val_true is not None:
+        try:
+            from sklearn.metrics import average_precision_score
+            from sklearn.metrics import brier_score_loss
+            from sklearn.metrics import log_loss
+            from sklearn.metrics import roc_auc_score
+
+            p_val: npt.NDArray[np.float32] = distiller.predict_proba(X_val).reshape(-1)
+            yv = y_val_true.reshape(-1).astype(np.int32)
+            # Clip to avoid logloss instability
+            p_val = np.clip(p_val, 1e-6, 1.0 - 1e-6)
+            performance_metrics = {
+                "auc": float(roc_auc_score(yv, p_val)),
+                "pr_auc": float(average_precision_score(yv, p_val)),
+                "brier": float(brier_score_loss(yv, p_val)),
+                "logloss": float(log_loss(yv, p_val)),
+            }
+        except Exception:
+            performance_metrics = {}
 
     manifest = build_student_manifest(
         model_id=args.model_id,
@@ -111,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         feature_schema=fschema,
         feature_schema_hash=feature_schema_hash,
         parent_id=args.parent_id,
-        performance_metrics={"inference_latency_ms": 1.0},  # Placeholder; measure in prod
+        performance_metrics=performance_metrics or {"inference_latency_ms": 1.0},
         feature_set_id=feature_set_id,
         pipeline_signature=pipeline_signature,
         pipeline_version=pipeline_version,

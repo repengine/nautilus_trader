@@ -40,7 +40,7 @@ except ImportError:
 @pytest.mark.deployment
 @pytest.mark.integration
 @pytest.mark.usefixtures(
-    "clean_postgres_db_module"
+    "clean_postgres_db_module",
 )  # Ensure clean PostgreSQL state once per module
 class TestDeploymentIntegration:
     """
@@ -97,10 +97,10 @@ class TestDeploymentIntegration:
         with patch("ml.deployment.entrypoint_actor.TradingNode") as mock_actor_trading_node:
             with patch("ml.deployment.entrypoint_actor.MLSignalActor") as mock_signal_actor:
                 with patch(
-                    "ml.deployment.entrypoint_strategy.TradingNode"
+                    "ml.deployment.entrypoint_strategy.TradingNode",
                 ) as mock_strategy_trading_node:
                     with patch(
-                        "ml.deployment.entrypoint_strategy.MLTradingStrategy"
+                        "ml.deployment.entrypoint_strategy.MLTradingStrategy",
                     ) as mock_strategy:
                         # Mock the components
                         mock_actor_node = Mock()
@@ -139,7 +139,7 @@ class TestDeploymentIntegration:
         with patch("ml.deployment.entrypoint_actor.TradingNode") as mock_actor_node_class:
             with patch("ml.deployment.entrypoint_actor.MLSignalActor"):
                 with patch(
-                    "ml.deployment.entrypoint_strategy.TradingNode"
+                    "ml.deployment.entrypoint_strategy.TradingNode",
                 ) as mock_strategy_node_class:
                     with patch("ml.deployment.entrypoint_strategy.MLTradingStrategy"):
                         # Mock trading nodes
@@ -150,7 +150,7 @@ class TestDeploymentIntegration:
 
                         mock_strategy_trading = AsyncMock()
                         mock_strategy_trading.run_async = AsyncMock(
-                            side_effect=asyncio.CancelledError
+                            side_effect=asyncio.CancelledError,
                         )
                         mock_strategy_node_class.return_value = mock_strategy_trading
                         strategy_node.node = mock_strategy_trading
@@ -184,10 +184,10 @@ class TestDeploymentIntegration:
             with patch("ml.deployment.entrypoint_pipeline.FeatureStore") as mock_fs_class:
                 with patch("ml.deployment.entrypoint_pipeline.ModelStore") as mock_ms_class:
                     with patch(
-                        "ml.deployment.entrypoint_pipeline.ParquetDataCatalog"
+                        "ml.deployment.entrypoint_pipeline.ParquetDataCatalog",
                     ) as mock_catalog_class:
                         with patch(
-                            "ml.deployment.entrypoint_pipeline.DataScheduler"
+                            "ml.deployment.entrypoint_pipeline.DataScheduler",
                         ) as mock_scheduler_class:
                             # Mock stores
                             mock_fs = Mock()
@@ -391,7 +391,11 @@ class TestDeploymentIntegration:
     @patch("ml.common.metrics.FEATURE_CALCULATION_TIMER")
     @patch("ml.common.metrics.MODEL_INFERENCE_TIMER")
     def test_prometheus_metrics_exposure(
-        self, mock_inference_timer, mock_feature_timer, mock_prediction_counter, deployment_env
+        self,
+        mock_inference_timer,
+        mock_feature_timer,
+        mock_prediction_counter,
+        deployment_env,
     ):
         """
         Test Prometheus metrics are properly exposed.

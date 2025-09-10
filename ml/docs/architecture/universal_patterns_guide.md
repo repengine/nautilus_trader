@@ -12,16 +12,17 @@ Every ML actor MUST use all 4 stores and 4 registries via `BaseMLInferenceActor`
 ### Implementation Requirements
 
 #### Base Actor Inheritance
+
 ```python
 from ml.actors.base import BaseMLInferenceActor
 
 class YourCustomActor(BaseMLInferenceActor):
     """Custom ML actor with mandatory store integration."""
-    
+
     def __init__(self, config: YourCustomActorConfig):
         # REQUIRED: Call super().__init__ first
         super().__init__(config)
-        
+
         # Stores and registries are now automatically available:
         # - self.feature_store
         # - self.model_store
@@ -31,12 +32,13 @@ class YourCustomActor(BaseMLInferenceActor):
         # - self.model_registry
         # - self.strategy_registry
         # - self.data_registry
-        
+
         # Your custom initialization here
         self.custom_logic = self._initialize_custom_logic()
 ```
 
 #### Store Access Pattern
+
 ```python
 def on_bar(self, bar: Bar) -> None:
     """Example hot path implementation."""
@@ -45,25 +47,26 @@ def on_bar(self, bar: Bar) -> None:
         instrument_id=bar.instrument_id,
         ts_event=bar.ts_event
     )
-    
+
     prediction = self.model.predict(features)
-    
+
     self.model_store.record_prediction(
         model_id=self.config.model_id,
         prediction=prediction,
         ts_event=bar.ts_event,
         instrument_id=bar.instrument_id
     )
-    
+
     # ❌ INCORRECT: Don't create new store instances
     # feature_store = FeatureStore(connection_string=...)  # WRONG
 ```
 
 #### Progressive Fallback Implementation
+
 ```python
 class BaseMLInferenceActor:
     """Base implementation with progressive fallback."""
-    
+
     def _init_stores(self) -> None:
         """Initialize stores with fallback strategy."""
         try:
@@ -75,13 +78,13 @@ class BaseMLInferenceActor:
                 persistence_config=self._get_persistence_config()
             )
             logger.info("Initialized full ML stores with PostgreSQL")
-            
+
         except ConnectionError:
             # Fallback: Dummy stores with warnings
             logger.warning("PostgreSQL unavailable, using dummy stores")
             self.feature_store = DummyFeatureStore()
             self.model_store = DummyModelStore()
-            
+
             # Emit metrics for monitoring
             from ml.common.metrics_bootstrap import get_counter
             fallback_counter = get_counter("ml_store_fallbacks_total", "Store fallback events")
@@ -103,20 +106,20 @@ Before deploying any ML actor, ensure:
 def validate_store_integration(actor_instance: BaseMLInferenceActor) -> list[str]:
     """Validation function for Pattern 1 compliance."""
     issues = []
-    
+
     required_stores = ["feature_store", "model_store", "strategy_store", "data_store"]
     required_registries = ["feature_registry", "model_registry", "strategy_registry", "data_registry"]
-    
+
     for store_name in required_stores:
         if not hasattr(actor_instance, store_name):
             issues.append(f"Missing required store: {store_name}")
         elif getattr(actor_instance, store_name) is None:
             issues.append(f"Store {store_name} is None")
-    
+
     for registry_name in required_registries:
         if not hasattr(actor_instance, registry_name):
             issues.append(f"Missing required registry: {registry_name}")
-    
+
     return issues
 ```
 
@@ -128,13 +131,14 @@ Use `typing.Protocol` for all component interfaces to enable structural typing w
 ### Implementation Requirements
 
 #### Protocol Definition
+
 ```python
 from typing import Protocol, runtime_checkable, Any
 
 @runtime_checkable
 class FeatureStoreProtocol(Protocol):
     """Protocol for feature store implementations."""
-    
+
     def write_features(
         self,
         instrument_id: str,
@@ -144,7 +148,7 @@ class FeatureStoreProtocol(Protocol):
     ) -> None:
         """Write features to store."""
         ...
-    
+
     def get_latest_features(
         self,
         instrument_id: str,
@@ -152,47 +156,48 @@ class FeatureStoreProtocol(Protocol):
     ) -> dict[str, float] | None:
         """Get most recent features for instrument."""
         ...
-    
+
     def get_health_status(self) -> dict[str, Any]:
         """Get component health information."""
         ...
 ```
 
 #### Component Implementation
+
 ```python
 # ✅ CORRECT: Implement protocol without inheritance
 class PostgreSQLFeatureStore:
     """PostgreSQL implementation of FeatureStoreProtocol."""
-    
+
     def __init__(self, connection_string: str):
         self.engine = create_engine(connection_string)
-    
-    def write_features(self, instrument_id: str, features: dict[str, float], 
+
+    def write_features(self, instrument_id: str, features: dict[str, float],
                       ts_event: int, ts_init: int) -> None:
         # Implementation here
         pass
-    
+
     def get_latest_features(self, instrument_id: str, ts_event: int) -> dict[str, float] | None:
         # Implementation here
         pass
-    
+
     def get_health_status(self) -> dict[str, Any]:
         return {"status": "ok", "connection": "active"}
 
 # ✅ CORRECT: Test implementation conforming to protocol
 class DummyFeatureStore:
     """Test/fallback implementation of FeatureStoreProtocol."""
-    
+
     def __init__(self):
         self.features_cache: dict[str, dict[str, float]] = {}
-    
+
     def write_features(self, instrument_id: str, features: dict[str, float],
                       ts_event: int, ts_init: int) -> None:
         self.features_cache[instrument_id] = features
-    
+
     def get_latest_features(self, instrument_id: str, ts_event: int) -> dict[str, float] | None:
         return self.features_cache.get(instrument_id)
-    
+
     def get_health_status(self) -> dict[str, Any]:
         return {"status": "dummy", "cached_instruments": len(self.features_cache)}
 
@@ -202,6 +207,7 @@ assert isinstance(DummyFeatureStore(), FeatureStoreProtocol)
 ```
 
 #### Consumer Implementation
+
 ```python
 def process_features(store: FeatureStoreProtocol, instrument_id: str) -> bool:
     """Function using protocol-based typing."""
@@ -221,32 +227,33 @@ assert process_features(dummy_store, "EUR/USD")
 ```
 
 #### Protocol Validation
+
 ```python
 from typing import get_type_hints
 
 def validate_protocol_compliance(instance: Any, protocol: type) -> list[str]:
     """Validate that an instance conforms to a protocol."""
     issues = []
-    
+
     # Check runtime protocol compliance
     if not isinstance(instance, protocol):
         issues.append(f"Instance does not conform to {protocol.__name__}")
         return issues
-    
+
     # Check method signatures
     protocol_hints = get_type_hints(protocol)
     for method_name in dir(protocol):
         if method_name.startswith('_'):
             continue
-            
+
         if not hasattr(instance, method_name):
             issues.append(f"Missing method: {method_name}")
             continue
-            
+
         method = getattr(instance, method_name)
         if not callable(method):
             issues.append(f"Attribute {method_name} is not callable")
-    
+
     return issues
 
 # Usage
@@ -263,13 +270,14 @@ Enforce strict performance budgets by separating hot path operations (real-time,
 ### Implementation Requirements
 
 #### Hot Path Implementation
+
 ```python
 import numpy as np
 from typing import Final
 
 class HotPathFeatureComputer:
     """Hot path optimized feature computation."""
-    
+
     # Pre-allocate all arrays during initialization
     def __init__(self, max_lookback: int = 20):
         self.MAX_LOOKBACK: Final = max_lookback
@@ -278,7 +286,7 @@ class HotPathFeatureComputer:
         self.volume_buffer = np.zeros(max_lookback, dtype=np.float32)
         self.feature_output = np.zeros(5, dtype=np.float32)  # Fixed feature count
         self.buffer_index = 0
-    
+
     def compute_features(self, price: float, volume: float) -> np.ndarray:
         """Hot path feature computation - ZERO allocations."""
         # Update circular buffer (no new allocations)
@@ -286,19 +294,19 @@ class HotPathFeatureComputer:
         self.price_buffer[idx] = price
         self.volume_buffer[idx] = volume
         self.buffer_index += 1
-        
+
         # Compute features in-place
         self.feature_output[0] = price  # Current price
         self.feature_output[1] = volume  # Current volume
-        
+
         # Technical indicators (vectorized, no allocations)
         if self.buffer_index >= 5:
             start_idx = max(0, (self.buffer_index - 5) % self.MAX_LOOKBACK)
             end_idx = self.buffer_index % self.MAX_LOOKBACK
-            
+
             # SMA calculation using pre-allocated buffer
             self.feature_output[2] = np.mean(self.price_buffer[start_idx:end_idx])
-        
+
         return self.feature_output  # Return view, no copy
 
 # ✅ CORRECT: Hot path usage
@@ -308,46 +316,47 @@ def on_bar_hot_path(bar: Bar) -> None:
     """Example hot path bar handler."""
     # Zero allocations, <1ms P99 latency
     features = feature_computer.compute_features(bar.close, bar.volume)
-    
+
     # Use pre-loaded model (loaded once at startup)
     prediction = global_model.predict_proba(features.reshape(1, -1))[0, 1]
-    
+
     if prediction > 0.7:  # Pre-configured threshold
         emit_signal(bar.instrument_id, "BUY", confidence=prediction)
 ```
 
 #### Cold Path Implementation
+
 ```python
 import pandas as pd
 from pathlib import Path
 
 class ColdPathAnalyzer:
     """Cold path operations - can use expensive operations."""
-    
+
     def train_model(self, data_path: Path) -> dict[str, float]:
         """Cold path model training - can take hours."""
         # ✅ OK in cold path: Heavy I/O, large DataFrames
         df = pd.read_parquet(data_path)  # Large allocation OK
-        
+
         # ✅ OK in cold path: Complex feature engineering
         features = self._compute_complex_features(df)
-        
+
         # ✅ OK in cold path: Model training
         model = self._train_xgboost(features)
-        
+
         # ✅ OK in cold path: Evaluation and metrics
         metrics = self._evaluate_model(model, features)
-        
+
         # Save model for hot path loading
         self._save_model_for_hot_path(model)
-        
+
         return metrics
-    
+
     def backfill_features(self, start_date: str, end_date: str) -> None:
         """Cold path feature backfill - can use batch processing."""
         # ✅ OK in cold path: Database queries
         raw_data = self._load_historical_data(start_date, end_date)
-        
+
         # ✅ OK in cold path: Batch processing
         for chunk in self._chunk_data(raw_data, chunk_size=10000):
             features = self._compute_batch_features(chunk)
@@ -355,6 +364,7 @@ class ColdPathAnalyzer:
 ```
 
 #### Performance Monitoring
+
 ```python
 from ml.common.metrics_bootstrap import get_histogram
 
@@ -366,7 +376,7 @@ hot_path_latency = get_histogram(
 )
 
 cold_path_duration = get_histogram(
-    "ml_cold_path_duration_seconds", 
+    "ml_cold_path_duration_seconds",
     "Cold path operation duration",
     buckets=[1, 10, 60, 300, 1800, 3600],  # Second to hour buckets
 )
@@ -378,26 +388,27 @@ def hot_path_operation():
 
 @cold_path_duration.time()
 def cold_path_operation():
-    """Monitored cold path operation.""" 
+    """Monitored cold path operation."""
     pass
 ```
 
 #### Validation and Testing
+
 ```python
 import time
 import pytest
 
 class TestHotPathPerformance:
     """Performance tests for hot path compliance."""
-    
+
     def test_hot_path_latency_sla(self):
         """Ensure hot path operations meet latency SLA."""
         feature_computer = HotPathFeatureComputer()
-        
+
         # Warmup to eliminate JIT compilation effects
         for _ in range(100):
             feature_computer.compute_features(100.0, 1000.0)
-        
+
         # Measure P99 latency over many iterations
         latencies = []
         for _ in range(10000):
@@ -405,34 +416,34 @@ class TestHotPathPerformance:
             features = feature_computer.compute_features(100.0, 1000.0)
             end = time.perf_counter_ns()
             latencies.append(end - start)
-        
+
         p99_latency_ns = np.percentile(latencies, 99)
         p99_latency_ms = p99_latency_ns / 1_000_000
-        
+
         # ✅ REQUIRED: P99 < 5ms for hot path
         assert p99_latency_ms < 5.0, f"Hot path P99 latency {p99_latency_ms}ms exceeds 5ms SLA"
-    
+
     def test_hot_path_zero_allocations(self):
         """Ensure hot path has zero allocations after warmup."""
         import tracemalloc
-        
+
         feature_computer = HotPathFeatureComputer()
-        
+
         # Warmup
         for _ in range(100):
             feature_computer.compute_features(100.0, 1000.0)
-        
+
         # Start memory tracking
         tracemalloc.start()
         current, peak = tracemalloc.get_traced_memory()
-        
+
         # Execute hot path operations
         for _ in range(1000):
             features = feature_computer.compute_features(100.0, 1000.0)
-        
+
         current_after, peak_after = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-        
+
         # ✅ REQUIRED: Zero allocations in hot path
         allocation_bytes = current_after - current
         assert allocation_bytes == 0, f"Hot path allocated {allocation_bytes} bytes"
@@ -446,6 +457,7 @@ All external dependencies MUST have fallback strategies to ensure system resilie
 ### Implementation Requirements
 
 #### Database Fallback Chain
+
 ```python
 from enum import Enum
 from typing import Protocol
@@ -458,17 +470,17 @@ class FallbackLevel(Enum):
 
 class ResilientFeatureStore:
     """Feature store with progressive fallback chain."""
-    
+
     def __init__(self, connection_string: str, cache_dir: Path):
         self.fallback_level = FallbackLevel.DUMMY
         self.store_impl = None
-        
+
         # Try fallback chain in order
         self._init_with_fallback(connection_string, cache_dir)
-    
+
     def _init_with_fallback(self, connection_string: str, cache_dir: Path) -> None:
         """Initialize with progressive fallback."""
-        
+
         # Level 1: Try full PostgreSQL
         try:
             from ml.stores.feature_store import FeatureStore
@@ -479,7 +491,7 @@ class ResilientFeatureStore:
             return
         except Exception as e:
             logger.warning(f"PRIMARY store failed: {e}")
-        
+
         # Level 2: Try cached store with periodic sync
         try:
             self.store_impl = CachedFeatureStore(
@@ -492,7 +504,7 @@ class ResilientFeatureStore:
             return
         except Exception as e:
             logger.warning(f"CACHED store failed: {e}")
-        
+
         # Level 3: Try file-based store
         try:
             self.store_impl = FileFeatureStore(cache_dir)
@@ -501,17 +513,17 @@ class ResilientFeatureStore:
             return
         except Exception as e:
             logger.warning(f"FILE_BASED store failed: {e}")
-        
+
         # Level 4: Dummy store (last resort)
         self.store_impl = DummyFeatureStore()
         self.fallback_level = FallbackLevel.DUMMY
         logger.error("Initialized DUMMY feature store (no persistence)")
-        
+
         # Emit metrics for monitoring
         from ml.common.metrics_bootstrap import get_counter
         fallback_counter = get_counter("ml_fallback_activations_total", "Fallback activations")
         fallback_counter.inc(labels={"component": "feature_store", "level": self.fallback_level.value})
-    
+
     def write_features(self, *args, **kwargs) -> None:
         """Write with fallback handling."""
         try:
@@ -522,7 +534,7 @@ class ResilientFeatureStore:
                 self._attempt_fallback()
                 return self.store_impl.write_features(*args, **kwargs)
             raise
-    
+
     def _attempt_fallback(self) -> None:
         """Attempt to fallback to next level."""
         current_level = list(FallbackLevel).index(self.fallback_level)
@@ -535,22 +547,23 @@ class ResilientFeatureStore:
 ```
 
 #### Model Loading Fallback
+
 ```python
 class ResilientModelLoader:
     """Model loader with multiple fallback strategies."""
-    
+
     def __init__(self, primary_registry: ModelRegistry, fallback_paths: list[Path]):
         self.primary_registry = primary_registry
         self.fallback_paths = fallback_paths
         self.loaded_models: dict[str, Any] = {}
-    
+
     def load_model(self, model_id: str) -> Any:
         """Load model with fallback chain."""
-        
+
         # Try cache first
         if model_id in self.loaded_models:
             return self.loaded_models[model_id]
-        
+
         # Strategy 1: Primary registry
         try:
             model = self.primary_registry.load_model(model_id)
@@ -561,7 +574,7 @@ class ResilientModelLoader:
             logger.warning(f"Model {model_id} not found in primary registry")
         except Exception as e:
             logger.error(f"Primary registry error for {model_id}: {e}")
-        
+
         # Strategy 2: Fallback file paths
         for fallback_path in self.fallback_paths:
             try:
@@ -573,7 +586,7 @@ class ResilientModelLoader:
                     return model
             except Exception as e:
                 logger.warning(f"Fallback path {fallback_path} failed for {model_id}: {e}")
-        
+
         # Strategy 3: Default model
         try:
             default_model = self._load_default_model()
@@ -584,6 +597,7 @@ class ResilientModelLoader:
 ```
 
 #### Circuit Breaker Implementation
+
 ```python
 from enum import Enum
 from datetime import datetime, timedelta
@@ -595,19 +609,19 @@ class CircuitState(Enum):
 
 class CircuitBreaker:
     """Circuit breaker for external service calls."""
-    
-    def __init__(self, 
+
+    def __init__(self,
                  failure_threshold: int = 5,
                  recovery_timeout_seconds: int = 60,
                  expected_exception: type = Exception):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = timedelta(seconds=recovery_timeout_seconds)
         self.expected_exception = expected_exception
-        
+
         self.failure_count = 0
         self.last_failure_time: datetime | None = None
         self.state = CircuitState.CLOSED
-    
+
     def __call__(self, func):
         """Decorator for circuit breaker protection."""
         def wrapper(*args, **kwargs):
@@ -616,32 +630,32 @@ class CircuitBreaker:
                     self.state = CircuitState.HALF_OPEN
                 else:
                     raise CircuitBreakerOpenError(f"Circuit breaker open for {func.__name__}")
-            
+
             try:
                 result = func(*args, **kwargs)
                 self._on_success()
                 return result
-            
+
             except self.expected_exception as e:
                 self._on_failure()
                 raise e
-        
+
         return wrapper
-    
+
     def _on_success(self) -> None:
         """Handle successful call."""
         self.failure_count = 0
         self.state = CircuitState.CLOSED
-    
+
     def _on_failure(self) -> None:
         """Handle failed call."""
         self.failure_count += 1
         self.last_failure_time = datetime.now()
-        
+
         if self.failure_count >= self.failure_threshold:
             self.state = CircuitState.OPEN
             logger.warning(f"Circuit breaker opened after {self.failure_count} failures")
-    
+
     def _should_attempt_reset(self) -> bool:
         """Check if enough time has passed to attempt reset."""
         if self.last_failure_time is None:
@@ -656,7 +670,7 @@ class ExternalDataProvider:
             recovery_timeout_seconds=30,
             expected_exception=ConnectionError
         )
-    
+
     @circuit_breaker
     def fetch_market_data(self, instrument_id: str) -> dict:
         """Fetch data with circuit breaker protection."""
@@ -674,6 +688,7 @@ NEVER import prometheus_client directly. Use `ml.common.metrics_bootstrap` to pr
 ### Implementation Requirements
 
 #### Metrics Bootstrap Usage
+
 ```python
 # ✅ CORRECT: Use centralized metrics bootstrap
 from ml.common.metrics_bootstrap import get_counter, get_histogram, get_gauge
@@ -686,7 +701,7 @@ predictions_counter = get_counter(
 )
 
 inference_latency = get_histogram(
-    name="ml_inference_latency_seconds", 
+    name="ml_inference_latency_seconds",
     documentation="ML inference latency distribution",
     buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5],
     labels=["model_id", "model_type"]
@@ -703,39 +718,40 @@ model_accuracy = get_gauge(
 ```
 
 #### Metrics Integration in Components
+
 ```python
 class MLSignalActor(BaseMLInferenceActor):
     """Example actor with proper metrics integration."""
-    
+
     def __init__(self, config: MLSignalActorConfig):
         super().__init__(config)
-        
+
         # Initialize metrics during component setup
         self._init_metrics()
-    
+
     def _init_metrics(self) -> None:
         """Initialize component-specific metrics."""
         from ml.common.metrics_bootstrap import get_counter, get_histogram
-        
+
         self.predictions_counter = get_counter(
             "ml_signal_predictions_total",
             "Total signal predictions made",
             labels=["instrument_id", "signal_type", "confidence_band"]
         )
-        
+
         self.feature_latency = get_histogram(
             "ml_signal_feature_latency_seconds",
             "Feature computation latency for signals",
             buckets=[0.0005, 0.001, 0.002, 0.005, 0.01],
             labels=["instrument_id", "feature_count"]
         )
-        
+
         self.signal_strength = get_gauge(
-            "ml_signal_strength_ratio", 
+            "ml_signal_strength_ratio",
             "Current signal strength",
             labels=["instrument_id", "signal_direction"]
         )
-    
+
     def on_bar(self, bar: Bar) -> None:
         """Bar handler with metrics tracking."""
         # Time feature computation
@@ -744,18 +760,18 @@ class MLSignalActor(BaseMLInferenceActor):
             "feature_count": str(len(self.feature_config.feature_names))
         }):
             features = self.compute_features(bar)
-        
+
         # Make prediction
-        prediction = self.model.predict_proba(features)[0, 1] 
+        prediction = self.model.predict_proba(features)[0, 1]
         confidence_band = self._classify_confidence(prediction)
-        
+
         # Record prediction
         self.predictions_counter.inc(labels={
             "instrument_id": bar.instrument_id.value,
             "signal_type": "BUY" if prediction > 0.5 else "SELL",
             "confidence_band": confidence_band
         })
-        
+
         # Update current signal strength
         signal_direction = "long" if prediction > 0.5 else "short"
         self.signal_strength.set(
@@ -768,52 +784,53 @@ class MLSignalActor(BaseMLInferenceActor):
 ```
 
 #### Custom Metrics Classes
+
 ```python
 from ml.common.metrics_bootstrap import MetricsCollection
 
 class ModelPerformanceMetrics(MetricsCollection):
     """Custom metrics collection for model performance tracking."""
-    
+
     def __init__(self, model_id: str):
         super().__init__(prefix="ml_model_performance")
         self.model_id = model_id
-        
+
         # Initialize related metrics as a group
         self.accuracy = self.get_gauge(
             "accuracy_ratio",
             "Model accuracy over evaluation window",
             labels=["model_id", "time_window"]
         )
-        
+
         self.precision = self.get_gauge(
             "precision_ratio",
-            "Model precision over evaluation window", 
+            "Model precision over evaluation window",
             labels=["model_id", "time_window", "class"]
         )
-        
+
         self.recall = self.get_gauge(
             "recall_ratio",
             "Model recall over evaluation window",
             labels=["model_id", "time_window", "class"]
         )
-        
+
         self.drift_score = self.get_gauge(
             "drift_score",
             "Statistical drift score for model features",
             labels=["model_id", "feature_group"]
         )
-    
+
     def update_evaluation_metrics(self, evaluation_results: dict) -> None:
         """Update all evaluation metrics atomically."""
         labels = {"model_id": self.model_id, "time_window": "1h"}
-        
+
         self.accuracy.set(evaluation_results["accuracy"], labels=labels)
-        
+
         for class_name, metrics in evaluation_results["per_class"].items():
             class_labels = {**labels, "class": class_name}
             self.precision.set(metrics["precision"], labels=class_labels)
             self.recall.set(metrics["recall"], labels=class_labels)
-    
+
     def update_drift_scores(self, drift_analysis: dict[str, float]) -> None:
         """Update feature drift scores."""
         for feature_group, score in drift_analysis.items():
@@ -828,6 +845,7 @@ model_metrics.update_evaluation_metrics(evaluation_results)
 ```
 
 #### Metrics Naming Conventions
+
 ```python
 # ✅ CORRECT: Follow naming conventions
 
@@ -853,55 +871,56 @@ temperature_celsius = get_gauge("ml_gpu_temperature_celsius", "GPU temperature")
 ## Pattern Compliance Validation
 
 ### Automated Compliance Checking
+
 ```python
 from typing import Any
 import inspect
 
 class UniversalPatternValidator:
     """Automated validation of Universal ML Architecture Patterns."""
-    
+
     def validate_actor_compliance(self, actor_class: type) -> dict[str, list[str]]:
         """Validate actor compliance with all patterns."""
         issues = {}
-        
+
         # Pattern 1: 4-Store + 4-Registry Integration
         issues["pattern_1"] = self._validate_store_integration(actor_class)
-        
+
         # Pattern 2: Protocol-First Interface Design
         issues["pattern_2"] = self._validate_protocol_usage(actor_class)
-        
+
         # Pattern 3: Hot/Cold Path Separation
         issues["pattern_3"] = self._validate_path_separation(actor_class)
-        
+
         # Pattern 4: Progressive Fallback Chains
         issues["pattern_4"] = self._validate_fallback_implementation(actor_class)
-        
+
         # Pattern 5: Centralized Metrics Bootstrap
         issues["pattern_5"] = self._validate_metrics_usage(actor_class)
-        
+
         return {k: v for k, v in issues.items() if v}  # Only return non-empty issues
-    
+
     def _validate_store_integration(self, actor_class: type) -> list[str]:
         """Validate Pattern 1 compliance."""
         issues = []
-        
+
         # Check inheritance
         if not issubclass(actor_class, BaseMLInferenceActor):
             issues.append("Must inherit from BaseMLInferenceActor")
-        
+
         # Check required attributes (if instance available)
         required_stores = ["feature_store", "model_store", "strategy_store", "data_store"]
         required_registries = ["feature_registry", "model_registry", "strategy_registry", "data_registry"]
-        
+
         # This would require static analysis or runtime inspection
         # Implementation depends on available introspection capabilities
-        
+
         return issues
-    
+
     def _validate_protocol_usage(self, actor_class: type) -> list[str]:
         """Validate Pattern 2 compliance."""
         issues = []
-        
+
         # Check for protocol imports in module
         module = inspect.getmodule(actor_class)
         if module:
@@ -911,13 +930,13 @@ class UniversalPatternValidator:
                     pass  # Has protocol usage
                 else:
                     issues.append("No protocol usage detected")
-        
+
         return issues
-    
+
     def _validate_path_separation(self, actor_class: type) -> list[str]:
         """Validate Pattern 3 compliance."""
         issues = []
-        
+
         # Check for hot path method implementations
         hot_path_methods = ["on_bar", "on_quote", "on_trade"]
         for method_name in hot_path_methods:
@@ -930,32 +949,32 @@ class UniversalPatternValidator:
                     # - No model training calls
                     # - Pre-allocated array usage
                     pass
-        
+
         return issues
-    
+
     def _validate_fallback_implementation(self, actor_class: type) -> list[str]:
         """Validate Pattern 4 compliance."""
         issues = []
-        
+
         # Check for error handling in critical methods
         # This would require AST analysis to detect try/except blocks
-        
+
         return issues
-    
+
     def _validate_metrics_usage(self, actor_class: type) -> list[str]:
         """Validate Pattern 5 compliance."""
         issues = []
-        
+
         # Check for prometheus_client direct imports
         module = inspect.getmodule(actor_class)
         if module:
             source = inspect.getsource(module)
             if "from prometheus_client import" in source or "import prometheus_client" in source:
                 issues.append("Direct prometheus_client import detected - use ml.common.metrics_bootstrap")
-            
+
             if "get_counter" not in source and "get_histogram" not in source:
                 issues.append("No metrics bootstrap usage detected")
-        
+
         return issues
 
 # Usage
@@ -970,18 +989,19 @@ else:
 ```
 
 ### Integration Testing
+
 ```python
 import pytest
 from ml.core.integration import MLIntegrationManager
 
 class TestUniversalPatternCompliance:
     """Integration tests for pattern compliance."""
-    
+
     @pytest.fixture
     def integration_manager(self):
         """Fixture providing integration manager."""
         return MLIntegrationManager(auto_start_postgres=True, auto_migrate=True)
-    
+
     def test_pattern_1_store_integration(self, integration_manager):
         """Test Pattern 1: 4-Store + 4-Registry Integration."""
         # Verify all stores are initialized
@@ -989,67 +1009,67 @@ class TestUniversalPatternCompliance:
         assert integration_manager.model_store is not None
         assert integration_manager.strategy_store is not None
         assert integration_manager.data_store is not None
-        
-        # Verify all registries are initialized  
+
+        # Verify all registries are initialized
         assert integration_manager.feature_registry is not None
         assert integration_manager.model_registry is not None
         assert integration_manager.strategy_registry is not None
         assert integration_manager.data_registry is not None
-        
+
         # Test fallback behavior
         integration_manager.shutdown()
         # After shutdown, should fallback gracefully
-    
+
     def test_pattern_2_protocol_compliance(self, integration_manager):
         """Test Pattern 2: Protocol-First Interface Design."""
         from ml.common.protocols import MLComponentProtocol
-        
+
         # All stores should implement the protocol
         assert isinstance(integration_manager.feature_store, MLComponentProtocol)
         assert isinstance(integration_manager.model_store, MLComponentProtocol)
-        
+
         # Protocol methods should work
         health = integration_manager.feature_store.get_health_status()
         assert "status" in health
-        
+
         metrics = integration_manager.feature_store.get_performance_metrics()
         assert isinstance(metrics, dict)
-    
+
     def test_pattern_3_hot_path_performance(self):
         """Test Pattern 3: Hot/Cold Path Separation."""
         from ml.actors.signal import MLSignalActor
-        
+
         # Create test actor
         config = MLSignalActorConfig(
             model_path="test_model.onnx",
             instrument_id=InstrumentId.from_str("EUR/USD.SIM")
         )
         actor = MLSignalActor(config)
-        
+
         # Test hot path performance
         test_bar = TestDataStubs.bar_5decimal()
-        
+
         # Warmup
         for _ in range(100):
             actor.on_bar(test_bar)
-        
+
         # Measure performance
         latencies = []
         for _ in range(1000):
-            start = time.perf_counter_ns() 
+            start = time.perf_counter_ns()
             actor.on_bar(test_bar)
             end = time.perf_counter_ns()
             latencies.append(end - start)
-        
+
         p99_latency_ms = np.percentile(latencies, 99) / 1_000_000
         assert p99_latency_ms < 5.0, f"P99 latency {p99_latency_ms}ms exceeds SLA"
-    
+
     def test_pattern_4_fallback_resilience(self, integration_manager):
-        """Test Pattern 4: Progressive Fallback Chains.""" 
+        """Test Pattern 4: Progressive Fallback Chains."""
         # Simulate database failure
         original_connection = integration_manager.db_connection
         integration_manager.db_connection = "invalid://connection"
-        
+
         # Should gracefully fallback
         try:
             # This should not raise but should use fallback
@@ -1060,18 +1080,18 @@ class TestUniversalPatternCompliance:
             pytest.fail(f"Should gracefully fallback but raised: {e}")
         finally:
             integration_manager.db_connection = original_connection
-    
+
     def test_pattern_5_metrics_bootstrap(self):
         """Test Pattern 5: Centralized Metrics Bootstrap."""
         from ml.common.metrics_bootstrap import get_counter, get_histogram
-        
+
         # Should create metrics without conflicts
         counter1 = get_counter("test_counter_total", "Test counter")
         counter2 = get_counter("test_counter_total", "Test counter")  # Same name
-        
+
         # Should return same instance (no conflicts)
         assert counter1 is counter2
-        
+
         # Metrics should work
         counter1.inc()
         # Should not raise registry conflicts

@@ -109,7 +109,7 @@ def transform_instrument_to_pyo3(instrument: Instrument):
         raise ValueError(f"Unknown instrument type: {instrument}")
 
 
-def transform_instrument_from_pyo3(instrument_pyo3) -> Instrument | None:  # noqa: C901
+def transform_instrument_from_pyo3(instrument_pyo3) -> Instrument | None:
     if instrument_pyo3 is None:
         return None
     if isinstance(instrument_pyo3, nautilus_pyo3.BettingInstrument):
@@ -139,7 +139,7 @@ def transform_instrument_from_pyo3(instrument_pyo3) -> Instrument | None:  # noq
 ################################################################################
 # Orders
 ################################################################################
-def transform_order_event_to_pyo3(order_event):  # noqa: C901
+def transform_order_event_to_pyo3(order_event):
     if isinstance(order_event, OrderInitialized):
         return nautilus_pyo3.OrderInitialized.from_dict(OrderInitialized.to_dict(order_event))
     elif isinstance(order_event, OrderDenied):
@@ -199,7 +199,7 @@ def from_order_initialized_pyo3_to_order_cython(order_event):
     return OrderUnpacker.from_init(order_event_cython)
 
 
-def transform_order_event_from_pyo3(order_event_pyo3):  # noqa: C901
+def transform_order_event_from_pyo3(order_event_pyo3):
     if isinstance(order_event_pyo3, nautilus_pyo3.OrderInitialized):
         return OrderInitialized.from_dict(order_event_pyo3.to_dict())
     elif isinstance(order_event_pyo3, nautilus_pyo3.OrderDenied):

@@ -120,6 +120,8 @@ def _initialize_metrics() -> None:
 _initialize_metrics()
 
 
+# Note: Upstream `Strategy` lacks complete typing; inheriting from it triggers a mypy
+# miscellaneous error in strict mode. This is safe and expected here.
 class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
     """
     Base class for ML-driven trading strategies.
@@ -444,7 +446,10 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
 
         # Record metrics for signal received
         if self.signals_received_metric:
-            model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
+            model_id = getattr(signal, "model_id", None) or signal.metadata.get(
+                "model_id",
+                "unknown",
+            )
             self.signals_received_metric.labels(
                 strategy_id=str(self.id),
                 signal_source=model_id,
@@ -822,8 +827,9 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         """
         Ensure metrics are recognized by validation tools.
 
-        This method contains representative calls to all required metrics
-        to satisfy static analysis tools. It's not called in normal operation.
+        This method contains representative calls to all required metrics to satisfy
+        static analysis tools. It's not called in normal operation.
+
         """
         # Representative metric calls for validator recognition
         if False:  # Never actually executed

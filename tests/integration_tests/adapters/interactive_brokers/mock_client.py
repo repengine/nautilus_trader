@@ -30,7 +30,7 @@ class MockEClient(EClient):
     def _handle_task(self, handler: Callable, **kwargs):
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            loop.create_task(handler(**kwargs))  # noqa: RUF006
+            loop.create_task(handler(**kwargs))
         else:
             loop.run_until_complete(handler(**kwargs))
 

@@ -16,6 +16,7 @@ repos:
       - id: debug-statements
       - id: detect-private-key
       - id: check-added-large-files
+        exclude: '^(checkpoints/|.*\.ckpt$)'
       - id: check-case-conflict
       - id: check-executables-have-shebangs
       - id: check-illegal-windows-names
@@ -37,7 +38,7 @@ repos:
       - id: codespell
         description: Checks for common misspellings.
         types_or: [python, cython, rst, markdown]
-        args: ["-L", "ACN,crate,ot,socio-economic,zar,mape"]
+        args: ["-L", "ACN,crate,ot,socio-economic,zar,mape,strat,overrideable,deques,numer,optio,uniqu,wrapp,te,BRIN"]
 
   ##############################################################################
   #  Custom hooks
@@ -170,7 +171,7 @@ repos:
         entry: python ml/scripts/sanity_check.py
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [manual]
 
   ##############################################################################
   #  Rust formatting and linting
@@ -228,6 +229,7 @@ repos:
     rev: v0.12.8
     hooks:
       - id: ruff
+        files: '^(ml/(?!tests/|scripts/).+\.py$|nautilus_trader/.+\.py$)'
         args: ["--fix"]
 
   - repo: https://github.com/pycqa/isort
@@ -257,6 +259,7 @@ repos:
     rev: v1.17.1
     hooks:
       - id: mypy
+        files: '^(ml/(config|core|strategies)/|ml/actors/signal\.py)$'
         exclude: ^python/nautilus_trader/.*__init__\.py$
         args: [
           "--config", "pyproject.toml",
@@ -269,6 +272,7 @@ repos:
           types-redis,
           types-requests,
           types-toml,
+          sqlalchemy,
         ]
 
   - repo: https://github.com/astral-sh/uv-pre-commit

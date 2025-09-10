@@ -54,7 +54,9 @@ if HAS_POLARS:
 
 @pytest.fixture
 def mock_registry() -> MagicMock:
-    """Create a mock DataRegistry."""
+    """
+    Create a mock DataRegistry.
+    """
     registry = MagicMock()
 
     # Default manifest
@@ -86,7 +88,7 @@ def mock_registry() -> MagicMock:
                 "instrument_id": False,
                 "ts_event": False,
                 "ts_init": False,
-            }
+            },
         },
         lineage=[],
         pipeline_signature="test",
@@ -149,7 +151,9 @@ def mock_registry() -> MagicMock:
 
 @pytest.fixture
 def data_store(mock_registry: MagicMock, test_database) -> DataStore:
-    """Create a DataStore instance with proper PostgreSQL connection."""
+    """
+    Create a DataStore instance with proper PostgreSQL connection.
+    """
     # Mock the underlying stores
     feature_store = MagicMock()
     model_store = MagicMock()
@@ -170,7 +174,9 @@ def data_store(mock_registry: MagicMock, test_database) -> DataStore:
 
 @pytest.fixture
 def valid_bar_data() -> list[dict[str, Any]]:
-    """Create valid bar data for testing."""
+    """
+    Create valid bar data for testing.
+    """
     base_time = time.time_ns()
     return [
         {
@@ -198,14 +204,18 @@ def valid_bar_data() -> list[dict[str, Any]]:
 @pytest.mark.slow
 @pytest.mark.unit
 class TestPreflightCheck:
-    """Test preflight schema validation."""
+    """
+    Test preflight schema validation.
+    """
 
     def test_preflight_check_valid_data(
         self,
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test preflight check passes for valid data."""
+        """
+        Test preflight check passes for valid data.
+        """
         if HAS_POLARS:
             df = pl.DataFrame(valid_bar_data)
         else:
@@ -226,7 +236,9 @@ class TestPreflightCheck:
         self,
         data_store: DataStore,
     ) -> None:
-        """Test preflight check fails for missing required columns."""
+        """
+        Test preflight check fails for missing required columns.
+        """
         data = [{"instrument_id": "EUR/USD", "close": 1.1000}]
 
         if HAS_POLARS:
@@ -246,17 +258,21 @@ class TestPreflightCheck:
         self,
         data_store: DataStore,
     ) -> None:
-        """Test preflight check detects type mismatches."""
-        data = [{
-            "instrument_id": "EUR/USD",
-            "ts_event": "not_a_number",  # Wrong type
-            "ts_init": time.time_ns(),
-            "open": 1.1000,
-            "high": 1.1005,
-            "low": 1.0995,
-            "close": 1.1002,
-            "volume": 1000.0,
-        }]
+        """
+        Test preflight check detects type mismatches.
+        """
+        data = [
+            {
+                "instrument_id": "EUR/USD",
+                "ts_event": "not_a_number",  # Wrong type
+                "ts_init": time.time_ns(),
+                "open": 1.1000,
+                "high": 1.1005,
+                "low": 1.0995,
+                "close": 1.1002,
+                "volume": 1000.0,
+            },
+        ]
 
         # Don't convert to DataFrame to keep the string type
         success, error, details = data_store.preflight_check("test_bars", data, strict=False)
@@ -272,7 +288,9 @@ class TestPreflightCheck:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test preflight check detects schema hash mismatches."""
+        """
+        Test preflight check detects schema hash mismatches.
+        """
         # Add an extra column to change the schema
         for row in valid_bar_data:
             row["extra_field"] = 123
@@ -285,7 +303,10 @@ class TestPreflightCheck:
         success, error, details = data_store.preflight_check("test_bars", df, strict=True)
 
         assert success is False
-        assert "Unexpected columns" in error or "Schema hash mismatch" in details.get("warnings", [])
+        assert "Unexpected columns" in error or "Schema hash mismatch" in details.get(
+            "warnings",
+            [],
+        )
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -294,7 +315,9 @@ class TestPreflightCheck:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test preflight check fails for null primary keys."""
+        """
+        Test preflight check fails for null primary keys.
+        """
         valid_bar_data[0]["instrument_id"] = None
 
         if HAS_POLARS:
@@ -316,7 +339,9 @@ class TestPreflightCheck:
 @pytest.mark.database
 @pytest.mark.serial
 class TestContractValidation:
-    """Test contract validation rules."""
+    """
+    Test contract validation rules.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -325,18 +350,22 @@ class TestContractValidation:
         data_store: DataStore,
         mock_registry: MagicMock,
     ) -> None:
-        """Test type validation rule."""
+        """
+        Test type validation rule.
+        """
         # Create data with wrong types
-        data = [{
-            "instrument_id": 123,  # Should be string
-            "ts_event": time.time_ns(),
-            "ts_init": time.time_ns(),
-            "open": "not_a_float",  # Should be float
-            "high": 1.1005,
-            "low": 1.0995,
-            "close": 1.1002,
-            "volume": 1000.0,
-        }]
+        data = [
+            {
+                "instrument_id": 123,  # Should be string
+                "ts_event": time.time_ns(),
+                "ts_init": time.time_ns(),
+                "open": "not_a_float",  # Should be float
+                "high": 1.1005,
+                "low": 1.0995,
+                "close": 1.1002,
+                "volume": 1000.0,
+            },
+        ]
 
         report = data_store.validate_batch("test_bars", data)
 
@@ -350,7 +379,9 @@ class TestContractValidation:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test null validation rule."""
+        """
+        Test null validation rule.
+        """
         # Set a required field to null
         valid_bar_data[0]["instrument_id"] = None
 
@@ -365,8 +396,7 @@ class TestContractValidation:
         assert report.failed_records > 0
 
         null_violations = [
-            v for v in report.violations
-            if v.rule_type == ValidationRuleType.NULLABILITY
+            v for v in report.violations if v.rule_type == ValidationRuleType.NULLABILITY
         ]
         assert len(null_violations) > 0
         assert null_violations[0].field_name == "instrument_id"
@@ -378,7 +408,9 @@ class TestContractValidation:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test range validation rule."""
+        """
+        Test range validation rule.
+        """
         # Set negative close price
         valid_bar_data[0]["close"] = -1.0
         valid_bar_data[1]["close"] = -0.5
@@ -393,10 +425,7 @@ class TestContractValidation:
         assert report.quality_score < 1.0
         assert report.failed_records >= 2
 
-        range_violations = [
-            v for v in report.violations
-            if v.rule_type == ValidationRuleType.RANGE
-        ]
+        range_violations = [v for v in report.violations if v.rule_type == ValidationRuleType.RANGE]
         assert len(range_violations) > 0
         assert range_violations[0].violation_count >= 2
 
@@ -407,7 +436,9 @@ class TestContractValidation:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test uniqueness validation rule."""
+        """
+        Test uniqueness validation rule.
+        """
         # Create duplicate primary key
         valid_bar_data[1]["ts_event"] = valid_bar_data[0]["ts_event"]
 
@@ -421,8 +452,7 @@ class TestContractValidation:
         assert report.quality_score < 1.0
 
         uniqueness_violations = [
-            v for v in report.violations
-            if v.rule_type == ValidationRuleType.UNIQUENESS
+            v for v in report.violations if v.rule_type == ValidationRuleType.UNIQUENESS
         ]
         assert len(uniqueness_violations) > 0
 
@@ -433,7 +463,9 @@ class TestContractValidation:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test monotonicity validation rule."""
+        """
+        Test monotonicity validation rule.
+        """
         # Make timestamps non-monotonic
         valid_bar_data[5]["ts_event"] = valid_bar_data[3]["ts_event"]
 
@@ -447,8 +479,7 @@ class TestContractValidation:
         assert report.quality_score < 1.0
 
         monotonicity_violations = [
-            v for v in report.violations
-            if v.rule_type == ValidationRuleType.MONOTONICITY
+            v for v in report.violations if v.rule_type == ValidationRuleType.MONOTONICITY
         ]
         assert len(monotonicity_violations) > 0
 
@@ -459,7 +490,9 @@ class TestContractValidation:
         data_store: DataStore,
         mock_registry: MagicMock,
     ) -> None:
-        """Test lateness validation rule."""
+        """
+        Test lateness validation rule.
+        """
         # Create new contract with lateness rule added
         original_contract = mock_registry.get_contract.return_value
 
@@ -470,7 +503,7 @@ class TestContractValidation:
                 parameters={"max_lateness_ns": 60_000_000_000},  # 1 minute
                 severity=QualityFlag.WARN,
                 description="Data must not be more than 1 minute late",
-            )
+            ),
         ]
 
         contract = DataContract(
@@ -485,16 +518,18 @@ class TestContractValidation:
 
         # Create old data
         old_time = time.time_ns() - 120_000_000_000  # 2 minutes ago
-        data = [{
-            "instrument_id": "EUR/USD",
-            "ts_event": old_time,
-            "ts_init": old_time,
-            "open": 1.1000,
-            "high": 1.1005,
-            "low": 1.0995,
-            "close": 1.1002,
-            "volume": 1000.0,
-        }]
+        data = [
+            {
+                "instrument_id": "EUR/USD",
+                "ts_event": old_time,
+                "ts_init": old_time,
+                "open": 1.1000,
+                "high": 1.1005,
+                "low": 1.0995,
+                "close": 1.1002,
+                "volume": 1000.0,
+            },
+        ]
 
         if HAS_POLARS:
             df = pl.DataFrame(data)
@@ -504,8 +539,7 @@ class TestContractValidation:
         report = data_store.validate_batch("test_bars", df)
 
         lateness_violations = [
-            v for v in report.violations
-            if v.rule_type == ValidationRuleType.LATENESS
+            v for v in report.violations if v.rule_type == ValidationRuleType.LATENESS
         ]
         assert len(lateness_violations) > 0
 
@@ -518,7 +552,9 @@ class TestContractValidation:
 @pytest.mark.database
 @pytest.mark.serial
 class TestFailClosedWrites:
-    """Test fail-closed write behavior."""
+    """
+    Test fail-closed write behavior.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -527,7 +563,9 @@ class TestFailClosedWrites:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test that writes are rejected when validation fails."""
+        """
+        Test that writes are rejected when validation fails.
+        """
         # Create invalid data with negative price
         valid_bar_data[0]["close"] = -1.0
 
@@ -550,7 +588,9 @@ class TestFailClosedWrites:
         self,
         data_store: DataStore,
     ) -> None:
-        """Test that writes are rejected when preflight check fails."""
+        """
+        Test that writes are rejected when preflight check fails.
+        """
         # Data missing required columns
         data = [{"instrument_id": "EUR/USD", "close": 1.1000}]
 
@@ -575,7 +615,9 @@ class TestFailClosedWrites:
         mock_registry: MagicMock,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test strict mode enforcement."""
+        """
+        Test strict mode enforcement.
+        """
         # Create a new contract in strict mode (can't modify frozen dataclass)
         original_contract = mock_registry.get_contract.return_value
 
@@ -587,7 +629,7 @@ class TestFailClosedWrites:
                 parameters={"min": 10000.0},  # High threshold
                 severity=QualityFlag.WARN,
                 description="Volume should be high",
-            )
+            ),
         ]
 
         # Create new contract instance
@@ -618,7 +660,9 @@ class TestFailClosedWrites:
         mock_registry: MagicMock,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test lenient mode allows warnings but not critical errors."""
+        """
+        Test lenient mode allows warnings but not critical errors.
+        """
         # Create new contract in lenient mode with only warning rules
         original_contract = mock_registry.get_contract.return_value
 
@@ -633,7 +677,7 @@ class TestFailClosedWrites:
                     parameters={"min": 10000.0},
                     severity=QualityFlag.WARN,
                     description="Volume should be high",
-                )
+                ),
             ],
             quality_thresholds=original_contract.quality_thresholds,
             enforcement_mode="lenient",
@@ -663,7 +707,9 @@ class TestFailClosedWrites:
         mock_registry: MagicMock,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test monitor-only mode logs but doesn't block."""
+        """
+        Test monitor-only mode logs but doesn't block.
+        """
         # Create new contract in monitor-only mode
         original_contract = mock_registry.get_contract.return_value
 
@@ -707,7 +753,9 @@ class TestFailClosedWrites:
 @pytest.mark.database
 @pytest.mark.serial
 class TestSchemaMigration:
-    """Test schema migration and dual-write functionality."""
+    """
+    Test schema migration and dual-write functionality.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -716,7 +764,9 @@ class TestSchemaMigration:
         mock_registry: MagicMock,
         test_database,
     ) -> None:
-        """Test schema migration window allows dual writes."""
+        """
+        Test schema migration window allows dual writes.
+        """
         # Mock the underlying stores to avoid database connections
         feature_store = MagicMock()
         model_store = MagicMock()
@@ -753,7 +803,9 @@ class TestSchemaMigration:
         mock_registry: MagicMock,
         test_database,
     ) -> None:
-        """Test detection of schema version changes."""
+        """
+        Test detection of schema version changes.
+        """
         # Mock the underlying stores
         feature_store = MagicMock()
         model_store = MagicMock()
@@ -831,7 +883,9 @@ class TestSchemaMigration:
         valid_bar_data: list[dict[str, Any]],
         test_database,
     ) -> None:
-        """Test dual-write is allowed during migration window."""
+        """
+        Test dual-write is allowed during migration window.
+        """
         # Mock the underlying stores
         feature_store = MagicMock()
         model_store = MagicMock()
@@ -876,7 +930,9 @@ class TestSchemaMigration:
 @pytest.mark.database
 @pytest.mark.serial
 class TestPropertyBased:
-    """Property-based tests for validation fuzzing."""
+    """
+    Property-based tests for validation fuzzing.
+    """
 
     @given(
         num_records=st.integers(min_value=1, max_value=100),
@@ -892,7 +948,9 @@ class TestPropertyBased:
         null_probability: float,
         include_duplicates: bool,
     ) -> None:
-        """Test validation is consistent across different data patterns."""
+        """
+        Test validation is consistent across different data patterns.
+        """
         # Create mock registry inside the test to avoid fixture issues
         mock_registry = MagicMock()
 
@@ -925,7 +983,7 @@ class TestPropertyBased:
                     "instrument_id": False,
                     "ts_event": False,
                     "ts_init": False,
-                }
+                },
             },
             lineage=[],
             pipeline_signature="test",
@@ -1047,7 +1105,9 @@ class TestPropertyBased:
         volume_min: float,
         volume_max: float,
     ) -> None:
-        """Test range validation with fuzzy boundaries."""
+        """
+        Test range validation with fuzzy boundaries.
+        """
         # Create mock registry inside the test
         mock_registry = MagicMock()
 
@@ -1131,16 +1191,18 @@ class TestPropertyBased:
                 close = np.random.uniform(close_max, close_max + 100)
                 volume = np.random.uniform(volume_max, volume_max + 1000)
 
-            data.append({
-                "instrument_id": "EUR/USD",
-                "ts_event": base_time + i * 60_000_000_000,
-                "ts_init": base_time + i * 60_000_000_000,
-                "open": abs(close) * 0.99,
-                "high": abs(close) * 1.01,
-                "low": abs(close) * 0.98,
-                "close": close,
-                "volume": abs(volume),
-            })
+            data.append(
+                {
+                    "instrument_id": "EUR/USD",
+                    "ts_event": base_time + i * 60_000_000_000,
+                    "ts_init": base_time + i * 60_000_000_000,
+                    "open": abs(close) * 0.99,
+                    "high": abs(close) * 1.01,
+                    "low": abs(close) * 0.98,
+                    "close": close,
+                    "volume": abs(volume),
+                },
+            )
 
         if HAS_POLARS:
             df = pl.DataFrame(data)
@@ -1150,13 +1212,12 @@ class TestPropertyBased:
         report = store.validate_batch("test_bars", df)
 
         # Should have violations for out-of-range values
-        range_violations = [
-            v for v in report.violations
-            if v.rule_type == ValidationRuleType.RANGE
-        ]
+        range_violations = [v for v in report.violations if v.rule_type == ValidationRuleType.RANGE]
 
         # At least half the records should have violations (every other one)
-        assert len(range_violations) > 0 or (close_min <= 0 <= close_max and volume_min <= 0 <= volume_max)
+        assert len(range_violations) > 0 or (
+            close_min <= 0 <= close_max and volume_min <= 0 <= volume_max
+        )
 
 
 # ========================================================================
@@ -1167,7 +1228,9 @@ class TestPropertyBased:
 @pytest.mark.database
 @pytest.mark.serial
 class TestPrometheusMetrics:
-    """Test Prometheus metrics emission."""
+    """
+    Test Prometheus metrics emission.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -1177,7 +1240,9 @@ class TestPrometheusMetrics:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test that validation metrics are properly emitted."""
+        """
+        Test that validation metrics are properly emitted.
+        """
         from ml.stores.data_store import quality_score_histogram
         from ml.stores.data_store import validation_violations_counter
 
@@ -1211,7 +1276,9 @@ class TestPrometheusMetrics:
         self,
         data_store: DataStore,
     ) -> None:
-        """Test that write rejection metrics are emitted."""
+        """
+        Test that write rejection metrics are emitted.
+        """
         from ml.stores.data_store import write_rejection_counter
 
         # Data missing required columns
@@ -1242,7 +1309,9 @@ class TestPrometheusMetrics:
         data_store: DataStore,
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
-        """Test that schema mismatch metrics are emitted."""
+        """
+        Test that schema mismatch metrics are emitted.
+        """
         from ml.stores.data_store import schema_mismatch_counter
 
         # Add extra column to change schema
@@ -1274,7 +1343,9 @@ class TestPrometheusMetrics:
 @pytest.mark.database
 @pytest.mark.serial
 class TestIntegration:
-    """End-to-end integration tests."""
+    """
+    End-to-end integration tests.
+    """
 
     @pytest.mark.database
     @pytest.mark.serial
@@ -1283,22 +1354,26 @@ class TestIntegration:
         data_store: DataStore,
         mock_registry: MagicMock,
     ) -> None:
-        """Test complete validation pipeline from preflight to write."""
+        """
+        Test complete validation pipeline from preflight to write.
+        """
         # Create comprehensive test data
         base_time = time.time_ns()
         data = []
 
         for i in range(100):
-            data.append({
-                "instrument_id": "EUR/USD",
-                "ts_event": base_time + i * 60_000_000_000,
-                "ts_init": base_time + i * 60_000_000_000,
-                "open": 1.1000 + np.random.normal(0, 0.001),
-                "high": 1.1005 + np.random.normal(0, 0.001),
-                "low": 1.0995 + np.random.normal(0, 0.001),
-                "close": 1.1002 + np.random.normal(0, 0.001),
-                "volume": 1000.0 + np.random.exponential(100),
-            })
+            data.append(
+                {
+                    "instrument_id": "EUR/USD",
+                    "ts_event": base_time + i * 60_000_000_000,
+                    "ts_init": base_time + i * 60_000_000_000,
+                    "open": 1.1000 + np.random.normal(0, 0.001),
+                    "high": 1.1005 + np.random.normal(0, 0.001),
+                    "low": 1.0995 + np.random.normal(0, 0.001),
+                    "close": 1.1002 + np.random.normal(0, 0.001),
+                    "volume": 1000.0 + np.random.exponential(100),
+                },
+            )
 
         if HAS_POLARS:
             df = pl.DataFrame(data)
@@ -1335,23 +1410,27 @@ class TestIntegration:
         self,
         data_store: DataStore,
     ) -> None:
-        """Test validation performance with large datasets."""
+        """
+        Test validation performance with large datasets.
+        """
         # Create large dataset
         base_time = time.time_ns()
         num_records = 10000
 
         data = []
         for i in range(num_records):
-            data.append({
-                "instrument_id": "EUR/USD",
-                "ts_event": base_time + i * 1_000_000_000,  # 1 second intervals
-                "ts_init": base_time + i * 1_000_000_000,
-                "open": 1.1000 + (i % 100) * 0.0001,
-                "high": 1.1005 + (i % 100) * 0.0001,
-                "low": 1.0995 + (i % 100) * 0.0001,
-                "close": 1.1002 + (i % 100) * 0.0001,
-                "volume": 1000.0 + (i % 1000),
-            })
+            data.append(
+                {
+                    "instrument_id": "EUR/USD",
+                    "ts_event": base_time + i * 1_000_000_000,  # 1 second intervals
+                    "ts_init": base_time + i * 1_000_000_000,
+                    "open": 1.1000 + (i % 100) * 0.0001,
+                    "high": 1.1005 + (i % 100) * 0.0001,
+                    "low": 1.0995 + (i % 100) * 0.0001,
+                    "close": 1.1002 + (i % 100) * 0.0001,
+                    "volume": 1000.0 + (i % 1000),
+                },
+            )
 
         if HAS_POLARS:
             df = pl.DataFrame(data)

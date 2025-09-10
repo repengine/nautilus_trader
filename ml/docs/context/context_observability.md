@@ -52,12 +52,14 @@ Central façade for collecting observability rows and materializing contract-com
 - **Health Scores**: Component health aggregation with subsystem breakdown
 
 Key methods:
+
 - `add_latency_stage()`: Record pipeline stage execution timing
 - `add_metric()`: Record metric observation with labels and timestamp
 - `add_correlation()`: Record event correlation with lineage depth tracking
 - `add_health()`: Record component health scores with measurement windows
 
 DataFrame materialization methods:
+
 - `latency_watermarks_df()`: Generate DataFrame with cumulative latency calculations
 - `metrics_collection_df()`: Generate DataFrame with type-normalized metrics
 - `event_correlation_df()`: Generate DataFrame with JSON-serialized propagation paths
@@ -70,24 +72,28 @@ DataFrame materialization methods:
 Provides typed builders that transform raw observability rows into pandas DataFrames with schema compliance and data normalization. Each builder handles specific data transformation concerns:
 
 **`build_latency_watermarks()`**:
+
 - Calculates stage latency from timestamp differences
 - Computes cumulative latency across pipeline stages
 - Validates timestamp ordering and consistency
 - Handles empty input gracefully with proper dtype preservation
 
 **`build_metrics_collection()`**:
+
 - Normalizes metric values to float64
 - Ensures timestamps are int64 nanoseconds since epoch
 - JSON-encodes label dictionaries consistently
 - Supports both dict and pre-serialized string labels
 
 **`build_event_correlation()`**:
+
 - Converts propagation paths to JSON string format
 - Validates lineage depth consistency
 - Handles nullable parent event relationships
 - Preserves event ordering for lineage reconstruction
 
 **`build_health_scores()`**:
+
 - Clamps health scores to [0, 1] range
 - JSON-encodes subsystem score dictionaries
 - Adds default alert thresholds for schema compliance
@@ -100,6 +106,7 @@ Provides typed builders that transform raw observability rows into pandas DataFr
 Handles persistence of observability DataFrames to disk in structured formats. Supports both JSONL and CSV output formats with automatic directory creation and empty DataFrame filtering.
 
 Key features:
+
 - **Format Support**: JSONL (default) for schema preservation, CSV for human readability
 - **Path Management**: Automatic directory creation with `parents=True, exist_ok=True`
 - **Empty Filtering**: Skips persistence of None or empty DataFrames
@@ -112,11 +119,13 @@ Key features:
 Background scheduler for periodic persistence of observability tables. Supports both tick-based operation (for deterministic testing) and threaded background operation (for production use).
 
 **Operating Modes**:
+
 - **Tick Mode**: Deterministic flush based on elapsed time intervals, suitable for tests
 - **Background Mode**: Separate thread with configurable interval and graceful shutdown
 - **Immediate Mode**: Single flush operation with interval_seconds <= 0
 
 **Configuration**:
+
 - `interval_seconds`: Flush frequency (60.0 seconds default)
 - `now`: Time function (mockable for testing, defaults to `time.time()`)
 - `file_format`: Output format ("jsonl" or "csv")
@@ -142,6 +151,7 @@ Background scheduler for periodic persistence of observability tables. Supports 
 ### Testing Dependencies
 
 The module is extensively tested with:
+
 - **pandera**: Schema validation and contract enforcement
 - **hypothesis**: Property-based testing for edge cases
 - **pytest**: Unit and integration testing framework
@@ -266,11 +276,13 @@ Observability correlation tracking integrates with Nautilus event propagation:
 ### Performance Considerations
 
 **Hot Path Isolation**: The module is explicitly designed to avoid hot path impact:
+
 - Row collection operations are O(1) list appends
 - DataFrame materialization deferred to background processing
 - File I/O operations isolated to background threads
 
-**Memory Management**: 
+**Memory Management**:
+
 - Service maintains in-memory row collections that grow unbounded until flushed
 - Production deployments should configure appropriate flush intervals
 - DataFrame materialization creates temporary copies for transformation
@@ -288,6 +300,7 @@ The module implements strict schema compliance through:
 ### Error Handling
 
 **Graceful Degradation**: Missing optional dependencies don't break functionality:
+
 ```python
 try:
     from ml.observability.service import ObservabilityService
@@ -297,6 +310,7 @@ except Exception:
 ```
 
 **Background Resilience**: Background threads handle exceptions without terminating:
+
 ```python
 def _run():
     while not stop_event.is_set():

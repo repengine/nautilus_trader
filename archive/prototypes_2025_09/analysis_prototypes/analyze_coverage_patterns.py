@@ -10,7 +10,9 @@ import polars as pl
 
 
 def analyze_all_coverage():
-    """Analyze actual date coverage across all symbols."""
+    """
+    Analyze actual date coverage across all symbols.
+    """
     data_dir = Path("data/tier1")
     parquet_files = list(data_dir.glob("**/l2/*_mbp-10.parquet"))
 
@@ -36,18 +38,21 @@ def analyze_all_coverage():
             min_date = pd.to_datetime(min_ts, unit="ns").date()
             max_date = pd.to_datetime(max_ts, unit="ns").date()
 
-            coverage_data.append({
-                "symbol": symbol,
-                "start_date": min_date,
-                "end_date": max_date,
-                "days_covered": (max_date - min_date).days + 1
-            })
+            coverage_data.append(
+                {
+                    "symbol": symbol,
+                    "start_date": min_date,
+                    "end_date": max_date,
+                    "days_covered": (max_date - min_date).days + 1,
+                },
+            )
 
         except Exception as e:
             print(f"Error processing {symbol}: {e}")
             continue
 
     return coverage_data
+
 
 def main():
     print("📊 Analyzing Actual Data Coverage Patterns")
@@ -83,7 +88,7 @@ def main():
     all_ends = [item["end_date"] for item in coverage_data]
 
     optimal_start = max(all_starts)  # Latest start (most conservative)
-    optimal_end = min(all_ends)      # Earliest end (most conservative)
+    optimal_end = min(all_ends)  # Earliest end (most conservative)
 
     print("\n🎯 Optimal Conservative Range:")
     print(f"  Start: {optimal_start}")
@@ -100,7 +105,9 @@ def main():
                 complete_symbols.append(item["symbol"])
 
         print(f"  Complete symbols: {len(complete_symbols)}/{len(coverage_data)}")
-        print(f"  Symbols: {', '.join(sorted(complete_symbols)[:10])}{'...' if len(complete_symbols) > 10 else ''}")
+        print(
+            f"  Symbols: {', '.join(sorted(complete_symbols)[:10])}{'...' if len(complete_symbols) > 10 else ''}",
+        )
     else:
         print("  No overlapping coverage found!")
 
@@ -115,14 +122,19 @@ def main():
     best_range = None
 
     for start in unique_starts[-3:]:  # Try last 3 starts
-        for end in unique_ends[:3]:   # Try first 3 ends
+        for end in unique_ends[:3]:  # Try first 3 ends
             if end >= start:
                 # Count coverage
-                covered = sum(1 for item in coverage_data
-                            if item["start_date"] <= start and item["end_date"] >= end)
+                covered = sum(
+                    1
+                    for item in coverage_data
+                    if item["start_date"] <= start and item["end_date"] >= end
+                )
                 days = (end - start).days + 1
 
-                print(f"  {start} to {end} ({days:2d} days): {covered:2d}/{len(coverage_data)} symbols ({100*covered/len(coverage_data):4.1f}%)")
+                print(
+                    f"  {start} to {end} ({days:2d} days): {covered:2d}/{len(coverage_data)} symbols ({100*covered/len(coverage_data):4.1f}%)",
+                )
 
                 if covered > best_coverage:
                     best_coverage = covered
@@ -134,7 +146,9 @@ def main():
         print(f"  Start: {start}")
         print(f"  End: {end}")
         print(f"  Days: {days}")
-        print(f"  Coverage: {best_coverage}/{len(coverage_data)} symbols ({100*best_coverage/len(coverage_data):.1f}%)")
+        print(
+            f"  Coverage: {best_coverage}/{len(coverage_data)} symbols ({100*best_coverage/len(coverage_data):.1f}%)",
+        )
 
         # List symbols with issues in this range
         problem_symbols = []
@@ -150,7 +164,10 @@ def main():
     print("\n📈 Coverage Distribution:")
     print(f"  Shortest coverage: {min(item['days_covered'] for item in coverage_data)} days")
     print(f"  Longest coverage: {max(item['days_covered'] for item in coverage_data)} days")
-    print(f"  Average coverage: {sum(item['days_covered'] for item in coverage_data) / len(coverage_data):.1f} days")
+    print(
+        f"  Average coverage: {sum(item['days_covered'] for item in coverage_data) / len(coverage_data):.1f} days",
+    )
+
 
 if __name__ == "__main__":
     main()

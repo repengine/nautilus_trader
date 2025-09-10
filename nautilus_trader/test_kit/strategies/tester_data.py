@@ -85,7 +85,7 @@ class DataTester(Actor):
 
         self._books: dict = {}
 
-    def on_start(self) -> None:  # noqa: C901 (too complex)
+    def on_start(self) -> None:
         """
         Actions to be performed when the actor is started.
         """
@@ -157,7 +157,7 @@ class DataTester(Actor):
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(instrument_id.value)
         self._books[pyo3_instrument_id] = nautilus_pyo3.OrderBook(pyo3_instrument_id, book_type)
 
-    def on_stop(self) -> None:  # noqa: C901 (too complex)
+    def on_stop(self) -> None:
         """
         Actions to be performed when the actor is stopped.
         """

@@ -125,7 +125,7 @@ class NautilusKernel:
 
     """
 
-    def __init__(  # noqa (too complex)
+    def __init__(
         self,
         name: str,
         config: NautilusKernelConfig,
@@ -1120,7 +1120,7 @@ class NautilusKernel:
         if self._writer:
             self._writer.close()
 
-    def cancel_all_tasks(self) -> None:  # noqa: C901 (too complex)
+    def cancel_all_tasks(self) -> None:
         """
         Cancel all tasks currently running for the Nautilus kernel.
 

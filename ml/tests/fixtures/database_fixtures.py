@@ -270,7 +270,7 @@ class TestDatabase:
                     ('SPY.XNAS', 'SPY', 'EQUITY', 0.01, 1),
                     ('BTCUSD.COINBASE', 'BTCUSD', 'CRYPTO', 0.01, 0.001)
                 ON CONFLICT DO NOTHING
-            """
+            """,
             ),
         )
 
@@ -294,7 +294,7 @@ class TestDatabase:
                     false
                 )
                 ON CONFLICT DO NOTHING
-            """
+            """,
             ),
             {"ts_event": current_ns, "ts_init": current_ns + 1000},
         )
@@ -320,7 +320,7 @@ class TestDatabase:
                     INSERT INTO ml_instruments (instrument_id, symbol, asset_type, tick_size, lot_size)
                     VALUES (:inst_id, :symbol, :asset_type, :tick_size, :lot_size)
                     ON CONFLICT DO NOTHING
-                """
+                """,
                 ),
                 {
                     "inst_id": inst_id,
@@ -355,7 +355,7 @@ class TestDatabase:
                             false
                         )
                         ON CONFLICT DO NOTHING
-                    """
+                    """,
                     ),
                     {
                         "inst_id": inst_id,
@@ -376,7 +376,7 @@ class TestDatabase:
                 INSERT INTO ml_instruments (instrument_id, symbol, asset_type, tick_size, lot_size)
                 VALUES ('TEST.SIM', 'TEST', 'EQUITY', 0.01, 1)
                 ON CONFLICT DO NOTHING
-            """
+            """,
             ),
         )
 
@@ -416,7 +416,7 @@ class TestDatabase:
             # Delete data from all tables (in reverse dependency order)
             for table in reversed(metadata.sorted_tables):
                 conn.execute(
-                    text(f"DELETE FROM {table.name}")
+                    text(f"DELETE FROM {table.name}"),
                 )
 
             conn.commit()
@@ -494,7 +494,8 @@ class TestDatabase:
 
         """
         return pd.read_sql(
-            f"SELECT * FROM {table_name}", self.engine
+            f"SELECT * FROM {table_name}",
+            self.engine,
         )
 
 

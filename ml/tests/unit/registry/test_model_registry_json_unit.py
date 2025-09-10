@@ -1,8 +1,9 @@
 """
 Happy-path registration tests for ModelRegistry using JSON backend.
 
-Validates that a serveable ONNX model with matching feature schema hash
-registers successfully when a corresponding FeatureRegistry entry exists.
+Validates that a serveable ONNX model with matching feature schema hash registers
+successfully when a corresponding FeatureRegistry entry exists.
+
 """
 
 from __future__ import annotations

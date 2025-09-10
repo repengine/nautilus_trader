@@ -4,9 +4,8 @@
 
 The ml/training/ directory implements a comprehensive model training infrastructure with both traditional and teacher-student knowledge distillation architectures. The system provides production-ready training pipelines with strict feature parity enforcement, ONNX export capabilities, and full registry integration.
 
-**✨ ENHANCEMENT:** The infrastructure is now fully type-safe (mypy --strict passes with zero errors) and follows a clean cold-path architecture with minimal dependencies for hot-path inference.
-
 Operational notes:
+
 - Feature parity and persistence depend on `FeatureStore` reading/writing with UNIX nanosecond timestamps. Stores defensively normalize timestamp units to ns with warnings. See `context_stores.md` → "Timestamp Policy & Normalization".
 - For integration tests and pipelines that hit the DB, apply migrations and run the DB preflight. See `context_deployment.md`.
 - **📝 ADDITION:** All heavy dependencies (pytorch-forecasting, onnxmltools) are lazily imported and guarded by feature flags from ml._imports
@@ -15,7 +14,7 @@ Operational notes:
 
 - **Base Training Infrastructure**: Abstract trainer with MLflow, Optuna, and cross-validation support
 - **Teacher Models**: TFT (Temporal Fusion Transformer) for generating high-quality soft labels
-- **Student Models**: LightGBM students trained via knowledge distillation  
+- **Student Models**: LightGBM students trained via knowledge distillation
 - **Non-Distilled Models**: Traditional XGBoost and LightGBM trainers
 - **Export System**: Unified ONNX/TorchScript export with production compatibility
 - **Registry Integration**: Feature and model registry integration for lifecycle management
@@ -418,7 +417,7 @@ Unified model export infrastructure ensuring production compatibility:
 ### Module Organization
 
 | Module | Location | Purpose |
-|--------|---------|---------| 
+|--------|---------|---------|
 | BaseMLTrainer | training/base.py | Abstract training framework |
 | Export System | training/export.py | Model export and contracts |
 | XGBoostOptunaOptimizer | training/optuna_optimizer.py | HPO for XGBoost |
@@ -478,7 +477,7 @@ Unified model export infrastructure ensuring production compatibility:
 ### Error Handling Patterns
 
 1. **Dependency Management**
-   - Use ml._imports feature flags (HAS_*) with proper typing guards
+   - Use ml.*imports feature flags (HAS**) with proper typing guards
    - Graceful degradation when optional deps missing
    - Clear error messages with installation instructions
    - **📝 ADDITION:** Lazy imports for heavy dependencies (pytorch-forecasting, onnxmltools)
@@ -531,11 +530,13 @@ Unified model export infrastructure ensuring production compatibility:
 ### Teacher Model Variations
 
 **TFT Model Placeholder (teacher/tft_model.py):**
+
 - **⚠️ CORRECTION:** This file exists but is minimal - not a complete implementation
 - **📝 ADDITION:** Serves as import stub when pytorch-forecasting is unavailable
 - **📝 ADDITION:** Maintains consistent import paths for testing environments
 
 **CLI Compatibility Shim (teacher/cli.py):**
+
 - CalibratingTeacher for simple calibration workflows
 - **📝 ADDITION:** Comprehensive argument parsing for multiple training modes:
   - NPZ-based calibration mode
@@ -546,6 +547,7 @@ Unified model export infrastructure ensuring production compatibility:
 - Backward compatibility for existing pipelines with forward compatibility to tft_cli.py
 
 **📝 ADDITION:** **TFT TorchScript Export (teacher/tft_torchscript.py):**
+
 - TFTScriptAdapter for converting dict inputs to tensor inputs
 - Production-ready TorchScript export utilities
 - Support for both tracing and scripting export modes
@@ -553,6 +555,7 @@ Unified model export infrastructure ensuring production compatibility:
 ### Console Script Entry Points
 
 Defined in `pyproject.toml`:
+
 - `ml-teacher-tft` → `ml.training.teacher.tft_cli:main`
 - **⚠️ CORRECTION:** `ml-student-lightgbm` → `ml.training.distillation.cli:main` (actual implementation location)
 - **📝 ADDITION:** Both CLIs support comprehensive argument validation and registry integration
@@ -560,17 +563,20 @@ Defined in `pyproject.toml`:
 ### Export Format Specifications
 
 **ONNX Export:**
+
 - Default opset: 17 (from Versions.ONNX_OPSET)
 - Input name: Standardized via ONNX_INPUT_NAME
 - FloatTensorType with [None, n_features] shape
 - Metadata sidecar (.onnx.meta.json) with technical details
 
 **Native Formats:**
+
 - LightGBM: .txt or .lgb with best_iteration
 - XGBoost: .json or .xgb format
 - Metadata sidecar with training configuration
 
 **TorchScript Export:**
+
 - .pt format for PyTorch models
 - Supports both tracing and scripting
 - TFTScriptAdapter for dict→tensor conversion

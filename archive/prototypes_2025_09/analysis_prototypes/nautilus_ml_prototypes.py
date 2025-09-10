@@ -198,8 +198,7 @@ class FeatureRegistry:
     Registry for feature engineering functions.
 
     Functions registered here can be called by name to transform raw market data into
-    ML-ready features.  This encourages re-use and centralisation of feature
-    definitions.
+    ML-ready features.  This encourages reuse and centralisation of feature definitions.
 
     """
 
@@ -294,7 +293,12 @@ class MLStrategy(abc.ABC):
                 prob = float(value[1])  # type: ignore[index]
                 value = float(value[0])  # type: ignore[assignment]
             signals.append(
-                Signal(timestamp=ts, instrument_id=instrument, value=float(value), probability=prob)
+                Signal(
+                    timestamp=ts,
+                    instrument_id=instrument,
+                    value=float(value),
+                    probability=prob,
+                ),
             )
         return signals
 
@@ -329,7 +333,11 @@ class AutoformerModel(BaseModel):
     """
 
     def __init__(
-        self, input_dim: int = 1, hidden_dim: int = 64, n_layers: int = 2, **kwargs: Any
+        self,
+        input_dim: int = 1,
+        hidden_dim: int = 64,
+        n_layers: int = 2,
+        **kwargs: Any,
     ) -> None:
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -363,7 +371,11 @@ class InformerModel(BaseModel):
     """
 
     def __init__(
-        self, input_dim: int = 1, hidden_dim: int = 64, n_layers: int = 2, **kwargs: Any
+        self,
+        input_dim: int = 1,
+        hidden_dim: int = 64,
+        n_layers: int = 2,
+        **kwargs: Any,
     ) -> None:
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -392,7 +404,11 @@ class CVMLOrderBookModel(BaseModel):
     """
 
     def __init__(
-        self, n_levels: int = 50, n_features: int = 4, hidden_dim: int = 64, **kwargs: Any
+        self,
+        n_levels: int = 50,
+        n_features: int = 4,
+        hidden_dim: int = 64,
+        **kwargs: Any,
     ) -> None:
         self.n_levels = n_levels
         self.n_features = n_features
@@ -423,7 +439,10 @@ class ReinforcementLearningAgent(BaseModel):
     """
 
     def __init__(
-        self, action_space: list[int] = [-1, 0, 1], state_dim: int = 10, **kwargs: Any
+        self,
+        action_space: list[int] = [-1, 0, 1],
+        state_dim: int = 10,
+        **kwargs: Any,
     ) -> None:
         self.action_space = action_space
         self.state_dim = state_dim
@@ -489,7 +508,11 @@ class GraphAttentionModel(BaseModel):
     """
 
     def __init__(
-        self, num_nodes: int = 100, input_dim: int = 10, hidden_dim: int = 32, **kwargs: Any
+        self,
+        num_nodes: int = 100,
+        input_dim: int = 10,
+        hidden_dim: int = 32,
+        **kwargs: Any,
     ) -> None:
         self.num_nodes = num_nodes
         self.input_dim = input_dim
@@ -541,7 +564,11 @@ class NBeatsModel(BaseModel):
     """
 
     def __init__(
-        self, input_dim: int = 1, hidden_dim: int = 128, n_stacks: int = 3, **kwargs: Any
+        self,
+        input_dim: int = 1,
+        hidden_dim: int = 128,
+        n_stacks: int = 3,
+        **kwargs: Any,
     ) -> None:
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -700,7 +727,10 @@ def make_stationary(series: np.ndarray, method: str = "fractional", **kwargs: An
 
 
 def purged_walk_forward_cv(
-    n_samples: int, n_splits: int = 5, test_size: float = 0.2, embargo_size: int = 0
+    n_samples: int,
+    n_splits: int = 5,
+    test_size: float = 0.2,
+    embargo_size: int = 0,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """
     Generate purged walk-forward cross-validation splits.

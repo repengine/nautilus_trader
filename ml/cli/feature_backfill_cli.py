@@ -61,7 +61,12 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Comma-separated instruments or a path to a file (one per line)",
     )
-    parser.add_argument("--start", dest="start", default=None, help="Start ISO date/time (optional)")
+    parser.add_argument(
+        "--start",
+        dest="start",
+        default=None,
+        help="Start ISO date/time (optional)",
+    )
     parser.add_argument("--end", dest="end", default=None, help="End ISO date/time (optional)")
     parser.add_argument(
         "--force",
@@ -107,4 +112,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-

@@ -235,7 +235,7 @@ def _to_markdown(report: dict[str, Any]) -> str:
         ov = tgt.get("overall", {})
         lines.append("\n## Target Distribution")
         lines.append(
-            f"- total: {ov.get('total', 0)}; positives: {ov.get('positives', 0)}; rate: {ov.get('positive_rate', 0.0):.4f}"
+            f"- total: {ov.get('total', 0)}; positives: {ov.get('positives', 0)}; rate: {ov.get('positive_rate', 0.0):.4f}",
         )
     return "\n".join(lines) + "\n"
 

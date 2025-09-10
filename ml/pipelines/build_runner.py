@@ -28,6 +28,10 @@ from typing import Any
 from ml._imports import check_ml_dependencies
 
 
+# Optional metrics (object typed for runtime flexibility)
+_RUNS_TOTAL: Any | None = None
+_RUN_DURATION: Any | None = None
+
 try:
     from ml.common.metrics_bootstrap import get_counter
     from ml.common.metrics_bootstrap import get_histogram
@@ -43,14 +47,17 @@ try:
         ["symbol"],
     )
 except Exception:  # pragma: no cover - metrics optional
-    _RUNS_TOTAL = None  # type: ignore[assignment]
-    _RUN_DURATION = None  # type: ignore[assignment]
+    _RUNS_TOTAL = None
+    _RUN_DURATION = None
 
+
+# Typing-friendly alias for tomli
+_tomli: Any
 
 try:  # Python 3.11+
     import tomllib as _tomli
 except Exception:  # pragma: no cover - older Pythons
-    _tomli = None  # type: ignore[assignment]
+    _tomli = None
 
 
 @dataclass(frozen=True)
@@ -224,7 +231,8 @@ def execute(
             except Exception as exc:  # pragma: no cover - defensive
                 results["failed"] += 1
                 _log_progress(
-                    cfg.out_dir, {"event": "exception", "symbol": t.symbol, "error": str(exc)}
+                    cfg.out_dir,
+                    {"event": "exception", "symbol": t.symbol, "error": str(exc)},
                 )
                 if _RUNS_TOTAL is not None:
                     _RUNS_TOTAL.labels(status="exception").inc()
@@ -247,21 +255,24 @@ def execute(
                     if int(rc) == 0:
                         results["succeeded"] += 1
                         _log_progress(
-                            cfg.out_dir, {"event": "success", "symbol": t.symbol, "rc": int(rc)}
+                            cfg.out_dir,
+                            {"event": "success", "symbol": t.symbol, "rc": int(rc)},
                         )
                         if _RUNS_TOTAL is not None:
                             _RUNS_TOTAL.labels(status="success").inc()
                     else:
                         results["failed"] += 1
                         _log_progress(
-                            cfg.out_dir, {"event": "failure", "symbol": t.symbol, "rc": int(rc)}
+                            cfg.out_dir,
+                            {"event": "failure", "symbol": t.symbol, "rc": int(rc)},
                         )
                         if _RUNS_TOTAL is not None:
                             _RUNS_TOTAL.labels(status="failure").inc()
                 except Exception as exc:  # pragma: no cover - defensive
                     results["failed"] += 1
                     _log_progress(
-                        cfg.out_dir, {"event": "exception", "symbol": t.symbol, "error": str(exc)}
+                        cfg.out_dir,
+                        {"event": "exception", "symbol": t.symbol, "error": str(exc)},
                     )
                     if _RUNS_TOTAL is not None:
                         _RUNS_TOTAL.labels(status="exception").inc()

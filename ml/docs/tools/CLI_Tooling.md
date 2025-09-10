@@ -3,6 +3,7 @@
 This guide documents the lightweight ML dataset tooling added under `ml/scripts/` and `ml/pipelines/`.
 
 Contents
+
 - Build per-symbol datasets with `build_tft_dataset.py`
 - Orchestrate builds with `ml.pipelines.build_runner`
 - Generate dataset quality reports with `dataset_report.py`
@@ -24,11 +25,13 @@ python -m ml.scripts.build_tft_dataset \
 ```
 
 Outputs in `out_dir`:
+
 - `dataset.parquet` and `dataset.csv`
 - `features_npz.npz` (X_train/X_val/features)
 - Optional sidecar `feature_set.json` if registration is enabled in other flows
 
 Notes:
+
 - If ParquetDataCatalog lookup doesn’t find bars, the builder falls back to reading `data/tier1/<SYMBOL>/ohlcv-1m_{historical,recent}.parquet` and normalizes timestamps.
 - Macro features are joined via as-of semantics with a publication lag to prevent leakage.
 
@@ -64,6 +67,7 @@ make ml-build-runner CONFIG=ml/config/build_runner_example.json
 ```
 
 Results:
+
 - Per-symbol outputs under `out_dir/<SYMBOL>/…`
 - Progress log: `out_dir/progress.jsonl`
 - Prometheus metrics (if enabled):
@@ -85,6 +89,7 @@ make ml-dataset-report DATASET=/tmp/tft_ds_small/SPY/dataset.parquet \
 ```
 
 Outputs:
+
 - JSON report for automation, plus optional Markdown summary.
 
 ## 4) Promote Feature Sets via Quality Gates
@@ -128,4 +133,3 @@ python -m ml.scripts.dataset_report --dataset /tmp/tft_ds_small/QQQ/dataset.parq
 ```
 
 You should see macro columns (e.g., `DGS10`, `VIXCLS`) in the datasets and a target distribution summary in the markdown files.
-

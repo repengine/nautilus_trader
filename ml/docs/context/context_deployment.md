@@ -185,6 +185,16 @@ psql "$DB_CONNECTION" -f ml/stores/migrations/006_disable_partition_triggers.sql
 
 Optionally, run `ml/stores/migrations/999_fix_partitions_immediate.sql` if you need to reconcile partitions immediately.
 
+Alternatively, use the CLI migration runner for convenience:
+
+```bash
+# Baseline migrations (uses $DATABASE_URL if set)
+uv run --active --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://postgres:postgres@localhost:5433/nautilus
+
+# Full set including hardening, views, optional indices/fixes
+uv run --active --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://... --full
+```
+
 **DB Preflight (recommended)**:
 
 Run a quick preflight to verify required functions and current-month partitions exist:
@@ -375,6 +385,7 @@ FROM python:3.11-slim
 - Comprehensive statistics reporting on shutdown
 
 **Prerequisites Check**:
+
 - Validates Databento API key
 - Tests PostgreSQL connection
 - Creates dummy model if missing
@@ -394,6 +405,7 @@ FROM python:3.11-slim
 - Performance statistics reporting
 
 **Data Generation**:
+
 - Creates 1000 synthetic bars over 5 days
 - Realistic price movements with continuity
 - Random volume generation
@@ -484,6 +496,7 @@ SELECT * FROM public.ml_model_predictions ORDER BY ts_event DESC LIMIT 10;
 **Script**: `ml/deployment/quick_start.sh`
 
 Automated setup script for first-time users:
+
 - Creates .env from .env.example if missing
 - Validates Databento API key configuration
 - Builds Docker images
@@ -495,6 +508,7 @@ Automated setup script for first-time users:
 **File**: `ml/deployment/Makefile`
 
 Convenient development and deployment commands:
+
 - `make build` - Build all Docker images
 - `make up` - Start all services
 - `make down` - Stop all services
@@ -515,6 +529,7 @@ Convenient development and deployment commands:
 **Script**: `ml/deployment/test_docker_setup.sh`
 
 Validates deployment prerequisites:
+
 - Checks Docker and Docker Compose installation
 - Validates environment configuration
 - Verifies Docker Compose configuration syntax
@@ -527,6 +542,7 @@ Validates deployment prerequisites:
 **Script**: `ml/deployment/check_health.py`
 
 Comprehensive health monitoring:
+
 - Checks Docker Compose services status
 - Validates PostgreSQL connectivity
 - Tests Redis connection
@@ -538,6 +554,7 @@ Comprehensive health monitoring:
 Note: Dev override now lives at `ml/docker-compose.dev.yml` (use `-f` with the base compose).
 
 Development-specific configurations:
+
 - Source code live mounting for hot reload
 - Debug logging levels
 - Reduced batch sizes for testing

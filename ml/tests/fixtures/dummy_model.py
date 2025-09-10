@@ -3,8 +3,9 @@
 """
 Dummy model fixtures for ML module testing.
 
-This module provides utilities to create dummy models for testing purposes,
-avoiding the need for real model files during unit tests.
+This module provides utilities to create dummy models for testing purposes, avoiding the
+need for real model files during unit tests.
+
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ def create_dummy_onnx_model(output_path: str | Path | None = None) -> Path:
     -------
     Path
         Path to the created dummy model file
+
     """
     try:
         import onnx
@@ -96,6 +98,7 @@ def create_dummy_xgboost_model(output_path: str | Path | None = None) -> Path:
     -------
     Path
         Path to the created dummy model file
+
     """
     try:
         import xgboost as xgb
@@ -134,8 +137,8 @@ def create_dummy_xgboost_model(output_path: str | Path | None = None) -> Path:
                 "gradient_booster": {
                     "name": "gbtree",
                     "model": {"trees": []},
-                }
-            }
+                },
+            },
         }
         output_path.write_text(json.dumps(dummy_model))
         return output_path
@@ -154,6 +157,7 @@ def create_dummy_model_metadata(model_type: str = "onnx") -> dict[str, Any]:
     -------
     dict[str, Any]
         Model metadata dictionary
+
     """
     return {
         "type": model_type,

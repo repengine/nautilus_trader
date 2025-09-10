@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import os
+import time
+from contextlib import contextmanager
+from typing import Any
+
+import numpy as np
+
+from ml.actors.base import MLSignal
+from ml.actors.signal import MLSignalActor
+from ml.actors.signal import MLSignalActorConfig
+from ml.common.message_bus import MessagePublisherProtocol
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
+
+
+@contextmanager
+def env(vars: dict[str, str]) -> None:
+    old = {k: os.environ.get(k) for k in vars}
+    try:
+        os.environ.update(vars)
+        yield
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+class CapturePublisher(MessagePublisherProtocol):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def publish(self, topic: str, payload: dict[str, Any]) -> bool:
+        self.calls.append((topic, payload))
+        return True
+
+
+def test_actor_side_domain_event_bridge_publishes(monkeypatch, tmp_path) -> None:
+    # Arrange: env enables actor-side bridge with stage-first scheme
+    pub = CapturePublisher()
+
+    def _fake_factory(_cfg: Any) -> MessagePublisherProtocol:
+        return pub
+
+    with env(
+        {
+            "ML_BUS_FROM_ACTOR": "1",
+            "ML_BUS_ENABLE": "1",
+            "ML_BUS_SCHEME": "stage_first",
+        },
+    ):
+        # Patch the publisher factory used by MLSignalActor
+        monkeypatch.setattr("ml.actors.signal.publisher_from_config", _fake_factory)
+        # Avoid base publish path side-effects
+        monkeypatch.setattr(
+            "ml.actors.base.BaseMLInferenceActor._publish_signal",
+            lambda self, s: None,
+        )
+
+        inst = InstrumentId.from_str("EURUSD.SIM")
+        bar_type = BarType.from_str("EURUSD.SIM-1-MINUTE-MID-EXTERNAL")
+        cfg = MLSignalActorConfig(
+            model_path=str(tmp_path / "model.onnx"),
+            model_id="demo",
+            bar_type=bar_type,
+            instrument_id=inst,
+            use_dummy_stores=True,
+        )
+        actor = MLSignalActor(cfg)
+
+        # Act: publish a signal; bridge enqueues event in background
+        sig = MLSignal(
+            instrument_id=inst,
+            model_id="demo",
+            prediction=0.9,
+            confidence=0.9,
+            features=np.array([0.0], dtype=np.float32),
+            ts_event=123,
+            ts_init=123,
+        )
+        actor._publish_signal(sig)
+
+        # Allow background thread to drain
+        time.sleep(0.05)
+
+        # Stop and drain bridge
+        bridge = getattr(actor, "_actor_bus_bridge", None)
+        if bridge is not None:
+            bridge.stop(drain=True, timeout=1.0)
+
+    # Assert: publisher received a stage-first SIGNAL_EMITTED topic
+    assert pub.calls, "actor-side publisher should be called"
+    topic, payload = pub.calls[-1]
+    assert topic.startswith("events.ml.SIGNAL_EMITTED."), topic
+    assert payload.get("dataset_id") == "signals"
+    assert payload.get("stage") == "SIGNAL_EMITTED"

@@ -116,7 +116,7 @@ class DatabentoDataLoader:
 
         return dataset
 
-    def from_dbn_file(  # noqa: C901 (too complex)
+    def from_dbn_file(
         self,
         path: PathLike[str] | str,
         instrument_id: InstrumentId | None = None,

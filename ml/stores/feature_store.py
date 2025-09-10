@@ -42,9 +42,9 @@ from sqlalchemy.engine import Engine
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic
-from ml.common.message_topics import map_stage_to_topic_segments
+from ml.common.message_topics import build_topic_for_stage
 from ml.config.base import MLFeatureConfig
+from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
@@ -217,6 +217,16 @@ class FeatureStore:
         self._enable_publishing = bool(enable_publishing)
         self.publisher: MessagePublisherProtocol | None = publisher
         self._publish_mode: Literal["batch", "row", "both"] = publish_mode
+        # Topic scheme/prefix (env-driven defaults)
+        try:
+            from ml.config.bus import MessageBusConfig as _MBC
+
+            _cfg = _MBC.from_env()
+            self._topic_scheme: str = str(_cfg.scheme)
+            self._topic_prefix: str = str(_cfg.topic_prefix)
+        except Exception:  # pragma: no cover - defensive
+            self._topic_scheme = "domain_op"
+            self._topic_prefix = "events.ml"
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         """
@@ -270,6 +280,7 @@ class FeatureStore:
         ----------
         registry : RegistryProtocol
             The shared registry instance to use.
+
         """
         self._data_registry = registry
 
@@ -573,7 +584,7 @@ class FeatureStore:
                     ts_min=ts_min,
                     ts_max=ts_max,
                     count=len(rows),
-                    status="success",
+                    status=EventStatus.SUCCESS.value,
                     metadata={"feature_set_id": feature_set_id},
                 )
 
@@ -594,7 +605,7 @@ class FeatureStore:
                         component=feature_set_id,
                         stage=Stage.FEATURE_COMPUTED.value,
                         source=Source.HISTORICAL.value,
-                        status="success",
+                        status=EventStatus.SUCCESS.value,
                     ).inc()
 
                 logger.debug(
@@ -689,10 +700,14 @@ class FeatureStore:
             from ml.common.timestamps import sanitize_timestamp_ns
 
             tse_norm = sanitize_timestamp_ns(
-                int(bar.ts_event), logger=logger, context="FeatureStore.realtime"
+                int(bar.ts_event),
+                logger=logger,
+                context="FeatureStore.realtime",
             )
             tsi_norm = sanitize_timestamp_ns(
-                int(bar.ts_init), logger=logger, context="FeatureStore.realtime"
+                int(bar.ts_init),
+                logger=logger,
+                context="FeatureStore.realtime",
             )
 
             row = {
@@ -755,7 +770,7 @@ class FeatureStore:
                             ts_min=int(bar.ts_event),
                             ts_max=int(bar.ts_event),
                             count=1,
-                            status="success",
+                            status=EventStatus.SUCCESS.value,
                         )
 
                         # Update watermark for tracking progress
@@ -775,7 +790,7 @@ class FeatureStore:
                                 component=feature_set_id,
                                 stage=Stage.FEATURE_COMPUTED.value,
                                 source="realtime",
-                                status="success",
+                                status=EventStatus.SUCCESS.value,
                             ).inc()
 
                         logger.debug(
@@ -906,15 +921,19 @@ class FeatureStore:
             """,
         )
         with self.engine.connect() as conn:
-            pdf = pd.read_sql_query(
-                sql,
-                conn,
-                params={  # type: ignore[arg-type]
+            from collections.abc import Mapping
+            from typing import Any as _Any
+            from typing import cast as _cast
+
+            _params = _cast(
+                Mapping[str, _Any],
+                {
                     "instrument_id": instrument_id,
                     "start_ns": start_ns,
                     "end_ns": end_ns,
                 },
             )
+            pdf = pd.read_sql_query(sql, conn, params=_params)
         return pl.from_pandas(pdf)
 
     def _features_exist(
@@ -1091,9 +1110,13 @@ class FeatureStore:
             ):
                 try:
                     stage = Stage.FEATURE_COMPUTED
-                    domain, operation = map_stage_to_topic_segments(stage)
                     inst_any = getattr(batch[0], "instrument_id", "UNKNOWN")
-                    topic = build_topic(domain, operation, str(inst_any))
+                    topic = build_topic_for_stage(
+                        stage,
+                        str(inst_any),
+                        scheme=self._topic_scheme,
+                        prefix=self._topic_prefix,
+                    )
                     ts_min = min(int(getattr(b, "ts_event", 0)) for b in batch)
                     ts_max = max(int(getattr(b, "ts_event", 0)) for b in batch)
                     payload: dict[str, Any] = {
@@ -1105,7 +1128,7 @@ class FeatureStore:
                         "ts_min": ts_min,
                         "ts_max": ts_max,
                         "count": len(batch),
-                        "status": "success",
+                        "status": EventStatus.SUCCESS.value,
                     }
                     self.publisher.publish(topic, payload)
                 except Exception:
@@ -1146,8 +1169,12 @@ class FeatureStore:
         ):
             try:
                 stage = Stage.FEATURE_COMPUTED
-                domain, operation = map_stage_to_topic_segments(stage)
-                topic = build_topic(domain, operation, instrument_id)
+                topic = build_topic_for_stage(
+                    stage,
+                    instrument_id,
+                    scheme=self._topic_scheme,
+                    prefix=self._topic_prefix,
+                )
                 payload2: dict[str, Any] = {
                     "dataset_id": "features",
                     "instrument_id": instrument_id,
@@ -1157,14 +1184,15 @@ class FeatureStore:
                     "ts_min": int(ts_event),
                     "ts_max": int(ts_event),
                     "count": 1,
-                    "status": "success",
+                    "status": EventStatus.SUCCESS.value,
                 }
                 self.publisher.publish(topic, payload2)
             except Exception:
                 logger.debug("FeatureStore publish failed", exc_info=True)
 
     def _execute_write(
-        self, row: dict[str, Any]
+        self,
+        row: dict[str, Any],
     ) -> None:  # pragma: no cover (exercised in integration)
         """
         Upsert a single feature row (patchable in tests).
@@ -1184,11 +1212,15 @@ class FeatureStore:
 
         if "ts_event" in row:
             row["ts_event"] = sanitize_timestamp_ns(
-                int(row["ts_event"]), logger=logger, context="FeatureStore._execute_write"
+                int(row["ts_event"]),
+                logger=logger,
+                context="FeatureStore._execute_write",
             )
         if "ts_init" in row:
             row["ts_init"] = sanitize_timestamp_ns(
-                int(row["ts_init"]), logger=logger, context="FeatureStore._execute_write"
+                int(row["ts_init"]),
+                logger=logger,
+                context="FeatureStore._execute_write",
             )
 
         stmt = insert(self.feature_values_table).values(row)
@@ -1211,9 +1243,13 @@ class FeatureStore:
         ):
             try:
                 stage = Stage.FEATURE_COMPUTED
-                domain, operation = map_stage_to_topic_segments(stage)
                 inst = str(row.get("instrument_id", "UNKNOWN"))
-                topic = build_topic(domain, operation, inst)
+                topic = build_topic_for_stage(
+                    stage,
+                    inst,
+                    scheme=self._topic_scheme,
+                    prefix=self._topic_prefix,
+                )
                 ts_e = int(row.get("ts_event", 0))
                 payload: dict[str, Any] = {
                     "dataset_id": "features",
@@ -1224,7 +1260,7 @@ class FeatureStore:
                     "ts_min": ts_e,
                     "ts_max": ts_e,
                     "count": 1,
-                    "status": "success",
+                    "status": EventStatus.SUCCESS.value,
                 }
                 self.publisher.publish(topic, payload)
             except Exception:
@@ -1271,7 +1307,9 @@ class FeatureStore:
 
         # Append to buffer for visibility during the call
         # (tests assert the buffer is cleared after write_batch returns)
-        self._write_buffer.extend(data)  # type: ignore[arg-type]
+        from typing import cast as _cast
+
+        self._write_buffer.extend(_cast(list[object], data))
 
         for item in list(data):
             fs_id = getattr(item, "feature_set_id", None)
@@ -1299,9 +1337,13 @@ class FeatureStore:
         if self._enable_publishing and self.publisher is not None and data:
             try:
                 stage = Stage.FEATURE_COMPUTED
-                domain, operation = map_stage_to_topic_segments(stage)
                 inst_any = getattr(data[0], "instrument_id", "UNKNOWN")
-                topic = build_topic(domain, operation, str(inst_any))
+                topic = build_topic_for_stage(
+                    stage,
+                    str(inst_any),
+                    scheme=self._topic_scheme,
+                    prefix=self._topic_prefix,
+                )
                 ts_min = min(int(getattr(b, "ts_event", 0)) for b in data)
                 ts_max = max(int(getattr(b, "ts_event", 0)) for b in data)
                 payload: dict[str, Any] = {
@@ -1313,7 +1355,7 @@ class FeatureStore:
                     "ts_min": ts_min,
                     "ts_max": ts_max,
                     "count": len(data),
-                    "status": "success",
+                    "status": EventStatus.SUCCESS.value,
                 }
                 self.publisher.publish(topic, payload)
             except Exception:

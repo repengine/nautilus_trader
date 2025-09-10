@@ -315,7 +315,9 @@ class TestFeatureParity:
     @pytest.mark.database
     @pytest.mark.serial
     def test_feature_versioning(
-        self, feature_config: FeatureConfig, test_database: TestDatabase
+        self,
+        feature_config: FeatureConfig,
+        test_database: TestDatabase,
     ) -> None:
         """
         Test that feature versions change when pipeline changes.

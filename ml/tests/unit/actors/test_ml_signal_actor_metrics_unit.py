@@ -2,6 +2,7 @@
 Metrics path coverage for MLSignalActor._try_generate_signal.
 
 Stubs a counter with labels().inc() and verifies it is invoked.
+
 """
 
 from __future__ import annotations
@@ -23,12 +24,16 @@ class _DummyCounter:
         self.calls: list[tuple[tuple[str, ...], str]] = []
 
     def labels(self, **labels: Any) -> _DummyCounter:
-        """Return self for chained inc()"""
+        """
+        Return self for chained inc()
+        """
         self.calls.append((tuple(sorted(labels.keys())), "labels"))
         return self
 
     def inc(self, *args: Any, **kwargs: Any) -> None:
-        """Record inc call"""
+        """
+        Record inc call.
+        """
         self.calls.append(((), "inc"))
 
 
@@ -46,7 +51,10 @@ def test_signals_generated_metric_incremented() -> None:
     actor._last_signal_bar = -1
     actor._bars_processed = 0
     actor._model_id = "m1"
-    actor._signal_config = SimpleNamespace(min_signal_separation_bars=0, signal_strategy="threshold")
+    actor._signal_config = SimpleNamespace(
+        min_signal_separation_bars=0,
+        signal_strategy="threshold",
+    )
     actor._config = SimpleNamespace(log_predictions=False)
     actor.id = SimpleNamespace(value="actor-1")
     actor._prediction_history = []

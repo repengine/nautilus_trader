@@ -16,7 +16,14 @@ from nautilus_trader.model.identifiers import Venue
 
 def _sig(pred: float, conf: float = 0.8) -> MLSignal:
     inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
-    return MLSignal(instrument_id=inst, model_id="m1", prediction=pred, confidence=conf, ts_event=1, ts_init=1)
+    return MLSignal(
+        instrument_id=inst,
+        model_id="m1",
+        prediction=pred,
+        confidence=conf,
+        ts_event=1,
+        ts_init=1,
+    )
 
 
 def test_track_trade_entry_called_when_execute_trades_true() -> None:
@@ -25,7 +32,7 @@ def test_track_trade_entry_called_when_execute_trades_true() -> None:
     strat.track_performance = True
     calls: list[dict[str, Any]] = []
     strat._track_trade_entry = lambda model_id, signal, order_id: calls.append(  # type: ignore[attr-defined]
-        {"model_id": model_id, "order_id": order_id}
+        {"model_id": model_id, "order_id": order_id},
     )
 
     # Configuration to allow placing

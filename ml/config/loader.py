@@ -23,6 +23,9 @@ T = TypeVar("T")
 
 
 def load_from_file(path: str | None, t: type[T], default: T) -> T:
+    """
+    Load JSON config from file and decode into type ``t`` with fallback.
+    """
     if not path:
         return default
     try:
@@ -35,6 +38,9 @@ def load_from_file(path: str | None, t: type[T], default: T) -> T:
 
 
 def merge_env(prefix: str, t: type[T], base: T) -> T:
+    """
+    Overlay JSON from environment variable ``{PREFIX}_JSON`` onto ``base``.
+    """
     # Simple env overlay: expects a single JSON blob in {PREFIX}_JSON
     key = f"{prefix}_JSON"
     blob = os.getenv(key)

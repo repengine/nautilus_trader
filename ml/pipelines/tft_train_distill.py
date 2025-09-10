@@ -136,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     # Final validation now: both must be available for teacher/distill steps
     if feature_registry_dir is None or feature_set_id is None:
         raise SystemExit(
-            "feature_registry_dir and feature_set_id are required (via args or sidecar/registration)"
+            "feature_registry_dir and feature_set_id are required (via args or sidecar/registration)",
         )
     if args.train_teacher:
         from ml.training.teacher.tft_cli import main as tft_main

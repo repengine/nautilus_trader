@@ -26,7 +26,9 @@ from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
 
 
-@pytest.mark.skip(reason="Complex behavioral tests - disable during test reset for event-driven refactor")
+@pytest.mark.skip(
+    reason="Complex behavioral tests - disable during test reset for event-driven refactor",
+)
 @pytest.mark.flaky
 @pytest.mark.slow
 class TestRegistryBehaviors:

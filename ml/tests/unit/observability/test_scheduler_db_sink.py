@@ -47,4 +47,3 @@ def test_background_db_flusher(tmp_path: Path) -> None:
     with eng.connect() as conn:
         lat_df = pd.read_sql("select * from obs_latency_watermarks", conn)
         assert not lat_df.empty
-

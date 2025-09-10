@@ -8,6 +8,7 @@ This dashboard provides live monitoring of:
 - Model inference performance
 - Signal generation metrics
 - System health indicators
+
 """
 
 import asyncio
@@ -27,10 +28,14 @@ from ml.monitoring._config import DashboardConfig
 
 
 class SystemMonitor:
-    """Monitors system metrics and health."""
+    """
+    Monitors system metrics and health.
+    """
 
     def __init__(self, config: DashboardConfig | None = None) -> None:
-        """Initialize system monitor."""
+        """
+        Initialize system monitor.
+        """
         self.console = Console()
         self.metrics: dict[str, Any] = {}
         self.alerts: list[dict[str, Any]] = []
@@ -38,7 +43,9 @@ class SystemMonitor:
         self.config: DashboardConfig = config or DashboardConfig()
 
     def update_metrics(self) -> None:
-        """Update system metrics."""
+        """
+        Update system metrics.
+        """
         # Data metrics
         self.metrics["data"] = self._get_data_metrics()
 
@@ -54,7 +61,9 @@ class SystemMonitor:
         self.last_update = datetime.now()
 
     def _get_data_metrics(self) -> dict[str, Any]:
-        """Get data ingestion metrics."""
+        """
+        Get data ingestion metrics.
+        """
         metrics: dict[str, Any] = {
             "l0_symbols": 0,
             "l1_symbols": 0,
@@ -99,7 +108,9 @@ class SystemMonitor:
         return metrics
 
     def _get_feature_metrics(self) -> dict[str, Any]:
-        """Get feature computation metrics."""
+        """
+        Get feature computation metrics.
+        """
         metrics: dict[str, Any] = {
             "computed_symbols": 0,
             "total_features": 26,
@@ -121,17 +132,21 @@ class SystemMonitor:
         return metrics
 
     def _get_model_metrics(self) -> dict[str, Any]:
-        """Get model inference metrics."""
+        """
+        Get model inference metrics.
+        """
         return {
             "models_loaded": 3,
             "avg_inference_ms": 1.2,
             "predictions_per_sec": 450,
             "signal_rate": 0.023,
-            "accuracy": 0.547  # Placeholder
+            "accuracy": 0.547,  # Placeholder
         }
 
     def _get_system_metrics(self) -> dict[str, Any]:
-        """Get system health metrics."""
+        """
+        Get system health metrics.
+        """
         import psutil
 
         return {
@@ -140,88 +155,109 @@ class SystemMonitor:
             "disk_usage_percent": psutil.disk_usage("/").percent,
             "network_mbps": 0,  # Placeholder
             "postgres_connections": 5,  # Placeholder
-            "redis_ops_per_sec": 1200  # Placeholder
+            "redis_ops_per_sec": 1200,  # Placeholder
         }
 
     def check_alerts(self) -> None:
-        """Check for system alerts."""
+        """
+        Check for system alerts.
+        """
         self.alerts.clear()
 
         # Check system resources
         if self.metrics.get("system", {}).get("cpu_percent", 0) > 80:
-            self.alerts.append({
-                "level": "WARNING",
-                "message": "High CPU usage",
-                "value": f"{self.metrics['system']['cpu_percent']:.1f}%"
-            })
+            self.alerts.append(
+                {
+                    "level": "WARNING",
+                    "message": "High CPU usage",
+                    "value": f"{self.metrics['system']['cpu_percent']:.1f}%",
+                },
+            )
 
         if self.metrics.get("system", {}).get("memory_percent", 0) > 85:
-            self.alerts.append({
-                "level": "WARNING",
-                "message": "High memory usage",
-                "value": f"{self.metrics['system']['memory_percent']:.1f}%"
-            })
+            self.alerts.append(
+                {
+                    "level": "WARNING",
+                    "message": "High memory usage",
+                    "value": f"{self.metrics['system']['memory_percent']:.1f}%",
+                },
+            )
 
         # Check data ingestion
         if self.metrics.get("data", {}).get("ingestion_rate", 0) < 1:
-            self.alerts.append({
-                "level": "INFO",
-                "message": "Slow data ingestion",
-                "value": f"{self.metrics['data']['ingestion_rate']:.2f} symbols/hour"
-            })
+            self.alerts.append(
+                {
+                    "level": "INFO",
+                    "message": "Slow data ingestion",
+                    "value": f"{self.metrics['data']['ingestion_rate']:.2f} symbols/hour",
+                },
+            )
 
         # Check model performance
         if self.metrics.get("models", {}).get("avg_inference_ms", 0) > 5:
-            self.alerts.append({
-                "level": "WARNING",
-                "message": "High inference latency",
-                "value": f"{self.metrics['models']['avg_inference_ms']:.1f}ms"
-            })
+            self.alerts.append(
+                {
+                    "level": "WARNING",
+                    "message": "High inference latency",
+                    "value": f"{self.metrics['models']['avg_inference_ms']:.1f}ms",
+                },
+            )
 
 
 class DashboardUI:
-    """Rich terminal UI for monitoring dashboard."""
+    """
+    Rich terminal UI for monitoring dashboard.
+    """
 
     def __init__(self, monitor: SystemMonitor) -> None:
-        """Initialize dashboard UI."""
+        """
+        Initialize dashboard UI.
+        """
         self.monitor = monitor
         self.console = Console()
 
     def create_layout(self) -> Layout:
-        """Create dashboard layout."""
+        """
+        Create dashboard layout.
+        """
         layout = Layout()
 
         # Split into header and body
         layout.split_column(
             Layout(name="header", size=3),
             Layout(name="body"),
-            Layout(name="footer", size=4)
+            Layout(name="footer", size=4),
         )
 
         # Split body into columns
         layout["body"].split_row(
             Layout(name="left"),
-            Layout(name="right")
+            Layout(name="right"),
         )
 
         # Split left column
         layout["left"].split_column(
             Layout(name="data_panel"),
-            Layout(name="feature_panel")
+            Layout(name="feature_panel"),
         )
 
         # Split right column
         layout["right"].split_column(
             Layout(name="model_panel"),
-            Layout(name="system_panel")
+            Layout(name="system_panel"),
         )
 
         return layout
 
     def render_header(self) -> Panel:
-        """Render header panel."""
+        """
+        Render header panel.
+        """
         header = Text("🚀 NAUTILUS TRADER ML - REAL-TIME MONITOR", style="bold cyan")
-        subheader = Text(f"Last Update: {self.monitor.last_update.strftime('%H:%M:%S')}", style="dim")
+        subheader = Text(
+            f"Last Update: {self.monitor.last_update.strftime('%H:%M:%S')}",
+            style="dim",
+        )
 
         content = Text()
         content.append(header)
@@ -231,7 +267,9 @@ class DashboardUI:
         return Panel(content, style="cyan")
 
     def render_data_panel(self) -> Panel:
-        """Render data metrics panel."""
+        """
+        Render data metrics panel.
+        """
         data = self.monitor.metrics.get("data", {})
 
         table = Table(show_header=False, box=None)
@@ -247,7 +285,9 @@ class DashboardUI:
         return Panel(table, title="📊 Data Ingestion", border_style="blue")
 
     def render_feature_panel(self) -> Panel:
-        """Render feature metrics panel."""
+        """
+        Render feature metrics panel.
+        """
         features = self.monitor.metrics.get("features", {})
 
         table = Table(show_header=False, box=None)
@@ -262,7 +302,9 @@ class DashboardUI:
         return Panel(table, title="🔬 Features", border_style="green")
 
     def render_model_panel(self) -> Panel:
-        """Render model metrics panel."""
+        """
+        Render model metrics panel.
+        """
         models = self.monitor.metrics.get("models", {})
 
         table = Table(show_header=False, box=None)
@@ -278,7 +320,9 @@ class DashboardUI:
         return Panel(table, title="🤖 Models", border_style="yellow")
 
     def render_system_panel(self) -> Panel:
-        """Render system metrics panel."""
+        """
+        Render system metrics panel.
+        """
         system = self.monitor.metrics.get("system", {})
 
         table = Table(show_header=False, box=None)
@@ -302,7 +346,9 @@ class DashboardUI:
         return Panel(table, title="💻 System", border_style="magenta")
 
     def render_footer(self) -> Panel:
-        """Render alerts/status footer."""
+        """
+        Render alerts/status footer.
+        """
         if self.monitor.alerts:
             # Show alerts
             table = Table(show_header=True, box=None)
@@ -311,11 +357,15 @@ class DashboardUI:
             table.add_column("Value")
 
             for alert in self.monitor.alerts[:3]:  # Show max 3 alerts
-                level_style = "red" if alert["level"] == "ERROR" else "yellow" if alert["level"] == "WARNING" else "blue"
+                level_style = (
+                    "red"
+                    if alert["level"] == "ERROR"
+                    else "yellow" if alert["level"] == "WARNING" else "blue"
+                )
                 table.add_row(
                     f"[{level_style}]{alert['level']}[/]",
                     alert["message"],
-                    alert["value"]
+                    alert["value"],
                 )
 
             return Panel(table, title="⚠️ Alerts", border_style="yellow")
@@ -324,7 +374,9 @@ class DashboardUI:
             return Panel(status, title="Status", border_style="green")
 
     def render(self, layout: Layout) -> None:
-        """Render all panels."""
+        """
+        Render all panels.
+        """
         layout["header"].update(self.render_header())
         layout["data_panel"].update(self.render_data_panel())
         layout["feature_panel"].update(self.render_feature_panel())
@@ -334,7 +386,9 @@ class DashboardUI:
 
 
 async def run_dashboard() -> None:
-    """Run the monitoring dashboard."""
+    """
+    Run the monitoring dashboard.
+    """
     monitor = SystemMonitor()
     ui = DashboardUI(monitor)
 
@@ -358,7 +412,9 @@ async def run_dashboard() -> None:
 
 
 def main() -> None:
-    """Main entry point."""
+    """
+    Main entry point.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(description="Real-time ML monitoring dashboard")

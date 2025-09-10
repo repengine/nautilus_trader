@@ -31,26 +31,30 @@ I conducted comprehensive testing of the ML actors and model components in `/hom
 ### BaseMLInferenceActor
 
 **Configuration Issues:**
+
 - Requires `model_id` (string) - not optional as implied in some docs
 - Requires `instrument_id` parameter
 - `use_dummy_stores` parameter only exists in MLSignalActorConfig, not base MLActorConfig
 - Configuration is more complex than documented
 
 **Code Quality:**
+
 - Well-structured abstract base class with proper separation of concerns
 - Good error handling and circuit breaker integration
 - Comprehensive store/registry integration (4 stores + 4 registries as claimed)
 - Security features implemented (pickle model rejection)
 
-### MLSignalActor 
+### MLSignalActor
 
 **Functionality Status:**
+
 - ✅ Strategy pattern implementation works
 - ✅ Multiple signal strategies available (threshold, extremes, momentum, ensemble, adaptive)
 - ❌ Cannot instantiate due to missing required config parameters
 - ❌ Feature computation fails due to Nautilus object creation issues
 
 **Performance Claims Assessment:**
+
 - **UNVERIFIED**: Cannot test <5ms end-to-end claim due to instantiation failures
 - **UNVERIFIED**: Cannot test <500μs feature computation claim
 - **UNVERIFIED**: Cannot test <2ms inference claim
@@ -58,12 +62,14 @@ I conducted comprehensive testing of the ML actors and model components in `/hom
 ### Model Loading and Inference
 
 **What Works:**
+
 - ✅ Model format detection (ONNX, joblib, JSON)
 - ✅ Security enforcement (pickle rejection)
 - ✅ ProductionModelLoader basic functionality
 - ✅ Model metadata extraction
 
 **What's Broken:**
+
 - ❌ ONNX models from test data are corrupted (protobuf parsing errors)
 - ❌ ONNX Runtime version compatibility (IR version 11 vs max 10)
 - ❌ Cannot create test ONNX models due to version mismatch
@@ -71,6 +77,7 @@ I conducted comprehensive testing of the ML actors and model components in `/hom
 ### Feature Engineering
 
 **Assessment:**
+
 - ✅ FeatureConfig and FeatureEngineer classes instantiate correctly
 - ✅ Generates 26 features as claimed
 - ❌ Cannot process real Bar objects due to type errors
@@ -79,6 +86,7 @@ I conducted comprehensive testing of the ML actors and model components in `/hom
 ### Store and Registry System
 
 **Implementation Status:**
+
 - ✅ 4-store architecture implemented (FeatureStore, ModelStore, StrategyStore, DataStore)
 - ✅ 4-registry system present (FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry)
 - ✅ DummyStore/DummyRegistry work for testing
@@ -89,6 +97,7 @@ I conducted comprehensive testing of the ML actors and model components in `/hom
 
 ### 1. Configuration Complexity
 The configuration system is more complex than documented:
+
 ```python
 # Required parameters not clearly documented:
 model_id: str  # Must be provided
@@ -98,6 +107,7 @@ bar_type: BarType  # Must be provided
 
 ### 2. Nautilus Integration Issues
 Creating proper Nautilus objects (Bar, Price, etc.) requires specific types:
+
 ```python
 # This fails:
 bar = Bar(open=Decimal('1.1000'), ...)  # Expects Price object, not Decimal
@@ -107,6 +117,7 @@ bar = Bar(open=Decimal('1.1000'), ...)  # Expects Price object, not Decimal
 The system expects older ONNX models (IR version ≤10) but test models use newer format (IR version 11).
 
 ### 4. Missing Test Infrastructure
+
 - No working example models for testing
 - Complex dependencies for creating valid test data
 - Integration tests require full Nautilus runtime
@@ -116,13 +127,14 @@ The system expects older ONNX models (IR version ≤10) but test models use newe
 **UNABLE TO VERIFY** the following performance claims due to instantiation failures:
 
 - ❌ **Hot path <5ms latency**: Cannot test - actor instantiation fails
-- ❌ **Feature computation <500μs**: Cannot test - Bar object creation fails  
+- ❌ **Feature computation <500μs**: Cannot test - Bar object creation fails
 - ❌ **Model inference <2ms**: Cannot test - ONNX compatibility issues
 - ❌ **Zero allocations in hot path**: Cannot test - cannot reach hot path
 
 ## Security Assessment
 
 **✅ GOOD**: Security features are implemented:
+
 - Pickle model loading is correctly prohibited in production
 - Environment variable controls for test mode
 - Model format validation

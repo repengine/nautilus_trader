@@ -11,7 +11,7 @@ This module should contain ONLY type aliases and imports guarded by
 `TYPE_CHECKING` so importing it has no heavy runtime side effects.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -45,8 +45,8 @@ PolarsDF = _pl.DataFrame
 PolarsSeries = _pl.Series
 
 # Union convenience types
-DataFrameLike = PandasDF | PolarsDF
-SeriesLike = PandasSeries | PolarsSeries
+DataFrameLike: TypeAlias = PandasDF | PolarsDF
+SeriesLike: TypeAlias = PandasSeries | PolarsSeries
 
 # Sklearn scaler alias (type-only)
 StandardScaler = _StandardScaler

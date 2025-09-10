@@ -1,9 +1,9 @@
 """
 Unit tests for ML signal generation strategies (no model/DB dependencies).
 
-We validate basic behavior of ThresholdSignalStrategy to ensure that
-hot-path logic produces an MLSignal when the confidence threshold is
-met, and returns None otherwise.
+We validate basic behavior of ThresholdSignalStrategy to ensure that hot-path logic
+produces an MLSignal when the confidence threshold is met, and returns None otherwise.
+
 """
 
 from __future__ import annotations
@@ -31,7 +31,13 @@ def test_threshold_strategy_generates_signal_when_confident() -> None:
     features = np.array([0.1, 0.2], dtype=np.float32)
     ctx = {"model_id": "m1", "timestamp_ns": 1}
 
-    sig = strat.generate_signal(bar=bar, prediction=0.9, confidence=0.75, features=features, context=ctx)
+    sig = strat.generate_signal(
+        bar=bar,
+        prediction=0.9,
+        confidence=0.75,
+        features=features,
+        context=ctx,
+    )
     assert isinstance(sig, MLSignal)
     assert sig.model_id == "m1"
     assert sig.prediction == 0.9
@@ -43,6 +49,11 @@ def test_threshold_strategy_suppresses_signal_when_not_confident() -> None:
     features = np.array([0.1, 0.2], dtype=np.float32)
     ctx = {"model_id": "m1", "timestamp_ns": 1}
 
-    sig = strat.generate_signal(bar=bar, prediction=0.9, confidence=0.5, features=features, context=ctx)
+    sig = strat.generate_signal(
+        bar=bar,
+        prediction=0.9,
+        confidence=0.5,
+        features=features,
+        context=ctx,
+    )
     assert sig is None
-

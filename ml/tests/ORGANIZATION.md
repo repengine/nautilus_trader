@@ -72,12 +72,14 @@ ml/tests/
 ## Test Categories
 
 ### By Speed
+
 - **Smoke** (`test_smoke.py`): < 1 second, basic validation
 - **Unit** (`unit/`): < 5 seconds per file, isolated
 - **Integration** (`integration/`): < 30 seconds per file, database required
 - **E2E** (`e2e/`): > 30 seconds, full pipeline
 
 ### By Approach
+
 - **Example-based**: Traditional specific test cases
 - **Property-based** (`property/`): Hypothesis-generated test cases
 - **Contract** (`contracts/`): Behavioral guarantees
@@ -87,6 +89,7 @@ ml/tests/
 ## Running Tests
 
 ### Quick Validation
+
 ```bash
 # Smoke tests only
 pytest ml/tests/test_smoke.py -x
@@ -99,6 +102,7 @@ pytest ml/tests/property -x
 ```
 
 ### Full Test Suite
+
 ```bash
 # All tests (requires PostgreSQL)
 pytest ml/tests -x
@@ -108,6 +112,7 @@ pytest ml/tests --cov=ml --cov-report=html
 ```
 
 ### Test Analysis
+
 ```bash
 # Analyze for redundancy
 python ml/tests/tools/analyze_test_redundancy.py

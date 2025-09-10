@@ -3,6 +3,7 @@ DataStore event emission tests using stubbed registry and stores.
 
 Focus: functional outcome that DataStore emits events and updates watermarks
 with expected parameters when writing features/predictions/signals.
+
 """
 
 from __future__ import annotations
@@ -51,19 +52,27 @@ class _StubRegistry:
 
 class _NoOpStore:
     def write_features(self, *args: Any, **kwargs: Any) -> None:
-        """No-op write_features"""
+        """
+        No-op write_features.
+        """
         return None
 
     def write_prediction(self, *args: Any, **kwargs: Any) -> None:
-        """No-op write_prediction"""
+        """
+        No-op write_prediction.
+        """
         return None
 
     def write_signal(self, *args: Any, **kwargs: Any) -> None:
-        """No-op write_signal"""
+        """
+        No-op write_signal.
+        """
         return None
 
     def write_batch(self, *args: Any, **kwargs: Any) -> None:
-        """No-op batch write for stores expecting it."""
+        """
+        No-op batch write for stores expecting it.
+        """
         return None
 
 
@@ -82,6 +91,7 @@ def stubbed_data_store(monkeypatch: pytest.MonkeyPatch) -> tuple[DataStore, _Stu
         "predictions": "predictions",
         "signals": "signals",
     }
+
     # Provide clock stub
     class _Clock:
         def timestamp_ns(self) -> int:
@@ -93,7 +103,9 @@ def stubbed_data_store(monkeypatch: pytest.MonkeyPatch) -> tuple[DataStore, _Stu
     return ds, stub_registry
 
 
-def test_data_store_emits_feature_events(stubbed_data_store: tuple[DataStore, _StubRegistry]) -> None:
+def test_data_store_emits_feature_events(
+    stubbed_data_store: tuple[DataStore, _StubRegistry],
+) -> None:
     ds, reg = stubbed_data_store
     from ml.stores.base import FeatureData
 
@@ -108,7 +120,9 @@ def test_data_store_emits_feature_events(stubbed_data_store: tuple[DataStore, _S
     assert any(e for e in reg.events if e["dataset_id"] == "features")
 
 
-def test_data_store_emits_prediction_events(stubbed_data_store: tuple[DataStore, _StubRegistry]) -> None:
+def test_data_store_emits_prediction_events(
+    stubbed_data_store: tuple[DataStore, _StubRegistry],
+) -> None:
     ds, reg = stubbed_data_store
     from ml.stores.base import ModelPrediction
 
@@ -126,7 +140,9 @@ def test_data_store_emits_prediction_events(stubbed_data_store: tuple[DataStore,
     assert any(e for e in reg.events if e["dataset_id"] == "predictions")
 
 
-def test_data_store_emits_signal_events(stubbed_data_store: tuple[DataStore, _StubRegistry]) -> None:
+def test_data_store_emits_signal_events(
+    stubbed_data_store: tuple[DataStore, _StubRegistry],
+) -> None:
     ds, reg = stubbed_data_store
     from ml.stores.base import StrategySignal
 
