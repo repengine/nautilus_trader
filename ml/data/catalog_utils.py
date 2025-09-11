@@ -9,7 +9,7 @@ replacing the need for custom loaders.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
@@ -48,49 +48,31 @@ def bars_to_dataframe(
         DataFrame with OHLCV data and timestamps.
 
     """
-    if not HAS_POLARS:
-        check_ml_dependencies(["polars"])
-
-    # Convert string instrument IDs to InstrumentId objects
-    instrument_id_objs = [InstrumentId.from_str(id_str) for id_str in instrument_ids]
-
-    # Load bars from catalog
-    bars = catalog.bars(
-        instrument_ids=instrument_id_objs,
+    return _load_and_build_df(
+        catalog=catalog,
+        instrument_ids=instrument_ids,
         start=start,
         end=end,
+        loader=lambda cat, ids, s, e: cat.bars(instrument_ids=ids, start=s, end=e),
+        row_builder=lambda bar: {
+            "instrument_id": str(bar.bar_type.instrument_id),
+            "timestamp": bar.ts_event,
+            "open": float(bar.open),
+            "high": float(bar.high),
+            "low": float(bar.low),
+            "close": float(bar.close),
+            "volume": float(bar.volume),
+        },
+        empty_columns=[
+            "instrument_id",
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ],
     )
-
-    if not bars:
-        # Return empty DataFrame with expected schema
-        return pl.DataFrame(
-            {
-                "instrument_id": [],
-                "timestamp": [],
-                "open": [],
-                "high": [],
-                "low": [],
-                "close": [],
-                "volume": [],
-            },
-        )
-
-    # Convert to DataFrame
-    data = []
-    for bar in bars:
-        data.append(
-            {
-                "instrument_id": str(bar.bar_type.instrument_id),
-                "timestamp": bar.ts_event,
-                "open": float(bar.open),
-                "high": float(bar.high),
-                "low": float(bar.low),
-                "close": float(bar.close),
-                "volume": float(bar.volume),
-            },
-        )
-
-    return pl.DataFrame(data)
 
 
 def quotes_to_dataframe(
@@ -119,46 +101,22 @@ def quotes_to_dataframe(
         DataFrame with quote data.
 
     """
-    if not HAS_POLARS:
-        check_ml_dependencies(["polars"])
-
-    # Convert string instrument IDs to InstrumentId objects
-    instrument_id_objs = [InstrumentId.from_str(id_str) for id_str in instrument_ids]
-
-    # Load quotes from catalog
-    quotes = catalog.quote_ticks(
-        instrument_ids=instrument_id_objs,
+    return _load_and_build_df(
+        catalog=catalog,
+        instrument_ids=instrument_ids,
         start=start,
         end=end,
+        loader=lambda cat, ids, s, e: cat.quote_ticks(instrument_ids=ids, start=s, end=e),
+        row_builder=lambda quote: {
+            "instrument_id": str(quote.instrument_id),
+            "timestamp": quote.ts_event,
+            "bid": float(quote.bid_price),
+            "ask": float(quote.ask_price),
+            "bid_size": float(quote.bid_size),
+            "ask_size": float(quote.ask_size),
+        },
+        empty_columns=["instrument_id", "timestamp", "bid", "ask", "bid_size", "ask_size"],
     )
-
-    if not quotes:
-        return pl.DataFrame(
-            {
-                "instrument_id": [],
-                "timestamp": [],
-                "bid": [],
-                "ask": [],
-                "bid_size": [],
-                "ask_size": [],
-            },
-        )
-
-    # Convert to DataFrame
-    data = []
-    for quote in quotes:
-        data.append(
-            {
-                "instrument_id": str(quote.instrument_id),
-                "timestamp": quote.ts_event,
-                "bid": float(quote.bid_price),
-                "ask": float(quote.ask_price),
-                "bid_size": float(quote.bid_size),
-                "ask_size": float(quote.ask_size),
-            },
-        )
-
-    return pl.DataFrame(data)
 
 
 def trades_to_dataframe(
@@ -187,41 +145,49 @@ def trades_to_dataframe(
         DataFrame with trade data.
 
     """
+    return _load_and_build_df(
+        catalog=catalog,
+        instrument_ids=instrument_ids,
+        start=start,
+        end=end,
+        loader=lambda cat, ids, s, e: cat.trade_ticks(instrument_ids=ids, start=s, end=e),
+        row_builder=lambda trade: {
+            "instrument_id": str(trade.instrument_id),
+            "timestamp": trade.ts_event,
+            "price": float(trade.price),
+            "size": float(trade.size),
+            "aggressor_side": str(trade.aggressor_side),
+        },
+        empty_columns=["instrument_id", "timestamp", "price", "size", "aggressor_side"],
+    )
+
+
+def _load_and_build_df(
+    *,
+    catalog: ParquetDataCatalog,
+    instrument_ids: list[str],
+    start: datetime | str | None,
+    end: datetime | str | None,
+    loader: Callable[[ParquetDataCatalog, list[InstrumentId], datetime | str | None, datetime | str | None], Iterable[Any]],
+    row_builder: Callable[[Any], dict[str, Any]],
+    empty_columns: list[str],
+) -> pl.DataFrame:
+    """
+    Shared loader + builder for catalog → Polars DataFrame transforms.
+    """
     if not HAS_POLARS:
         check_ml_dependencies(["polars"])
 
-    # Convert string instrument IDs to InstrumentId objects
+    # Convert string instrument IDs to InstrumentId objects once
     instrument_id_objs = [InstrumentId.from_str(id_str) for id_str in instrument_ids]
 
-    # Load trades from catalog
-    trades = catalog.trade_ticks(
-        instrument_ids=instrument_id_objs,
-        start=start,
-        end=end,
-    )
+    # Load items from catalog via provided loader
+    items = list(loader(catalog, instrument_id_objs, start, end))
 
-    if not trades:
-        return pl.DataFrame(
-            {
-                "instrument_id": [],
-                "timestamp": [],
-                "price": [],
-                "size": [],
-                "aggressor_side": [],
-            },
-        )
+    if not items:
+        # Return empty DataFrame with expected schema
+        return pl.DataFrame({col: [] for col in empty_columns})
 
-    # Convert to DataFrame
-    data = []
-    for trade in trades:
-        data.append(
-            {
-                "instrument_id": str(trade.instrument_id),
-                "timestamp": trade.ts_event,
-                "price": float(trade.price),
-                "size": float(trade.size),
-                "aggressor_side": str(trade.aggressor_side),
-            },
-        )
-
+    # Build rows
+    data = [row_builder(item) for item in items]
     return pl.DataFrame(data)
