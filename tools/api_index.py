@@ -16,7 +16,8 @@ By default, scans the `ml/` directory tree, enumerates public symbols
 - link: path with line anchors (e.g., path#L10-L42); use --base-url for web links
 
 Usage:
-  python tools/api_index.py --root ml --output ml/tests/validation_reports/public_api_index.json
+  python tools/api_index.py --root ml
+    # Writes to <root>/public_api_index.json by default
 
 Optional:
   --include-private    Include private symbols (names starting with '_')
@@ -246,7 +247,13 @@ def build_index(
 def main(argv: Iterable[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Generate public API JSON index")
     ap.add_argument("--root", default="ml", help="Directory tree to scan (default: ml)")
-    ap.add_argument("--output", default="-", help="Output JSON file path or '-' for stdout")
+    ap.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "Output JSON file path (default: <root>/public_api_index.json). Use '-' for stdout."
+        ),
+    )
     ap.add_argument("--include-private", action="store_true", help="Include private symbols")
     ap.add_argument(
         "--base-url",
@@ -273,14 +280,25 @@ def main(argv: Iterable[str] | None = None) -> int:
         include_private=bool(args.include_private),
     )
 
-    data = json.dumps(index, indent=2, ensure_ascii=False)
-    if args.output == "-":
-        print(data)
+    # Determine output path
+    if args.output is None:
+        out_path = root / "public_api_index.json"
+        to_stdout = False
+    elif args.output == "-":
+        to_stdout = True
+        out_path = None  # type: ignore[assignment]
     else:
         out_path = Path(args.output)
+        to_stdout = False
+
+    data = json.dumps(index, indent=2, ensure_ascii=False)
+    if to_stdout:
+        print(data)
+    else:
+        assert out_path is not None
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(data + "\n", encoding="utf-8")
-    return 0
+        return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
