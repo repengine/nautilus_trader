@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
+from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
@@ -38,6 +39,7 @@ from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import QualityFlag
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
+from ml.stores._registry_mixin import DataRegistryMixin
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
@@ -233,7 +235,7 @@ class ValidationViolation:
 # ========================================================================
 
 
-class DataStore(MLComponentMixin, BusPublisherMixin):
+class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
     """
     Typed read/write facade with contract validation and event emission.
 
@@ -309,51 +311,41 @@ class DataStore(MLComponentMixin, BusPublisherMixin):
         """
         # Explicit attribute annotation for protocol conformance
         self.registry: RegistryProtocol
+        # Expose connection_string for DataRegistryMixin
+        self.connection_string = connection_string
 
         # Allow registry to be optional for convenience in tests/integration
         if registry is None:
-            try:
-                from ml.registry.data_registry import DataRegistry
-                from ml.registry.persistence import BackendType
-                from ml.registry.persistence import PersistenceConfig
-
-                persistence_config = PersistenceConfig(
-                    backend=BackendType.POSTGRES,
-                    connection_string=connection_string,
-                )
-                self.registry = cast(
-                    "RegistryProtocol",
-                    DataRegistry(
-                        registry_path=Path.home() / ".nautilus" / "ml" / "registry",
-                        persistence_config=persistence_config,
-                    ),
-                )
-            except Exception:
-                # Fallback to JSON registry if DB not available
-                from ml.registry.data_registry import DataRegistry
-                from ml.registry.persistence import BackendType
-                from ml.registry.persistence import PersistenceConfig
-
-                default_registry_dir = Path.home() / ".nautilus" / "ml" / "registry"
+            reg_obj: RegistryProtocol | None = self._get_data_registry()
+            if reg_obj is None:
+                # Very defensive fallback to JSON-backed registry
                 try:
-                    default_registry_dir.mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    pass  # Safe to ignore; DataRegistry may handle creation
+                    from ml.registry.data_registry import DataRegistry
+                    from ml.registry.persistence import BackendType
+                    from ml.registry.persistence import PersistenceConfig
 
-                persistence_config = PersistenceConfig(
-                    backend=BackendType.JSON,
-                    json_path=default_registry_dir,
-                )
-                self.registry = cast(
-                    "RegistryProtocol",
-                    DataRegistry(
+                    default_registry_dir = Path.home() / ".nautilus" / "ml" / "registry"
+                    try:
+                        default_registry_dir.mkdir(parents=True, exist_ok=True)
+                    except Exception:
+                        pass
+                    reg_obj = DataRegistry(
                         registry_path=default_registry_dir,
-                        persistence_config=persistence_config,
-                    ),
-                )
+                        persistence_config=PersistenceConfig(
+                            backend=BackendType.JSON,
+                            json_path=default_registry_dir,
+                        ),
+                    )
+                except Exception:
+                    reg_obj = None
+            if reg_obj is None:
+                raise RuntimeError("Failed to initialize DataRegistry")
+            self.registry = reg_obj
+            # Keep mixin cache in sync
+            self._data_registry = self.registry
         else:
             self.registry = registry
-        self.connection_string = connection_string
+            self._data_registry = registry
         self.fail_on_validation_error = fail_on_validation_error
         self.batch_size = batch_size
         self.allow_schema_migration = allow_schema_migration
@@ -462,19 +454,29 @@ class DataStore(MLComponentMixin, BusPublisherMixin):
             # Do not overwrite correlation_id if provided explicitly
             event_metadata.update({k: v for k, v in metadata.items() if k != "correlation_id"})
 
-        self.registry.emit_event(
-            dataset_id=dataset_id,
-            instrument_id=instrument_id,
-            stage=stage_val,
-            source=source_val,
-            run_id=run_id,
-            ts_min=ts_min,
-            ts_max=ts_max,
-            count=count,
-            status=status,
-            error=error,
-            metadata=event_metadata,
-        )
+        # Centralize event emission (no watermark) via helper
+        try:
+            from ml.common.event_emitter import emit_dataset_event
+
+            emit_dataset_event(
+                self.registry,
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=Stage(stage_val),
+                source=source_val,
+                run_id=run_id,
+                ts_min=ts_min,
+                ts_max=ts_max,
+                count=count,
+                status=EventStatus(status) if not isinstance(status, EventStatus) else status,
+                error=error,
+                metadata=event_metadata,
+                dataset_type=dataset_id,
+                component=self.__class__.__name__,
+            )
+        except Exception:
+            # Best-effort: log and continue without blocking
+            logger.warning("Helper-based event emission failed; skipping registry emit", exc_info=True)
 
         # Optionally publish to message bus using selected topic scheme
         if self.publisher is not None:
@@ -899,28 +901,26 @@ class DataStore(MLComponentMixin, BusPublisherMixin):
                 },
             )
 
-            # Emit event via façade (adds correlation_id and optional publish)
-            self.emit_event(
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                stage=stage,
-                source=source,
-                run_id=run_id,
-                ts_min=ts_min,
-                ts_max=ts_max,
-                count=len(df),
-                status=EventStatus.SUCCESS.value,
-            )
-
-            # Update watermark (test hook patchable via _update_watermark)
-            self._update_watermark(
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                source=source,
-                last_success_ns=ts_max,
-                count=len(df),
-                completeness_pct=quality_report.quality_score * 100,
-            )
+            # Centralized event + watermark emission via helper (best-effort)
+            try:
+                emit_dataset_event_and_watermark(
+                    self.registry,
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    stage=Stage(stage) if not isinstance(stage, Stage) else stage,
+                    source=source,
+                    run_id=run_id,
+                    ts_min=ts_min,
+                    ts_max=ts_max,
+                    count=len(df),
+                    status=EventStatus.SUCCESS,
+                    dataset_type=str(manifest.dataset_type.value
+                                      if hasattr(manifest.dataset_type, "value")
+                                      else manifest.dataset_type),
+                    component=self.__class__.__name__,
+                )
+            except Exception:
+                logger.warning("Failed to emit dataset event/watermark via helper", exc_info=True)
 
             logger.info(
                 "Successfully wrote %d records to %s (quality=%.2f)",
@@ -1261,6 +1261,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin):
         Emit a success event and update registry watermark for the dataset.
         """
         try:
+            # Build correlation id for observability; used for bus payload only
             correlation_id = make_correlation_id(
                 run_id=run_id,
                 dataset_id=dataset_id,
@@ -1271,25 +1272,21 @@ class DataStore(MLComponentMixin, BusPublisherMixin):
             )
             # Normalize source to allowed set for registry persistence
             source_norm = source if source in {"live", "historical", "backfill"} else "live"
-            self.registry.emit_event(
+
+            # Centralized event + watermark (best-effort)
+            emit_dataset_event_and_watermark(
+                self.registry,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
-                stage=stage,
+                stage=Stage(stage) if not isinstance(stage, Stage) else stage,
                 source=source_norm,
                 run_id=run_id,
                 ts_min=ts_min,
                 ts_max=ts_max,
                 count=count,
-                status=EventStatus.SUCCESS.value,
-                metadata={"correlation_id": correlation_id},
-            )
-            self.registry.update_watermark(
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                source=source_norm,
-                last_success_ns=ts_max,
-                count=count,
-                completeness_pct=completeness_pct,
+                status=EventStatus.SUCCESS,
+                dataset_type=dataset_id,
+                component=self.__class__.__name__,
             )
 
             # Optionally publish to message bus using selected topic mapping
@@ -1324,8 +1321,8 @@ class DataStore(MLComponentMixin, BusPublisherMixin):
                     self.publisher.publish(topic, payload)
                 except Exception:
                     logger.exception("Message bus publish failed for topic %s", topic)
-        except Exception as e:
-            logger.warning("Failed to emit event/update watermark: %s", e)
+        except Exception:
+            logger.warning("Failed to emit event/update watermark via helper", exc_info=True)
 
     # =========================================================================
     # Read Operations

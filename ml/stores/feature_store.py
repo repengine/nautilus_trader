@@ -22,7 +22,6 @@ import time
 import uuid
 from datetime import datetime
 from datetime import timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -41,6 +40,7 @@ from sqlalchemy.engine import Engine
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
@@ -54,9 +54,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
-from ml.registry.data_registry import DataRegistry
-from ml.registry.persistence import BackendType
-from ml.registry.persistence import PersistenceConfig
+from ml.stores._registry_mixin import DataRegistryMixin
 
 
 if TYPE_CHECKING:
@@ -103,7 +101,7 @@ if HAS_PROMETHEUS:
         data_events_total = None
 
 
-class FeatureStore(BusPublisherMixin):
+class FeatureStore(BusPublisherMixin, DataRegistryMixin):
     """
     Unified feature computation and storage for ML pipeline.
 
@@ -222,47 +220,8 @@ class FeatureStore(BusPublisherMixin):
         )
 
     def _get_data_registry(self) -> RegistryProtocol | None:
-        """
-        Lazily initialize and return the DataRegistry instance.
-
-        Returns
-        -------
-        DataRegistry | None
-            The data registry instance or None if initialization fails.
-
-        """
-        if self._data_registry is None:
-            try:
-                # Initialize DataRegistry with appropriate backend
-                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
-
-                # Determine backend based on connection string
-                if (
-                    "postgresql://" in self.connection_string
-                    or "postgres://" in self.connection_string
-                ):
-                    # Use PostgreSQL backend for production
-                    persistence_config = PersistenceConfig(
-                        backend=BackendType.POSTGRES,
-                        connection_string=self.connection_string,
-                    )
-                else:
-                    # Use JSON backend for development/testing
-                    persistence_config = PersistenceConfig(
-                        backend=BackendType.JSON,
-                        json_path=registry_path,
-                    )
-
-                self._data_registry = DataRegistry(
-                    registry_path=registry_path,
-                    persistence_config=persistence_config,
-                )
-                logger.debug("Initialized DataRegistry for event emission")
-            except Exception as e:
-                logger.warning(f"Failed to initialize DataRegistry: {e}")
-                self._data_registry = None
-
-        return self._data_registry
+        """Delegate initialization to shared mixin (unified across stores)."""
+        return DataRegistryMixin._get_data_registry(self)
 
     # Allow external injection of a shared DataRegistry instance
     def set_data_registry(self, registry: RegistryProtocol) -> None:
@@ -567,39 +526,21 @@ class FeatureStore(BusPublisherMixin):
                 ts_min = int(timestamps[0]) if len(timestamps) > 0 else 0
                 ts_max = int(timestamps[-1]) if len(timestamps) > 0 else 0
 
-                # Emit the event
-                registry.emit_event(
+                # Emit via shared helper (event + watermark + metrics)
+                emit_dataset_event_and_watermark(
+                    registry,
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage=Stage.FEATURE_COMPUTED.value,
+                    stage=Stage.FEATURE_COMPUTED,
                     source=Source.HISTORICAL.value,
                     run_id=run_id,
                     ts_min=ts_min,
                     ts_max=ts_max,
                     count=len(rows),
-                    status=EventStatus.SUCCESS.value,
-                    metadata={"feature_set_id": feature_set_id},
+                    status=EventStatus.SUCCESS,
+                    dataset_type="features",
+                    component=feature_set_id,
                 )
-
-                # Update watermark for tracking progress
-                registry.update_watermark(
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                    source=Source.HISTORICAL.value,
-                    last_success_ns=ts_max,
-                    count=len(rows),
-                    completeness_pct=100.0,  # Historical data is considered complete
-                )
-
-                # Update Prometheus metrics if available
-                if data_events_total:
-                    data_events_total.labels(
-                        dataset_type="features",
-                        component=feature_set_id,
-                        stage=Stage.FEATURE_COMPUTED.value,
-                        source=Source.HISTORICAL.value,
-                        status=EventStatus.SUCCESS.value,
-                    ).inc()
 
                 logger.debug(
                     "Emitted FEATURE_COMPUTED event for historical computation: "
@@ -753,38 +694,21 @@ class FeatureStore(BusPublisherMixin):
                         )
                         dataset_id = "features"
 
-                        # Emit the event
-                        registry.emit_event(
+                        # Emit via shared helper (event + watermark + metrics)
+                        emit_dataset_event_and_watermark(
+                            registry,
                             dataset_id=dataset_id,
                             instrument_id=instrument_id_str,
-                            stage=Stage.FEATURE_COMPUTED.value,
+                            stage=Stage.FEATURE_COMPUTED,
                             source="realtime",
                             run_id=run_id,
                             ts_min=int(bar.ts_event),
                             ts_max=int(bar.ts_event),
                             count=1,
-                            status=EventStatus.SUCCESS.value,
+                            status=EventStatus.SUCCESS,
+                            dataset_type="features",
+                            component=feature_set_id,
                         )
-
-                        # Update watermark for tracking progress
-                        registry.update_watermark(
-                            dataset_id=dataset_id,
-                            instrument_id=instrument_id_str,
-                            source="realtime",
-                            last_success_ns=int(bar.ts_event),
-                            count=1,
-                            completeness_pct=100.0,  # Single realtime bar is complete
-                        )
-
-                        # Update Prometheus metrics if available
-                        if data_events_total:
-                            data_events_total.labels(
-                                dataset_type="features",
-                                component=feature_set_id,
-                                stage=Stage.FEATURE_COMPUTED.value,
-                                source="realtime",
-                                status=EventStatus.SUCCESS.value,
-                            ).inc()
 
                         logger.debug(
                             "Emitted FEATURE_COMPUTED event for realtime computation: "

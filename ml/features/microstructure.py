@@ -16,6 +16,7 @@ import numpy.typing as npt
 
 from ml._imports import pd
 from ml._imports import pl
+from ml.common.safe_math import safe_divide
 
 
 if TYPE_CHECKING:
@@ -95,7 +96,7 @@ class L2MicrostructureFeatures:
         midpoint = (best_ask + best_bid) / 2.0
 
         features["spread"] = float(spread[-1])
-        features["spread_bps"] = float(spread[-1] / midpoint[-1] * 10000)
+        features["spread_bps"] = float(safe_divide(spread[-1], midpoint[-1], 0.0) * 10000.0)
         features["spread_mean"] = float(np.mean(spread[-self.lookback_window :]))
         features["spread_std"] = float(np.std(spread[-self.lookback_window :]))
 
@@ -105,14 +106,13 @@ class L2MicrostructureFeatures:
         features["weighted_spread"] = float(weighted_spread[-1])
 
         # Effective spread (using actual trades if available)
-        features["effective_spread_proxy"] = float(
-            2
-            * np.abs(
-                midpoint[-1]
-                - (best_bid[-1] * bid_sizes[-1, 0] + best_ask[-1] * ask_sizes[-1, 0])
-                / (bid_sizes[-1, 0] + ask_sizes[-1, 0]),
-            ),
+        denom = float(bid_sizes[-1, 0] + ask_sizes[-1, 0])
+        weighted_price = safe_divide(
+            float(best_bid[-1] * bid_sizes[-1, 0] + best_ask[-1] * ask_sizes[-1, 0]),
+            denom,
+            default=float(midpoint[-1]),
         )
+        features["effective_spread_proxy"] = float(2.0 * abs(float(midpoint[-1]) - weighted_price))
 
         # Spread volatility
         if len(spread) > 1:
@@ -157,7 +157,14 @@ class L2MicrostructureFeatures:
         ask_size_l1 = ask_sizes[:, 0]
         imbalance_l1 = (bid_size_l1 - ask_size_l1) / (bid_size_l1 + ask_size_l1 + 1e-10)
 
-        features["imbalance_l1"] = float(imbalance_l1[-1])
+        # Scalar last-value using safe division
+        features["imbalance_l1"] = float(
+            safe_divide(
+                float(bid_size_l1[-1] - ask_size_l1[-1]),
+                float(bid_size_l1[-1] + ask_size_l1[-1]),
+                0.0,
+            ),
+        )
         features["imbalance_l1_mean"] = float(np.mean(imbalance_l1[-self.lookback_window :]))
         features["imbalance_l1_std"] = float(np.std(imbalance_l1[-self.lookback_window :]))
 
@@ -201,7 +208,11 @@ class L2MicrostructureFeatures:
             for level in [1, 3, 5]:
                 if level <= self.n_levels:
                     level_idx = level - 1
-                    ratio = bid_sizes[-1, level_idx] / (ask_sizes[-1, level_idx] + 1e-10)
+                    ratio = safe_divide(
+                        float(bid_sizes[-1, level_idx]),
+                        float(ask_sizes[-1, level_idx]),
+                        0.0,
+                    )
                     features[f"bid_ask_ratio_l{level}"] = float(np.log(ratio + 1e-10))
 
         return features
@@ -241,7 +252,9 @@ class L2MicrostructureFeatures:
 
         features["bid_depth_total"] = float(total_bid_depth[-1])
         features["ask_depth_total"] = float(total_ask_depth[-1])
-        features["depth_ratio"] = float(total_bid_depth[-1] / (total_ask_depth[-1] + 1e-10))
+        features["depth_ratio"] = float(
+            safe_divide(float(total_bid_depth[-1]), float(total_ask_depth[-1]), 0.0),
+        )
 
         # Depth concentration (how much volume in top levels)
         bid_concentration = bid_sizes[:, 0] / (total_bid_depth + 1e-10)
@@ -302,11 +315,9 @@ class L2MicrostructureFeatures:
         total_bid = np.sum(bid_sizes[-1, :])
         total_ask = np.sum(ask_sizes[-1, :])
 
-        if total_bid + total_ask > 0:
-            skewness = (total_bid - total_ask) / (total_bid + total_ask)
-            features["book_skewness"] = float(skewness)
-        else:
-            features["book_skewness"] = 0.0
+        features["book_skewness"] = float(
+            safe_divide(float(total_bid - total_ask), float(total_bid + total_ask), 0.0),
+        )
 
         # Kurtosis proxy (concentration measure)
         bid_kurtosis = np.sum((bid_sizes[-1, :] / (total_bid + 1e-10)) ** 4)
@@ -550,33 +561,31 @@ class L3TradeFlowFeatures:
         sell_volume = np.sum(volumes[sides == -1])
         total_volume = buy_volume + sell_volume
 
-        if total_volume > 0:
-            imbalance = (buy_volume - sell_volume) / total_volume
-            features["trade_imbalance"] = float(imbalance)
-        else:
-            features["trade_imbalance"] = 0.0
+        features["trade_imbalance"] = float(
+            safe_divide(float(buy_volume - sell_volume), float(total_volume), 0.0),
+        )
 
         # Dollar volume imbalance
         buy_dollar_volume = np.sum(prices[sides == 1] * volumes[sides == 1])
         sell_dollar_volume = np.sum(prices[sides == -1] * volumes[sides == -1])
         total_dollar_volume = buy_dollar_volume + sell_dollar_volume
 
-        if total_dollar_volume > 0:
-            dollar_imbalance = (buy_dollar_volume - sell_dollar_volume) / total_dollar_volume
-            features["dollar_imbalance"] = float(dollar_imbalance)
-        else:
-            features["dollar_imbalance"] = 0.0
+        features["dollar_imbalance"] = float(
+            safe_divide(
+                float(buy_dollar_volume - sell_dollar_volume),
+                float(total_dollar_volume),
+                0.0,
+            ),
+        )
 
         # Trade count imbalance
         buy_count = np.sum(sides == 1)
         sell_count = np.sum(sides == -1)
         total_count = buy_count + sell_count
 
-        if total_count > 0:
-            count_imbalance = (buy_count - sell_count) / total_count
-            features["trade_count_imbalance"] = float(count_imbalance)
-        else:
-            features["trade_count_imbalance"] = 0.0
+        features["trade_count_imbalance"] = float(
+            safe_divide(float(buy_count - sell_count), float(total_count), 0.0),
+        )
 
         # Cumulative signed volume (momentum indicator)
         cumulative_signed_volume = np.cumsum(signed_volume)
@@ -626,7 +635,7 @@ class L3TradeFlowFeatures:
 
             # Price deviation from VWAP
             current_price = prices[-1]
-            features["price_vs_vwap"] = float((current_price - vwap) / vwap)
+            features["price_vs_vwap"] = float(safe_divide(float(current_price - vwap), float(vwap), 0.0))
 
             # VWAP variance (measure of price dispersion)
             vwap_variance = np.sum(volumes * (prices - vwap) ** 2) / total_volume
@@ -697,22 +706,14 @@ class L3TradeFlowFeatures:
         time_span_ns = timestamps[-1] - timestamps[0]
         time_span_s = time_span_ns / 1e9
 
-        if time_span_s > 0:
-            # Trade rate (trades per second)
-            trade_rate = len(timestamps) / time_span_s
-            features["trade_rate"] = float(trade_rate)
-
-            # Volume rate (volume per second)
-            volume_rate = np.sum(volumes) / time_span_s
-            features["volume_rate"] = float(volume_rate)
-
-            # Dollar volume rate
-            dollar_rate = np.sum(volumes * prices) / time_span_s
-            features["dollar_rate"] = float(dollar_rate)
-        else:
-            features["trade_rate"] = 0.0
-            features["volume_rate"] = 0.0
-            features["dollar_rate"] = 0.0
+        # Rates per second (safe division to avoid spikes on tiny windows)
+        features["trade_rate"] = float(safe_divide(float(len(timestamps)), float(time_span_s), 0.0))
+        features["volume_rate"] = float(
+            safe_divide(float(np.sum(volumes)), float(time_span_s), 0.0),
+        )
+        features["dollar_rate"] = float(
+            safe_divide(float(np.sum(volumes * prices)), float(time_span_s), 0.0),
+        )
 
         # Average trade size
         features["avg_trade_size"] = float(np.mean(volumes))
@@ -725,13 +726,12 @@ class L3TradeFlowFeatures:
             features["inter_trade_time_std"] = float(np.std(inter_trade_times))
 
             # Clustering coefficient (low inter-trade time variance = high clustering)
-            if features["avg_inter_trade_time"] > 0:
-                features["trade_clustering"] = float(
-                    1.0
-                    / (1.0 + features["inter_trade_time_std"] / features["avg_inter_trade_time"]),
-                )
-            else:
-                features["trade_clustering"] = 1.0
+            ratio = safe_divide(
+                float(features["inter_trade_time_std"]),
+                float(features["avg_inter_trade_time"]),
+                0.0,
+            )
+            features["trade_clustering"] = float(1.0 / (1.0 + ratio))
         else:
             features["avg_inter_trade_time"] = 0.0
             features["inter_trade_time_std"] = 0.0

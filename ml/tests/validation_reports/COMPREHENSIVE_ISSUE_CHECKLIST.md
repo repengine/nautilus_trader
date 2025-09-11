@@ -20,15 +20,22 @@
   - **Effort**: 3-5 days to extract `StoreRegistryManager`
   - Status: Added centralized `init_actor_stores_and_registries(...)` in `ml/core/integration.py` and wired `BaseMLInferenceActor` to use it (with legacy fallback). This standardizes progressive fallback and registry/store wiring for actors.
 
-- [ ] **C002** - Registry setup code duplicated 200+ lines across stores
+- [x] **C002** - Registry setup code duplicated 200+ lines across stores
   - **Files**: All 4 stores have identical registry initialization
   - **Impact**: Configuration drift between components
   - **Effort**: 2-3 days to create unified registry setup
+  - **Status**: Added `DataRegistryMixin` (`ml/stores/_registry_mixin.py`) with progressive fallback (POSTGRES → JSON). Adopted in FeatureStore, ModelStore, StrategyStore, and DataStore (constructor uses mixin when a registry is not provided). Actors continue to use centralized integration plumbing. Acceptance: mypy strict clean; store persistence tests green.
 
-- [ ] **C003** - Event emission patterns duplicated 300+ lines across stores
+- [x] **C003** - Event emission patterns duplicated 300+ lines across stores
   - **Files**: `ml/stores/feature_store.py`, `ml/stores/model_store.py`, etc.
   - **Impact**: Inconsistent event handling
   - **Effort**: 2-3 days to extract base event emitter
+  - **Status**: Centralized via shared helpers in `ml/common/event_emitter.py`:
+    - `emit_dataset_event_and_watermark(...)` and `emit_dataset_event(...)` enforce enum-safe usage and consistent metrics.
+    - Adopted in FeatureStore, ModelStore, StrategyStore, DataStore, and LiveDataRecorder.
+    - Best-effort publishing retained (try/except), off hot path.
+    - Acceptance: grep shows no direct `registry.emit_event(` in stores; focused tests pass:
+      `ml/tests/unit/stores/test_data_store_emit_event.py`, `test_store_publishers_per_row.py`, `-k "store_persistence or store_events"`.
 
 - [ ] **C004** - Database connection management scattered across stores
   - **Files**: All store implementations
@@ -251,10 +258,14 @@
   - **Impact**: Business logic scattered between CLI and library
   - **Effort**: 2-3 days to extract business logic to library
 
-- [ ] **H015** - Safe division implementations duplicated
-  - **Files**: `ml/features/engineering.py:61`, `ml/features/l2_aggregate.py:32`
+- [x] **H015** - Safe division implementations duplicated
+  - **Files**: `ml/features/engineering.py`, `ml/features/l2_aggregate.py`, `ml/features/microstructure.py`
   - **Impact**: Inconsistent mathematical operations
   - **Effort**: 1-2 days to create unified safe math utilities
+  - **Status**: Unified on `ml/common/safe_math.py`:
+    - `safe_divide` for scalars and `safe_divide_expr` for Polars expressions.
+    - Previously adopted in engineering + l2_aggregate; now also in microstructure scalar paths (no new allocations).
+    - Acceptance: `mypy ml/features --strict` clean; `pytest -q -k microstructure` green.
 
 - [ ] **H016** - Feature computation patterns duplicated
   - **Files**: `ml/features/microstructure.py`, `ml/features/l2_enhanced_engineering.py`, `ml/features/l2_aggregate.py`

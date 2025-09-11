@@ -9,7 +9,7 @@ feature transforms to their corresponding providers.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Callable, TypeAlias, cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
@@ -32,6 +32,8 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+DataProvider: TypeAlias = BaseStaticProvider | BaseTimeSeriesProvider
 
 
 class ProviderFactory:
@@ -92,8 +94,15 @@ class ProviderFactory:
 
         self._event_source = event_source or MockEventSource()
 
+        # Creator registry (Open/Closed): name -> zero-arg factory
+        self._creators: dict[str, Callable[[], DataProvider]] = {
+            "metadata": lambda: InstrumentMetadataProvider(self._metadata_source),
+            "calendar": lambda: MarketCalendarProvider(self._calendar_source),
+            "events": lambda: EventScheduleProvider(self._event_source),
+        }
+
         # Provider cache (singleton pattern)
-        self._providers: dict[str, BaseStaticProvider | BaseTimeSeriesProvider] = {}
+        self._providers: dict[str, DataProvider] = {}
 
         logger.info("Initialized ProviderFactory with sources")
 
@@ -108,9 +117,7 @@ class ProviderFactory:
 
         """
         if "metadata" not in self._providers:
-            self._providers["metadata"] = InstrumentMetadataProvider(
-                self._metadata_source,
-            )
+            self._providers["metadata"] = self._creators["metadata"]()
             logger.debug("Created InstrumentMetadataProvider")
 
         provider = self._providers["metadata"]
@@ -128,9 +135,7 @@ class ProviderFactory:
 
         """
         if "calendar" not in self._providers:
-            self._providers["calendar"] = MarketCalendarProvider(
-                self._calendar_source,
-            )
+            self._providers["calendar"] = self._creators["calendar"]()
             logger.debug("Created MarketCalendarProvider")
 
         provider = self._providers["calendar"]
@@ -148,16 +153,35 @@ class ProviderFactory:
 
         """
         if "events" not in self._providers:
-            self._providers["events"] = EventScheduleProvider(
-                self._event_source,
-            )
+            self._providers["events"] = self._creators["events"]()
             logger.debug("Created EventScheduleProvider")
 
         provider = self._providers["events"]
         assert isinstance(provider, EventScheduleProvider)
         return provider
 
-    def get_provider(self, name: str) -> BaseStaticProvider | BaseTimeSeriesProvider:
+    def register_provider_creator(self, name: str, creator: Callable[[], DataProvider]) -> None:
+        """
+        Register a zero-argument creator function for a provider name.
+
+        The creator may close over factory-managed sources or any external
+        dependencies to construct the provider lazily when requested.
+
+        Examples
+        --------
+        >>> factory = ProviderFactory()
+        >>> def make_macro_provider() -> DataProvider:
+        ...     from ml.data.providers.macro import MacroProvider
+        ...     return MacroProvider()
+        >>> factory.register_provider_creator("macro", make_macro_provider)
+        >>> provider = factory.get_provider("macro")
+        >>> type(provider).__name__
+        'MacroProvider'
+        """
+        self._creators[name] = creator
+        logger.info(f"Registered provider creator: {name}")
+
+    def get_provider(self, name: str) -> DataProvider:
         """
         Get provider by name.
 
@@ -177,22 +201,33 @@ class ProviderFactory:
             If provider name is unknown
 
         """
+        # Return cached instance if available
+        if name in self._providers:
+            return self._providers[name]
+
+        # Create via registered creator if present
+        creator = self._creators.get(name)
+        if creator is not None:
+            provider = creator()
+            self._providers[name] = provider
+            logger.debug(f"Created provider via registry: {name}")
+            return provider
+
+        # For compatibility, fall back to known names
         if name == "metadata":
             return self.get_metadata_provider()
-        elif name == "calendar":
+        if name == "calendar":
             return self.get_calendar_provider()
-        elif name == "events":
+        if name == "events":
             return self.get_event_provider()
-        elif name in self._providers:
-            return self._providers[name]
-        else:
-            msg = f"Unknown provider: {name}"
-            raise ValueError(msg)
+
+        msg = f"Unknown provider: {name}"
+        raise ValueError(msg)
 
     def register_provider(
         self,
         name: str,
-        provider: BaseStaticProvider | BaseTimeSeriesProvider,
+        provider: DataProvider,
     ) -> None:
         """
         Register a custom provider.
@@ -247,7 +282,7 @@ class TransformProviderAdapter:
         }
 
         # Cache for provider lookups
-        self._provider_cache: dict[str, BaseStaticProvider | BaseTimeSeriesProvider] = {}
+        self._provider_cache: dict[str, DataProvider] = {}
 
         logger.info("Initialized TransformProviderAdapter")
 

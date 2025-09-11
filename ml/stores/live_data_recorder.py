@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ml.common.event_emitter import emit_dataset_event
+from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -200,44 +202,46 @@ class LiveDataRecorder:
             elif dataset_id == "bars":
                 await self._persist_bars(buffer, metadata)
 
-            # Emit success event
+            # Emit success event (best-effort) + update watermark via shared helper
             for instrument_id in metadata["instrument_ids"]:
-                self.data_registry.emit_event(
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                    stage=Stage.CATALOG_WRITTEN.value,
-                    source=Source.LIVE.value,
-                    run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
-                    ts_min=metadata["ts_min"],
-                    ts_max=metadata["ts_max"],
-                    count=metadata["count"],
-                    status=EventStatus.SUCCESS.value,
-                )
-
-                # Update watermark
-                self.data_registry.update_watermark(
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                    source=Source.LIVE.value,
-                    last_success_ns=metadata["ts_max"],
-                    count=metadata["count"],
-                    completeness_pct=100.0,
-                )
+                try:
+                    emit_dataset_event_and_watermark(
+                        self.data_registry,
+                        dataset_id=dataset_id,
+                        instrument_id=instrument_id,
+                        stage=Stage.CATALOG_WRITTEN,
+                        source=Source.LIVE.value,
+                        run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                        ts_min=metadata["ts_min"],
+                        ts_max=metadata["ts_max"],
+                        count=metadata["count"],
+                        status=EventStatus.SUCCESS,
+                        dataset_type=dataset_id,
+                        component=self.__class__.__name__,
+                    )
+                except Exception:
+                    # Do not block recorder on observability issues
+                    pass
 
         except Exception as e:
-            # Emit failure event
-            self.data_registry.emit_event(
-                dataset_id=dataset_id,
-                instrument_id="unknown",
-                stage=Stage.CATALOG_WRITTEN.value,
-                source=Source.LIVE.value,
-                run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
-                ts_min=0,
-                ts_max=0,
-                count=0,
-                status=EventStatus.FAILED.value,
-                error=str(e),
-            )
+            # Emit failure event (no watermark) via helper; best-effort
+            try:
+                emit_dataset_event(
+                    self.data_registry,
+                    dataset_id=dataset_id,
+                    instrument_id="unknown",
+                    stage=Stage.CATALOG_WRITTEN,
+                    source=Source.LIVE.value,
+                    run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                    ts_min=0,
+                    ts_max=0,
+                    count=0,
+                    status=EventStatus.FAILED,
+                    error=str(e),
+                )
+            except Exception:
+                # Absolute fallback: ignore emission errors to avoid blocking
+                pass
             raise
 
     async def _persist_quotes(self, quotes: list[QuoteTick], metadata: dict[str, Any]) -> None:

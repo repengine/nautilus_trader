@@ -1788,3 +1788,12 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
 
 logger = logging.getLogger(__name__)
+
+# Backward-compat: re-export store facades for tests which patch ml.actors.base.*
+try:  # pragma: no cover - simple import wiring
+    from ml.stores.data_store import DataStore as DataStore
+    from ml.stores.feature_store import FeatureStore as FeatureStore
+    from ml.stores.model_store import ModelStore as ModelStore
+    from ml.stores.strategy_store import StrategyStore as StrategyStore
+except Exception:  # Avoid import cycles or test-only env issues
+    pass
