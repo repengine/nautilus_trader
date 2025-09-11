@@ -65,7 +65,11 @@ class ObservabilityAsyncDBPersistor:
             if df_lat is not None and not df_lat.empty:
                 await conn.run_sync(
                     lambda sync: df_lat.to_sql(
-                        "obs_latency_watermarks", sync, if_exists="append", index=False, method="multi"
+                        "obs_latency_watermarks",
+                        sync,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
                     ),
                 )
                 written["latency"] = len(df_lat)
@@ -73,7 +77,11 @@ class ObservabilityAsyncDBPersistor:
             if df_met is not None and not df_met.empty:
                 await conn.run_sync(
                     lambda sync: df_met.to_sql(
-                        "obs_metrics", sync, if_exists="append", index=False, method="multi"
+                        "obs_metrics",
+                        sync,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
                     ),
                 )
                 written["metrics"] = len(df_met)
@@ -81,7 +89,11 @@ class ObservabilityAsyncDBPersistor:
             if df_cor is not None and not df_cor.empty:
                 await conn.run_sync(
                     lambda sync: df_cor.to_sql(
-                        "obs_event_correlation", sync, if_exists="append", index=False, method="multi"
+                        "obs_event_correlation",
+                        sync,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
                     ),
                 )
                 written["correlation"] = len(df_cor)
@@ -89,7 +101,11 @@ class ObservabilityAsyncDBPersistor:
             if df_hea is not None and not df_hea.empty:
                 await conn.run_sync(
                     lambda sync: df_hea.to_sql(
-                        "obs_health_scores", sync, if_exists="append", index=False, method="multi"
+                        "obs_health_scores",
+                        sync,
+                        if_exists="append",
+                        index=False,
+                        method="multi",
                     ),
                 )
                 written["health"] = len(df_hea)

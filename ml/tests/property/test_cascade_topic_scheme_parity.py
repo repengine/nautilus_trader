@@ -40,7 +40,8 @@ def test_stage_topic_scheme_parity_routes_with_wildcards(stage: Stage, instrumen
     # Domain-op equivalent pattern
     domain, op = map_stage_to_topic_segments(stage)
     bus.subscribe(
-        f"ml.{domain}.{op}.#", lambda t, p: hits.__setitem__("domain_op", hits["domain_op"] + 1)
+        f"ml.{domain}.{op}.#",
+        lambda t, p: hits.__setitem__("domain_op", hits["domain_op"] + 1),
     )
 
     # Publish under canonical builder for both schemes

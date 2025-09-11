@@ -323,7 +323,9 @@ def main(argv: list[str] | None = None) -> int:
 
             teacher_tft = TFTTeacher(
                 TFTTeacherConfig(
-                    architecture="TFT", loss_name=str(args.loss), pos_weight=pos_weight_val
+                    architecture="TFT",
+                    loss_name=str(args.loss),
+                    pos_weight=pos_weight_val,
                 ),
                 max_encoder_length=args.max_encoder_length,
                 max_prediction_length=args.max_prediction_length,
@@ -374,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
                     or (np.unique(y_val_true_pf).size < 2)
                 ):
                     raise RuntimeError(
-                        "Insufficient validation samples or label variance from PF alignment"
+                        "Insufficient validation samples or label variance from PF alignment",
                     )
                 # Override y_val_true with PF-aligned decoder targets
                 y_val_true = y_val_true_pf

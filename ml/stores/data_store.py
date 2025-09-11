@@ -926,6 +926,44 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                     ),
                     component=self.__class__.__name__,
                 )
+                # Publish to message bus on success (non-blocking best-effort)
+                if self.publisher is not None:
+                    try:
+                        stage_enum = Stage(stage) if not isinstance(stage, Stage) else stage
+                        # Normalize source
+                        src_norm = str(source).lower()
+                        if src_norm not in {"live", "historical", "backfill"}:
+                            src_norm = "live"
+                        # Deterministic correlation id
+                        correlation_id = make_correlation_id(
+                            run_id=run_id,
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(df),
+                        )
+                        topic = build_topic_for_stage(
+                            stage_enum,
+                            instrument_id,
+                            scheme=self._topic_scheme,
+                            prefix=self._topic_prefix,
+                        )
+                        payload: dict[str, Any] = {
+                            "dataset_id": dataset_id,
+                            "instrument_id": instrument_id,
+                            "stage": stage_enum.value,
+                            "source": src_norm,
+                            "run_id": run_id,
+                            "ts_min": ts_min,
+                            "ts_max": ts_max,
+                            "count": len(df),
+                            "status": EventStatus.SUCCESS.value,
+                            "metadata": {"correlation_id": correlation_id},
+                        }
+                        self.publisher.publish(topic, payload)
+                    except Exception:
+                        logger.exception("Message bus publish failed for dataset %s", dataset_id)
             except Exception:
                 logger.warning("Failed to emit dataset event/watermark via helper", exc_info=True)
 

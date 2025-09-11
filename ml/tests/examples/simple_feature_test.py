@@ -50,7 +50,7 @@ def generate_sample_data(n_bars=200):
             "low": low_prices,
             "close": close_prices,
             "volume": volumes,
-        }
+        },
     )
 
 
@@ -164,7 +164,7 @@ def test_hot_cold_paths():
                 logger.info(
                     f"✓ Hot/cold paths tested. Batch: {batch_time:.2f}ms, "
                     f"Online avg: {avg_online_time:.3f}ms, "
-                    f"P99: {p99_online_time:.3f}ms, Max diff: {max_diff:.2e}"
+                    f"P99: {p99_online_time:.3f}ms, Max diff: {max_diff:.2e}",
                 )
 
                 return {
@@ -195,7 +195,8 @@ def test_memory_allocation():
 
         # Check for pre-allocated buffer
         has_buffer = hasattr(engineer, "feature_buffer") and isinstance(
-            engineer.feature_buffer, np.ndarray
+            engineer.feature_buffer,
+            np.ndarray,
         )
 
         df = generate_sample_data(100)
@@ -235,7 +236,7 @@ def test_memory_allocation():
 
         logger.info(
             f"✓ Memory test completed. Pre-allocated buffer: {has_buffer}, "
-            f"Memory growth: {memory_growth} bytes"
+            f"Memory growth: {memory_growth} bytes",
         )
 
         return {
@@ -284,7 +285,7 @@ def test_mathematical_correctness():
 
             logger.info(
                 f"✓ Mathematical correctness tested for {len(numeric_cols)} features. "
-                f"NaNs: {has_nans}, Infs: {has_infs}"
+                f"NaNs: {has_nans}, Infs: {has_infs}",
             )
 
             return {
@@ -335,7 +336,7 @@ def main():
         sla = hot_cold.get("meets_5ms_sla", False)
         logger.info(f"✓ Performance: P99 {p99:.3f}ms ({'✓' if sla else '✗'} <5ms SLA)")
         logger.info(
-            f"✓ Parity: {'PASS' if parity else 'FAIL'} (diff: {hot_cold.get('max_difference', 0):.2e})"
+            f"✓ Parity: {'PASS' if parity else 'FAIL'} (diff: {hot_cold.get('max_difference', 0):.2e})",
         )
     else:
         logger.info(f"✗ Hot/cold paths: FAIL ({hot_cold.get('error')})")
@@ -404,7 +405,7 @@ def main():
 
     logger.info("")
     logger.info(
-        f"Overall: {len(verified_claims)}/{len(verified_claims) + len(failed_claims)} claims verified"
+        f"Overall: {len(verified_claims)}/{len(verified_claims) + len(failed_claims)} claims verified",
     )
 
 

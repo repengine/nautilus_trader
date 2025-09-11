@@ -49,8 +49,10 @@ class DynamicThresholdAdapter:
         # Prefer actor-provided adaptive threshold when available
         thr = float(
             getattr(
-                actor, "_adaptive_threshold", getattr(actor._config, "prediction_threshold", 0.5)
-            )
+                actor,
+                "_adaptive_threshold",
+                getattr(actor._config, "prediction_threshold", 0.5),
+            ),
         )
         return ThresholdSignalStrategy(threshold=thr)
 

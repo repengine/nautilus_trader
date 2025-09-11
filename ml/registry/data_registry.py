@@ -457,13 +457,20 @@ class DataRegistry(MLComponentMixin):
                     """,
                     )
 
+                    # Align dataset_type value to DB constraint (uppercase tokens)
+                    dataset_type_db = getattr(
+                        manifest.dataset_type,
+                        "name",
+                        str(manifest.dataset_type).split(".")[-1],
+                    ).upper()
+
                     session.execute(
                         query,
                         {
                             "dataset_id": manifest.dataset_id,
                             "name": manifest.metadata.get("name", manifest.dataset_id),
                             "version": manifest.version,
-                            "dataset_type": manifest.dataset_type.value,
+                            "dataset_type": dataset_type_db,
                             "storage_kind": manifest.storage_kind.value,
                             "location": manifest.location,
                             "partitioning": json.dumps(manifest.partitioning),
@@ -1044,6 +1051,8 @@ class DataRegistry(MLComponentMixin):
                             },
                         )
                     except Exception:
+                        # Clear the failed transaction before fallback
+                        session.rollback()
                         query = text(
                             """
                             SELECT emit_data_event(

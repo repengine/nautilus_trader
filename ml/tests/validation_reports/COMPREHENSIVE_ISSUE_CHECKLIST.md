@@ -1,7 +1,7 @@
 # Comprehensive Code Quality Issue Checklist
 ## Nautilus Trader ML System - Complete Issue Inventory
 
-**Report Date:** 2025-09-10
+**Report Date:** 2025-09-11
 **Total Issues Found:** 127
 **Critical Issues:** 28
 **High Priority Issues:** 46
@@ -37,20 +37,29 @@
     - Acceptance: grep shows no direct `registry.emit_event(` in stores; focused tests pass:
       `ml/tests/unit/stores/test_data_store_emit_event.py`, `test_store_publishers_per_row.py`, `-k "store_persistence or store_events"`.
 
-- [ ] **C004** - Database connection management scattered across stores
+- [x] **C004** - Database connection management scattered across stores
   - **Files**: All store implementations
   - **Impact**: Inconsistent transaction handling, connection recovery
   - **Effort**: 3-4 days to standardize via base class
+  - **Status**: Standardized engine acquisition and transactions
+    - Engines acquired via `EngineManager.get_engine(...)` across stores (module-level `create_engine` shims retained for tests).
+    - Transactions unified to `with engine.begin() as conn:`; removed ad‑hoc `commit()/rollback()`.
+    - Updated modules: `ml/stores/partition_manager.py`, `ml/stores/db_preflight.py`, plus existing consistent usage in `FeatureStore`, `ModelStore`, `StrategyStore`, `coverage_sql` helpers, and `_upsert_mixin`.
+    - Acceptance: grep shows consistent begin/commit usage; focused persistence/event tests green; mypy strict/ruff/validators clean.
 
 - [ ] **C005** - 4-registry pattern implemented differently across files
   - **Files**: `ml/registry/` all implementations
   - **Impact**: Cross-registry coupling, maintenance burden
   - **Effort**: 5-7 days to extract `AbstractRegistry` base class
 
-- [ ] **C006** - Store health monitoring inconsistent
+- [x] **C006** - Store health monitoring inconsistent
   - **Files**: Multiple store implementations
   - **Impact**: Cannot reliably detect store failures
   - **Effort**: 2-3 days to standardize health checks
+  - **Status**: Added shared `HealthMixin` with connectivity, writeability, and backlog probes; emits best‑effort metrics via bootstrap.
+    - Metrics: `nautilus_ml_store_health_status{store}`, `nautilus_ml_store_buffer_backlog{store}`.
+    - Integrated into `FeatureStore`, `ModelStore`, and `StrategyStore` with `is_healthy()` and `health_details()` exposure.
+    - Acceptance: focused store tests pass; mypy strict/ruff clean; metrics validators OK. Additional targeted health tests can be added alongside existing store tests.
 
 - [x] **C007** - Progressive fallback chains differ between components
   - **Files**: All store/registry implementations

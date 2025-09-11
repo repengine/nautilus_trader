@@ -42,7 +42,12 @@ def _ns_range(start_ns: int, end_ns: int, rows: int) -> npt.NDArray[np.int64]:
 
 
 def _manifest(
-    df: pd.DataFrame, *, dataset: str, instrument_id: str, start_ns: int, end_ns: int
+    df: pd.DataFrame,
+    *,
+    dataset: str,
+    instrument_id: str,
+    start_ns: int,
+    end_ns: int,
 ) -> FixtureManifest:
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     return FixtureManifest(
@@ -87,7 +92,11 @@ def make_tbbo_fixture(
         },
     )
     return df, _manifest(
-        df, dataset="tbbo", instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns
+        df,
+        dataset="tbbo",
+        instrument_id=instrument_id,
+        start_ns=start_ns,
+        end_ns=end_ns,
     )
 
 
@@ -105,7 +114,7 @@ def make_trades_fixture(
     """
     gen = _rng(seed)
     ts: npt.NDArray[np.int64] = np.sort(
-        _rng(seed + 1).integers(start_ns, end_ns, size=rows, dtype=np.int64)
+        _rng(seed + 1).integers(start_ns, end_ns, size=rows, dtype=np.int64),
     )
     price: npt.NDArray[np.float64] = 1.1000 + gen.normal(0.0, 0.0002, size=rows).cumsum()
     size: npt.NDArray[np.int64] = gen.integers(1, 10, size=rows, dtype=np.int64)
@@ -120,7 +129,11 @@ def make_trades_fixture(
         },
     )
     return df, _manifest(
-        df, dataset="trades", instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns
+        df,
+        dataset="trades",
+        instrument_id=instrument_id,
+        start_ns=start_ns,
+        end_ns=end_ns,
     )
 
 
@@ -152,7 +165,11 @@ def make_mbp10_fixture(
         data[f"ask_sz_{level}"] = gen.integers(50, 200, size=rows, dtype=np.int64)
     df = pd.DataFrame(data)
     return df, _manifest(
-        df, dataset="mbp10", instrument_id=instrument_id, start_ns=start_ns, end_ns=end_ns
+        df,
+        dataset="mbp10",
+        instrument_id=instrument_id,
+        start_ns=start_ns,
+        end_ns=end_ns,
     )
 
 

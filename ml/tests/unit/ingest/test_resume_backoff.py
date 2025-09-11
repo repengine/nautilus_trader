@@ -73,4 +73,3 @@ def test_resume_from_last_timestamp() -> None:
     )
     # Still returns data, but start was shifted to >5; our mock returns [1,2,3] regardless.
     assert not df.empty
-

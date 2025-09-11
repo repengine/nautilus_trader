@@ -15,6 +15,7 @@ from pathlib import Path
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.common.safe_math import safe_divide_expr
 
 
 TOPKS: tuple[int, ...] = (1, 3, 5, 10)
@@ -27,10 +28,6 @@ def _ensure_polars() -> None:
 
 def _cols(prefix: str, k: int) -> list[str]:
     return [f"{prefix}_{i:02d}" for i in range(k)]
-
-
-def _safe_div(numer: pl.Expr, denom: pl.Expr) -> pl.Expr:
-    return numer / pl.when(denom > 0).then(denom).otherwise(1.0)
 
 
 def _slope_approx(p0: pl.Expr, pk: pl.Expr, k: int) -> pl.Expr:
@@ -52,14 +49,17 @@ def aggregate_l2_minute_pl(l2: pl.DataFrame, *, timestamp_col: str = "ts_event")
 
     # Base mid and spread at level 0
     mid = (pl.col("ask_px_00") + pl.col("bid_px_00")) / 2.0
-    spread_bps = 10000.0 * _safe_div(pl.col("ask_px_00") - pl.col("bid_px_00"), mid)
+    spread_bps = 10000.0 * safe_divide_expr(
+        pl.col("ask_px_00") - pl.col("bid_px_00"),
+        mid,
+    )
 
     # Level 0 microprice
-    microprice = _safe_div(
+    microprice = safe_divide_expr(
         pl.col("ask_px_00") * pl.col("bid_sz_00") + pl.col("bid_px_00") * pl.col("ask_sz_00"),
         pl.col("bid_sz_00") + pl.col("ask_sz_00"),
     )
-    microprice_bps = 10000.0 * _safe_div(microprice - mid, mid)
+    microprice_bps = 10000.0 * safe_divide_expr(microprice - mid, mid)
 
     # Build per-minute aggregations
     aggs: list[pl.Expr] = [
@@ -77,7 +77,7 @@ def aggregate_l2_minute_pl(l2: pl.DataFrame, *, timestamp_col: str = "ts_event")
         sum_bid_sz = pl.sum_horizontal([pl.col(c).cast(pl.Float64) for c in bid_sz_cols])
         sum_ask_sz = pl.sum_horizontal([pl.col(c).cast(pl.Float64) for c in ask_sz_cols])
         total_sz = sum_bid_sz + sum_ask_sz
-        depth_imb = _safe_div(sum_bid_sz - sum_ask_sz, total_sz)
+        depth_imb = safe_divide_expr(sum_bid_sz - sum_ask_sz, total_sz)
 
         # Depth-weighted price across top-k
         dwp_num = pl.sum_horizontal(
@@ -90,8 +90,8 @@ def aggregate_l2_minute_pl(l2: pl.DataFrame, *, timestamp_col: str = "ts_event")
                 for px, sz in zip(ask_px_cols, ask_sz_cols)
             ],
         )
-        dwp = _safe_div(dwp_num, total_sz)
-        dwp_bps = 10000.0 * _safe_div(dwp - mid, mid)
+        dwp = safe_divide_expr(dwp_num, total_sz)
+        dwp_bps = 10000.0 * safe_divide_expr(dwp - mid, mid)
 
         # Price slope approximation across k levels
         bid_slope = _slope_approx(pl.col("bid_px_00"), pl.col(f"bid_px_{k-1:02d}"), k)

@@ -60,6 +60,7 @@ dependencies = [
     "pandas-market-calendars (>=5.1.1,<6.0.0)",
     "databento (>=0.62.0,<0.63.0)",
     "fredapi (>=0.5.2,<0.6.0)",
+    "semgrep (<1.83.0)",
 ]
 
 [project.urls]
@@ -106,7 +107,7 @@ generate-setup-file = false
 pytest-benchmark = "^5.1.0"
 pandera = "^0.26.1"
 allpairspy = "^2.5.1"
-semgrep = "^1.83.0"
+semgrep = "<1.83.0"
 import-linter = "^2.0.0"
 xenon = "^0.9.3"
 pylint = "^3.2.7"

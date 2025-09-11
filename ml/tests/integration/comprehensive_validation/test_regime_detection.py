@@ -81,14 +81,14 @@ def test_adaptive_strategy_thresholds():
         print(
             f"    {status} Threshold {scenario['adaptive_threshold']}, Confidence {scenario['confidence']}: "
             f"Expected {'signal' if expected_signal else 'no signal'}, "
-            f"Got {'signal' if actual_signal else 'no signal'}"
+            f"Got {'signal' if actual_signal else 'no signal'}",
         )
 
     correct_predictions = sum(1 for r in results if r["correct"])
     accuracy = correct_predictions / len(results)
 
     print(
-        f"    📊 Adaptive threshold accuracy: {accuracy:.1%} ({correct_predictions}/{len(results)})"
+        f"    📊 Adaptive threshold accuracy: {accuracy:.1%} ({correct_predictions}/{len(results)})",
     )
 
     return {
@@ -212,7 +212,7 @@ def test_extremes_strategy_ring_buffer():
                     "iteration": i,
                     "filled": context["_pred_ring_filled"],
                     "index": context["_pred_ring_idx"],
-                }
+                },
             )
 
     results = {
@@ -262,14 +262,14 @@ def main():
     adaptive_result = results["adaptive_thresholds"]
     print(
         f"✅ Adaptive Threshold Response: {adaptive_result['accuracy']:.1%} accuracy "
-        f"({adaptive_result['correct_predictions']}/{adaptive_result['scenarios_tested']} scenarios)"
+        f"({adaptive_result['correct_predictions']}/{adaptive_result['scenarios_tested']} scenarios)",
     )
 
     # Metadata preservation summary
     metadata_result = results["metadata_preservation"]
     if "error" not in metadata_result:
         print(
-            f"✅ Metadata Preservation: {metadata_result['passed_checks']}/{metadata_result['total_checks']} checks passed"
+            f"✅ Metadata Preservation: {metadata_result['passed_checks']}/{metadata_result['total_checks']} checks passed",
         )
     else:
         print(f"⚠️ Metadata Preservation: {metadata_result['error']}")
@@ -281,7 +281,7 @@ def main():
             ring_result.get("ring_buffer_created", False),
             ring_result.get("ring_buffer_fills_correctly", False),
             ring_result.get("ring_buffer_wraps", False),
-        ]
+        ],
     )
     print(f"✅ Lock-Free Ring Buffer: {ring_features}/3 features working correctly")
 
@@ -289,7 +289,7 @@ def main():
     print("- ✅ Adaptive strategies respond correctly to different threshold values")
     print("- ✅ Signal metadata is preserved with regime and threshold information")
     print(
-        "- ✅ ExtremesStrategy uses lock-free ring buffers for zero-allocation extremes computation"
+        "- ✅ ExtremesStrategy uses lock-free ring buffers for zero-allocation extremes computation",
     )
     print("- ✅ Market regime detection integrates with adaptive threshold adjustment")
 

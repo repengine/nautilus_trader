@@ -101,7 +101,10 @@ def publish_batch_and_rows(
         try:
             instrument_id = str(rows_list[0].get(instrument_key, "UNKNOWN"))
             topic = build_topic_for_stage(
-                stage, instrument_id, scheme=topic_scheme, prefix=topic_prefix
+                stage,
+                instrument_id,
+                scheme=topic_scheme,
+                prefix=topic_prefix,
             )
             ts_vals = [int(r.get(ts_field, 0)) for r in rows_list]
             payload: dict[str, Any] = {
@@ -125,7 +128,10 @@ def publish_batch_and_rows(
             for r in rows_list:
                 instrument_id = str(r.get(instrument_key, "UNKNOWN"))
                 topic = build_topic_for_stage(
-                    stage, instrument_id, scheme=topic_scheme, prefix=topic_prefix
+                    stage,
+                    instrument_id,
+                    scheme=topic_scheme,
+                    prefix=topic_prefix,
                 )
                 ts_e = int(r.get(ts_field, 0))
                 row_payload: dict[str, Any] = {

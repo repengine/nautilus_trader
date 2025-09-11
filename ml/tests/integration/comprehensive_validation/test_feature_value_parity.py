@@ -38,7 +38,7 @@ def test_feature_value_parity():
                 "low": low_price,
                 "volume": float(volume),
                 "ts_event": i * 60_000_000_000,  # 1 minute intervals in nanoseconds
-            }
+            },
         )
 
     bars_df = pl.DataFrame(bars_data)
@@ -109,7 +109,7 @@ def test_config_value_parity(config, bars_df, bars_data, config_name):
         # Check shapes match
         if batch_features_array.shape != online_features_array.shape:
             print(
-                f"  ❌ Shape mismatch: batch {batch_features_array.shape} vs online {online_features_array.shape}"
+                f"  ❌ Shape mismatch: batch {batch_features_array.shape} vs online {online_features_array.shape}",
             )
             return False
 
@@ -150,7 +150,7 @@ def test_config_value_parity(config, bars_df, bars_data, config_name):
             feature_name = feature_names[col] if col < len(feature_names) else f"feature_{col}"
 
             print(
-                f"  Largest diff at row {row}, feature '{feature_name}': batch={batch_val:.6f}, online={online_val:.6f}, diff={abs_diff[row, col]:.6f}"
+                f"  Largest diff at row {row}, feature '{feature_name}': batch={batch_val:.6f}, online={online_val:.6f}, diff={abs_diff[row, col]:.6f}",
             )
 
             # Show summary statistics for the problematic feature

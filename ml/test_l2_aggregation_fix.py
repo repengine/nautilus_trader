@@ -112,7 +112,7 @@ def test_l2_aggregation_fixed():
                     f"dwp_bps_top{k}",
                     f"bid_slope_top{k}",
                     f"ask_slope_top{k}",
-                ]
+                ],
             )
 
         missing_cols = []

@@ -73,7 +73,7 @@ $$ LANGUAGE plpgsql;
                     """,
                 ),
             )
-            conn.commit()
+            # Transaction is handled by caller when using engine.begin()
     except Exception:
         # Proceed; partition checks will surface issues
         pass
@@ -93,7 +93,8 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
     summary: dict[str, bool | str] = {"ok": True}
 
     try:
-        with engine.connect() as conn:
+        # Use explicit transactional contexts for any DDL/remediation
+        with engine.begin() as conn:
             # Ensure helper exists for partition creation
             _ensure_helper_functions(conn)
 
@@ -143,8 +144,7 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
             if missing_any:
                 try:
                     conn.execute(text("SELECT auto_create_partitions()"))
-                    conn.commit()
-                    # Re-verify
+                    # Re-verify within the same transaction context is fine; results reflect post-DDL state
                     today2 = date.today()
                     suffix2 = f"_{today2.year:04d}_{today2.month:02d}"
                     for table in PARTITIONED_TABLES:

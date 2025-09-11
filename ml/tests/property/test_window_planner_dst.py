@@ -16,7 +16,9 @@ def test_plan_daily_windows_dst_transition(start_day: int) -> None:
     start = date(2021, 3, start_day)
     end = date(2021, 3, start_day + 3)
     windows = DatabentoIngestor.plan_daily_windows(
-        start_date=start, end_date=end, tz="America/New_York"
+        start_date=start,
+        end_date=end,
+        tz="America/New_York",
     )
     # Expect number of windows == days span
     assert len(windows) == (end - start).days

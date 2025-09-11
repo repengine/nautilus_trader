@@ -36,18 +36,21 @@ def test_aggregator_emits_metrics_on_duplicate_and_flush() -> None:
 
     # We don't assert specific label values, just presence of metric families
     assert _has_sample(
-        m.aggregator_duplicates_total, "nautilus_ml_aggregator_duplicates_total_total"
+        m.aggregator_duplicates_total,
+        "nautilus_ml_aggregator_duplicates_total_total",
     ) or _has_sample(
         m.aggregator_duplicates_total,
         "nautilus_ml_aggregator_duplicates_total",
     )
     assert _has_sample(
-        m.aggregator_flushed_total, "nautilus_ml_aggregator_flushed_total_total"
+        m.aggregator_flushed_total,
+        "nautilus_ml_aggregator_flushed_total_total",
     ) or _has_sample(
         m.aggregator_flushed_total,
         "nautilus_ml_aggregator_flushed_total",
     )
     assert _has_sample(m.aggregator_buffer_size, "nautilus_ml_aggregator_buffer_size")
     assert _has_sample(
-        m.aggregator_watermark_lag_seconds, "nautilus_ml_aggregator_watermark_lag_seconds"
+        m.aggregator_watermark_lag_seconds,
+        "nautilus_ml_aggregator_watermark_lag_seconds",
     )

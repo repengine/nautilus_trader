@@ -918,16 +918,16 @@ class TFTDatasetBuilder:
                                 if di in dataset.columns:
                                     derived.append(
                                         (pl.col(di) - pl.col(di).shift(1)).alias(
-                                            f"pressure_accel_top{k}"
-                                        )
+                                            f"pressure_accel_top{k}",
+                                        ),
                                     )
                                 bs = f"bid_slope_top{k}"
                                 aS = f"ask_slope_top{k}"
                                 if bs in dataset.columns and aS in dataset.columns:
                                     derived.append(
                                         (pl.col(aS) - pl.col(bs)).alias(
-                                            f"liquidity_gradient_top{k}"
-                                        )
+                                            f"liquidity_gradient_top{k}",
+                                        ),
                                     )
                             if derived:
                                 dataset = dataset.with_columns(derived)
@@ -941,7 +941,9 @@ class TFTDatasetBuilder:
                                         pl.col("spread_bps").median().alias("_med_spread"),
                                     )
                                     dataset = dataset.join(
-                                        med, on=["instrument_id", "_day"], how="left"
+                                        med,
+                                        on=["instrument_id", "_day"],
+                                        how="left",
                                     )
                                     dataset = dataset.with_columns(
                                         [

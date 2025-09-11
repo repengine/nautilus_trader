@@ -35,6 +35,7 @@ from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
 from ml.stores._buffered_store import BufferedStoreMixin
 from ml.stores._engine_mixin import EngineInitMixin
+from ml.stores._health_mixin import HealthMixin
 from ml.stores._read_helpers import ReadQueryMixin
 from ml.stores._registry_mixin import DataRegistryMixin
 from ml.stores._upsert_mixin import SQLUpsertMixin
@@ -71,6 +72,7 @@ if HAS_PROMETHEUS:
 
 
 class ModelStore(
+    HealthMixin,
     BufferedStoreMixin,
     SQLUpsertMixin,
     ReadQueryMixin,

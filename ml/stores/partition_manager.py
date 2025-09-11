@@ -81,7 +81,7 @@ class PartitionManager:
         created_count = 0
         current_date = datetime.now().date()
 
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             for table_name in self.tables:
                 # Find last existing partition
                 result = conn.execute(
@@ -163,7 +163,6 @@ class PartitionManager:
 
                         self.logger.info(f"Created partition {partition_name}")
                         created_count += 1
-                        conn.commit()
 
                     # Move to next month
                     if last_date.month == 12:
@@ -186,7 +185,7 @@ class PartitionManager:
         removed_count = 0
         cutoff_date = datetime.now().date() - timedelta(days=self.retention_months * 30)
 
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             for table_name in self.tables:
                 # Find old partitions
                 result = conn.execute(
@@ -218,7 +217,6 @@ class PartitionManager:
                             )
                             self.logger.info(f"Dropped old partition {partition_name}")
                             removed_count += 1
-                            conn.commit()
                     except (ValueError, IndexError):
                         # Skip if date parsing fails
                         continue
@@ -287,7 +285,7 @@ class PartitionManager:
         current_date = datetime.now().date()
         partition_name = f"{table_name}_{current_date.year:04d}_{current_date.month:02d}"
 
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             # Check if partition exists
             result = conn.execute(
                 text(
@@ -324,7 +322,6 @@ class PartitionManager:
                     """,
                     ),
                 )
-                conn.commit()
 
                 self.logger.info(f"Created current partition {partition_name}")
                 return True
@@ -360,7 +357,7 @@ class PartitionManager:
         """
         created_count = 0
 
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
             for table_name in self.tables:
                 # Iterate through the date range
                 current_year = start_year
@@ -408,7 +405,6 @@ class PartitionManager:
                                 """,
                                 ),
                             )
-                            conn.commit()
                             self.logger.info(f"Created test partition {partition_name}")
                             created_count += 1
                         except Exception as e:
@@ -417,7 +413,6 @@ class PartitionManager:
                                 self.logger.warning(
                                     f"Failed to create partition {partition_name}: {e}",
                                 )
-                            conn.rollback()
 
                     # Move to next month
                     if current_month == 12:

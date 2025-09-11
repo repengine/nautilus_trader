@@ -13,6 +13,7 @@ def test_end_to_end_cascade_preserves_correlation_and_order() -> None:
     End-to-end cascade across domains preserves correlation and timestamp order.
 
     Chain: data -> features -> models -> strategies, with positive delays.
+
     """
     src = {
         "domain": "data",
@@ -39,7 +40,8 @@ def test_end_to_end_cascade_preserves_correlation_and_order() -> None:
 
 def test_idempotent_consumer_with_cascaded_feature_events() -> None:
     """
-    IdempotentConsumer gates duplicate correlation IDs and decreasing watermarks for cascaded events.
+    IdempotentConsumer gates duplicate correlation IDs and decreasing watermarks for
+    cascaded events.
     """
     bus = InMemoryPublisher()
     consumer = IdempotentConsumer()
@@ -89,4 +91,3 @@ def test_idempotent_consumer_with_cascaded_feature_events() -> None:
 
     assert len(processed) == 1
     assert processed[0]["metadata"]["correlation_id"] == feat["correlation_id"]
-

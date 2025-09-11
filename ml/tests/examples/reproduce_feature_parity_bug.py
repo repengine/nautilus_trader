@@ -36,7 +36,7 @@ def reproduce_feature_parity_bug():
                 "low": low_price,
                 "volume": float(volume),
                 "ts_event": i * 60_000_000_000,  # 1 minute intervals in nanoseconds
-            }
+            },
         )
 
     bars_df = pl.DataFrame(bars_data)

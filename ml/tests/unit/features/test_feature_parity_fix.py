@@ -45,7 +45,7 @@ class TestFeatureParityFix:
                     "low": low_price,
                     "volume": float(volume),
                     "ts_event": i * 60_000_000_000,  # 1 minute intervals in nanoseconds
-                }
+                },
             )
 
         return bars_data
@@ -310,7 +310,8 @@ class TestFeatureParityFix:
 
         bars_df = pl.DataFrame(mock_bars_data)
         batch_features, scaler = training_engineer.calculate_features_batch(
-            bars_df, fit_scaler=True
+            bars_df,
+            fit_scaler=True,
         )
 
         # Verify training produces 37 features

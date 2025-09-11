@@ -54,6 +54,7 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
+from ml.stores._health_mixin import HealthMixin
 from ml.stores._registry_mixin import DataRegistryMixin
 
 
@@ -101,7 +102,7 @@ if HAS_PROMETHEUS:
         data_events_total = None
 
 
-class FeatureStore(BusPublisherMixin, DataRegistryMixin):
+class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
     """
     Unified feature computation and storage for ML pipeline.
 

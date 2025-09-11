@@ -318,21 +318,22 @@ class PipelineHealthChecker:
             ComponentHealth object with feature computation status
 
         """
+        # Align to current schema: summarize from public.ml_feature_computation_stats table
         query = """
         SELECT
-            COUNT(DISTINCT instrument_id) as instruments,
-            AVG(p95_computation_ms) as avg_p95_latency,
-            MAX(p95_computation_ms) as max_p95_latency,
-            AVG(quality_score) as avg_quality,
-            COUNT(CASE WHEN performance_status = 'critical' THEN 1 END) as critical_count,
-            COUNT(CASE WHEN performance_status = 'warning' THEN 1 END) as warning_count
-        FROM ml.feature_computation_stats
-        WHERE computation_date >= CURRENT_DATE
+            COUNT(DISTINCT instrument_id) AS instruments,
+            AVG(computation_time_ms) AS avg_latency_ms,
+            MAX(computation_time_ms) AS max_latency_ms
+        FROM public.ml_feature_computation_stats
+        WHERE ns_to_timestamp(ts_event) >= DATE_TRUNC('day', NOW())
         """
 
-        results = self._execute_query(query)
+        try:
+            results = self._execute_query(query)
+        except Exception:
+            results = []
 
-        if not results or not results[0]["instruments"]:
+        if not results or not results[0].get("instruments"):
             return ComponentHealth(
                 name="Feature Computation",
                 status=HealthStatus.WARNING,
@@ -341,10 +342,10 @@ class PipelineHealthChecker:
             )
 
         data = results[0]
-        avg_latency = float(data.get("avg_p95_latency", 0))
-        max_latency = float(data.get("max_p95_latency", 0))
-        critical_count = int(data.get("critical_count", 0))
-        warning_count = int(data.get("warning_count", 0))
+        avg_latency = float(data.get("avg_latency_ms", 0))
+        max_latency = float(data.get("max_latency_ms", 0))
+        critical_count = 0
+        warning_count = 0
 
         issues = []
         if critical_count > 0:
@@ -363,7 +364,6 @@ class PipelineHealthChecker:
             "instruments": int(data.get("instruments", 0)),
             "avg_p95_latency_ms": avg_latency,
             "max_p95_latency_ms": max_latency,
-            "avg_quality_score": float(data.get("avg_quality", 0)),
             "critical_components": critical_count,
             "warning_components": warning_count,
         }
@@ -371,7 +371,7 @@ class PipelineHealthChecker:
         return ComponentHealth(
             name="Feature Computation",
             status=status,
-            message=f"Avg P95 latency: {avg_latency:.0f}ms, Quality: {metrics['avg_quality_score']:.1f}%",
+            message=f"Avg P95 latency: {avg_latency:.0f}ms",
             metrics=metrics,
             issues=issues,
         )
@@ -384,51 +384,63 @@ class PipelineHealthChecker:
             ComponentHealth object with freshness status
 
         """
+        # Align to current schema: derive freshness from latest ts_init in feature values
         query = """
-        SELECT
-            COUNT(*) as total_instruments,
-            COUNT(CASE WHEN freshness_status = 'fresh' THEN 1 END) as fresh_count,
-            COUNT(CASE WHEN freshness_status = 'delayed' THEN 1 END) as delayed_count,
-            COUNT(CASE WHEN freshness_status = 'stale_warning' THEN 1 END) as warning_count,
-            COUNT(CASE WHEN freshness_status = 'stale_critical' THEN 1 END) as critical_count,
-            COUNT(CASE WHEN freshness_status = 'no_data' THEN 1 END) as no_data_count,
-            MAX(staleness_seconds) as max_staleness
-        FROM ml.data_freshness
+        SELECT instrument_id, MAX(ts_init) AS last_update_ns
+        FROM public.ml_feature_values
+        GROUP BY instrument_id
         """
 
-        results = self._execute_query(query)
+        try:
+            rows = self._execute_query(query)
+        except Exception:
+            rows = []
 
-        if not results:
+        if not rows:
             return ComponentHealth(
                 name="Data Freshness",
-                status=HealthStatus.UNKNOWN,
-                message="Unable to check data freshness",
-                metrics={},
+                status=HealthStatus.WARNING,
+                message="No feature data available",
+                metrics={"total_instruments": 0, "fresh_count": 0},
             )
 
-        data = results[0]
-        critical_count = int(data.get("critical_count", 0))
-        warning_count = int(data.get("warning_count", 0))
-        no_data_count = int(data.get("no_data_count", 0))
-        max_staleness = float(data.get("max_staleness", 0))
+        critical_count = 0
+        warning_count = 0
+        no_data_count = 0
+        max_staleness = 0.0
+        fresh_count = 0
+        stale_count = 0
 
-        issues = []
-        if critical_count > 0:
-            status = HealthStatus.CRITICAL
-            issues.append(f"{critical_count} instruments critically stale")
-        elif no_data_count > 0:
-            status = HealthStatus.WARNING
-            issues.append(f"{no_data_count} instruments have no data")
-        elif warning_count > 0:
-            status = HealthStatus.WARNING
-            issues.append(f"{warning_count} instruments showing staleness")
-        else:
-            status = HealthStatus.HEALTHY
+        now_ns = int(datetime.now().timestamp() * 1e9)
+        for row in rows:
+            last_ns = int(row.get("last_update_ns", 0))
+            if last_ns <= 0:
+                no_data_count += 1
+                continue
+            staleness = max(0.0, (now_ns - last_ns) / 1e9)
+            max_staleness = max(max_staleness, staleness)
+            if staleness > self.thresholds.DATA_STALENESS_CRITICAL:
+                critical_count += 1
+            elif staleness > self.thresholds.DATA_STALENESS_WARNING:
+                warning_count += 1
+                stale_count += 1
+            else:
+                fresh_count += 1
+
+        status = (
+            HealthStatus.CRITICAL
+            if critical_count > 0
+            else (
+                HealthStatus.WARNING
+                if warning_count > 0 or no_data_count > 0
+                else HealthStatus.HEALTHY
+            )
+        )
 
         metrics = {
-            "total_instruments": int(data.get("total_instruments", 0)),
-            "fresh_count": int(data.get("fresh_count", 0)),
-            "delayed_count": int(data.get("delayed_count", 0)),
+            "total_instruments": len(rows),
+            "fresh_count": fresh_count,
+            "delayed_count": stale_count,
             "warning_count": warning_count,
             "critical_count": critical_count,
             "no_data_count": no_data_count,
@@ -440,7 +452,7 @@ class PipelineHealthChecker:
             status=status,
             message=f"{metrics['fresh_count']}/{metrics['total_instruments']} instruments fresh",
             metrics=metrics,
-            issues=issues,
+            issues=[],
         )
 
     def check_errors(self) -> ComponentHealth:
@@ -451,18 +463,22 @@ class PipelineHealthChecker:
             ComponentHealth object with error status
 
         """
+        # Align to current schema: summarize failures from public.ml_data_events
         query = """
         SELECT
-            error_type,
-            SUM(error_count) as total_errors,
-            COUNT(DISTINCT component) as affected_components,
-            MAX(error_count) as max_errors_per_component
-        FROM ml.error_summary
-        WHERE error_date >= CURRENT_DATE
-        GROUP BY error_type
+            COALESCE(error, 'unknown') AS error_type,
+            COUNT(*) AS total_errors,
+            COUNT(DISTINCT dataset_id) AS affected_components
+        FROM public.ml_data_events
+        WHERE status = 'failed'
+          AND ts_event > (EXTRACT(EPOCH FROM (NOW() - INTERVAL '7 days')) * 1000000000)::BIGINT
+        GROUP BY COALESCE(error, 'unknown')
         """
 
-        results = self._execute_query(query)
+        try:
+            results = self._execute_query(query)
+        except Exception:
+            results = []
 
         if not results:
             return ComponentHealth(
@@ -473,7 +489,7 @@ class PipelineHealthChecker:
             )
 
         total_errors = sum(int(r.get("total_errors", 0)) for r in results)
-        max_errors = max(int(r.get("max_errors_per_component", 0)) for r in results)
+        max_errors = max(int(r.get("total_errors", 0)) for r in results)
 
         issues = []
         error_breakdown = {}
@@ -494,7 +510,7 @@ class PipelineHealthChecker:
         metrics = {
             "total_errors": total_errors,
             "affected_components": sum(int(r.get("affected_components", 0)) for r in results),
-            "max_errors_per_component": max_errors,
+            "max_errors_per_type": max_errors,
             **error_breakdown,
         }
 

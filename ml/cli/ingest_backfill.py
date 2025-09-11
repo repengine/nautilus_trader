@@ -80,7 +80,10 @@ class _CatalogIngestClient:
         else:
             e_val = end
         data = self._catalog.query(
-            data_cls=NautilusBar, identifiers=[instrument_id], start=s_val, end=e_val
+            data_cls=NautilusBar,
+            identifiers=[instrument_id],
+            start=s_val,
+            end=e_val,
         )
         return to_df_bars(data)
 
@@ -99,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--schema", required=True, help="Schema (e.g., bars, tbbo, trades)")
     ap.add_argument("--instruments", required=True, help="Comma list or file with instrument IDs")
     ap.add_argument(
-        "--lookback-days", type=int, default=int(_env_default("BACKFILL_LOOKBACK_DAYS", "7") or "7")
+        "--lookback-days",
+        type=int,
+        default=int(_env_default("BACKFILL_LOOKBACK_DAYS", "7") or "7"),
     )
     ap.add_argument("--table-name", default=_env_default("TABLE_NAME", "market_data"))
     ap.add_argument("--catalog-path", default=_env_default("CATALOG_PATH"))
@@ -178,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.client_mode == "databento":
         if not args.api_key:
             raise SystemExit(
-                "--api-key (or DATABENTO_API_KEY) is required for client-mode databento"
+                "--api-key (or DATABENTO_API_KEY) is required for client-mode databento",
             )
         from ml.data.ingest.databento_adapter import DatabentoAPIClient
 

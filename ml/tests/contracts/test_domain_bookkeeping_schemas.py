@@ -15,8 +15,10 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
-import pandera as pa
 import pytest
+
+pytest.importorskip("pandera")
+import pandera as pa  # type: ignore[assignment]
 from hypothesis import given
 from hypothesis import strategies as st
 from pandera.typing import Series

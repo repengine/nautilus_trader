@@ -1,0 +1,18 @@
+{
+  "data_dir": "data/tier1",
+  "out_dir": "/tmp/tft_universe_7y_l0_pilot",
+  "symbols": ["SPY","QQQ","AAPL","MSFT","NVDA"],
+  "window": { "days_back": 2555 },
+  "include_macro": true,
+  "macro_lag_days": 1,
+  "include_micro": false,
+  "include_l2": false,
+  "horizon_minutes": 15,
+  "threshold": 0.001,
+  "lookback_periods": 60,
+  "workers": 1,
+  "use_subprocess": false,
+  "chunk_days": 7,
+  "register_features": true,
+  "feature_registry_dir": "~/.nautilus/ml/features"
+}

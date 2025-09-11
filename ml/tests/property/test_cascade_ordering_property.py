@@ -32,4 +32,3 @@ def test_cascade_with_non_negative_delays_is_monotonic(base_ts: int, delays: lis
         ts_vals.append(current["ts_event"])
 
     assert all(ts_vals[i] <= ts_vals[i + 1] for i in range(len(ts_vals) - 1))
-

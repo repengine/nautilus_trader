@@ -506,7 +506,7 @@ class MLIntegrationManager:
         instruments = os.getenv("BACKFILL_INSTRUMENTS")
         if not dataset_id or not instruments:
             raise RuntimeError(
-                "BACKFILL_DATASET_ID and BACKFILL_INSTRUMENTS are required for backfill bootstrap"
+                "BACKFILL_DATASET_ID and BACKFILL_INSTRUMENTS are required for backfill bootstrap",
             )
 
         schema = os.getenv("BACKFILL_SCHEMA", "bars")
@@ -1304,7 +1304,7 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
     if not db_connection:
         try:
             test = EngineManager.get_engine(
-                "postgresql://postgres:postgres@localhost:5432/nautilus"
+                "postgresql://postgres:postgres@localhost:5432/nautilus",
             )
             with test.connect() as conn:
                 conn.execute(text("SELECT 1"))

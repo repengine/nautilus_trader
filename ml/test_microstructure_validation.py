@@ -68,11 +68,12 @@ def test_l2_order_book_aggregation():
         ]
 
         # Sizes decrease with level
+        # Ensure float dtype to avoid mixed int/float lists which Polars rejects in strict mode
         bid_sizes = [
-            max(100, 1000 * (1 - level * 0.1) + np.random.normal(0, 50)) for _ in range(n_samples)
+            max(100.0, 1000 * (1 - level * 0.1) + np.random.normal(0, 50)) for _ in range(n_samples)
         ]
         ask_sizes = [
-            max(100, 1000 * (1 - level * 0.1) + np.random.normal(0, 50)) for _ in range(n_samples)
+            max(100.0, 1000 * (1 - level * 0.1) + np.random.normal(0, 50)) for _ in range(n_samples)
         ]
 
         data[f"bid_px_{level:02d}"] = bid_prices
@@ -185,16 +186,28 @@ def test_l2_microstructure_features():
         start_time = time.time()
 
         spread_features = calculator.compute_spread_features(
-            bid_prices, ask_prices, bid_sizes, ask_sizes
+            bid_prices,
+            ask_prices,
+            bid_sizes,
+            ask_sizes,
         )
         imbalance_features = calculator.compute_imbalance_features(
-            bid_sizes, ask_sizes, bid_prices, ask_prices
+            bid_sizes,
+            ask_sizes,
+            bid_prices,
+            ask_prices,
         )
         depth_features = calculator.compute_depth_features(
-            bid_sizes, ask_sizes, bid_prices, ask_prices
+            bid_sizes,
+            ask_sizes,
+            bid_prices,
+            ask_prices,
         )
         shape_features = calculator.compute_shape_features(
-            bid_sizes, ask_sizes, bid_prices, ask_prices
+            bid_sizes,
+            ask_sizes,
+            bid_prices,
+            ask_prices,
         )
 
         end_time = time.time()
@@ -333,10 +346,16 @@ def test_feature_engineer_integration():
             "close": [100.5 + i * 0.1 + np.random.normal(0, 0.5) for i in range(n_samples)],
             "volume": [1000 + np.random.exponential(500) for _ in range(n_samples)],
             "ts_event": pd.date_range(
-                "2024-01-01 09:30:00", periods=n_samples, freq="1min", tz="UTC"
+                "2024-01-01 09:30:00",
+                periods=n_samples,
+                freq="1min",
+                tz="UTC",
             ),
             "ts_init": pd.date_range(
-                "2024-01-01 09:30:00", periods=n_samples, freq="1min", tz="UTC"
+                "2024-01-01 09:30:00",
+                periods=n_samples,
+                freq="1min",
+                tz="UTC",
             ),
         }
 
@@ -459,10 +478,16 @@ def test_fallback_behavior():
             "close": [100.5 + i * 0.1 for i in range(n_samples)],
             "volume": [1000 + i * 10 for i in range(n_samples)],
             "ts_event": pd.date_range(
-                "2024-01-01 09:30:00", periods=n_samples, freq="1min", tz="UTC"
+                "2024-01-01 09:30:00",
+                periods=n_samples,
+                freq="1min",
+                tz="UTC",
             ),
             "ts_init": pd.date_range(
-                "2024-01-01 09:30:00", periods=n_samples, freq="1min", tz="UTC"
+                "2024-01-01 09:30:00",
+                periods=n_samples,
+                freq="1min",
+                tz="UTC",
             ),
         }
 
@@ -475,7 +500,7 @@ def test_fallback_behavior():
         features_df, _ = engineer.calculate_features(df, mode="batch")
 
         logger.info(
-            f"✓ Fallback behavior works - computed {features_df.shape[1]} features from L1-only data"
+            f"✓ Fallback behavior works - computed {features_df.shape[1]} features from L1-only data",
         )
 
         feature_names = engineer.get_feature_names()
@@ -487,7 +512,7 @@ def test_fallback_behavior():
 
         if microstructure_features:
             logger.info(
-                f"  - Generated {len(microstructure_features)} microstructure approximations"
+                f"  - Generated {len(microstructure_features)} microstructure approximations",
             )
         else:
             logger.warning("  - No microstructure features generated in fallback mode")
@@ -589,7 +614,7 @@ def main():
         return 0
     else:
         logger.warning(
-            f"⚠ {total-passed} tests FAILED - gaps identified between claims and implementation"
+            f"⚠ {total-passed} tests FAILED - gaps identified between claims and implementation",
         )
         return 1
 

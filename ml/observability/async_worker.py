@@ -174,6 +174,7 @@ class ObservabilityAsyncWorker:
         Return current queue size.
 
         This is a cheap call and safe for status polling.
+
         """
         return int(self._queue.qsize())
 

@@ -181,7 +181,7 @@ def benchmark_online_latency():
             sla_status = "✓ PASS" if p99_latency < 5.0 else "✗ FAIL"
             logger.info(f"  {sla_status} P99: {p99_latency:.3f}ms (target: <5ms)")
             logger.info(
-                f"  Features: {len(features)}, Mean: {mean_latency:.3f}ms, Max: {max_latency:.3f}ms"
+                f"  Features: {len(features)}, Mean: {mean_latency:.3f}ms, Max: {max_latency:.3f}ms",
             )
 
         except Exception as e:
@@ -296,7 +296,7 @@ def benchmark_l2_aggregation_performance():
             throughput = n_samples / processing_time
 
             logger.info(
-                f"  Processed {n_samples} -> {len(result)} minutes in {processing_time:.3f}s"
+                f"  Processed {n_samples} -> {len(result)} minutes in {processing_time:.3f}s",
             )
             logger.info(f"  Throughput: {throughput:.0f} samples/sec")
             logger.info(f"  Generated {len(result.columns)} L2 features")
@@ -341,16 +341,28 @@ def benchmark_l2_l3_feature_computation():
         start_time = time.perf_counter()
 
         spread_features = calculator.compute_spread_features(
-            bid_prices, ask_prices, bid_sizes, ask_sizes
+            bid_prices,
+            ask_prices,
+            bid_sizes,
+            ask_sizes,
         )
         imbalance_features = calculator.compute_imbalance_features(
-            bid_sizes, ask_sizes, bid_prices, ask_prices
+            bid_sizes,
+            ask_sizes,
+            bid_prices,
+            ask_prices,
         )
         depth_features = calculator.compute_depth_features(
-            bid_sizes, ask_sizes, bid_prices, ask_prices
+            bid_sizes,
+            ask_sizes,
+            bid_prices,
+            ask_prices,
         )
         shape_features = calculator.compute_shape_features(
-            bid_sizes, ask_sizes, bid_prices, ask_prices
+            bid_sizes,
+            ask_sizes,
+            bid_prices,
+            ask_prices,
         )
 
         end_time = time.perf_counter()
@@ -463,7 +475,7 @@ def main():
                 p99 = stats["p99_ms"]
                 status = "✓ PASS" if p99 < 5.0 else "✗ FAIL"
                 logger.info(
-                    f"  {status} {config_name}: P99={p99:.2f}ms (features: {stats['n_features']})"
+                    f"  {status} {config_name}: P99={p99:.2f}ms (features: {stats['n_features']})",
                 )
 
     # Throughput summary
@@ -481,11 +493,11 @@ def main():
 
         if max_throughput >= 1000:
             logger.info(
-                f"  ✅ MEETS CLAIM: Peak throughput {max_throughput:.0f} samples/sec (>1000 target)"
+                f"  ✅ MEETS CLAIM: Peak throughput {max_throughput:.0f} samples/sec (>1000 target)",
             )
         else:
             logger.info(
-                f"  ❌ BELOW CLAIM: Peak throughput {max_throughput:.0f} samples/sec (<1000 target)"
+                f"  ❌ BELOW CLAIM: Peak throughput {max_throughput:.0f} samples/sec (<1000 target)",
             )
 
     # L2/L3 performance summary
@@ -517,7 +529,7 @@ def main():
             claims_verified.append("✅ Hot path <5ms P99 latency: VERIFIED")
         else:
             claims_verified.append(
-                f"❌ Hot path <5ms P99 latency: FAILED ({full_config_p99:.2f}ms)"
+                f"❌ Hot path <5ms P99 latency: FAILED ({full_config_p99:.2f}ms)",
             )
 
     # Check throughput claim
@@ -536,7 +548,7 @@ def main():
             claims_verified.append("✅ 1000+ bars/second processing: VERIFIED")
         else:
             claims_verified.append(
-                f"❌ 1000+ bars/second processing: FAILED ({max_throughput:.0f} samples/sec)"
+                f"❌ 1000+ bars/second processing: FAILED ({max_throughput:.0f} samples/sec)",
             )
 
     # Check L2/L3 feature computation

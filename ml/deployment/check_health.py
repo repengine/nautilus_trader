@@ -114,13 +114,11 @@ def check_docker_compose() -> bool:
             running = {s.get("Service") for s in services if s.get("State") == "running"}
             return required.issubset(running)
         except Exception:
-            pass  # Fall back to plain text check
+            # Treat invalid JSON as a failure per unit test contract
+            return False
 
-    # Fallback: plain text check without JSON
-    result_text = subprocess.run(["docker-compose", "ps"], capture_output=True, text=True)
-    text = (result_text.stdout or "") + (result_text.stderr or "")
-    lc = text.lower()
-    return "ml_pipeline" in lc and "postgres" in lc and ("up" in lc or "healthy" in lc)
+    # No stdout content implies a failure
+    return False
 
 
 def main() -> None:

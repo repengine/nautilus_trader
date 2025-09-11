@@ -96,7 +96,7 @@ if __name__ == "__main__":
 
     if success:
         print(
-            "\n✅ VALIDATION SUCCESS: BaseMLInferenceActor supports mandatory integration pattern"
+            "\n✅ VALIDATION SUCCESS: BaseMLInferenceActor supports mandatory integration pattern",
         )
         sys.exit(0)
     else:

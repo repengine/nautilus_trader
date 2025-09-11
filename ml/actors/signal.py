@@ -1303,11 +1303,11 @@ class MLSignalActor(BaseMLInferenceActor):
                         )
                         if expected_toc is not None:
                             self.log.info(
-                                f"Parity hint: training timestamp_on_close={expected_toc}"
+                                f"Parity hint: training timestamp_on_close={expected_toc}",
                             )
                         if expected_venue is not None:
                             self.log.info(
-                                f"Parity hint: training use_exchange_as_venue={expected_venue}"
+                                f"Parity hint: training use_exchange_as_venue={expected_venue}",
                             )
                     except Exception:
                         raise
@@ -1445,7 +1445,9 @@ class MLSignalActor(BaseMLInferenceActor):
             model_names = getattr(self, "_manifest_feature_names", [])
             actual_names = self._feature_engineer.config.get_feature_names()
             assert_features_parity(
-                model_names, getattr(self, "_model_metadata", None), actual_names
+                model_names,
+                getattr(self, "_model_metadata", None),
+                actual_names,
             )
             if model_names:
                 self.log.info(
@@ -1458,7 +1460,7 @@ class MLSignalActor(BaseMLInferenceActor):
         # If the model manifest provides a decision adapter, (re)create strategy now
         try:
             if isinstance(self._model_metadata, dict) and self._model_metadata.get(
-                "decision_policy"
+                "decision_policy",
             ):
                 self._signal_strategy = self._create_strategy()
                 self.log.info("Applied model-driven decision policy from manifest")
@@ -1772,7 +1774,7 @@ class MLSignalActor(BaseMLInferenceActor):
                     self._recent_bars.append(bar)
                     self._recent_features.append(features.copy())
                     if not self._parity_checked and len(self._recent_bars) >= int(
-                        self._parity_window
+                        self._parity_window,
                     ):
                         self._run_parity_smoke_check()
                 except Exception:

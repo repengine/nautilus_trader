@@ -53,7 +53,7 @@ def create_test_data(n_bars=200):
             "low": low_prices,
             "close": close_prices,
             "volume": volumes,
-        }
+        },
     )
 
 
@@ -179,12 +179,12 @@ def run_comprehensive_test():
             parity_threshold = 1e-6  # Reasonable floating point tolerance
             parity_passed = max_diff < parity_threshold
             logger.info(
-                f"✓ Parity (< {parity_threshold:.0e}): {parity_passed} ({'✓' if parity_passed else '✗'})"
+                f"✓ Parity (< {parity_threshold:.0e}): {parity_passed} ({'✓' if parity_passed else '✗'})",
             )
 
         else:
             logger.error(
-                f"✗ Shape mismatch: batch {batch_values.shape} vs online {online_values.shape}"
+                f"✗ Shape mismatch: batch {batch_values.shape} vs online {online_values.shape}",
             )
             parity_passed = False
 
@@ -212,7 +212,8 @@ def run_comprehensive_test():
 
     # Check buffer properties
     buffer_exists = hasattr(engineer, "feature_buffer") and isinstance(
-        engineer.feature_buffer, np.ndarray
+        engineer.feature_buffer,
+        np.ndarray,
     )
     buffer_id_before = id(engineer.feature_buffer) if buffer_exists else None
 
@@ -250,7 +251,7 @@ def run_comprehensive_test():
 
     memory_stable = memory_growth < 5000  # Allow some growth but not excessive
     logger.info(
-        f"✓ Memory stable (< 5KB growth): {memory_stable} ({'✓' if memory_stable else '✗'})"
+        f"✓ Memory stable (< 5KB growth): {memory_stable} ({'✓' if memory_stable else '✗'})",
     )
 
     # Test 5: Feature Quality
@@ -366,7 +367,7 @@ def run_comprehensive_test():
             logger.info(f"  ✗ {claim}")
 
     logger.info(
-        f"\nVerification: {len(verified_claims)}/{len(verified_claims) + len(failed_claims)} claims verified"
+        f"\nVerification: {len(verified_claims)}/{len(verified_claims) + len(failed_claims)} claims verified",
     )
 
     return {
