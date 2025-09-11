@@ -33,7 +33,7 @@ def record_ingest_batch(
 
     """
     data_collection_duration.labels(source=source, schema=dataset).observe(
-        max(duration_seconds, 0.0)
+        max(duration_seconds, 0.0),
     )
     record_pipeline_event(
         dataset_type=dataset,
@@ -48,7 +48,9 @@ def record_ingest_batch(
 
 def record_ingest_error(*, dataset: str, instrument: str, error_type: str) -> None:
     data_collection_errors_total.labels(
-        source=dataset, instrument=instrument, error_type=error_type
+        source=dataset,
+        instrument=instrument,
+        error_type=error_type,
     ).inc()
 
 

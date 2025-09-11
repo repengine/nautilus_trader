@@ -38,6 +38,7 @@ class BCEWithLogitsLossPF(MultiHorizonMetric):  # type: ignore[misc]
     Attributes:
         pos_weight: Optional positive class weight to address imbalance.
         reduction: "mean" (default) or "none" compatible with MultiHorizonMetric.
+
     """
 
     def __init__(self, pos_weight: float | None = None, reduction: str = "mean") -> None:
@@ -45,7 +46,11 @@ class BCEWithLogitsLossPF(MultiHorizonMetric):  # type: ignore[misc]
         self.pos_weight = pos_weight
         self.register_buffer(
             "_pos_weight_tensor",
-            (torch.tensor([float(pos_weight)], dtype=torch.float32) if pos_weight is not None else None),
+            (
+                torch.tensor([float(pos_weight)], dtype=torch.float32)
+                if pos_weight is not None
+                else None
+            ),
             persistent=False,
         )
 

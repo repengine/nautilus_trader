@@ -24,7 +24,10 @@ def _make_envelope(idx: int, ts: int, inst: str = "EURUSD.SIM") -> Envelope:
 
 @given(
     timestamps=st.lists(
-        st.integers(min_value=1, max_value=10_000), min_size=5, max_size=50, unique=True
+        st.integers(min_value=1, max_value=10_000),
+        min_size=5,
+        max_size=50,
+        unique=True,
     ),
 )
 def test_aggregator_monotonic_order_under_random_arrival(timestamps: list[int]) -> None:

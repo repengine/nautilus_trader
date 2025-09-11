@@ -18,6 +18,7 @@ class defines the following attributes and methods:
 
 The mixin is intentionally light on types where stores differ (e.g. write_batch
 signature) and uses defensive calls to preserve backwards compatibility.
+
 """
 
 from __future__ import annotations
@@ -27,7 +28,8 @@ from typing import Any
 
 class BufferedStoreMixin:
     """
-    Mixin providing buffered flush behavior, time-based flush decision, and health check.
+    Mixin providing buffered flush behavior, time-based flush decision, and health
+    check.
     """
 
     # Expected attributes on subclasses (documented for type checkers/readers)
@@ -57,6 +59,7 @@ class BufferedStoreMixin:
         This is off the hot path. Publish to external buses should already happen
         inside the store's write path; `_emit_events` is intended for DataRegistry
         and metrics notifications.
+
         """
         if not getattr(self, "_write_buffer", None):  # empty or not present
             return

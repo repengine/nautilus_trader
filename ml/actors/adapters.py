@@ -4,6 +4,7 @@ Signal adapter protocol and example implementations.
 This module defines a minimal protocol for model-driven signal adapters and
 provides a simple example adapter. Adapters convert an actor context into a
 configured `SignalGenerationStrategy` without modifying the actor itself.
+
 """
 
 from __future__ import annotations
@@ -25,10 +26,10 @@ class SignalAdapterProtocol(Protocol):
     Implementations return a concrete `SignalGenerationStrategy` when given
     an `MLSignalActor` context. This keeps the actor OCP-compliant by allowing
     new strategies to be supplied via manifests without code changes.
+
     """
 
-    def make(self, actor: MLSignalActor) -> SignalGenerationStrategy:
-        ...
+    def make(self, actor: MLSignalActor) -> SignalGenerationStrategy: ...
 
 
 class DynamicThresholdAdapter:
@@ -37,6 +38,7 @@ class DynamicThresholdAdapter:
 
     - If the actor maintains an adaptive threshold, use it.
     - Otherwise, fall back to the configured `prediction_threshold`.
+
     """
 
     def __init__(self) -> None:
@@ -45,7 +47,11 @@ class DynamicThresholdAdapter:
 
     def make(self, actor: MLSignalActor) -> SignalGenerationStrategy:
         # Prefer actor-provided adaptive threshold when available
-        thr = float(getattr(actor, "_adaptive_threshold", getattr(actor._config, "prediction_threshold", 0.5)))
+        thr = float(
+            getattr(
+                actor, "_adaptive_threshold", getattr(actor._config, "prediction_threshold", 0.5)
+            )
+        )
         return ThresholdSignalStrategy(threshold=thr)
 
 
@@ -62,6 +68,7 @@ def build_strategy_from_policy(
     - Function adapter: `(actor) -> SignalGenerationStrategy`
     - Object with `make(actor)` method
     - Strategy class: try `cls(actor, **config)` then `cls(**config)`
+
     """
     import importlib
 

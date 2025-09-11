@@ -79,25 +79,33 @@ class _CatalogIngestClient:
             e_val = int(end.timestamp() * 1e9)
         else:
             e_val = end
-        data = self._catalog.query(data_cls=NautilusBar, identifiers=[instrument_id], start=s_val, end=e_val)
+        data = self._catalog.query(
+            data_cls=NautilusBar, identifiers=[instrument_id], start=s_val, end=e_val
+        )
         return to_df_bars(data)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="Backfill gaps using orchestrator with pluggable coverage+writer."
+        description="Backfill gaps using orchestrator with pluggable coverage+writer.",
     )
     ap.add_argument(
-        "--db", dest="db", default=_env_default("DB_CONNECTION"), help="PostgreSQL connection URL"
+        "--db",
+        dest="db",
+        default=_env_default("DB_CONNECTION"),
+        help="PostgreSQL connection URL",
     )
     ap.add_argument("--dataset-id", required=True, help="Dataset identifier (e.g., EQUS.MINI)")
     ap.add_argument("--schema", required=True, help="Schema (e.g., bars, tbbo, trades)")
     ap.add_argument("--instruments", required=True, help="Comma list or file with instrument IDs")
-    ap.add_argument("--lookback-days", type=int, default=int(_env_default("BACKFILL_LOOKBACK_DAYS", "7") or "7"))
+    ap.add_argument(
+        "--lookback-days", type=int, default=int(_env_default("BACKFILL_LOOKBACK_DAYS", "7") or "7")
+    )
     ap.add_argument("--table-name", default=_env_default("TABLE_NAME", "market_data"))
     ap.add_argument("--catalog-path", default=_env_default("CATALOG_PATH"))
     ap.add_argument(
-        "--state-path", default=_env_default("INGEST_STATE_PATH", "checkpoints/ingest_state.json")
+        "--state-path",
+        default=_env_default("INGEST_STATE_PATH", "checkpoints/ingest_state.json"),
     )
     ap.add_argument(
         "--coverage-mode",
@@ -132,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Coverage
     from ml.stores.protocols import CoverageProviderProtocol  # local import to avoid cycles
+
     coverage: CoverageProviderProtocol
     if args.coverage_mode == "sql":
         if not args.db:
@@ -156,7 +165,8 @@ def main(argv: list[str] | None = None) -> int:
     registry = DataRegistry(
         registry_path=Path("ml_registry"),
         persistence_config=PersistenceConfig(
-            backend=BackendType.POSTGRES, connection_string=args.db
+            backend=BackendType.POSTGRES,
+            connection_string=args.db,
         ),
     )
 
@@ -167,7 +177,9 @@ def main(argv: list[str] | None = None) -> int:
         client: DatabentoLikeClient = _CatalogIngestClient(args.catalog_path)
     elif args.client_mode == "databento":
         if not args.api_key:
-            raise SystemExit("--api-key (or DATABENTO_API_KEY) is required for client-mode databento")
+            raise SystemExit(
+                "--api-key (or DATABENTO_API_KEY) is required for client-mode databento"
+            )
         from ml.data.ingest.databento_adapter import DatabentoAPIClient
 
         client = DatabentoAPIClient(api_key=str(args.api_key))
@@ -189,7 +201,10 @@ def main(argv: list[str] | None = None) -> int:
 
     ingestor = DatabentoIngestor(client=client)
     orch = IngestionOrchestrator(
-        coverage=coverage, writer=writer, registry=registry, ingestor=ingestor
+        coverage=coverage,
+        writer=writer,
+        registry=registry,
+        ingestor=ingestor,
     )
 
     # State

@@ -1,8 +1,9 @@
 """
 Shared engine/metadata initialization mixin for stores.
 
-Centralizes engine acquisition, metadata creation, and table setup with consistent
-pool status logging.
+Centralizes engine acquisition, metadata creation, and table setup with consistent pool
+status logging.
+
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ class EngineInitMixin:
     Mixin to initialize SQLAlchemy engine + metadata and call `_setup_tables()`.
 
     Expects the consumer to define `connection_string` attribute and `_setup_tables()` method.
+
     """
 
     connection_string: str | None
@@ -44,4 +46,3 @@ class EngineInitMixin:
                 logger.debug("Engine pool status: %s", status)
         except Exception as exc:
             logger.debug("Pool status unavailable: %s", exc)
-

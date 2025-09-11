@@ -675,11 +675,11 @@ def run_comprehensive_test():
     evidence = []
     if all_results.get("stores"):
         evidence.append(
-            "✓ All 4 stores (FeatureStore, ModelStore, StrategyStore, DataStore) are importable"
+            "✓ All 4 stores (FeatureStore, ModelStore, StrategyStore, DataStore) are importable",
         )
     if all_results.get("registries"):
         evidence.append(
-            "✓ All 4 registries (FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry) are importable"
+            "✓ All 4 registries (FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry) are importable",
         )
     if all_results.get("dummy_persistence"):
         evidence.append("✓ Data persistence operations work (with DummyStore)")
@@ -687,7 +687,7 @@ def run_comprehensive_test():
         evidence.append("✓ DataRegistry can register datasets, emit events, and update watermarks")
     if all_results.get("actor_initialization"):
         evidence.append(
-            "✓ BaseMLInferenceActor automatically initializes all 4 stores + 4 registries"
+            "✓ BaseMLInferenceActor automatically initializes all 4 stores + 4 registries",
         )
     if all_results.get("cross_store_integration"):
         evidence.append("✓ Cross-store integration workflow operates correctly")

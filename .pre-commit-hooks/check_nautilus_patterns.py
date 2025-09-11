@@ -89,9 +89,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
 
     def visit_If(self, node: ast.If):  # type: ignore[override]
         # Track TYPE_CHECKING blocks to avoid flagging type-only imports
-        is_type_checking = (
-            isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING"
-        )
+        is_type_checking = isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING"
         if is_type_checking:
             self._in_type_checking_block += 1
             for n in node.body:
@@ -175,7 +173,9 @@ class NautilusPatternValidator(ast.NodeVisitor):
         self.current_function = old_current_function
 
     def visit_Call(self, node: ast.Call):  # type: ignore[override]
-        """Validate specific calls for hot-path and compliance issues."""
+        """
+        Validate specific calls for hot-path and compliance issues.
+        """
         # Detect builtin open() usage
         if isinstance(node.func, ast.Name) and node.func.id == "open":
             if self.in_event_handler or self._is_hot_path_file():
@@ -248,7 +248,10 @@ class NautilusPatternValidator(ast.NodeVisitor):
         # Insecure serialization calls (pickle/joblib)
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
             if node.func.value.id in {"pickle", "joblib"} and node.func.attr in {"load", "dump"}:
-                if any(seg in str(self.filepath) for seg in ("actors/", "strategies/", "deployment/", "inference/")):
+                if any(
+                    seg in str(self.filepath)
+                    for seg in ("actors/", "strategies/", "deployment/", "inference/")
+                ):
                     self.errors.append(
                         f"Line {node.lineno}: Insecure serialization {node.func.value.id}.{node.func.attr}() in production path",
                     )
@@ -256,7 +259,11 @@ class NautilusPatternValidator(ast.NodeVisitor):
         # EventStatus literals via dict()/update({}) patterns
         if isinstance(node.func, ast.Name) and node.func.id == "dict":
             for kw in node.keywords or []:
-                if kw.arg == "status" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                if (
+                    kw.arg == "status"
+                    and isinstance(kw.value, ast.Constant)
+                    and isinstance(kw.value.value, str)
+                ):
                     if kw.value.value.lower() in {"success", "failed", "partial"}:
                         self.errors.append(
                             f"Line {node.lineno}: Use EventStatus.<...>.value instead of raw '{kw.value.value}'",
@@ -267,7 +274,12 @@ class NautilusPatternValidator(ast.NodeVisitor):
             for arg in node.args:
                 if isinstance(arg, ast.Dict):
                     for k, v in zip(arg.keys, arg.values):
-                        if isinstance(k, ast.Constant) and k.value == "status" and isinstance(v, ast.Constant) and isinstance(v.value, str):
+                        if (
+                            isinstance(k, ast.Constant)
+                            and k.value == "status"
+                            and isinstance(v, ast.Constant)
+                            and isinstance(v.value, str)
+                        ):
                             if v.value.lower() in {"success", "failed", "partial"}:
                                 self.errors.append(
                                     f"Line {node.lineno}: Use EventStatus.<...>.value instead of raw '{v.value}'",
@@ -476,7 +488,9 @@ class NautilusPatternValidator(ast.NodeVisitor):
                         )
 
     def visit_Dict(self, node: ast.Dict):  # type: ignore[override]
-        """Detect raw string 'status' fields; enforce EventStatus enum usage."""
+        """
+        Detect raw string 'status' fields; enforce EventStatus enum usage.
+        """
         for key, value in zip(node.keys, node.values):
             if isinstance(key, ast.Constant) and key.value == "status":
                 if isinstance(value, ast.Constant) and isinstance(value.value, str):
@@ -488,7 +502,10 @@ class NautilusPatternValidator(ast.NodeVisitor):
         self.generic_visit(node)
 
     def validate_module_level(self) -> None:
-        """Module-level validations after traversal (imports, factories, prometheus, pickle)."""
+        """
+        Module-level validations after traversal (imports, factories, prometheus,
+        pickle).
+        """
         # Direct prometheus_client import is forbidden
         if str(self.filepath).endswith("ml/_imports.py"):
             pass  # allow type-only optional imports aggregator
@@ -502,7 +519,9 @@ class NautilusPatternValidator(ast.NodeVisitor):
         # Insecure pickle usage: prohibit in actors/strategies/inference/deployment paths
         path_str = str(self.filepath)
         if any(k in self.imports for k in ("pickle", "joblib")):
-            if any(seg in path_str for seg in ("actors/", "strategies/", "deployment/", "inference/")):
+            if any(
+                seg in path_str for seg in ("actors/", "strategies/", "deployment/", "inference/")
+            ):
                 self.errors.append(
                     "Insecure model serialization import (pickle/joblib) in production path; use ONNX + onnxruntime",
                 )
@@ -518,7 +537,11 @@ class NautilusPatternValidator(ast.NodeVisitor):
                     src = f.read()
                 tree = ast.parse(src)
                 for n in ast.walk(tree):
-                    if isinstance(n, ast.FunctionDef) and n.name in {"create_provider", "get_provider", "factory"}:
+                    if isinstance(n, ast.FunctionDef) and n.name in {
+                        "create_provider",
+                        "get_provider",
+                        "factory",
+                    }:
                         chain_count = sum(1 for c in ast.walk(n) if isinstance(c, ast.If))
                         if chain_count >= 6:
                             self.errors.append(
@@ -529,7 +552,9 @@ class NautilusPatternValidator(ast.NodeVisitor):
                 pass
 
     def _estimate_class_length(self, node: ast.ClassDef) -> int | None:
-        """Estimate class length in lines using end_lineno if available."""
+        """
+        Estimate class length in lines using end_lineno if available.
+        """
         try:
             end = getattr(node, "end_lineno", None)
             if end is None:

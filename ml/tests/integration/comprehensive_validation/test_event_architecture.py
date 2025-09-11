@@ -212,7 +212,10 @@ def test_topic_building(results: TestResults):
         assert domain == "features"
         assert op == "updated"
         results.add_test(
-            section, "Stage mapping", True, f"{Stage.FEATURE_COMPUTED} -> {domain}.{op}"
+            section,
+            "Stage mapping",
+            True,
+            f"{Stage.FEATURE_COMPUTED} -> {domain}.{op}",
         )
     except Exception as e:
         results.add_test(section, "Stage mapping", False, str(e))
@@ -260,7 +263,8 @@ def test_topic_filtering(results: TestResults):
     try:
         assert match_topic("ml.features.computed.EURUSD.SIM", "ml.features.computed.EURUSD.SIM")
         assert not match_topic(
-            "ml.features.computed.EURUSD.SIM", "ml.features.computed.BTCUSDT.BINANCE"
+            "ml.features.computed.EURUSD.SIM",
+            "ml.features.computed.BTCUSDT.BINANCE",
         )
         results.add_test(section, "Exact matching", True)
     except Exception as e:
@@ -448,7 +452,10 @@ def test_domain_event_bridge(results: TestResults):
         # Should have received the events
         assert len(received_events) >= 1
         results.add_test(
-            section, "Non-blocking publishing", True, f"Received {len(received_events)} events"
+            section,
+            "Non-blocking publishing",
+            True,
+            f"Received {len(received_events)} events",
         )
     except Exception as e:
         results.add_test(section, "Non-blocking publishing", False, str(e))
@@ -893,7 +900,10 @@ def test_end_to_end_flow(results: TestResults):
         assert len(tracked_stages) == 4
 
         results.add_test(
-            section, "Cross-stage correlation", True, f"Tracked {len(tracked_stages)} stages"
+            section,
+            "Cross-stage correlation",
+            True,
+            f"Tracked {len(tracked_stages)} stages",
         )
     except Exception as e:
         results.add_test(section, "Cross-stage correlation", False, str(e))

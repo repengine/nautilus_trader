@@ -61,7 +61,15 @@ def _score(npz_path: Path) -> dict[str, float]:
         ece = float(ece)
     except Exception:
         ece = float("nan")
-    return {"AUC": auc, "PR_AUC": pr, "PRx": prx, "LogLoss": ll, "Brier": br, "ECE": ece, "Prevalence": prev}
+    return {
+        "AUC": auc,
+        "PR_AUC": pr,
+        "PRx": prx,
+        "LogLoss": ll,
+        "Brier": br,
+        "ECE": ece,
+        "Prevalence": prev,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,11 +176,19 @@ def main(argv: list[str] | None = None) -> int:
                                     "--learning_rate",
                                     str(lr),
                                 ]
-                                + ([] if int(args.tail_rows or 0) <= 0 else ["--tail_rows", str(int(args.tail_rows))])
-                                + ([] if int(args.limit_groups or 0) <= 0 else [
-                                    "--limit_groups",
-                                    str(int(args.limit_groups)),
-                                ]),
+                                + (
+                                    []
+                                    if int(args.tail_rows or 0) <= 0
+                                    else ["--tail_rows", str(int(args.tail_rows))]
+                                )
+                                + (
+                                    []
+                                    if int(args.limit_groups or 0) <= 0
+                                    else [
+                                        "--limit_groups",
+                                        str(int(args.limit_groups)),
+                                    ]
+                                ),
                             )
                         else:
                             # Subprocess isolation to prevent memory from accumulating across runs

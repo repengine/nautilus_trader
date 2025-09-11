@@ -86,10 +86,10 @@ def test_imports_and_availability():
 
         print("✅ All core components imported successfully")
         print(
-            f"   🏪 Stores: {[cls.__name__ for cls in [FeatureStore, ModelStore, StrategyStore, DataStore]]}"
+            f"   🏪 Stores: {[cls.__name__ for cls in [FeatureStore, ModelStore, StrategyStore, DataStore]]}",
         )
         print(
-            f"   📋 Registries: {[cls.__name__ for cls in [FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry]]}"
+            f"   📋 Registries: {[cls.__name__ for cls in [FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry]]}",
         )
         print(f"   🎭 BaseActor: {BaseMLInferenceActor.__name__}")
         print(f"   ⚙️  Config: {MLActorConfig.__name__}")
@@ -203,7 +203,15 @@ def test_dummy_registry_protocol_compliance():
 
             # Test method calls
             dummy.emit_event(
-                "dataset1", "EURUSD", "stage1", "source1", "run1", 0, 0, 100, "success"
+                "dataset1",
+                "EURUSD",
+                "stage1",
+                "source1",
+                "run1",
+                0,
+                0,
+                100,
+                "success",
             )
             dummy.update_watermark("dataset1", "EURUSD", "source1", 123456789, 100, 100.0)
 
@@ -340,7 +348,7 @@ def test_base_actor_automatic_initialization():
             print(f"⚠️  Registry protocol compliance issue: {e}")
 
         print(
-            "🎉 VALIDATION SUCCESS: BaseMLInferenceActor automatically initializes all 4 stores + 4 registries"
+            "🎉 VALIDATION SUCCESS: BaseMLInferenceActor automatically initializes all 4 stores + 4 registries",
         )
         return True
 
@@ -724,7 +732,7 @@ def run_comprehensive_validation():
     print("Validating claims from CLAUDE.md and context documentation:")
     print("  📋 Mandatory 4-Store Pattern: FeatureStore, ModelStore, StrategyStore, DataStore")
     print(
-        "  📋 Mandatory 4-Registry Pattern: FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry"
+        "  📋 Mandatory 4-Registry Pattern: FeatureRegistry, ModelRegistry, StrategyRegistry, DataRegistry",
     )
     print("  🎭 BaseMLInferenceActor automatic initialization")
     print("  🔄 Progressive fallback: PostgreSQL → DummyStore")
@@ -800,7 +808,7 @@ def generate_final_report(results: dict[str, bool]):
 
     claim_validation_rate = (validated_claims / len(mandatory_claims)) * 100
     print(
-        f"\nDocumentation claims validated: {validated_claims}/{len(mandatory_claims)} ({claim_validation_rate:.1f}%)"
+        f"\nDocumentation claims validated: {validated_claims}/{len(mandatory_claims)} ({claim_validation_rate:.1f}%)",
     )
 
     # Evidence summary
@@ -813,10 +821,10 @@ def generate_final_report(results: dict[str, bool]):
 
     if results.get("base_actor"):
         evidence_items.append(
-            "✅ BaseMLInferenceActor automatically initializes all 4 stores + 4 registries"
+            "✅ BaseMLInferenceActor automatically initializes all 4 stores + 4 registries",
         )
         evidence_items.append(
-            "✅ Property accessors provide clean API: .feature_store, .model_store, etc."
+            "✅ Property accessors provide clean API: .feature_store, .model_store, etc.",
         )
 
     if results.get("dummy_store") and results.get("dummy_registry"):
@@ -825,7 +833,7 @@ def generate_final_report(results: dict[str, bool]):
 
     if results.get("progressive_fallback"):
         evidence_items.append(
-            "✅ Stores fail cleanly when database unavailable (no silent failures)"
+            "✅ Stores fail cleanly when database unavailable (no silent failures)",
         )
 
     if results.get("data_persistence"):
@@ -834,7 +842,7 @@ def generate_final_report(results: dict[str, bool]):
 
     if results.get("cross_store_integration"):
         evidence_items.append(
-            "✅ End-to-end workflow: Data → Features → Models → Strategies → Registry"
+            "✅ End-to-end workflow: Data → Features → Models → Strategies → Registry",
         )
         evidence_items.append("✅ Event propagation and correlation tracking works")
 

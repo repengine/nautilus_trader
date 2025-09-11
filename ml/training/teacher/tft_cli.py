@@ -227,7 +227,11 @@ def main(argv: list[str] | None = None) -> int:
             check_ml_dependencies(["pandas"])  # pragma: no cover - import guard
         if pd is None:
             raise SystemExit("pandas is required to load training data")
-        df = pd.read_parquet(args.train_data_parquet) if args.train_data_parquet else pd.read_csv(args.train_data_csv)
+        df = (
+            pd.read_parquet(args.train_data_parquet)
+            if args.train_data_parquet
+            else pd.read_csv(args.train_data_csv)
+        )
         # Set seeds if provided
         if args.seed is not None:
             import random
@@ -318,7 +322,9 @@ def main(argv: list[str] | None = None) -> int:
             from ml.training.teacher.tft_teacher import TFTTeacherConfig
 
             teacher_tft = TFTTeacher(
-                TFTTeacherConfig(architecture="TFT", loss_name=str(args.loss), pos_weight=pos_weight_val),
+                TFTTeacherConfig(
+                    architecture="TFT", loss_name=str(args.loss), pos_weight=pos_weight_val
+                ),
                 max_encoder_length=args.max_encoder_length,
                 max_prediction_length=args.max_prediction_length,
                 time_varying_unknown_reals=feature_names,
@@ -358,10 +364,18 @@ def main(argv: list[str] | None = None) -> int:
                 # Prefer PF return_x alignment when it yields a sufficiently large validation set
                 z_val_vec, y_val_true_pf = teacher_tft.predict_logits_with_targets(df_val)
                 min_required = 100
-                if (z_val_vec is None or (hasattr(z_val_vec, "size") and int(z_val_vec.size) < min_required)
-                    or (hasattr(y_val_true_pf, "size") and int(getattr(y_val_true_pf, "size", 0)) < min_required)
-                    or (np.unique(y_val_true_pf).size < 2)):
-                    raise RuntimeError("Insufficient validation samples or label variance from PF alignment")
+                if (
+                    z_val_vec is None
+                    or (hasattr(z_val_vec, "size") and int(z_val_vec.size) < min_required)
+                    or (
+                        hasattr(y_val_true_pf, "size")
+                        and int(getattr(y_val_true_pf, "size", 0)) < min_required
+                    )
+                    or (np.unique(y_val_true_pf).size < 2)
+                ):
+                    raise RuntimeError(
+                        "Insufficient validation samples or label variance from PF alignment"
+                    )
                 # Override y_val_true with PF-aligned decoder targets
                 y_val_true = y_val_true_pf
             except Exception:

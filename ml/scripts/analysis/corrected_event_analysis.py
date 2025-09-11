@@ -66,7 +66,7 @@ def test_corrected_topic_filtering():
 
         print(f"  {status} {description}")
         print(
-            f"      Pattern: '{pattern}' | Topic: '{topic}' | Expected: {expected} | Got: {result}"
+            f"      Pattern: '{pattern}' | Topic: '{topic}' | Expected: {expected} | Got: {result}",
         )
 
         if success:

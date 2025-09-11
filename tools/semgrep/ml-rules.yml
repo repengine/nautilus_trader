@@ -56,9 +56,9 @@ rules:
     severity: ERROR
     languages: [python]
     pattern-either:
-      - pattern: | 
+      - pattern: |
           { ..., "status": "SUCCESS", ... }
-      - pattern: | 
+      - pattern: |
           dict(..., status="SUCCESS", ...)
       - pattern: |
           $X.update({"status": "SUCCESS", ...})

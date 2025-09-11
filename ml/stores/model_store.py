@@ -50,7 +50,6 @@ if TYPE_CHECKING:
     from nautilus_trader.common.clock import Clock
 
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -71,7 +70,15 @@ if HAS_PROMETHEUS:
         data_events_total = None
 
 
-class ModelStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStore, BusPublisherMixin, DataRegistryMixin, EngineInitMixin):
+class ModelStore(
+    BufferedStoreMixin,
+    SQLUpsertMixin,
+    ReadQueryMixin,
+    BaseStore,
+    BusPublisherMixin,
+    DataRegistryMixin,
+    EngineInitMixin,
+):
     """
     Store for model predictions with PostgreSQL backend.
 
@@ -335,7 +342,9 @@ class ModelStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStore, 
         self,
         values: list[dict[str, Any]],
     ) -> None:  # pragma: no cover
-        """Upsert predictions and publish via shared helper (patchable in tests)."""
+        """
+        Upsert predictions and publish via shared helper (patchable in tests).
+        """
         if not values:
             return
         # Optional audit logging (sampled)
@@ -789,7 +798,9 @@ class ModelStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStore, 
         }
 
     def flush(self) -> None:
-        """Delegate to shared buffered flush behavior."""
+        """
+        Delegate to shared buffered flush behavior.
+        """
         # Use mixin implementation to avoid duplication across stores
         from ml.stores._buffered_store import BufferedStoreMixin as _BSM
 

@@ -59,12 +59,13 @@ Real-time L2/L3 processing is excluded; the production runtime remains L1-only p
 ### Architectural Issue
 
 - L2/L3 data is not available in retail trading APIs (Databento provides L1 only)
-- Real-time L2/L3 processing violates <5ms hot path requirements  
+- Real-time L2/L3 processing violates <5ms hot path requirements
 - Teacher-student pattern already solves this problem correctly
 
 ### Resolution: Constrain runtime to L1-only
 
 **Correct Pattern:**
+
 ```
 Historical L2/L3 → TFT Teacher → LightGBM Student → MLSignalActor (L1 only)
 ```

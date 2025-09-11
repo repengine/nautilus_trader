@@ -27,4 +27,3 @@ def test_invalid_policy_falls_back_to_threshold(tmp_path: Any) -> None:
     strat = actor._create_strategy()
     assert isinstance(strat, ThresholdSignalStrategy)
     assert abs(strat.threshold - 0.33) < 1e-9
-

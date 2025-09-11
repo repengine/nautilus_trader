@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-**Status: NEEDS IMPROVEMENT**  
+**Status: NEEDS IMPROVEMENT**
 The ml/training/ codebase exhibits several violations of DRY principles, SOLID design patterns, and coding standards. While the overall architecture shows good separation between teacher-student models and export functionality, there are significant opportunities for improvement in code reuse, type safety, and adherence to best practices.
 
 ## 1. DRY (Don't Repeat Yourself) Violations
@@ -13,6 +13,7 @@ The ml/training/ codebase exhibits several violations of DRY principles, SOLID d
 **Files:** `/home/nate/projects/nautilus_trader/ml/training/non_distilled/lightgbm.py` (lines 289-347), `/home/nate/projects/nautilus_trader/ml/training/non_distilled/xgboost.py` (lines 527-581)
 
 Both trainers implement nearly identical model saving logic with metadata creation:
+
 ```python
 # Repeated pattern in both files:
 metadata = {
@@ -36,6 +37,7 @@ metadata = {
 **Files:** `/home/nate/projects/nautilus_trader/ml/training/non_distilled/lightgbm.py` (lines 210-231), `/home/nate/projects/nautilus_trader/ml/training/non_distilled/xgboost.py` (lines 359-421)
 
 Both trainers have similar ONNX conversion patterns with nearly identical error handling:
+
 ```python
 # Both files have similar patterns:
 try:
@@ -67,8 +69,9 @@ Both XGBoost and LightGBM trainers have nearly identical metadata loading logic 
 **File:** `/home/nate/projects/nautilus_trader/ml/training/base.py`
 
 The BaseMLTrainer class has too many responsibilities:
+
 - Data preparation and splitting
-- Cross-validation orchestration  
+- Cross-validation orchestration
 - MLflow experiment tracking
 - Optuna hyperparameter optimization
 - Model evaluation and metrics calculation
@@ -76,15 +79,17 @@ The BaseMLTrainer class has too many responsibilities:
 - Trading-specific metric calculation
 
 **Recommendation:** Split into separate concerns:
+
 - TrainingOrchestrator
-- ExperimentTracker  
+- ExperimentTracker
 - ModelValidator
 - MetricsCalculator
 
-#### 2.2 TFTTeacher Multiple Responsibilities  
+#### 2.2 TFTTeacher Multiple Responsibilities
 **File:** `/home/nate/projects/nautilus_trader/ml/training/teacher/tft_teacher.py`
 
 The TFTTeacher class handles:
+
 - PyTorch Lightning integration
 - Data preprocessing for TimeSeriesDataSet
 - Model training orchestration
@@ -99,7 +104,7 @@ The TFTTeacher class handles:
 ```python
 class ModelType(Enum):
     ONNX = "onnx"
-    XGBOOST = "xgboost" 
+    XGBOOST = "xgboost"
     LIGHTGBM = "lightgbm"
     SKLEARN = "sklearn"
     UNKNOWN = "unknown"
@@ -132,12 +137,14 @@ Trainers directly instantiate specific model classes (xgb.XGBClassifier, lgb.Dat
 
 #### 3.1 Missing Return Type Annotations
 **File:** `/home/nate/projects/nautilus_trader/ml/training/__init__.py` (line 12)
+
 ```python
 def __getattr__(name: str):  # Missing return type annotation
 ```
 
 #### 3.2 Incompatible Type Assignment
 **File:** `/home/nate/projects/nautilus_trader/ml/training/teacher/tft_cli.py` (line 529)
+
 ```python
 # Incompatible types in assignment (expression has type "None", variable has type "ndarray")
 ```
@@ -209,6 +216,7 @@ with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
 
 #### Repeated Array Conversions
 Multiple trainers convert data formats unnecessarily:
+
 ```python
 X_train = np.asarray(X_train, dtype=np.float32, order="C")  # Repeated conversions
 ```
@@ -226,6 +234,7 @@ XGBoost trainer intentionally avoids feature names to prevent ONNX issues but th
 **File:** `/home/nate/projects/nautilus_trader/ml/training/student/lightgbm.py`
 
 The LightGBMStudentDistiller mixes:
+
 - High-level distillation orchestration (fit method)
 - Low-level ONNX graph construction (export_onnx method)
 - Mathematical operations (sigmoid, teacher_logits)
@@ -243,7 +252,7 @@ CLI contains complex business logic for feature validation and registry integrat
 
 1. **Fix MyPy Strict Violations**
    - Add missing return type annotations
-   - Fix incompatible type assignments  
+   - Fix incompatible type assignments
    - Remove unused type ignore comments
 
 2. **Extract Common Base Classes**
@@ -259,36 +268,39 @@ CLI contains complex business logic for feature validation and registry integrat
 ### 8.2 Medium-Term Refactoring
 
 1. **Split BaseMLTrainer Responsibilities**
+
    ```python
    # Proposed structure:
    class TrainingOrchestrator:
        def __init__(self, trainer: ModelTrainer, validator: ModelValidator, tracker: ExperimentTracker)
-   
+
    class ModelTrainer(ABC):
        @abstractmethod
        def train(self, data: TrainingData) -> TrainedModel
-   
+
    class ModelValidator:
        def cross_validate(self, trainer: ModelTrainer, data: TrainingData) -> ValidationResults
-   
+
    class ExperimentTracker:
        def track_experiment(self, config: Config, results: Results) -> None
    ```
 
 2. **Implement Strategy Pattern for Objectives**
+
    ```python
    class ObjectiveStrategy(ABC):
        @abstractmethod
        def configure_params(self, base_params: dict) -> dict
-       
+
        @abstractmethod
        def create_objective_function(self) -> Callable
-   
+
    class LogitMSEStrategy(ObjectiveStrategy): ...
    class SoftCEStrategy(ObjectiveStrategy): ...
    ```
 
 3. **Factory Pattern for Model Creation**
+
    ```python
    class ModelFactory:
        @staticmethod
@@ -298,23 +310,26 @@ CLI contains complex business logic for feature validation and registry integrat
 ### 8.3 Long-Term Architecture Improvements
 
 1. **Plugin Architecture for New Model Types**
-2. **Dependency Injection for Resource Management**  
+2. **Dependency Injection for Resource Management**
 3. **Event-Driven Architecture for Training Pipeline**
 4. **Async/Await for I/O Operations**
 
 ## 9. Code Quality Metrics
 
 ### Maintainability Index: 6.2/10
+
 - High complexity in base trainer class
 - Significant code duplication
 - Mixed abstraction levels
 
 ### Technical Debt: High
+
 - Estimated 40+ hours refactoring effort
 - 15+ DRY violations requiring immediate attention
 - Multiple SOLID principle violations
 
 ### Type Safety: 7.5/10
+
 - Generally good type annotations
 - 3 MyPy strict violations found
 - Some use of `Any` where specific types possible
@@ -324,12 +339,14 @@ CLI contains complex business logic for feature validation and registry integrat
 The ml/training/ codebase requires significant refactoring to meet production quality standards. While the core functionality is sound and the teacher-student architecture is well-conceived, the implementation suffers from code duplication, violation of SOLID principles, and inconsistent patterns.
 
 **Priority Actions:**
+
 1. Fix MyPy strict violations immediately
 2. Extract common functionality into base classes
 3. Implement proper resource management
 4. Split large classes into single-responsibility components
 
 **Success Criteria:**
+
 - MyPy --strict passes with zero errors
 - Code duplication reduced by >70%
 - All classes follow single responsibility principle

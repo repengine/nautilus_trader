@@ -1,8 +1,9 @@
 """
 Helpers for common read patterns in SQL-backed stores.
 
-Provides utilities to qualify table names depending on the SQL dialect and a
-lightweight wrapper for issuing read-only queries via the engine.
+Provides utilities to qualify table names depending on the SQL dialect and a lightweight
+wrapper for issuing read-only queries via the engine.
+
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ class ReadQueryMixin:
         Return a fully-qualified table name for the current dialect.
 
         Uses schema-qualified names for PostgreSQL and raw names for SQLite.
+
         """
         name: str | None = None
         try:

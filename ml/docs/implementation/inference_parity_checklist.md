@@ -85,27 +85,34 @@ Status: Draft (operationally recommended defaults implemented; verification hook
 ## Verification Plan (Where/How)
 
 1) Startup Guards (Signal Actor)
+
 - Load ModelManifest + FeatureManifest from registry.
 - Verify: bar_type, timestamp_on_close, use_exchange_as_venue, data_requirements, schema_hash, pipeline_signature, min_bars_warmup, dtype list length.
 - Fail fast on mismatch with actionable error.
 
 2) Orchestrator/Writer Contracts
+
 - Ensure orchestrator uses `SqlCoverageProvider` (default) and `SqlMarketDataWriter` → Postgres; emits `Stage.DATA_INGESTED` events and updates watermarks.
 - Gap planning with `CatalogCoverageProvider` allowed; writes still go to DB.
 
 3) Timestamp Normalization
+
 - Unit tests confirm `DatabentoIngestor` produces ns; writer preserves ns; coverage buckets are UTC days.
 
 4) Mapping Tests
+
 - Writer contract tests for Bars (OHLCV), Quotes (bid/ask sizes), Trades (last/trade_count/vwap); idempotency on PK.
 
 5) Warm‑Up Gate
+
 - Actor counts bars and blocks predictions until warm‑up satisfied; include a unit test.
 
 6) Optional Parity Smoke‑Check
+
 - Implement feature recompute on N recent bars and compare; emit `feature_parity_drift` metric.
 
 7) Config Defaults and Flags
+
 - Ensure `COVERAGE_MODE=sql`, `WRITE_MODE=sql` by default; document flag meanings and risks.
 
 ---

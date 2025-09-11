@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from abc import abstractmethod
 import time
+from abc import abstractmethod
 from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -524,6 +524,7 @@ class BaseStaticProvider(BaseDataProvider):
         Evict oldest entries if over capacity.
 
         No-op if `cache_max_entries` is None or not exceeded.
+
         """
         max_entries = self._cache_max_entries
         if max_entries is None:

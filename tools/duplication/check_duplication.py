@@ -9,6 +9,7 @@ Heuristic: normalized line shingles of length N across files; report blocks that
 in different files with at least M non-empty lines in each block.
 
 This tool is advisory; wire as pre-commit manual stage or CI gate.
+
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from pathlib import Path
 
 ROOTS = [Path("ml/actors"), Path("ml/stores"), Path("ml/registry")]
 MIN_LINES = 8  # min non-empty lines per block
-WINDOW = 12    # shingle window size (lines)
+WINDOW = 12  # shingle window size (lines)
 MAX_REPORTS = 50
 EXCLUDES = {"__init__.py"}
 
@@ -47,7 +48,9 @@ def iter_python_files() -> list[Path]:
 
 
 def shingle_file(path: Path) -> list[tuple[str, int, int]]:
-    """Return list of (hash, start_line, end_line) shingles for a file."""
+    """
+    Return list of (hash, start_line, end_line) shingles for a file.
+    """
     text = path.read_text(encoding="utf-8", errors="ignore")
     lines = [normalize_line(l) for l in text.splitlines()]
     # Filter leading/trailing blanks for windowing
@@ -97,4 +100,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

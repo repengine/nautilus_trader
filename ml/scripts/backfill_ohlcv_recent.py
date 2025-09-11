@@ -180,13 +180,18 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Backfill recent OHLCV-1m bars via Databento")
     ap.add_argument("--data_dir", type=Path, default=Path("data/tier1"))
     ap.add_argument(
-        "--symbols", nargs="*", help="Symbols to backfill (default: directories in data_dir)"
+        "--symbols",
+        nargs="*",
+        help="Symbols to backfill (default: directories in data_dir)",
     )
     ap.add_argument("--tier", type=int, choices=[1, 2, 3], default=None)
     ap.add_argument("--start", type=str, default=None)
     ap.add_argument("--end", type=str, default=None)
     ap.add_argument(
-        "--days", type=int, default=14, help="Backfill window when start/end not provided"
+        "--days",
+        type=int,
+        default=14,
+        help="Backfill window when start/end not provided",
     )
     args = ap.parse_args(argv)
 
@@ -244,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             if not df.empty:
                 _merge_save(base, sym, df)
                 print(
-                    f"{sym}: downloaded {len(df)} rows from {begin:%Y-%m-%d} to {end_dt:%Y-%m-%d}"
+                    f"{sym}: downloaded {len(df)} rows from {begin:%Y-%m-%d} to {end_dt:%Y-%m-%d}",
                 )
             else:
                 print(f"{sym}: no rows in requested window")

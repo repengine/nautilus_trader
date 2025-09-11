@@ -575,7 +575,9 @@ class ModelRegistry(MLComponentMixin):
     # ---------------------------- internal helpers ----------------------------
 
     def _validate_registration_inputs(self, model_path: Path, manifest: ModelManifest) -> None:
-        """Validate model path, format, security, and parity constraints."""
+        """
+        Validate model path, format, security, and parity constraints.
+        """
         # Validate model file exists
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
@@ -608,10 +610,7 @@ class ModelRegistry(MLComponentMixin):
             feature_registry_file = self.registry_path / "feature_registry.json"
 
             if not manifest.feature_set_id:
-                msg = (
-                    "feature_set_id is missing for serveable model; "
-                    "parity validation skipped"
-                )
+                msg = "feature_set_id is missing for serveable model; " "parity validation skipped"
                 if strict_parity:
                     raise ValueError(
                         "feature_set_id is required for serveable models to ensure feature parity",
@@ -631,9 +630,7 @@ class ModelRegistry(MLComponentMixin):
                 freg = FeatureRegistry(self.registry_path)
                 finfo = freg.get_feature_set(manifest.feature_set_id)
                 if finfo is None:
-                    msg = (
-                        f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry"
-                    )
+                    msg = f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry"
                     if strict_parity:
                         raise ValueError(msg)
                     logger.warning(msg)
@@ -650,7 +647,9 @@ class ModelRegistry(MLComponentMixin):
                         manifest.pipeline_version = finfo.manifest.pipeline_version
 
     def _auto_version_manifest(self, manifest: ModelManifest) -> None:
-        """Assign a semantic version to the manifest when missing."""
+        """
+        Assign a semantic version to the manifest when missing.
+        """
         if manifest.version:
             return
         existing_versions = [
@@ -671,7 +670,9 @@ class ModelRegistry(MLComponentMixin):
         quality_gates: list[QualityGate] | None,
         enforce_quality: bool,
     ) -> ValidationResult | None:
-        """Run quality gates when provided; optionally enforce."""
+        """
+        Run quality gates when provided; optionally enforce.
+        """
         if not quality_gates:
             return None
 
@@ -695,7 +696,9 @@ class ModelRegistry(MLComponentMixin):
         return result
 
     def _maybe_auto_deploy(self, manifest: ModelManifest) -> None:
-        """Auto-deploy when basic constraints are met."""
+        """
+        Auto-deploy when basic constraints are met.
+        """
         # Basic validation (avoid circular import)
         is_valid = True
         errors: list[str] = []

@@ -116,7 +116,9 @@ class SignalGenerationTester:
         return model
 
     def create_test_config(
-        self, strategy="threshold", optimization="standard"
+        self,
+        strategy="threshold",
+        optimization="standard",
     ) -> MLSignalActorConfig:
         """
         Create test configuration for signal actor.
@@ -177,7 +179,7 @@ class SignalGenerationTester:
                     if actual_type == expected_type:
                         strategies_found.append(strategy_name)
                         print(
-                            f"    ✅ {strategy_name} strategy class exists: {actual_type.__name__}"
+                            f"    ✅ {strategy_name} strategy class exists: {actual_type.__name__}",
                         )
 
                         # Test signal generation
@@ -205,15 +207,15 @@ class SignalGenerationTester:
 
                         if signal:
                             print(
-                                f"    ✅ {strategy_name} can generate signals: {type(signal).__name__}"
+                                f"    ✅ {strategy_name} can generate signals: {type(signal).__name__}",
                             )
                         else:
                             print(
-                                f"    ⚠️ {strategy_name} generated None (may be expected for low confidence)"
+                                f"    ⚠️ {strategy_name} generated None (may be expected for low confidence)",
                             )
                     else:
                         print(
-                            f"    ❌ {strategy_name} wrong type: expected {expected_type.__name__}, got {actual_type.__name__}"
+                            f"    ❌ {strategy_name} wrong type: expected {expected_type.__name__}, got {actual_type.__name__}",
                         )
                         strategy_results[strategy_name] = {
                             "class_exists": True,
@@ -301,7 +303,7 @@ class SignalGenerationTester:
 
         return {
             "required_fields_present": len(
-                [t for t in field_tests.values() if t.get("exists", False)]
+                [t for t in field_tests.values() if t.get("exists", False)],
             ),
             "total_required_fields": len(required_fields),
             "field_details": field_tests,
@@ -499,7 +501,7 @@ class SignalGenerationTester:
         }
 
         print(
-            f"    📊 Feature computation P99: {stats['feature_computation']['p99_us']:.1f}μs (target: <500μs)"
+            f"    📊 Feature computation P99: {stats['feature_computation']['p99_us']:.1f}μs (target: <500μs)",
         )
         print(f"    📊 Inference P99: {stats['inference']['p99_us']:.1f}μs (target: <2000μs)")
         print(f"    📊 End-to-end P99: {stats['end_to_end']['p99_us']:.1f}μs (target: <5000μs)")
@@ -564,7 +566,11 @@ class SignalGenerationTester:
 
                     # Test with confidence above and below threshold
                     signal_high = adaptive_strategy.generate_signal(
-                        bar, 0.8, 0.95, features, context
+                        bar,
+                        0.8,
+                        0.95,
+                        features,
+                        context,
                     )
                     signal_low = adaptive_strategy.generate_signal(bar, 0.8, 0.4, features, context)
 
@@ -573,7 +579,7 @@ class SignalGenerationTester:
                             "threshold": threshold,
                             "high_confidence_signal": signal_high is not None,
                             "low_confidence_signal": signal_low is not None,
-                        }
+                        },
                     )
 
                 results = {
@@ -595,7 +601,7 @@ class SignalGenerationTester:
 
                 print(f"    ✅ Regimes detected: {results['regimes_detected']}")
                 print(
-                    f"    ✅ Adaptive thresholds working: {results['threshold_adaptation']['thresholds_vary']}"
+                    f"    ✅ Adaptive thresholds working: {results['threshold_adaptation']['thresholds_vary']}",
                 )
 
         except Exception as e:
@@ -678,10 +684,10 @@ class SignalGenerationTester:
                     }
 
                 print(
-                    f"    ✅ Ensemble strategy operational: {results['ensemble_strategy_exists']}"
+                    f"    ✅ Ensemble strategy operational: {results['ensemble_strategy_exists']}",
                 )
                 print(
-                    f"    ✅ Multi-strategy aggregation: {results['multi_model_orchestration']['aggregates_multiple_strategies']}"
+                    f"    ✅ Multi-strategy aggregation: {results['multi_model_orchestration']['aggregates_multiple_strategies']}",
                 )
                 print(f"    ✅ Signal generation: {results['ensemble_generates_signals']}")
 

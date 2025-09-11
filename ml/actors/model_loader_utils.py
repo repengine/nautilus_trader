@@ -1,4 +1,6 @@
-"""Shared model loading utilities for ML actors."""  # ruff: noqa: I001
+"""
+Shared model loading utilities for ML actors.
+"""  # ruff: noqa: I001
 
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ def maybe_warm_up_model(model: Any, warm_up: bool, input_dim: int) -> None:
         Whether to perform warm-up
     input_dim : int
         Number of features to use for the dummy input
+
     """
     if not warm_up or model is None:
         return
@@ -58,6 +61,7 @@ def assert_features_parity(
         manifest_schema = dict.fromkeys(names, "float32")
 
     from typing import cast
+
     manifest_schema_typed = cast(dict[str, str], manifest_schema)
     tmp_manifest = ModelManifest(
         model_id="__validation__",
@@ -65,7 +69,11 @@ def assert_features_parity(
         data_requirements=DataRequirements.L1_ONLY,
         architecture="unknown",
         feature_schema=manifest_schema_typed,
-        feature_schema_hash=model_metadata.get("feature_schema_hash", "") if isinstance(model_metadata, dict) else "",
+        feature_schema_hash=(
+            model_metadata.get("feature_schema_hash", "")
+            if isinstance(model_metadata, dict)
+            else ""
+        ),
     )
     # Import locally to avoid cycles
     from ml.registry.utils import assert_features_compatible

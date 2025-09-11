@@ -78,7 +78,15 @@ def create_engine(connection_string: str) -> Engine:
     return EngineManager.get_engine(connection_string)
 
 
-class StrategyStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStore, BusPublisherMixin, DataRegistryMixin, EngineInitMixin):
+class StrategyStore(
+    BufferedStoreMixin,
+    SQLUpsertMixin,
+    ReadQueryMixin,
+    BaseStore,
+    BusPublisherMixin,
+    DataRegistryMixin,
+    EngineInitMixin,
+):
     """
     Store for strategy signals and decisions with PostgreSQL backend.
 
@@ -339,7 +347,9 @@ class StrategyStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStor
         self._execute_write(values)
 
     def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
-        """Upsert signals and publish via shared helper (patchable in tests)."""
+        """
+        Upsert signals and publish via shared helper (patchable in tests).
+        """
         if not values:
             return
         # Optional audit logging (sampled)
@@ -623,7 +633,9 @@ class StrategyStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStor
         }
 
     def flush(self) -> None:
-        """Delegate to shared buffered flush behavior."""
+        """
+        Delegate to shared buffered flush behavior.
+        """
         from ml.stores._buffered_store import BufferedStoreMixin as _BSM
 
         _BSM.flush(self)

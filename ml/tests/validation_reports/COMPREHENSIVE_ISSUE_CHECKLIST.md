@@ -1,12 +1,12 @@
 # Comprehensive Code Quality Issue Checklist
 ## Nautilus Trader ML System - Complete Issue Inventory
 
-**Report Date:** 2025-09-10  
-**Total Issues Found:** 127  
-**Critical Issues:** 28  
-**High Priority Issues:** 46  
-**Medium Priority Issues:** 34  
-**Low Priority Issues:** 19  
+**Report Date:** 2025-09-10
+**Total Issues Found:** 127
+**Critical Issues:** 28
+**High Priority Issues:** 46
+**Medium Priority Issues:** 34
+**Low Priority Issues:** 19
 
 ---
 
@@ -20,7 +20,7 @@
   - **Effort**: 3-5 days to extract `StoreRegistryManager`
   - Status: Added centralized `init_actor_stores_and_registries(...)` in `ml/core/integration.py` and wired `BaseMLInferenceActor` to use it (with legacy fallback). This standardizes progressive fallback and registry/store wiring for actors.
 
-- [ ] **C002** - Registry setup code duplicated 200+ lines across stores  
+- [ ] **C002** - Registry setup code duplicated 200+ lines across stores
   - **Files**: All 4 stores have identical registry initialization
   - **Impact**: Configuration drift between components
   - **Effort**: 2-3 days to create unified registry setup
@@ -46,7 +46,7 @@
   - **Effort**: 2-3 days to standardize health checks
 
 - [x] **C007** - Progressive fallback chains differ between components
-  - **Files**: All store/registry implementations  
+  - **Files**: All store/registry implementations
   - **Impact**: Unpredictable failure behavior
   - **Effort**: 3-4 days to standardize fallback patterns
   - Status: Actor path uses centralized initializer with DB probe → dummy fallback; consistent with IntegrationManager logic. Remaining components can migrate gradually.
@@ -537,22 +537,26 @@
 ## 🎯 IMPLEMENTATION TIMELINE ESTIMATES
 
 ### **Critical Issues (28 items) - MUST FIX FIRST**
+
 - **Total Effort**: 85-125 days (17-25 weeks)
 - **Recommended Timeline**: Weeks 1-12 (Phases 1-3)
 - **Parallel Work Possible**: Store/registry issues can be fixed concurrently with some god class splitting
 
-### **High Priority Issues (46 items) - FIX BEFORE RISK FEATURES**  
+### **High Priority Issues (46 items) - FIX BEFORE RISK FEATURES**
+
 - **Total Effort**: 95-125 days (19-25 weeks)
 - **Recommended Timeline**: Weeks 8-20 (overlapping with critical fixes)
 - **Parallel Work Possible**: Data processing, training, and performance issues
 
 ### **Medium Priority Issues (34 items) - FIX DURING RISK IMPLEMENTATION**
+
 - **Total Effort**: 35-45 days (7-9 weeks)
 - **Recommended Timeline**: Weeks 16-24 (during risk feature development)
 - **Parallel Work Possible**: Configuration and error handling improvements
 
 ### **Low Priority Issues (19 items) - TECHNICAL DEBT CLEANUP**
-- **Total Effort**: 12-18 days (2-4 weeks)  
+
+- **Total Effort**: 12-18 days (2-4 weeks)
 - **Recommended Timeline**: Ongoing maintenance
 - **Parallel Work Possible**: Documentation can be done anytime
 
@@ -561,24 +565,28 @@
 ## 🚦 QUALITY GATES
 
 ### **Phase 1 Gates (Weeks 1-4)**
+
 - [ ] All 8 Critical Store/Registry issues fixed
 - [ ] MyPy strict passes with 0 errors
 - [ ] Store initialization consistent across all actors
 - [ ] Progressive fallback chains standardized
 
-### **Phase 2 Gates (Weeks 5-8)**  
+### **Phase 2 Gates (Weeks 5-8)**
+
 - [ ] All 10 Critical Architecture issues fixed
 - [ ] God classes split into focused components
 - [ ] Factory patterns implemented for extensibility
 - [ ] Dependency injection implemented
 
 ### **Phase 3 Gates (Weeks 9-12)**
-- [ ] All 10 Critical Type Safety issues fixed  
+
+- [ ] All 10 Critical Type Safety issues fixed
 - [ ] All High Priority Performance issues fixed
 - [ ] Hot path <5ms latency maintained
 - [ ] Zero allocations in inference loops
 
 ### **Risk Implementation Ready Gates**
+
 - [ ] 28 Critical issues: 100% fixed
 - [ ] 46 High Priority issues: 80%+ fixed
 - [ ] Code duplication: <5% in core modules
@@ -590,18 +598,21 @@
 ## 📈 RISK ASSESSMENT FOR PROCEEDING
 
 ### **Proceeding WITHOUT Fixing Critical Issues**
+
 - **Probability of Bugs**: 80-90%
 - **Implementation Risk**: Very High
 - **Maintenance Burden**: Extreme
 - **Long-term Viability**: Poor
 
 ### **Proceeding AFTER Fixing Critical Issues Only**
-- **Probability of Bugs**: 40-50%  
+
+- **Probability of Bugs**: 40-50%
 - **Implementation Risk**: Medium-High
 - **Maintenance Burden**: High
 - **Long-term Viability**: Fair
 
 ### **Proceeding AFTER Fixing Critical + High Priority Issues**
+
 - **Probability of Bugs**: 15-25%
 - **Implementation Risk**: Low-Medium
 - **Maintenance Burden**: Low
@@ -612,22 +623,26 @@
 ## 🎯 RECOMMENDED ACTION PLAN
 
 ### **IMMEDIATE (Next 3 Weeks)**
+
 1. Fix all Critical Type Safety issues (C019-C028)
 2. Fix all Critical Store/Registry issues (C001-C008)
 3. Begin splitting god classes (C009-C012)
 
 ### **SHORT TERM (Weeks 4-12)**
+
 1. Complete architecture refactoring (C009-C018)
 2. Address High Priority data processing issues (H001-H018)
 3. Fix training pipeline problems (H019-H032)
 4. Address model and feature management issues (H033-H040)
 
 ### **MEDIUM TERM (Weeks 13-24)**
+
 1. Begin risk mitigation feature implementation
 2. Address remaining High Priority performance issues (H041-H046)
 3. Implement Medium Priority improvements as needed
 
 ### **LONG TERM (Ongoing)**
+
 1. Continuous Low Priority technical debt cleanup
 2. Documentation and standards improvements
 3. Ongoing quality monitoring and improvement
@@ -639,23 +654,27 @@
 **The ML codebase will be ready for reliable risk mitigation implementation when:**
 
 ✅ **Foundation Stability**
+
 - All Critical issues resolved (28/28)
 - Type safety at 100% (mypy strict: 0 errors)
 - Store initialization consistent across all components
 
-✅ **Architecture Quality**  
+✅ **Architecture Quality**
+
 - Single Responsibility Principle enforced
 - Open/Closed Principle via factory patterns
 - Dependency Inversion via protocol interfaces
 
 ✅ **Performance Reliability**
+
 - Hot path <5ms P99 latency maintained
 - Zero allocations in inference loops
 - Performance monitoring infrastructure operational
 
 ✅ **Code Quality Metrics**
+
 - Code duplication <5%
-- Test coverage >90% for core components  
+- Test coverage >90% for core components
 - All methods <50 lines
 - Cyclomatic complexity <10
 

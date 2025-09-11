@@ -106,6 +106,7 @@ class BusPublisherMixin:
     - `_publish_mode`: Literal["batch", "row", "both"]
     - `_topic_scheme`: str
     - `_topic_prefix`: str
+
     """
 
     def _init_bus_publishing(

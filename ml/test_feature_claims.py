@@ -75,7 +75,7 @@ def generate_sample_market_data(n_bars: int = 1000) -> pl.DataFrame:
             "low": low_prices,
             "close": close_prices,
             "volume": volumes,
-        }
+        },
     )
 
 
@@ -116,7 +116,7 @@ class FeatureEngineeringTester:
                 results["feature_count"] = len(features_df.columns) - 1  # -1 for timestamp
                 results["passed"] = True
                 logger.info(
-                    f"✓ Basic functionality works. Generated {results['feature_count']} features"
+                    f"✓ Basic functionality works. Generated {results['feature_count']} features",
                 )
             else:
                 results["error"] = "No features generated"
@@ -202,7 +202,7 @@ class FeatureEngineeringTester:
             logger.info(
                 f"✓ Hot/cold separation tested. Batch: {batch_time:.2f}ms, "
                 f"Online avg: {results['online_time_ms']:.2f}ms, "
-                f"P99: {results.get('online_p99_ms', 0):.2f}ms"
+                f"P99: {results.get('online_p99_ms', 0):.2f}ms",
             )
 
         except Exception as e:
@@ -228,7 +228,8 @@ class FeatureEngineeringTester:
         try:
             # Check if pre-allocated buffer exists
             if hasattr(self.engineer, "feature_buffer") and isinstance(
-                self.engineer.feature_buffer, np.ndarray
+                self.engineer.feature_buffer,
+                np.ndarray,
             ):
                 results["pre_allocated_buffer_exists"] = True
                 buffer_id_before = id(self.engineer.feature_buffer)
@@ -348,7 +349,7 @@ class FeatureEngineeringTester:
                 f"✓ Performance test completed. "
                 f"P99: {results['p99_latency_ms']:.3f}ms, "
                 f"Mean: {results['mean_latency_ms']:.3f}ms, "
-                f"Throughput: {results['throughput_ops_per_sec']:.0f} ops/sec"
+                f"Throughput: {results['throughput_ops_per_sec']:.0f} ops/sec",
             )
 
         except Exception as e:
@@ -471,7 +472,7 @@ def generate_report(results: dict[str, Any]) -> str:
     report.append("-" * 40)
     if basic.get("passed"):
         report.append(
-            f"✓ PASS: Feature engineering works, generated {basic.get('feature_count')} features"
+            f"✓ PASS: Feature engineering works, generated {basic.get('feature_count')} features",
         )
     else:
         report.append(f"✗ FAIL: {basic.get('error', 'Unknown error')}")
@@ -490,11 +491,11 @@ def generate_report(results: dict[str, Any]) -> str:
 
         if hot_cold.get("parity_passed"):
             report.append(
-                f"✓ PASS: Mathematical parity maintained (max diff: {hot_cold.get('max_difference', 0):.2e})"
+                f"✓ PASS: Mathematical parity maintained (max diff: {hot_cold.get('max_difference', 0):.2e})",
             )
         else:
             report.append(
-                f"✗ FAIL: Parity violation (max diff: {hot_cold.get('max_difference', 0):.2e})"
+                f"✗ FAIL: Parity violation (max diff: {hot_cold.get('max_difference', 0):.2e})",
             )
     report.append("")
 

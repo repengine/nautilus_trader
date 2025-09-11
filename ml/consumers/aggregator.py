@@ -1,10 +1,10 @@
 """
 Monotonic, watermark-gated aggregator with idempotent replay.
 
-The aggregator buffers incoming envelopes per instrument and flushes them
-in timestamp order when a watermark is advanced. It enforces idempotency via
-event id tracking and optionally forwards flushed envelopes to a downstream
-publisher by prefixing topics.
+The aggregator buffers incoming envelopes per instrument and flushes them in timestamp
+order when a watermark is advanced. It enforces idempotency via event id tracking and
+optionally forwards flushed envelopes to a downstream publisher by prefixing topics.
+
 """
 
 from __future__ import annotations

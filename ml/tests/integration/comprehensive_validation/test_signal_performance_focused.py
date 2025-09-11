@@ -104,7 +104,7 @@ def test_strategies_exist_and_function():
 
             status = "✅" if signal is not None else "⚠️"
             print(
-                f"  {status} {name}: {strategy.__class__.__name__} - {'Signal generated' if signal else 'No signal (expected with low confidence)'}"
+                f"  {status} {name}: {strategy.__class__.__name__} - {'Signal generated' if signal else 'No signal (expected with low confidence)'}",
             )
 
         except Exception as e:
@@ -160,10 +160,10 @@ def test_lock_free_performance():
     }
 
     print(
-        f"    ✅ 1000 operations in {duration_us:.1f}μs ({1000/(duration_us/1_000_000):.0f} ops/sec)"
+        f"    ✅ 1000 operations in {duration_us:.1f}μs ({1000/(duration_us/1_000_000):.0f} ops/sec)",
     )
     print(
-        f"    📊 Memory allocated: {current} bytes ({'Zero allocation!' if current == 0 else 'Some allocation'})"
+        f"    📊 Memory allocated: {current} bytes ({'Zero allocation!' if current == 0 else 'Some allocation'})",
     )
 
     # Test PreAllocatedFeatureCache
@@ -196,7 +196,7 @@ def test_lock_free_performance():
     }
 
     print(
-        f"    ✅ 1000 feature operations in {duration_us:.1f}μs ({1000/(duration_us/1_000_000):.0f} ops/sec)"
+        f"    ✅ 1000 feature operations in {duration_us:.1f}μs ({1000/(duration_us/1_000_000):.0f} ops/sec)",
     )
     print(f"    📊 Memory allocated: {current} bytes")
 
@@ -375,20 +375,20 @@ def main():
     # Strategy test summary
     strategy_results = results["strategies"]
     working_strategies = len(
-        [s for s in strategy_results.values() if s.get("can_generate_signal", False)]
+        [s for s in strategy_results.values() if s.get("can_generate_signal", False)],
     )
     print(f"✅ Signal Strategies: {working_strategies}/5 operational")
 
     # MLSignal test summary
     mlsignal_results = results["mlsignal"]
     print(
-        f"✅ MLSignal Data Model: {'All fields present' if mlsignal_results['all_fields_present'] else 'Missing fields'}"
+        f"✅ MLSignal Data Model: {'All fields present' if mlsignal_results['all_fields_present'] else 'Missing fields'}",
     )
 
     # Lock-free test summary
     lock_free_results = results["lock_free"]
     zero_alloc_components = len(
-        [c for c in lock_free_results.values() if c.get("zero_allocation", False)]
+        [c for c in lock_free_results.values() if c.get("zero_allocation", False)],
     )
     print(f"✅ Lock-Free Components: {len(lock_free_results)} implemented")
 
@@ -400,7 +400,7 @@ def main():
     for category, stats in perf_results.items():
         status = "✅" if stats["meets_target"] else "❌"
         print(
-            f"   {status} {category.replace('_', ' ').title()}: P99 {stats['p99_us']:.1f}μs (target: <{stats['target_us']}μs)"
+            f"   {status} {category.replace('_', ' ').title()}: P99 {stats['p99_us']:.1f}μs (target: <{stats['target_us']}μs)",
         )
 
     print("\n🎯 EMPIRICAL VALIDATION SUMMARY:")

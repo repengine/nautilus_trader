@@ -30,4 +30,3 @@ def test_manifest_round_trip_with_decision_policy(tmp_path: Path) -> None:
     assert info is not None
     assert info.manifest.decision_policy == "ml.actors.adapters.DynamicThresholdAdapter"
     assert info.manifest.decision_config == {"alpha": 0.1}
-

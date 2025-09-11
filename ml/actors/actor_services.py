@@ -1,9 +1,10 @@
 """
 Actor services facade for wiring stores and registries.
 
-Actors should depend only on Protocol-typed services, not concrete stores.
-This facade centralizes initialization via the Integration Manager helpers and
-returns a simple container of services for the actor to attach.
+Actors should depend only on Protocol-typed services, not concrete stores. This facade
+centralizes initialization via the Integration Manager helpers and returns a simple
+container of services for the actor to attach.
+
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ def init_actor_services(config: Any) -> ActorServices:
     which implements progressive fallback, registry wiring, and shared DataRegistry
     injection. The actor attaches these to instance attributes and proceeds without
     importing any concrete stores directly.
+
     """
     from ml.core.integration import init_actor_stores_and_registries
 
@@ -59,4 +61,3 @@ def init_actor_services(config: Any) -> ActorServices:
 
 
 __all__ = ["ActorServices", "init_actor_services"]
-

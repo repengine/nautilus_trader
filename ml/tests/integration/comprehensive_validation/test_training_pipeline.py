@@ -113,6 +113,7 @@ def test_tft_teacher_training():
         ]
 
         import subprocess
+
         print(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, check=False).returncode
 
@@ -215,6 +216,7 @@ def test_student_distillation():
         ]
 
         import subprocess
+
         print(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, check=False).returncode
 

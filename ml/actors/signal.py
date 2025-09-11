@@ -1234,6 +1234,7 @@ class MLSignalActor(BaseMLInferenceActor):
         - Min warm-up bars from FeatureManifest constraints
         - BarType string matches recorded metadata (if present)
         - Timestamp policy hints (timestamp_on_close, use_exchange_as_venue) logged if present
+
         """
         # 1) Model requirements via registry when possible
         try:
@@ -1278,7 +1279,11 @@ class MLSignalActor(BaseMLInferenceActor):
 
                     # 3) BarType parity check if training recorded it
                     try:
-                        expected_bt = fman.metadata.get("bar_type") if isinstance(fman.metadata, dict) else None
+                        expected_bt = (
+                            fman.metadata.get("bar_type")
+                            if isinstance(fman.metadata, dict)
+                            else None
+                        )
                         if expected_bt:
                             actual_bt = str(getattr(self._config, "bar_type", ""))
                             if actual_bt and actual_bt != str(expected_bt):
@@ -1286,12 +1291,24 @@ class MLSignalActor(BaseMLInferenceActor):
                                     f"BarType mismatch: configured={actual_bt} vs training={expected_bt}",
                                 )
                         # Optional hints
-                        expected_toc = fman.metadata.get("timestamp_on_close") if isinstance(fman.metadata, dict) else None
-                        expected_venue = fman.metadata.get("use_exchange_as_venue") if isinstance(fman.metadata, dict) else None
+                        expected_toc = (
+                            fman.metadata.get("timestamp_on_close")
+                            if isinstance(fman.metadata, dict)
+                            else None
+                        )
+                        expected_venue = (
+                            fman.metadata.get("use_exchange_as_venue")
+                            if isinstance(fman.metadata, dict)
+                            else None
+                        )
                         if expected_toc is not None:
-                            self.log.info(f"Parity hint: training timestamp_on_close={expected_toc}")
+                            self.log.info(
+                                f"Parity hint: training timestamp_on_close={expected_toc}"
+                            )
                         if expected_venue is not None:
-                            self.log.info(f"Parity hint: training use_exchange_as_venue={expected_venue}")
+                            self.log.info(
+                                f"Parity hint: training use_exchange_as_venue={expected_venue}"
+                            )
                     except Exception:
                         raise
         except Exception:
@@ -1423,10 +1440,13 @@ class MLSignalActor(BaseMLInferenceActor):
 
         # Validate manifest-based feature parity after model is loaded
         from ml.actors.model_loader_utils import assert_features_parity
+
         try:
             model_names = getattr(self, "_manifest_feature_names", [])
             actual_names = self._feature_engineer.config.get_feature_names()
-            assert_features_parity(model_names, getattr(self, "_model_metadata", None), actual_names)
+            assert_features_parity(
+                model_names, getattr(self, "_model_metadata", None), actual_names
+            )
             if model_names:
                 self.log.info(
                     f"Feature parity validated (model): features={len(actual_names)}",
@@ -1437,7 +1457,9 @@ class MLSignalActor(BaseMLInferenceActor):
 
         # If the model manifest provides a decision adapter, (re)create strategy now
         try:
-            if isinstance(self._model_metadata, dict) and self._model_metadata.get("decision_policy"):
+            if isinstance(self._model_metadata, dict) and self._model_metadata.get(
+                "decision_policy"
+            ):
                 self._signal_strategy = self._create_strategy()
                 self.log.info("Applied model-driven decision policy from manifest")
         except Exception as exc:
@@ -1710,7 +1732,7 @@ class MLSignalActor(BaseMLInferenceActor):
             # Re-raise to let base class handle circuit breaker and health monitoring
             raise
 
-# (module-level OCP registration helper removed; methods are class-bound)
+    # (module-level OCP registration helper removed; methods are class-bound)
 
     def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:
         """
@@ -1749,7 +1771,9 @@ class MLSignalActor(BaseMLInferenceActor):
                     # Append recent bar and feature snapshot
                     self._recent_bars.append(bar)
                     self._recent_features.append(features.copy())
-                    if not self._parity_checked and len(self._recent_bars) >= int(self._parity_window):
+                    if not self._parity_checked and len(self._recent_bars) >= int(
+                        self._parity_window
+                    ):
                         self._run_parity_smoke_check()
                 except Exception:
                     # Never impact hot path
@@ -1851,6 +1875,7 @@ class MLSignalActor(BaseMLInferenceActor):
         Compute features offline over the recent window and compare to online results.
 
         Emits `ml_feature_parity_checks_total` and updates `ml_feature_parity_drift` gauge.
+
         """
         try:
             offline_vectors: list[npt.NDArray[np.float32]] = []

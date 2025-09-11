@@ -320,6 +320,7 @@ class MLIntegrationManager:
             return True
         except OperationalError:
             return False
+
     def _start_postgres_container(self) -> None:
         """
         Start PostgreSQL using Docker Compose if available, else docker run.
@@ -478,7 +479,8 @@ class MLIntegrationManager:
 
     def _maybe_run_backfill_on_start(self) -> None:
         """
-        Optionally run a gap backfill on startup using CLI or orchestrator, controlled by env.
+        Optionally run a gap backfill on startup using CLI or orchestrator, controlled
+        by env.
 
         Environment flags:
         - ML_BACKFILL_ON_START: '1'|'true'|'yes' → enable
@@ -491,6 +493,7 @@ class MLIntegrationManager:
         - BACKFILL_DATASET_ID: dataset id (e.g., 'EQUS.MINI')
         - BACKFILL_SCHEMA: 'bars'|'tbbo'|'trades' (default 'bars')
         - BACKFILL_INSTRUMENTS: comma-separated list
+
         """
         import os
         import shlex
@@ -502,7 +505,9 @@ class MLIntegrationManager:
         dataset_id = os.getenv("BACKFILL_DATASET_ID")
         instruments = os.getenv("BACKFILL_INSTRUMENTS")
         if not dataset_id or not instruments:
-            raise RuntimeError("BACKFILL_DATASET_ID and BACKFILL_INSTRUMENTS are required for backfill bootstrap")
+            raise RuntimeError(
+                "BACKFILL_DATASET_ID and BACKFILL_INSTRUMENTS are required for backfill bootstrap"
+            )
 
         schema = os.getenv("BACKFILL_SCHEMA", "bars")
         coverage_mode = os.getenv("COVERAGE_MODE", "sql")
@@ -1273,6 +1278,7 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
 
     Honors `use_dummy_stores` (fast path for tests) and `allow_dummy_fallback`.
     Attempts to probe PostgreSQL if no connection string is provided.
+
     """
     # Fast-path for tests
     if bool(getattr(config, "use_dummy_stores", False)):
@@ -1297,7 +1303,9 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
     backend = BackendType.POSTGRES
     if not db_connection:
         try:
-            test = EngineManager.get_engine("postgresql://postgres:postgres@localhost:5432/nautilus")
+            test = EngineManager.get_engine(
+                "postgresql://postgres:postgres@localhost:5432/nautilus"
+            )
             with test.connect() as conn:
                 conn.execute(text("SELECT 1"))
             db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"

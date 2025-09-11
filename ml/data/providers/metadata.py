@@ -8,7 +8,6 @@ constant over time, making them ideal for TFT static covariates.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -54,11 +53,13 @@ class InstrumentMetadataProvider(BaseStaticProvider):
         super().__init__()
         self.source = source
         logger.info(f"Initialized InstrumentMetadataProvider with {source.__class__.__name__}")
+
     def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
         """
         Load metadata for specified instruments (implementation for BaseStaticProvider).
 
         Returns a DataFrame with expected schema or an empty frame on error.
+
         """
         if pl is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used

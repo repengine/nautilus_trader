@@ -8,10 +8,12 @@ The strategy factory pattern has achieved **true OCP compliance** through a soph
 
 ## Previous Verdict vs Current State
 
-**Previous Verdict (PARTIALLY FIXED):** 
+**Previous Verdict (PARTIALLY FIXED):**
+
 - Hard-coded dictionary mapping replaced if/elif but still required core modifications
 
 **Current State (PROPERLY FIXED):**
+
 - Model-driven decision policy system enables external strategy loading
 - Custom strategy injection via configuration
 - Backward-compatible built-in strategy system
@@ -30,7 +32,7 @@ try:
     policy = meta.get("decision_policy") if isinstance(meta, dict) else None
     if policy:
         import importlib
-        
+
         module_name, _, cls_name = str(policy).rpartition(".")
         if module_name and cls_name:
             mod = importlib.import_module(module_name)
@@ -51,6 +53,7 @@ try:
 ```
 
 **Impact:** This is a **sophisticated plugin architecture** that enables:
+
 - Dynamic strategy loading via model metadata
 - External module imports without core code changes
 - Configuration-driven strategy instantiation
@@ -83,6 +86,7 @@ custom_strategy: Any | None = None
 ### Scenario: Adding a "Bollinger Bands Strategy"
 
 **BEFORE (Old System):** Would require modifying:
+
 1. `SignalStrategy` enum (add `BOLLINGER = "bollinger"`)
 2. Configuration Literal type
 3. Factory dictionary
@@ -91,6 +95,7 @@ custom_strategy: Any | None = None
 **NOW (New System):** THREE pathways, ZERO core modifications:
 
 #### Path 1: Model-Driven Decision Policy
+
 ```python
 # 1. Create strategy implementation
 # my_strategies/bollinger_strategy.py
@@ -109,6 +114,7 @@ model_metadata = {
 ```
 
 #### Path 2: Custom Strategy Injection
+
 ```python
 # 1. Create strategy instance
 bollinger_strategy = BollingerBandsStrategy(window=20, std_dev=2.0)
@@ -123,6 +129,7 @@ config = MLSignalActorConfig(
 ```
 
 #### Path 3: Configuration Extension (Optional)
+
 ```python
 # Even the old enum/literal system can be extended non-intrusively
 # by using string values directly instead of enum values

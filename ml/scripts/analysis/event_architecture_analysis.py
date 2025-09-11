@@ -44,7 +44,8 @@ class ArchitectureAnalyzer:
         # Test exact matching
         try:
             exact_result = match_topic(
-                "ml.features.computed.EURUSD.SIM", "ml.features.computed.EURUSD.SIM"
+                "ml.features.computed.EURUSD.SIM",
+                "ml.features.computed.EURUSD.SIM",
             )
             results["exact_matching"] = exact_result
             if exact_result:

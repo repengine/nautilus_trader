@@ -3,6 +3,7 @@ Shared DataRegistry initialization mixin for stores.
 
 Provides a common, lazy `_get_data_registry` implementation used by
 multiple store classes to avoid duplicated logic.
+
 """
 
 from __future__ import annotations
@@ -24,13 +25,16 @@ class DataRegistryMixin:
     Mixin that provides lazy DataRegistry initialization.
 
     Expects the consumer class to define `connection_string` attribute.
+
     """
 
     _data_registry: RegistryProtocol | None = None
     connection_string: str | None
 
     def _get_data_registry(self) -> RegistryProtocol | None:
-        """Lazily initialize and return the DataRegistry instance."""
+        """
+        Lazily initialize and return the DataRegistry instance.
+        """
         if self._data_registry is not None:
             return self._data_registry
 
@@ -43,8 +47,7 @@ class DataRegistryMixin:
 
             # Determine backend based on connection string
             if self.connection_string and (
-                "postgresql://" in self.connection_string
-                or "postgres://" in self.connection_string
+                "postgresql://" in self.connection_string or "postgres://" in self.connection_string
             ):
                 persistence_config = PersistenceConfig(
                     backend=BackendType.POSTGRES,

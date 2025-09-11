@@ -4,6 +4,7 @@ Shared batch utilities for ML stores.
 This module provides helpers to:
 - Sanitize timestamp fields and de-duplicate batch rows by composite keys
 - Publish batch and per-row events via the store's message bus
+
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ def sanitize_and_dedup(
     -------
     list[dict[str, Any]]
         De-duplicated list of row dicts.
+
     """
     if not values:
         return values
@@ -86,7 +88,9 @@ def publish_batch_and_rows(
     """
     Publish batch summary and per-row events (best-effort).
 
-    This should be called off the hot path. All publish attempts are wrapped in try/except.
+    This should be called off the hot path. All publish attempts are wrapped in
+    try/except.
+
     """
     rows_list = list(rows)
     if not (enable_publishing and publisher and rows_list):
@@ -96,7 +100,9 @@ def publish_batch_and_rows(
     if publish_mode in ("batch", "both"):
         try:
             instrument_id = str(rows_list[0].get(instrument_key, "UNKNOWN"))
-            topic = build_topic_for_stage(stage, instrument_id, scheme=topic_scheme, prefix=topic_prefix)
+            topic = build_topic_for_stage(
+                stage, instrument_id, scheme=topic_scheme, prefix=topic_prefix
+            )
             ts_vals = [int(r.get(ts_field, 0)) for r in rows_list]
             payload: dict[str, Any] = {
                 "dataset_id": dataset_id,
@@ -118,7 +124,9 @@ def publish_batch_and_rows(
         try:
             for r in rows_list:
                 instrument_id = str(r.get(instrument_key, "UNKNOWN"))
-                topic = build_topic_for_stage(stage, instrument_id, scheme=topic_scheme, prefix=topic_prefix)
+                topic = build_topic_for_stage(
+                    stage, instrument_id, scheme=topic_scheme, prefix=topic_prefix
+                )
                 ts_e = int(r.get(ts_field, 0))
                 row_payload: dict[str, Any] = {
                     "dataset_id": dataset_id,
@@ -134,4 +142,3 @@ def publish_batch_and_rows(
                 publisher.publish(topic, row_payload)
         except Exception:
             logger.debug("Per-row publish failed", exc_info=True)
-

@@ -67,7 +67,8 @@ class TestModelRegistryCore:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -109,7 +110,8 @@ class TestModelRegistryCore:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -198,7 +200,8 @@ class TestModelRegistryCore:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -279,7 +282,8 @@ class TestModelRegistryAdvanced:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -345,7 +349,8 @@ class TestModelRegistryAdvanced:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -435,7 +440,8 @@ class TestModelRegistryAdvanced:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -490,7 +496,8 @@ class TestModelRegistryAdvanced:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -605,7 +612,8 @@ class TestStatisticalValidation:
 
         for model in comparison["models"]:
             print(
-                f"   Rank {model['rank']}: {model['model_id']} " f"(accuracy: {model['value']:.3f})"
+                f"   Rank {model['rank']}: {model['model_id']} "
+                f"(accuracy: {model['value']:.3f})",
             )
 
         return comparison
@@ -772,7 +780,8 @@ class TestModelRegistryIntegration:
         registry = ModelRegistry(
             registry_path=self.registry_path,
             persistence_config=PersistenceConfig(
-                backend=BackendType.JSON, json_path=self.registry_path
+                backend=BackendType.JSON,
+                json_path=self.registry_path,
             ),
         )
 
@@ -807,7 +816,9 @@ class TestModelRegistryIntegration:
         )
 
         student_id = registry.register_model(
-            self.models_path / "model_1.onnx", student_manifest, auto_deploy=True
+            self.models_path / "model_1.onnx",
+            student_manifest,
+            auto_deploy=True,
         )
         print(f"✓ Step 2: Registered student model: {student_id}")
 
@@ -870,7 +881,7 @@ class TestModelRegistryIntegration:
 
         analysis = registry.analyze_ab_test(test_id)
         print(
-            f"✓ Step 7: A/B test analysis: Treatment improvement = {analysis['relative_improvement']:.2f}%"
+            f"✓ Step 7: A/B test analysis: Treatment improvement = {analysis['relative_improvement']:.2f}%",
         )
 
         # Step 8: Hot reload with improved model
@@ -1059,7 +1070,7 @@ def run_comprehensive_tests():
                 passed_tests += 1
 
     print(
-        f"\nOVERALL RESULTS: {passed_tests}/{total_tests} tests passed ({passed_tests/total_tests*100:.1f}%)"
+        f"\nOVERALL RESULTS: {passed_tests}/{total_tests} tests passed ({passed_tests/total_tests*100:.1f}%)",
     )
 
     return results

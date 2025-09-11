@@ -4,6 +4,7 @@ Shared upsert + publish helper for ML stores.
 This mixin factors the common pattern of sanitizing/deduplicating rows, performing a
 SQLAlchemy INSERT .. ON CONFLICT DO UPDATE upsert, and publishing batch/row summaries
 via the message bus utilities.
+
 """
 
 from __future__ import annotations

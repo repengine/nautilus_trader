@@ -376,7 +376,7 @@ def main():
         return 0
     elif success_rate >= 0.6:
         print(
-            f"\n⚠️  Training pipeline implementation is {success_rate:.1%} complete - some gaps remain"
+            f"\n⚠️  Training pipeline implementation is {success_rate:.1%} complete - some gaps remain",
         )
         return 0
     else:

@@ -150,6 +150,7 @@ def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, st
     -------
     tuple[DomainEventBridge | None, str, str]
         (bridge, topic_scheme, topic_prefix). Bridge is None when disabled.
+
     """
     # Default topic configuration
     topic_scheme = "domain_op"

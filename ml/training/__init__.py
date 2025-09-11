@@ -4,6 +4,7 @@ ML model training infrastructure for Nautilus Trader.
 Note: Avoid importing heavy dependencies at package import time. Expose public
 symbols via lazy getattr to keep CLI utilities lightweight when only specific
 submodules are used (e.g., teacher CLI).
+
 """
 
 from typing import Any

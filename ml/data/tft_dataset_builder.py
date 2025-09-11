@@ -836,8 +836,12 @@ class TFTDatasetBuilder:
                     ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
 
                     if ts_min is not None and ts_max is not None:
-                        start_dt = (ts_min.to_pydatetime() if hasattr(ts_min, "to_pydatetime") else ts_min).replace(tzinfo=UTC)
-                        end_dt = (ts_max.to_pydatetime() if hasattr(ts_max, "to_pydatetime") else ts_max).replace(tzinfo=UTC)
+                        start_dt = (
+                            ts_min.to_pydatetime() if hasattr(ts_min, "to_pydatetime") else ts_min
+                        ).replace(tzinfo=UTC)
+                        end_dt = (
+                            ts_max.to_pydatetime() if hasattr(ts_max, "to_pydatetime") else ts_max
+                        ).replace(tzinfo=UTC)
                         micro = micro_cache.get_range(symbol, start_dt, end_dt, base_dir_path)
                         if not micro.is_empty():
                             if micro["timestamp"].dtype != pl.Datetime:
@@ -869,8 +873,12 @@ class TFTDatasetBuilder:
                 ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
 
                 if ts_min is not None and ts_max is not None:
-                    start_dt = (ts_min.to_pydatetime() if hasattr(ts_min, "to_pydatetime") else ts_min).replace(tzinfo=UTC)
-                    end_dt = (ts_max.to_pydatetime() if hasattr(ts_max, "to_pydatetime") else ts_max).replace(tzinfo=UTC)
+                    start_dt = (
+                        ts_min.to_pydatetime() if hasattr(ts_min, "to_pydatetime") else ts_min
+                    ).replace(tzinfo=UTC)
+                    end_dt = (
+                        ts_max.to_pydatetime() if hasattr(ts_max, "to_pydatetime") else ts_max
+                    ).replace(tzinfo=UTC)
                     l2 = l2_cache.get_range(symbol, start_dt, end_dt, base_dir_path)
                     if not l2.is_empty():
                         if l2["timestamp"].dtype != pl.Datetime:
@@ -908,11 +916,19 @@ class TFTDatasetBuilder:
                             for k in topks:
                                 di = f"depth_imbalance_top{k}"
                                 if di in dataset.columns:
-                                    derived.append((pl.col(di) - pl.col(di).shift(1)).alias(f"pressure_accel_top{k}"))
+                                    derived.append(
+                                        (pl.col(di) - pl.col(di).shift(1)).alias(
+                                            f"pressure_accel_top{k}"
+                                        )
+                                    )
                                 bs = f"bid_slope_top{k}"
                                 aS = f"ask_slope_top{k}"
                                 if bs in dataset.columns and aS in dataset.columns:
-                                    derived.append((pl.col(aS) - pl.col(bs)).alias(f"liquidity_gradient_top{k}"))
+                                    derived.append(
+                                        (pl.col(aS) - pl.col(bs)).alias(
+                                            f"liquidity_gradient_top{k}"
+                                        )
+                                    )
                             if derived:
                                 dataset = dataset.with_columns(derived)
                             if "spread_bps" in dataset.columns:
@@ -921,12 +937,12 @@ class TFTDatasetBuilder:
                                     dataset = dataset.with_columns(
                                         [pl.col("timestamp").dt.date().alias("_day")],
                                     )
-                                    med = (
-                                        dataset.group_by(["instrument_id", "_day"]).agg(
-                                            pl.col("spread_bps").median().alias("_med_spread"),
-                                        )
+                                    med = dataset.group_by(["instrument_id", "_day"]).agg(
+                                        pl.col("spread_bps").median().alias("_med_spread"),
                                     )
-                                    dataset = dataset.join(med, on=["instrument_id", "_day"], how="left")
+                                    dataset = dataset.join(
+                                        med, on=["instrument_id", "_day"], how="left"
+                                    )
                                     dataset = dataset.with_columns(
                                         [
                                             pl.when(pl.col("_med_spread") > 0)
