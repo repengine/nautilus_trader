@@ -27,9 +27,7 @@ from dataclasses import field
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from ml.common.metrics_bootstrap import get_counter
-from ml.common.metrics_bootstrap import get_gauge
-from ml.common.metrics_bootstrap import get_histogram
+from ml.common.metrics_manager import MetricsManager
 from ml.observability.service import ObservabilityService
 
 
@@ -116,19 +114,20 @@ class ObservabilityAsyncWorker:
     _stop: asyncio.Event = field(init=False)
     _last_flush: float = field(default=0.0, init=False)
 
-    # Metrics (bootstrap ensures idempotency)
-    _ENQUEUED = get_counter(
+    # Metrics via manager (uses bootstrap under the hood)
+    _MM = MetricsManager.default()
+    _ENQUEUED = _MM.counter(
         "nautilus_ml_observability_enqueued_total",
         "Total observability items enqueued",
         ["kind"],
     )
-    _FLUSH_SEC = get_histogram(
+    _FLUSH_SEC = _MM.histogram(
         "nautilus_ml_observability_async_flush_duration_seconds",
         "Async observability flush duration",
         ["sink"],
         buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
     )
-    _Q_DEPTH = get_gauge(
+    _Q_DEPTH = _MM.gauge(
         "nautilus_ml_observability_queue_depth",
         "Current depth of the observability async queue",
         ["component"],
