@@ -220,7 +220,9 @@ class FeatureStore(BusPublisherMixin, DataRegistryMixin):
         )
 
     def _get_data_registry(self) -> RegistryProtocol | None:
-        """Delegate initialization to shared mixin (unified across stores)."""
+        """
+        Delegate initialization to shared mixin (unified across stores).
+        """
         return DataRegistryMixin._get_data_registry(self)
 
     # Allow external injection of a shared DataRegistry instance

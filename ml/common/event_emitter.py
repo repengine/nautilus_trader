@@ -1,8 +1,9 @@
 """
 Shared event emission utilities for stores and actors.
 
-Centralizes consistent usage of Stage/Source/EventStatus, watermark updates,
-and optional metrics for dataset-level events.
+Centralizes consistent usage of Stage/Source/EventStatus, watermark updates, and
+optional metrics for dataset-level events.
+
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ def emit_dataset_event_and_watermark(
     Emit a dataset event and update its watermark atomically, with optional metrics.
 
     This helper enforces consistent enum usage and label application across stores.
+
     """
     # Emit the event via registry
     registry.emit_event(
@@ -98,6 +100,7 @@ def emit_dataset_event(
     Emit a dataset event only (no watermark), with optional metrics.
 
     Centralizes enum-safe emission and consistent metric labeling.
+
     """
     registry.emit_event(
         dataset_id=dataset_id,

@@ -1,8 +1,9 @@
 """
 Safe math utilities shared across features and data processing modules.
 
-Provides safe division for scalar values and Polars expressions to avoid
-divide-by-zero pitfalls and to keep implementations consistent.
+Provides safe division for scalar values and Polars expressions to avoid divide-by-zero
+pitfalls and to keep implementations consistent.
+
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
 
     Returns `numerator / denominator` when `denominator` is truthy and non-zero,
     otherwise returns `default`.
+
     """
     if denominator is None or denominator == 0:
         return default
@@ -32,8 +34,9 @@ def safe_divide_expr(numer: PlExpr, denom: PlExpr) -> PlExpr:
     """
     Perform safe division for Polars expressions.
 
-    Uses a guarded denominator which substitutes 1.0 when the input is <= 0 to
-    avoid divide-by-zero while remaining differentiable for common transforms.
+    Uses a guarded denominator which substitutes 1.0 when the input is <= 0 to avoid
+    divide-by-zero while remaining differentiable for common transforms.
+
     """
     if pl is None:  # pragma: no cover - runtime dep guard
         raise RuntimeError("Polars is required for safe_divide_expr")

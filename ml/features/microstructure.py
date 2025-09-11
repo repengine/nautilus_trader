@@ -635,7 +635,9 @@ class L3TradeFlowFeatures:
 
             # Price deviation from VWAP
             current_price = prices[-1]
-            features["price_vs_vwap"] = float(safe_divide(float(current_price - vwap), float(vwap), 0.0))
+            features["price_vs_vwap"] = float(
+                safe_divide(float(current_price - vwap), float(vwap), 0.0),
+            )
 
             # VWAP variance (measure of price dispersion)
             vwap_variance = np.sum(volumes * (prices - vwap) ** 2) / total_volume

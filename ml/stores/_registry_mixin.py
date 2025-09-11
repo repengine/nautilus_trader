@@ -33,9 +33,11 @@ class DataRegistryMixin:
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         """
-        Lazily initialize and return the DataRegistry instance with progressive fallback.
+        Lazily initialize and return the DataRegistry instance with progressive
+        fallback.
 
         Order: POSTGRES (if connection string indicates) → JSON file fallback.
+
         """
         if self._data_registry is not None:
             return self._data_registry
@@ -76,7 +78,9 @@ class DataRegistryMixin:
                 registry_path=registry_path,
                 persistence_config=json_cfg,
             )
-            logger.debug("Initialized DataRegistry (JSON%s)", " after PG fail" if tried_postgres else "")
+            logger.debug(
+                "Initialized DataRegistry (JSON%s)", " after PG fail" if tried_postgres else ""
+            )
         except Exception as e:
             logger.warning("Failed to initialize JSON DataRegistry: %s", e)
             self._data_registry = None

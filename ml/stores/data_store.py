@@ -476,7 +476,10 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
             )
         except Exception:
             # Best-effort: log and continue without blocking
-            logger.warning("Helper-based event emission failed; skipping registry emit", exc_info=True)
+            logger.warning(
+                "Helper-based event emission failed; skipping registry emit",
+                exc_info=True,
+            )
 
         # Optionally publish to message bus using selected topic scheme
         if self.publisher is not None:
@@ -914,9 +917,13 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                     ts_max=ts_max,
                     count=len(df),
                     status=EventStatus.SUCCESS,
-                    dataset_type=str(manifest.dataset_type.value
-                                      if hasattr(manifest.dataset_type, "value")
-                                      else manifest.dataset_type),
+                    dataset_type=str(
+                        (
+                            manifest.dataset_type.value
+                            if hasattr(manifest.dataset_type, "value")
+                            else manifest.dataset_type
+                        ),
+                    ),
                     component=self.__class__.__name__,
                 )
             except Exception:

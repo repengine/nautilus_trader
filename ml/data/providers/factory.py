@@ -9,7 +9,8 @@ feature transforms to their corresponding providers.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, TypeAlias, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
@@ -177,6 +178,7 @@ class ProviderFactory:
         >>> provider = factory.get_provider("macro")
         >>> type(provider).__name__
         'MacroProvider'
+
         """
         self._creators[name] = creator
         logger.info(f"Registered provider creator: {name}")
