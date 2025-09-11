@@ -41,6 +41,7 @@ from sqlalchemy.engine import Engine
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
 from ml.config.base import MLFeatureConfig
@@ -102,7 +103,7 @@ if HAS_PROMETHEUS:
         data_events_total = None
 
 
-class FeatureStore:
+class FeatureStore(BusPublisherMixin):
     """
     Unified feature computation and storage for ML pipeline.
 
@@ -214,19 +215,11 @@ class FeatureStore:
         # Back-compat alias expected by tests
         self._buffer: list[FeatureData] = self._write_buffer
         # Optional message publishing
-        self._enable_publishing = bool(enable_publishing)
-        self.publisher: MessagePublisherProtocol | None = publisher
-        self._publish_mode: Literal["batch", "row", "both"] = publish_mode
-        # Topic scheme/prefix (env-driven defaults)
-        try:
-            from ml.config.bus import MessageBusConfig as _MBC
-
-            _cfg = _MBC.from_env()
-            self._topic_scheme: str = str(_cfg.scheme)
-            self._topic_prefix: str = str(_cfg.topic_prefix)
-        except Exception:  # pragma: no cover - defensive
-            self._topic_scheme = "domain_op"
-            self._topic_prefix = "events.ml"
+        self._init_bus_publishing(
+            enable_publishing=enable_publishing,
+            publisher=publisher,
+            publish_mode=publish_mode,
+        )
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         """

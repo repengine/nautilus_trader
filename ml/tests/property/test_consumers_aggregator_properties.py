@@ -27,7 +27,7 @@ def _make_envelope(idx: int, ts: int, inst: str = "EURUSD.SIM") -> Envelope:
         st.integers(min_value=1, max_value=10_000), min_size=5, max_size=50, unique=True
     ),
 )
-def test_aggregator_monotonic_order_under_random_arrival(timestamps: List[int]) -> None:
+def test_aggregator_monotonic_order_under_random_arrival(timestamps: list[int]) -> None:
     """
     Flushed order is non-decreasing even when arrivals are shuffled.
     """

@@ -164,7 +164,7 @@ class TestModelRegistryCore:
         # Test model deployment
         success = registry.deploy_model(model_id, "ml_signal_actor", {"config": "test"})
         assert success, "Model deployment should succeed"
-        print(f"✓ Model deployed successfully")
+        print("✓ Model deployed successfully")
 
         # Verify deployment status
         model_info = registry.get_model(model_id)
@@ -180,12 +180,12 @@ class TestModelRegistryCore:
         # Test rollback
         success = registry.rollback("ml_signal_actor", model_id)
         assert success, "Rollback should succeed"
-        print(f"✓ Rollback successful")
+        print("✓ Rollback successful")
 
         # Test model retirement
         success = registry.retire_model(model_id)
         assert success, "Model retirement should succeed"
-        print(f"✓ Model retired successfully")
+        print("✓ Model retired successfully")
 
         return registry, model_id
 
@@ -239,7 +239,7 @@ class TestModelRegistryCore:
         failing_gates = [QualityGate("accuracy", 0.95, "gte", required=True)]
         validation_result = registry.validate_model_quality(model_id, failing_gates)
         assert not validation_result.overall_pass, "Quality validation should fail"
-        print(f"✓ Quality validation correctly failed for high threshold")
+        print("✓ Quality validation correctly failed for high threshold")
 
         return registry, model_id
 
@@ -422,7 +422,7 @@ class TestModelRegistryAdvanced:
         if should_promote:
             success = registry.auto_promote_canary(deployment_id)
             assert success, "Auto-promotion should succeed"
-            print(f"✓ Auto-promoted canary to production")
+            print("✓ Auto-promoted canary to production")
 
         return registry, baseline_id, canary_id, deployment_id
 
@@ -469,7 +469,7 @@ class TestModelRegistryAdvanced:
         # Perform hot reload
         success = registry.hot_reload_model("ml_signal_actor", new_model_id)
         assert success, "Hot reload should succeed"
-        print(f"✓ Hot reload completed successfully")
+        print("✓ Hot reload completed successfully")
 
         # Verify deployment state
         new_model_info = registry.get_model(new_model_id)
@@ -477,7 +477,7 @@ class TestModelRegistryAdvanced:
 
         assert new_model_info.deployment_status == DeploymentStatus.ACTIVE
         assert old_model_info.deployment_status == DeploymentStatus.RETIRED
-        print(f"✓ New model active, old model retired")
+        print("✓ New model active, old model retired")
 
         return registry, old_model_id, new_model_id
 
@@ -696,7 +696,7 @@ class TestStorageBackends:
 
         assert "models" in data, "Registry should contain models section"
         assert model_id in data["models"], "Model should be in registry data"
-        print(f"✓ Model persisted to JSON file")
+        print("✓ Model persisted to JSON file")
 
         # Test registry reload
         registry2 = ModelRegistry(
@@ -710,7 +710,7 @@ class TestStorageBackends:
         loaded_model = registry2.get_model(model_id)
         assert loaded_model is not None, "Model should be loadable after restart"
         assert loaded_model.manifest.architecture == "LightGBM"
-        print(f"✓ Model successfully reloaded from JSON")
+        print("✓ Model successfully reloaded from JSON")
 
         return registry, model_id
 
@@ -730,7 +730,7 @@ class TestStorageBackends:
             backend=BackendType.POSTGRES,
             connection_string="postgresql://user:pass@localhost:5432/test_db",
         )
-        print(f"✓ PostgreSQL configuration created")
+        print("✓ PostgreSQL configuration created")
 
         # Note: Full PostgreSQL testing would require actual database setup
         # This serves as a placeholder for integration testing
@@ -816,7 +816,7 @@ class TestModelRegistryIntegration:
         assert len(lineage) == 2, "Lineage should include parent and child"
         teacher_model = registry.get_model(teacher_id)
         assert student_id in teacher_model.manifest.children_ids
-        print(f"✓ Step 3: Parent-child relationship established")
+        print("✓ Step 3: Parent-child relationship established")
 
         # Step 4: Track performance over time
         for i in range(10):
@@ -858,7 +858,7 @@ class TestModelRegistryIntegration:
             target="ml_signal_actor",
         )
         assert ab_config is not None
-        print(f"✓ Step 6: A/B test configured")
+        print("✓ Step 6: A/B test configured")
 
         # Step 7: Simulate A/B test results favoring improved model
         test_id = registry.run_ab_test(student_id, improved_id, 0.5, 24, "ml_signal_actor")
@@ -876,13 +876,13 @@ class TestModelRegistryIntegration:
         # Step 8: Hot reload with improved model
         success = registry.hot_reload_model("ml_signal_actor", improved_id)
         assert success
-        print(f"✓ Step 8: Hot reloaded to improved model")
+        print("✓ Step 8: Hot reloaded to improved model")
 
         # Step 9: Verify final state
         active_models = registry.get_active_models()
         assert len(active_models) == 1
         assert active_models[0].manifest.model_id == improved_id
-        print(f"✓ Step 9: Workflow completed successfully")
+        print("✓ Step 9: Workflow completed successfully")
 
         return registry, teacher_id, student_id, improved_id
 

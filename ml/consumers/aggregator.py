@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Monotonic, watermark-gated aggregator with idempotent replay.
 
@@ -8,6 +6,8 @@ in timestamp order when a watermark is advanced. It enforces idempotency via
 event id tracking and optionally forwards flushed envelopes to a downstream
 publisher by prefixing topics.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass

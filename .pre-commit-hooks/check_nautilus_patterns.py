@@ -47,6 +47,10 @@ class NautilusPatternValidator(ast.NodeVisitor):
         self.current_class = None
         self.in_init = False
         self.has_on_start = False
+        self.current_function: str | None = None
+        self.in_event_handler = False
+        self.total_lines: int = 0
+        self._in_type_checking_block: int = 0
 
     def visit_Import(self, node):
         """
@@ -58,6 +62,9 @@ class NautilusPatternValidator(ast.NodeVisitor):
             Import node.
 
         """
+        # Ignore TYPE_CHECKING imports
+        if self._in_type_checking_block > 0:
+            return
         for alias in node.names:
             self.imports[alias.name] = alias.asname or alias.name
 
@@ -71,11 +78,30 @@ class NautilusPatternValidator(ast.NodeVisitor):
             ImportFrom node.
 
         """
+        # Ignore TYPE_CHECKING imports
+        if self._in_type_checking_block > 0:
+            return
         if node.module:
             for alias in node.names:
                 full_name = f"{node.module}.{alias.name}"
                 self.imports[alias.name] = alias.asname or alias.name
                 self.imports[full_name] = full_name
+
+    def visit_If(self, node: ast.If):  # type: ignore[override]
+        # Track TYPE_CHECKING blocks to avoid flagging type-only imports
+        is_type_checking = (
+            isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING"
+        )
+        if is_type_checking:
+            self._in_type_checking_block += 1
+            for n in node.body:
+                self.visit(n)
+            self._in_type_checking_block -= 1
+            # Visit orelse normally
+            for n in node.orelse:
+                self.visit(n)
+        else:
+            self.generic_visit(node)
 
     def visit_ClassDef(self, node):
         """
@@ -103,6 +129,16 @@ class NautilusPatternValidator(ast.NodeVisitor):
             self._validate_config_patterns(node)
 
         self.generic_visit(node)
+
+        # God-class heuristic: extremely large classes are hard to maintain
+        class_len = self._estimate_class_length(node)
+        if class_len is not None:
+            # Stricter threshold for actors; looser for others
+            threshold = 1000 if self._is_actor_class(node) else 900
+            if class_len >= threshold:
+                self.warnings.append(
+                    f"Line {node.lineno}: Class '{node.name}' spans ~{class_len} lines (potential god-class)",
+                )
         self.current_class = None
 
     def visit_FunctionDef(self, node):
@@ -116,6 +152,10 @@ class NautilusPatternValidator(ast.NodeVisitor):
 
         """
         old_in_init = self.in_init
+        old_in_event_handler = self.in_event_handler
+        old_current_function = self.current_function
+
+        self.current_function = node.name
 
         if node.name == "__init__":
             self.in_init = True
@@ -125,11 +165,115 @@ class NautilusPatternValidator(ast.NodeVisitor):
         elif node.name == "on_start":
             self.has_on_start = True
 
-        elif node.name == "on_bar" or node.name == "on_data":
+        elif node.name.startswith("on_") and node.name not in {"on_start"}:
             self._validate_event_handler(node)
+            self.in_event_handler = True
 
         self.generic_visit(node)
         self.in_init = old_in_init
+        self.in_event_handler = old_in_event_handler
+        self.current_function = old_current_function
+
+    def visit_Call(self, node: ast.Call):  # type: ignore[override]
+        """Validate specific calls for hot-path and compliance issues."""
+        # Detect builtin open() usage
+        if isinstance(node.func, ast.Name) and node.func.id == "open":
+            if self.in_event_handler or self._is_hot_path_file():
+                self.errors.append(
+                    f"Line {node.lineno}: File I/O 'open()' in hot path/event handler '{self.current_function}'",
+                )
+
+        # Detect training during inference: *.fit(...)
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "fit":
+            if self.in_event_handler or self._is_hot_path_file():
+                self.errors.append(
+                    f"Line {node.lineno}: Model training 'fit()' in hot path/event handler '{self.current_function}'",
+                )
+
+        # Detect network calls in hot path (requests.*)
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            if node.func.value.id in {"requests", "httpx"} and self.in_event_handler:
+                self.errors.append(
+                    f"Line {node.lineno}: Network call '{node.func.value.id}.{node.func.attr}()' in event handler",
+                )
+            # Pandas DataFrame creation in hot path
+            if node.func.value.id in {"pd", "pandas"} and node.func.attr == "DataFrame":
+                if self.in_event_handler or self._is_hot_path_file():
+                    self.errors.append(
+                        f"Line {node.lineno}: Pandas DataFrame construction in hot path/event handler",
+                    )
+
+        # Attribute call from module-qualified name
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Attribute):
+            root = node.func.value
+            # urllib.request.* in event handler
+            if (
+                isinstance(root.value, ast.Name)
+                and root.value.id == "urllib"
+                and root.attr == "request"
+                and self.in_event_handler
+            ):
+                self.errors.append(
+                    f"Line {node.lineno}: Network call 'urllib.request.{node.func.attr}()' in event handler",
+                )
+
+        # Detect use of build_topic (should use build_topic_for_stage in stores/actors)
+        if (isinstance(node.func, ast.Name) and node.func.id == "build_topic") or (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "build_topic"
+        ):
+            if self._is_stores_or_actors_file():
+                self.errors.append(
+                    f"Line {node.lineno}: Use build_topic_for_stage(...) instead of build_topic(...) in stores/actors",
+                )
+
+        # Direct SQLAlchemy create_engine usage (should be via EngineManager)
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "create_engine":
+            self.warnings.append(
+                f"Line {node.lineno}: Direct SQLAlchemy create_engine() detected; prefer EngineManager.get_engine(...)",
+            )
+
+        # Direct sqlite3.connect or redis.Redis() usage (bypass store pattern)
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            if node.func.value.id == "sqlite3" and node.func.attr == "connect":
+                if self._is_hot_path_file() or self._is_stores_or_actors_file():
+                    self.errors.append(
+                        f"Line {node.lineno}: Direct sqlite3.connect() usage; do not bypass stores/registries",
+                    )
+            if node.func.value.id == "redis" and node.func.attr in {"Redis", "from_url"}:
+                if self._is_hot_path_file() or self._is_stores_or_actors_file():
+                    self.errors.append(
+                        f"Line {node.lineno}: Direct redis client construction; use configured message bus or store",
+                    )
+
+        # Insecure serialization calls (pickle/joblib)
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            if node.func.value.id in {"pickle", "joblib"} and node.func.attr in {"load", "dump"}:
+                if any(seg in str(self.filepath) for seg in ("actors/", "strategies/", "deployment/", "inference/")):
+                    self.errors.append(
+                        f"Line {node.lineno}: Insecure serialization {node.func.value.id}.{node.func.attr}() in production path",
+                    )
+
+        # EventStatus literals via dict()/update({}) patterns
+        if isinstance(node.func, ast.Name) and node.func.id == "dict":
+            for kw in node.keywords or []:
+                if kw.arg == "status" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                    if kw.value.value.lower() in {"success", "failed", "partial"}:
+                        self.errors.append(
+                            f"Line {node.lineno}: Use EventStatus.<...>.value instead of raw '{kw.value.value}'",
+                        )
+
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "update":
+            # Check positional dict literal
+            for arg in node.args:
+                if isinstance(arg, ast.Dict):
+                    for k, v in zip(arg.keys, arg.values):
+                        if isinstance(k, ast.Constant) and k.value == "status" and isinstance(v, ast.Constant) and isinstance(v.value, str):
+                            if v.value.lower() in {"success", "failed", "partial"}:
+                                self.errors.append(
+                                    f"Line {node.lineno}: Use EventStatus.<...>.value instead of raw '{v.value}'",
+                                )
+
+        self.generic_visit(node)
 
     def visit_Attribute(self, node):
         """
@@ -186,12 +330,26 @@ class NautilusPatternValidator(ast.NodeVisitor):
 
         """
         # Check for inference/feature paths
-        if "inference" in str(self.filepath) or "actors" in str(self.filepath):
+        if self._is_hot_path_file():
             # Hot path validations
             if "pandas" in self.imports or "pd" in self.imports:
                 self.errors.append(
                     f"Line {node.lineno}: Actor '{node.name}' uses pandas in hot path (inference)",
                 )
+
+        # Prohibit store instantiation inside actors
+        prohibited_store_types = {"FeatureStore", "ModelStore", "StrategyStore", "DataStore"}
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call):
+                fn = child.func
+                if isinstance(fn, ast.Name) and fn.id in prohibited_store_types:
+                    self.errors.append(
+                        f"Line {child.lineno}: Do not instantiate stores directly inside actors; use pre-initialized stores",
+                    )
+                elif isinstance(fn, ast.Attribute) and fn.attr in prohibited_store_types:
+                    self.errors.append(
+                        f"Line {child.lineno}: Do not instantiate stores directly inside actors; use pre-initialized stores",
+                    )
 
         # More actor validations can be added here
 
@@ -317,6 +475,78 @@ class NautilusPatternValidator(ast.NodeVisitor):
                             f"Line {child.lineno}: Blocking operation in event handler '{node.name}'",
                         )
 
+    def visit_Dict(self, node: ast.Dict):  # type: ignore[override]
+        """Detect raw string 'status' fields; enforce EventStatus enum usage."""
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and key.value == "status":
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    val = value.value.lower()
+                    if val in {"success", "failed", "partial"}:
+                        self.errors.append(
+                            f"Line {getattr(value, 'lineno', '?')}: Use EventStatus.<...>.value instead of raw '{value.value}'",
+                        )
+        self.generic_visit(node)
+
+    def validate_module_level(self) -> None:
+        """Module-level validations after traversal (imports, factories, prometheus, pickle)."""
+        # Direct prometheus_client import is forbidden
+        if str(self.filepath).endswith("ml/_imports.py"):
+            pass  # allow type-only optional imports aggregator
+        elif str(self.filepath).endswith("ml/common/metrics.py"):
+            pass  # central metrics module defines the canonical collectors
+        elif any(imp.startswith("prometheus_client") for imp in self.imports):
+            self.errors.append(
+                "Direct prometheus_client import detected - use ml.common.metrics_bootstrap",
+            )
+
+        # Insecure pickle usage: prohibit in actors/strategies/inference/deployment paths
+        path_str = str(self.filepath)
+        if any(k in self.imports for k in ("pickle", "joblib")):
+            if any(seg in path_str for seg in ("actors/", "strategies/", "deployment/", "inference/")):
+                self.errors.append(
+                    "Insecure model serialization import (pickle/joblib) in production path; use ONNX + onnxruntime",
+                )
+            elif "training/" in path_str:
+                self.warnings.append(
+                    "Consider avoiding pickle/joblib even in training; prefer explicit formats (Parquet/ONNX)",
+                )
+
+        # Provider factory: detect long if/elif chains → suggest mapping
+        if str(self.filepath).endswith("ml/data/providers/factory.py"):
+            try:
+                with open(self.filepath, encoding="utf-8") as f:
+                    src = f.read()
+                tree = ast.parse(src)
+                for n in ast.walk(tree):
+                    if isinstance(n, ast.FunctionDef) and n.name in {"create_provider", "get_provider", "factory"}:
+                        chain_count = sum(1 for c in ast.walk(n) if isinstance(c, ast.If))
+                        if chain_count >= 6:
+                            self.errors.append(
+                                f"Function '{n.name}' uses a large if/elif chain; replace with registry mapping/factory",
+                            )
+            except Exception:
+                # Non-fatal: skip if unable to parse
+                pass
+
+    def _estimate_class_length(self, node: ast.ClassDef) -> int | None:
+        """Estimate class length in lines using end_lineno if available."""
+        try:
+            end = getattr(node, "end_lineno", None)
+            if end is None:
+                # Fallback: find max lineno in body
+                end = max((getattr(n, "lineno", 0) for n in ast.walk(node)), default=node.lineno)
+            return int(end) - int(getattr(node, "lineno", 0)) + 1
+        except Exception:
+            return None
+
+    def _is_hot_path_file(self) -> bool:
+        p = str(self.filepath)
+        return ("actors/" in p) or ("inference/" in p)
+
+    def _is_stores_or_actors_file(self) -> bool:
+        p = str(self.filepath)
+        return ("actors/" in p) or ("stores/" in p)
+
     def validate_hot_cold_separation(self):
         """
         Validate hot/cold path separation rules.
@@ -357,13 +587,14 @@ def check_file(filepath: str) -> tuple[bool, list[str], list[str]]:
     path = Path(filepath)
 
     try:
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read()
             tree = ast.parse(content, filename=filepath)
 
         validator = NautilusPatternValidator(filepath, path)
         validator.visit(tree)
         validator.validate_hot_cold_separation()
+        validator.validate_module_level()
 
         passed = len(validator.errors) == 0
         return passed, validator.errors, validator.warnings
@@ -390,8 +621,12 @@ def main():
     if not ml_files:
         return 0
 
-    # Skip test files
-    ml_files = [f for f in ml_files if not Path(f).name.startswith("test_")]
+    # Skip test files and test directories
+    ml_files = [
+        f
+        for f in ml_files
+        if not Path(f).name.startswith("test_") and "ml/tests/" not in f and "/tests/" not in f
+    ]
 
     if not ml_files:
         return 0

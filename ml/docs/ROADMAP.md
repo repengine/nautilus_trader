@@ -148,6 +148,7 @@ Post‑Alpha Backlog (Beta and beyond)
   - DELIVERED: provider‑agnostic resume/backoff helper with DST‑aware window planning and tests (`DatabentoIngestor`).
   - DELIVERED: store integration via `SqlMarketDataWriter` + `SqlCoverageProvider` (idempotent writes with ON CONFLICT/OR IGNORE; BRIN guidance) targeting canonical `market_data` (003_market_data.sql); DataStore contracts remain provider‑agnostic.
   - DELIVERED: gap backfill orchestrator integrated with DataRegistry (events + watermarks) and canonical storage (`ml/data/ingest/orchestrator.py`).
+  - DELIVERED: DatabentoAPIClient adapter (`ml/data/ingest/databento_adapter.py`) with canonical column mapping for bars/quotes/trades and `ts_event` normalization; CLI supports `--client-mode databento` with `DATABENTO_API_KEY`.
   - DELIVERED observability: ingestion metrics helpers, dashboard row, alerts.
   - Performance: ingestion micro‑benchmarks (CPU, throughput, p95/p99) with budgets and documentation.
   - Acceptance: integration tests pass against offline fixtures; contract/property tests green; dashboards updated; micro‑bench stable within budgets.
@@ -161,12 +162,17 @@ Post‑Alpha Backlog (Beta and beyond)
   - DELIVERED provider‑agnostic FeatureStore write test using deterministic fixtures (SQLite): idempotent upsert and ordering verified.
   - Schema evolution patterns, dual‑write windows, migration tests (JSON + PG); BRIN/BTREE tuning guidance; ops runbook updates.
 
+- Inference Parity & Guards
+  - DELIVERED: Inference Parity Checklist (`ml/docs/implementation/inference_parity_checklist.md`) with verification plan.
+  - DELIVERED: Startup parity guards in MLSignalActor (data_requirements L1_ONLY, feature_schema_hash parity, min_bars_warmup, bar_type metadata checks).
+  - DELIVERED: Optional parity smoke-check (one‑shot) with metrics `ml_feature_parity_checks_total` and `ml_feature_parity_drift`.
+
 Next (Short‑Term)
 
 - Live/Backfill Bridge
-  - Bootstrap wiring/CLI: instantiate coverage + writer + registry + ingestor from env; run orchestrator backfill on configured instruments.
+  - DELIVERED: Bootstrap CLI wiring (`ml/cli/ingest_backfill.py`) with coverage modes (sql|catalog), client modes (catalog|databento), state persistence.
   - Persist IngestState between runs (JSON under `checkpoints/` or minimal DB table); add resume examples.
-  - Optional: service hook (IntegrationManager) to run backfill at startup in `ml_pipeline` container.
+  - DELIVERED: IntegrationManager backfill bootstrap (env‑driven; runs CLI on startup with flags).
 - Ingestion Performance Gates
   - CI micro‑bench for ingestion (P95/P99, CPU); convert to hard gates once stable.
 - Redis Streams End‑to‑End (Optional)

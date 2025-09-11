@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 from abc import abstractmethod
+import time
 from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.data.providers.utils import validate_timestamps
 
 
 if TYPE_CHECKING:
@@ -457,12 +459,20 @@ class BaseStaticProvider(BaseDataProvider):
 
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        cache_ttl_seconds: float | None = None,
+        cache_max_entries: int | None = None,
+    ) -> None:
         """
         Initialize static provider.
         """
         super().__init__()
-        self._metadata_cache: dict[str, pl.DataFrame] = {}
+        # Cache entries: key -> (inserted_at_epoch_seconds, dataframe)
+        self._metadata_cache: dict[str, tuple[float, pl.DataFrame]] = {}
+        self._cache_ttl_seconds = cache_ttl_seconds
+        self._cache_max_entries = cache_max_entries
 
     def load_metadata(self, instruments: list[str]) -> pl.DataFrame:
         """
@@ -484,19 +494,55 @@ class BaseStaticProvider(BaseDataProvider):
 
         # Check cache
         if cache_key in self._metadata_cache:
-            self.metrics["static_cache_hits"] += 1
-            return self._metadata_cache[cache_key]
+            inserted_at, cached_df = self._metadata_cache[cache_key]
+            ttl = self._cache_ttl_seconds
+            now = time.time()
+            if ttl is None or (now - inserted_at) <= ttl:
+                self.metrics["static_cache_hits"] += 1
+                return cached_df
+            # Stale entry; remove and treat as miss
+            try:
+                del self._metadata_cache[cache_key]
+            except Exception:
+                pass
 
         # Load fresh
         self.metrics["static_cache_misses"] += 1
         try:
             data = self._load_metadata_impl(instruments)
             if self.validate_data(data):
-                self._metadata_cache[cache_key] = data
+                # Evict if cache over capacity
+                self._maybe_evict_cache()
+                self._metadata_cache[cache_key] = (time.time(), data)
             return data
         except Exception as e:
             self._handle_error(e)
             raise
+
+    def _maybe_evict_cache(self) -> None:
+        """
+        Evict oldest entries if over capacity.
+
+        No-op if `cache_max_entries` is None or not exceeded.
+        """
+        max_entries = self._cache_max_entries
+        if max_entries is None:
+            return
+        try:
+            while len(self._metadata_cache) >= int(max_entries):
+                # Remove oldest by timestamp
+                oldest_key: str | None = None
+                oldest_ts: float | None = None
+                for k, (ts, _df) in self._metadata_cache.items():
+                    if oldest_ts is None or ts < oldest_ts:
+                        oldest_ts = ts
+                        oldest_key = k
+                if oldest_key is None:
+                    break
+                del self._metadata_cache[oldest_key]
+        except Exception:
+            # Best-effort eviction; do not fail reads due to eviction logic
+            pass
 
     @abstractmethod
     def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
@@ -535,12 +581,9 @@ class BaseTimeSeriesProvider(BaseDataProvider):
             Time series data
 
         """
-        # Validate timestamps
-        if not timestamps.is_sorted():
-            raise ValueError("Timestamps are not sorted")
-
-        if timestamps.null_count() > 0:
-            raise ValueError("Timestamps contain nulls")
+        # Validate timestamps using shared utility
+        if not validate_timestamps(timestamps):
+            raise ValueError("Invalid timestamps (nulls, unsorted, or out of range)")
 
         try:
             data = self._load_timeseries_impl(instruments, timestamps)

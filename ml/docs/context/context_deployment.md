@@ -106,6 +106,9 @@ PIPELINE_MODE: "${PIPELINE_MODE:-daily}"  # daily, backfill, or realtime
 SCHEDULE_CRON: "0 4 * * *"  # Daily at 4 AM UTC
 HEALTH_PORT: 8080
 METRICS_PORT: 8000
+WRITE_MODE: "${WRITE_MODE:-sql}"       # sql (canonical)
+COVERAGE_MODE: "${COVERAGE_MODE:-sql}" # sql|catalog (planning)
+CATALOG_PATH: "${CATALOG_PATH:-}"     # required for catalog coverage/client
 ```
 
 **Entrypoint**: `ml/deployment/entrypoint_pipeline.py`
@@ -154,6 +157,49 @@ orch.backfill_gaps(
 ```
 
 Note: For live streaming, attach the client’s write path to `SqlMarketDataWriter` to persist incoming records consistently with backfilled data.
+
+**Backfill Bootstrap (IntegrationManager)**:
+
+- The `MLIntegrationManager` can automatically run a one-time backfill at startup when enabled via environment variables. This uses the same CLI (`ml.cli.ingest_backfill`) so behavior and flags are consistent across entrypoints.
+
+Environment flags:
+
+- `ML_BACKFILL_ON_START`: `1|true|yes` to enable
+- `BACKFILL_DATASET_ID`: dataset ID (e.g., `EQUS.MINI`) [required]
+- `BACKFILL_INSTRUMENTS`: comma-separated instrument IDs [required]
+- `BACKFILL_SCHEMA`: `bars|tbbo|trades` (default `bars`)
+- `BACKFILL_LOOKBACK_DAYS`: integer (default `7`)
+- `COVERAGE_MODE`: `sql|catalog` (default `sql`)
+- `WRITE_MODE`: `sql` (default `sql`)
+- `TABLE_NAME`: target table (default `market_data`)
+- `INGEST_CLIENT_MODE`: `catalog|databento|noop` (default `catalog`)
+- `CATALOG_PATH`: required for catalog coverage/client
+- `DATABENTO_API_KEY`: used if `client-mode=databento`
+
+Example (`docker-compose.yml` excerpt):
+
+```yaml
+services:
+  ml_pipeline:
+    environment:
+      DB_CONNECTION: postgresql://postgres:postgres@postgres:5432/nautilus
+      # Enable backfill on startup
+      ML_BACKFILL_ON_START: "true"
+      BACKFILL_DATASET_ID: "EQUS.MINI"
+      BACKFILL_INSTRUMENTS: "SPY.XNAS,QQQ.XNAS"
+      BACKFILL_SCHEMA: "bars"
+      BACKFILL_LOOKBACK_DAYS: "7"
+      COVERAGE_MODE: "sql"            # or 'catalog'
+      WRITE_MODE: "sql"
+      INGEST_CLIENT_MODE: "catalog"   # or 'databento'
+      CATALOG_PATH: "/data/catalog"   # required if using catalog
+      DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
+```
+
+Notes:
+
+- The IntegrationManager logs the full CLI invocation and soft-fails (logs a warning) if the backfill cannot run so as not to block container startup.
+- For long-running backfills or multiple instruments, prefer running the CLI as a separate one-shot job.
 
 ### Core Trading Services
 

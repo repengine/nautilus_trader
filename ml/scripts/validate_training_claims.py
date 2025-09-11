@@ -6,11 +6,10 @@ Focus on checking what actually exists and works vs. documentation claims.
 
 """
 
-import sys
-import traceback
-from pathlib import Path
 import importlib
 import inspect
+import sys
+from pathlib import Path
 
 
 def test_import(module_name, description):
@@ -299,14 +298,12 @@ def main():
     print("-" * 65)
 
     try:
-        from ml._imports import (
-            HAS_LIGHTGBM,
-            HAS_XGBOOST,
-            HAS_SKLEARN,
-            HAS_ONNX,
-            HAS_OPTUNA,
-            HAS_MLFLOW,
-        )
+        from ml._imports import HAS_LIGHTGBM
+        from ml._imports import HAS_MLFLOW
+        from ml._imports import HAS_ONNX
+        from ml._imports import HAS_OPTUNA
+        from ml._imports import HAS_SKLEARN
+        from ml._imports import HAS_XGBOOST
 
         deps = {
             "LightGBM": HAS_LIGHTGBM,

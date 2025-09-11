@@ -9,12 +9,12 @@ from hypothesis import given, strategies as st
 from ml.data.fixtures import make_tbbo_fixture
 
 
-def _chunk_indices(n: int, parts: int) -> List[Tuple[int, int]]:
+def _chunk_indices(n: int, parts: int) -> list[tuple[int, int]]:
     # Split range(0, n) into roughly equal contiguous chunks
     base = n // parts
     rem = n % parts
     idx = 0
-    out: List[Tuple[int, int]] = []
+    out: list[tuple[int, int]] = []
     for i in range(parts):
         size = base + (1 if i < rem else 0)
         out.append((idx, idx + size))
@@ -31,7 +31,7 @@ def test_watermark_progression_non_decreasing(parts: int) -> None:
     df_perm = df.iloc[perm].reset_index(drop=True)
 
     chunks = _chunk_indices(len(df_perm), max(parts, 1))
-    watermarks: List[int] = []
+    watermarks: list[int] = []
     last_wm = -1
     for lo, hi in chunks:
         batch = df_perm.iloc[lo:hi].sort_values("ts_event")

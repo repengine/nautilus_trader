@@ -179,7 +179,7 @@ def test_dummy_registries():
         manifest = dummy.get_manifest("test")
         contract = dummy.get_contract("test")
 
-        print(f"✅ DummyRegistry methods work correctly")
+        print("✅ DummyRegistry methods work correctly")
         print(f"   - Manifest: {manifest}")
         print(f"   - Contract: {contract}")
 
@@ -396,7 +396,7 @@ def test_data_persistence():
             print("⚠️  Real FeatureStore created - PostgreSQL may be available for testing")
             results["real_store_available"] = True
         except Exception:
-            print("ℹ️  Real stores not available (expected without PostgreSQL)")
+            print("INFO: Real stores not available (expected without PostgreSQL)")
             results["real_store_available"] = False
 
     except Exception as e:
@@ -661,7 +661,7 @@ def run_comprehensive_test():
 
     claims_validated = 0
     for component, description in mandatory_components:
-        if component in all_results and all_results[component]:
+        if all_results.get(component):
             print(f"✅ VALIDATED: {description}")
             claims_validated += 1
         else:

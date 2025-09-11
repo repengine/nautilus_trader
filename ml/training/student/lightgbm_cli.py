@@ -32,6 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kd_lambda", type=float, default=0.5)
     ap.add_argument("--early_stopping", type=int, default=200)
     ap.add_argument("--opset", type=int, default=17)
+    # Optional decision policy adapter for inference actor
+    ap.add_argument("--decision_policy", required=False, default=None)
+    ap.add_argument("--decision_config", required=False, default=None, help="JSON dict for adapter")
     args = ap.parse_args(argv)
 
     X = np.load(args.features_npz, allow_pickle=True)
@@ -84,6 +87,16 @@ def main(argv: list[str] | None = None) -> int:
         pipeline_signature=pipeline_signature,
         pipeline_version=pipeline_version,
     )
+    # Optionally attach decision policy
+    if args.decision_policy:
+        manifest.decision_policy = args.decision_policy
+        if args.decision_config:
+            import json as _json
+
+            try:
+                manifest.decision_config = _json.loads(args.decision_config)
+            except Exception as exc:
+                raise SystemExit(f"Invalid --decision_config JSON: {exc}")
     registry.register_model(Path(onnx_path), manifest, auto_deploy=True)
 
     print(f"Saved: {onnx_path}\nMeta: {meta_path}\nRegistered in: {args.registry_dir}")

@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import numpy.typing as npt
+import ml
 
 # Set environment variable to allow non-ONNX models for testing
 os.environ["ML_TEST_ALLOW_NON_ONNX"] = "1"
@@ -57,6 +58,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import BarAggregation, PriceType
 from nautilus_trader.core.datetime import dt_to_unix_nanos
+from datetime import UTC
 
 
 class SignalGenerationTester:
@@ -89,7 +91,7 @@ class SignalGenerationTester:
         )
 
         # Create timestamps
-        ts_event = dt_to_unix_nanos(datetime.now(timezone.utc))
+        ts_event = dt_to_unix_nanos(datetime.now(UTC))
         ts_init = ts_event
 
         # Create Bar (using positional arguments based on Bar class structure)
@@ -138,7 +140,7 @@ class SignalGenerationTester:
             actor_id="test_001",
         )
 
-    def test_strategy_existence_and_functionality(self) -> Dict[str, Any]:
+    def test_strategy_existence_and_functionality(self) -> dict[str, Any]:
         """Test 1: Verify all 5 built-in signal strategies exist and function."""
         print("🔍 Testing Strategy Existence and Functionality...")
 
@@ -234,7 +236,7 @@ class SignalGenerationTester:
             "details": strategy_results,
         }
 
-    def test_mlsignal_data_model(self) -> Dict[str, Any]:
+    def test_mlsignal_data_model(self) -> dict[str, Any]:
         """Test 2: Verify MLSignal data model matches documentation specs."""
         print("🔍 Testing MLSignal Data Model...")
 
@@ -307,7 +309,7 @@ class SignalGenerationTester:
             "signal_created_successfully": True,
         }
 
-    def test_lock_free_components(self) -> Dict[str, Any]:
+    def test_lock_free_components(self) -> dict[str, Any]:
         """Test 3: Verify lock-free ring buffers and performance optimizations."""
         print("🔍 Testing Lock-Free Components...")
 
@@ -405,7 +407,7 @@ class SignalGenerationTester:
 
         return results
 
-    def test_performance_targets(self) -> Dict[str, Any]:
+    def test_performance_targets(self) -> dict[str, Any]:
         """Test 4: Measure actual hot path performance against targets."""
         print("🔍 Testing Performance Targets...")
 
@@ -504,7 +506,7 @@ class SignalGenerationTester:
 
         return stats
 
-    def test_regime_detection_and_adaptive_thresholds(self) -> Dict[str, Any]:
+    def test_regime_detection_and_adaptive_thresholds(self) -> dict[str, Any]:
         """Test 5: Verify market regime detection and adaptive threshold adjustment."""
         print("🔍 Testing Market Regime Detection and Adaptive Thresholds...")
 
@@ -602,7 +604,7 @@ class SignalGenerationTester:
 
         return results
 
-    def test_signal_aggregation_and_multi_model(self) -> Dict[str, Any]:
+    def test_signal_aggregation_and_multi_model(self) -> dict[str, Any]:
         """Test 6: Verify signal aggregation and multi-model orchestration."""
         print("🔍 Testing Signal Aggregation and Multi-Model Orchestration...")
 
@@ -689,7 +691,7 @@ class SignalGenerationTester:
 
         return results
 
-    def run_all_tests(self) -> Dict[str, Any]:
+    def run_all_tests(self) -> dict[str, Any]:
         """
         Run all comprehensive tests and generate report.
         """

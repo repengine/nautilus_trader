@@ -118,6 +118,11 @@ class ModelManifest:
     feature_set_id: str | None = None
     pipeline_signature: str | None = None
     pipeline_version: str | None = None
+    # Decision policy adapter for actor (optional OCP hook)
+    # Fully-qualified import path to an adapter or strategy class
+    decision_policy: str | None = None
+    # Free-form config for the adapter
+    decision_config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

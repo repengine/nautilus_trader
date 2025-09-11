@@ -106,6 +106,7 @@ def aggregate_l2_minute_pl(l2: pl.DataFrame, *, timestamp_col: str = "ts_event")
             ],
         )
 
+    df = df.sort(timestamp_col)
     out = (
         df.group_by_dynamic(index_column=timestamp_col, every="1m", period="1m")
         .agg(aggs)

@@ -12,7 +12,6 @@ import logging
 import time
 import uuid
 from collections.abc import Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -21,19 +20,24 @@ from sqlalchemy import JSON
 from sqlalchemy import Column
 from sqlalchemy import Float
 from sqlalchemy import Index
-from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic_for_stage
+from ml.config.events import EventStatus
+from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
+from ml.stores._buffered_store import BufferedStoreMixin
+from ml.stores._engine_mixin import EngineInitMixin
+from ml.stores._read_helpers import ReadQueryMixin
+from ml.stores._registry_mixin import DataRegistryMixin
+from ml.stores._upsert_mixin import SQLUpsertMixin
 from ml.stores.base import BaseStore
 from ml.stores.base import ModelPrediction
 
@@ -45,8 +49,6 @@ if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
     from nautilus_trader.common.clock import Clock
 
-from ml.config.events import EventStatus
-from ml.config.events import Stage
 
 
 logger = logging.getLogger(__name__)
@@ -69,7 +71,7 @@ if HAS_PROMETHEUS:
         data_events_total = None
 
 
-class ModelStore(BaseStore):
+class ModelStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStore, BusPublisherMixin, DataRegistryMixin, EngineInitMixin):
     """
     Store for model predictions with PostgreSQL backend.
 
@@ -149,19 +151,11 @@ class ModelStore(BaseStore):
             self.flush_interval_ms = int(flush_interval_seconds * 1000)
         self.clock = clock
         # Optional message publishing
-        self._enable_publishing = bool(enable_publishing)
-        self.publisher: MessagePublisherProtocol | None = publisher
-        self._publish_mode: Literal["batch", "row", "both"] = publish_mode
-        # Topic scheme/prefix (env-driven defaults)
-        try:
-            from ml.config.bus import MessageBusConfig as _MBC
-
-            _cfg = _MBC.from_env()
-            self._topic_scheme: str = str(_cfg.scheme)
-            self._topic_prefix: str = str(_cfg.topic_prefix)
-        except Exception:  # pragma: no cover - defensive
-            self._topic_scheme = "domain_op"
-            self._topic_prefix = "events.ml"
+        self._init_bus_publishing(
+            enable_publishing=enable_publishing,
+            publisher=publisher,
+            publish_mode=publish_mode,
+        )
 
         # Allow tests to inject a mock persistence manager directly
         if persistence_manager is not None:
@@ -181,64 +175,12 @@ class ModelStore(BaseStore):
         # DataRegistry for event emission (lazy initialization)
         self._data_registry: RegistryProtocol | None = None
 
-        # Create engine and setup tables
-        if self.connection_string:
-            self.engine: Engine = EngineManager.get_engine(self.connection_string)
-            self.metadata = MetaData()
-            self._setup_tables()
-            try:
-                status = EngineManager.get_pool_status(self.connection_string)
-                if status:
-                    logger.debug("Engine pool status: %s", status)
-            except Exception as e:
-                logger.debug("Pool status unavailable: %s", e)
+        # Create engine, metadata, and setup tables (shared init)
+        self._init_engine_and_tables()
 
     def _get_data_registry(self) -> RegistryProtocol | None:
-        """
-        Lazily initialize and return the DataRegistry instance.
-
-        Returns
-        -------
-        DataRegistry | None
-            The data registry instance or None if initialization fails.
-
-        """
-        if self._data_registry is None:
-            try:
-                from ml.registry.data_registry import DataRegistry
-                from ml.registry.persistence import BackendType
-                from ml.registry.persistence import PersistenceConfig
-
-                # Initialize DataRegistry with appropriate backend
-                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
-
-                # Determine backend based on connection string
-                if self.connection_string and (
-                    "postgresql://" in self.connection_string
-                    or "postgres://" in self.connection_string
-                ):
-                    # Use PostgreSQL backend for production
-                    persistence_config = PersistenceConfig(
-                        backend=BackendType.POSTGRES,
-                        connection_string=self.connection_string,
-                    )
-                else:
-                    # Use JSON backend for development/testing
-                    persistence_config = PersistenceConfig(
-                        backend=BackendType.JSON,
-                        json_path=registry_path,
-                    )
-
-                self._data_registry = DataRegistry(
-                    registry_path=registry_path,
-                    persistence_config=persistence_config,
-                )
-                logger.debug("Initialized DataRegistry for event emission")
-            except Exception as e:
-                logger.warning(f"Failed to initialize DataRegistry: {e}")
-                self._data_registry = None
-
-        return self._data_registry
+        # Delegate to shared mixin
+        return DataRegistryMixin._get_data_registry(self)
 
     def set_data_registry(self, registry: RegistryProtocol) -> None:
         """
@@ -393,9 +335,7 @@ class ModelStore(BaseStore):
         self,
         values: list[dict[str, Any]],
     ) -> None:  # pragma: no cover
-        """
-        Upsert predictions (patchable in tests).
-        """
+        """Upsert predictions and publish via shared helper (patchable in tests)."""
         if not values:
             return
         # Optional audit logging (sampled)
@@ -412,108 +352,30 @@ class ModelStore(BaseStore):
                 )
         except Exception as e:
             logger.debug("Audit logging skipped due to error: %s", e)
-        # Normalize timestamps in incoming values
-        from ml.common.timestamps import sanitize_timestamp_ns
 
-        for v in values:
-            if "ts_event" in v and isinstance(v["ts_event"], int):
-                v["ts_event"] = sanitize_timestamp_ns(
-                    int(v["ts_event"]),
-                    logger=logger,
-                    context="ModelStore._execute_write",
-                )
-            if "ts_init" in v and isinstance(v["ts_init"], int):
-                v["ts_init"] = sanitize_timestamp_ns(
-                    int(v["ts_init"]),
-                    logger=logger,
-                    context="ModelStore._execute_write",
-                )
-        # De-duplicate within the same batch to avoid ON CONFLICT updating the same
-        # row twice in a single INSERT .. ON CONFLICT statement.
-        dedup: dict[tuple[str, str, int], dict[str, Any]] = {}
-        for v in values:
-            key = (str(v["model_id"]), str(v["instrument_id"]), int(v["ts_event"]))
-            dedup[key] = v
-        values = list(dedup.values())
-
-        stmt = insert(self.model_predictions_table)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["model_id", "instrument_id", "ts_event"],
-            set_={
-                "prediction": stmt.excluded.prediction,
-                "confidence": stmt.excluded.confidence,
-                "features_used": stmt.excluded.features_used,
-                "inference_time_ms": stmt.excluded.inference_time_ms,
-            },
+        self._execute_upsert_and_publish(
+            values=values,
+            ts_event_field="ts_event",
+            ts_init_field="ts_init",
+            context="ModelStore._execute_write",
+            key_fields=("model_id", "instrument_id", "ts_event"),
+            table=self.model_predictions_table,
+            conflict_cols=["model_id", "instrument_id", "ts_event"],
+            update_cols=[
+                "prediction",
+                "confidence",
+                "features_used",
+                "inference_time_ms",
+            ],
+            dataset_id="predictions",
+            stage=Stage.PREDICTION_EMITTED,
+            instrument_key="instrument_id",
+            ts_field="ts_event",
+            run_id_batch="model_store_write",
+            run_id_row="model_store_row",
+            source="inference",
+            logger=logger,
         )
-        with self.engine.begin() as conn:
-            conn.execute(stmt, values)
-
-        # Optional publish summary event per batch (off hot-path)
-        batch_list = list(values)
-        if (
-            self._enable_publishing
-            and self.publisher is not None
-            and batch_list
-            and self._publish_mode in ("batch", "both")
-        ):
-            try:
-                stage = Stage.PREDICTION_EMITTED
-                instrument_id = str(batch_list[0]["instrument_id"]) if batch_list else "UNKNOWN"
-                topic = build_topic_for_stage(
-                    stage,
-                    instrument_id,
-                    scheme=self._topic_scheme,
-                    prefix=self._topic_prefix,
-                )
-                ts_min = min(int(v["ts_event"]) for v in batch_list)
-                ts_max = max(int(v["ts_event"]) for v in batch_list)
-                payload: dict[str, Any] = {
-                    "dataset_id": "predictions",
-                    "instrument_id": instrument_id,
-                    "stage": stage.value,
-                    "source": "inference",
-                    "run_id": "model_store_write",
-                    "ts_min": ts_min,
-                    "ts_max": ts_max,
-                    "count": len(batch_list),
-                    "status": EventStatus.SUCCESS.value,
-                }
-                self.publisher.publish(topic, payload)
-            except Exception:
-                logger.debug("ModelStore publish failed", exc_info=True)
-
-        # Optional per-row publish when enabled
-        if (
-            self._enable_publishing
-            and self.publisher is not None
-            and self._publish_mode in ("row", "both")
-        ):
-            try:
-                stage = Stage.PREDICTION_EMITTED
-                for v in batch_list:
-                    instrument_id = str(v.get("instrument_id", "UNKNOWN"))
-                    topic = build_topic_for_stage(
-                        stage,
-                        instrument_id,
-                        scheme=self._topic_scheme,
-                        prefix=self._topic_prefix,
-                    )
-                    ts_e = int(v.get("ts_event", 0))
-                    row_payload: dict[str, Any] = {
-                        "dataset_id": "predictions",
-                        "instrument_id": instrument_id,
-                        "stage": stage.value,
-                        "source": "inference",
-                        "run_id": "model_store_row",
-                        "ts_min": ts_e,
-                        "ts_max": ts_e,
-                        "count": 1,
-                        "status": EventStatus.SUCCESS.value,
-                    }
-                    self.publisher.publish(topic, row_payload)
-            except Exception:
-                logger.debug("ModelStore per-row publish failed", exc_info=True)
 
     # Backwards-compatible alias used in some tests
     def write_predictions(self, data: list[ModelPrediction]) -> None:
@@ -549,10 +411,11 @@ class ModelStore(BaseStore):
         import pandas as pd
         from sqlalchemy import text as _text
 
+        table_name = self._qualified_table("ml_model_predictions")
         sql = _text(
-            """
+            f"""
             SELECT ts_event, prediction, confidence, features_used, inference_time_ms
-            FROM public.ml_model_predictions
+            FROM {table_name}
             WHERE model_id = :model_id
               AND instrument_id = :instrument_id
               AND ts_event >= :start_ns
@@ -604,11 +467,7 @@ class ModelStore(BaseStore):
         import pandas as pd
         from sqlalchemy import text as _text
 
-        table_name = (
-            "ml_model_predictions"
-            if self.engine.dialect.name == "sqlite"
-            else "public.ml_model_predictions"
-        )
+        table_name = self._qualified_table("ml_model_predictions")
 
         where_parts: list[str] = ["model_id = :model_id"]
         params: dict[str, Any] = {"model_id": model_id, "limit": int(limit)}
@@ -717,9 +576,9 @@ class ModelStore(BaseStore):
 
         if instrument_id is None:
             sql = _text(
-                """
+                f"""
                 SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM public.ml_model_predictions
+                FROM {self._qualified_table('ml_model_predictions')}
                 WHERE ts_event >= :start_ns AND ts_event < :end_ns
                 ORDER BY ts_event
                 """,
@@ -727,9 +586,9 @@ class ModelStore(BaseStore):
             params: dict[str, int | str] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
         else:
             sql = _text(
-                """
+                f"""
                 SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM public.ml_model_predictions
+                FROM {self._qualified_table('ml_model_predictions')}
                 WHERE ts_event >= :start_ns AND ts_event < :end_ns
                   AND instrument_id = :instrument_id
                 ORDER BY ts_event
@@ -777,9 +636,9 @@ class ModelStore(BaseStore):
         if instrument_id is None:
             # Return across instruments by unioning results
             sql = text(
-                """
+                f"""
                 SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM public.ml_model_predictions
+                FROM {self._qualified_table('ml_model_predictions')}
                 WHERE model_id = :model_id
                   AND ts_event >= :start_ns AND ts_event < :end_ns
                 ORDER BY instrument_id, ts_event
@@ -826,9 +685,9 @@ class ModelStore(BaseStore):
         from sqlalchemy import text as _text
 
         sql = _text(
-            """
+            f"""
             SELECT model_id, ts_event, prediction, confidence, inference_time_ms
-            FROM public.ml_model_predictions
+            FROM {self._qualified_table('ml_model_predictions')}
             WHERE instrument_id = :instrument_id
             ORDER BY ts_event DESC
             LIMIT :limit
@@ -930,23 +789,15 @@ class ModelStore(BaseStore):
         }
 
     def flush(self) -> None:
-        """
-        Flush pending predictions to storage and emit events.
-        """
-        if self._write_buffer:
-            # Store the buffer data before clearing for event emission
-            buffer_copy = list(self._write_buffer)
+        """Delegate to shared buffered flush behavior."""
+        # Use mixin implementation to avoid duplication across stores
+        from ml.stores._buffered_store import BufferedStoreMixin as _BSM
 
-            # Write to storage (emit_events=False to avoid double emission)
-            self.write_batch(buffer_copy, emit_events=False)
+        _BSM.flush(self)
 
-            # Emit PREDICTION_EMITTED events after successful storage
-            self._emit_prediction_events(buffer_copy)
-
-            # Clear buffer and update flush time
-            self._write_buffer.clear()
-            if self.clock:
-                self._last_flush_ns = self.clock.timestamp_ns()
+    # Wrapper used by BufferedStoreMixin.flush
+    def _emit_events(self, predictions: list[ModelPrediction]) -> None:
+        self._emit_prediction_events(predictions)
 
     def _emit_prediction_events(self, predictions: list[ModelPrediction]) -> None:
         """

@@ -17,6 +17,7 @@ import gc
 import logging
 import sys
 import time
+import traceback
 import tracemalloc
 from pathlib import Path
 from typing import Any
@@ -263,7 +264,7 @@ class FeatureEngineeringTester:
                     "volume": float(row["volume"][0]),
                 }
 
-                features = self.engineer.calculate_features_online(current_bar, indicator_mgr)
+                self.engineer.calculate_features_online(current_bar, indicator_mgr)
 
                 # Check if buffer is being reused
                 if hasattr(self.engineer, "feature_buffer"):
@@ -330,7 +331,7 @@ class FeatureEngineeringTester:
                 }
 
                 start = time.perf_counter_ns()
-                features = self.engineer.calculate_features_online(current_bar, indicator_mgr)
+                self.engineer.calculate_features_online(current_bar, indicator_mgr)
                 end = time.perf_counter_ns()
 
                 latency_ms = (end - start) / 1_000_000  # Convert to milliseconds
@@ -417,14 +418,15 @@ class FeatureEngineeringTester:
 
         try:
             # Try to import and use store
-            try:
-                from ml.stores.feature_store import FeatureStore
+            import importlib.util as _importlib_util
 
+            spec = _importlib_util.find_spec("ml.stores.feature_store")
+            if spec is not None:
                 results["store_available"] = True
                 logger.info("✓ FeatureStore import successful")
-            except ImportError:
+            else:
                 results["error"] = "FeatureStore not available"
-                logger.info("ℹ FeatureStore not available for testing")
+                logger.info("INFO: FeatureStore not available for testing")
 
         except Exception as e:
             results["error"] = str(e)
@@ -563,7 +565,7 @@ def generate_report(results: dict[str, Any]) -> str:
     if store.get("store_available"):
         report.append("✓ INFO: FeatureStore available")
     else:
-        report.append("ℹ INFO: FeatureStore not available")
+        report.append("INFO: FeatureStore not available")
     report.append("")
 
     # Summary

@@ -29,6 +29,7 @@ from __future__ import annotations
 import time
 from abc import ABC
 from abc import abstractmethod
+from collections import deque
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -44,14 +45,10 @@ from ml.actors.base import BaseMLInferenceActor
 from ml.actors.base import MLSignal
 from ml.actors.ml_domain_events import DomainEventBridge
 from ml.common.correlation import make_correlation_id
-from ml.common.message_bus import publisher_from_config
 from ml.common.message_topics import build_topic_for_stage
-from ml.common.throttler import Throttler
-from ml.config.actor_bus import ActorBusConfig
 from ml.config.actors import MLSignalActorConfig as _BaseMLSignalActorConfig
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
-from ml.config.bus import MessageBusConfig
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -90,6 +87,9 @@ class MLSignalActorConfig(_BaseMLSignalActorConfig, kw_only=True, frozen=True):
     """
 
     actor_id: str | None = None
+    enable_parity_smoke_check: bool = False
+    parity_smoke_check_window_bars: int = 200
+    parity_tolerance: float = 1e-6
 
 
 __all__ = [
@@ -151,6 +151,8 @@ _feature_time_by_feature_set_metric = None
 _signals_generated_metric = None
 _adaptive_threshold_metric = None
 _market_regime_metric = None
+_feature_parity_checks_total = None
+_feature_parity_drift = None
 
 
 def _initialize_performance_metrics() -> None:
@@ -158,6 +160,7 @@ def _initialize_performance_metrics() -> None:
     Initialize module-level performance metrics once globally (idempotent).
     """
     from ml.common.metrics_bootstrap import get_counter
+    from ml.common.metrics_bootstrap import get_gauge
     from ml.common.metrics_bootstrap import get_histogram
 
     global _metrics_initialized
@@ -168,6 +171,8 @@ def _initialize_performance_metrics() -> None:
     global _adaptive_threshold_metric
     global _market_regime_metric
     global _feature_time_by_feature_set_metric
+    global _feature_parity_checks_total
+    global _feature_parity_drift
 
     if _metrics_initialized:
         return
@@ -208,6 +213,18 @@ def _initialize_performance_metrics() -> None:
         METRIC_MARKET_REGIME_TOTAL,
         "Market regime detection counts",
         [LABEL_ACTOR_ID, "regime"],
+    )
+
+    # Parity smoke-check metrics
+    _feature_parity_checks_total = get_counter(
+        "ml_feature_parity_checks_total",
+        "Total parity smoke-checks executed",
+        [LABEL_ACTOR_ID],
+    )
+    _feature_parity_drift = get_gauge(
+        "ml_feature_parity_drift",
+        "Max absolute feature difference in parity smoke-check",
+        [LABEL_ACTOR_ID],
     )
 
     _metrics_initialized = True
@@ -924,6 +941,7 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         super().__init__(config)
         self._signal_config = config
+        # Built-in strategies selected via mapping in _create_strategy()
 
         # Get configurations
         self._opt_config = config.optimization_config or OptimizationConfig()
@@ -1047,6 +1065,14 @@ class MLSignalActor(BaseMLInferenceActor):
             )
         self._indicator_manager: IndicatorManager | None = None
 
+        # Parity smoke-check state (optional)
+        self._parity_enabled: bool = bool(getattr(config, "enable_parity_smoke_check", False))
+        self._parity_window: int = int(getattr(config, "parity_smoke_check_window_bars", 200))
+        self._parity_tolerance: float = float(getattr(config, "parity_tolerance", 1e-6))
+        self._recent_bars: deque[Bar] = deque(maxlen=self._parity_window)
+        self._recent_features: deque[npt.NDArray[np.float32]] = deque(maxlen=self._parity_window)
+        self._parity_checked: bool = False
+
         # Signal generation state
         self._prediction_history: list[float] = []
         self._confidence_history: list[float] = []
@@ -1090,53 +1116,18 @@ class MLSignalActor(BaseMLInferenceActor):
         # Optimized components (lazy initialized)
         self._optimized_buffers: dict[str, Any] = {}
 
-        # Optional actor-side message bus bridge (off by default)
+        # Optional actor-side message bus bridge (off by default); centralized helper
         self._actor_bus_bridge: DomainEventBridge | None = None
         self._topic_scheme: str = "domain_op"
         self._topic_prefix: str = "events.ml"
         try:
-            _actor_bus_cfg = ActorBusConfig.from_env()
-            _bus_cfg = MessageBusConfig.from_env()
-            # Honor actor-path publishing only when explicitly enabled and bus enabled
-            if _actor_bus_cfg.from_actor and _bus_cfg.enabled:
-                pub = publisher_from_config(_bus_cfg)
-                throttler = (
-                    Throttler(
-                        rate_per_sec=float(_actor_bus_cfg.throttle_rate_per_sec),
-                        burst=int(_actor_bus_cfg.throttle_burst),
-                    )
-                    if _actor_bus_cfg.throttle_enabled
-                    else None
-                )
-                bridge = DomainEventBridge(pub, max_queue=4096, throttler=throttler)
-                bridge.start()
-                self._actor_bus_bridge = bridge
-                # Select topic scheme/prefix from actor config
-                self._topic_scheme = str(_actor_bus_cfg.scheme)
-                self._topic_prefix = str(_actor_bus_cfg.prefix)
-                # Mutual exclusion: disable store-path publishers to avoid duplicate publishes
-                try:
-                    stores = [
-                        getattr(self, "_feature_store", None),
-                        getattr(self, "_model_store", None),
-                        getattr(self, "_strategy_store", None),
-                        getattr(self, "_data_store", None),
-                    ]
-                    for st in stores:
-                        if st is None:
-                            continue
-                        if hasattr(st, "publisher"):
-                            setattr(st, "publisher", None)
-                        # Best-effort; attribute may not exist
-                        if hasattr(st, "_enable_publishing"):
-                            try:
-                                setattr(st, "_enable_publishing", False)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
+            from ml.actors.ml_domain_events import init_actor_bus_bridge as _init_bridge
+
+            bridge, scheme, prefix = _init_bridge(self)
+            self._actor_bus_bridge = bridge
+            self._topic_scheme = scheme
+            self._topic_prefix = prefix
         except Exception:
-            # Keep optional components best-effort and off hot path
             self._actor_bus_bridge = None
 
         # Handle both enum and string for logging
@@ -1232,6 +1223,82 @@ class MLSignalActor(BaseMLInferenceActor):
                 stats[k] = v
         return stats
 
+    # Parity verification hook from BaseMLInferenceActor
+    def _verify_parity_requirements(self) -> None:
+        """
+        Verify core training/inference parity requirements.
+
+        Checks (best-effort, fail-fast on explicit mismatches):
+        - Model data requirements compatible with actor (L1_ONLY for MLSignalActor)
+        - Feature schema hash/pipeline signature parity if available
+        - Min warm-up bars from FeatureManifest constraints
+        - BarType string matches recorded metadata (if present)
+        - Timestamp policy hints (timestamp_on_close, use_exchange_as_venue) logged if present
+        """
+        # 1) Model requirements via registry when possible
+        try:
+            model_id = getattr(self, "_model_id", None)
+            if model_id and hasattr(self, "_model_registry") and self._model_registry is not None:
+                info = self._model_registry.get_model(model_id)
+                if info is not None:
+                    req = info.manifest.data_requirements
+                    from ml.registry.base import DataRequirements as _DR
+
+                    if req != _DR.L1_ONLY:
+                        raise ValueError(
+                            f"Model data_requirements={req.value} incompatible with MLSignalActor (expected L1_ONLY)",
+                        )
+                    # If both model and feature manifests available, re-assert schema hash parity
+                    if self._feature_set_id and hasattr(self, "_feature_registry"):
+                        fman = self._feature_registry.get_feature_manifest(self._feature_set_id)
+                        if fman is not None and fman.schema_hash:
+                            if info.manifest.feature_schema_hash and (
+                                info.manifest.feature_schema_hash != fman.schema_hash
+                            ):
+                                raise ValueError(
+                                    "feature_schema_hash mismatch between model and features",
+                                )
+        except Exception:
+            raise
+
+        # 2) Feature warm-up bars from FeatureManifest
+        try:
+            if self._feature_set_id and hasattr(self, "_feature_registry"):
+                fman = self._feature_registry.get_feature_manifest(self._feature_set_id)
+                if fman is not None:
+                    min_warm = 0
+                    try:
+                        min_warm = int(fman.constraints.get("min_bars_warmup", 0))
+                    except Exception:
+                        min_warm = 0
+                    if min_warm > 0 and getattr(self._config, "warm_up_period", 0) < min_warm:
+                        raise ValueError(
+                            f"warm_up_period {getattr(self._config, 'warm_up_period', 0)} < required min_bars_warmup {min_warm}",
+                        )
+
+                    # 3) BarType parity check if training recorded it
+                    try:
+                        expected_bt = fman.metadata.get("bar_type") if isinstance(fman.metadata, dict) else None
+                        if expected_bt:
+                            actual_bt = str(getattr(self._config, "bar_type", ""))
+                            if actual_bt and actual_bt != str(expected_bt):
+                                raise ValueError(
+                                    f"BarType mismatch: configured={actual_bt} vs training={expected_bt}",
+                                )
+                        # Optional hints
+                        expected_toc = fman.metadata.get("timestamp_on_close") if isinstance(fman.metadata, dict) else None
+                        expected_venue = fman.metadata.get("use_exchange_as_venue") if isinstance(fman.metadata, dict) else None
+                        if expected_toc is not None:
+                            self.log.info(f"Parity hint: training timestamp_on_close={expected_toc}")
+                        if expected_venue is not None:
+                            self.log.info(f"Parity hint: training use_exchange_as_venue={expected_venue}")
+                    except Exception:
+                        raise
+        except Exception:
+            raise
+
+    # (Extensible strategy registry can be added in a follow-up)
+
     def _create_strategy(self) -> SignalGenerationStrategy:
         """
         Create signal generation strategy.
@@ -1240,59 +1307,82 @@ class MLSignalActor(BaseMLInferenceActor):
         if self._signal_config.custom_strategy is not None:
             return cast(SignalGenerationStrategy, self._signal_config.custom_strategy)
 
-        # Create built-in strategy; widen type to runtime string
-        strategy_str = str(self._signal_config.signal_strategy)
+        # 1) Model-driven decision policy (preferred OCP path)
+        try:
+            meta = getattr(self, "_model_metadata", None)
+            policy = meta.get("decision_policy") if isinstance(meta, dict) else None
+            if policy:
+                from ml.actors.adapters import build_strategy_from_policy
+
+                cfg = meta.get("decision_config", {}) if isinstance(meta, dict) else {}
+                return build_strategy_from_policy(policy_path=str(policy), actor=self, config=cfg)
+        except Exception as exc:
+            # Silent fallback to built-ins; keep hot path clean
+            try:
+                self.log.debug(f"Decision policy adapter load failed: {exc}")
+            except Exception:
+                pass
+
+        # 2) Built-in strategy mapping (backwards compatibility)
+        strategy_key = str(self._signal_config.signal_strategy).lower()
         threshold = self._config.prediction_threshold
 
-        if strategy_str == "threshold" or strategy_str == SignalStrategy.THRESHOLD.value:
+        def _mk_threshold() -> SignalGenerationStrategy:
             return ThresholdSignalStrategy(threshold)
-        elif strategy_str == "extremes" or strategy_str == SignalStrategy.EXTREMES.value:
+
+        def _mk_extremes() -> SignalGenerationStrategy:
             return ExtremesStrategy(
                 self._strat_config.extremes_top_pct,
                 threshold,
                 self._signal_config.adaptive_window,
             )
-        elif strategy_str == "momentum" or strategy_str == SignalStrategy.MOMENTUM.value:
+
+        def _mk_momentum() -> SignalGenerationStrategy:
             return MomentumStrategy(
                 self._strat_config.momentum_lookback,
                 threshold,
-                0.01,  # momentum threshold
+                0.01,
             )
-        elif strategy_str == "ensemble" or strategy_str == SignalStrategy.ENSEMBLE.value:
-            # Create sub-strategies for ensemble
+
+        def _mk_ensemble() -> SignalGenerationStrategy:
             strategies = {
-                "threshold": ThresholdSignalStrategy(threshold),
-                "extremes": ExtremesStrategy(
-                    self._strat_config.extremes_top_pct,
-                    threshold,
-                    self._signal_config.adaptive_window,
-                ),
-                "momentum": MomentumStrategy(
-                    self._strat_config.momentum_lookback,
-                    threshold,
-                    0.01,
-                ),
+                "threshold": _mk_threshold(),
+                "extremes": _mk_extremes(),
+                "momentum": _mk_momentum(),
             }
             return EnsembleStrategy(
                 strategies,
                 self._strat_config.ensemble_weights
-                or {
-                    "threshold": 0.4,
-                    "extremes": 0.3,
-                    "momentum": 0.3,
-                },
+                or {"threshold": 0.4, "extremes": 0.3, "momentum": 0.3},
                 threshold,
             )
-        elif strategy_str == "adaptive" or strategy_str == SignalStrategy.ADAPTIVE.value:
+
+        def _mk_adaptive() -> SignalGenerationStrategy:
             return AdaptiveStrategy(
                 threshold,
                 self._strat_config.adaptive_volatility_factor,
                 self._strat_config.min_threshold,
                 self._strat_config.max_threshold,
             )
-        else:
-            self.log.warning(f"Unknown strategy {strategy_str}, using threshold")
-            return ThresholdSignalStrategy(threshold)
+
+        factory = {
+            "threshold": _mk_threshold,
+            SignalStrategy.THRESHOLD.value: _mk_threshold,
+            "extremes": _mk_extremes,
+            SignalStrategy.EXTREMES.value: _mk_extremes,
+            "momentum": _mk_momentum,
+            SignalStrategy.MOMENTUM.value: _mk_momentum,
+            "ensemble": _mk_ensemble,
+            SignalStrategy.ENSEMBLE.value: _mk_ensemble,
+            "adaptive": _mk_adaptive,
+            SignalStrategy.ADAPTIVE.value: _mk_adaptive,
+        }
+
+        maker = factory.get(strategy_key)
+        if maker is None:
+            self.log.warning(f"Unknown strategy {strategy_key}, using threshold")
+            return _mk_threshold()
+        return maker()
 
     def _load_model(self) -> None:
         """
@@ -1317,37 +1407,45 @@ class MLSignalActor(BaseMLInferenceActor):
         # Model is loaded by base class in on_start via _load_model_with_metadata
         # which uses the SmartModelLoader
 
-        # Warm up if configured
-        if self._opt_config.enable_model_warm_up and self._model is not None:
-            self._warm_up_model()
+        # Warm up if configured (use shared util when available)
+        try:
+            from ml.actors.model_loader_utils import maybe_warm_up_model
+
+            if self._model is not None:
+                maybe_warm_up_model(
+                    self._model,
+                    bool(self._opt_config.enable_model_warm_up),
+                    int(self._feature_engineer.n_features),
+                )
+        except Exception:
+            if self._opt_config.enable_model_warm_up and self._model is not None:
+                self._warm_up_model()
 
         # Validate manifest-based feature parity after model is loaded
+        from ml.actors.model_loader_utils import assert_features_parity
         try:
-            # Reuse the same logic as in __init__ if metadata is present
             model_names = getattr(self, "_manifest_feature_names", [])
+            actual_names = self._feature_engineer.config.get_feature_names()
+            assert_features_parity(model_names, getattr(self, "_model_metadata", None), actual_names)
             if model_names:
-                actual_names = self._feature_engineer.config.get_feature_names()
-                manifest_schema = None
-                if isinstance(getattr(self, "_model_metadata", None), dict):
-                    manifest_schema = self._model_metadata.get("feature_schema")
-                if not manifest_schema:
-                    manifest_schema = dict.fromkeys(model_names, "float32")
-                tmp_manifest = ModelManifest(
-                    model_id="__validation__",
-                    role=ModelRole.STUDENT,
-                    data_requirements=DataRequirements.L1_ONLY,
-                    architecture="unknown",
-                    feature_schema=manifest_schema,
-                    feature_schema_hash=getattr(self, "_manifest_feature_schema_hash", ""),
-                )
-                actual_dtypes = ["float32"] * len(actual_names)
-                assert_features_compatible(tmp_manifest, actual_names, actual_dtypes)
                 self.log.info(
-                    f"Feature parity validated (model): features={len(actual_names)}, hash={tmp_manifest.feature_schema_hash}",
+                    f"Feature parity validated (model): features={len(actual_names)}",
                 )
         except Exception:
             # Bubble up to fail fast during startup if mismatch
             raise
+
+        # If the model manifest provides a decision adapter, (re)create strategy now
+        try:
+            if isinstance(self._model_metadata, dict) and self._model_metadata.get("decision_policy"):
+                self._signal_strategy = self._create_strategy()
+                self.log.info("Applied model-driven decision policy from manifest")
+        except Exception as exc:
+            # Keep running with existing strategy on adapter failure
+            try:
+                self.log.debug(f"Decision policy application failed: {exc}")
+            except Exception:
+                pass
 
     def _load_optimized_onnx_model(self) -> None:
         """
@@ -1390,7 +1488,7 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         rng = np.random.default_rng()
         dummy_features = rng.standard_normal(self._feature_buffer.size).astype(np.float32)
-        warm_up_times = []
+        warm_up_times: list[float] = []
 
         for i in range(self._opt_config.warm_up_iterations):
             start = time.perf_counter_ns()
@@ -1612,6 +1710,8 @@ class MLSignalActor(BaseMLInferenceActor):
             # Re-raise to let base class handle circuit breaker and health monitoring
             raise
 
+# (module-level OCP registration helper removed; methods are class-bound)
+
     def _generate_prediction_protected(self, bar: Bar, features: npt.NDArray[np.float32]) -> None:
         """
         Generate ML prediction with signal generation.
@@ -1642,6 +1742,18 @@ class MLSignalActor(BaseMLInferenceActor):
 
             # Record success
             self._record_success()
+
+            # Parity smoke-check bookkeeping
+            if getattr(self, "_parity_enabled", False):
+                try:
+                    # Append recent bar and feature snapshot
+                    self._recent_bars.append(bar)
+                    self._recent_features.append(features.copy())
+                    if not self._parity_checked and len(self._recent_bars) >= int(self._parity_window):
+                        self._run_parity_smoke_check()
+                except Exception:
+                    # Never impact hot path
+                    pass
 
         except Exception as e:
             self._handle_prediction_error(e)
@@ -1731,7 +1843,43 @@ class MLSignalActor(BaseMLInferenceActor):
                 inference_time_ns,
                 total_time_ns,
             )
+        # No return value; side-effect only
         return None
+
+    def _run_parity_smoke_check(self) -> None:
+        """
+        Compute features offline over the recent window and compare to online results.
+
+        Emits `ml_feature_parity_checks_total` and updates `ml_feature_parity_drift` gauge.
+        """
+        try:
+            offline_vectors: list[npt.NDArray[np.float32]] = []
+            for b in self._recent_bars:
+                vec = self._compute_features(b)
+                if vec is not None:
+                    offline_vectors.append(vec.copy())
+
+            n_online = len(self._recent_features)
+            n_offline = len(offline_vectors)
+            n = min(n_online, n_offline)
+            if n == 0:
+                return
+            online = np.stack(list(self._recent_features)[-n:])
+            offline = np.stack(offline_vectors[-n:])
+            drift = float(np.max(np.abs(online - offline)))
+
+            actor_label = str(self.id) if self.id is not None else "unknown"
+            if _feature_parity_checks_total is not None:
+                _feature_parity_checks_total.labels(actor_id=actor_label).inc()
+            if _feature_parity_drift is not None:
+                _feature_parity_drift.labels(actor_id=actor_label).set(drift)
+
+            if drift > self._parity_tolerance:
+                self.log.warning(
+                    f"Feature parity drift {drift:.3e} exceeded tolerance {self._parity_tolerance:.3e}",
+                )
+        finally:
+            self._parity_checked = True
 
     def _should_hot_reload(self) -> bool:
         """

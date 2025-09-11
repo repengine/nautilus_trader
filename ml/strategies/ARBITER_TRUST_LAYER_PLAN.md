@@ -154,6 +154,6 @@ policy:
 
 ## Open Questions
 
-- Where to store calibrator params long-term: StrategyStore JSONB vs. Registry manifest section?
+- Where to store calibrator params long-term: StrategyStore JSONB vs. Registry manifest section? (StrategyRegistry, StrategyStore, PostgreSQL)
 - How to parameterize horizon(s) per instrument for heterogeneous universes?
 - Which uncertainty proxy to use initially (ensemble SD vs. residual EWMA) for `sigma`?

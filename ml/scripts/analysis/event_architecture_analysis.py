@@ -7,33 +7,10 @@ providing concrete evidence and recommendations.
 
 """
 
-import os
-import sys
-from typing import Dict, List, Any
-
-# Add the project root to sys.path
-project_root = "/home/nate/projects/nautilus_trader"
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+from typing import Any
 
 # Import all event system components
-from ml.config.events import Stage, Source, EventStatus
-from ml.config.bus import MessageBusConfig
-from ml.config.actor_bus import ActorBusConfig
-from ml.common.message_bus import NoopPublisher, RedisStreamsPublisher, publisher_from_config
-from ml.common.message_topics import (
-    build_topic,
-    build_stage_topic,
-    map_stage_to_topic_segments,
-    _normalize_instrument_id,
-    build_topic_for_stage,
-)
 from ml.common.topic_filters import match_topic
-from ml.common.in_memory_bus import InMemoryPublisher
-from ml.common.throttler import Throttler
-from ml.actors.ml_domain_events import DomainEventBridge
-from ml.consumers.idempotent import IdempotentConsumer
-from ml.consumers.redis_streams_consumer import RedisStreamsConsumer
 
 
 class ArchitectureAnalyzer:
@@ -50,7 +27,7 @@ class ArchitectureAnalyzer:
             "integration_gaps": [],
         }
 
-    def analyze_topic_filtering(self) -> Dict[str, Any]:
+    def analyze_topic_filtering(self) -> dict[str, Any]:
         """
         Analyze topic filtering functionality.
         """
@@ -121,7 +98,7 @@ class ArchitectureAnalyzer:
 
         return results
 
-    def analyze_message_flow(self) -> Dict[str, Any]:
+    def analyze_message_flow(self) -> dict[str, Any]:
         """
         Analyze end-to-end message flow.
         """

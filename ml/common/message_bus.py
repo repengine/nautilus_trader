@@ -10,7 +10,7 @@ optional Redis Streams adapter can be enabled via configuration.
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from ml.config.bus import MessageBusConfig
 
@@ -96,7 +96,45 @@ def publisher_from_config(cfg: MessageBusConfig) -> MessagePublisherProtocol:
     return NoopPublisher()
 
 
+class BusPublisherMixin:
+    """
+    Mixin providing standardized bus publishing attributes and initialization.
+
+    Call `_init_bus_publishing(...)` in a constructor to set:
+    - `_enable_publishing`: bool
+    - `publisher`: MessagePublisherProtocol | None
+    - `_publish_mode`: Literal["batch", "row", "both"]
+    - `_topic_scheme`: str
+    - `_topic_prefix`: str
+    """
+
+    def _init_bus_publishing(
+        self,
+        *,
+        enable_publishing: bool,
+        publisher: MessagePublisherProtocol | None,
+        publish_mode: Literal["batch", "row", "both"] = "batch",
+    ) -> None:
+        # Basic flags
+        self._enable_publishing = bool(enable_publishing)
+        self.publisher = publisher
+        self._publish_mode = publish_mode
+
+        # Topic scheme/prefix (env-driven defaults)
+        try:
+            from ml.config.bus import MessageBusConfig as _MBC
+
+            _cfg = _MBC.from_env()
+            self._topic_scheme = str(_cfg.scheme)
+            self._topic_prefix = str(_cfg.topic_prefix)
+        except Exception:  # pragma: no cover - defensive
+            # Sensible defaults consistent with existing code
+            self._topic_scheme = "domain_op"
+            self._topic_prefix = "events.ml"
+
+
 __all__ = [
+    "BusPublisherMixin",
     "MessagePublisherProtocol",
     "NoopPublisher",
     "RedisStreamsPublisher",

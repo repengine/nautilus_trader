@@ -106,6 +106,14 @@ generate-setup-file = false
 pytest-benchmark = "^5.1.0"
 pandera = "^0.26.1"
 allpairspy = "^2.5.1"
+semgrep = "^1.83.0"
+import-linter = "^2.0.0"
+xenon = "^0.9.3"
+pylint = "^3.2.7"
+bandit = "^1.7.9"
+detect-secrets = "^1.5.0"
+vulture = "^2.14"
+sqlfluff = "^3.1.0"
 
 [project.optional-dependencies]
 betfair = [
@@ -205,6 +213,14 @@ dev = [
     "types-pytz>=2024.2,<2025.0",
     "types-requests>=2.32,<3.0",
     "types-toml>=0.10.2,<1.0.0",
+    "semgrep==1.82.0",
+    "import-linter>=2.0.0,<3.0.0",
+    "xenon>=0.9.3,<1.0.0",
+    "pylint>=3.2.7,<4.0.0",
+    "bandit>=1.7.9,<2.0.0",
+    "detect-secrets>=1.5.0,<2.0.0",
+    "vulture>=2.14,<3.0.0",
+    "sqlfluff>=3.1.0,<4.0.0",
 ]
 test = [
     "aiohttp==3.11.18,<4.0.0",  # Pinned to 3.11.8 for wheel compatibility on supported platforms
@@ -448,7 +464,13 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
+    "ml.actors.signal",
+    "ml.deployment.*",
     "ml.tests.*",
+    "ml.test_feature_claims",
+    "ml.test_l2_aggregation_fix",
+    "ml.test_microstructure_validation",
+    "ml.test_performance_benchmark",
 ]
 ignore_errors = true
 

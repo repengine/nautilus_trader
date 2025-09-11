@@ -12,6 +12,7 @@ from ml.common.metrics import data_collection_duration
 from ml.common.metrics import data_collection_errors_total
 from ml.common.metrics import record_pipeline_event
 from ml.common.metrics import watermark_lag_seconds
+from ml.config.events import Stage
 
 
 def record_ingest_batch(
@@ -35,7 +36,10 @@ def record_ingest_batch(
         max(duration_seconds, 0.0)
     )
     record_pipeline_event(
-        dataset_type=dataset, component=instrument, stage="INGESTED", source=source
+        dataset_type=dataset,
+        component=instrument,
+        stage=Stage.DATA_INGESTED.value,
+        source=source,
     )
     # Watermark lag is defined as "now - last_success_ns"; tests pass 0 for simplicity
     # Here we store as 0 to avoid relying on real clock in tests

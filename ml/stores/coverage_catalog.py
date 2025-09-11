@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final, cast
 
 from ml.stores.protocols import CoverageProviderProtocol
 from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import Data
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -14,16 +13,16 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 DAY_NS: Final[int] = 86_400_000_000_000
 
 
-def _schema_to_dataclass(schema: str) -> type[Data]:
+def _schema_to_dataclass(schema: str) -> type[Any]:
     s = schema.lower()
     if "bar" in s or "ohlcv" in s:
-        return Bar
+        return cast(type[Any], Bar)
     if "tbbo" in s or "quote" in s:
-        return QuoteTick
+        return cast(type[Any], QuoteTick)
     if "trade" in s:
-        return TradeTick
+        return cast(type[Any], TradeTick)
     # Default to Bar coverage when unspecified
-    return Bar
+    return cast(type[Any], Bar)
 
 
 @dataclass(slots=True)

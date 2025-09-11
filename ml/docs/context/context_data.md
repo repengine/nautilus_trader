@@ -24,6 +24,56 @@ Operational notes:
 
 **Implementation Status**: 100% complete, production-ready with comprehensive metrics, monitoring, and operational resilience
 
+## Recent Data Progress (Sept 2025)
+
+This section documents the latest backfills, gap fills, macro refresh, and dataset builds performed to stabilize training and improve micro/L2 signal quality.
+
+- L0 minute bars (Tier‑1)
+  - Safe, targeted recent backfill added via `ml/scripts/backfill_ohlcv_recent.py`.
+  - Writes to `data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet`.
+  - `TFTDatasetBuilder` now recognizes this `l0` path as a fallback source alongside `ohlcv‑1m_{historical,recent}.parquet`.
+
+- L2 (depth) gap fill (Tier‑1)
+  - Enhanced `ml/scripts/populate_l2_efficient.py` to be resource‑safe:
+    - Streaming merges using PyArrow row‑groups (no full‑file in RAM).
+    - Resume/progress file at `data/tier1/.l2_progress.json` (per‑day completion).
+    - Sharding flags: `--max-symbols`, `--symbol-offset`, `--shuffle`.
+    - Throttling: `--rate-limit` and `--sleep-between-symbols`.
+    - Signal‑safe flush on SIGINT/SIGTERM.
+  - Outputs final files `data/tier1/<SYMBOL>/l2/<SYMBOL>_mbp-10.parquet`.
+  - Operational caps that avoided kills on shared hosts:
+    - `POLARS_MAX_THREADS=1 PYARROW_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`.
+
+- FRED macro refresh (90d)
+  - Refreshed via `FREDDataLoader` and saved both wide and ML‑format:
+    - `data/fred/fred_indicators_updated.parquet` (wide)
+    - `data/fred/fred_indicators_ml_format.parquet` (long; for `join_fred_asof`).
+  - Publication lag handled via `join_fred_asof(..., lag_days=N)`.
+
+- Dataset builds
+  - 60d dataset rebuilt for Tier‑1 with macro+micro+L2.
+    - Per‑symbol: `/tmp/tft_universe_60d/<SYMBOL>/dataset.(parquet|csv)`
+    - Feature sets registered in `~/.nautilus/ml/features`.
+  - 90d dataset merged for Tier‑1 (macro+micro+L2), ready for HPO:
+    - Merged: `/tmp/tft_universe_90d/merged/dataset.(parquet|csv)`.
+
+### Runbook snippets
+
+- L0 backfill (recent minutes):
+  - `python -m ml.scripts.backfill_ohlcv_recent --tier 1 --days 14`
+
+- L2 gap fill (resume‑safe shards):
+  - Environment caps: `export POLARS_MAX_THREADS=1 PYARROW_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`
+  - Shards of 5 symbols (example):
+    - `for off in 0 5 10 15 20; do python ml/scripts/populate_l2_efficient.py --tier 1 --days 14 --check-gaps --max-symbols 5 --symbol-offset $off --rate-limit 10 --sleep-between-symbols 1; done`
+
+- FRED refresh (90d):
+  - Set `FRED_API_KEY` then refresh via `FREDDataLoader` or `ml/scripts/fred_integration_bridge.py`.
+
+- Builds:
+  - 60d: `python -m ml.pipelines.build_runner --config ml/config/build_universe_60d.json`
+  - 90d: `python -m ml.pipelines.build_runner --config ml/config/build_universe_90d.json`
+
 ## Architecture Overview
 
 The data pipeline follows a layered architecture with clear separation of concerns:

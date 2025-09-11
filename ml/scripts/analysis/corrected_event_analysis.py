@@ -7,22 +7,7 @@ docstring examples were wrong, this provides the corrected analysis.
 
 """
 
-import os
-import sys
-import time
-import uuid
-from typing import Dict, List, Any
-
-# Add the project root to sys.path
-project_root = "/home/nate/projects/nautilus_trader"
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 from ml.common.topic_filters import match_topic
-from ml.common.in_memory_bus import InMemoryPublisher
-from ml.actors.ml_domain_events import DomainEventBridge
-from ml.consumers.idempotent import IdempotentConsumer
-from ml.common.throttler import Throttler
 
 
 def test_corrected_topic_filtering():

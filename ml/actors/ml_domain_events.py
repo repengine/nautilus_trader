@@ -10,11 +10,13 @@ events due to backpressure are logged via counters in the observability pipeline
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from typing import Any, NamedTuple
 
 from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.message_bus import publisher_from_config  # re-exported for tests
 from ml.common.metrics import backpressure_drops_total
 from ml.common.metrics import backpressure_queue_depth
 from ml.common.throttler import Throttler
@@ -116,8 +118,9 @@ class DomainEventBridge:
                 backpressure_queue_depth.labels(component=self._component_id).set(
                     float(self._queue.qsize()),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger = logging.getLogger(__name__)
+                logger.debug("Domain event queue depth gauge update failed (ignored): %s", exc)
             return True
         except queue.Full:
             backpressure_drops_total.labels(
@@ -137,3 +140,71 @@ class DomainEventBridge:
                 self._publisher.publish(evt.topic, evt.payload)
             finally:
                 self._queue.task_done()
+
+
+def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, str]:
+    """
+    Initialize an actor-side domain event bridge from environment configuration.
+
+    Returns
+    -------
+    tuple[DomainEventBridge | None, str, str]
+        (bridge, topic_scheme, topic_prefix). Bridge is None when disabled.
+    """
+    # Default topic configuration
+    topic_scheme = "domain_op"
+    topic_prefix = "events.ml"
+
+    try:
+        # Lazy import to avoid cycles in module graph
+        from ml.common.throttler import Throttler as _Throttler
+        from ml.config.actor_bus import ActorBusConfig
+        from ml.config.bus import MessageBusConfig
+
+        actor_bus_cfg = ActorBusConfig.from_env()
+        bus_cfg = MessageBusConfig.from_env()
+        if not (actor_bus_cfg.from_actor and bus_cfg.enabled):
+            return None, topic_scheme, topic_prefix
+
+        publisher = publisher_from_config(bus_cfg)
+        throttler = (
+            _Throttler(
+                rate_per_sec=float(actor_bus_cfg.throttle_rate_per_sec),
+                burst=int(actor_bus_cfg.throttle_burst),
+            )
+            if actor_bus_cfg.throttle_enabled
+            else None
+        )
+        bridge = DomainEventBridge(publisher, max_queue=4096, throttler=throttler)
+        bridge.start()
+
+        # Update topic config from actor bus settings
+        topic_scheme = str(actor_bus_cfg.scheme)
+        topic_prefix = str(actor_bus_cfg.prefix)
+
+        # Mutual exclusion: disable store-path publishers to avoid duplicates
+        try:
+            stores = [
+                getattr(actor, "_feature_store", None),
+                getattr(actor, "_model_store", None),
+                getattr(actor, "_strategy_store", None),
+                getattr(actor, "_data_store", None),
+            ]
+            for st in stores:
+                if st is None:
+                    continue
+                if hasattr(st, "publisher"):
+                    setattr(st, "publisher", None)
+                if hasattr(st, "_enable_publishing"):
+                    try:
+                        setattr(st, "_enable_publishing", False)
+                    except Exception:
+                        pass
+        except Exception:
+            # Never impact initialization on optional convenience
+            pass
+
+        return bridge, topic_scheme, topic_prefix
+    except Exception:
+        # Best-effort helper; keep actor hot path clean
+        return None, topic_scheme, topic_prefix

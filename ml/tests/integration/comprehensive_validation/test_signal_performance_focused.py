@@ -410,7 +410,7 @@ def main():
     print("- Performance targets are achievable (results may vary by environment)")
     print("- Zero-allocation claims partially validated (environment-dependent)")
 
-    print(f"\n💾 Raw results available for further analysis")
+    print("\n💾 Raw results available for further analysis")
     return results
 
 

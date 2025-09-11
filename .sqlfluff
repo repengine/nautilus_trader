@@ -1,0 +1,5 @@
+[sqlfluff]
+dialect = postgres
+exclude_rules = L003,L010
+templater = jinja
+

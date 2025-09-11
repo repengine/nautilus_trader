@@ -784,6 +784,8 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             The decision data.
 
         """
+        # Explicitly mark parameter as used for static analyzers
+        del decision
 
     def _execute_trade(self, trade: dict[str, Any]) -> None:
         """

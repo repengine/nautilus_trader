@@ -64,7 +64,7 @@ def test_student_onnx_export():
                 print(f"✓ ONNX export successful: {onnx_path}")
 
                 # Verify metadata
-                with open(meta_path, "r") as f:
+                with open(meta_path) as f:
                     metadata = json.load(f)
 
                 expected_keys = [

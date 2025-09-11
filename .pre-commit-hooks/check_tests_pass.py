@@ -17,6 +17,7 @@
 Pre-commit hook to run tests on changed files and ml/ folder.
 """
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -91,19 +92,36 @@ def run_tests(test_files):
         "and not database and not redis and not docker and not integration"
     )
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "pytest",
-        *test_files,
-        "-q",
-        "--tb=short",
-        # Fast subset marker expression
-        "-m",
-        MARKERS,
-        "-k",
-        "not database and not hypothesis and not postgres",
-    ]
+    uv = shutil.which("uv")
+    if uv:
+        cmd = [
+            uv,
+            "run",
+            "--active",
+            "--no-sync",
+            "pytest",
+            *test_files,
+            "-q",
+            "--tb=short",
+            "-m",
+            MARKERS,
+            "-k",
+            "not database and not hypothesis and not postgres",
+        ]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            *test_files,
+            "-q",
+            "--tb=short",
+            # Fast subset marker expression
+            "-m",
+            MARKERS,
+            "-k",
+            "not database and not hypothesis and not postgres",
+        ]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)

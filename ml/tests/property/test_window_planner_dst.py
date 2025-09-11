@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from hypothesis import given, strategies as st
+from itertools import pairwise
 
 from ml.data.ingest.resume import DatabentoIngestor
 
@@ -18,7 +19,6 @@ def test_plan_daily_windows_dst_transition(start_day: int) -> None:
     # Expect number of windows == days span
     assert len(windows) == (end - start).days
     # Contiguity: next.start == prev.end, and increasing order
-    for (s0, e0), (s1, e1) in zip(windows, windows[1:]):
+    for (s0, e0), (s1, e1) in pairwise(windows):
         assert s1 == e0
         assert s0 < e0 <= s1 < e1
-

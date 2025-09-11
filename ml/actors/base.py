@@ -10,6 +10,7 @@ Nautilus Trader's hot path.
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from abc import ABC
 from abc import abstractmethod
@@ -40,17 +41,6 @@ from ml.config.names import METRIC_PREDICTIONS_TOTAL
 from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
-from ml.registry import DataRegistry
-from ml.registry.feature_registry import FeatureRegistry
-from ml.registry.model_registry import ModelRegistry
-from ml.registry.persistence import BackendType
-from ml.registry.persistence import PersistenceConfig
-from ml.registry.persistence import PersistenceManager
-from ml.registry.strategy_registry import StrategyRegistry
-from ml.stores import DataStore
-from ml.stores.feature_store import FeatureStore
-from ml.stores.model_store import ModelStore
-from ml.stores.strategy_store import StrategyStore
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import DataType
@@ -259,8 +249,8 @@ class CircuitBreaker:
         # Initialize gauge
         try:
             self._cb_state_gauge.labels(component=self._component_id).set(0.0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Circuit breaker gauge init failed: %s", exc)
 
     @property
     def state(self) -> CircuitBreakerState:
@@ -290,8 +280,8 @@ class CircuitBreaker:
                         component=self._component_id,
                         to_state="half_open",
                     ).inc()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Circuit breaker metrics (half-open) failed: %s", exc)
                 return True
             return False
         else:  # HALF_OPEN
@@ -312,8 +302,8 @@ class CircuitBreaker:
                         component=self._component_id,
                         to_state="closed",
                     ).inc()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Circuit breaker metrics (closed) failed: %s", exc)
         elif self._state == CircuitBreakerState.CLOSED:
             self._failure_count = max(0, self._failure_count - 1)
 
@@ -330,8 +320,8 @@ class CircuitBreaker:
             try:
                 self._cb_state_gauge.labels(component=self._component_id).set(1.0)
                 self._cb_trips_counter.labels(component=self._component_id, to_state="open").inc()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Circuit breaker metrics (open from half-open) failed: %s", exc)
         elif (
             self._state == CircuitBreakerState.CLOSED
             and self._failure_count >= self._config.failure_threshold
@@ -341,8 +331,8 @@ class CircuitBreaker:
             try:
                 self._cb_state_gauge.labels(component=self._component_id).set(1.0)
                 self._cb_trips_counter.labels(component=self._component_id, to_state="open").inc()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Circuit breaker metrics (open) failed: %s", exc)
 
     def get_stats(self) -> dict[str, Any]:
         """
@@ -419,9 +409,8 @@ class ProductionModelLoader(ModelLoader):
                 booster.load_model(path)
                 return booster, {"type": "xgboost", "format": "json"}
             except Exception:
-                # Try loading as JSON metadata
-                with open(path) as f:
-                    data = json.load(f)
+                # Try loading as JSON metadata (not used in hot path)
+                data = json.loads(Path(path).read_text(encoding="utf-8"))
                 return data, {"type": "json", "format": "json"}
 
         elif path.endswith((".pkl", ".pickle")):
@@ -432,11 +421,11 @@ class ProductionModelLoader(ModelLoader):
             )
 
         elif path.endswith(".joblib"):
-            # Joblib model
-            import joblib
-
-            model = joblib.load(path)
-            return model, {"type": "joblib", "format": "joblib"}
+            # Disallow joblib in production paths for security and reproducibility
+            raise ValueError(
+                "Joblib model format (.joblib) is not supported in production. "
+                "Export models to ONNX or supported safe formats.",
+            )
 
         elif path.endswith(".onnx"):
             # ONNX model
@@ -734,172 +723,24 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         - Signal analysis and backtesting
         - Complete audit trail
         """
-        # Fast-path: honor explicit dummy stores setting immediately to avoid
-        # any database probing in unit/property tests.
-        use_dummy_stores_flag = bool(getattr(self._config, "use_dummy_stores", False))
-        if use_dummy_stores_flag:
-            from ml.registry.base import DummyRegistry
-            from ml.stores.base import DummyStore
+        # Centralized initializer (progressive fallback + wiring) via facade
+        from ml.actors.actor_services import init_actor_services
 
-            self.log.info("Using DummyStore and DummyRegistry for testing (no persistence)")
-            self._feature_store = DummyStore()
-            self._model_store = DummyStore()
-            self._strategy_store = DummyStore()
-            self._data_store = DummyStore()
+        services = init_actor_services(self._config)
+        # Avoid Protocol imports at runtime using Any casts
+        from typing import Any as _Any
+        from typing import cast as _cast
 
-            # Also use dummy registries to avoid file I/O during tests
-            self._feature_registry = DummyRegistry()
-            self._model_registry = DummyRegistry()
-            self._strategy_registry = DummyRegistry()
-            self._data_registry = DummyRegistry()
-            self._persistence_manager = None
-
-            return  # Skip any DB initialization entirely
-
-        # Get connection string from config
-        db_connection = getattr(
-            self._config,
-            "db_connection",
-            None,
-        )
-
-        # If no connection string provided, check if PostgreSQL is available; otherwise use DummyStore.
-        use_dummy = False
-        if db_connection is None:
-            try:
-                from sqlalchemy import text
-
-                from ml.core.db_engine import EngineManager
-
-                test_engine = EngineManager.get_engine(
-                    "postgresql://postgres:postgres@localhost:5432/nautilus",
-                )
-                with test_engine.connect() as conn:
-                    conn.execute(text("SELECT 1"))
-                db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
-                backend_type = BackendType.POSTGRES
-            except Exception:
-                # No Postgres: operate with non-persistent DummyStore to avoid dialect issues.
-                use_dummy = True
-                backend_type = BackendType.JSON
-                db_connection = ""
-                self.log.warning("PostgreSQL not available; using DummyStore (no persistence)")
-        else:
-            backend_type = BackendType.POSTGRES
-            # Probe provided connection string; fallback to DummyStore if unreachable (progressive fallback)
-            try:
-                from sqlalchemy import text as _text
-
-                from ml.core.db_engine import EngineManager as _EM
-
-                _eng = _EM.get_engine(str(db_connection))
-                with _eng.connect() as _conn:
-                    _conn.execute(_text("SELECT 1"))
-            except Exception:
-                if getattr(self._config, "allow_dummy_fallback", True):
-                    use_dummy = True
-                    backend_type = BackendType.JSON
-                    self.log.warning(
-                        "Database not reachable (%s); using DummyStore (no persistence)",
-                        db_connection,
-                    )
-                else:
-                    raise
-
-        # Initialize stores - use DummyStore only in test mode or when DB unreachable
-        use_dummy_stores = use_dummy
-
-        if use_dummy_stores:
-            # Explicitly requested dummy stores for testing
-            from ml.registry.base import DummyRegistry
-            from ml.stores.base import DummyStore
-
-            self.log.info("Using DummyStore and DummyRegistry for testing (no persistence)")
-            self._feature_store = DummyStore()
-            self._model_store = DummyStore()
-            self._strategy_store = DummyStore()
-            self._data_store = DummyStore()
-
-            # Also use dummy registries to avoid file I/O during tests
-            self._feature_registry = DummyRegistry()
-            self._model_registry = DummyRegistry()
-            self._strategy_registry = DummyRegistry()
-            self._data_registry = DummyRegistry()
-            self._persistence_manager = None
-
-            return  # Skip the rest of initialization
-        else:
-            # Production mode - stores MUST initialize successfully
-            # Create persistence config only when not in dummy mode
-            persistence_config = PersistenceConfig(
-                backend=backend_type,
-                connection_string=db_connection,
-            )
-            try:
-                self._feature_store = FeatureStore(
-                    connection_string=db_connection,
-                )
-            except Exception as e:
-                error_msg = f"Failed to initialize FeatureStore: {e}"
-                self.log.error(error_msg)
-                raise RuntimeError(error_msg) from e
-
-            try:
-                self._model_store = ModelStore(
-                    persistence_config=persistence_config,
-                )
-            except Exception as e:
-                error_msg = f"Failed to initialize ModelStore: {e}"
-                self.log.error(error_msg)
-                raise RuntimeError(error_msg) from e
-
-            try:
-                self._strategy_store = StrategyStore(
-                    persistence_config=persistence_config,
-                )
-            except Exception as e:
-                error_msg = f"Failed to initialize StrategyStore: {e}"
-                self.log.error(error_msg)
-                raise RuntimeError(error_msg) from e
-
-        # Initialize registries
-        # Use local file-based registries for now (can be upgraded to DB later)
-        from pathlib import Path
-
-        registry_path = Path(".nautilus/ml/registry")
-        registry_path.mkdir(parents=True, exist_ok=True)
-
-        self._persistence_manager = PersistenceManager(persistence_config)
-        self._feature_registry = FeatureRegistry(
-            registry_path,
-            persistence_config=persistence_config,
-        )
-        self._model_registry = ModelRegistry(registry_path, persistence_config=persistence_config)
-        self._strategy_registry = StrategyRegistry(registry_path)
-
-        # Initialize DataRegistry
-        self._data_registry = DataRegistry(
-            registry_path=registry_path / "datasets",
-            persistence_config=persistence_config,
-        )
-        # Inject shared DataRegistry into stores when available
-        try:
-            setter = getattr(self._feature_store, "set_data_registry", None)
-            if callable(setter):
-                setter(self._data_registry)
-            setter2 = getattr(self._model_store, "set_data_registry", None)
-            if callable(setter2):
-                setter2(self._data_registry)
-        except Exception:
-            self.log.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
-
-        # Initialize DataStore with the registry and connection
-        self._data_store = DataStore(
-            registry=self._data_registry,
-            connection_string=db_connection,
-        )
-
-        self.log.info("Stores and registries initialized for data persistence")
+        self._feature_store = _cast(_Any, services.feature_store)
+        self._model_store = _cast(_Any, services.model_store)
+        self._strategy_store = _cast(_Any, services.strategy_store)
+        self._data_store = services.data_store
+        self._feature_registry = services.feature_registry
+        self._model_registry = services.model_registry
+        self._strategy_registry = services.strategy_registry
+        self._data_registry = services.data_registry
+        self._persistence_manager = None
+        self.log.info("Stores and registries initialized (runtime facade)")
 
     @property
     def feature_store(self) -> FeatureStoreProtocol:
@@ -978,6 +819,14 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             # Initialize feature buffers
             self._initialize_features()
 
+            # Verify training/inference parity requirements (hook for subclasses)
+            try:
+                self._verify_parity_requirements()
+            except Exception as e:
+                # Fail fast: parity guarantees are mandatory
+                self.log.error(f"Parity verification failed: {e}")
+                raise
+
             # Update health monitor
             if self._health_monitor:
                 self._health_monitor.set_model_loaded(True)
@@ -1005,6 +854,10 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             if self._health_monitor:
                 self._health_monitor.set_model_loaded(False)
             raise
+
+    # Hook for subclass-specific parity verification (no-op by default)
+    def _verify_parity_requirements(self) -> None:  # pragma: no cover - default no-op
+        return None
 
     def on_bar(self, bar: Bar) -> None:
         """
@@ -1351,6 +1204,29 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
             # Call the original abstract method for backward compatibility
             self._load_model()
 
+            # Optional: shared model warm-up semantics
+            try:  # pragma: no cover - environment dependent
+                from ml.actors.model_loader_utils import maybe_warm_up_model
+
+                # Honor optimization-based warm-up flag when present (e.g., signal actor)
+                opt_cfg = getattr(self._config, "optimization_config", None)
+                warm_flag = bool(getattr(opt_cfg, "enable_model_warm_up", False))
+
+                # Derive input dimension from manifest feature schema when available
+                input_dim = 0
+                try:
+                    schema = self._model_metadata.get("feature_schema")
+                    if isinstance(schema, dict):
+                        input_dim = len(schema)
+                except Exception:
+                    input_dim = 0
+
+                if warm_flag and self._model is not None and input_dim > 0:
+                    maybe_warm_up_model(self._model, True, input_dim)
+            except Exception:
+                # Warm-up is a best-effort optimization; never fail startup
+                pass
+
             self.log.info(
                 f"Loaded model with metadata: "
                 f"model_id={self._model_id}, "
@@ -1402,6 +1278,8 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 "parent_id": manifest.parent_id,
                 "performance_metrics": manifest.performance_metrics,
                 "deployment_constraints": manifest.deployment_constraints,
+                "decision_policy": getattr(manifest, "decision_policy", None),
+                "decision_config": getattr(manifest, "decision_config", {}),
             }
             # Stash manifest feature names/dtypes and hash
             try:
@@ -1907,3 +1785,4 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
             # In production, you'd want more sophisticated state restoration
             self.log.info("Restored indicator state after hot reload")
             self._indicator_state_backup.clear()
+logger = logging.getLogger(__name__)

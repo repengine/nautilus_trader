@@ -12,6 +12,7 @@ The ML CLI module provides command-line interfaces for managing the Nautilus Tra
 - **feature_cli**: Feature registry management and lifecycle operations
 - **events_consumer**: Redis streams event consumption with topic filtering
 - **observability**: Observability data flushing and background processing
+- **ingest_backfill**: Gap backfill orchestration with pluggable coverage and writers
 
 ## Architecture
 
@@ -36,6 +37,7 @@ python -m ml.cli.health [options]
 python -m ml.cli.feature_backfill_cli [options]
 python -m ml.cli.events_consumer [options]
 python -m ml.cli.observability [command] [options]
+python -m ml.cli.ingest_backfill [options]
 ```
 
 ### Backend Configuration Strategy
@@ -375,3 +377,57 @@ The CLI architecture supports easy extension for additional commands:
 - Strategy performance analysis and comparison
 - Data quality monitoring and alerting
 - Automated pipeline health checks and remediation
+
+### Ingest Backfill CLI (`ingest_backfill.py`)
+
+Purpose: Identify missing UTC day buckets and backfill via an ingestion client (catalog by default), persisting to the canonical SQL store with registry integration.
+
+Options:
+
+- `--db`: Postgres URL (defaults `DB_CONNECTION`)
+- `--dataset-id`: e.g., `EQUS.MINI`
+- `--schema`: `bars|tbbo|trades` (bars default for catalog client)
+- `--instruments`: Comma list or file path
+- `--lookback-days`: Default 7 (env `BACKFILL_LOOKBACK_DAYS`)
+- `--coverage-mode`: `sql|catalog` (default `sql`)
+- `--write-mode`: `sql` (default `sql`; `parquet` not implemented by default)
+- `--catalog-path`: Required for catalog coverage/client
+- `--table-name`: Target table (default `market_data`)
+- `--state-path`: State JSON path (default `checkpoints/ingest_state.json`)
+- `--client-mode`: `catalog|databento|noop` (default `catalog`)
+- `--api-key`: Databento API key (for `client-mode=databento`, or use `DATABENTO_API_KEY`)
+- `--dry-run`: Plan only (no ingestion/writes)
+
+Examples:
+
+```bash
+# Plan gaps against SQL store, do not write
+python -m ml.cli.ingest_backfill \
+  --db postgresql://postgres:postgres@localhost:5433/nautilus \
+  --dataset-id EQUS.MINI --schema bars \
+  --instruments SPY.XNAS,QQQ.XNAS \
+  --lookback-days 7 \
+  --dry-run
+
+# Use Parquet catalog for coverage and ingestion client, write to SQL canonical store
+python -m ml.cli.ingest_backfill \
+  --db postgresql://postgres:postgres@localhost:5433/nautilus \
+  --dataset-id EQUS.MINI --schema bars \
+  --instruments SPY.XNAS \
+  --coverage-mode catalog --client-mode catalog \
+  --catalog-path /abs/path/to/catalog \
+  --lookback-days 14
+
+# Use Databento client for ingestion (still writing to SQL)
+python -m ml.cli.ingest_backfill \
+  --db postgresql://postgres:postgres@localhost:5433/nautilus \
+  --dataset-id EQUS.MINI --schema bars \
+  --instruments SPY.XNAS \
+  --client-mode databento --api-key "$DATABENTO_API_KEY" \
+  --lookback-days 7
+```
+
+Notes:
+
+- Canonical writes are SQL; registry events/watermarks reflect DB persistence.
+- Catalog coverage/client is intended for historical workflows; for live backfills, use SQL coverage and a real Databento client.

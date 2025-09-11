@@ -170,8 +170,8 @@ db-migrate-cli-dry-run:  #-- Dry-run migrations (no execution)
 	$Q uv run --active --no-sync python -m ml.scripts.apply_migrations $(if $(DATABASE_URL),--db-url $(DATABASE_URL)) --dry-run $(if $(FULL),--full,) $(if $(SCHEMA),--schema $(SCHEMA),)
 
 .PHONY: ruff
-ruff:  #-- Run ruff linter with automatic fixes
-	uv run --active --no-sync ruff check . --fix
+ruff:  #-- Run ruff linter with automatic fixes (ML package only)
+	uv run --active --no-sync ruff check ml --fix
 
 .PHONY: validate-metrics
 validate-metrics:  #-- Validate metrics bootstrap usage (no direct prometheus collectors)
@@ -180,6 +180,17 @@ validate-metrics:  #-- Validate metrics bootstrap usage (no direct prometheus co
 .PHONY: validate-events
 validate-events:  #-- Validate canonical event stage constants usage
 	uv run --active --no-sync python tools/validate_event_constants.py
+
+.PHONY: validate-nautilus-patterns
+validate-nautilus-patterns:  #-- Run extended ML validation suite (semgrep, import-linter, duplication, xenon)
+	$(info $(M) Running ML validation suite...)
+	uv run --active --no-sync semgrep --config tools/semgrep/ml-rules.yml --error || true
+	uv run --active --no-sync python tools/duplication/check_duplication.py || true
+	uv run --active --no-sync lint-imports --config importlinter.ini || true
+	uv run --active --no-sync xenon --max-absolute B --max-modules B --max-average B ml/ || true
+	uv run --active --no-sync bandit -q -r ml -x ml/tests || true
+	uv run --active --no-sync vulture ml --min-confidence 90 --exclude ml/tests || true
+	@echo "Validation suite complete (non-blocking). To enforce, run via pre-commit hooks."
 
 .PHONY: clippy
 clippy:  #-- Run Rust clippy linter with fixes

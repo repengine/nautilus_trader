@@ -112,8 +112,9 @@ def test_tft_teacher_training():
             "5",  # Short sequence
         ]
 
+        import subprocess
         print(f"Running: {' '.join(cmd)}")
-        result = os.system(" ".join(cmd))
+        result = subprocess.run(cmd, check=False).returncode
 
         if result == 0:
             print("✓ TFT teacher training CLI executed successfully")
@@ -213,8 +214,9 @@ def test_student_distillation():
             "10",
         ]
 
+        import subprocess
         print(f"Running: {' '.join(cmd)}")
-        result = os.system(" ".join(cmd))
+        result = subprocess.run(cmd, check=False).returncode
 
         if result == 0:
             print("✓ Student distillation CLI executed successfully")

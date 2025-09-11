@@ -33,7 +33,7 @@ def test_stage_topic_scheme_parity_routes_with_wildcards(stage: Stage, instrumen
     hits: dict[str, int] = {"domain_op": 0, "stage_first": 0}
 
     # Stage-first pattern
-    bus.subscribe("events.ml.{}.#".format(stage.value), lambda t, p: hits.__setitem__("stage_first", hits["stage_first"] + 1))
+    bus.subscribe(f"events.ml.{stage.value}.#", lambda t, p: hits.__setitem__("stage_first", hits["stage_first"] + 1))
     # Domain-op equivalent pattern
     domain, op = map_stage_to_topic_segments(stage)
     bus.subscribe(f"ml.{domain}.{op}.#", lambda t, p: hits.__setitem__("domain_op", hits["domain_op"] + 1))

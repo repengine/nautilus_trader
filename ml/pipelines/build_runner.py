@@ -21,6 +21,7 @@ import json
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import UTC
 from datetime import date
 from datetime import datetime
@@ -88,7 +89,9 @@ class BuildConfig:
     # Additional build CLI options
     chunk_days: int = 0
     register_features: bool = True
-    feature_registry_dir: Path = Path("~/.nautilus/ml/features").expanduser()
+    feature_registry_dir: Path = field(
+        default_factory=lambda: Path("~/.nautilus/ml/features").expanduser(),
+    )
 
     @staticmethod
     def from_mapping(obj: dict[str, Any]) -> BuildConfig:

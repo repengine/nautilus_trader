@@ -58,7 +58,7 @@ class _MemWriter(MarketDataWriterProtocol):
 
     def write(self, *, dataset_id: str, schema: str, instrument_id: str, df: pd.DataFrame) -> int:
         self.writes.append(df.copy())
-        return int(len(df.index))
+        return len(df.index)
 
 
 class _MemRegistry:

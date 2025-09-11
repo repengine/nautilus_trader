@@ -69,8 +69,8 @@ class TestResults:
     """
 
     def __init__(self):
-        self.tests: List[Tuple[str, bool, str]] = []
-        self.section_results: Dict[str, List[Tuple[str, bool, str]]] = defaultdict(list)
+        self.tests: list[tuple[str, bool, str]] = []
+        self.section_results: dict[str, list[tuple[str, bool, str]]] = defaultdict(list)
 
     def add_test(self, section: str, test_name: str, passed: bool, message: str = ""):
         """

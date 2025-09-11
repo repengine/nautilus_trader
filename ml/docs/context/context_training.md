@@ -11,6 +11,17 @@ Operational notes:
 - All heavy dependencies (pytorch-forecasting, onnxmltools, scikit-learn) are lazily imported and guarded by feature flags from ml._imports
 - Console script entry points are configured: `ml-teacher-tft` and `ml-student-lightgbm`
 
+### Parity Metadata (Record at Training)
+
+To guarantee training/inference parity, record the following in the registry during training (preferably in `FeatureManifest.metadata`):
+
+- `bar_type`: e.g., `SPY.XNAS-1-MINUTE-LAST-EXTERNAL`
+- `timestamp_on_close`: `true`/`false` (bars use close timestamp)
+- `use_exchange_as_venue`: `true`/`false` (venue mapping rules)
+- Optional: `dataset_id`, `schema` used to source training bars
+
+The `MLSignalActor` verifies these at startup when present and fails fast on mismatches. See `ml/docs/implementation/inference_parity_checklist.md`.
+
 ### Key Components
 
 - **Base Training Infrastructure**: Abstract trainer with MLflow, Optuna, and cross-validation support

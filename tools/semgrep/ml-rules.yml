@@ -1,0 +1,122 @@
+rules:
+  - id: ml-no-pickle-joblib-in-prod
+    message: "Insecure model serialization (pickle/joblib) in production paths; use ONNX + onnxruntime"
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              import pickle
+          - pattern: |
+              import joblib
+    paths:
+      include:
+        - "**/ml/actors/**"
+        - "**/ml/strategies/**"
+        - "**/ml/deployment/**"
+        - "**/ml/inference/**"
+
+  - id: ml-no-open-in-on_handlers
+    message: "File I/O in hot path event handlers is prohibited (use async/off-path)"
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-inside: |
+          def $FN(...):
+              ...
+      - metavariable-regex:
+          metavariable: $FN
+          regex: "^on_.*$"
+      - pattern: open(...)
+    paths:
+      include:
+        - "**/ml/actors/**"
+
+  - id: ml-no-requests-in-on_handlers
+    message: "Network calls in event handlers violate hot-path constraints"
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-inside: |
+          def $FN(...):
+              ...
+      - metavariable-regex:
+          metavariable: $FN
+          regex: "^on_.*$"
+      - pattern-either:
+          - pattern: requests.$F(...)
+          - pattern: httpx.$F(...)
+          - pattern: urllib.request.$F(...)
+    paths:
+      include:
+        - "**/ml/actors/**"
+
+  - id: ml-enforce-EventStatus-value
+    message: "Use EventStatus.<...>.value instead of raw status strings"
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: | 
+          { ..., "status": "SUCCESS", ... }
+      - pattern: | 
+          dict(..., status="SUCCESS", ...)
+      - pattern: |
+          $X.update({"status": "SUCCESS", ...})
+    paths:
+      include:
+        - "**/ml/**"
+      exclude:
+        - "**/ml/tests/**"
+
+  - id: ml-no-build_topic-in-stores-actors
+    message: "Use build_topic_for_stage(...) instead of build_topic(...) in stores/actors"
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: build_topic(...)
+      - pattern: message_topics.build_topic(...)
+    paths:
+      include:
+        - "**/ml/actors/**"
+        - "**/ml/stores/**"
+
+  - id: ml-no-direct-prometheus-client
+    message: "Use ml.common.metrics_bootstrap instead of direct prometheus_client"
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: |
+          from prometheus_client import $X
+      - pattern: |
+          import prometheus_client
+    paths:
+      include:
+        - "**/ml/**"
+      exclude:
+        - "**/ml/_imports.py"
+        - "**/ml/common/metrics.py"
+
+  - id: ml-no-sqlite3-redis-in-prod
+    message: "Do not bypass stores/bus with direct sqlite3/redis clients"
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: sqlite3.connect(...)
+      - pattern: redis.Redis(...)
+      - pattern: redis.from_url(...)
+    paths:
+      include:
+        - "**/ml/actors/**"
+        - "**/ml/stores/**"
+
+  - id: ml-no-pandas-in-actors
+    message: "Pandas usage in actors indicates potential hot-path violations"
+    severity: WARNING
+    languages: [python]
+    pattern-either:
+      - pattern: import pandas as pd
+      - pattern: pandas.DataFrame(...)
+      - pattern: pd.DataFrame(...)
+    paths:
+      include:
+        - "**/ml/actors/**"

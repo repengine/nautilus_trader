@@ -52,8 +52,8 @@ def test_actor_side_domain_event_bridge_publishes(monkeypatch, tmp_path) -> None
             "ML_BUS_SCHEME": "stage_first",
         },
     ):
-        # Patch the publisher factory used by MLSignalActor
-        monkeypatch.setattr("ml.actors.signal.publisher_from_config", _fake_factory)
+        # Patch the publisher factory used by the actor bus helper
+        monkeypatch.setattr("ml.actors.ml_domain_events.publisher_from_config", _fake_factory)
         # Avoid base publish path side-effects
         monkeypatch.setattr(
             "ml.actors.base.BaseMLInferenceActor._publish_signal",

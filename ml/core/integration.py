@@ -13,6 +13,7 @@ import logging
 import subprocess
 import time
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
@@ -171,6 +172,12 @@ class MLIntegrationManager:
 
         # Message bus is configured explicitly by callers when required.
 
+        # Optional: auto-run backfill at startup when configured via env
+        try:
+            self._maybe_run_backfill_on_start()
+        except Exception as exc:
+            logger.warning("Backfill bootstrap skipped: %s", exc)
+
     def _init_database(self) -> None:
         """
         Initialize database connection and run migrations.
@@ -313,7 +320,6 @@ class MLIntegrationManager:
             return True
         except OperationalError:
             return False
-
     def _start_postgres_container(self) -> None:
         """
         Start PostgreSQL using Docker Compose if available, else docker run.
@@ -462,6 +468,87 @@ class MLIntegrationManager:
                 except Exception:
                     # Ignore if function not installed; PartitionManager handles below
                     pass
+            if self.partition_manager is None:
+                self._init_partition_manager()
+            if self.partition_manager is not None:
+                stats = self.partition_manager.run_maintenance()
+                logger.info("Partition maintenance: %s", stats)
+        except Exception as exc:
+            logger.warning("Partition maintenance skipped: %s", exc)
+
+    def _maybe_run_backfill_on_start(self) -> None:
+        """
+        Optionally run a gap backfill on startup using CLI or orchestrator, controlled by env.
+
+        Environment flags:
+        - ML_BACKFILL_ON_START: '1'|'true'|'yes' → enable
+        - COVERAGE_MODE: 'sql'|'catalog' (default 'sql')
+        - WRITE_MODE: 'sql' (default 'sql')
+        - CATALOG_PATH: required for coverage-mode 'catalog'
+        - DATABENTO_API_KEY: for client-mode 'databento' (optional)
+        - INGEST_CLIENT_MODE: 'catalog'|'databento'|'noop' (default 'catalog')
+        - BACKFILL_LOOKBACK_DAYS: integer (default 7)
+        - BACKFILL_DATASET_ID: dataset id (e.g., 'EQUS.MINI')
+        - BACKFILL_SCHEMA: 'bars'|'tbbo'|'trades' (default 'bars')
+        - BACKFILL_INSTRUMENTS: comma-separated list
+        """
+        import os
+        import shlex
+
+        enabled = os.getenv("ML_BACKFILL_ON_START", "").lower() in {"1", "true", "yes"}
+        if not enabled:
+            return
+
+        dataset_id = os.getenv("BACKFILL_DATASET_ID")
+        instruments = os.getenv("BACKFILL_INSTRUMENTS")
+        if not dataset_id or not instruments:
+            raise RuntimeError("BACKFILL_DATASET_ID and BACKFILL_INSTRUMENTS are required for backfill bootstrap")
+
+        schema = os.getenv("BACKFILL_SCHEMA", "bars")
+        coverage_mode = os.getenv("COVERAGE_MODE", "sql")
+        write_mode = os.getenv("WRITE_MODE", "sql")
+        client_mode = os.getenv("INGEST_CLIENT_MODE", "catalog")
+        lookback = os.getenv("BACKFILL_LOOKBACK_DAYS", "7")
+        table_name = os.getenv("TABLE_NAME", "market_data")
+        catalog_path = os.getenv("CATALOG_PATH", "")
+        api_key = os.getenv("DATABENTO_API_KEY", "")
+
+        # Prefer invoking CLI for simplicity and isolation
+        cmd = [
+            "python",
+            "-m",
+            "ml.cli.ingest_backfill",
+            "--db",
+            self.db_connection,
+            "--dataset-id",
+            dataset_id,
+            "--schema",
+            schema,
+            "--instruments",
+            instruments,
+            "--lookback-days",
+            lookback,
+            "--coverage-mode",
+            coverage_mode,
+            "--write-mode",
+            write_mode,
+            "--table-name",
+            table_name,
+            "--client-mode",
+            client_mode,
+        ]
+        if coverage_mode == "catalog" or client_mode == "catalog":
+            if not catalog_path:
+                raise RuntimeError("CATALOG_PATH required for catalog coverage/client")
+            cmd += ["--catalog-path", catalog_path]
+        if client_mode == "databento" and api_key:
+            cmd += ["--api-key", api_key]
+
+        logger.info("Running backfill bootstrap: %s", shlex.join(cmd))
+        try:
+            subprocess.run(cmd, check=True)
+        except Exception as exc:
+            logger.warning("Backfill CLI failed: %s", exc)
 
             if self.partition_manager is None:
                 self._init_partition_manager()
@@ -814,8 +901,8 @@ class MLIntegrationManager:
             try:
                 # Ensure attribute exists for callers checking presence
                 self.observability_service = None
-            except Exception:
-                pass
+            except Exception as inner_exc:
+                logger.debug("Failed to set observability_service=None: %s", inner_exc)
             return None
 
     def start_end_to_end_tracking(self) -> None:
@@ -963,13 +1050,13 @@ class MLIntegrationManager:
         if stop is not None:
             try:
                 stop.set()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Stop event set() failed: %s", exc)
         if thread is not None:
             try:
                 thread.join(timeout=1.0)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Join on observability thread failed: %s", exc)
 
     def start_observability_from_config(self, cfg: object) -> None:
         """
@@ -1159,3 +1246,134 @@ def reset_integration_manager() -> None:
     if _integration_manager is not None:
         _integration_manager.shutdown()
         _integration_manager = None
+
+
+# ======================================================================================
+# Lightweight initializer for actors (centralizes progressive fallback + wiring)
+# ======================================================================================
+
+
+@dataclass(slots=True)
+class ActorStoresRegistries:
+    feature_store: object
+    model_store: object
+    strategy_store: object
+    data_store: object
+    feature_registry: object
+    model_registry: object
+    strategy_registry: object
+    data_registry: object
+    persistence_config: PersistenceConfig | None
+    connection_string: str | None
+
+
+def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
+    """
+    Initialize stores and registries for an actor with progressive fallback.
+
+    Honors `use_dummy_stores` (fast path for tests) and `allow_dummy_fallback`.
+    Attempts to probe PostgreSQL if no connection string is provided.
+    """
+    # Fast-path for tests
+    if bool(getattr(config, "use_dummy_stores", False)):
+        from ml.registry.base import DummyRegistry
+        from ml.stores.base import DummyStore
+
+        return ActorStoresRegistries(
+            feature_store=DummyStore(),
+            model_store=DummyStore(),
+            strategy_store=DummyStore(),
+            data_store=DummyStore(),
+            feature_registry=DummyRegistry(),
+            model_registry=DummyRegistry(),
+            strategy_registry=DummyRegistry(),
+            data_registry=DummyRegistry(),
+            persistence_config=None,
+            connection_string=None,
+        )
+
+    # Progressive fallback
+    db_connection = cast(str | None, getattr(config, "db_connection", None))
+    backend = BackendType.POSTGRES
+    if not db_connection:
+        try:
+            test = EngineManager.get_engine("postgresql://postgres:postgres@localhost:5432/nautilus")
+            with test.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_connection = "postgresql://postgres:postgres@localhost:5432/nautilus"
+        except Exception:
+            backend = BackendType.JSON
+            db_connection = ""
+
+    # If provided, probe reachability
+    if db_connection and backend == BackendType.POSTGRES:
+        try:
+            eng = EngineManager.get_engine(str(db_connection))
+            with eng.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception:
+            if getattr(config, "allow_dummy_fallback", True):
+                backend = BackendType.JSON
+            else:
+                raise
+
+    if backend == BackendType.JSON:
+        from ml.registry.base import DummyRegistry
+        from ml.stores.base import DummyStore
+
+        return ActorStoresRegistries(
+            feature_store=DummyStore(),
+            model_store=DummyStore(),
+            strategy_store=DummyStore(),
+            data_store=DummyStore(),
+            feature_registry=DummyRegistry(),
+            model_registry=DummyRegistry(),
+            strategy_registry=DummyRegistry(),
+            data_registry=DummyRegistry(),
+            persistence_config=None,
+            connection_string=db_connection,
+        )
+
+    # Production wiring with PostgreSQL
+    persistence_config = PersistenceConfig(
+        backend=BackendType.POSTGRES,
+        connection_string=db_connection,
+    )
+    # Stores
+    fs = FeatureStore(connection_string=db_connection)
+    ms = ModelStore(persistence_config=persistence_config)
+    ss = StrategyStore(persistence_config=persistence_config)
+
+    # Registries under a local path
+    registry_path = Path(".nautilus/ml/registry")
+    registry_path.mkdir(parents=True, exist_ok=True)
+    freg = FeatureRegistry(registry_path, persistence_config=persistence_config)
+    mreg = ModelRegistry(registry_path, persistence_config=persistence_config)
+    sreg = StrategyRegistry(registry_path)
+    dreg = DataRegistry(registry_path / "datasets", persistence_config=persistence_config)
+
+    # Inject shared DataRegistry into stores if supported
+    try:
+        setter = getattr(fs, "set_data_registry", None)
+        if callable(setter):
+            setter(dreg)
+        setter2 = getattr(ms, "set_data_registry", None)
+        if callable(setter2):
+            setter2(dreg)
+    except Exception:
+        logger.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
+
+    dstore = DataStore(registry=dreg, connection_string=db_connection)
+
+    return ActorStoresRegistries(
+        feature_store=fs,
+        model_store=ms,
+        strategy_store=ss,
+        data_store=dstore,
+        feature_registry=freg,
+        model_registry=mreg,
+        strategy_registry=sreg,
+        data_registry=dreg,
+        persistence_config=persistence_config,
+        connection_string=db_connection,
+    )

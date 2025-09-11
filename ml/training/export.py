@@ -161,10 +161,8 @@ def _save_lightgbm_model(model: Any, path: Path) -> Path:
         raise ImportError("LightGBM not installed; cannot save LightGBM model")
 
     # Support both sklearn wrapper (has booster_) and raw Booster
-    try:
-        assert lgb is not None
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError(f"Failed to access LightGBM Booster: {exc}")
+    if lgb is None:  # pragma: no cover - environment guard
+        raise ImportError("LightGBM not available for saving model")
 
     booster = getattr(model, "booster_", model)
     model_path = path.with_suffix(".lgb")
@@ -236,7 +234,8 @@ def convert_to_onnx(
     if model_type == ModelType.XGBOOST:
         if not HAS_XGBOOST:
             raise ImportError("XGBoost not installed")
-        assert onnxmltools is not None
+        if onnxmltools is None:
+            raise ImportError("onnxmltools is required for XGBoost → ONNX conversion")
         from onnxmltools.convert.common.data_types import FloatTensorType
 
         initial_type = [(ONNX_INPUT_NAME, FloatTensorType([None, sample_input.shape[-1]]))]
@@ -249,7 +248,8 @@ def convert_to_onnx(
     elif model_type == ModelType.LIGHTGBM:
         if not HAS_LIGHTGBM:
             raise ImportError("LightGBM not installed")
-        assert onnxmltools is not None
+        if onnxmltools is None:
+            raise ImportError("onnxmltools is required for LightGBM → ONNX conversion")
         from onnxmltools.convert.common.data_types import FloatTensorType
 
         initial_type = [(ONNX_INPUT_NAME, FloatTensorType([None, sample_input.shape[-1]]))]
@@ -260,13 +260,15 @@ def convert_to_onnx(
         )
 
     elif model_type == ModelType.SKLEARN:
-        assert skl2onnx is not None
+        if skl2onnx is None:
+            raise ImportError("skl2onnx is required for sklearn → ONNX conversion")
         onnx_model = skl2onnx.to_onnx(model, sample_input[:1], target_opset=opset_version)
 
     else:
         raise ValueError(f"Cannot convert {model_type} to ONNX")
 
-    assert HAS_ONNX_CORE and onnx is not None
+    if not HAS_ONNX_CORE or onnx is None:
+        raise ImportError("onnx core package is required to save ONNX models")
     onnx.save(onnx_model, str(output_path))
 
     metadata_dict = {

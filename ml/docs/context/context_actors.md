@@ -383,6 +383,37 @@ class HealthMonitor:
         """Calculate overall prediction success rate."""
 ```
 
+## Parity Guards (Automatic)
+
+At startup, `BaseMLInferenceActor.on_start()` invokes a parity verification hook. `MLSignalActor` implements `_verify_parity_requirements()` which:
+
+- Validates model `data_requirements` is compatible with the actor (L1_ONLY for `MLSignalActor`).
+- Re-checks `feature_schema_hash` parity between model and features when both manifests are available.
+- Enforces minimum warm-up bars from `FeatureManifest.constraints.min_bars_warmup`.
+- Compares configured `bar_type` against training metadata (`FeatureManifest.metadata['bar_type']`) when present.
+- Logs training hints like `timestamp_on_close` and `use_exchange_as_venue` from `FeatureManifest.metadata`.
+
+On explicit mismatches, the actor fails fast with actionable errors.
+See `ml/docs/implementation/inference_parity_checklist.md` for the full checklist and verification plan.
+
+### Enabling Parity Smoke-Checks
+
+To perform an optional runtime smoke-check comparing online vs offline features over a recent window, enable the following config fields on `MLSignalActorConfig`:
+
+- `enable_parity_smoke_check=true`
+- `parity_smoke_check_window_bars=200` (or desired window)
+- `parity_tolerance=1e-6` (max absolute diff tolerance)
+
+Metrics exposed:
+
+- `ml_feature_parity_checks_total{actor_id=...}` — total parity checks executed
+- `ml_feature_parity_drift{actor_id=...}` — max absolute diff for the last check
+
+Notes:
+
+- The smoke-check runs once after enough bars are observed (non-blocking). It logs a warning if drift exceeds tolerance but does not impact the hot path.
+- Parity guards and smoke-checks are designed to be safe defaults; disable smoke-checks for ultra-low-latency profiles.
+
 ### Circuit Breaker Protection
 
 ```python

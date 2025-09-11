@@ -76,12 +76,13 @@ class LocalDryRunSystem:
             print("  Will use SQLite fallback for persistence")
             self.db_connection = "sqlite:///ml_dry_run.db"
 
-        # Check model file
-        model_path = Path("ml/models/dummy_bullish_model.pkl")
+        # Check model file (ONNX only)
+        model_path = Path("ml/models/dummy_bullish_model.onnx")
         if not model_path.exists():
-            print("Creating dummy model...")
-            self._create_dummy_model(str(model_path))
-        print(f"✓ Model found: {model_path}")
+            print("⚠ ONNX model not found at ml/models/dummy_bullish_model.onnx")
+            print("  Please export or place an ONNX model at this path before running.")
+        else:
+            print(f"✓ Model found: {model_path}")
 
         return True
 
@@ -104,26 +105,7 @@ class LocalDryRunSystem:
             }
         return {}
 
-    def _create_dummy_model(self, model_path: str) -> None:
-        """
-        Create a dummy model for testing.
-        """
-        import pickle
-
-        # Define at module level to avoid pickle issues
-        Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Use the existing dummy model from create_dummy_model.py
-        import sys
-
-        sys.path.append(str(Path(__file__).parent.parent / "examples"))
-        from create_dummy_model import DummyModel
-
-        model = DummyModel(n_features=10)
-        model.bias = 0.55  # Slightly bullish
-
-        with open(model_path, "wb") as f:
-            pickle.dump(model, f)
+    # Removed insecure pickle-based dummy model creation; require ONNX model instead.
 
     async def setup_and_run(self) -> None:
         """

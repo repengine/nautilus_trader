@@ -140,7 +140,7 @@ def test_dummy_store_protocol_compliance():
                 # Test method call
                 try:
                     getattr(dummy, method)("test", "EURUSD", 0.5)
-                except:
+                except Exception:
                     # Expected - dummy methods accept any args
                     pass
             else:
@@ -454,7 +454,7 @@ def test_actual_data_persistence_operations():
             ts_event=current_time_ns,
         )
         print("✅ Model prediction persisted successfully")
-        print(f"   🤖 Prediction: 0.75, Confidence: 0.90, Latency: 2.3ms")
+        print("   🤖 Prediction: 0.75, Confidence: 0.90, Latency: 2.3ms")
 
         # Test strategy signal persistence
         strategy_store.write_signal(
@@ -473,7 +473,7 @@ def test_actual_data_persistence_operations():
             ts_init=current_time_ns,
         )
         print("✅ Strategy signal persisted successfully")
-        print(f"   📈 Signal: BUY, Strength: 0.80, Risk: VaR 2%")
+        print("   📈 Signal: BUY, Strength: 0.80, Risk: VaR 2%")
 
         # Test flush operations
         feature_store.flush()
@@ -704,7 +704,7 @@ def test_cross_store_integration_workflow():
         print("   ✅ Step 6: All stores flushed")
 
         print("🎉 CROSS-STORE INTEGRATION WORKFLOW COMPLETED SUCCESSFULLY")
-        print(f"   📊 Features → 🤖 Model → 📈 Strategy → 📋 Registry")
+        print("   📊 Features → 🤖 Model → 📈 Strategy → 📋 Registry")
         print(f"   🔗 Correlation ID: {correlation_id}")
 
         return True
@@ -754,7 +754,7 @@ def run_comprehensive_validation():
     return all_results
 
 
-def generate_final_report(results: Dict[str, bool]):
+def generate_final_report(results: dict[str, bool]):
     """
     Generate final validation report.
     """
@@ -766,13 +766,13 @@ def generate_final_report(results: Dict[str, bool]):
     failed_tests = total_tests - passed_tests
     success_rate = (passed_tests / total_tests) * 100 if total_tests > 0 else 0
 
-    print(f"Test Execution Summary:")
+    print("Test Execution Summary:")
     print(f"  📊 Total tests: {total_tests}")
     print(f"  ✅ Passed: {passed_tests}")
     print(f"  ❌ Failed: {failed_tests}")
     print(f"  🎯 Success rate: {success_rate:.1f}%")
 
-    print(f"\nDetailed Test Results:")
+    print("\nDetailed Test Results:")
     for test_name, result in results.items():
         status = "✅ PASS" if result else "❌ FAIL"
         print(f"  {test_name}: {status}")

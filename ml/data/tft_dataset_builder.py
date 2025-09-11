@@ -372,8 +372,8 @@ class TFTDatasetBuilder:
                         direct_df = direct_df.with_columns(fills)
                     if exprs:
                         any_macro = exprs[0]
-                        for e in exprs[1:]:
-                            any_macro = any_macro | e
+                        for ex in exprs[1:]:
+                            any_macro = any_macro | ex
                         direct_df = direct_df.with_columns(
                             [
                                 any_macro.cast(pl.Int32).alias("is_macro_available"),
@@ -803,8 +803,6 @@ class TFTDatasetBuilder:
         if self.include_micro:
             # Prefer aggregator (matches unit test monkeypatch), then fallback to cache
             try:
-                from pathlib import Path as _Path
-
                 from ml.features.micro_aggregate import MicrostructureAggregator
 
                 base_dir = self.micro_base_dir or "data/tier1"
@@ -832,15 +830,15 @@ class TFTDatasetBuilder:
             except Exception as exc:
                 logger.debug(f"Microstructure aggregator join failed for {symbol}: {exc}")
                 try:  # fallback to cache-based join
-                    base_dir = _Path(self.micro_base_dir or "data/tier1")
+                    base_dir_path = _Path(self.micro_base_dir or "data/tier1")
                     micro_cache = MicroMinuteCache(_Path("data/features/micro_minute"))
                     ts_min = dataset.select(pl.col("timestamp").min())[0, 0]
                     ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
 
                     if ts_min is not None and ts_max is not None:
-                        start_dt = ts_min.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
-                        end_dt = ts_max.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
-                        micro = micro_cache.get_range(symbol, start_dt, end_dt, base_dir)
+                        start_dt = (ts_min.to_pydatetime() if hasattr(ts_min, "to_pydatetime") else ts_min).replace(tzinfo=UTC)
+                        end_dt = (ts_max.to_pydatetime() if hasattr(ts_max, "to_pydatetime") else ts_max).replace(tzinfo=UTC)
+                        micro = micro_cache.get_range(symbol, start_dt, end_dt, base_dir_path)
                         if not micro.is_empty():
                             if micro["timestamp"].dtype != pl.Datetime:
                                 micro = micro.with_columns(
@@ -865,15 +863,15 @@ class TFTDatasetBuilder:
         # Optionally join L2 features (per-minute) via cache
         if self.include_l2:
             try:
-                base_dir = _Path(self.l2_base_dir or "data/tier1")
+                base_dir_path = _Path(self.l2_base_dir or "data/tier1")
                 l2_cache = L2MinuteCache(_Path("data/features/l2_minute"))
                 ts_min = dataset.select(pl.col("timestamp").min())[0, 0]
                 ts_max = dataset.select(pl.col("timestamp").max())[0, 0]
 
                 if ts_min is not None and ts_max is not None:
-                    start_dt = ts_min.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
-                    end_dt = ts_max.to_pydatetime().replace(tzinfo=UTC)  # type: ignore[union-attr]
-                    l2 = l2_cache.get_range(symbol, start_dt, end_dt, base_dir)
+                    start_dt = (ts_min.to_pydatetime() if hasattr(ts_min, "to_pydatetime") else ts_min).replace(tzinfo=UTC)
+                    end_dt = (ts_max.to_pydatetime() if hasattr(ts_max, "to_pydatetime") else ts_max).replace(tzinfo=UTC)
+                    l2 = l2_cache.get_range(symbol, start_dt, end_dt, base_dir_path)
                     if not l2.is_empty():
                         if l2["timestamp"].dtype != pl.Datetime:
                             l2 = l2.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
@@ -900,6 +898,45 @@ class TFTDatasetBuilder:
                                 )
                             if fills:
                                 dataset = dataset.with_columns(fills)
+                        # Compute minimal derived L2 microstructure features
+                        # - pressure_accel_top{k}: minute-over-minute change in depth_imbalance_top{k}
+                        # - liquidity_gradient_top{k}: ask_slope_top{k} - bid_slope_top{k}
+                        # - session_rel_spread: spread_bps normalized by daily median
+                        try:
+                            topks = [1, 3, 5, 10]
+                            derived = []
+                            for k in topks:
+                                di = f"depth_imbalance_top{k}"
+                                if di in dataset.columns:
+                                    derived.append((pl.col(di) - pl.col(di).shift(1)).alias(f"pressure_accel_top{k}"))
+                                bs = f"bid_slope_top{k}"
+                                aS = f"ask_slope_top{k}"
+                                if bs in dataset.columns and aS in dataset.columns:
+                                    derived.append((pl.col(aS) - pl.col(bs)).alias(f"liquidity_gradient_top{k}"))
+                            if derived:
+                                dataset = dataset.with_columns(derived)
+                            if "spread_bps" in dataset.columns:
+                                # daily median per instrument_id
+                                if "instrument_id" in dataset.columns:
+                                    dataset = dataset.with_columns(
+                                        [pl.col("timestamp").dt.date().alias("_day")],
+                                    )
+                                    med = (
+                                        dataset.group_by(["instrument_id", "_day"]).agg(
+                                            pl.col("spread_bps").median().alias("_med_spread"),
+                                        )
+                                    )
+                                    dataset = dataset.join(med, on=["instrument_id", "_day"], how="left")
+                                    dataset = dataset.with_columns(
+                                        [
+                                            pl.when(pl.col("_med_spread") > 0)
+                                            .then(pl.col("spread_bps") / pl.col("_med_spread"))
+                                            .otherwise(1.0)
+                                            .alias("session_rel_spread"),
+                                        ],
+                                    ).drop(["_day", "_med_spread"], strict=False)
+                        except Exception:
+                            pass
             except Exception as exc:  # pragma: no cover
                 logger.debug(f"L2 cache join failed for {symbol}: {exc}")
 
@@ -976,8 +1013,6 @@ class TFTDatasetBuilder:
         # Optionally join microstructure features (per-minute)
         if self.include_micro:
             try:
-                from pathlib import Path as _Path
-
                 from ml.features.micro_aggregate import MicrostructureAggregator
 
                 base_dir = self.micro_base_dir or "data/tier1"
@@ -992,8 +1027,6 @@ class TFTDatasetBuilder:
         # Optionally join L2 features (per-minute)
         if self.include_l2:
             try:
-                from pathlib import Path as _Path
-
                 from ml.features.l2_aggregate import L2Aggregator
 
                 base_dir = self.l2_base_dir or "data/tier1"

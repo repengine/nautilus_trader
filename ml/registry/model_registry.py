@@ -276,6 +276,8 @@ class ModelRegistry(MLComponentMixin):
             "feature_set_id": getattr(model_info.manifest, "feature_set_id", None),
             "pipeline_signature": getattr(model_info.manifest, "pipeline_signature", None),
             "pipeline_version": getattr(model_info.manifest, "pipeline_version", None),
+            "decision_policy": getattr(model_info.manifest, "decision_policy", None),
+            "decision_config": getattr(model_info.manifest, "decision_config", {}),
         }
 
         return {
@@ -314,6 +316,8 @@ class ModelRegistry(MLComponentMixin):
                 feature_set_id=manifest_data.get("feature_set_id"),
                 pipeline_signature=manifest_data.get("pipeline_signature"),
                 pipeline_version=manifest_data.get("pipeline_version"),
+                decision_policy=manifest_data.get("decision_policy"),
+                decision_config=manifest_data.get("decision_config", {}),
             )
         else:
             # Legacy format - convert to manifest
@@ -491,78 +495,8 @@ class ModelRegistry(MLComponentMixin):
 
         """
         with self._lock:
-            # Validate model file exists
-            if not model_path.exists():
-                raise FileNotFoundError(f"Model file not found: {model_path}")
-
-            # Security: Validate model format for serving
-            if model_path.suffix != SUFFIX_ONNX:
-                # Allow non-ONNX for non-serveable models (e.g., cold-path teachers)
-                if getattr(manifest, "serveable", True):
-                    raise ValueError(
-                        (
-                            "Only ONNX models are supported for serveable models. Got: "
-                            f"{model_path.suffix}."
-                        ),
-                    )
-
-            # Security: Validate path is safe
-            if not self._validate_model_path(model_path):
-                raise ValueError(f"Security: Invalid model path: {model_path}")
-
-            # Validate feature schema linkage
-            if not manifest.feature_schema_hash:
-                raise ValueError("feature_schema_hash is required for all models")
-
-            # Enforcement for serveable models: validate feature parity where possible.
-            if getattr(manifest, "serveable", True):
-                # Allow relaxed parity in development unless explicitly enforced via env.
-                import os
-
-                strict_parity = os.getenv("ML_STRICT_FEATURE_PARITY", "0") == "1"
-                feature_registry_file = self.registry_path / "feature_registry.json"
-
-                if not manifest.feature_set_id:
-                    msg = (
-                        "feature_set_id is missing for serveable model; "
-                        "parity validation skipped"
-                    )
-                    if strict_parity:
-                        raise ValueError(
-                            "feature_set_id is required for serveable models to ensure feature parity",
-                        )
-                    logger.warning(msg)
-                elif not feature_registry_file.exists():
-                    msg = (
-                        "FeatureRegistry not found alongside ModelRegistry; "
-                        "cannot validate feature parity"
-                    )
-                    if strict_parity:
-                        raise ValueError(msg)
-                    logger.warning(msg)
-                else:
-                    from ml.registry.feature_registry import FeatureRegistry
-
-                    freg = FeatureRegistry(self.registry_path)
-                    finfo = freg.get_feature_set(manifest.feature_set_id)
-                    if finfo is None:
-                        msg = (
-                            f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry"
-                        )
-                        if strict_parity:
-                            raise ValueError(msg)
-                        logger.warning(msg)
-                    else:
-                        if finfo.manifest.schema_hash != manifest.feature_schema_hash:
-                            msg = "feature_schema_hash mismatch between model manifest and feature manifest"
-                            if strict_parity:
-                                raise ValueError(msg)
-                            logger.warning(msg)
-                        # Backfill pipeline identity
-                        if not manifest.pipeline_signature:
-                            manifest.pipeline_signature = finfo.manifest.pipeline_signature
-                        if not manifest.pipeline_version:
-                            manifest.pipeline_version = finfo.manifest.pipeline_version
+            # Validate inputs and parity/security constraints
+            self._validate_registration_inputs(model_path, manifest)
 
             # Use manifest's model_id or generate new one
             if not manifest.model_id:
@@ -573,40 +507,14 @@ class ModelRegistry(MLComponentMixin):
             manifest.last_modified = time.time()
 
             # Auto-version if needed
-            if not manifest.version:
-                existing_versions = [
-                    m.manifest.version
-                    for m in self._models.values()
-                    if m.manifest.architecture == manifest.architecture
-                ]
-                if existing_versions:
-                    latest = max(existing_versions)
-                    major, minor, patch = latest.split(".")
-                    manifest.version = f"{major}.{minor}.{int(patch) + 1}"
-                else:
-                    manifest.version = Versions.DEFAULT_MANIFEST_VERSION
+            self._auto_version_manifest(manifest)
 
             # Quality validation if gates provided
-            quality_validation_result = None
-            if quality_gates:
-                quality_validation_result = self._validate_quality_gates(
-                    manifest.model_id,
-                    manifest.performance_metrics,
-                    quality_gates,
-                )
-
-                if not quality_validation_result.overall_pass and enforce_quality:
-                    failed_gates = [
-                        name
-                        for name, result in quality_validation_result.gate_results.items()
-                        if not result["passed"] and result["required"]
-                    ]
-                    raise ValueError(
-                        (
-                            "Quality gates not met for model "
-                            f"{manifest.model_id}. Failed gates: {failed_gates}"
-                        ),
-                    )
+            quality_validation_result = self._apply_quality_gates(
+                manifest,
+                quality_gates,
+                enforce_quality,
+            )
 
             # Create model info
             model_info = ModelInfo(
@@ -660,52 +568,178 @@ class ModelRegistry(MLComponentMixin):
 
             # Auto-deploy if requested and validation passes
             if auto_deploy:
-                # Basic validation (avoid circular import)
-                is_valid = True
-                errors = []
-
-                # Basic manifest validation
-                if not manifest.feature_schema_hash:
-                    is_valid = False
-                    errors.append("Missing feature schema hash")
-
-                # Role-specific validation
-                if manifest.role == ModelRole.STUDENT:
-                    if manifest.data_requirements != DataRequirements.L1_ONLY:
-                        is_valid = False
-                        errors.append("Student must use L1-only data")
-                    if not manifest.parent_id:
-                        is_valid = False
-                        errors.append("Student must have parent_id")
-                    # Check latency constraint
-                    if "inference_latency_ms" in manifest.performance_metrics:
-                        if manifest.performance_metrics["inference_latency_ms"] > float(
-                            self._policy.max_inference_latency_ms,
-                        ):
-                            is_valid = False
-                            errors.append(
-                                (
-                                    "Student inference must be under "
-                                    f"{self._policy.max_inference_latency_ms}ms"
-                                ),
-                            )
-
-                if is_valid:
-                    # Determine deployment target based on role
-                    if manifest.role == ModelRole.STUDENT:
-                        target = "ml_signal_actor"  # Students deploy to MLSignalActor
-                    elif manifest.role == ModelRole.INFERENCE:
-                        target = "ml_signal_actor"  # Direct inference also to MLSignalActor
-                    else:
-                        target = None  # Teachers don't deploy directly (offline only)
-
-                    if target:
-                        self.deploy_model(manifest.model_id, target)
-                        logger.info(f"Auto-deployed {manifest.model_id} to {target}")
-                else:
-                    logger.warning(f"Auto-deploy skipped for {manifest.model_id}: {errors}")
+                self._maybe_auto_deploy(manifest)
 
             return manifest.model_id
+
+    # ---------------------------- internal helpers ----------------------------
+
+    def _validate_registration_inputs(self, model_path: Path, manifest: ModelManifest) -> None:
+        """Validate model path, format, security, and parity constraints."""
+        # Validate model file exists
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        # Security: Validate model format for serving
+        if model_path.suffix != SUFFIX_ONNX:
+            # Allow non-ONNX for non-serveable models (e.g., cold-path teachers)
+            if getattr(manifest, "serveable", True):
+                raise ValueError(
+                    (
+                        "Only ONNX models are supported for serveable models. Got: "
+                        f"{model_path.suffix}."
+                    ),
+                )
+
+        # Security: Validate path is safe
+        if not self._validate_model_path(model_path):
+            raise ValueError(f"Security: Invalid model path: {model_path}")
+
+        # Validate feature schema linkage
+        if not manifest.feature_schema_hash:
+            raise ValueError("feature_schema_hash is required for all models")
+
+        # Enforcement for serveable models: validate feature parity where possible.
+        if getattr(manifest, "serveable", True):
+            # Allow relaxed parity in development unless explicitly enforced via env.
+            import os
+
+            strict_parity = os.getenv("ML_STRICT_FEATURE_PARITY", "0") == "1"
+            feature_registry_file = self.registry_path / "feature_registry.json"
+
+            if not manifest.feature_set_id:
+                msg = (
+                    "feature_set_id is missing for serveable model; "
+                    "parity validation skipped"
+                )
+                if strict_parity:
+                    raise ValueError(
+                        "feature_set_id is required for serveable models to ensure feature parity",
+                    )
+                logger.warning(msg)
+            elif not feature_registry_file.exists():
+                msg = (
+                    "FeatureRegistry not found alongside ModelRegistry; "
+                    "cannot validate feature parity"
+                )
+                if strict_parity:
+                    raise ValueError(msg)
+                logger.warning(msg)
+            else:
+                from ml.registry.feature_registry import FeatureRegistry
+
+                freg = FeatureRegistry(self.registry_path)
+                finfo = freg.get_feature_set(manifest.feature_set_id)
+                if finfo is None:
+                    msg = (
+                        f"feature_set_id {manifest.feature_set_id} not found in FeatureRegistry"
+                    )
+                    if strict_parity:
+                        raise ValueError(msg)
+                    logger.warning(msg)
+                else:
+                    if finfo.manifest.schema_hash != manifest.feature_schema_hash:
+                        msg = "feature_schema_hash mismatch between model manifest and feature manifest"
+                        if strict_parity:
+                            raise ValueError(msg)
+                        logger.warning(msg)
+                    # Backfill pipeline identity
+                    if not manifest.pipeline_signature:
+                        manifest.pipeline_signature = finfo.manifest.pipeline_signature
+                    if not manifest.pipeline_version:
+                        manifest.pipeline_version = finfo.manifest.pipeline_version
+
+    def _auto_version_manifest(self, manifest: ModelManifest) -> None:
+        """Assign a semantic version to the manifest when missing."""
+        if manifest.version:
+            return
+        existing_versions = [
+            m.manifest.version
+            for m in self._models.values()
+            if m.manifest.architecture == manifest.architecture
+        ]
+        if existing_versions:
+            latest = max(existing_versions)
+            major, minor, patch = latest.split(".")
+            manifest.version = f"{major}.{minor}.{int(patch) + 1}"
+        else:
+            manifest.version = Versions.DEFAULT_MANIFEST_VERSION
+
+    def _apply_quality_gates(
+        self,
+        manifest: ModelManifest,
+        quality_gates: list[QualityGate] | None,
+        enforce_quality: bool,
+    ) -> ValidationResult | None:
+        """Run quality gates when provided; optionally enforce."""
+        if not quality_gates:
+            return None
+
+        result = self._validate_quality_gates(
+            manifest.model_id,
+            manifest.performance_metrics,
+            quality_gates,
+        )
+        if not result.overall_pass and enforce_quality:
+            failed_gates = [
+                name
+                for name, gate in result.gate_results.items()
+                if not gate["passed"] and gate["required"]
+            ]
+            raise ValueError(
+                (
+                    "Quality gates not met for model "
+                    f"{manifest.model_id}. Failed gates: {failed_gates}"
+                ),
+            )
+        return result
+
+    def _maybe_auto_deploy(self, manifest: ModelManifest) -> None:
+        """Auto-deploy when basic constraints are met."""
+        # Basic validation (avoid circular import)
+        is_valid = True
+        errors: list[str] = []
+
+        # Basic manifest validation
+        if not manifest.feature_schema_hash:
+            is_valid = False
+            errors.append("Missing feature schema hash")
+
+        # Role-specific validation
+        if manifest.role == ModelRole.STUDENT:
+            if manifest.data_requirements != DataRequirements.L1_ONLY:
+                is_valid = False
+                errors.append("Student must use L1-only data")
+            if not manifest.parent_id:
+                is_valid = False
+                errors.append("Student must have parent_id")
+            # Check latency constraint
+            if "inference_latency_ms" in manifest.performance_metrics:
+                if manifest.performance_metrics["inference_latency_ms"] > float(
+                    self._policy.max_inference_latency_ms,
+                ):
+                    is_valid = False
+                    errors.append(
+                        (
+                            "Student inference must be under "
+                            f"{self._policy.max_inference_latency_ms}ms"
+                        ),
+                    )
+
+        if is_valid:
+            # Determine deployment target based on role
+            if manifest.role == ModelRole.STUDENT:
+                target = "ml_signal_actor"  # Students deploy to MLSignalActor
+            elif manifest.role == ModelRole.INFERENCE:
+                target = "ml_signal_actor"  # Direct inference also to MLSignalActor
+            else:
+                target = None  # Teachers don't deploy directly (offline only)
+
+            if target:
+                self.deploy_model(manifest.model_id, target)
+                logger.info(f"Auto-deployed {manifest.model_id} to {target}")
+        else:
+            logger.warning(f"Auto-deploy skipped for {manifest.model_id}: {errors}")
 
     def deploy_model(
         self,

@@ -93,6 +93,10 @@ python -m ml.training.teacher.tft_cli \
   --max_epochs 3 \
   --loss bce \
   --dataloader_workers 4 \
+  --pos_weight auto \
+  --batch_size 32 \
+  --tail_rows 5000 \
+  --limit_groups 50 \
   --static_categoricals asset_class,exchange \
   --static_reals tick_size \
   --known_future_reals tod_sin,tod_cos,dow_sin,dow_cos,is_market_open,is_premarket,is_aftermarket,hour,minute,dow
@@ -107,7 +111,10 @@ python -m ml.scripts.hpo_tft \
   --feature_registry_dir ~/.nautilus/ml/features \
   --feature_set_id "$FID" \
   --epochs 2 \
-  --workers 4
+  --workers 4 \
+  --batch_size 32 \
+  --tail_rows 5000 \
+  --limit_groups 50
 ```
 
 Promotion gate (example)
@@ -182,3 +189,47 @@ Online monitoring (post‑deploy)
 
 - Verified stack for training: `pytorch-forecasting==1.4.0`, `pytorch-lightning==2.5.4`, `lightning==2.5.4`, `torchmetrics==1.8.x`.
 - NumPy 2.x works with the above; callbacks/checkpointing minimized in our usage to avoid legacy `np.Inf` issues. If using mlflow, pin `pyarrow<20`.
+
+Note on resource safety
+
+- HPO isolates each configuration in a subprocess by default to prevent RAM accumulation across runs.
+- Use dataset caps (`--tail_rows`, `--limit_groups`) and smaller `--batch_size` on shared or memory‑constrained hosts.
+
+## 11) Operational Checklist (Step‑by‑Step)
+
+- [ ] Environment preflight
+  - [ ] Activate virtualenv and verify heavy deps (PF, Lightning, Torch)
+  - [ ] Export thread caps: `export POLARS_MAX_THREADS=1 PYARROW_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`
+- [ ] Data readiness
+  - [ ] Run L0 recent backfill (Tier‑1)
+  - [ ] Run L2 gap‑fill shards with resume file; validate final outputs under `data/tier1/<SYMBOL>/l2/*.parquet`
+  - [ ] Refresh FRED and write ML‑format parquet (`data/fred/fred_indicators_ml_format.parquet`)
+  - [ ] Build datasets via `build_runner` (60d and/or 90d) and merge per‑symbol outputs to a combined dataset
+- [ ] Feature schema & registry
+  - [ ] Add availability masks: `is_l2_available`, `is_macro_available`; keep L2 columns with 0‑fill
+  - [ ] Register updated feature set; confirm new `feature_set_id` in `~/.nautilus/ml/features/feature_registry.json`
+- [ ] Smoke training (sanity)
+  - [ ] Run `ml.training.teacher.tft_cli` for 1 epoch with `--batch_size 32 --tail_rows 2000 --limit_groups 20`
+  - [ ] Verify `teacher_preds.npz` and `teacher_meta.json` exist; inspect quick metrics
+- [ ] HPO Phase 1 (fast pruning)
+  - [ ] Run `ml.scripts.hpo_tft` with `--epochs 2 --batch_size 32 --tail_rows 5000 --limit_groups 50`
+  - [ ] Confirm `hpo_summary.json` written; select best by PRx then AUC
+- [ ] HPO Phase 2 (promotion candidates)
+  - [ ] Increase caps (e.g., `--tail_rows 10000 --limit_groups 100`) for top‑K configs
+  - [ ] Validate improvements and choose final hyperparameters
+- [ ] Final training
+  - [ ] Train with 3–5 epochs using selected hyperparameters; consider warm‑start (`--pretrained_state_path`)
+  - [ ] Save interpretability artifacts (optional) and ensure calibration is applied (Platt)
+- [ ] Registry & export
+  - [ ] `--register_teacher` to persist model; `ModelRegistry` load test passes
+  - [ ] Record parity metadata in the manifest (bar_type, timestamp_on_close, venue mapping, dataset_id/schema)
+  - [ ] Export ONNX/TorchScript if available; validate outputs match native predictions
+- [ ] Evaluation & promotion
+  - [ ] Compute LogLoss, Brier, ECE; verify calibration improves vs raw
+  - [ ] Weekly walk‑forward over 90d; aggregate stability within ±10%
+  - [ ] Cost‑aware backtest; confirm strategy gates (Sharpe/Calmar, drawdown, realized spread/hit‑rate)
+  - [ ] If all gates pass, freeze teacher and record model card
+- [ ] Deployment readiness
+  - [ ] Verify artifact integrity (hashes), registry entries, and reproducible commands
+  - [ ] Configure dashboards/alerts for online metrics (PnL, ECE/Brier, drift, coverage, fallbacks)
+  - [ ] Set kill‑switch thresholds and backpressure rules

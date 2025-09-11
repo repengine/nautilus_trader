@@ -31,10 +31,13 @@ import argparse
 import json
 import logging
 import os
+import signal
 import sys
+import time
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from random import shuffle as _shuffle
 from typing import Any
 
 import databento as db
@@ -42,9 +45,6 @@ import pandas as pd
 import polars as pl
 import psutil
 import pyarrow.parquet as pq
-import signal
-import time
-from random import shuffle as _shuffle
 
 
 # Setup logging

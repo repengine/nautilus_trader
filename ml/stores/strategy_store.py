@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -20,7 +19,6 @@ from sqlalchemy import JSON
 from sqlalchemy import Column
 from sqlalchemy import Float
 from sqlalchemy import Index
-from sqlalchemy import MetaData
 from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import text
@@ -28,11 +26,16 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 from typing_extensions import override
 
+from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.common.message_topics import build_topic_for_stage
 from ml.config.events import EventStatus
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
+from ml.stores._buffered_store import BufferedStoreMixin
+from ml.stores._engine_mixin import EngineInitMixin
+from ml.stores._read_helpers import ReadQueryMixin
+from ml.stores._registry_mixin import DataRegistryMixin
+from ml.stores._upsert_mixin import SQLUpsertMixin
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
 
@@ -75,7 +78,7 @@ def create_engine(connection_string: str) -> Engine:
     return EngineManager.get_engine(connection_string)
 
 
-class StrategyStore(BaseStore):
+class StrategyStore(BufferedStoreMixin, SQLUpsertMixin, ReadQueryMixin, BaseStore, BusPublisherMixin, DataRegistryMixin, EngineInitMixin):
     """
     Store for strategy signals and decisions with PostgreSQL backend.
 
@@ -154,19 +157,11 @@ class StrategyStore(BaseStore):
             self.flush_interval_ms = int(flush_interval_seconds * 1000)
         self.clock = clock
         # Optional message publishing
-        self._enable_publishing = bool(enable_publishing)
-        self.publisher: MessagePublisherProtocol | None = publisher
-        self._publish_mode: Literal["batch", "row", "both"] = publish_mode
-        # Topic scheme/prefix (env-driven defaults)
-        try:
-            from ml.config.bus import MessageBusConfig as _MBC
-
-            _cfg = _MBC.from_env()
-            self._topic_scheme: str = str(_cfg.scheme)
-            self._topic_prefix: str = str(_cfg.topic_prefix)
-        except Exception:  # pragma: no cover - defensive
-            self._topic_scheme = "domain_op"
-            self._topic_prefix = "events.ml"
+        self._init_bus_publishing(
+            enable_publishing=enable_publishing,
+            publisher=publisher,
+            publish_mode=publish_mode,
+        )
 
         # Allow tests to inject a mock persistence manager directly
         if persistence_manager is not None:
@@ -185,64 +180,12 @@ class StrategyStore(BaseStore):
         # DataRegistry for event emission (lazy initialization)
         self._data_registry: RegistryProtocol | None = None
 
-        # Create engine and setup tables
-        if self.connection_string:
-            self.engine: Engine = EngineManager.get_engine(self.connection_string)
-            self.metadata = MetaData()
-            self._setup_tables()
-            try:
-                status = EngineManager.get_pool_status(self.connection_string)
-                if status:
-                    logger.debug("Engine pool status: %s", status)
-            except Exception as e:
-                logger.debug("Pool status unavailable: %s", e)
+        # Create engine, metadata, and setup tables (shared init)
+        self._init_engine_and_tables()
 
     def _get_data_registry(self) -> RegistryProtocol | None:
-        """
-        Lazily initialize and return the DataRegistry instance.
-
-        Returns
-        -------
-        DataRegistry | None
-            The data registry instance or None if initialization fails.
-
-        """
-        if self._data_registry is None:
-            try:
-                from ml.registry.data_registry import DataRegistry
-                from ml.registry.persistence import BackendType
-                from ml.registry.persistence import PersistenceConfig
-
-                # Initialize DataRegistry with appropriate backend
-                registry_path = Path.home() / ".nautilus" / "ml" / "registry"
-
-                # Determine backend based on connection string
-                if self.connection_string and (
-                    "postgresql://" in self.connection_string
-                    or "postgres://" in self.connection_string
-                ):
-                    # Use PostgreSQL backend for production
-                    persistence_config = PersistenceConfig(
-                        backend=BackendType.POSTGRES,
-                        connection_string=self.connection_string,
-                    )
-                else:
-                    # Use JSON backend for development/testing
-                    persistence_config = PersistenceConfig(
-                        backend=BackendType.JSON,
-                        json_path=registry_path,
-                    )
-
-                self._data_registry = DataRegistry(
-                    registry_path=registry_path,
-                    persistence_config=persistence_config,
-                )
-                logger.debug("Initialized DataRegistry for event emission")
-            except Exception as e:
-                logger.warning(f"Failed to initialize DataRegistry: {e}")
-                self._data_registry = None
-
-        return self._data_registry
+        # Delegate to shared mixin
+        return DataRegistryMixin._get_data_registry(self)
 
     def _setup_tables(self) -> None:
         """
@@ -396,9 +339,7 @@ class StrategyStore(BaseStore):
         self._execute_write(values)
 
     def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
-        """
-        Upsert signals (patchable in tests).
-        """
+        """Upsert signals and publish via shared helper (patchable in tests)."""
         if not values:
             return
         # Optional audit logging (sampled)
@@ -415,108 +356,31 @@ class StrategyStore(BaseStore):
                 )
         except Exception as e:
             logger.debug("Audit logging skipped due to error: %s", e)
-        # Normalize timestamps in incoming values
-        from ml.common.timestamps import sanitize_timestamp_ns
 
-        for v in values:
-            if "ts_event" in v and isinstance(v["ts_event"], int):
-                v["ts_event"] = sanitize_timestamp_ns(
-                    int(v["ts_event"]),
-                    logger=logger,
-                    context="StrategyStore._execute_write",
-                )
-            if "ts_init" in v and isinstance(v["ts_init"], int):
-                v["ts_init"] = sanitize_timestamp_ns(
-                    int(v["ts_init"]),
-                    logger=logger,
-                    context="StrategyStore._execute_write",
-                )
-        # De-duplicate within the same batch by unique key
-        dedup: dict[tuple[str, str, int], dict[str, Any]] = {}
-        for v in values:
-            key = (str(v["strategy_id"]), str(v["instrument_id"]), int(v["ts_event"]))
-            dedup[key] = v
-        values = list(dedup.values())
-
-        stmt = insert(self.strategy_signals_table)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["strategy_id", "instrument_id", "ts_event"],
-            set_={
-                "signal_type": stmt.excluded.signal_type,
-                "strength": stmt.excluded.strength,
-                "model_predictions": stmt.excluded.model_predictions,
-                "risk_metrics": stmt.excluded.risk_metrics,
-                "execution_params": stmt.excluded.execution_params,
-            },
+        self._execute_upsert_and_publish(
+            values=values,
+            ts_event_field="ts_event",
+            ts_init_field="ts_init",
+            context="StrategyStore._execute_write",
+            key_fields=("strategy_id", "instrument_id", "ts_event"),
+            table=self.strategy_signals_table,
+            conflict_cols=["strategy_id", "instrument_id", "ts_event"],
+            update_cols=[
+                "signal_type",
+                "strength",
+                "model_predictions",
+                "risk_metrics",
+                "execution_params",
+            ],
+            dataset_id="signals",
+            stage=Stage.SIGNAL_EMITTED,
+            instrument_key="instrument_id",
+            ts_field="ts_event",
+            run_id_batch="strategy_store_write",
+            run_id_row="strategy_store_row",
+            source="strategy",
+            logger=logger,
         )
-        with self.engine.begin() as conn:
-            conn.execute(stmt, values)
-
-        # Optional publish summary event per batch (off hot-path)
-        batch_list = list(values)
-        if (
-            self._enable_publishing
-            and self.publisher is not None
-            and batch_list
-            and self._publish_mode in ("batch", "both")
-        ):
-            try:
-                stage = Stage.SIGNAL_EMITTED
-                instrument_id = str(batch_list[0]["instrument_id"]) if batch_list else "UNKNOWN"
-                topic = build_topic_for_stage(
-                    stage,
-                    instrument_id,
-                    scheme=self._topic_scheme,
-                    prefix=self._topic_prefix,
-                )
-                ts_min = min(int(v["ts_event"]) for v in batch_list)
-                ts_max = max(int(v["ts_event"]) for v in batch_list)
-                payload: dict[str, Any] = {
-                    "dataset_id": "signals",
-                    "instrument_id": instrument_id,
-                    "stage": stage.value,
-                    "source": "strategy",
-                    "run_id": "strategy_store_write",
-                    "ts_min": ts_min,
-                    "ts_max": ts_max,
-                    "count": len(batch_list),
-                    "status": EventStatus.SUCCESS.value,
-                }
-                self.publisher.publish(topic, payload)
-            except Exception:
-                logger.debug("StrategyStore publish failed", exc_info=True)
-
-        # Optional per-row publish when enabled
-        if (
-            self._enable_publishing
-            and self.publisher is not None
-            and self._publish_mode in ("row", "both")
-        ):
-            try:
-                stage = Stage.SIGNAL_EMITTED
-                for v in batch_list:
-                    instrument_id = str(v.get("instrument_id", "UNKNOWN"))
-                    topic = build_topic_for_stage(
-                        stage,
-                        instrument_id,
-                        scheme=self._topic_scheme,
-                        prefix=self._topic_prefix,
-                    )
-                    ts_e = int(v.get("ts_event", 0))
-                    row_payload: dict[str, Any] = {
-                        "dataset_id": "signals",
-                        "instrument_id": instrument_id,
-                        "stage": stage.value,
-                        "source": "strategy",
-                        "run_id": "strategy_store_row",
-                        "ts_min": ts_e,
-                        "ts_max": ts_e,
-                        "count": 1,
-                        "status": EventStatus.SUCCESS.value,
-                    }
-                    self.publisher.publish(topic, row_payload)
-            except Exception:
-                logger.debug("StrategyStore per-row publish failed", exc_info=True)
 
     # Backwards-compatible alias used in some tests
     def write_signals(self, data: list[StrategySignal]) -> None:
@@ -552,11 +416,7 @@ class StrategyStore(BaseStore):
         import pandas as pd
         from sqlalchemy import text as _text
 
-        table_name = (
-            "ml_strategy_signals"
-            if self.engine.dialect.name == "sqlite"
-            else "public.ml_strategy_signals"
-        )
+        table_name = self._qualified_table("ml_strategy_signals")
         sql = _text(
             f"""
                 SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
@@ -573,7 +433,7 @@ class StrategyStore(BaseStore):
             from typing import cast
 
             _params = cast(
-                Mapping[str, object],
+                Mapping[str, Any],
                 {
                     "strategy_id": strategy_id,
                     "instrument_id": instrument_id,
@@ -582,7 +442,7 @@ class StrategyStore(BaseStore):
                 },
             )
             # Pass the actual bound parameters to avoid InvalidRequestError
-            df = pd.read_sql_query(sql, conn, params=dict(_params))
+            df = pd.read_sql_query(sql, conn, params=_params)
         return df
 
     @override
@@ -622,7 +482,7 @@ class StrategyStore(BaseStore):
             f"""
             SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
                    model_predictions, risk_metrics
-            FROM public.ml_strategy_signals
+            FROM {self._qualified_table('ml_strategy_signals')}
             WHERE {' AND '.join(where_parts)}
             ORDER BY ts_event
             """,
@@ -656,11 +516,7 @@ class StrategyStore(BaseStore):
         import pandas as pd
         from sqlalchemy import text as _text
 
-        table_name = (
-            "ml_strategy_signals"
-            if self.engine.dialect.name == "sqlite"
-            else "public.ml_strategy_signals"
-        )
+        table_name = self._qualified_table("ml_strategy_signals")
         sql = _text(
             f"""
                 SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
@@ -767,23 +623,10 @@ class StrategyStore(BaseStore):
         }
 
     def flush(self) -> None:
-        """
-        Flush pending signals to storage and emit events.
-        """
-        if self._write_buffer:
-            # Store the buffer data before clearing for event emission
-            buffer_copy = list(self._write_buffer)
+        """Delegate to shared buffered flush behavior."""
+        from ml.stores._buffered_store import BufferedStoreMixin as _BSM
 
-            # Write to storage
-            self.write_batch(buffer_copy)
-
-            # Emit SIGNAL_EMITTED events after successful storage
-            self._emit_signal_events(buffer_copy)
-
-            # Clear buffer and update flush time
-            self._write_buffer.clear()
-            if self.clock:
-                self._last_flush_ns = self.clock.timestamp_ns()
+        _BSM.flush(self)
 
     def _emit_signal_events(self, signals: list[StrategySignal]) -> None:
         """
@@ -879,37 +722,13 @@ class StrategyStore(BaseStore):
             # Non-blocking: log but don't fail the signal storage
             logger.warning(f"Failed to emit signal event: {e}")
 
-    def _should_flush_by_time(self) -> bool:
-        """
-        Check if flush is needed based on time.
-        """
-        if not self.clock or not self._last_flush_ns:
-            return False
+    # Time-based flush decision provided by BufferedStoreMixin
 
-        elapsed_ms = (self.clock.timestamp_ns() - self._last_flush_ns) / 1e6
-        return bool(elapsed_ms >= float(self.flush_interval_ms))
+    # Health check provided by BufferedStoreMixin
 
-    def is_healthy(self) -> bool:
-        """
-        Check if the strategy store is healthy and accessible.
-
-        Returns
-        -------
-        bool
-            True if store is healthy, False otherwise
-
-        """
-        try:
-            # Try a simple query to verify connection
-            if self.engine:
-                with self.engine.connect() as conn:
-                    from sqlalchemy import text
-
-                    result = conn.execute(text("SELECT 1"))
-                    return result is not None
-            return True  # If no engine, assume healthy (in-memory mode)
-        except Exception:
-            return False
+    # Wrapper used by BufferedStoreMixin.flush
+    def _emit_events(self, signals: list[StrategySignal]) -> None:
+        self._emit_signal_events(signals)
 
     def clear_signals(
         self,
@@ -1321,10 +1140,10 @@ class StrategyStore(BaseStore):
             )
 
         sql = _text(
-            """
+            f"""
             SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
                    model_predictions, risk_metrics
-            FROM public.ml_strategy_signals
+            FROM {self._qualified_table('ml_strategy_signals')}
             WHERE strategy_id = :strategy_id
               AND ts_event >= :start_ns
               AND ts_event < :end_ns

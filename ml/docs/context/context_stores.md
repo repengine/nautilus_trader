@@ -508,6 +508,26 @@ SqlMarketDataWriter field mapping:
 - Always sets `instrument_id`, `ts_event`, `ts_init` (ns). Missing fields remain NULL.
 - Idempotent inserts on `(instrument_id, ts_event)` (Postgres ON CONFLICT, SQLite OR IGNORE).
 
+### Ingestion Strategy (Canonical Rules)
+
+- Canonical store: Postgres `market_data` (003_market_data.sql). Registry events/watermarks reflect this store.
+- Parquet Data Catalog: Use for historical reads, backtests, and fast coverage via file intervals; not the authoritative store.
+- Coverage modes:
+  - `sql` (default): Query canonical store to detect gaps.
+  - `catalog`: Query `ParquetDataCatalog` intervals via `CatalogCoverageProvider` (historical planning only).
+- Write modes:
+  - `sql` (default): Persist via `SqlMarketDataWriter` (idempotent) → emit registry events and update watermarks.
+  - `parquet`: Not recommended for canonical datasets; if used, model as a separate dataset_id with storage_kind=PARQUET.
+- Timestamps: UNIX ns consistently; bars use timestamp-on-close; gaps computed on UTC day buckets.
+- Mapping: Single mapping to canonical schema (writer performs defensive mapping from DF columns).
+
+Configuration flags (CLI/env):
+
+- `COVERAGE_MODE=sql|catalog` (default `sql`)
+- `WRITE_MODE=sql` (default `sql`; `parquet` not implemented by default)
+- `CATALOG_PATH=/abs/path/to/catalog` (required for catalog coverage/client)
+- `TABLE_NAME=market_data` (default)
+
 ## Data Processing Pipeline
 
 ### DataProcessor Architecture

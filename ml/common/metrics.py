@@ -331,6 +331,10 @@ __all__ = [
     "Counter",
     "Gauge",
     "Histogram",
+    "aggregator_buffer_size",
+    "aggregator_duplicates_total",
+    "aggregator_flushed_total",
+    "aggregator_watermark_lag_seconds",
     "catalog_write_operations_total",
     "contract_violations_total",
     "data_collection_duration",
@@ -357,9 +361,4 @@ __all__ = [
     "validation_violations_counter",
     "watermark_lag_seconds",
     "write_rejection_counter",
-    # Aggregator metrics
-    "aggregator_buffer_size",
-    "aggregator_duplicates_total",
-    "aggregator_flushed_total",
-    "aggregator_watermark_lag_seconds",
 ]

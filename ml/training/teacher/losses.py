@@ -49,7 +49,7 @@ class BCEWithLogitsLossPF(MultiHorizonMetric):  # type: ignore[misc]
             persistent=False,
         )
 
-    def loss(self, y_pred: Any, target: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+    def loss(self, y_pred: Any, target: torch.Tensor) -> torch.Tensor:
         # Accept either dict outputs (with key 'prediction') or direct tensor outputs
         if isinstance(y_pred, dict):
             pred = y_pred["prediction"].float()

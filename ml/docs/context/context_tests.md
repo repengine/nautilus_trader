@@ -263,6 +263,36 @@ Tip: append `--durations=10` to surface slowest tests.
   - Wait/check: `make check-db` (uses current `DATABASE_URL`)
 - Fast loop: `HYPOTHESIS_PROFILE=ci pytest ml -m "not integration" -n auto --dist=loadscope -q -x --maxfail=1 --tb=short -ra`
 
+## Static Validation & Pattern Compliance
+
+The ML layer ships a comprehensive, fast validation suite to prevent common pitfalls (hot‑path violations, insecure serialization, event/status/topic misuse, coupling, duplication).
+
+- Pre‑commit hooks (always on for changed files):
+  - `check_nautilus_patterns.py` (custom AST checker):
+    - Hot path: forbids `open()`, network calls, pandas `DataFrame(...)`, and `fit(...)` in `on_*` handlers and actor paths
+    - Security: forbids `pickle`/`joblib` in actors/strategies/deployment/inference
+    - Events: enforces `EventStatus.<...>.value` (no raw strings)
+    - Topics: requires `build_topic_for_stage(...)` in stores/actors (no `build_topic(...)`)
+    - Metrics: forbids direct `prometheus_client` imports; use `ml.common.metrics_bootstrap`
+    - Architecture: flags store instantiation inside actors; warns on “god classes”
+  - `semgrep-ml` (Semgrep rules in `tools/semgrep/ml-rules.yml`): mirrors the above as a second line of defense.
+
+- Manual/advisory checks (developer/CI):
+  - Duplication hotspots: `python tools/duplication/check_duplication.py`
+  - Architecture contracts: `lint-imports` (Import Linter; see `importlinter.ini`)
+  - Complexity budgets: `xenon --max-absolute B --max-modules B --max-average B ml/`
+  - Security sweep: `bandit -q -r ml -x ml/tests`
+  - Dead code: `vulture ml --min-confidence 90 --exclude ml/tests/*`
+  - SQL lint: `sqlfluff lint schema ml/stores/migrations`
+
+- One‑shot suite (advisory):
+  - `make validate-nautilus-patterns`
+
+Notes
+
+- Violations in pre‑commit hooks are errors for changed files; the advisory suite is non‑blocking but should be kept clean before PRs.
+- These checks map to Roadmap acceptance gates and the Comprehensive Issue Checklist (e.g., C001–C007 duplication, C009–C014 architecture, EventStatus enforcement, hot‑path budgets).
+
 ### Performance Tests
 
 ```bash

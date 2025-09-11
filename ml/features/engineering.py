@@ -1861,7 +1861,8 @@ class FeatureEngineer:
             recent_volumes = volumes[-window_size:]
             avg_volume = np.mean(recent_volumes)
             if avg_volume > 0:
-                intensity = min(volume / avg_volume, 5.0)  # Cap at 5x average
+                # Ensure consistent float type for mypy/NumPy interplay
+                intensity = min(float(volume) / float(avg_volume), 5.0)  # Cap at 5x average
                 self.feature_buffer[feature_idx + 2] = np.float32(intensity)
             else:
                 self.feature_buffer[feature_idx + 2] = 1.0
@@ -1871,8 +1872,8 @@ class FeatureEngineer:
         # avg_price_impact: Estimate from intraday volatility normalized by volume
         if volume > 0 and close > 0:
             hl_range = high - low
-            impact = safe_divide(hl_range / close, volume / 1000.0, 0.0)
-            self.feature_buffer[feature_idx + 3] = np.float32(min(impact, 0.01))  # Cap at 1%
+            impact = safe_divide(float(hl_range) / float(close), float(volume) / 1000.0, 0.0)
+            self.feature_buffer[feature_idx + 3] = np.float32(min(float(impact), 0.01))  # Cap at 1%
         else:
             self.feature_buffer[feature_idx + 3] = 0.0
 

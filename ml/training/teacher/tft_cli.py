@@ -22,6 +22,7 @@ Outputs
 
 import argparse
 import json
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -31,7 +32,6 @@ import numpy.typing as npt
 from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
-from ml.config.names import ONNX_INPUT_NAME
 from ml.registry.feature_registry import FeatureRegistry
 from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
@@ -70,18 +70,54 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Interpret ONNX model output as logits (else as probabilities)",
     )
+    # Optional decision policy adapter for inference actor
+    ap.add_argument(
+        "--decision_policy",
+        required=False,
+        default=None,
+        help="Fully-qualified adapter or strategy class for prediction→signal policy",
+    )
+    ap.add_argument(
+        "--decision_config",
+        required=False,
+        default=None,
+        help="JSON dict of parameters passed to the decision policy adapter",
+    )
     # Optional training mode
     ap.add_argument("--train_data_csv", required=False, help="CSV with training data")
+    ap.add_argument("--train_data_parquet", required=False, help="Parquet with training data")
     ap.add_argument("--target_col", required=False, default="y")
     ap.add_argument("--time_index_col", required=False, default="time_index")
+    ap.add_argument("--timestamp_col", required=False, default="timestamp")
     ap.add_argument("--group_id_col", required=False, default="instrument_id")
+    ap.add_argument(
+        "--limit_groups",
+        required=False,
+        type=int,
+        default=0,
+        help="If > 0, keep only the top-N groups by row count before training",
+    )
     ap.add_argument("--max_encoder_length", required=False, type=int, default=30)
     ap.add_argument("--max_prediction_length", required=False, type=int, default=1)
     ap.add_argument("--max_epochs", required=False, type=int, default=1)
+    ap.add_argument(
+        "--val_days",
+        required=False,
+        type=int,
+        default=0,
+        help="If >0 and timestamp column exists, use last N days for validation",
+    )
     ap.add_argument("--hidden_size", required=False, type=int, default=16)
     ap.add_argument("--lstm_layers", required=False, type=int, default=1)
     ap.add_argument("--attention_head_size", required=False, type=int, default=2)
     ap.add_argument("--dropout", required=False, type=float, default=0.1)
+    ap.add_argument(
+        "--batch_size",
+        required=False,
+        type=int,
+        default=64,
+        help="Batch size for train/val DataLoaders (default: 64)",
+    )
     ap.add_argument(
         "--dataloader_workers",
         required=False,
@@ -103,7 +139,22 @@ def main(argv: list[str] | None = None) -> int:
         default="poisson",
         help="Loss function for TFT teacher (default: poisson)",
     )
+    ap.add_argument(
+        "--pos_weight",
+        required=False,
+        default=None,
+        help="Positive class weight for BCE; 'auto' or a float (e.g., 3.0)",
+    )
     ap.add_argument("--seed", required=False, type=int, default=None)
+    ap.add_argument(
+        "--tail_rows",
+        required=False,
+        type=int,
+        default=0,
+        help=(
+            "If > 0, keep only the last N rows per group after sorting by time_index to cap memory"
+        ),
+    )
     ap.add_argument(
         "--static_categoricals",
         required=False,
@@ -160,21 +211,23 @@ def main(argv: list[str] | None = None) -> int:
     n_features = len(feature_names)
 
     # Ensure either training CSV or NPZ path provided
-    if not args.train_data_csv and not args.student_window_npz:
+    if not args.train_data_csv and not args.train_data_parquet and not args.student_window_npz:
         raise SystemExit(
-            "Provide either --train_data_csv for training or --student_window_npz for calibration",
+            "Provide either --train_data_csv/--train_data_parquet for training or --student_window_npz for calibration",
         )
 
     # Initialize outputs (populated below depending on mode)
     q_train: npt.NDArray[np.float32] | None = None
     q_val: npt.NDArray[np.float32] | None = None
+    y_val_true: npt.NDArray[np.float64] | None = None
 
     # If training data is provided, run training mode
-    if args.train_data_csv:
+    if args.train_data_csv or args.train_data_parquet:
         if not HAS_PANDAS:
             check_ml_dependencies(["pandas"])  # pragma: no cover - import guard
-        assert pd is not None
-        df = pd.read_csv(args.train_data_csv)
+        if pd is None:
+            raise SystemExit("pandas is required to load training data")
+        df = pd.read_parquet(args.train_data_parquet) if args.train_data_parquet else pd.read_csv(args.train_data_csv)
         # Set seeds if provided
         if args.seed is not None:
             import random
@@ -201,24 +254,75 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"Training CSV missing required feature columns: {missing}")
         # Use last 20% as validation; keep train/val slices explicit
         df_sorted = df.sort_values(args.time_index_col)
-        cutoff = int(len(df_sorted) * 0.8)
-        _df_train = df_sorted.iloc[:cutoff]
-        df_val = df_sorted.iloc[cutoff:]
+        # Optionally restrict groups to top-N by size
+        if int(args.limit_groups or 0) > 0:
+            counts = df_sorted[args.group_id_col].value_counts()
+            keep = set(counts.head(int(args.limit_groups)).index.tolist())
+            df_sorted = df_sorted[df_sorted[args.group_id_col].isin(keep)]
+        # Optionally cap rows per group to tail N (recent data)
+        if int(args.tail_rows or 0) > 0:
+            try:
+                df_sorted = (
+                    df_sorted.groupby(args.group_id_col, group_keys=False)
+                    .tail(int(args.tail_rows))
+                    .reset_index(drop=True)
+                )
+            except Exception:
+                # Fallback: global tail if groupby-tail not available
+                df_sorted = df_sorted.tail(int(args.tail_rows)).reset_index(drop=True)
+        # Prefer time-based validation window if requested and timestamp is available
+        _df_train = None
+        df_val = None
+        if int(getattr(args, "val_days", 0) or 0) > 0 and args.timestamp_col in df_sorted.columns:
+            try:
+                ts = pd.to_datetime(df_sorted[args.timestamp_col], errors="coerce")
+                df_sorted = df_sorted.assign(_ts=ts)
+                max_ts = df_sorted["_ts"].max()
+                if pd.notna(max_ts):
+                    cutoff_ts = max_ts - pd.Timedelta(days=int(args.val_days))
+                    mask_val = df_sorted["_ts"] > cutoff_ts
+                    df_val = df_sorted.loc[mask_val].drop(columns=["_ts"], errors="ignore")
+                    _df_train = df_sorted.loc[~mask_val].drop(columns=["_ts"], errors="ignore")
+            except Exception:
+                _df_train = None
+                df_val = None
+        if _df_train is None or df_val is None or len(df_val) == 0:
+            n_total = len(df_sorted)
+            min_val_len = 5000
+            cutoff = max(int(n_total * 0.8), n_total - min_val_len)
+            _df_train = df_sorted.iloc[:cutoff]
+            df_val = df_sorted.iloc[cutoff:]
         y_val_true = np.asarray(df_val[args.target_col], dtype=np.float64).reshape(-1)
 
         # Try TFT teacher; if unavailable or fails, fall back to a simple linear model producing logits
-        z_val_vec: npt.NDArray[np.float64]
-        z_train_vec: npt.NDArray[np.float64]
+        z_val_vec: npt.NDArray[np.float64] | None
+        z_train_vec: npt.NDArray[np.float64] | None
+        z_all: npt.NDArray[np.float64] | None = None
         used_tft = False
+        # Determine BCE pos_weight (class imbalance) if requested and applicable
+        pos_weight_val = None
+        if str(args.loss).lower() == "bce" and args.pos_weight:
+            try:
+                if str(args.pos_weight).strip().lower() == "auto":
+                    # prevalence on training slice
+                    y_tr = np.asarray(_df_train[args.target_col], dtype=np.float64)
+                    prev = float(y_tr.mean()) if y_tr.size > 0 else 0.0
+                    if prev > 0.0 and prev < 1.0:
+                        pos_weight_val = float((1.0 - prev) / prev)
+                else:
+                    pos_weight_val = float(args.pos_weight)
+            except Exception:
+                pos_weight_val = None
         try:  # pragma: no cover - exercised in integration path when dependencies ok
             from ml.training.teacher.tft_teacher import TFTTeacher
             from ml.training.teacher.tft_teacher import TFTTeacherConfig
 
             teacher_tft = TFTTeacher(
-                TFTTeacherConfig(architecture="TFT", loss_name=str(args.loss)),
+                TFTTeacherConfig(architecture="TFT", loss_name=str(args.loss), pos_weight=pos_weight_val),
                 max_encoder_length=args.max_encoder_length,
                 max_prediction_length=args.max_prediction_length,
                 time_varying_unknown_reals=feature_names,
+                batch_size=int(args.batch_size),
                 static_categoricals=(
                     [s for s in (args.static_categoricals or "").split(",") if s]
                     if args.static_categoricals
@@ -251,7 +355,13 @@ def main(argv: list[str] | None = None) -> int:
             z_val_vec = None
             z_train_vec = None
             try:
+                # Prefer PF return_x alignment when it yields a sufficiently large validation set
                 z_val_vec, y_val_true_pf = teacher_tft.predict_logits_with_targets(df_val)
+                min_required = 100
+                if (z_val_vec is None or (hasattr(z_val_vec, "size") and int(z_val_vec.size) < min_required)
+                    or (hasattr(y_val_true_pf, "size") and int(getattr(y_val_true_pf, "size", 0)) < min_required)
+                    or (np.unique(y_val_true_pf).size < 2)):
+                    raise RuntimeError("Insufficient validation samples or label variance from PF alignment")
                 # Override y_val_true with PF-aligned decoder targets
                 y_val_true = y_val_true_pf
             except Exception:
@@ -259,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     z_all = teacher_tft.predict_logits(df_sorted)
                     z_val_vec = z_all[cutoff:]
+                    # use original df_val labels already assigned above
                 except Exception:
                     z_val_vec = None
             # Fallback path 2: predict directly on validation frame
@@ -272,7 +383,10 @@ def main(argv: list[str] | None = None) -> int:
                 z_train_vec = teacher_tft.predict_logits(_df_train)
             except Exception:
                 try:
-                    z_train_vec = z_all[:cutoff]  # type: ignore[name-defined]
+                    if z_all is not None:
+                        z_train_vec = z_all[:cutoff]
+                    else:
+                        z_train_vec = None
                 except Exception:
                     z_train_vec = None
             # Guard: ensure we have non-empty validation logits for calibration
@@ -291,12 +405,12 @@ def main(argv: list[str] | None = None) -> int:
                     else:
                         z_val_vec = _np.asarray(z_val_vec, dtype=_np.float64)[-y_len:]
                 # If training logits exist, enforce 80/20 split consistency (optional)
-                if z_train_vec is not None and hasattr(z_train_vec, "shape"):
+                if z_train_vec is not None:
                     zt = int(z_train_vec.shape[0])
                     if zt == 0:
                         z_train_vec = None
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("TFT post-processing alignment failed: %s", exc)
             used_tft = True
         except Exception:
             import logging as _logging
@@ -334,9 +448,12 @@ def main(argv: list[str] | None = None) -> int:
 
         # Calibrate and produce calibrated probabilities
         teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
+        if z_val_vec is None:
+            raise SystemExit("Calibration requires z_val_vec logits; got None")
         teacher.calibrate(z_val_vec.reshape(-1, 1), y_val_true)
         q_val = teacher.predict_proba(z_val_vec.reshape(-1, 1)).astype(np.float32)
-        q_train = teacher.predict_proba(z_train_vec.reshape(-1, 1)).astype(np.float32)
+        if z_train_vec is not None:
+            q_train = teacher.predict_proba(z_train_vec.reshape(-1, 1)).astype(np.float32)
 
         # Optional interpretability save
         if used_tft and args.save_interpretability:
@@ -345,7 +462,8 @@ def main(argv: list[str] | None = None) -> int:
                 from pytorch_forecasting import TimeSeriesDataSet
 
                 training_ds = getattr(teacher_tft, "_training_dataset", None)
-                assert training_ds is not None
+                if training_ds is None:
+                    raise RuntimeError("TFT training dataset missing for interpretability save")
                 val_ds = TimeSeriesDataSet.from_dataset(
                     training_ds,
                     df_val,
@@ -388,7 +506,8 @@ def main(argv: list[str] | None = None) -> int:
                     from ml.training.teacher.tft_torchscript import export_tft_to_torchscript_from_batch
 
                     training_ds = getattr(teacher_tft, "_training_dataset", None)
-                    assert training_ds is not None
+                    if training_ds is None:
+                        raise RuntimeError("TFT training dataset missing for TorchScript export")
                     val_ds = TimeSeriesDataSet.from_dataset(
                         training_ds,
                         df_val,
@@ -485,7 +604,16 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 perf_metrics = {}
 
-            assert y_val_true is not None
+            if y_val_true is None:
+                raise SystemExit("y_val_true is required to build manifest metrics")
+            # Parse optional decision adapter config
+            decision_cfg: dict[str, Any] = {}
+            if args.decision_config:
+                try:
+                    decision_cfg = cast(dict[str, Any], json.loads(args.decision_config))
+                except Exception as exc:
+                    raise SystemExit(f"Invalid --decision_config JSON: {exc}")
+
             manifest = ModelManifest(
                 model_id=args.model_id,
                 role=ModelRole.TEACHER,
@@ -510,6 +638,8 @@ def main(argv: list[str] | None = None) -> int:
                 feature_set_id=args.feature_set_id,
                 pipeline_signature=fman.pipeline_signature,
                 pipeline_version=fman.pipeline_version,
+                decision_policy=(args.decision_policy or None),
+                decision_config=decision_cfg,
             )
             mreg = ModelRegistry(reg_dir)
             reg_id = mreg.register_model(model_path, manifest, auto_deploy=False)
@@ -518,11 +648,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         # Load arrays for calibration-only/ONNX modes
         npz = np.load(args.student_window_npz, allow_pickle=True)
-        y_val_true = None
-        if "y_val_true" in npz:
-            y_val_true = npz["y_val_true"].astype(np.float64)
-        else:
+        if "y_val_true" not in npz:
             raise SystemExit("NPZ missing required key 'y_val_true'")
+        y_val_true = npz["y_val_true"].astype(np.float64)
 
         z_val: npt.NDArray[np.float64] | None = None
         X_val: npt.NDArray[np.float32] | None = None
@@ -554,10 +682,14 @@ def main(argv: list[str] | None = None) -> int:
             # Run inference
             try:
                 session_any: Any = session
+                try:
+                    from ml.config.names import ONNX_INPUT_NAME as _ONNX_INPUT
+                except Exception:
+                    _ONNX_INPUT = "input"
                 input_name = (
                     session_any.get_inputs()[0].name
                     if hasattr(session_any, "get_inputs")
-                    else ONNX_INPUT_NAME
+                    else _ONNX_INPUT
                 )
                 outputs: list[Any] = session_any.run(None, {input_name: X_val})
                 raw_out = outputs[0]
@@ -571,7 +703,8 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:  # pragma: no cover - runtime dependency
                 raise SystemExit(f"ONNX inference failed: {exc}")
 
-        assert z_val is not None
+        if z_val is None:
+            raise SystemExit("Calibration requires z_val logits; got None")
 
         # Calibrate and produce calibrated probabilities
         teacher = CalibratingTeacher(TeacherConfig(architecture="TFT"))
@@ -584,7 +717,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     preds_path = out_dir / "teacher_preds.npz"
     # Save q_train (if available) and q_val for student distillation
-    assert y_val_true is not None
+    if y_val_true is None:
+        raise SystemExit("Final outputs require y_val_true; got None")
     if q_train is not None:
         np.savez_compressed(
             preds_path,

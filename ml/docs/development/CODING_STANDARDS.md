@@ -52,6 +52,32 @@ This document defines the coding standards for the `ml/` package. The goals are:
 - Benchmarks must be robust to environment variance. Support `ML_BENCH_RELAX`.
 - Avoid microbenchmarks that are sensitive to noisy neighbors unless scoped behind relax guards.
 
+## Validation Suite (Static Analysis & Compliance)
+
+- Pre-commit (enforced on changed files):
+  - Custom pattern checker: `.pre-commit-hooks/check_nautilus_patterns.py`
+    - Hot path: no `open()`/network calls/pandas `DataFrame(...)`/`.fit(...)` in `on_*` handlers and actor paths
+    - Security: no `pickle`/`joblib` in actors/strategies/deployment/inference
+    - Events/Topics: enforce `EventStatus.<...>.value`; require `build_topic_for_stage(...)` in stores/actors
+    - Metrics: no direct `prometheus_client` imports; use `ml.common.metrics_bootstrap`
+    - Architecture: forbid direct store instantiation in actors; warn on god-class sizes
+  - Semgrep rules: `tools/semgrep/ml-rules.yml` (mirrors the above; fast and CI-friendly)
+
+- Manual/advisory (run locally or in CI):
+  - Duplication hotspots: `python tools/duplication/check_duplication.py`
+  - Import Linter contracts: `lint-imports` (see `importlinter.ini`)
+  - Complexity/maintainability: `xenon --max-absolute B --max-modules B --max-average B ml/`
+  - Security: `bandit -q -r ml -x ml/tests`
+  - Dead code: `vulture ml --min-confidence 90 --exclude ml/tests/*`
+  - SQL lint: `sqlfluff lint schema ml/stores/migrations`
+
+- One-shot suite: `make validate-nautilus-patterns` (advisory)
+
+Policy
+
+- Keep pre-commit hooks clean before committing; address advisory suite warnings before opening a PR.
+- These checks align with the Roadmap gates and the Comprehensive Issue Checklist; regressions in hot paths, events/topics, or security will block.
+
 ## File Organization
 
 - Ad-hoc scripts belong under `ml/scripts/` (subfolders like `analysis/`).

@@ -26,13 +26,18 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import datetime, timedelta
+from collections.abc import Iterable
+from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
-from typing import Iterable, Any
+from typing import Any
 
 import numpy as np
 
-from ml._imports import HAS_POLARS, check_ml_dependencies, pl
+from ml._imports import HAS_POLARS
+from ml._imports import check_ml_dependencies
+from ml._imports import pl
+
 
 if not HAS_POLARS:
     check_ml_dependencies(["polars"])  # pragma: no cover

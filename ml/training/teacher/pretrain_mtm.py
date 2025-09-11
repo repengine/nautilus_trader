@@ -114,7 +114,8 @@ class MTMPretrainer:
             Path to the saved state dict.
 
         """
-        assert X.dtype == np.float32 and X.ndim == 3
+        if not (X.dtype == np.float32 and X.ndim == 3):
+            raise ValueError("X must be float32 with shape (N, T, F)")
         N, T, F = X.shape
         if T != self.cfg.seq_len or F != self.cfg.input_dim:
             raise ValueError("X shape does not match configured seq_len/input_dim")

@@ -1,8 +1,8 @@
-from __future__ import annotations
-
 """
 Retry/DLQ consumer wrapper with synchronous bounded retries for tests/examples.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass

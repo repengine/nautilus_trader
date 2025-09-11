@@ -45,6 +45,93 @@ repos:
   ##############################################################################
   - repo: local
     hooks:
+      - id: semgrep-ml
+        name: semgrep (ML rules)
+        description: ML static analysis rules (hot path, security, events, topics, metrics)
+        entry: semgrep
+        language: python
+        types: [python]
+        pass_filenames: false
+        args: ["--config", "tools/semgrep/ml-rules.yml", "--error"]
+        additional_dependencies: [semgrep]
+        stages: [pre-commit]
+
+      - id: duplication-hotspots
+        name: ml duplication hotspots (advisory)
+        description: Detects likely copy/paste across actors/stores/registry
+        entry: python tools/duplication/check_duplication.py
+        language: system
+        pass_filenames: false
+        stages: [manual]
+
+      - id: import-linter
+        name: import-linter (architecture contracts)
+        description: Enforce import layering and forbidden dependencies
+        entry: lint-imports
+        language: python
+        pass_filenames: false
+        additional_dependencies: [import-linter]
+        stages: [manual]
+
+      - id: xenon
+        name: xenon (complexity gate)
+        description: Enforce complexity/maintainability budgets
+        entry: xenon
+        language: python
+        pass_filenames: false
+        additional_dependencies: [xenon]
+        args: ["--max-absolute", "B", "--max-modules", "B", "--max-average", "B", "ml/"]
+        stages: [manual]
+
+      - id: pylint-ml
+        name: pylint (ML subset)
+        description: Additional code-smell checks beyond Ruff on ML core paths
+        entry: pylint
+        language: python
+        pass_filenames: false
+        additional_dependencies: [pylint]
+        args: ["-rn", "-j", "0", "--rcfile", "pylintrc", "ml/actors", "ml/stores", "ml/registry"]
+        stages: [manual]
+
+      - id: bandit-ml
+        name: bandit (security)
+        description: Security checks for ML code
+        entry: bandit
+        language: python
+        pass_filenames: false
+        additional_dependencies: [bandit]
+        args: ["-q", "-r", "ml", "-x", "ml/tests"]
+        stages: [manual]
+
+      - id: detect-secrets
+        name: detect-secrets
+        description: Secret scanning using baseline
+        entry: detect-secrets
+        language: python
+        pass_filenames: false
+        additional_dependencies: [detect-secrets]
+        args: ["scan", "--baseline", ".secrets.baseline"]
+        stages: [manual]
+
+      - id: vulture-deadcode
+        name: vulture (dead code)
+        description: Detect dead code in ML package
+        entry: vulture
+        language: python
+        pass_filenames: false
+        additional_dependencies: [vulture]
+        args: ["ml", "--min-confidence", "90", "--exclude", "ml/tests/*"]
+        stages: [manual]
+
+      - id: sqlfluff
+        name: sqlfluff lint
+        description: Lint SQL files (postgres dialect)
+        entry: sqlfluff
+        language: python
+        pass_filenames: false
+        additional_dependencies: [sqlfluff]
+        args: ["lint", "schema", "ml/stores/migrations"]
+        stages: [manual]
       - id: check-hidden-chars
         name: check hidden unicode/control chars
         description: Fail on hidden control or zero-width unicode characters in source

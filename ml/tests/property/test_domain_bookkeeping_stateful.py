@@ -459,7 +459,7 @@ class TestDomainBookkeepingStateful:
         from hypothesis.stateful import run_state_machine_as_test
 
         class _CaptureMachine(DomainBookkeepingStateMachine):  # type: ignore[misc]
-            last_instance: "_CaptureMachine | None" = None
+            last_instance: _CaptureMachine | None = None
 
             def __init__(self):
                 super().__init__()
@@ -652,7 +652,7 @@ class TestPipelineRecoveryStateful:
         from hypothesis.stateful import run_state_machine_as_test
 
         class _CaptureRecovery(PipelineRecoveryStateMachine):  # type: ignore[misc]
-            last_instance: "_CaptureRecovery | None" = None
+            last_instance: _CaptureRecovery | None = None
 
             def __init__(self):
                 super().__init__()

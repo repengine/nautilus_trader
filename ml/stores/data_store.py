@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
+from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.protocols import MLComponentMixin
@@ -232,7 +233,7 @@ class ValidationViolation:
 # ========================================================================
 
 
-class DataStore(MLComponentMixin):
+class DataStore(MLComponentMixin, BusPublisherMixin):
     """
     Typed read/write facade with contract validation and event emission.
 
@@ -359,15 +360,11 @@ class DataStore(MLComponentMixin):
         self.schema_migration_window_hours = schema_migration_window_hours
 
         # Topic scheme/prefix (env-driven defaults for bus publishing parity)
-        try:
-            from ml.config.bus import MessageBusConfig as _MBC
-
-            _cfg = _MBC.from_env()
-            self._topic_scheme: str = str(_cfg.scheme)
-            self._topic_prefix: str = str(_cfg.topic_prefix)
-        except Exception:  # pragma: no cover - defensive
-            self._topic_scheme = "domain_op"
-            self._topic_prefix = "events.ml"
+        self._init_bus_publishing(
+            enable_publishing=False,  # DataStore-level publishing uses per-store publishers
+            publisher=publisher,
+            publish_mode="batch",
+        )
 
         # Initialize underlying stores
         self.feature_store = feature_store or FeatureStore(connection_string)
@@ -1320,7 +1317,7 @@ class DataStore(MLComponentMixin):
                     "ts_min": ts_min,
                     "ts_max": ts_max,
                     "count": count,
-                    "status": "success",
+                    "status": EventStatus.SUCCESS.value,
                     "metadata": {"correlation_id": correlation_id},
                 }
                 try:

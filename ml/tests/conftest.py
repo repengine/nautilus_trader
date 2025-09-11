@@ -956,6 +956,18 @@ def pytest_sessionstart(session):
             status = check_db_prereqs(DATABASE_URL)
             ok = bool(status.get("ok", False))
             if not ok:
+                # Best-effort remediation: attempt to run auto_create_partitions directly
+                try:
+                    from sqlalchemy import text as _text
+                    from ml.core.db_engine import EngineManager as _EM
+
+                    _eng = _EM.get_engine(DATABASE_URL)
+                    with _eng.begin() as _conn:
+                        _conn.execute(_text("SELECT auto_create_partitions()"))
+                except Exception:
+                    pass
+                # Re-run preflight to surface final status
+                status = check_db_prereqs(DATABASE_URL)
                 print(f"Warning: DB preflight failed: {status}")
         except Exception as e:
             print(f"Warning: DB preflight error: {e}")

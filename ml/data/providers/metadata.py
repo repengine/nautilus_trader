@@ -53,52 +53,15 @@ class InstrumentMetadataProvider(BaseStaticProvider):
         """
         super().__init__()
         self.source = source
-        self._cache: dict[str, pl.DataFrame] = {}
         logger.info(f"Initialized InstrumentMetadataProvider with {source.__class__.__name__}")
-
-    def load_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
         """
-        Load metadata for specified instruments.
+        Load metadata for specified instruments (implementation for BaseStaticProvider).
 
-        Parameters
-        ----------
-        instruments : list[str]
-            List of instrument identifiers
-
-        Returns
-        -------
-        pl.DataFrame
-            DataFrame with columns:
-            - instrument_id: str
-            - tick_size: float
-            - lot_size: float
-            - contract_size: float
-            - min_price_increment: float
-            - exchange: str
-            - asset_class: str
-            - currency: str
-            - margin_initial: float
-            - margin_maintenance: float
-            - fee_class: str
-            - market_segment: str
-
-        Raises
-        ------
-        ValueError
-            If metadata format is invalid
-
+        Returns a DataFrame with expected schema or an empty frame on error.
         """
         if pl is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
-
-        # Generate cache key from sorted instruments
-        cache_key = self._generate_cache_key(instruments)
-
-        # Check cache first
-        if cache_key in self._cache:
-            cached_data = self._cache[cache_key]
-            logger.debug(f"Cache hit for {len(instruments)} instruments")
-            return cached_data
 
         logger.info(f"Loading metadata for {len(instruments)} instruments")
 
@@ -117,11 +80,6 @@ class InstrumentMetadataProvider(BaseStaticProvider):
 
         # Ensure all requested instruments are present
         data = self._ensure_all_instruments(data, instruments)
-
-        # Cache and return
-        self._cache[cache_key] = data
-        logger.info(f"Cached metadata for {len(instruments)} instruments")
-
         return data
 
     def validate_data(self, data: pl.DataFrame) -> bool:
@@ -202,28 +160,10 @@ class InstrumentMetadataProvider(BaseStaticProvider):
 
     def _generate_cache_key(self, instruments: list[str]) -> str:
         """
-        Generate cache key from instrument list.
-
-        Parameters
-        ----------
-        instruments : list[str]
-            List of instruments
-
-        Returns
-        -------
-        str
-            Cache key
-
+        Deprecated: cache key generation now handled by BaseStaticProvider.
+        Retained for compatibility where referenced.
         """
-        # Sort for consistency
-        sorted_instruments = sorted(instruments)
-        key_string = "_".join(sorted_instruments)
-
-        # Hash if too long
-        if len(key_string) > 100:
-            return hashlib.sha256(key_string.encode()).hexdigest()
-
-        return key_string
+        return "_".join(sorted(instruments))
 
     def _empty_metadata_frame(self, instruments: list[str]) -> pl.DataFrame:
         """
@@ -260,20 +200,7 @@ class InstrumentMetadataProvider(BaseStaticProvider):
             },
         )
 
-    # Implement BaseStaticProvider abstract to satisfy typing/instantiation
-    def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
-        """
-        Delegate to the underlying source with safe fallback.
-
-        This method exists to satisfy the abstract method on the base class; the
-        public `load_metadata` on this provider includes additional validation and
-        caching behavior tailored to instrument metadata.
-
-        """
-        try:
-            return self.source.fetch_metadata(instruments)
-        except Exception:
-            return self._empty_metadata_frame(instruments)
+    # (Removed legacy duplicate _load_metadata_impl)
 
     def _ensure_all_instruments(
         self,

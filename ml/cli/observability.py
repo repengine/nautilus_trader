@@ -99,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         help="component label for metrics",
     )
 
-    p_status = sub.add_parser("status", help="Show observability async worker status")
+    sub.add_parser("status", help="Show observability async worker status")
 
     args = parser.parse_args(argv)
     mgr = object.__new__(MLIntegrationManager)  # lightweight
