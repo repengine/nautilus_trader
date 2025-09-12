@@ -8,9 +8,16 @@ interface drift across implementations and tests.
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from collections.abc import Mapping
+from collections.abc import Sequence
+from typing import Any, Protocol, TypeAlias
 
 import pandas as pd
+
+
+# Phase 1: introduce aliases for read/write frames to retain flexibility
+ReadFrame: TypeAlias = pd.DataFrame
+WriteRecords: TypeAlias = list[dict[str, Any]]
 
 
 class BaseStoreProtocol(Protocol):
@@ -130,3 +137,50 @@ class MarketDataWriterProtocol(Protocol):
         instrument_id: str,
         df: pd.DataFrame,
     ) -> int: ...
+
+
+# Optional stricter protocols for new components (adopt incrementally)
+
+class FeatureStoreStrictProtocol(Protocol):
+    def write_features(
+        self,
+        feature_set_id: str,
+        instrument_id: str,
+        features: Mapping[str, float],
+        ts_event: int,
+        ts_init: int,
+    ) -> None: ...
+    def flush(self) -> None: ...
+
+
+class ModelStoreStrictProtocol(Protocol):
+    def write_prediction(
+        self,
+        model_id: str,
+        instrument_id: str,
+        prediction: float,
+        confidence: float,
+        features: Mapping[str, float],
+        inference_time_ms: float,
+        ts_event: int,
+        is_live: bool = False,
+    ) -> None: ...
+    def write_batch(self, data: Sequence[Any], emit_events: bool = True) -> None: ...
+    def flush(self) -> None: ...
+
+
+class StrategyStoreStrictProtocol(Protocol):
+    def write_signal(
+        self,
+        strategy_id: str,
+        instrument_id: str,
+        signal_type: str,
+        strength: float,
+        model_predictions: Mapping[str, float],
+        risk_metrics: Mapping[str, float],
+        execution_params: Mapping[str, Any],
+        ts_event: int,
+        is_live: bool = False,
+    ) -> None: ...
+    def write_batch(self, data: Sequence[Any]) -> None: ...
+    def flush(self) -> None: ...

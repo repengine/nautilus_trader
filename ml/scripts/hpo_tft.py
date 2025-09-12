@@ -83,6 +83,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--batch_size", type=int, default=64)
     ap.add_argument("--tail_rows", type=int, default=0)
     ap.add_argument("--limit_groups", type=int, default=0)
+    # Hardware / Accelerator passthrough to teacher CLI
+    ap.add_argument(
+        "--accelerator",
+        choices=["auto", "cpu", "gpu"],
+        default="auto",
+        help="Lightning accelerator to use for teacher runs (default: auto)",
+    )
+    ap.add_argument(
+        "--devices",
+        type=int,
+        default=1,
+        help="Number of devices to use when accelerator is gpu (default: 1)",
+    )
     ap.add_argument(
         "--inproc",
         action="store_true",
@@ -120,6 +133,10 @@ def main(argv: list[str] | None = None) -> int:
         "auto",
         "--batch_size",
         str(args.batch_size),
+        "--accelerator",
+        str(args.accelerator),
+        "--devices",
+        str(int(args.devices)),
     ]
     # Optional dataset capping
     if int(args.tail_rows or 0) > 0:
@@ -165,6 +182,10 @@ def main(argv: list[str] | None = None) -> int:
                                     "auto",
                                     "--batch_size",
                                     str(args.batch_size),
+                                    "--accelerator",
+                                    str(args.accelerator),
+                                    "--devices",
+                                    str(int(args.devices)),
                                     "--hidden_size",
                                     str(hs),
                                     "--lstm_layers",

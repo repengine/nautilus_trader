@@ -37,15 +37,15 @@ _RUNS_TOTAL: Any | None = None
 _RUN_DURATION: Any | None = None
 
 try:
-    from ml.common.metrics_bootstrap import get_counter
-    from ml.common.metrics_bootstrap import get_histogram
+    from ml.common.metrics_manager import MetricsManager
 
-    _RUNS_TOTAL = get_counter(
+    _MM = MetricsManager.default()
+    _RUNS_TOTAL = _MM.counter(
         "nautilus_ml_build_runner_runs_total",
         "Total dataset build tasks executed",
         ["status"],
     )
-    _RUN_DURATION = get_histogram(
+    _RUN_DURATION = _MM.histogram(
         "nautilus_ml_build_runner_task_duration_seconds",
         "Duration of per-symbol dataset build tasks",
         ["symbol"],

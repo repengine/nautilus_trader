@@ -21,6 +21,8 @@ Completed
 - Macro: enabled by default, joined as‑of with lag; no leakage.
 - Known‑future time features and static covariates included.
 - Action: add `is_l2_available` and `is_macro_available` masks; keep depth columns with 0‑fill so the model learns availability explicitly.
+ - L2 derived features (minimal, additive): `pressure_accel_top{1,3,5,10}` (Δ depth imbalance),
+   `liquidity_gradient_top{1,3,5,10}` (ask−bid slope), and `session_rel_spread` (spread normalized by daily median).
 
 ## 3) Current Results (15‑min horizon)
 
@@ -56,6 +58,12 @@ Evaluation & calibration
 - Short windows (5–7d) on SPY/QQQ/AAPL/MSFT/NVDA, 1–2 epochs: prune `{hidden_size: 32,64} × {lstm_layers: 2,3} × {attention: 2,4} × {dropout: 0.1,0.2}`.
 - Promote winners to 60–90d with 3–5 epochs; add LR `{3e‑4, 1e‑3}`; calibrate and apply gates.
 - Consider `pos_weight≈(1−p)/p` if prevalence is small.
+
+GPU acceleration
+
+- Teacher CLI supports `--accelerator {auto,cpu,gpu}` and `--devices N`.
+- Default is `auto`; keep it for HPO. On small samples GPU gains are modest (~10%), but they grow with more rows/epochs and larger configs.
+- Example micro‑benchmark (SPY, ~2.9k rows, 1 epoch): CPU ~9.7s vs GPU ~8.8s. Expect higher speedups for tail_rows ≥ 20–60k and epochs ≥ 2.
 
 ## 7) Commands (reference)
 
@@ -94,6 +102,8 @@ python -m ml.training.teacher.tft_cli \
   --loss bce \
   --dataloader_workers 4 \
   --pos_weight auto \
+  --val_days 14 \
+  --accelerator auto \
   --batch_size 32 \
   --tail_rows 5000 \
   --limit_groups 50 \
@@ -209,7 +219,7 @@ Note on resource safety
   - [ ] Add availability masks: `is_l2_available`, `is_macro_available`; keep L2 columns with 0‑fill
   - [ ] Register updated feature set; confirm new `feature_set_id` in `~/.nautilus/ml/features/feature_registry.json`
 - [ ] Smoke training (sanity)
-  - [ ] Run `ml.training.teacher.tft_cli` for 1 epoch with `--batch_size 32 --tail_rows 2000 --limit_groups 20`
+  - [ ] Run `ml.training.teacher.tft_cli` for 1 epoch with `--batch_size 32 --tail_rows 2000 --limit_groups 20 --val_days 14 --accelerator auto`
   - [ ] Verify `teacher_preds.npz` and `teacher_meta.json` exist; inspect quick metrics
 - [ ] HPO Phase 1 (fast pruning)
   - [ ] Run `ml.scripts.hpo_tft` with `--epochs 2 --batch_size 32 --tail_rows 5000 --limit_groups 50`

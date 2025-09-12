@@ -31,6 +31,7 @@ from ml._imports import Counter
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus
+from ml.config.events import Source
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
 from ml.stores._buffered_store import BufferedStoreMixin
@@ -853,21 +854,23 @@ class ModelStore(
                 dataset_id = "predictions"
 
                 # Determine source based on is_live flag (if available)
-                source = "realtime"
-                if hasattr(group_preds[0], "is_live"):
-                    source = "realtime" if group_preds[0].is_live else "historical"
+                # Map to canonical Source enum
+                if hasattr(group_preds[0], "is_live") and bool(getattr(group_preds[0], "is_live")):
+                    src_enum = Source.LIVE
+                else:
+                    src_enum = Source.HISTORICAL
 
                 # Emit the event
                 registry.emit_event(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage=Stage.PREDICTION_EMITTED.value,
-                    source=source,
+                    stage=Stage.PREDICTION_EMITTED,
+                    source=src_enum,
                     run_id=run_id,
                     ts_min=ts_min,
                     ts_max=ts_max,
                     count=len(group_preds),
-                    status=EventStatus.SUCCESS.value,
+                    status=EventStatus.SUCCESS,
                     metadata={"model_id": model_id},
                 )
 
@@ -875,7 +878,7 @@ class ModelStore(
                 registry.update_watermark(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    source=source,
+                    source=src_enum,
                     last_success_ns=ts_max,
                     count=len(group_preds),
                     completeness_pct=100.0,  # Predictions are complete once written
@@ -887,7 +890,7 @@ class ModelStore(
                         dataset_type="predictions",
                         component=model_id,
                         stage=Stage.PREDICTION_EMITTED.value,
-                        source=source,
+                        source=src_enum.value,
                         status=EventStatus.SUCCESS.value,
                     ).inc()
 
@@ -900,7 +903,7 @@ class ModelStore(
                     len(group_preds),
                     ts_min,
                     ts_max,
-                    source,
+                    src_enum.value,
                 )
 
         except Exception as e:

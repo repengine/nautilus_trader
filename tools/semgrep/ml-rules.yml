@@ -96,6 +96,21 @@ rules:
         - "**/ml/_imports.py"
         - "**/ml/common/metrics.py"
 
+  - id: ml-no-raw-stage-source-status-in-registry-emit
+    message: "Pass enums for stage/source/status (use Stage/Source/EventStatus), not raw strings."
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: $REG.emit_event(..., stage="$S", ...)
+          - pattern: $REG.emit_event(..., source="$S", ...)
+          - pattern: $REG.emit_event(..., status="$S", ...)
+    paths:
+      include:
+        - "**/ml/**"
+      exclude:
+        - "**/ml/tests/**"
+
   - id: ml-no-sqlite3-redis-in-prod
     message: "Do not bypass stores/bus with direct sqlite3/redis clients"
     severity: ERROR

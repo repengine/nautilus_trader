@@ -25,6 +25,7 @@ from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
 from ml.config.events import Source as _source
 from ml.config.events import Stage as _stage
+from ml.config.events import EventStatus as _status
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
@@ -731,13 +732,13 @@ class DataScheduler:
                                     instrument_id=str(
                                         InstrumentId.from_str(f"{symbol_code}.{venue}"),
                                     ),
-                                    stage=_stage.CATALOG_WRITTEN.value,
-                                    source=_source.HISTORICAL.value,
+                                    stage=_stage.CATALOG_WRITTEN,
+                                    source=_source.HISTORICAL,
                                     run_id=run_id,
                                     ts_min=ts_min,
                                     ts_max=ts_max,
                                     count=len(data),
-                                    status="success",
+                                    status=_status.SUCCESS,
                                 )
 
                                 # Update watermark for this dataset
@@ -746,7 +747,7 @@ class DataScheduler:
                                     instrument_id=str(
                                         InstrumentId.from_str(f"{symbol_code}.{venue}"),
                                     ),
-                                    source=_source.HISTORICAL.value,
+                                    source=_source.HISTORICAL,
                                     last_success_ns=ts_max,
                                     count=len(data),
                                     completeness_pct=100.0,  # Assume complete for successful writes
@@ -796,13 +797,13 @@ class DataScheduler:
                                     instrument_id=str(
                                         InstrumentId.from_str(f"{symbol_code}.{venue}"),
                                     ),
-                                    stage=_stage.CATALOG_WRITTEN.value,
-                                    source=_source.HISTORICAL.value,
+                                    stage=_stage.CATALOG_WRITTEN,
+                                    source=_source.HISTORICAL,
                                     run_id=run_id,
                                     ts_min=0,
                                     ts_max=0,
                                     count=0,
-                                    status="failed",
+                                    status=_status.FAILED,
                                     error=str(catalog_error),
                                 )
 

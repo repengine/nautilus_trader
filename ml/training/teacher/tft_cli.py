@@ -118,6 +118,21 @@ def main(argv: list[str] | None = None) -> int:
         default=64,
         help="Batch size for train/val DataLoaders (default: 64)",
     )
+
+    ap.add_argument(
+        "--accelerator",
+        required=False,
+        choices=["auto", "cpu", "gpu"],
+        default="auto",
+        help="Lightning accelerator to use (auto/cpu/gpu)",
+    )
+    ap.add_argument(
+        "--devices",
+        required=False,
+        type=int,
+        default=1,
+        help="Number of devices to use when accelerator is gpu (default: 1)",
+    )
     ap.add_argument(
         "--dataloader_workers",
         required=False,
@@ -357,6 +372,8 @@ def main(argv: list[str] | None = None) -> int:
                 dataloader_workers=args.dataloader_workers,
                 pretrained_state_path=(args.pretrained_state_path or None),
                 learning_rate=float(args.learning_rate),
+                accelerator=str(args.accelerator),
+                devices=int(args.devices),
             )
             teacher_tft.fit(df)
             # Prefer aligned PF targets for validation to ensure q_val matches y_val_true

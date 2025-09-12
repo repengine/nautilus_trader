@@ -45,22 +45,20 @@ dependencies = [
     "uvicorn[standard] (>=0.35.0,<0.36.0)",
     "prometheus-client (>=0.22.1,<0.23.0)",
     "mlflow (>=3.2.0,<4.0.0)",
-    "hypothesis (>=6.137.1,<7.0.0)",
     "openai (>=1.99.6,<2.0.0)",
     "mcp[cli] (>=1.12.4,<2.0.0)",
     "anyio (>=4.10.0,<5.0.0)",
     "sqlalchemy (>=2.0.43,<3.0.0)",
     "psycopg2-binary (>=2.9.10,<3.0.0)",
     "pytorch-forecasting==1.4.0",
-    "pytorch-lightning==2.5.4",
     "lightning==2.5.4",
     "torchmetrics==1.8.1",
     "tabulate (>=0.9.0,<0.10.0)",
-    "dotenv (>=0.9.9,<0.10.0)",
+    "python-dotenv (>=1.0.0,<2.0.0)",
     "pandas-market-calendars (>=5.1.1,<6.0.0)",
     "databento (>=0.62.0,<0.63.0)",
     "fredapi (>=0.5.2,<0.6.0)",
-    "semgrep (<1.83.0)",
+    # test-only/QA tools are defined under [tool.poetry.group.test.dependencies]
 ]
 
 [project.urls]
@@ -103,8 +101,41 @@ ml-student-lightgbm = "ml.training.student.lightgbm_cli:main"
 script = "build.py"
 generate-setup-file = false
 
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+aiohttp = ">=3.11.18"
+click = ">=8.0.0,<9.0.0"
+fsspec = ">=2025.2.0,<2026.0.0"
+msgspec = ">=0.19.0,<1.0.0"
+numpy = ">=1.26.4"
+pandas = ">=2.2.3,<3.0.0"
+portion = ">=2.6.1"
+pyarrow = ">=20.0.0"
+pytz = ">=2025.1.0"
+tqdm = ">=4.67.1,<5.0.0"
+uvloop = {version = ">=0.21.0,<1.0.0", markers = "sys_platform != 'win32'"}
+skl2onnx = ">=1.19.1,<2.0.0"
+onnxmltools = ">=1.14.0,<2.0.0"
+polars = ">=1.32.2,<2.0.0"
+lightgbm = ">=4.6.0,<5.0.0"
+starlette = ">=0.47.2,<0.48.0"
+"uvicorn[standard]" = ">=0.35.0,<0.36.0"
+prometheus-client = ">=0.22.1,<0.23.0"
+mlflow = ">=3.2.0,<4.0.0"
+openai = ">=1.99.6,<2.0.0"
+"mcp[cli]" = ">=1.12.4,<2.0.0"
+anyio = ">=4.10.0,<5.0.0"
+sqlalchemy = ">=2.0.43,<3.0.0"
+psycopg2-binary = ">=2.9.10,<3.0.0"
+pytorch-forecasting = "==1.4.0"
+lightning = "==2.5.4"
+torchmetrics = "==1.8.1"
+tabulate = ">=0.9.0,<0.10.0"
+python-dotenv = ">=1.0.0,<2.0.0"
+pandas-market-calendars = ">=5.1.1,<6.0.0"
+databento = ">=0.62.0,<0.63.0"
+fredapi = ">=0.5.2,<0.6.0"
 [tool.poetry.group.dev.dependencies]
-pytest-benchmark = "^5.1.0"
 pandera = "^0.26.1"
 allpairspy = "^2.5.1"
 semgrep = "<1.83.0"
@@ -115,6 +146,31 @@ bandit = "^1.7.9"
 detect-secrets = "^1.5.0"
 vulture = "^2.14"
 sqlfluff = "^3.1.0"
+black = ">=25.1.0,<26.0.0"
+docformatter = ">=1.7.7,<2.0.0"
+mypy = ">=1.17.1,<2.0.0"
+pre-commit = ">=4.3.0,<5.0.0"
+requests = ">=2.32.4,<3.0.0"
+ruff = ">=0.12.8,<1.0.0"
+types-pytz = ">=2024.2,<2025.0"
+types-requests = ">=2.32,<3.0"
+types-toml = ">=0.10.2,<1.0.0"
+pandas-stubs = ">=2.3.0,<3.0.0"
+cython = "==3.1.2"
+setuptools = ">=75"
+
+[tool.poetry.group.test.dependencies]
+pytest = ">=7.4.4,<8.0.0"
+pytest-aiohttp = ">=1.1.0,<2.0.0"
+pytest-asyncio = "==0.21.1"
+pytest-benchmark = ">=5.1.0,<6.0.0"
+pytest-codspeed = ">=3.2.0,<4.0.0"
+pytest-cov = ">=4.1.0,<5.0.0"
+pytest-mock = ">=3.14.1,<4.0.0"
+pytest-timeout = ">=2.2.0,<3.0.0"
+pytest-xdist = {version = ">=3.8.0,<4.0.0", extras = ["psutil"]}
+coverage = ">=7.10.3,<8.0.0"
+hypothesis = ">=6.137.1,<7.0.0"
 
 [project.optional-dependencies]
 betfair = [
@@ -200,48 +256,7 @@ ml-rl = [
     "ray[rllib]>=2.10.0,<3.0.0",
 ]
 
-[dependency-groups]
-dev = [
-    "cython==3.1.2",
-    "setuptools>=75",
-    "black>=25.1.0,<26.0.0",
-    "docformatter>=1.7.7,<2.0.0",
-    "mypy>=1.17.1,<2.0.0",
-    "pandas-stubs>=2.3.0,<3.0.0",
-    "pre-commit>=4.3.0,<5.0.0",
-    "requests>=2.32.4,<3.0.0",
-    "ruff>=0.12.8,<1.0.0",
-    "types-pytz>=2024.2,<2025.0",
-    "types-requests>=2.32,<3.0",
-    "types-toml>=0.10.2,<1.0.0",
-    "semgrep==1.82.0",
-    "import-linter>=2.0.0,<3.0.0",
-    "xenon>=0.9.3,<1.0.0",
-    "pylint>=3.2.7,<4.0.0",
-    "bandit>=1.7.9,<2.0.0",
-    "detect-secrets>=1.5.0,<2.0.0",
-    "vulture>=2.14,<3.0.0",
-    "sqlfluff>=3.1.0,<4.0.0",
-]
-test = [
-    "aiohttp==3.11.18,<4.0.0",  # Pinned to 3.11.8 for wheel compatibility on supported platforms
-    "coverage>=7.10.3,<8.0.0",
-    "pytest>=7.4.4,<8.0.0",
-    "pytest-aiohttp>=1.1.0,<2.0.0",
-    "pytest-asyncio==0.21.1",
-    "pytest-benchmark>=4.0.0,<5.0.0",
-    "pytest-codspeed>=3.2.0,<4.0.0",
-    "pytest-cov>=4.1.0,<5.0.0",
-    "pytest-mock>=3.14.1,<4.0.0",
-    "pytest-xdist[psutil]>=3.8.0,<4.0.0",
-]
-docs = [
-    "numpydoc>=1.9.0,<2.0.0",
-    "linkify-it-py>=2.0.3,<3.0.0",
-    "myst-parser>=4.0.1,<5.0.0",
-    "sphinx-comments>=0.0.3,<1.0.0",
-    "sphinx-markdown-builder>=0.6.8,<1.0.0",
-]
+## NOTE: Poetry is the authoritative dependency manager. uv "dependency-groups" removed to prevent drift.
 
 [tool.isort]  # Used by legacy isort for Cython modules
 py_version = "311"
@@ -475,83 +490,7 @@ module = [
 ]
 ignore_errors = true
 
-[tool.pytest.ini_options]
-testpaths = ["tests", "ml/tests"]
-addopts = "-ra --new-first --failed-first --doctest-modules --doctest-glob=\"*.pyx\" --strict-markers -m 'not prototype'"
-asyncio_mode = "strict"
-filterwarnings = [
-    "ignore::UserWarning",
-    "ignore::DeprecationWarning",
-]
-markers = [
-    # Test type markers
-    "unit: Unit tests - isolated component testing",
-    "integration: Integration tests - testing component interactions",
-    "e2e: End-to-end tests - full system testing",
-    "system: System tests - infrastructure and deployment testing",
-    "property: Property-based tests using hypothesis",
-    "contract: Contract tests - API and behavioral contracts",
-    "benchmark: Performance benchmark tests",
-
-    # Speed markers
-    "slow: Tests that take > 5 seconds",
-    "fast: Tests that take < 1 second",
-
-    # Resource requirement markers
-    "requires_data: Tests requiring external data sources or databases",
-    "requires_gpu: Tests requiring GPU resources",
-    "requires_network: Tests requiring network access",
-    "requires_databento: Tests requiring Databento API access",
-    "requires_fred: Tests requiring FRED API access",
-    "requires_ml_deps: Tests requiring ML dependencies (xgboost, lightgbm, etc.)",
-
-    # Component markers
-    "stores: Tests for store components (FeatureStore, ModelStore, StrategyStore)",
-    "registry: Tests for registry components",
-    "actors: Tests for ML actors",
-    "strategies: Tests for ML strategies",
-    "features: Tests for feature engineering",
-    "models: Tests for ML models",
-    "data: Tests for data processing",
-    "monitoring: Tests for monitoring components",
-    "deployment: Tests for deployment components",
-
-    # ML-specific markers
-    "training: Tests involving model training",
-    "inference: Tests involving model inference",
-    "distillation: Tests for knowledge distillation",
-    "preprocessing: Tests for data preprocessing",
-
-    # Stability markers
-    "flaky: Tests known to be flaky",
-    "experimental: Tests for experimental features",
-    "critical: Critical tests that must pass",
-
-    # Execution control markers
-    "serial: Tests that must run sequentially (e.g., database tests)",
-    "parallel_safe: Tests that can safely run in parallel",
-    "mock_heavy: Tests with extensive mocking (>10 mocks)",
-
-    # Infrastructure markers
-    "database: Tests requiring database connections",
-    "redis: Tests requiring Redis connections",
-    "docker: Tests requiring Docker containers",
-    # Additional test taxonomy markers (TDD prototypes / non-blocking)
-    "contracts: Contract tests (alias for 'contract')",
-    "metamorphic: Metamorphic relationship tests",
-    "combinatorial: Pairwise/Combinatorial configuration tests",
-    "stateful: Stateful property-based tests",
-    "prototype: TDD prototypes to be excluded by default",
-    "live_components: Integration tests requiring live components",
-]
-# ML test paths configuration
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-# Coverage thresholds for ML module
-minversion = "7.4.0"
-log_cli = false
-log_cli_level = "INFO"
+## NOTE: Pytest configuration is centralized in ml/pytest.ini to avoid duplication.
 
 [tool.coverage.run]
 plugins = ["Cython.Coverage"]

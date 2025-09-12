@@ -69,7 +69,8 @@ def _initialize_metrics() -> None:
     """
     Initialize Prometheus metrics once (idempotent).
     """
-    from ml.common.metrics_bootstrap import get_counter, get_gauge, get_histogram
+    # Standardize metric creation via MetricsManager (delegates to bootstrap)
+    from ml.common.metrics_manager import MetricsManager
 
     global _metrics_initialized, ml_signals_received, ml_trades_executed, ml_signal_to_trade_latency, ml_position_count
     global ml_strategy_decisions_persisted, ml_strategy_store_write_latency, ml_strategy_store_batch_size
@@ -77,37 +78,39 @@ def _initialize_metrics() -> None:
     if _metrics_initialized:
         return
 
-    ml_signals_received = get_counter(
+    mm = MetricsManager.default()
+
+    ml_signals_received = mm.counter(
         METRIC_SIGNALS_RECEIVED_TOTAL,
         "Total number of ML signals received",
         [LABEL_STRATEGY_ID, LABEL_SIGNAL_SOURCE],
     )
-    ml_trades_executed = get_counter(
+    ml_trades_executed = mm.counter(
         METRIC_TRADES_EXECUTED_TOTAL,
         "Total number of trades executed based on ML signals",
         [LABEL_STRATEGY_ID, LABEL_ORDER_SIDE],
     )
-    ml_signal_to_trade_latency = get_histogram(
+    ml_signal_to_trade_latency = mm.histogram(
         METRIC_SIGNAL_TO_TRADE_LATENCY_SECONDS,
         "Latency from signal reception to trade execution",
         [LABEL_STRATEGY_ID],
     )
-    ml_position_count = get_gauge(
+    ml_position_count = mm.gauge(
         METRIC_POSITION_COUNT,
         "Current number of open positions",
         [LABEL_STRATEGY_ID, LABEL_INSTRUMENT],
     )
-    ml_strategy_decisions_persisted = get_counter(
+    ml_strategy_decisions_persisted = mm.counter(
         METRIC_STRATEGY_DECISIONS_PERSISTED_TOTAL,
         "Total number of strategy decisions persisted to store",
         [LABEL_STRATEGY_ID],
     )
-    ml_strategy_store_write_latency = get_histogram(
+    ml_strategy_store_write_latency = mm.histogram(
         METRIC_STRATEGY_STORE_WRITE_LATENCY_SECONDS,
         "Latency of writing to strategy store",
         [LABEL_STRATEGY_ID],
     )
-    ml_strategy_store_batch_size = get_gauge(
+    ml_strategy_store_batch_size = mm.gauge(
         METRIC_STRATEGY_STORE_BATCH_SIZE,
         "Current batch size in strategy store buffer",
         [LABEL_STRATEGY_ID],

@@ -9,7 +9,12 @@ writers, and retry/DLQ handlers.
 
 from __future__ import annotations
 
-from typing import Protocol, TypedDict
+from typing import Protocol, TypeAlias, TypedDict
+
+from ml.config.events import Stage
+
+
+StageLike: TypeAlias = Stage | str
 
 
 class Envelope(TypedDict):
@@ -39,7 +44,7 @@ class Envelope(TypedDict):
     parent_id: str | None
     instrument_id: str
     ts_event: int
-    stage: str
+    stage: StageLike
     correlation_id: str
     payload: dict[str, object]
 
@@ -56,4 +61,4 @@ class ConsumerProtocol(Protocol):
         ...
 
 
-__all__ = ["ConsumerProtocol", "Envelope"]
+__all__ = ["ConsumerProtocol", "Envelope", "StageLike"]

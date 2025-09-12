@@ -454,6 +454,11 @@ pytest-ml-db:  #-- Run ML tests requiring DB with coverage (FAST=1 skips heavy/l
 
 .PHONY: pytest-ml-fast
 pytest-ml-fast:  #-- Quick ML test run (smoke + unit + core + actors + features)
+	$(info $(M) Running quick ML smoke/unit tests...)
+	uv run --active --no-sync pytest -q \
+		ml/tests/unit \
+		ml/tests/features \
+		-k "not integration and not performance and not slow" || exit $$?
 	$(info $(M) Running fast ML test subset...)
 	uv run --active --no-sync pytest -n auto --dist=loadfile \
 		-k "smoke or unit or actors or features or core or EngineManagerIntegration" -v ml/tests

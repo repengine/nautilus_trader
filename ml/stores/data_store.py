@@ -458,17 +458,21 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         try:
             from ml.common.event_emitter import emit_dataset_event
 
+            # Map to enums for helper
+            src_enum = Source(source_val)
+            stat_enum = EventStatus(status) if not isinstance(status, EventStatus) else status
+
             emit_dataset_event(
                 self.registry,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 stage=Stage(stage_val),
-                source=source_val,
+                source=src_enum,
                 run_id=run_id,
                 ts_min=ts_min,
                 ts_max=ts_max,
                 count=count,
-                status=EventStatus(status) if not isinstance(status, EventStatus) else status,
+                status=stat_enum,
                 error=error,
                 metadata=event_metadata,
                 dataset_type=dataset_id,
@@ -906,12 +910,18 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
 
             # Centralized event + watermark emission via helper (best-effort)
             try:
+                # Map source string to enum for helper
+                try:
+                    src_enum = Source(source) if not isinstance(source, Source) else source
+                except Exception:
+                    src_enum = Source.LIVE
+
                 emit_dataset_event_and_watermark(
                     self.registry,
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
                     stage=Stage(stage) if not isinstance(stage, Stage) else stage,
-                    source=source,
+                    source=src_enum,
                     run_id=run_id,
                     ts_min=ts_min,
                     ts_max=ts_max,
@@ -1319,12 +1329,15 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
             source_norm = source if source in {"live", "historical", "backfill"} else "live"
 
             # Centralized event + watermark (best-effort)
+            # Normalize source and map to enum for helper
+            src_enum = Source(source_norm) if not isinstance(source_norm, Source) else source_norm
+
             emit_dataset_event_and_watermark(
                 self.registry,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
                 stage=Stage(stage) if not isinstance(stage, Stage) else stage,
-                source=source_norm,
+                source=src_enum,
                 run_id=run_id,
                 ts_min=ts_min,
                 ts_max=ts_max,
@@ -2526,7 +2539,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         self,
         dataset_id: str,
         instrument_id: str,
-        source: str,
+        source: str | Source,
         last_success_ns: int,
         count: int,
         completeness_pct: float,
@@ -2534,10 +2547,11 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         """
         Internal hook to update the registry watermark (patchable in tests).
         """
+        src_enum = source if isinstance(source, Source) else Source(str(source))
         self.registry.update_watermark(
             dataset_id=dataset_id,
             instrument_id=instrument_id,
-            source=source,
+            source=src_enum,
             last_success_ns=last_success_ns,
             count=count,
             completeness_pct=completeness_pct,

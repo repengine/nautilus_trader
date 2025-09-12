@@ -60,6 +60,8 @@ class TFTTeacher(BaseTeacher):
         pretrained_state_path: str | None = None,
         learning_rate: float = 3e-4,
         batch_size: int = 64,
+        accelerator: str = "auto",
+        devices: int = 1,
     ) -> None:
         super().__init__(config)
         self.max_encoder_length = int(max_encoder_length)
@@ -80,6 +82,8 @@ class TFTTeacher(BaseTeacher):
         self.pretrained_state_path = pretrained_state_path
         self.learning_rate = float(learning_rate)
         self.batch_size = int(batch_size)
+        self._accelerator = str(accelerator)
+        self._devices = int(devices)
         self._logger = logging.getLogger(__name__)
 
         # Runtime state
@@ -234,15 +238,14 @@ class TFTTeacher(BaseTeacher):
 
         callbacks = None
         # Force CPU for stability across environments; avoids CUDA kernel asserts in PF paths
-        accelerator = "cpu"
         self._trainer = pl_module.Trainer(
             max_epochs=self.max_epochs,
             gradient_clip_val=1.0,
             enable_progress_bar=False,
             logger=False,
             callbacks=([] if callbacks is None else [callbacks]),
-            accelerator=accelerator,
-            devices=1,
+            accelerator=self._accelerator,
+            devices=self._devices,
             enable_checkpointing=False,
         )
         # Workaround: Some PF versions raise during validation due to interpretability logging

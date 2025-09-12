@@ -582,9 +582,21 @@ class BaseTimeSeriesProvider(BaseDataProvider):
             Time series data
 
         """
-        # Validate timestamps using shared utility
-        if not validate_timestamps(timestamps):
-            raise ValueError("Invalid timestamps (nulls, unsorted, or out of range)")
+        # Validate timestamps with specific error messages to aid callers/tests
+        if timestamps.null_count() > 0:
+            raise ValueError("timestamps contain nulls")
+        if not timestamps.is_sorted():
+            raise ValueError("timestamps not sorted")
+        # Reasonable range guard (0 .. 2100-01-01 in ns)
+        min_ts = timestamps.min()
+        max_ts = timestamps.max()
+        max_reasonable = 4102444800000000000  # 2100-01-01 in ns
+        if min_ts is None or max_ts is None:
+            raise ValueError("timestamps invalid (empty)")
+        if not isinstance(min_ts, (int, float)) or not isinstance(max_ts, (int, float)):
+            raise ValueError("timestamps have unexpected dtype")
+        if min_ts < 0 or max_ts > max_reasonable:
+            raise ValueError("timestamps out of range")
 
         try:
             data = self._load_timeseries_impl(instruments, timestamps)

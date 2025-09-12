@@ -274,6 +274,10 @@ class TestFeatureComputationBenchmarks:
         Requirement: P99 latency must be <500μs for production.
 
         """
+        # Skip under xdist where cross-worker noise inflates P99
+        if os.getenv("PYTEST_XDIST_WORKER"):
+            pytest.skip("Skip latency microbench under xdist for stability")
+
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
 
@@ -949,6 +953,10 @@ class TestMessageProcessingBenchmarks:
         Requirement: Event dispatch <100μs.
 
         """
+        # Skip under xdist where timer noise skews microbenchmarks
+        if os.getenv("PYTEST_XDIST_WORKER"):
+            pytest.skip("Skip latency microbench under xdist for stability")
+
         # Create mock event handlers
         handlers = [Mock() for _ in range(10)]
         event = {"type": "SIGNAL", "value": 1, "ts": 0}
@@ -1003,6 +1011,10 @@ class TestPerformanceRegression:
         performance degrades by more than 10%.
 
         """
+        # Skip under xdist to avoid false positives in noisy environments
+        if os.getenv("PYTEST_XDIST_WORKER"):
+            pytest.skip("Skip regression microbench under xdist for stability")
+
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
 

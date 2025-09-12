@@ -168,55 +168,56 @@ registry.update_contract("bars_eurusd_1m", contract)
 
 ```python
 import time
+from ml.config.events import Stage, Source, EventStatus
 
 # Emit successful processing event
 registry.emit_event(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    from ml.config.events import Stage, Source
-    stage=Stage.CATALOG_WRITTEN.value,
-    source=Source.HISTORICAL.value,
+    stage=Stage.CATALOG_WRITTEN,
+    source=Source.HISTORICAL,
     run_id="run_20240115_001",
     ts_min=int(time.time() * 1e9),
     ts_max=int((time.time() + 3600) * 1e9),
     count=1440,  # Number of bars
-    status="success"
+    status=EventStatus.SUCCESS,
 )
 
 # Emit failure event
 registry.emit_event(
     dataset_id="features_v1",
     instrument_id="EUR/USD",
-    from ml.config.events import Stage, Source
-    stage=Stage.FEATURE_COMPUTED.value,
-    source=Source.LIVE.value,
+    stage=Stage.FEATURE_COMPUTED,
+    source=Source.LIVE,
     run_id="run_20240115_002",
     ts_min=int(time.time() * 1e9),
     ts_max=int((time.time() + 3600) * 1e9),
     count=0,
-    status="failure",
-    error="Database connection timeout"
+    status=EventStatus.FAILED,
+    error="Database connection timeout",
 )
 ```
 
 ### Updating Watermarks
 
 ```python
+from ml.config.events import Source
+
 # Update processing watermark
 registry.update_watermark(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    source="historical",
+    source=Source.HISTORICAL,
     last_success_ns=int(time.time() * 1e9),
     count=1440,
-    completeness_pct=100.0
+    completeness_pct=100.0,
 )
 
-# Query watermark
+# Query watermark (reads persisted strings)
 watermark = registry.get_watermark(
     "bars_eurusd_1m",
     "EUR/USD",
-    "historical"
+    "historical",
 )
 print(f"Last processed: {watermark.last_success_ns}")
 print(f"Completeness: {watermark.completeness_pct}%")

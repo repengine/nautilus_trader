@@ -58,15 +58,15 @@ class FeatureEngineeringCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
-        from ml.common.metrics_bootstrap import get_counter
-        from ml.common.metrics_bootstrap import get_gauge
-        from ml.common.metrics_bootstrap import get_histogram
+        from ml.common.metrics_manager import MetricsManager
 
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()
 
         # Feature computation metrics
-        self._feature_computation_duration_seconds = get_histogram(
+        mm = MetricsManager.default()
+
+        self._feature_computation_duration_seconds = mm.histogram(
             f"{prefix}_feature_computation_duration_seconds",
             "Time taken for feature computation",
             ["instrument", "feature_type", "computation_mode"],
@@ -77,7 +77,7 @@ class FeatureEngineeringCollector(BaseMetricsCollector):
             self._feature_computation_duration_seconds,
         )
 
-        self._features_computed_total = get_counter(
+        self._features_computed_total = mm.counter(
             f"{prefix}_features_computed_total",
             "Total number of features computed",
             ["instrument", "feature_type", "computation_mode"],
@@ -85,7 +85,7 @@ class FeatureEngineeringCollector(BaseMetricsCollector):
         self._register_metric("features_computed_total", self._features_computed_total)
 
         # Feature computation errors
-        self._feature_computation_errors_total = get_counter(
+        self._feature_computation_errors_total = mm.counter(
             f"{prefix}_feature_computation_errors_total",
             "Total number of feature computation errors",
             ["instrument", "feature_type", "error_type"],
@@ -96,28 +96,28 @@ class FeatureEngineeringCollector(BaseMetricsCollector):
         )
 
         # Feature cache metrics
-        self._feature_cache_hit_ratio = get_gauge(
+        self._feature_cache_hit_ratio = mm.gauge(
             f"{prefix}_feature_cache_hit_ratio",
             "Cache hit ratio for feature computation",
             ["instrument", "cache_level"],
         )
         self._register_metric("feature_cache_hit_ratio", self._feature_cache_hit_ratio)
 
-        self._feature_cache_hits_total = get_counter(
+        self._feature_cache_hits_total = mm.counter(
             f"{prefix}_feature_cache_hits_total",
             "Total number of feature cache hits",
             ["instrument", "cache_level"],
         )
         self._register_metric("feature_cache_hits_total", self._feature_cache_hits_total)
 
-        self._feature_cache_misses_total = get_counter(
+        self._feature_cache_misses_total = mm.counter(
             f"{prefix}_feature_cache_misses_total",
             "Total number of feature cache misses",
             ["instrument", "cache_level"],
         )
         self._register_metric("feature_cache_misses_total", self._feature_cache_misses_total)
 
-        self._feature_cache_size_entries = get_gauge(
+        self._feature_cache_size_entries = mm.gauge(
             f"{prefix}_feature_cache_size_entries",
             "Number of entries in feature cache",
             ["cache_level"],
@@ -125,14 +125,14 @@ class FeatureEngineeringCollector(BaseMetricsCollector):
         self._register_metric("feature_cache_size_entries", self._feature_cache_size_entries)
 
         # Feature drift metrics
-        self._feature_drift_score = get_gauge(
+        self._feature_drift_score = mm.gauge(
             f"{prefix}_feature_drift_score",
             "Feature drift score compared to reference",
             ["instrument", "feature", "reference_window"],
         )
         self._register_metric("feature_drift_score", self._feature_drift_score)
 
-        self._feature_drift_alerts_total = get_counter(
+        self._feature_drift_alerts_total = mm.counter(
             f"{prefix}_feature_drift_alerts_total",
             "Total number of feature drift alerts",
             ["instrument", "feature", "drift_type"],
@@ -140,21 +140,21 @@ class FeatureEngineeringCollector(BaseMetricsCollector):
         self._register_metric("feature_drift_alerts_total", self._feature_drift_alerts_total)
 
         # Feature importance and quality
-        self._feature_importance_score = get_gauge(
+        self._feature_importance_score = mm.gauge(
             f"{prefix}_feature_importance_score",
             "Feature importance score from model",
             ["model", "feature"],
         )
         self._register_metric("feature_importance_score", self._feature_importance_score)
 
-        self._feature_null_ratio = get_gauge(
+        self._feature_null_ratio = mm.gauge(
             f"{prefix}_feature_null_ratio",
             "Ratio of null values in computed features",
             ["instrument", "feature"],
         )
         self._register_metric("feature_null_ratio", self._feature_null_ratio)
 
-        self._feature_infinite_ratio = get_gauge(
+        self._feature_infinite_ratio = mm.gauge(
             f"{prefix}_feature_infinite_ratio",
             "Ratio of infinite values in computed features",
             ["instrument", "feature"],
@@ -162,7 +162,7 @@ class FeatureEngineeringCollector(BaseMetricsCollector):
         self._register_metric("feature_infinite_ratio", self._feature_infinite_ratio)
 
         # Feature freshness
-        self._feature_last_computed_timestamp = get_gauge(
+        self._feature_last_computed_timestamp = mm.gauge(
             f"{prefix}_feature_last_computed_timestamp",
             "Timestamp when features were last computed",
             ["instrument", "feature_type"],

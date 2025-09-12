@@ -159,9 +159,7 @@ def _initialize_performance_metrics() -> None:
     """
     Initialize module-level performance metrics once globally (idempotent).
     """
-    from ml.common.metrics_bootstrap import get_counter
-    from ml.common.metrics_bootstrap import get_gauge
-    from ml.common.metrics_bootstrap import get_histogram
+    from ml.common.metrics_manager import MetricsManager
 
     global _metrics_initialized
     global _prediction_distribution_metric
@@ -177,51 +175,53 @@ def _initialize_performance_metrics() -> None:
     if _metrics_initialized:
         return
 
-    _prediction_distribution_metric = get_histogram(
+    mm = MetricsManager.default()
+
+    _prediction_distribution_metric = mm.histogram(
         METRIC_PREDICTION_DISTRIBUTION,
         "Distribution of model predictions",
         [LABEL_ACTOR_ID],
     )
-    _confidence_distribution_metric = get_histogram(
+    _confidence_distribution_metric = mm.histogram(
         METRIC_CONFIDENCE_DISTRIBUTION,
         "Distribution of prediction confidence scores",
         [LABEL_ACTOR_ID],
     )
-    _signal_generation_time_metric = get_histogram(
+    _signal_generation_time_metric = mm.histogram(
         METRIC_SIGNAL_GENERATION_SECONDS,
         "Signal generation latency in seconds",
         [LABEL_ACTOR_ID, "strategy"],
         buckets=SIGNAL_LATENCY_BUCKETS,
     )
-    _feature_time_by_feature_set_metric = get_histogram(
+    _feature_time_by_feature_set_metric = mm.histogram(
         METRIC_FEATURE_TIME_BY_SET_SECONDS,
         "Feature computation latency by feature_set_id",
         [LABEL_ACTOR_ID, LABEL_FEATURE_SET_ID],
         buckets=FEATURE_TIME_BUCKETS,
     )
-    _signals_generated_metric = get_counter(
+    _signals_generated_metric = mm.counter(
         METRIC_SIGNALS_GENERATED_TOTAL,
         "Total number of signals generated",
         [LABEL_ACTOR_ID, "strategy", "signal_type"],
     )
-    _adaptive_threshold_metric = get_histogram(
+    _adaptive_threshold_metric = mm.histogram(
         METRIC_ADAPTIVE_THRESHOLD,
         "Adaptive threshold values",
         [LABEL_ACTOR_ID],
     )
-    _market_regime_metric = get_counter(
+    _market_regime_metric = mm.counter(
         METRIC_MARKET_REGIME_TOTAL,
         "Market regime detection counts",
         [LABEL_ACTOR_ID, "regime"],
     )
 
     # Parity smoke-check metrics
-    _feature_parity_checks_total = get_counter(
+    _feature_parity_checks_total = mm.counter(
         "ml_feature_parity_checks_total",
         "Total parity smoke-checks executed",
         [LABEL_ACTOR_ID],
     )
-    _feature_parity_drift = get_gauge(
+    _feature_parity_drift = mm.gauge(
         "ml_feature_parity_drift",
         "Max absolute feature difference in parity smoke-check",
         [LABEL_ACTOR_ID],
@@ -985,30 +985,15 @@ class MLSignalActor(BaseMLInferenceActor):
         # Feature engineering setup
         # Note: _feature_store is always available from base class
         self._feature_engineer = FeatureEngineer(self._feature_config)
-        # Legacy default: do not persist unless explicitly enabled WITH FeatureStore usage
-        # Persist rules:
-        # - If use_feature_store is explicitly set, honor persist_features (default True)
-        # - Else, if db_connection differs from the default, treat as explicit and persist
-        # - Else, do not persist by default (backward compatibility)
-        default_conn = "postgresql://postgres:postgres@localhost:5432/nautilus"
-        has_use_flag = hasattr(config, "use_feature_store") and bool(
-            getattr(config, "use_feature_store"),
-        )
-        db_conn_val = (
-            getattr(config, "db_connection", "") if hasattr(config, "db_connection") else ""
-        )
-        is_explicit_conn = (
-            isinstance(db_conn_val, str) and db_conn_val and db_conn_val != default_conn
-        )
-        if has_use_flag:
-            self._persist_features = bool(getattr(config, "persist_features", True))
-        elif hasattr(config, "persist_features") and getattr(config, "persist_features") is False:
-            # Explicitly disabled
-            self._persist_features = False
-        elif is_explicit_conn:
-            self._persist_features = True
+        # Persistence defaults:
+        # - If 'persist_features' explicitly provided, honor it.
+        # - Else, if a DB connection is provided (non-empty), enable persistence by default.
+        # - Else, do not persist.
+        db_conn_val = str(getattr(config, "db_connection", "")) if hasattr(config, "db_connection") else ""
+        if hasattr(config, "persist_features"):
+            self._persist_features = bool(getattr(config, "persist_features"))
         else:
-            self._persist_features = False
+            self._persist_features = bool(db_conn_val)
 
         self._feature_set_id: str | None = None
         # Optional: validate features against feature registry manifest

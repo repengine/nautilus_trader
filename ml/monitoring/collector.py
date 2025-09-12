@@ -62,41 +62,41 @@ class MLMetricsCollector(BaseMetricsCollector):
         if not HAS_PROMETHEUS:
             return
 
-        from ml.common.metrics_bootstrap import get_counter
-        from ml.common.metrics_bootstrap import get_gauge
-        from ml.common.metrics_bootstrap import get_histogram
+        from ml.common.metrics_manager import MetricsManager
 
         prefix = self._config.metrics_prefix
         buckets = self._config.get_histogram_buckets()
 
         # Core ML metrics
-        self._ml_predictions_total = get_counter(
+        mm = MetricsManager.default()
+
+        self._ml_predictions_total = mm.counter(
             f"{prefix}_predictions_total",
             "Total number of ML predictions made",
             ["model", "instrument", "prediction_class", "status"],
         )
 
-        self._ml_prediction_latency_seconds = get_histogram(
+        self._ml_prediction_latency_seconds = mm.histogram(
             f"{prefix}_prediction_latency_seconds",
             "Time taken for ML model inference",
             ["model", "instrument"],
             buckets=buckets,
         )
 
-        self._ml_model_confidence = get_gauge(
+        self._ml_model_confidence = mm.gauge(
             f"{prefix}_model_confidence",
             "Current ML model confidence score",
             ["model", "instrument"],
         )
 
-        self._ml_feature_computation_latency_seconds = get_histogram(
+        self._ml_feature_computation_latency_seconds = mm.histogram(
             f"{prefix}_feature_computation_latency_seconds",
             "Time taken for feature computation",
             ["instrument", "feature_type"],
             buckets=buckets,
         )
 
-        self._ml_model_errors_total = get_counter(
+        self._ml_model_errors_total = mm.counter(
             f"{prefix}_model_errors_total",
             "Total number of ML model errors",
             ["model", "instrument", "error_type"],

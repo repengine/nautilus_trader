@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from ml.common.metrics_bootstrap import get_gauge
+from ml.common.metrics_manager import MetricsManager
 
 
 logger = logging.getLogger(__name__)
@@ -33,13 +33,14 @@ class HealthMixin:
 
     engine: Any  # SQLAlchemy Engine at runtime
 
-    # Gauges are created lazily and cached inside the bootstrapper
-    _health_gauge = get_gauge(
+    # Gauges created via MetricsManager (delegates to bootstrap)
+    _MM = MetricsManager.default()
+    _health_gauge = _MM.gauge(
         "nautilus_ml_store_health_status",
         "Store health status (1=ok, 0=unhealthy)",
         ["store"],
     )
-    _backlog_gauge = get_gauge(
+    _backlog_gauge = _MM.gauge(
         "nautilus_ml_store_buffer_backlog",
         "Buffered write backlog size",
         ["store"],
@@ -115,4 +116,3 @@ class HealthMixin:
         except Exception:  # pragma: no cover - metrics optional
             logger.debug("Health metrics emission failed", exc_info=True)
         return healthy
-

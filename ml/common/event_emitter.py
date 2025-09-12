@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ml.config.events import EventStatus
+from ml.config.events import Source
 from ml.config.events import Stage
 
 
@@ -24,7 +25,7 @@ def emit_dataset_event_and_watermark(
     dataset_id: str,
     instrument_id: str,
     stage: Stage,
-    source: str,
+    source: Source,
     run_id: str,
     ts_min: int,
     ts_max: int,
@@ -43,13 +44,13 @@ def emit_dataset_event_and_watermark(
     registry.emit_event(
         dataset_id=dataset_id,
         instrument_id=instrument_id,
-        stage=stage.value,
+        stage=stage,
         source=source,
         run_id=run_id,
         ts_min=ts_min,
         ts_max=ts_max,
         count=count,
-        status=status.value,
+        status=status,
     )
 
     # Update watermark to reflect progress
@@ -71,7 +72,7 @@ def emit_dataset_event_and_watermark(
                 dataset_type=(dataset_type or dataset_id),
                 component=(component or ""),
                 stage=stage.value,
-                source=source,
+                source=source.value,
                 status=status.value,
             ).inc()
     except Exception:
@@ -85,7 +86,7 @@ def emit_dataset_event(
     dataset_id: str,
     instrument_id: str,
     stage: Stage,
-    source: str,
+    source: Source,
     run_id: str,
     ts_min: int,
     ts_max: int,
@@ -105,13 +106,13 @@ def emit_dataset_event(
     registry.emit_event(
         dataset_id=dataset_id,
         instrument_id=instrument_id,
-        stage=stage.value,
+        stage=stage,
         source=source,
         run_id=run_id,
         ts_min=ts_min,
         ts_max=ts_max,
         count=count,
-        status=status.value,
+        status=status,
         error=error,
         metadata=metadata,
     )
@@ -125,7 +126,7 @@ def emit_dataset_event(
                 dataset_type=(dataset_type or dataset_id),
                 component=(component or ""),
                 stage=stage.value,
-                source=source,
+                source=source.value,
                 status=status.value,
             ).inc()
     except Exception:

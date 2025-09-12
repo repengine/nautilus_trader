@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from sqlalchemy import text
 
+from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
@@ -1254,13 +1255,13 @@ def apply_backfill(
                             registry.emit_event(
                                 dataset_id=source_dataset.lower(),
                                 instrument_id=instrument_id,
-                                stage=Stage.CATALOG_WRITTEN.value,
-                                source=Source.BACKFILL.value,
+                                stage=Stage.CATALOG_WRITTEN,
+                                source=Source.BACKFILL,
                                 run_id=job_id,
                                 ts_min=start_ns,
                                 ts_max=end_ns,
                                 count=len(df),
-                                status="success",
+                                status=EventStatus.SUCCESS,
                             )
 
                         success = True

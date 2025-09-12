@@ -117,6 +117,18 @@ except ImportError as e:
     torch = None  # type: ignore[assignment,unused-ignore]
 
 
+# Joblib (used only in explicitly-guarded test contexts)
+try:
+    import joblib as joblib
+
+    HAS_JOBLIB = True
+    JOBLIB_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_JOBLIB = False
+    JOBLIB_IMPORT_ERROR = e
+    joblib = None  # type: ignore[assignment,unused-ignore]
+
+
 # MLflow (DEPRECATED - use ModelRegistry instead)
 # Removed direct imports to prevent telemetry activation
 HAS_MLFLOW = False
@@ -479,6 +491,7 @@ __all__ = [
     "FREDAPI_IMPORT_ERROR",
     "HAS_DATABENTO",
     "HAS_FREDAPI",
+    "HAS_JOBLIB",
     "HAS_LIGHTGBM",
     "HAS_MLFLOW",
     "HAS_ONNX",
@@ -512,6 +525,7 @@ __all__ = [
     "db",
     "fredapi",
     "generate_latest",
+    "joblib",
     "lgb",
     "mcal",
     "mlflow",

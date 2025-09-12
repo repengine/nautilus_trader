@@ -24,6 +24,8 @@ from sqlalchemy import text
 
 from ml.common.correlation import make_correlation_id
 from ml.common.protocols import MLComponentMixin
+from ml.config.events import EventStatus
+from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -516,13 +518,13 @@ class DataRegistry(MLComponentMixin):
                 self.emit_event(
                     dataset_id=manifest.dataset_id,
                     instrument_id="*",
-                    stage=Stage.CATALOG_WRITTEN.value,
-                    source="historical",
+                    stage=Stage.CATALOG_WRITTEN,
+                    source=Source.HISTORICAL,
                     run_id="registry_register",
                     ts_min=0,
                     ts_max=0,
                     count=0,
-                    status="success",
+                    status=EventStatus.SUCCESS,
                     metadata={"correlation_id": corr},
                 )
             except Exception:
@@ -673,13 +675,13 @@ class DataRegistry(MLComponentMixin):
                 self.emit_event(
                     dataset_id=dataset_id,
                     instrument_id="*",
-                    stage=Stage.CATALOG_WRITTEN.value,
-                    source="historical",
+                    stage=Stage.CATALOG_WRITTEN,
+                    source=Source.HISTORICAL,
                     run_id="registry_update",
                     ts_min=0,
                     ts_max=0,
                     count=0,
-                    status="success",
+                    status=EventStatus.SUCCESS,
                     metadata={"correlation_id": corr},
                 )
             except Exception:
@@ -722,18 +724,16 @@ class DataRegistry(MLComponentMixin):
                     ts_max=0,
                     count=0,
                 )
-                from ml.config.events import EventStatus
-
                 self.emit_event(
                     dataset_id=dataset_id,
                     instrument_id="*",
-                    stage=Stage.CATALOG_WRITTEN.value,
-                    source="historical",
+                    stage=Stage.CATALOG_WRITTEN,
+                    source=Source.HISTORICAL,
                     run_id="registry_deprecate",
                     ts_min=0,
                     ts_max=0,
                     count=0,
-                    status=EventStatus.SUCCESS.value,
+                    status=EventStatus.SUCCESS,
                     metadata={"correlation_id": corr, "deprecated": True},
                 )
             except Exception:
@@ -937,13 +937,13 @@ class DataRegistry(MLComponentMixin):
         self,
         dataset_id: str,
         instrument_id: str,
-        stage: str,
-        source: str,
+        stage: Stage,
+        source: Source,
         run_id: str,
         ts_min: int,
         ts_max: int,
         count: int,
-        status: str,
+        status: EventStatus,
         error: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
@@ -975,16 +975,17 @@ class DataRegistry(MLComponentMixin):
 
         Examples
         --------
+        >>> from ml.config.events import Stage, Source, EventStatus
         >>> registry.emit_event(
         ...     dataset_id="bars_eurusd_1m",
         ...     instrument_id="EUR/USD",
-        ...     stage="CATALOG_WRITTEN",
-        ...     source="historical",
+        ...     stage=Stage.CATALOG_WRITTEN,
+        ...     source=Source.HISTORICAL,
         ...     run_id="run_123",
         ...     ts_min=1234567890000000000,
         ...     ts_max=1234567900000000000,
         ...     count=1000,
-        ...     status="success"
+        ...     status=EventStatus.SUCCESS,
         ... )
 
         """
@@ -992,17 +993,22 @@ class DataRegistry(MLComponentMixin):
             # Anchor event time within the provided window (start of period)
             ts_event = ts_min
 
+            # Normalize enums to their persisted string values
+            stage_val = stage.value
+            source_val = source.value
+            status_val = status.value
+
             event = {
                 "dataset_id": dataset_id,
                 "instrument_id": instrument_id,
-                "stage": stage,
-                "source": source,
+                "stage": stage_val,
+                "source": source_val,
                 "run_id": run_id,
                 "ts_min": ts_min,
                 "ts_max": ts_max,
                 "ts_event": ts_event,
                 "count": count,
-                "status": status,
+                "status": status_val,
                 "error": error,
                 "created_at": time.time(),
                 "metadata": metadata or {},
@@ -1039,13 +1045,13 @@ class DataRegistry(MLComponentMixin):
                             {
                                 "dataset_id": dataset_id,
                                 "instrument_id": instrument_id,
-                                "stage": stage,
-                                "source": source,
+                                "stage": stage_val,
+                                "source": source_val,
                                 "run_id": run_id,
                                 "ts_min": ts_min,
                                 "ts_max": ts_max,
                                 "count": count,
-                                "status": status,
+                                "status": status_val,
                                 "error": error,
                                 "metadata": json.dumps(metadata or {}),
                             },
@@ -1066,31 +1072,64 @@ class DataRegistry(MLComponentMixin):
                             {
                                 "dataset_id": dataset_id,
                                 "instrument_id": instrument_id,
-                                "stage": stage,
-                                "source": source,
+                                "stage": stage_val,
+                                "source": source_val,
                                 "run_id": run_id,
                                 "ts_min": ts_min,
                                 "ts_max": ts_max,
                                 "count": count,
-                                "status": status,
+                                "status": status_val,
                                 "error": error,
                             },
                         )
                     session.commit()
 
-                except Exception as e:
+                except Exception:
+                    # Fallback: if SQL function path fails (e.g., FK on watermark), attempt
+                    # a direct insert into ml_data_events without updating watermarks.
                     session.rollback()
-                    logger.error("Failed to emit event: %s", e)
-                    raise
-                finally:
-                    session.close()
+                    try:
+                        fallback_insert = text(
+                            """
+                            INSERT INTO ml_data_events (
+                                dataset_id, instrument_id, stage, source, run_id,
+                                ts_min, ts_max, ts_event, count, status, error, created_at
+                            ) VALUES (
+                                :dataset_id, :instrument_id, :stage, :source, :run_id,
+                                :ts_min, :ts_max, :ts_event, :count, :status, :error, NOW()
+                            )
+                            """,
+                        )
+                        session.execute(
+                            fallback_insert,
+                            {
+                                "dataset_id": dataset_id,
+                                "instrument_id": instrument_id,
+                                "stage": stage_val,
+                                "source": source_val,
+                                "run_id": run_id,
+                                "ts_min": ts_min,
+                                "ts_max": ts_max,
+                                "ts_event": ts_event,
+                                "count": count,
+                                "status": status_val,
+                                "error": error,
+                            },
+                        )
+                        session.commit()
+                    except Exception as e2:
+                        session.rollback()
+                        logger.error("Failed to emit event: %s", e2)
+                        raise
+                    finally:
+                        session.close()
 
             logger.debug(
                 "Emitted event: dataset=%s, instrument=%s, stage=%s, status=%s, count=%d",
                 dataset_id,
                 instrument_id,
-                stage,
-                status,
+                stage_val,
+                status_val,
                 count,
             )
 
@@ -1098,7 +1137,7 @@ class DataRegistry(MLComponentMixin):
         self,
         dataset_id: str,
         instrument_id: str,
-        source: str,
+        source: Source,
         last_success_ns: int,
         count: int,
         completeness_pct: float,
@@ -1123,23 +1162,25 @@ class DataRegistry(MLComponentMixin):
 
         Examples
         --------
+        >>> from ml.config.events import Source
         >>> registry.update_watermark(
         ...     dataset_id="bars_eurusd_1m",
         ...     instrument_id="EUR/USD",
-        ...     source="live",
+        ...     source=Source.LIVE,
         ...     last_success_ns=1234567900000000000,
         ...     count=1000,
-        ...     completeness_pct=98.5
+        ...     completeness_pct=98.5,
         ... )
 
         """
         with self._lock:
-            watermark_key = f"{dataset_id}:{instrument_id}:{source}"
+            source_val = source.value
+            watermark_key = f"{dataset_id}:{instrument_id}:{source_val}"
 
             watermark = Watermark(
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
-                source=source,
+                source=source_val,
                 last_success_ns=last_success_ns,
                 last_attempt_ns=last_success_ns,
                 last_count=count,
@@ -1173,7 +1214,7 @@ class DataRegistry(MLComponentMixin):
                         {
                             "dataset_id": dataset_id,
                             "instrument_id": instrument_id,
-                            "source": source,
+                            "source": source_val,
                             "last_success_ns": last_success_ns,
                             "count": count,
                             "completeness_pct": completeness_pct,
@@ -1195,7 +1236,7 @@ class DataRegistry(MLComponentMixin):
                 "Updated watermark: dataset=%s, instrument=%s, source=%s, completeness=%.1f%%",
                 dataset_id,
                 instrument_id,
-                source,
+                source_val,
                 completeness_pct,
             )
 

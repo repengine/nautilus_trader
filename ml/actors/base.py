@@ -26,8 +26,7 @@ import numpy.typing as npt
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
 from ml._imports import ort
-from ml.common.metrics_bootstrap import get_counter
-from ml.common.metrics_bootstrap import get_histogram
+from ml.common.metrics_manager import MetricsManager
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
 from ml.config.base import HealthMonitorConfig
@@ -436,9 +435,12 @@ class ProductionModelLoader(ModelLoader):
                     "Enable with ML_ALLOW_JOBLIB=1 in test runs or export models to ONNX.",
                 )
 
-            import joblib
+            from ml._imports import joblib as _joblib
 
-            model = joblib.load(path)
+            if _joblib is None:
+                raise ImportError("joblib not available; install for test-only usage or export to ONNX")
+
+            model = _joblib.load(path)
             metadata = {
                 "type": "sklearn",
                 "format": "joblib",
@@ -607,18 +609,19 @@ class MLSignal(NautilusData):
         return self._ts_init
 
 
-# Prometheus metrics for monitoring
-ml_predictions_total = get_counter(
+# Prometheus metrics for monitoring (initialized via MetricsManager)
+_MM = MetricsManager.default()
+ml_predictions_total = _MM.counter(
     METRIC_PREDICTIONS_TOTAL,
     "Total number of ML predictions made",
     [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
-ml_prediction_latency = get_histogram(
+ml_prediction_latency = _MM.histogram(
     METRIC_PREDICTION_LATENCY_SECONDS,
     "Latency of ML predictions in seconds",
     [LABEL_ACTOR_ID, LABEL_MODEL_NAME],
 )
-ml_signal_confidence = get_histogram(
+ml_signal_confidence = _MM.histogram(
     METRIC_SIGNAL_CONFIDENCE,
     "Distribution of ML signal confidence scores",
     [LABEL_ACTOR_ID, LABEL_MODEL_NAME],

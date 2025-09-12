@@ -14,8 +14,9 @@ which can lead to "too many clients already" errors in PostgreSQL.
 from __future__ import annotations
 
 import logging
+import os
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
@@ -188,6 +189,19 @@ class EngineManager:
                         **kwargs,
                     )
                 else:
+                    # Prepare connect_args and enforce safe timeouts in tests
+                    connect_args_obj = kwargs.pop("connect_args", None)
+                    connect_args: dict[str, Any] = (
+                        {} if connect_args_obj is None else cast(dict[str, Any], connect_args_obj)
+                    )
+                    is_pg = connection_string.lower().startswith("postgresql")
+                    is_test_runtime = is_test or bool(os.getenv("PYTEST_CURRENT_TEST"))
+                    if is_pg and is_test_runtime:
+                        # Bound statement execution to 60s to prevent hangs in CI/local tests
+                        # Only set if caller hasn't provided custom options
+                        if "options" not in connect_args:
+                            connect_args["options"] = "-c statement_timeout=60000"
+
                     # PostgreSQL/MySQL benefit from connection pooling
                     engine = create_engine(
                         connection_string,
@@ -197,6 +211,7 @@ class EngineManager:
                         pool_pre_ping=pool_pre_ping,
                         pool_recycle=pool_recycle,
                         echo=echo,
+                        connect_args=connect_args,
                         **kwargs,
                     )
 

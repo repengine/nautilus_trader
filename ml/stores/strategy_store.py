@@ -29,6 +29,7 @@ from typing_extensions import override
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus
+from ml.config.events import Source
 from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
 from ml.stores._buffered_store import BufferedStoreMixin
@@ -682,29 +683,30 @@ class StrategyStore(
                 # Use canonical dataset id; strategy_id is conveyed via metrics/metadata
                 dataset_id = "signals"
 
-                # Signals are typically realtime but check if is_live flag exists
-                source = "realtime"
-                if hasattr(group_signals[0], "is_live"):
-                    source = "realtime" if group_signals[0].is_live else "historical"
+                # Map to canonical Source enum
+                if hasattr(group_signals[0], "is_live") and bool(getattr(group_signals[0], "is_live")):
+                    src_enum = Source.LIVE
+                else:
+                    src_enum = Source.HISTORICAL
 
                 # Emit the event
                 registry.emit_event(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    stage=Stage.SIGNAL_EMITTED.value,
-                    source=source,
+                    stage=Stage.SIGNAL_EMITTED,
+                    source=src_enum,
                     run_id=run_id,
                     ts_min=ts_min,
                     ts_max=ts_max,
                     count=len(group_signals),
-                    status=EventStatus.SUCCESS.value,
+                    status=EventStatus.SUCCESS,
                 )
 
                 # Update watermark for tracking progress
                 registry.update_watermark(
                     dataset_id=dataset_id,
                     instrument_id=instrument_id,
-                    source=source,
+                    source=src_enum,
                     last_success_ns=ts_max,
                     count=len(group_signals),
                     completeness_pct=100.0,  # Signals are complete once written
@@ -716,9 +718,9 @@ class StrategyStore(
                         dataset_type="signals",
                         component=strategy_id,
                         stage=Stage.SIGNAL_EMITTED.value,
-                        source=source,
+                        source=src_enum.value,
                         status=EventStatus.SUCCESS.value,
-                    ).inc()
+                ).inc()
 
                 logger.debug(
                     "Emitted SIGNAL_EMITTED event: dataset=%s, instrument=%s, "
@@ -729,7 +731,7 @@ class StrategyStore(
                     len(group_signals),
                     ts_min,
                     ts_max,
-                    source,
+                    src_enum.value,
                 )
 
         except Exception as e:

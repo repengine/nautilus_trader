@@ -286,10 +286,19 @@
   - **Impact**: Maintenance burden, potential inconsistent behavior
   - **Effort**: 1-2 days to extract to base class method
 
-- [ ] **H018** - Metrics bootstrap pattern duplicated in 5+ files
+- [x] **H018** - Metrics bootstrap pattern duplicated in 5+ files
   - **Files**: All monitoring collector files
   - **Impact**: Inconsistent metric initialization
   - **Effort**: 2-3 days to create MetricsManager utility
+  - Status: Standardized metric creation via MetricsManager wrapper.
+    - Wrapper: `ml/common/metrics_manager.py` (delegates to `metrics_bootstrap`).
+    - Adopted in: `ml/observability/async_worker.py` (prior), plus `ml/actors/base.py`,
+      `ml/actors/signal.py`, `ml/strategies/base.py`, `ml/pipelines/build_runner.py`,
+      `ml/monitoring/collector.py`, and select collectors under `ml/monitoring/collectors/*`.
+    - Behavior: Metric names/labels preserved; no hot-path loops modified (only init paths).
+    - Validation: mypy strict 0 errors; ruff clean; `validate-metrics` and `validate-events` pass.
+      Import discipline enforced: added Import Linter contract `no_direct_prometheus_in_domain`
+      forbidding `prometheus_client` imports outside `ml/common/*` and tests.
 
 ### **Training Pipeline Issues (14 issues)**
 

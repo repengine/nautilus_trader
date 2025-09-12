@@ -88,3 +88,40 @@ Policy
 
 - Keep commits focused; include a concise summary of changes and their rationale.
 - PRs must be green on CI, including `ruff`, `mypy --strict`, tests, and docs (where applicable).
+## Dependency Management
+
+We use Poetry as the authoritative dependency manager for this repository.
+
+- Single source of truth: pyproject.toml under the [tool.poetry.*] sections.
+  - Runtime deps: [tool.poetry.dependencies]
+  - Dev/tooling: [tool.poetry.group.dev.dependencies]
+  - Test-only deps: [tool.poetry.group.test.dependencies]
+- Do not use uv "dependency-groups" in this repo. They were removed to avoid drift.
+- When adding environment or test utilities, prefer adding them to the test group instead
+  of runtime dependencies (e.g., pytest, hypothesis, pytest-timeout).
+
+### Known Package Naming
+
+- Use python-dotenv, not dotenv (the import is `from dotenv import load_dotenv`).
+- Avoid duplicating ML stacks: prefer `lightning` OR `pytorch-lightning`, not both. We use
+  `lightning` pinned alongside `torchmetrics`.
+
+### Timeouts and Test Stability
+
+- The test group includes pytest-timeout and ML suites assume a default 300s per-test
+  timeout (configured in ml/pytest.ini). Ensure your environment installs test deps when
+  running the suite.
+- For Postgres-backed tests, prefer bounded DB waits. If needed, configure a
+  statement_timeout for test engines via EngineManager.
+
+### Installing
+
+Typical flows:
+
+- Runtime only:
+  - `poetry install --only main`
+- Dev + Test:
+  - `poetry install --with dev,test`
+
+If you choose to run with uv for speed, do not add dependency-groups; instead, install
+from Poetry’s resolved venv or let uv read the Poetry sections in pyproject.toml.
