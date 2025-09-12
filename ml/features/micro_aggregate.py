@@ -100,7 +100,8 @@ def aggregate_microstructure_minute_pl(
         return pl.DataFrame({"timestamp": []})
     out = frames[0]
     for f in frames[1:]:
-        out = out.join(f, on="timestamp", how="outer")
+        # Polars 0.20.29: use 'full' instead of deprecated 'outer'
+        out = out.join(f, on="timestamp", how="full")
     return out.sort("timestamp").fill_null(strategy="forward")
 
 

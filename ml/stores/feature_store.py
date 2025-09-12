@@ -20,6 +20,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -285,8 +286,8 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 ex.submit(
                     self.compute_and_store_historical,
                     instrument_id=inst,
-                    start=start or datetime.utcnow() - timedelta(days=1),
-                    end=end or datetime.utcnow(),
+                    start=start or datetime.now(UTC) - timedelta(days=1),
+                    end=end or datetime.now(UTC),
                     force_recompute=force_recompute,
                 ): inst
                 for inst in instrument_ids
@@ -451,8 +452,8 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             # Polars
             from typing import cast
 
-            from ml.typing import PandasDF
-            from ml.typing import PolarsDF
+            from ml.ml_types import PandasDF
+            from ml.ml_types import PolarsDF
 
             pf = cast(PolarsDF, features_df)
             for i, row_vals in enumerate(pf.iter_rows()):
@@ -474,7 +475,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             # Pandas path
             from typing import cast
 
-            from ml.typing import PandasDF
+            from ml.ml_types import PandasDF
 
             pdf = cast(PandasDF, features_df)
             for i in range(len(pdf)):

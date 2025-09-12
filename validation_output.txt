@@ -1,0 +1,2508 @@
+[34m>(B[m  Running ML validation suite...
+uv run --active --no-sync semgrep --config tools/semgrep/ml-rules.yml --error || true
+               
+               
+┌─────────────┐
+│ Scan Status │
+└─────────────┘
+  Scanning 3801 files tracked by git with 10 Code rules:
+  Scanning 240 files with 10 python rules.
+                
+                
+┌──────────────┐
+│ Scan Summary │
+└──────────────┘
+Some files were skipped or only partially analyzed.
+  Scan was limited to files tracked by git.
+  Scan skipped: 698 files matching .semgrepignore patterns
+  For a full list of skipped files, run semgrep with the --verbose flag.
+
+Ran 10 rules on 240 files: 3 findings.
+                   
+                   
+┌─────────────────┐
+│ 3 Code Findings │
+└─────────────────┘
+                     
+    ml/actors/base.py
+    ❯❱ tools.semgrep.ml-prefer-strict-store-protocol
+          Prefer Strict store protocols for new public APIs (Feature/Model/StrategyStoreStrictProtocol)
+                                                                                                       
+          813┆ def feature_store(self) -> FeatureStoreProtocol:
+            ⋮┆----------------------------------------
+          820┆ def model_store(self) -> ModelStoreProtocol:
+            ⋮┆----------------------------------------
+          827┆ def strategy_store(self) -> StrategyStoreProtocol:
+
+uv run --active --no-sync python tools/duplication/check_duplication.py || true
+Found potential duplication hotspots:
+
+Duplicate block across files (2 occurrences):
+  - ml/actors/enhanced.py:170-181
+  - ml/stores/strategy_store.py:263-274
+
+Duplicate block across files (2 occurrences):
+  - ml/actors/enhanced.py:195-206
+  - ml/stores/base.py:417-428
+
+Duplicate block across files (2 occurrences):
+  - ml/actors/enhanced.py:196-207
+  - ml/stores/base.py:418-429
+
+Duplicate block across files (2 occurrences):
+  - ml/actors/enhanced.py:197-208
+  - ml/stores/base.py:419-430
+
+Duplicate block across files (2 occurrences):
+  - ml/actors/enhanced.py:198-209
+  - ml/stores/base.py:420-431
+
+Duplicate block across files (2 occurrences):
+  - ml/actors/enhanced.py:199-210
+  - ml/stores/base.py:421-432
+
+Duplicate block across files (2 occurrences):
+  - ml/actors/enhanced.py:200-211
+  - ml/stores/base.py:422-433
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:29-40
+  - ml/stores/model_store.py:31-42
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:30-41
+  - ml/stores/model_store.py:32-43
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:98-109
+  - ml/stores/model_store.py:90-101
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:99-110
+  - ml/stores/model_store.py:91-102
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:100-111
+  - ml/stores/model_store.py:92-103
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:101-112
+  - ml/stores/model_store.py:93-104
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:102-113
+  - ml/stores/model_store.py:94-105
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:103-114
+  - ml/stores/model_store.py:95-106
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:104-115
+  - ml/stores/model_store.py:96-107
+
+Duplicate block across files (3 occurrences):
+  - ml/stores/strategy_store.py:148-159
+  - ml/stores/model_store.py:140-151
+  - ml/stores/model_store.py:141-152
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:149-160
+  - ml/stores/model_store.py:142-153
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:150-161
+  - ml/stores/model_store.py:143-154
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:151-162
+  - ml/stores/model_store.py:144-155
+
+Duplicate block across files (4 occurrences):
+  - ml/stores/strategy_store.py:152-163
+  - ml/stores/strategy_store.py:153-164
+  - ml/stores/model_store.py:145-156
+  - ml/stores/model_store.py:146-157
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:154-165
+  - ml/stores/model_store.py:147-158
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:155-166
+  - ml/stores/model_store.py:148-159
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:156-167
+  - ml/stores/model_store.py:149-160
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:157-168
+  - ml/stores/model_store.py:150-161
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:158-169
+  - ml/stores/model_store.py:151-162
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:159-170
+  - ml/stores/model_store.py:152-163
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:160-171
+  - ml/stores/model_store.py:153-164
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:161-172
+  - ml/stores/model_store.py:154-165
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:162-173
+  - ml/stores/model_store.py:155-166
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:163-174
+  - ml/stores/model_store.py:156-167
+
+Duplicate block across files (4 occurrences):
+  - ml/stores/strategy_store.py:164-175
+  - ml/stores/strategy_store.py:165-176
+  - ml/stores/model_store.py:157-168
+  - ml/stores/model_store.py:158-169
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:166-177
+  - ml/stores/model_store.py:159-170
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:167-178
+  - ml/stores/model_store.py:160-171
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:168-179
+  - ml/stores/model_store.py:161-172
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:169-180
+  - ml/stores/model_store.py:162-173
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:170-181
+  - ml/stores/model_store.py:163-174
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:171-182
+  - ml/stores/model_store.py:164-175
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:172-183
+  - ml/stores/model_store.py:165-176
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:173-184
+  - ml/stores/model_store.py:166-177
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:324-335
+  - ml/stores/model_store.py:292-303
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:325-336
+  - ml/stores/model_store.py:293-304
+
+Duplicate block across files (3 occurrences):
+  - ml/stores/strategy_store.py:489-500
+  - ml/stores/model_store.py:570-581
+  - ml/stores/base.py:243-254
+
+Duplicate block across files (3 occurrences):
+  - ml/stores/strategy_store.py:490-501
+  - ml/stores/model_store.py:571-582
+  - ml/stores/base.py:244-255
+
+Duplicate block across files (4 occurrences):
+  - ml/stores/strategy_store.py:588-599
+  - ml/stores/strategy_store.py:589-600
+  - ml/stores/model_store.py:721-732
+  - ml/stores/model_store.py:722-733
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:590-601
+  - ml/stores/model_store.py:723-734
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:653-664
+  - ml/stores/model_store.py:799-810
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:731-742
+  - ml/stores/model_store.py:884-895
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:1085-1096
+  - ml/stores/model_store.py:498-509
+
+Duplicate block across files (2 occurrences):
+  - ml/stores/strategy_store.py:1086-1097
+  - ml/stores/model_store.py:499-510
+
+Hint: Extract common helpers/mixins or base classes to remove duplication.
+uv run --active --no-sync lint-imports --config importlinter.ini || true
+[1m=============[0m
+[1mImport Linter[0m
+[1m=============[0m
+[22m[0m
+[31m[1mNo matches for ignored import ml.tests.unit.consumers.test_aggregator_metrics -> prometheus_client.[0m
+uv run --active --no-sync xenon --max-absolute B --max-modules B --max-average B ml/ || true
+ERROR:xenon:block "ml/registry/model_registry.py:577 _validate_registration_inputs" has a rank of C
+ERROR:xenon:block "ml/registry/model_registry.py:122 _load_registry" has a rank of C
+ERROR:xenon:block "ml/registry/model_registry.py:345 _db_to_model_info" has a rank of C
+ERROR:xenon:block "ml/registry/model_registry.py:698 _maybe_auto_deploy" has a rank of C
+ERROR:xenon:block "ml/registry/bootstrap_datasets.py:277 bootstrap_datasets" has a rank of C
+ERROR:xenon:block "ml/registry/dataclasses.py:131 ValidationRule" has a rank of C
+ERROR:xenon:block "ml/registry/dataclasses.py:402 __post_init__" has a rank of C
+ERROR:xenon:block "ml/registry/feature_registry.py:296 _db_to_feature_info" has a rank of C
+ERROR:xenon:block "ml/registry/feature_registry.py:547 validate_and_promote" has a rank of C
+ERROR:xenon:block "ml/registry/feature_registry.py:603 update_manifest" has a rank of C
+ERROR:xenon:block "ml/registry/data_registry.py:536 update_manifest" has a rank of C
+ERROR:xenon:block "ml/registry/strategy_registry.py:595 _db_to_strategy_info" has a rank of D
+ERROR:xenon:block "ml/registry/statistics.py:99 compare_models" has a rank of C
+ERROR:xenon:block "ml/stores/strategy_store.py:581 get_statistics" has a rank of C
+ERROR:xenon:block "ml/stores/strategy_store.py:809 get_strategy_performance" has a rank of C
+ERROR:xenon:block "ml/stores/strategy_store.py:1029 read_active_signals" has a rank of C
+ERROR:xenon:block "ml/stores/data_store.py:514 preflight_check" has a rank of E
+ERROR:xenon:block "ml/stores/data_store.py:699 write_ingestion" has a rank of E
+ERROR:xenon:block "ml/stores/data_store.py:1808 _validate_range" has a rank of D
+ERROR:xenon:block "ml/stores/data_store.py:1486 validate_batch" has a rank of C
+ERROR:xenon:block "ml/stores/data_store.py:1893 _validate_uniqueness" has a rank of C
+ERROR:xenon:block "ml/stores/data_store.py:2045 _validate_nullability" has a rank of C
+ERROR:xenon:block "ml/stores/data_store.py:1970 _validate_monotonicity" has a rank of C
+ERROR:xenon:block "ml/stores/data_store.py:2186 _df_to_feature_data" has a rank of C
+ERROR:xenon:block "ml/stores/_batch_utils.py:71 publish_batch_and_rows" has a rank of C
+ERROR:xenon:block "ml/stores/model_store.py:714 get_statistics" has a rank of C
+ERROR:xenon:block "ml/stores/model_store.py:984 get_model_performance" has a rank of C
+ERROR:xenon:block "ml/stores/model_store.py:454 read_latest_predictions" has a rank of C
+ERROR:xenon:block "ml/stores/partition_manager.py:331 create_test_partitions" has a rank of C
+ERROR:xenon:block "ml/stores/schedule_partitions.py:55 main" has a rank of C
+ERROR:xenon:block "ml/stores/feature_store.py:953 write_features" has a rank of E
+ERROR:xenon:block "ml/stores/feature_store.py:564 compute_realtime" has a rank of C
+ERROR:xenon:block "ml/stores/feature_store.py:397 compute_and_store_historical" has a rank of C
+ERROR:xenon:block "ml/stores/feature_store.py:1215 write_batch" has a rank of C
+ERROR:xenon:block "ml/stores/feature_store.py:1315 read_range" has a rank of C
+ERROR:xenon:block "ml/common/topic_filters.py:30 match_topic" has a rank of C
+ERROR:xenon:block "ml/config/actors.py:61 MLSignalActorConfig" has a rank of C
+ERROR:xenon:block "ml/config/actors.py:98 __post_init__" has a rank of C
+ERROR:xenon:block "ml/config/xgboost.py:206 __post_init__" has a rank of C
+ERROR:xenon:block "ml/config/xgboost.py:316 validate_environment" has a rank of C
+ERROR:xenon:block "ml/config/base.py:226 DataCollectorConfig" has a rank of C
+ERROR:xenon:block "ml/config/observability.py:9 ObservabilityConfig" has a rank of C
+ERROR:xenon:block "ml/config/observability.py:51 from_env" has a rank of C
+ERROR:xenon:block "ml/config/lightgbm.py:346 __post_init__" has a rank of C
+ERROR:xenon:block "ml/config/lightgbm.py:486 validate_environment" has a rank of C
+ERROR:xenon:block "ml/config/lightgbm.py:401 get_lgb_params" has a rank of C
+ERROR:xenon:block "ml/cli/coverage.py:957 apply_backfill" has a rank of F
+ERROR:xenon:block "ml/cli/coverage.py:636 plan_backfill" has a rank of E
+ERROR:xenon:block "ml/cli/coverage.py:1343 main" has a rank of D
+ERROR:xenon:block "ml/cli/coverage.py:487 _format_report" has a rank of D
+ERROR:xenon:block "ml/cli/coverage.py:286 _query_json_coverage" has a rank of D
+ERROR:xenon:block "ml/cli/coverage.py:84 CoverageReporter" has a rank of C
+ERROR:xenon:block "ml/cli/observability.py:52 main" has a rank of C
+ERROR:xenon:block "ml/cli/ingest_backfill.py:91 main" has a rank of C
+ERROR:xenon:block "ml/data/tft_dataset_builder.py:483 _build_training_dataset_direct" has a rank of F
+ERROR:xenon:block "ml/data/tft_dataset_builder.py:751 _process_symbol_polars" has a rank of F
+ERROR:xenon:block "ml/data/tft_dataset_builder.py:255 prepare_training_data" has a rank of D
+ERROR:xenon:block "ml/data/tft_dataset_builder.py:978 _process_symbol_pandas" has a rank of C
+ERROR:xenon:block "ml/data/tft_dataset_builder.py:91 prepare_training_data_from_store" has a rank of C
+ERROR:xenon:block "ml/data/tft_dataset_builder.py:37 TFTDatasetBuilder" has a rank of C
+ERROR:xenon:block "ml/data/scheduler.py:563 _collect_symbol_data" has a rank of E
+ERROR:xenon:block "ml/data/scheduler.py:234 __init__" has a rank of C
+ERROR:xenon:block "ml/data/scheduler.py:959 _compute_features" has a rank of C
+ERROR:xenon:block "ml/data/scheduler.py:462 _collect_latest_data" has a rank of C
+ERROR:xenon:block "ml/data/fred_join.py:60 join_fred_asof" has a rank of C
+ERROR:xenon:block "ml/data/feature_manifest_export.py:24 infer_feature_columns" has a rank of C
+ERROR:xenon:block "ml/data/collector.py:325 collect_l1_trades" has a rank of C
+ERROR:xenon:block "ml/data/collector.py:219 collect_l2_depth" has a rank of C
+ERROR:xenon:block "ml/data/sources/events.py:186 get_economic_events" has a rank of C
+ERROR:xenon:block "ml/data/ingest/resume.py:100 ingest_time_window" has a rank of C
+ERROR:xenon:block "ml/data/ingest/databento_adapter.py:42 get_data" has a rank of D
+ERROR:xenon:block "ml/data/ingest/databento_adapter.py:24 DatabentoAPIClient" has a rank of C
+ERROR:xenon:block "ml/data/providers/events.py:204 _compute_timestamp_features" has a rank of E
+ERROR:xenon:block "ml/data/providers/base.py:564 load_timeseries" has a rank of C
+ERROR:xenon:block "ml/data/loaders/fred_loader.py:827 store_indicators" has a rank of C
+ERROR:xenon:block "ml/examples/strategy_registry_demo.py:23 main" has a rank of C
+ERROR:xenon:block "ml/examples/calendar_provider_demo.py:19 main" has a rank of D
+ERROR:xenon:block "ml/examples/scheduler_with_metrics.py:66 main" has a rank of C
+ERROR:xenon:block "ml/consumers/aggregator.py:66 advance_watermark" has a rank of C
+ERROR:xenon:block "ml/tests/contracts/test_registry_behavioral.py:219 test_ab_test_splits_traffic" has a rank of C
+ERROR:xenon:block "ml/tests/tools/fix_indentation.py:12 fix_test_file_indentation" has a rank of C
+ERROR:xenon:block "ml/tests/tools/apply_test_markers.py:17 detect_test_characteristics" has a rank of D
+ERROR:xenon:block "ml/tests/tools/apply_test_markers.py:144 apply_markers_to_file" has a rank of C
+ERROR:xenon:block "ml/tests/tools/apply_test_markers.py:107 suggest_markers" has a rank of C
+ERROR:xenon:block "ml/tests/tools/apply_test_markers.py:213 main" has a rank of C
+ERROR:xenon:block "ml/tests/tools/fix_test_markers.py:82 fix_file" has a rank of C
+ERROR:xenon:block "ml/tests/tools/analyze_test_redundancy.py:250 generate_report" has a rank of D
+ERROR:xenon:block "ml/tests/tools/analyze_test_redundancy.py:167 identify_redundant_patterns" has a rank of C
+ERROR:xenon:block "ml/tests/examples/simple_feature_test.py:303 main" has a rank of C
+ERROR:xenon:block "ml/tests/examples/working_feature_test.py:60 run_comprehensive_test" has a rank of E
+ERROR:xenon:block "ml/tests/combinatorial/test_domain_bookkeeping_configs.py:250 test_observability_pipeline_configuration_combinations" has a rank of C
+ERROR:xenon:block "ml/tests/combinatorial/test_domain_bookkeeping_configs.py:500 TestConfigurationValidationIntegration" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_event_ordering_invariants.py:264 test_concurrent_pipeline_isolation_invariant" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_stateful.py:475 _validate_final_state" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_phase2.py:306 test_metrics_aggregation_consistency_invariant" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_phase2.py:61 test_latency_watermark_monotonicity_invariant" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_phase2.py:450 TestEventCorrelationInvariant" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_phase2.py:474 test_event_lineage_graph_consistency_invariant" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_phase2.py:279 TestMetricsCollectionInvariant" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_phase2.py:572 test_correlation_time_travel_reconstruction_invariant" has a rank of C
+ERROR:xenon:block "ml/tests/property/test_domain_bookkeeping_phase2.py:31 TestEndToEndLatencyTrackingInvariant" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_signal_predictions.py:157 test_prediction_scaling_bounds" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_domain_bookkeeping_event_flow.py:443 test_subscription_filter_specificity_affects_match_count" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_domain_bookkeeping_event_flow.py:193 test_propagation_delay_scaling_preserves_causality" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_domain_bookkeeping_event_flow.py:175 TestCrossDomainPropagationMetamorphic" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_domain_bookkeeping_event_flow.py:340 TestMessageBusTopicMetamorphic" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_domain_bookkeeping_event_flow.py:280 test_domain_sequence_reversal_inverts_dependencies" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_feature_transforms.py:163 test_noise_addition_bounds" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_observability_correlation.py:536 test_lineage_tree_transformations_preserve_structure" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_observability_correlation.py:131 test_health_score_scaling_preserves_ordering" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_observability_correlation.py:296 TestEventCorrelationMetamorphic" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_observability_correlation.py:318 test_temporal_compression_preserves_causality" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_observability_correlation.py:26 TestMetricsAggregationMetamorphic" has a rank of C
+ERROR:xenon:block "ml/tests/metamorphic/test_observability_correlation.py:230 test_label_cardinality_affects_aggregation_granularity" has a rank of C
+ERROR:xenon:block "ml/tests/integration/test_ml_strategy_backtest.py:604 test_performance_metrics_calculation" has a rank of D
+ERROR:xenon:block "ml/tests/integration/test_ml_strategy_backtest.py:280 test_multi_instrument_ml_portfolio" has a rank of C
+ERROR:xenon:block "ml/tests/integration/test_ml_strategy_backtest.py:770 test_signal_latency_monitoring" has a rank of C
+ERROR:xenon:block "ml/tests/integration/test_ml_strategy_backtest.py:55 TestMLStrategyBacktest" has a rank of C
+ERROR:xenon:block "ml/tests/integration/test_registry_store_l2_integration.py:55 test_feature_config_includes_microstructure" has a rank of C
+ERROR:xenon:block "ml/tests/integration/test_registry_store_l2_integration.py:274 test_l2_feature_computation_with_real_data" has a rank of C
+ERROR:xenon:block "ml/tests/fixtures/database_fixtures.py:132 init_schema" has a rank of C
+ERROR:xenon:block "ml/tests/fixtures/model_factory.py:459 validate_model" has a rank of C
+ERROR:xenon:block "ml/tests/unit/registry/test_unified_registry.py:230 test_model_caching" has a rank of C
+ERROR:xenon:block "ml/tests/unit/registry/test_feature_registry.py:42 test_feature_registry_roundtrip" has a rank of C
+ERROR:xenon:block "ml/tests/unit/registry/test_strategy_registry.py:493 test_check_compatibility" has a rank of C
+ERROR:xenon:block "ml/tests/unit/deployment/test_check_health.py:518 test_main_output_formatting" has a rank of C
+ERROR:xenon:block "ml/tests/unit/stores/test_data_store_validation.py:945 test_validation_consistency" has a rank of C
+ERROR:xenon:block "ml/tests/unit/stores/test_data_store_validation.py:932 TestPropertyBased" has a rank of C
+ERROR:xenon:block "ml/tests/unit/stores/test_data_store_emit_event.py:22 test_emit_event_attaches_correlation_id_and_normalizes" has a rank of C
+ERROR:xenon:block "ml/tests/unit/stores/test_data_store_emit_event.py:21 TestDataStoreEmitEvent" has a rank of C
+ERROR:xenon:block "ml/tests/unit/stores/test_strategy_store_events.py:28 test_strategy_store_emits_signal_events" has a rank of C
+ERROR:xenon:block "ml/tests/unit/cli/test_cli_coverage_backfill.py:27 test_plan_backfill_with_gaps" has a rank of C
+ERROR:xenon:block "ml/tests/unit/data/sources/test_calendar_pandas.py:84 test_exchange_mapping" has a rank of C
+ERROR:xenon:block "ml/tests/unit/scripts/test_dataset_report.py:32 test_dataset_report_generates_stats" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_known_future_transforms.py:436 test_static_covariates_default_params" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_known_future_transforms.py:159 test_event_schedule_default_params" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_known_future_transforms.py:258 test_macro_indicators_default_params" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_feature_validation.py:236 test_validate_performance" has a rank of D
+ERROR:xenon:block "ml/tests/unit/features/test_feature_validation.py:105 test_validate_parity_success" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_feature_validation.py:289 test_generate_test_data" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_feature_validation.py:139 test_validate_parity_detailed_report" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_feature_engineering_hypothesis.py:180 test_moving_average_monotonicity_skip" has a rank of C
+ERROR:xenon:block "ml/tests/unit/features/test_feature_engineering_hypothesis.py:127 test_rsi_bounds_property" has a rank of C
+ERROR:xenon:block "ml/tests/unit/actors/test_signal_actor_hypothesis.py:282 test_prediction_distribution_property" has a rank of C
+ERROR:xenon:block "ml/tests/unit/actors/test_signal_actor_hypothesis.py:239 test_latency_monitoring_property" has a rank of C
+ERROR:xenon:block "ml/tests/performance/brutal_performance_test.py:597 generate_brutal_report" has a rank of D
+ERROR:xenon:block "ml/tests/performance/brutal_performance_test.py:494 test_high_frequency_trading_simulation" has a rank of C
+ERROR:xenon:block "ml/tests/performance/cache_allocation_test.py:212 main" has a rank of C
+ERROR:xenon:block "ml/tests/performance/core_ml_performance_test.py:328 generate_report" has a rank of C
+ERROR:xenon:block "ml/tests/performance/test_async_worker_stress.py:13 test_async_worker_stress_small_queue" has a rank of C
+ERROR:xenon:block "ml/training/optuna_optimizer.py:331 optimize" has a rank of C
+ERROR:xenon:block "ml/training/base.py:102 train" has a rank of C
+ERROR:xenon:block "ml/training/export.py:46 detect_model_type" has a rank of C
+ERROR:xenon:block "ml/training/export.py:219 convert_to_onnx" has a rank of C
+ERROR:xenon:block "ml/training/teacher/tft_cli.py:52 main" has a rank of F
+ERROR:xenon:block "ml/training/teacher/tft_teacher.py:340 predict_logits_with_targets" has a rank of E
+ERROR:xenon:block "ml/training/teacher/tft_teacher.py:95 fit" has a rank of D
+ERROR:xenon:block "ml/training/teacher/tft_teacher.py:269 predict_logits" has a rank of D
+ERROR:xenon:block "ml/training/teacher/tft_teacher.py:31 TFTTeacher" has a rank of C
+ERROR:xenon:block "ml/training/student/lightgbm.py:212 export_onnx" has a rank of C
+ERROR:xenon:block "ml/training/non_distilled/xgboost.py:423 get_feature_importance" has a rank of C
+ERROR:xenon:block "ml/training/non_distilled/lightgbm.py:66 _train_model" has a rank of C
+ERROR:xenon:block "ml/training/distillation/cli.py:37 main" has a rank of C
+ERROR:xenon:block "ml/monitoring/collectors/registry.py:255 get_metrics_summary" has a rank of C
+ERROR:xenon:block "ml/monitoring/scripts/import_dashboards.py:332 main" has a rank of C
+ERROR:xenon:block "ml/monitoring/scripts/import_dashboards.py:59 validate_dashboard_json" has a rank of C
+ERROR:xenon:block "ml/monitoring/scripts/validate_dashboards.py:561 main" has a rank of D
+ERROR:xenon:block "ml/monitoring/scripts/validate_dashboards.py:163 _validate_panels" has a rank of D
+ERROR:xenon:block "ml/monitoring/scripts/validate_dashboards.py:122 _validate_metadata" has a rank of C
+ERROR:xenon:block "ml/monitoring/scripts/validate_dashboards.py:338 _validate_templating" has a rank of C
+ERROR:xenon:block "ml/monitoring/scripts/validate_dashboards.py:379 _validate_ml_standards" has a rank of C
+ERROR:xenon:block "ml/monitoring/scripts/validate_config.py:477 print_validation_results" has a rank of C
+ERROR:xenon:block "ml/monitoring/scripts/validate_config.py:168 _validate_grafana_config" has a rank of C
+ERROR:xenon:block "ml/scripts/backfill_ohlcv_recent.py:56 _symbols_from_universe_file" has a rank of C
+ERROR:xenon:block "ml/scripts/backfill_ohlcv_recent.py:94 _last_bar_timestamp" has a rank of C
+ERROR:xenon:block "ml/scripts/backfill_ohlcv_recent.py:179 main" has a rank of C
+ERROR:xenon:block "ml/scripts/backfill_ohlcv_recent.py:133 _merge_save" has a rank of C
+ERROR:xenon:block "ml/scripts/train_tft_quick.py:35 main" has a rank of C
+ERROR:xenon:block "ml/scripts/hpo_tft.py:75 main" has a rank of C
+ERROR:xenon:block "ml/scripts/fred_integration_bridge.py:20 convert_simple_to_ml_format" has a rank of D
+ERROR:xenon:block "ml/scripts/populate_universe.py:443 populate_level" has a rank of C
+ERROR:xenon:block "ml/scripts/build_tft_dataset.py:46 main" has a rank of D
+ERROR:xenon:block "ml/scripts/build_tft_dataset.py:32 _infer_feature_columns" has a rank of C
+ERROR:xenon:block "ml/scripts/populate_l2_efficient.py:568 main" has a rank of E
+ERROR:xenon:block "ml/scripts/populate_l2_efficient.py:370 download_l2_daily" has a rank of C
+ERROR:xenon:block "ml/scripts/populate_l2_efficient.py:481 _stream_merge_daily_files" has a rank of C
+ERROR:xenon:block "ml/scripts/populate_l2_efficient.py:209 merge_new_with_existing" has a rank of C
+ERROR:xenon:block "ml/scripts/apply_migrations.py:69 _split_statements" has a rank of D
+ERROR:xenon:block "ml/scripts/apply_migrations.py:173 build_plan" has a rank of C
+ERROR:xenon:block "ml/scripts/populate_alternative_data.py:404 main" has a rank of C
+ERROR:xenon:block "ml/scripts/dataset_report.py:115 _feature_coverage_pl" has a rank of C
+ERROR:xenon:block "ml/scripts/dataset_report.py:150 _feature_coverage_pd" has a rank of C
+ERROR:xenon:block "ml/scripts/dataset_report.py:253 main" has a rank of C
+ERROR:xenon:block "ml/scripts/build_production_dataset.py:304 main" has a rank of C
+ERROR:xenon:block "ml/scripts/run_ml_pipeline.py:326 run_backfill" has a rank of C
+ERROR:xenon:block "ml/scripts/validate_training_claims.py:95 main" has a rank of C
+ERROR:xenon:block "ml/scripts/analysis/topic_filter_correct_fix.py:35 match_topic_correct" has a rank of C
+ERROR:xenon:block "ml/features/pipeline.py:193 feature_names" has a rank of C
+ERROR:xenon:block "ml/features/micro_aggregate.py:32 aggregate_microstructure_minute_pl" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:1236 _calculate_features_batch_impl" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:1535 calculate_features_online" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:2566 compute_features" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:500 get_values" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:2263 _calculate_microstructure_features_batch" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:890 _extract_price_arrays" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:1010 _apply_scaler" has a rank of C
+ERROR:xenon:block "ml/features/engineering.py:1953 _calculate_indicator_features_batch" has a rank of C
+ERROR:xenon:block "ml/features/materialize_cli.py:26 main" has a rank of C
+ERROR:xenon:block "ml/features/validation.py:418 validate_performance" has a rank of C
+ERROR:xenon:block "ml/features/validation.py:125 _extract_current_bar_data" has a rank of C
+ERROR:xenon:block "ml/features/l2_aggregate.py:136 compute_for_symbol" has a rank of C
+ERROR:xenon:block "ml/features/l2_aggregate.py:120 L2Aggregator" has a rank of C
+ERROR:xenon:block "ml/observability/async_db_persistence.py:31 ObservabilityAsyncDBPersistor" has a rank of C
+ERROR:xenon:block "ml/observability/async_worker.py:292 _run" has a rank of C
+ERROR:xenon:block "ml/observability/persistence.py:51 persist" has a rank of C
+ERROR:xenon:block "ml/observability/persistence.py:22 ObservabilityPersistor" has a rank of C
+ERROR:xenon:block "ml/actors/adapters.py:60 build_strategy_from_policy" has a rank of C
+ERROR:xenon:block "ml/actors/base.py:1021 _generate_prediction_protected" has a rank of D
+ERROR:xenon:block "ml/actors/base.py:430 load_model" has a rank of C
+ERROR:xenon:block "ml/actors/base.py:1234 _load_model_with_metadata" has a rank of C
+ERROR:xenon:block "ml/actors/base.py:1308 _try_load_from_registry" has a rank of C
+ERROR:xenon:block "ml/actors/base.py:929 on_bar" has a rank of C
+ERROR:xenon:block "ml/actors/signal.py:1212 _verify_parity_requirements" has a rank of D
+ERROR:xenon:block "ml/actors/signal.py:934 __init__" has a rank of D
+ERROR:xenon:block "ml/actors/signal.py:1631 _predict" has a rank of C
+ERROR:xenon:block "ml/actors/signal.py:1389 _load_model" has a rank of C
+ERROR:xenon:block "ml/actors/signal.py:1566 _compute_features" has a rank of C
+ERROR:xenon:block "ml/actors/signal.py:1772 _try_generate_signal" has a rank of C
+ERROR:xenon:block "ml/actors/ml_domain_events.py:155 init_actor_bus_bridge" has a rank of C
+ERROR:xenon:block "ml/pipelines/build_runner.py:239 execute" has a rank of C
+ERROR:xenon:block "ml/pipelines/build_runner.py:170 _run_single" has a rank of C
+ERROR:xenon:block "ml/pipelines/tft_train_distill.py:23 main" has a rank of C
+ERROR:xenon:block "ml/core/integration.py:413 _run_migrations" has a rank of C
+ERROR:xenon:block "ml/core/integration.py:324 _start_postgres_container" has a rank of C
+ERROR:xenon:block "ml/core/integration.py:480 _maybe_run_backfill_on_start" has a rank of C
+ERROR:xenon:block "ml/core/integration.py:578 _validate_protocol_compliance" has a rank of C
+ERROR:xenon:block "ml/core/integration.py:1275 init_actor_stores_and_registries" has a rank of C
+ERROR:xenon:block "ml/core/integration.py:100 __init__" has a rank of C
+ERROR:xenon:block "ml/core/db_engine.py:67 get_engine" has a rank of C
+ERROR:xenon:block "ml/strategies/base.py:296 _persist_strategy_decision" has a rank of D
+ERROR:xenon:block "ml/strategies/base.py:677 _aggregate_signal" has a rank of C
+ERROR:xenon:block "ml/strategies/base.py:883 _process_ml_signal" has a rank of C
+ERROR:xenon:module 'ml/common/topic_filters.py' has a rank of C
+ERROR:xenon:module 'ml/config/observability.py' has a rank of C
+ERROR:xenon:module 'ml/cli/coverage.py' has a rank of C
+ERROR:xenon:module 'ml/data/tft_dataset_builder.py' has a rank of C
+ERROR:xenon:module 'ml/data/fred_join.py' has a rank of C
+ERROR:xenon:module 'ml/data/ingest/databento_adapter.py' has a rank of C
+ERROR:xenon:module 'ml/examples/strategy_registry_demo.py' has a rank of C
+ERROR:xenon:module 'ml/examples/calendar_provider_demo.py' has a rank of D
+ERROR:xenon:module 'ml/examples/scheduler_with_metrics.py' has a rank of C
+ERROR:xenon:module 'ml/tests/tools/apply_test_markers.py' has a rank of C
+ERROR:xenon:module 'ml/tests/examples/working_feature_test.py' has a rank of D
+ERROR:xenon:module 'ml/tests/property/test_domain_bookkeeping_phase2.py' has a rank of C
+ERROR:xenon:module 'ml/tests/metamorphic/test_domain_bookkeeping_event_flow.py' has a rank of C
+ERROR:xenon:module 'ml/tests/metamorphic/test_observability_correlation.py' has a rank of C
+ERROR:xenon:module 'ml/tests/integration/test_ml_strategy_backtest.py' has a rank of C
+ERROR:xenon:module 'ml/tests/performance/test_async_worker_stress.py' has a rank of C
+ERROR:xenon:module 'ml/training/teacher/tft_cli.py' has a rank of D
+ERROR:xenon:module 'ml/training/teacher/tft_teacher.py' has a rank of C
+ERROR:xenon:module 'ml/training/distillation/cli.py' has a rank of C
+ERROR:xenon:module 'ml/scripts/backfill_ohlcv_recent.py' has a rank of C
+ERROR:xenon:module 'ml/scripts/train_tft_quick.py' has a rank of C
+ERROR:xenon:module 'ml/scripts/hpo_tft.py' has a rank of C
+ERROR:xenon:module 'ml/scripts/build_tft_dataset.py' has a rank of C
+ERROR:xenon:module 'ml/scripts/analysis/topic_filter_correct_fix.py' has a rank of C
+ERROR:xenon:module 'ml/features/materialize_cli.py' has a rank of C
+ERROR:xenon:module 'ml/observability/async_db_persistence.py' has a rank of C
+ERROR:xenon:module 'ml/observability/persistence.py' has a rank of C
+ERROR:xenon:module 'ml/pipelines/tft_train_distill.py' has a rank of C
+uv run --active --no-sync bandit -q -r ml -x ml/tests || true
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: name is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: validated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: via is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _safe_table is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: allowlist is not a test name or id, ignoring
+Run started:2025-09-12 03:59:29.360778
+
+Test results:
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/actors/base.py:1293:12
+1292	                    maybe_warm_up_model(self._model, True, input_dim)
+1293	            except Exception:
+1294	                # Warm-up is a best-effort optimization; never fail startup
+1295	                pass
+1296	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/actors/base.py:1865:0
+1864	    from ml.stores.strategy_store import StrategyStore as StrategyStore
+1865	except Exception:  # Avoid import cycles or test-only env issues
+1866	    pass
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/actors/ml_domain_events.py:212:20
+211	                        setattr(st, "_enable_publishing", False)
+212	                    except Exception:
+213	                        pass
+214	        except Exception:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/actors/ml_domain_events.py:214:8
+213	                        pass
+214	        except Exception:
+215	            # Never impact initialization on optional convenience
+216	            pass
+217	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/actors/signal.py:1325:12
+1324	                self.log.debug(f"Decision policy adapter load failed: {exc}")
+1325	            except Exception:
+1326	                pass
+1327	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/actors/signal.py:1456:12
+1455	                self.log.debug(f"Decision policy application failed: {exc}")
+1456	            except Exception:
+1457	                pass
+1458	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/actors/signal.py:1765:16
+1764	                        self._run_parity_smoke_check()
+1765	                except Exception:
+1766	                    # Never impact hot path
+1767	                    pass
+1768	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/cli/observability.py:156:24
+155	                            await worker.stop(drain=True, timeout=1.0)
+156	                        except Exception:
+157	                            pass
+158	                return 0
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/common/event_emitter.py:83:4
+82	        )
+83	    except Exception:
+84	        # Metrics are best-effort; ignore in hot paths
+85	        pass
+86	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/common/event_emitter.py:142:4
+141	        )
+142	    except Exception:
+143	        # Metrics are best-effort; ignore in hot paths
+144	        pass
+145	
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '#'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b105_hardcoded_password_string.html
+   Location: ml/common/topic_filters.py:47:20
+46	        token = p_parts[i]
+47	        if token == "#":
+48	            # '#' at end matches the rest; if not last, attempt greedy match
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '*'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b105_hardcoded_password_string.html
+   Location: ml/common/topic_filters.py:58:20
+57	            return False
+58	        if token == "*":
+59	            i += 1
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/consumers/aggregator.py:125:16
+124	                    self.downstream.publish(out_topic, payload)
+125	                except Exception:
+126	                    # Forwarding is best-effort; aggregator state already updated
+127	                    pass
+128	
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: ml/core/cache.py:309:16
+308	            # Reservoir full, randomly replace
+309	            j = random.randint(0, self._total_seen - 1)
+310	            if j < self._reservoir_size:
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/core/integration.py:13:0
+12	import logging
+13	import subprocess
+14	import time
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b112_try_except_continue.html
+   Location: ml/core/integration.py:355:12
+354	                    break
+355	            except Exception:
+356	                # Fallback silently to next candidate
+357	                continue
+358	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/core/integration.py:361:16
+360	            try:
+361	                subprocess.run(
+362	                    [docker_path, "compose", "-f", str(compose_file), "up", "-d", "postgres"],
+363	                    check=True,
+364	                )
+365	            except Exception:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/core/integration.py:369:21
+368	        if compose_file is None:
+369	            result = subprocess.run(
+370	                [
+371	                    docker_path,
+372	                    "ps",
+373	                    "-a",
+374	                    "--filter",
+375	                    "name=nautilus-postgres",
+376	                    "--format",
+377	                    "{{.Names}}",
+378	                ],
+379	                capture_output=True,
+380	                text=True,
+381	            )
+382	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/core/integration.py:384:16
+383	            if "nautilus-postgres" in result.stdout:
+384	                subprocess.run([docker_path, "start", "nautilus-postgres"], check=True)
+385	            else:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/core/integration.py:386:16
+385	            else:
+386	                subprocess.run(
+387	                    [
+388	                        docker_path,
+389	                        "run",
+390	                        "-d",
+391	                        "--name",
+392	                        "nautilus-postgres",
+393	                        "-e",
+394	                        "POSTGRES_PASSWORD=postgres",
+395	                        "-e",
+396	                        "POSTGRES_DB=nautilus",
+397	                        "-p",
+398	                        "5432:5432",
+399	                        "postgres:15",
+400	                    ],
+401	                    check=True,
+402	                )
+403	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/core/integration.py:469:16
+468	                    conn.execute(text("SELECT auto_create_partitions()"))
+469	                except Exception:
+470	                    # Ignore if function not installed; PartitionManager handles below
+471	                    pass
+472	            if self.partition_manager is None:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/core/integration.py:554:12
+553	        try:
+554	            subprocess.run(cmd, check=True)
+555	        except Exception as exc:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/ingest/databento_adapter.py:77:20
+76	                        df["ts_event"] = pd.to_datetime(df["ts"], utc=True).astype("int64")
+77	                    except Exception:
+78	                        pass
+79	        # Map schema-specific columns to canonical writer columns where possible
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b108_hardcoded_tmp_directory.html
+   Location: ml/data/loaders/fred_loader.py:180:57
+179	    api_key: str | None = None
+180	    cache_dir: Path = field(default_factory=lambda: Path("/tmp/fred_cache"))
+181	    cache_ttl_hours: int = 24
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/providers/base.py:506:12
+505	                del self._metadata_cache[cache_key]
+506	            except Exception:
+507	                pass
+508	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/providers/base.py:544:8
+543	                del self._metadata_cache[oldest_key]
+544	        except Exception:
+545	            # Best-effort eviction; do not fail reads due to eviction logic
+546	            pass
+547	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/data/providers/factory.py:125:8
+124	        provider = self._providers["metadata"]
+125	        assert isinstance(provider, InstrumentMetadataProvider)
+126	        return provider
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/data/providers/factory.py:143:8
+142	        provider = self._providers["calendar"]
+143	        assert isinstance(provider, MarketCalendarProvider)
+144	        return provider
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/data/providers/factory.py:161:8
+160	        provider = self._providers["events"]
+161	        assert isinstance(provider, EventScheduleProvider)
+162	        return provider
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b108_hardcoded_tmp_directory.html
+   Location: ml/data/scheduler.py:321:37
+320	                )
+321	                registry_path = Path("/tmp/ml_registry")  # Path for JSON fallback
+322	            else:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/scheduler.py:327:16
+326	                    registry_path.mkdir(parents=True, exist_ok=True)
+327	                except Exception:
+328	                    pass
+329	                persistence_config = PersistenceConfig(
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: ml/data/sources/metadata.py:390:23
+389	            is_etf = symbol.endswith("ETF") or symbol in ["SPY", "QQQ", "IWM", "VTI"]
+390	            is_penny = random.random() < 0.1  # 10% penny stocks
+391	
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: ml/data/sources/metadata.py:404:23
+403	            exchanges = ["XNAS", "XNYS", "ARCX", "BATS"]
+404	            exchange = random.choice(exchanges)
+405	
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: ml/data/sources/metadata.py:410:30
+409	            else:
+410	                asset_class = random.choice(["EQUITY", "ADR"])
+411	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:368:24
+367	                                fills.append(pl.col(c).fill_null(0))
+368	                        except Exception:
+369	                            pass
+370	                        exprs.append(pl.col(c).is_not_null())
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:403:16
+402	                        )
+403	                except Exception:
+404	                    pass
+405	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:597:52
+596	                                                        )
+597	                                                    except Exception:
+598	                                                        pass
+599	                                    frames.append(part)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:632:44
+631	                                                )
+632	                                            except Exception:
+633	                                                pass
+634	                                frames.append(part)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/data/tft_dataset_builder.py:699:24
+698	                            processed = processed.filter(cond)
+699	                        assert isinstance(processed, pl.DataFrame)
+700	                        all_data_pl.append(processed)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:729:24
+728	                                processed = processed[processed["timestamp"] < e_ts]
+729	                        except Exception:
+730	                            pass
+731	                    assert isinstance(processed, pd.DataFrame)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/data/tft_dataset_builder.py:731:20
+730	                            pass
+731	                    assert isinstance(processed, pd.DataFrame)
+732	                    all_data_pd.append(processed)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:826:28
+825	                                    fills.append(pl.col(c).fill_null(0))
+826	                            except Exception:
+827	                                pass
+828	                        if fills:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:860:36
+859	                                            fills.append(pl.col(c).fill_null(0))
+860	                                    except Exception:
+861	                                        pass
+862	                                if fills:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:897:32
+896	                                        fills.append(pl.col(c).fill_null(0))
+897	                                except Exception:
+898	                                    pass
+899	                                expr = pl.col(c).is_not_null()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/data/tft_dataset_builder.py:956:24
+955	                                    ).drop(["_day", "_med_spread"], strict=False)
+956	                        except Exception:
+957	                            pass
+958	            except Exception as exc:  # pragma: no cover
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/deployment/check_health.py:13:0
+12	import os
+13	import subprocess
+14	import sys
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b607_start_process_with_partial_path.html
+   Location: ml/deployment/check_health.py:36:13
+35	    # Prefer docker-compose for exec to maximize compatibility with tests and older setups
+36	    result = subprocess.run(
+37	        ["docker-compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
+38	        capture_output=True,
+39	        text=True,
+40	    )
+41	    return result.returncode == 0
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/deployment/check_health.py:36:13
+35	    # Prefer docker-compose for exec to maximize compatibility with tests and older setups
+36	    result = subprocess.run(
+37	        ["docker-compose", "exec", "-T", "postgres", "pg_isready", "-U", "postgres"],
+38	        capture_output=True,
+39	        text=True,
+40	    )
+41	    return result.returncode == 0
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b607_start_process_with_partial_path.html
+   Location: ml/deployment/check_health.py:48:13
+47	    """
+48	    result = subprocess.run(
+49	        ["docker-compose", "exec", "-T", "redis", "redis-cli", "ping"],
+50	        capture_output=True,
+51	        text=True,
+52	    )
+53	    return "PONG" in result.stdout
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/deployment/check_health.py:48:13
+47	    """
+48	    result = subprocess.run(
+49	        ["docker-compose", "exec", "-T", "redis", "redis-cli", "ping"],
+50	        capture_output=True,
+51	        text=True,
+52	    )
+53	    return "PONG" in result.stdout
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b607_start_process_with_partial_path.html
+   Location: ml/deployment/check_health.py:101:13
+100	
+101	    result = subprocess.run(
+102	        ["docker-compose", "ps", "--format", "json"],
+103	        capture_output=True,
+104	        text=True,
+105	    )
+106	    if result.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/deployment/check_health.py:101:13
+100	
+101	    result = subprocess.run(
+102	        ["docker-compose", "ps", "--format", "json"],
+103	        capture_output=True,
+104	        text=True,
+105	    )
+106	    if result.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/deployment/ci_migration_smoke.py:3:0
+2	
+3	import subprocess
+4	import time
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/deployment/ci_migration_smoke.py:13:4
+12	    cmd = ["docker", "compose", "-f", str(COMPOSE_FILE), *args]
+13	    subprocess.run(cmd, check=True)
+14	
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b607_start_process_with_partial_path.html
+   Location: ml/deployment/ci_migration_smoke.py:19:14
+18	    while time.time() - start < timeout:
+19	        res = subprocess.run(
+20	            [
+21	                "docker",
+22	                "compose",
+23	                "-f",
+24	                str(COMPOSE_FILE),
+25	                "exec",
+26	                "-T",
+27	                "postgres",
+28	                "pg_isready",
+29	                "-U",
+30	                "postgres",
+31	            ],
+32	            capture_output=True,
+33	            text=True,
+34	        )
+35	        if res.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/deployment/ci_migration_smoke.py:19:14
+18	    while time.time() - start < timeout:
+19	        res = subprocess.run(
+20	            [
+21	                "docker",
+22	                "compose",
+23	                "-f",
+24	                str(COMPOSE_FILE),
+25	                "exec",
+26	                "-T",
+27	                "postgres",
+28	                "pg_isready",
+29	                "-U",
+30	                "postgres",
+31	            ],
+32	            capture_output=True,
+33	            text=True,
+34	        )
+35	        if res.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/deployment/ci_migration_smoke.py:67:4
+66	    ]
+67	    subprocess.run(cmd, check=True)
+68	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/deployment/entrypoint_pipeline.py:172:8
+171	        )
+172	        assert fs_conn is not None
+173	        feature_store = FeatureStore(connection_string=fs_conn)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/deployment/entrypoint_pipeline.py:244:8
+243	        # A full backfill loop should iterate dates and call collection per day.
+244	        assert self.scheduler is not None
+245	        self.scheduler.run_daily_update()
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/deployment/entrypoint_pipeline.py:257:8
+256	        # Configure schedule (no-op placeholder for now)
+257	        assert self.scheduler is not None
+258	        cron = os.environ.get("PIPELINE_SCHEDULE", "0 17 * * *")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/deployment/entrypoint_pipeline.py:279:16
+278	                # Collect and process latest data (best-effort realtime)
+279	                assert self.scheduler is not None
+280	                self.scheduler.run_daily_update()
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: ml/deployment/entrypoint_pipeline.py:302:17
+301	        target=lambda: app.run(
+302	            host="0.0.0.0",  # noqa: S104 - container health endpoint
+303	            port=int(os.environ.get("HEALTH_CHECK_PORT", "8080")),
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/deployment/migrations.py:24:0
+23	import argparse
+24	import subprocess
+25	from collections.abc import Iterable
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/deployment/migrations.py:90:8
+89	        ]
+90	        subprocess.run(cmd, input=sql, text=True, check=True)
+91	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: ml/examples/create_dummy_model.py:9:0
+8	
+9	import pickle
+10	from collections.abc import Sequence
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: ml/examples/scheduler_with_metrics.py:40:19
+39	        # Fetch metrics from endpoint
+40	        response = requests.get(f"http://localhost:{port}/metrics")
+41	        if response.status_code == 200:
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b113_request_without_timeout.html
+   Location: ml/examples/scheduler_with_metrics.py:55:30
+54	            print("\n=== Health Check ===")
+55	            health_response = requests.get(f"http://localhost:{port}/health")
+56	            if health_response.status_code == 200:
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: ml/examples/simple_ml_actor.py:11:0
+10	
+11	import pickle
+12	from pathlib import Path
+
+--------------------------------------------------
+>> Issue: [B301:blacklist] Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue.
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b301-pickle
+   Location: ml/examples/simple_ml_actor.py:77:30
+76	            with open(model_path, "rb") as f:
+77	                self._model = pickle.load(f)
+78	            self.log.info(f"Loaded model from {model_path}")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:61:8
+60	        loaded_data = manager.load_json("test.json")
+61	        assert loaded_data is not None
+62	        assert loaded_data["test"] == "data"
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:62:8
+61	        assert loaded_data is not None
+62	        assert loaded_data["test"] == "data"
+63	        print(f"✓ Loaded JSON data: {loaded_data['test']}")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:76:8
+75	        audit_file = Path(tmpdir) / "audit_log.jsonl"
+76	        assert audit_file.exists()
+77	        print("✓ Audit log file created")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:97:8
+96	        # Check tables have correct attributes
+97	        assert hasattr(ModelTable, "model_id")
+98	        assert hasattr(ModelTable, "extra_metadata")  # Changed from metadata
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:98:8
+97	        assert hasattr(ModelTable, "model_id")
+98	        assert hasattr(ModelTable, "extra_metadata")  # Changed from metadata
+99	        print("✓ ModelTable defined with correct attributes")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:101:8
+100	
+101	        assert hasattr(FeatureTable, "feature_set_id")
+102	        assert hasattr(FeatureTable, "extra_metadata")  # Changed from metadata
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:102:8
+101	        assert hasattr(FeatureTable, "feature_set_id")
+102	        assert hasattr(FeatureTable, "extra_metadata")  # Changed from metadata
+103	        print("✓ FeatureTable defined with correct attributes")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:105:8
+104	
+105	        assert hasattr(StrategyTable, "strategy_id")
+106	        assert hasattr(StrategyTable, "extra_metadata")  # Changed from metadata
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:106:8
+105	        assert hasattr(StrategyTable, "strategy_id")
+106	        assert hasattr(StrategyTable, "extra_metadata")  # Changed from metadata
+107	        print("✓ StrategyTable defined with correct attributes")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/examples/test_registry_backends.py:109:8
+108	
+109	        assert hasattr(AuditLogTable, "entity_type")
+110	        print("✓ AuditLogTable defined with correct attributes")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:541:24
+540	                        # Runtime assertion: RSI must be in [0, 1]
+541	                        assert 0 <= raw_rsi <= 1, f"RSI out of bounds: {raw_rsi}"
+542	                        values[name] = (raw_rsi - 0.5) * 2.0
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:544:24
+543	                        # Runtime assertion: Normalized RSI must be in [-1, 1]
+544	                        assert (
+545	                            -1 <= values[name] <= 1
+546	                        ), f"Normalized RSI out of bounds: {values[name]}"
+547	                    else:
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b112_try_except_continue.html
+   Location: ml/features/engineering.py:798:12
+797	                quality_metrics[col] = metrics
+798	            except Exception:
+799	                # Skip non-numeric or problematic columns gracefully
+800	                continue
+801	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:1068:8
+1067	
+1068	        assert self.scaler is not None
+1069	        return features_scaled, self.scaler
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:1439:8
+1438	        # Runtime assertion: Normalized RSI must be in [-1, 1]
+1439	        assert -1 <= rsi_normalized <= 1, f"RSI normalized out of bounds: {rsi_normalized}"
+1440	        # Convert back to [0, 100] for threshold checks
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:1442:8
+1441	        rsi_raw = (rsi_normalized / 2.0 + 0.5) * 100.0
+1442	        assert 0 <= rsi_raw <= 100, f"RSI raw out of bounds: {rsi_raw}"
+1443	        self.feature_buffer[feature_idx] = rsi_normalized
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:1601:8
+1600	
+1601	        assert current_bar is not None  # for type checker
+1602	        assert indicator_manager is not None  # for type checker
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:1602:8
+1601	        assert current_bar is not None  # for type checker
+1602	        assert indicator_manager is not None  # for type checker
+1603	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/engineering.py:2595:8
+2594	            local_pd = _pd
+2595	        assert local_pd is not None
+2596	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/features/materialize_cli.py:42:4
+41	        check_ml_dependencies(["pandas"])  # pragma: no cover
+42	    assert pd is not None
+43	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: ml/models/save_dummy_model.py:6:0
+5	
+6	import pickle
+7	from collections.abc import Sequence
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'your-api-token-here'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b105_hardcoded_password_string.html
+   Location: ml/monitoring/grafana_client.py:638:16
+637	    grafana_url = "http://localhost:3000"
+638	    api_token = "your-api-token-here"
+639	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/observability/async_worker.py:287:12
+286	                )
+287	            except Exception:
+288	                # Best-effort metrics; never raise from hot path
+289	                pass
+290	            return False
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/observability/async_worker.py:410:12
+409	                pass
+410	            except Exception:
+411	                # Swallow and continue to keep background robust
+412	                pass
+413	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/observability/db_persistence.py:195:30
+194	                        _text(
+195	                            f"DELETE FROM {table} WHERE {ts_col} < :cutoff",
+196	                        ),
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/observability/migrations.py:98:22
+97	                text(
+98	                    f"DO $$ BEGIN\n"
+99	                    f"IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{table}') THEN\n"
+100	                    f"EXECUTE 'CREATE TABLE {table} ({ts_col} BIGINT NOT NULL) PARTITION BY RANGE ({ts_col})';\n"
+101	                    f"END IF;\nEND $$;",
+102	                ),
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/observability/migrations.py:116:47
+115	            if not is_partitioned:
+116	                rowcount = conn.execute(text(f"SELECT COUNT(1) FROM {table}"))
+117	                rowcount = rowcount.scalar_one()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/observability/scheduler.py:90:16
+89	                    self.tick()
+90	                except Exception:
+91	                    # Keep background resilient
+92	                    pass
+93	                # Sleep a small fraction to avoid busy spinning; cap by interval
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/pipelines/build_runner.py:214:8
+213	    if cfg.use_subprocess:
+214	        import subprocess
+215	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/pipelines/build_runner.py:226:15
+225	        ]
+226	        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+227	        _log_progress(
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/pipelines/tft_train_distill.py:95:8
+94	            feature_set_id = feature_set_id or sc.get("feature_set_id")
+95	        except Exception:
+96	            # Ignore malformed sidecar; fall through to register logic / validation
+97	            pass
+98	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/pipelines/tft_train_distill.py:132:8
+131	            feature_set_id = freg.register_feature_set(manifest)
+132	        except Exception:
+133	            # Leave as None; validation below will fail with a clear message
+134	            pass
+135	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/registry/data_registry.py:628:28
+627	                    query = text(
+628	                        f"""
+629	                        UPDATE ml_dataset_registry
+630	                        SET {', '.join(set_parts)}, last_modified = NOW()
+631	                        WHERE dataset_id = :dataset_id
+632	                    """,
+633	                    )
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'pass'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b105_hardcoded_password_string.html
+   Location: ml/registry/dataclasses.py:124:11
+123	
+124	    PASS = "pass"
+125	    WARN = "warn"
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '#'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b105_hardcoded_password_string.html
+   Location: ml/scripts/analysis/topic_filter_correct_fix.py:56:20
+55	        token = p_parts[i]
+56	        if token == "#":
+57	            # '#' at end matches the rest
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '*'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b105_hardcoded_password_string.html
+   Location: ml/scripts/analysis/topic_filter_correct_fix.py:67:20
+66	            return False
+67	        if token == "*":
+68	            # '*' matches exactly one token
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/scripts/backfill_ohlcv_recent.py:109:8
+108	                    frames.append(df.select(col).rename({col: "timestamp"}))
+109	        except Exception:
+110	            pass
+111	    # Also consider historical/recent fallback files
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/scripts/backfill_ohlcv_recent.py:119:12
+118	                    frames.append(df)
+119	            except Exception:
+120	                pass
+121	    if not frames:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/scripts/backfill_ohlcv_recent.py:158:8
+157	            new_pl = new_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns")))
+158	        except Exception:
+159	            pass
+160	    keep = [
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/build_tft_dataset.py:173:8
+172	            check_ml_dependencies(["pandas"])  # import guard
+173	        assert pd is not None
+174	        df.to_parquet(str(dataset_parquet))
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/build_tft_dataset.py:180:4
+179	        check_ml_dependencies(["pandas"])  # pragma: no cover
+180	    assert pd is not None
+181	    df_pd = df.to_pandas() if pl is not None and isinstance(df, pl.DataFrame) else df
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/dataset_report.py:91:4
+90	        return {}
+91	    assert pl is not None
+92	    total = df.height if df.height > 0 else 1
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/dataset_report.py:105:4
+104	        return {}
+105	    assert pd is not None
+106	    total = len(df) if len(df) > 0 else 1
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/dataset_report.py:116:4
+115	def _feature_coverage_pl(df: Any, feature_cols: list[str]) -> dict[str, Any]:
+116	    assert pl is not None
+117	    if not feature_cols:
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/dataset_report.py:151:4
+150	def _feature_coverage_pd(df: Any, feature_cols: list[str]) -> dict[str, Any]:
+151	    assert pd is not None
+152	    if not feature_cols:
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/dataset_report.py:172:4
+171	def _target_stats_pl(df: Any) -> dict[str, Any]:
+172	    assert pl is not None
+173	    if "y" not in df.columns:
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/dataset_report.py:201:4
+200	def _target_stats_pd(df: Any) -> dict[str, Any]:
+201	    assert pd is not None
+202	    if "y" not in df.columns:
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
+   Location: ml/scripts/dataset_report.py:288:8
+287	    else:  # pandas path
+288	        assert pd is not None
+289	        cols = list(df.columns)
+
+--------------------------------------------------
+>> Issue: [B103:set_bad_file_permissions] Chmod setting a permissive mask 0o755 on file (script_path).
+   Severity: Medium   Confidence: High
+   CWE: CWE-732 (https://cwe.mitre.org/data/definitions/732.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b103_set_bad_file_permissions.html
+   Location: ml/scripts/fred_integration_bridge.py:250:4
+249	    # Make executable
+250	    os.chmod(script_path, 0o755)
+251	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/scripts/hpo_tft.py:25:0
+24	import json
+25	import subprocess
+26	import sys
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/scripts/hpo_tft.py:252:35
+251	                            ]
+252	                            proc = subprocess.run(cmd, capture_output=True)
+253	                            rc = int(proc.returncode)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/scripts/populate_l2_efficient.py:65:4
+64	                    return {k: list(map(str, v)) for k, v in data.items()}
+65	    except Exception:
+66	        pass
+67	    return {}
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/scripts/populate_l2_efficient.py:77:4
+76	        tmp.replace(path)
+77	    except Exception:
+78	        # Best effort; don't crash on progress save
+79	        pass
+80	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/scripts/populate_l2_efficient.py:265:8
+264	                writer.close()
+265	        except Exception:
+266	            pass
+267	        if tmp_file.exists():
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/scripts/populate_l2_efficient.py:691:4
+690	        signal.signal(signal.SIGINT, _handle_sig)
+691	    except Exception:
+692	        pass
+693	
+
+--------------------------------------------------
+>> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+   Severity: Medium   Confidence: High
+   CWE: CWE-22 (https://cwe.mitre.org/data/definitions/22.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b310-urllib-urlopen
+   Location: ml/scripts/populate_supplementary_simple.py:61:13
+60	    try:
+61	        with urllib.request.urlopen(url) as response:
+62	            data = json.loads(response.read())
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/scripts/sanity_check.py:20:0
+19	import shutil
+20	import subprocess
+21	from pathlib import Path
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/scripts/sanity_check.py:29:14
+28	    try:
+29	        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
+30	        return 0, out
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b112_try_except_continue.html
+   Location: ml/scripts/sanity_check.py:82:8
+81	            txt = p.read_text(encoding="utf-8", errors="ignore")
+82	        except Exception:
+83	            continue
+84	        for i, line in enumerate(txt.splitlines(), 1):
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: ml/scripts/validate_training_claims.py:49:4
+48	    """
+49	    import subprocess
+50	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: ml/scripts/validate_training_claims.py:52:17
+51	    try:
+52	        result = subprocess.run(
+53	            [script_name, "--help"],
+54	            capture_output=True,
+55	            text=True,
+56	            timeout=10,
+57	        )
+58	        if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/coverage_sql.py:58:16
+57	        q = text(
+58	            f"""
+59	            SELECT (({self.ts_field} / :day_ns)) AS bucket
+60	            FROM {self.table_name}
+61	            WHERE instrument_id = :instrument_id
+62	              AND {self.ts_field} >= :start_ns AND {self.ts_field} < :end_ns
+63	            GROUP BY bucket
+64	            """,
+65	        )
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/stores/data_store.py:332:20
+331	                        default_registry_dir.mkdir(parents=True, exist_ok=True)
+332	                    except Exception:
+333	                        pass
+334	                    reg_obj = DataRegistry(
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/stores/db_preflight.py:77:4
+76	            # Transaction is handled by caller when using engine.begin()
+77	    except Exception:
+78	        # Proceed; partition checks will surface issues
+79	        pass
+80	
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: ml/stores/feature_store.py:1127:30
+1126	            sample = int(os.getenv("ML_AUDIT", "0"))
+1127	            if sample > 0 and random.randint(1, sample) == 1:
+1128	                logger.info("AUDIT FeatureStore._execute_write: keys=%s", list(row.keys()))
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/feature_store.py:1356:16
+1355	        sql = _text(
+1356	            f"""
+1357	                SELECT feature_set_id,
+1358	                       instrument_id,
+1359	                       values,
+1360	                       ts_event,
+1361	                       ts_init
+1362	                FROM {table_name}
+1363	                WHERE {' AND '.join(where_parts)}
+1364	                ORDER BY ts_event
+1365	                """,
+1366	        )
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: ml/stores/model_store.py:359:30
+358	            sample = int(os.getenv("ML_AUDIT", "0"))
+359	            if sample > 0 and random.randint(1, sample) == 1:
+360	                logger.info(
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/model_store.py:428:16
+427	        sql = _text(
+428	            f"""
+429	            SELECT ts_event, prediction, confidence, features_used, inference_time_ms
+430	            FROM {table_name}
+431	            WHERE model_id = :model_id
+432	              AND instrument_id = :instrument_id
+433	              AND ts_event >= :start_ns
+434	              AND ts_event < :end_ns
+435	            ORDER BY ts_event
+436	            """,
+437	        )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/model_store.py:491:16
+490	        sql = _text(
+491	            f"""
+492	            SELECT model_id,
+493	                   instrument_id,
+494	                   prediction,
+495	                   confidence,
+496	                   inference_time_ms,
+497	                   is_live,
+498	                   ts_event,
+499	                   ts_init
+500	            FROM {table_name}
+501	            WHERE {' AND '.join(where_parts)}
+502	            ORDER BY ts_event DESC
+503	            LIMIT :limit
+504	            """,
+505	        )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/model_store.py:591:20
+590	            sql = _text(
+591	                f"""
+592	                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+593	                FROM {self._qualified_table('ml_model_predictions')}
+594	                WHERE ts_event >= :start_ns AND ts_event < :end_ns
+595	                ORDER BY ts_event
+596	                """,
+597	            )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/model_store.py:601:20
+600	            sql = _text(
+601	                f"""
+602	                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+603	                FROM {self._qualified_table('ml_model_predictions')}
+604	                WHERE ts_event >= :start_ns AND ts_event < :end_ns
+605	                  AND instrument_id = :instrument_id
+606	                ORDER BY ts_event
+607	                """,
+608	            )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/model_store.py:651:20
+650	            sql = text(
+651	                f"""
+652	                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
+653	                FROM {self._qualified_table('ml_model_predictions')}
+654	                WHERE model_id = :model_id
+655	                  AND ts_event >= :start_ns AND ts_event < :end_ns
+656	                ORDER BY instrument_id, ts_event
+657	                """,
+658	            )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/model_store.py:700:16
+699	        sql = _text(
+700	            f"""
+701	            SELECT model_id, ts_event, prediction, confidence, inference_time_ms
+702	            FROM {self._qualified_table('ml_model_predictions')}
+703	            WHERE instrument_id = :instrument_id
+704	            ORDER BY ts_event DESC
+705	            LIMIT :limit
+706	            """,
+707	        )
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/stores/model_store.py:904:16
+903	                    )
+904	                except Exception:
+905	                    pass
+906	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/model_store.py:1029:12
+1028	        sql = (
+1029	            "SELECT COUNT(*) as prediction_count, "
+1030	            "AVG(confidence) as avg_confidence, "
+1031	            "STDDEV(confidence) as std_confidence, "
+1032	            "AVG(inference_time_ms) as avg_latency_ms, "
+1033	            "PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY inference_time_ms) as p50_latency_ms, "
+1034	            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY inference_time_ms) as p95_latency_ms, "
+1035	            "PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY inference_time_ms) as p99_latency_ms "
+1036	            "FROM public.ml_model_predictions "
+1037	            "WHERE " + " AND ".join(conditions)
+1038	        )
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_calls.html#b311-random
+   Location: ml/stores/strategy_store.py:382:30
+381	            sample = int(os.getenv("ML_AUDIT", "0"))
+382	            if sample > 0 and random.randint(1, sample) == 1:
+383	                logger.info(
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:453:16
+452	        sql = _text(
+453	            f"""
+454	                SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
+455	                FROM {table_name}
+456	                WHERE strategy_id = :strategy_id
+457	                  AND instrument_id = :instrument_id
+458	                  AND ts_event >= :start_ns
+459	                  AND ts_event < :end_ns
+460	                ORDER BY ts_event
+461	                """,
+462	        )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:515:16
+514	        sql = _text(
+515	            f"""
+516	            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+517	                   model_predictions, risk_metrics
+518	            FROM {self._safe_table('ml_strategy_signals')}
+519	            WHERE {' AND '.join(where_parts)}
+520	            ORDER BY ts_event
+521	            """,
+522	        )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:556:16
+555	        sql = _text(
+556	            f"""
+557	                SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
+558	                FROM {table_name}
+559	                WHERE instrument_id = :instrument_id
+560	                ORDER BY ts_event DESC
+561	                LIMIT :limit
+562	                """,
+563	        )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:607:20
+606	            query = text(  # nosec B608: table name validated via _safe_table allowlist
+607	                f"""
+608	                    SELECT
+609	                        COUNT(*) as total_signals,
+610	                        COUNT(DISTINCT strategy_id) as unique_strategies,
+611	                        COUNT(DISTINCT instrument_id) as unique_instruments,
+612	                        SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_signals,
+613	                        SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_signals,
+614	                        SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_signals,
+615	                        AVG(strength) as avg_strength,
+616	                        MIN(ts_event) as min_ts,
+617	                        MAX(ts_event) as max_ts
+618	                    FROM {table_name}
+619	                    WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
+620	                      AND (:end_ns IS NULL OR ts_event < :end_ns)
+621	                    """,
+622	            )
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b110_try_except_pass.html
+   Location: ml/stores/strategy_store.py:751:16
+750	                    )
+751	                except Exception:
+752	                    pass
+753	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:837:20
+836	            query = text(  # nosec B608: table name validated via _safe_table allowlist
+837	                f"""
+838	                SELECT
+839	                    COUNT(*) as signal_count,
+840	                    SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
+841	                    SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_count,
+842	                    SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
+843	                    AVG(strength) as avg_strength,
+844	                    STDDEV(strength) as std_strength,
+845	                    MIN(strength) as min_strength,
+846	                    MAX(strength) as max_strength
+847	                FROM {table_name}
+848	                WHERE strategy_id = :strategy_id
+849	                  AND (:start_ns IS NULL OR ts_event >= :start_ns)
+850	                  AND (:end_ns IS NULL OR ts_event < :end_ns)
+851	                """,
+852	            )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:913:20
+912	            query = text(
+913	                f"""
+914	                SELECT signal_type, COUNT(*) as count
+915	                FROM {table_name}
+916	                WHERE (:strategy_id IS NULL OR strategy_id = :strategy_id)
+917	                  AND (:start_ns IS NULL OR ts_event >= :start_ns)
+918	                  AND (:end_ns IS NULL OR ts_event < :end_ns)
+919	                GROUP BY signal_type
+920	                """,
+921	            )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:962:20
+961	            query = text(
+962	                f"""
+963	                SELECT
+964	                    COUNT(*) as signal_count,
+965	                    SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
+966	                    SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_count,
+967	                    SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
+968	                    AVG(strength) as avg_strength,
+969	                    AVG((risk_metrics->>'risk_score')::float) as avg_risk_score
+970	                FROM {table_name}
+971	                WHERE strategy_id = :strategy_id
+972	                AND ts_event >= :period_start
+973	                AND ts_event < :period_end
+974	            """,
+975	            )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:1077:16
+1076	        sql = _text(  # nosec B608: table name validated via _safe_table allowlist
+1077	            f"""
+1078	                SELECT strategy_id,
+1079	                       instrument_id,
+1080	                       signal_type,
+1081	                       strength,
+1082	                       model_predictions,
+1083	                       risk_metrics,
+1084	                       execution_params,
+1085	                       ts_event,
+1086	                       ts_init
+1087	                FROM {table_name}
+1088	                WHERE {' AND '.join(where_parts)}
+1089	                ORDER BY ts_event DESC
+1090	                LIMIT :limit
+1091	                """,
+1092	        )
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b608_hardcoded_sql_expressions.html
+   Location: ml/stores/strategy_store.py:1192:16
+1191	        sql = _text(  # nosec B608: table name validated via _safe_table allowlist
+1192	            f"""
+1193	            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
+1194	                   model_predictions, risk_metrics
+1195	            FROM {self._safe_table('ml_strategy_signals')}
+1196	            WHERE strategy_id = :strategy_id
+1197	              AND ts_event >= :start_ns
+1198	              AND ts_event < :end_ns
+1199	            ORDER BY instrument_id, ts_event
+1200	            """,
+1201	        )
+
+--------------------------------------------------
+>> Issue: [B614:pytorch_load] Use of unsafe PyTorch load
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b614_pytorch_load.html
+   Location: ml/training/teacher/tft_teacher.py:234:28
+233	                except TypeError:
+234	                    state = torch.load(self.pretrained_state_path, map_location="cpu")
+235	                _missing, _unexpected = self._tft.load_state_dict(state, strict=False)
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 63410
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 125
+		Medium: 31
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 24
+		Medium: 9
+		High: 123
+Files skipped (0):
+uv run --active --no-sync vulture ml --min-confidence 90 --exclude ml/tests || true
+ml/data/providers/base.py:23: unused import 'validate_timestamps' (90% confidence)
+ml/registry/base.py:450: unused variable 'feature_id' (100% confidence)
+ml/strategies/base.py:847: unsatisfiable 'if' condition (100% confidence)
+ml/training/export.py:468: unused variable 'actor_model_path' (100% confidence)
+ml/training/export.py:469: unused variable 'actor_config_path' (100% confidence)
+Validation suite complete (non-blocking). To enforce, run via pre-commit hooks.

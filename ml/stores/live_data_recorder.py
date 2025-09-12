@@ -7,7 +7,9 @@ persists it with event tracking and validation.
 """
 
 import asyncio
+import logging
 from collections import defaultdict
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,9 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
+
+
+logger = logging.getLogger(__name__)
 
 
 class LiveDataRecorder:
@@ -211,7 +216,7 @@ class LiveDataRecorder:
                         instrument_id=instrument_id,
                         stage=Stage.CATALOG_WRITTEN,
                         source=Source.LIVE,
-                        run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                        run_id=f"live_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
                         ts_min=metadata["ts_min"],
                         ts_max=metadata["ts_max"],
                         count=metadata["count"],
@@ -221,7 +226,10 @@ class LiveDataRecorder:
                     )
                 except Exception:
                     # Do not block recorder on observability issues
-                    pass
+                    logger.warning(
+                        "Failed to emit dataset event/watermark in LiveDataRecorder",
+                        exc_info=True,
+                    )
 
         except Exception as e:
             # Emit failure event (no watermark) via helper; best-effort
@@ -232,7 +240,7 @@ class LiveDataRecorder:
                     instrument_id="unknown",
                     stage=Stage.CATALOG_WRITTEN,
                     source=Source.LIVE,
-                    run_id=f"live_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                    run_id=f"live_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
                     ts_min=0,
                     ts_max=0,
                     count=0,
@@ -241,7 +249,10 @@ class LiveDataRecorder:
                 )
             except Exception:
                 # Absolute fallback: ignore emission errors to avoid blocking
-                pass
+                logger.warning(
+                    "Failed to emit failure dataset event in LiveDataRecorder",
+                    exc_info=True,
+                )
             raise
 
     async def _persist_quotes(self, quotes: list[QuoteTick], metadata: dict[str, Any]) -> None:

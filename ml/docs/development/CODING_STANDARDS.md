@@ -12,10 +12,17 @@ This document defines the coding standards for the `ml/` package. The goals are:
   - Command: `uv run --active --no-sync mypy ml --strict`
 - Functions, methods, and variables MUST be fully annotated.
   - No implicit `Any`. Use precise types from `typing`/`collections.abc`.
-  - Prefer Protocols over `Any` for duck-typed interfaces.
-  - Use `TypedDict`/`dataclass(slots=True)` for structured records.
+- Prefer Protocols over `Any` for duck-typed interfaces.
+- Use `TypedDict`/`dataclass(slots=True)` for structured records.
 - Avoid `type: ignore`. If unavoidable, add a comment with rationale.
 - Prefer immutable data (tuples, frozensets) where appropriate.
+
+### Store Protocols (Adoption Plan)
+
+- New public ML components should type against the strict store protocols:
+  - `FeatureStoreStrictProtocol`, `ModelStoreStrictProtocol`, `StrategyStoreStrictProtocol`.
+- Existing components may continue to use the non‑strict variants for compatibility, but prefer adapters when adding new behavior.
+- Avoid widening types to `Any` at these boundaries. Keep enums for events and narrow mappings for features/metrics.
 
 ## Imports, Layout, and Style
 

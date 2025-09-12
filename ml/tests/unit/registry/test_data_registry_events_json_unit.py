@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -52,13 +55,13 @@ class TestDataRegistryJSON:
         registry.emit_event(
             dataset_id=manifest.dataset_id,
             instrument_id="EURUSD.SIM",
-            stage="FEATURE_COMPUTED",
-            source="live",
+            stage=Stage.FEATURE_COMPUTED,
+            source=Source.LIVE,
             run_id="run_test",
             ts_min=1000,
             ts_max=2000,
             count=5,
-            status="success",
+            status=EventStatus.SUCCESS,
             metadata={"k": "v"},
         )
 

@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
 from ml.common.event_emitter import emit_dataset_event_and_watermark
+from ml.common.events_util import build_bus_payload
+from ml.common.events_util import to_source_str
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
@@ -33,6 +35,7 @@ from ml.common.protocols import MLComponentMixin
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -47,7 +50,6 @@ from ml.stores.data_processor import DataProcessor
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
-from ml.typing import DataFrameLike
 
 
 if TYPE_CHECKING:
@@ -434,12 +436,11 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
 
         """
         stage_val = stage.value if isinstance(stage, Stage) else str(stage)
-        # Normalize source to allowed values
-        if isinstance(source, Source):
-            source_val = source.value
-        else:
-            src = str(source).lower()
-            source_val = src if src in {"live", "historical", "backfill"} else "live"
+        # Normalize source to allowed values via typed helper (default to 'live' on error)
+        try:
+            source_val = to_source_str(source)
+        except Exception:
+            source_val = "live"
 
         corr_id = make_correlation_id(
             run_id=run_id,
@@ -493,18 +494,18 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                 scheme=self._topic_scheme,
                 prefix=self._topic_prefix,
             )
-            payload: dict[str, Any] = {
-                "dataset_id": dataset_id,
-                "instrument_id": instrument_id,
-                "stage": stage_val,
-                "source": source_val,
-                "run_id": run_id,
-                "ts_min": ts_min,
-                "ts_max": ts_max,
-                "count": count,
-                "status": status,
-                "metadata": event_metadata,
-            }
+            payload = build_bus_payload(
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stage_val,
+                source=source_val,
+                run_id=run_id,
+                ts_min=ts_min,
+                ts_max=ts_max,
+                count=count,
+                status=status,
+                metadata=event_metadata,
+            )
             try:
                 self.publisher.publish(topic, payload)
             except Exception:
@@ -1325,8 +1326,11 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                 ts_max=ts_max,
                 count=count,
             )
-            # Normalize source to allowed set for registry persistence
-            source_norm = source if source in {"live", "historical", "backfill"} else "live"
+            # Normalize source to allowed set for registry persistence (default to 'live')
+            try:
+                source_norm = to_source_str(source)
+            except Exception:
+                source_norm = "live"
 
             # Centralized event + watermark (best-effort)
             # Normalize source and map to enum for helper
@@ -1363,18 +1367,18 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                         scheme=self._topic_scheme,
                         prefix=self._topic_prefix,
                     )
-                payload: dict[str, Any] = {
-                    "dataset_id": dataset_id,
-                    "instrument_id": instrument_id,
-                    "stage": stage,
-                    "source": source_norm,
-                    "run_id": run_id,
-                    "ts_min": ts_min,
-                    "ts_max": ts_max,
-                    "count": count,
-                    "status": EventStatus.SUCCESS.value,
-                    "metadata": {"correlation_id": correlation_id},
-                }
+                payload = build_bus_payload(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    stage=stage,
+                    source=source_norm,
+                    run_id=run_id,
+                    ts_min=ts_min,
+                    ts_max=ts_max,
+                    count=count,
+                    status=EventStatus.SUCCESS,
+                    metadata={"correlation_id": correlation_id},
+                )
                 try:
                     self.publisher.publish(topic, payload)
                 except Exception:

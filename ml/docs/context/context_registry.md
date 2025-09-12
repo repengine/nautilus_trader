@@ -1088,23 +1088,24 @@ data_registry = DataRegistry(
 dataset_id = data_registry.register_dataset(manifest)
 
 # 2. Emit processing events
+from ml.config.events import Stage, Source, EventStatus
 data_registry.emit_event(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    stage=Stage.CATALOG_WRITTEN.value,
-    source=Source.HISTORICAL.value,
+    stage=Stage.CATALOG_WRITTEN,
+    source=Source.HISTORICAL,
     run_id="run_123",
     ts_min=1234567890000000000,
     ts_max=1234567900000000000,
     count=1000,
-    status="success"
+    status=EventStatus.SUCCESS
 )
 
 # 3. Update watermark
 data_registry.update_watermark(
     dataset_id="bars_eurusd_1m",
     instrument_id="EUR/USD",
-    source=Source.LIVE.value,
+    source=Source.LIVE,
     last_success_ns=1234567900000000000,
     count=1000,
     completeness_pct=98.5

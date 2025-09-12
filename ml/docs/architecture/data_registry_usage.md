@@ -213,12 +213,15 @@ registry.update_watermark(
     completeness_pct=100.0,
 )
 
-# Query watermark (reads persisted strings)
-watermark = registry.get_watermark(
-    "bars_eurusd_1m",
-    "EUR/USD",
-    "historical",
-)
+# Query watermark: accepts persisted strings or enum-typed Source (preferred)
+# Persisted string
+watermark = registry.get_watermark("bars_eurusd_1m", "EUR/USD", "historical")
+print(f"Last processed: {watermark.last_success_ns}")
+print(f"Completeness: {watermark.completeness_pct}%")
+
+# Enum-typed
+from ml.config.events import Source as _Src
+watermark = registry.get_watermark("bars_eurusd_1m", "EUR/USD", _Src.HISTORICAL)
 print(f"Last processed: {watermark.last_success_ns}")
 print(f"Completeness: {watermark.completeness_pct}%")
 ```
@@ -689,21 +692,21 @@ class MLPipelineActor(BaseMLInferenceActor):
         self.registry.emit_event(
             dataset_id="features_v1",
             instrument_id=data.instrument_id,
-            from ml.config.events import Stage, Source
-            stage=Stage.FEATURE_COMPUTED.value,
-            source=Source.LIVE.value,
+            from ml.config.events import Stage, Source, EventStatus
+            stage=Stage.FEATURE_COMPUTED,
+            source=Source.LIVE,
             run_id=self.run_id,
             ts_min=data.ts_min,
             ts_max=data.ts_max,
             count=len(result),
-            status="success"
+            status=EventStatus.SUCCESS,
         )
 
         # Update watermark
         self.registry.update_watermark(
             dataset_id="features_v1",
             instrument_id=data.instrument_id,
-            source="live",
+            source=Source.LIVE,
             last_success_ns=data.ts_max,
             count=len(result),
             completeness_pct=100.0

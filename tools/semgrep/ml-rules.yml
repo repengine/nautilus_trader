@@ -135,3 +135,16 @@ rules:
     paths:
       include:
         - "**/ml/actors/**"
+
+  - id: ml-prefer-strict-store-protocol
+    message: "Prefer Strict store protocols for new public APIs (Feature/Model/StrategyStoreStrictProtocol)"
+    severity: WARNING
+    languages: [python]
+    pattern-regex: 'def\s+\w+\([^\)]*:\s*(FeatureStoreProtocol|ModelStoreProtocol|StrategyStoreProtocol)[^\)]*\)|def\s+\w+\([^\)]*\)\s*->\s*(FeatureStoreProtocol|ModelStoreProtocol|StrategyStoreProtocol)'
+    paths:
+      include:
+        - "**/ml/**"
+      exclude:
+        - "**/ml/tests/**"
+        - "**/ml/stores/protocols.py"
+        - "**/ml/stores/**/compat/**"

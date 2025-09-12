@@ -198,6 +198,24 @@ class StrategyStore(
         # Delegate to shared mixin
         return DataRegistryMixin._get_data_registry(self)
 
+    # -- SQL identifier safety -------------------------------------------------
+    def _safe_identifier(self, name: str, allowed: set[str]) -> str:
+        """
+        Validate identifier against an allowlist to prevent SQL injection in f-strings.
+
+        This is used only for table/base names which cannot be bound as parameters.
+        """
+        if name not in allowed:
+            raise ValueError(f"Disallowed identifier: {name}")
+        return name
+
+    def _safe_table(self, base: str) -> str:
+        """
+        Return a qualified table name after allowlist validation.
+        """
+        base_safe = self._safe_identifier(base, {"ml_strategy_signals", "ml_strategy_performance"})
+        return self._qualified_table(base_safe)
+
     def _setup_tables(self) -> None:
         """
         Create strategy_signals table if it doesn't exist.
@@ -429,7 +447,8 @@ class StrategyStore(
         import pandas as pd
         from sqlalchemy import text as _text
 
-        table_name = self._qualified_table("ml_strategy_signals")
+        table_name = self._safe_table("ml_strategy_signals")
+        # nosec B608: table name validated via _safe_table allowlist
         sql = _text(
             f"""
                 SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
@@ -491,11 +510,12 @@ class StrategyStore(
         if instrument_id is not None:
             where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
+        # nosec B608: table name validated via _safe_table allowlist
         sql = _text(
             f"""
             SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
                    model_predictions, risk_metrics
-            FROM {self._qualified_table('ml_strategy_signals')}
+            FROM {self._safe_table('ml_strategy_signals')}
             WHERE {' AND '.join(where_parts)}
             ORDER BY ts_event
             """,
@@ -530,6 +550,8 @@ class StrategyStore(
         from sqlalchemy import text as _text
 
         table_name = self._qualified_table("ml_strategy_signals")
+        table_name = self._safe_table("ml_strategy_signals")
+        # nosec B608: table name validated via _safe_table allowlist
         sql = _text(
             f"""
                 SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
@@ -579,12 +601,9 @@ class StrategyStore(
         """
         with self.engine.connect() as conn:
             # Get statistics with optional filters
-            table_name = (
-                "ml_strategy_signals"
-                if self.engine.dialect.name == "sqlite"
-                else "public.ml_strategy_signals"
-            )
-            query = text(
+            table_name = self._safe_table("ml_strategy_signals")
+            # nosec B608: table name validated via _safe_table allowlist
+            query = text(  # nosec B608: table name validated via _safe_table allowlist
                 f"""
                     SELECT
                         COUNT(*) as total_signals,
@@ -712,15 +731,25 @@ class StrategyStore(
                     completeness_pct=100.0,  # Signals are complete once written
                 )
 
-                # Update Prometheus metrics if available
-                if data_events_total:
-                    data_events_total.labels(
-                        dataset_type="signals",
-                        component=strategy_id,
-                        stage=Stage.SIGNAL_EMITTED.value,
-                        source=src_enum.value,
-                        status=EventStatus.SUCCESS.value,
-                ).inc()
+                # Update Prometheus metrics via MetricsManager (best-effort)
+                try:  # pragma: no cover - metrics are optional
+                    from ml.common.metrics_manager import MetricsManager
+
+                    mm = MetricsManager.default()
+                    mm.inc(
+                        "nautilus_ml_data_events_total",
+                        "Total data events processed by stage",
+                        labels={
+                            "dataset_type": "signals",
+                            "component": strategy_id,
+                            "stage": Stage.SIGNAL_EMITTED.value,
+                            "source": src_enum.value,
+                            "status": EventStatus.SUCCESS.value,
+                        },
+                        labelnames=("dataset_type", "component", "stage", "source", "status"),
+                    )
+                except Exception:
+                    pass
 
                 logger.debug(
                     "Emitted SIGNAL_EMITTED event: dataset=%s, instrument=%s, "
@@ -802,8 +831,10 @@ class StrategyStore(
 
         """
         with self.engine.connect() as conn:
-            query = text(
-                """
+            table_name = self._safe_table("ml_strategy_signals")
+            # nosec B608: table name validated via _safe_table allowlist
+            query = text(  # nosec B608: table name validated via _safe_table allowlist
+                f"""
                 SELECT
                     COUNT(*) as signal_count,
                     SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
@@ -813,7 +844,7 @@ class StrategyStore(
                     STDDEV(strength) as std_strength,
                     MIN(strength) as min_strength,
                     MAX(strength) as max_strength
-                FROM public.ml_strategy_signals
+                FROM {table_name}
                 WHERE strategy_id = :strategy_id
                   AND (:start_ns IS NULL OR ts_event >= :start_ns)
                   AND (:end_ns IS NULL OR ts_event < :end_ns)
@@ -876,10 +907,12 @@ class StrategyStore(
 
         """
         with self.engine.connect() as conn:
+            table_name = self._safe_table("ml_strategy_signals")
+            # nosec B608: table name validated via _safe_table allowlist
             query = text(
-                """
+                f"""
                 SELECT signal_type, COUNT(*) as count
-                FROM public.ml_strategy_signals
+                FROM {table_name}
                 WHERE (:strategy_id IS NULL OR strategy_id = :strategy_id)
                   AND (:start_ns IS NULL OR ts_event >= :start_ns)
                   AND (:end_ns IS NULL OR ts_event < :end_ns)
@@ -923,8 +956,10 @@ class StrategyStore(
         """
         with self.engine.begin() as conn:
             # Calculate metrics for period
+            table_name = self._safe_table("ml_strategy_signals")
+            # nosec B608: table name validated via _safe_table allowlist
             query = text(
-                """
+                f"""
                 SELECT
                     COUNT(*) as signal_count,
                     SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
@@ -932,7 +967,7 @@ class StrategyStore(
                     SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
                     AVG(strength) as avg_strength,
                     AVG((risk_metrics->>'risk_score')::float) as avg_risk_score
-                FROM public.ml_strategy_signals
+                FROM {table_name}
                 WHERE strategy_id = :strategy_id
                 AND ts_event >= :period_start
                 AND ts_event < :period_end
@@ -1036,12 +1071,9 @@ class StrategyStore(
             where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
 
-        table_name = (
-            "ml_strategy_signals"
-            if self.engine.dialect.name == "sqlite"
-            else "public.ml_strategy_signals"
-        )
-        sql = _text(
+        table_name = self._safe_table("ml_strategy_signals")
+        # nosec B608: table name validated via _safe_table allowlist
+        sql = _text(  # nosec B608: table name validated via _safe_table allowlist
             f"""
                 SELECT strategy_id,
                        instrument_id,
@@ -1155,11 +1187,12 @@ class StrategyStore(
                 end_ns=end_ns,
             )
 
-        sql = _text(
+        # nosec B608: table name validated via _safe_table allowlist
+        sql = _text(  # nosec B608: table name validated via _safe_table allowlist
             f"""
             SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
                    model_predictions, risk_metrics
-            FROM {self._qualified_table('ml_strategy_signals')}
+            FROM {self._safe_table('ml_strategy_signals')}
             WHERE strategy_id = :strategy_id
               AND ts_event >= :start_ns
               AND ts_event < :end_ns

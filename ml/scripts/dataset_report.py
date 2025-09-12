@@ -184,7 +184,7 @@ def _target_stats_pl(df: Any) -> dict[str, Any]:
         grouped = (
             df.lazy()
             .group_by("instrument_id")
-            .agg([pl.col("y").sum().alias("positives"), pl.count().alias("total")])
+            .agg([pl.col("y").sum().alias("positives"), pl.len().alias("total")])
             .collect()
         )
         for row in grouped.iter_rows(named=True):

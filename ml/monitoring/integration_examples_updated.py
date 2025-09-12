@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ml._imports import pl
     from ml.features.engineering import FeatureEngineer
     from ml.features.engineering import IndicatorManager
-    from ml.typing import StandardScaler as StandardScalerT
+    from ml.ml_types import StandardScaler as StandardScalerT
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -229,7 +229,7 @@ class MonitoredFeatureEngineer:
             # Calculate features
             from typing import cast
 
-            from ml.typing import DataFrameLike
+            from ml.ml_types import DataFrameLike
 
             features: object
             if mode == "batch":

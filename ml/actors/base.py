@@ -233,8 +233,7 @@ class CircuitBreaker:
         *,
         component_id: str = "ml_actor",
     ) -> None:
-        from ml.common.metrics import circuit_breaker_state
-        from ml.common.metrics import circuit_breaker_trips_total
+        from ml.common.metrics_manager import MetricsManager
 
         self._config = config or CircuitBreakerConfig()
         self._state = CircuitBreakerState.CLOSED
@@ -243,11 +242,15 @@ class CircuitBreaker:
         self._last_failure_time = 0.0
         self._next_attempt = 0.0
         self._component_id = component_id
-        self._cb_state_gauge = circuit_breaker_state
-        self._cb_trips_counter = circuit_breaker_trips_total
-        # Initialize gauge
         try:
-            self._cb_state_gauge.labels(component=self._component_id).set(0.0)
+            mm = MetricsManager.default()
+            mm.set_gauge(
+                "nautilus_ml_circuit_breaker_state",
+                "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
+                0.0,
+                labels={"component": self._component_id},
+                labelnames=("component",),
+            )
         except Exception as exc:
             logger.debug("Circuit breaker gauge init failed: %s", exc)
 
@@ -274,11 +277,20 @@ class CircuitBreaker:
                 self._state = CircuitBreakerState.HALF_OPEN
                 self._success_count = 0
                 try:
-                    self._cb_state_gauge.labels(component=self._component_id).set(0.5)
-                    self._cb_trips_counter.labels(
-                        component=self._component_id,
-                        to_state="half_open",
-                    ).inc()
+                    mm = MetricsManager.default()
+                    mm.set_gauge(
+                        "nautilus_ml_circuit_breaker_state",
+                        "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
+                        0.5,
+                        labels={"component": self._component_id},
+                        labelnames=("component",),
+                    )
+                    mm.inc(
+                        "nautilus_ml_circuit_breaker_trips_total",
+                        "Total circuit breaker transitions",
+                        labels={"component": self._component_id, "to_state": "half_open"},
+                        labelnames=("component", "to_state"),
+                    )
                 except Exception as exc:
                     logger.debug("Circuit breaker metrics (half-open) failed: %s", exc)
                 return True
@@ -296,11 +308,20 @@ class CircuitBreaker:
                 self._state = CircuitBreakerState.CLOSED
                 self._failure_count = 0
                 try:
-                    self._cb_state_gauge.labels(component=self._component_id).set(0.0)
-                    self._cb_trips_counter.labels(
-                        component=self._component_id,
-                        to_state="closed",
-                    ).inc()
+                    mm = MetricsManager.default()
+                    mm.set_gauge(
+                        "nautilus_ml_circuit_breaker_state",
+                        "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
+                        0.0,
+                        labels={"component": self._component_id},
+                        labelnames=("component",),
+                    )
+                    mm.inc(
+                        "nautilus_ml_circuit_breaker_trips_total",
+                        "Total circuit breaker transitions",
+                        labels={"component": self._component_id, "to_state": "closed"},
+                        labelnames=("component", "to_state"),
+                    )
                 except Exception as exc:
                     logger.debug("Circuit breaker metrics (closed) failed: %s", exc)
         elif self._state == CircuitBreakerState.CLOSED:
@@ -317,8 +338,20 @@ class CircuitBreaker:
             self._state = CircuitBreakerState.OPEN
             self._next_attempt = self._last_failure_time + self._config.recovery_timeout
             try:
-                self._cb_state_gauge.labels(component=self._component_id).set(1.0)
-                self._cb_trips_counter.labels(component=self._component_id, to_state="open").inc()
+                mm = MetricsManager.default()
+                mm.set_gauge(
+                    "nautilus_ml_circuit_breaker_state",
+                    "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
+                    1.0,
+                    labels={"component": self._component_id},
+                    labelnames=("component",),
+                )
+                mm.inc(
+                    "nautilus_ml_circuit_breaker_trips_total",
+                    "Total circuit breaker transitions",
+                    labels={"component": self._component_id, "to_state": "open"},
+                    labelnames=("component", "to_state"),
+                )
             except Exception as exc:
                 logger.debug("Circuit breaker metrics (open from half-open) failed: %s", exc)
         elif (
@@ -328,8 +361,20 @@ class CircuitBreaker:
             self._state = CircuitBreakerState.OPEN
             self._next_attempt = self._last_failure_time + self._config.recovery_timeout
             try:
-                self._cb_state_gauge.labels(component=self._component_id).set(1.0)
-                self._cb_trips_counter.labels(component=self._component_id, to_state="open").inc()
+                mm = MetricsManager.default()
+                mm.set_gauge(
+                    "nautilus_ml_circuit_breaker_state",
+                    "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
+                    1.0,
+                    labels={"component": self._component_id},
+                    labelnames=("component",),
+                )
+                mm.inc(
+                    "nautilus_ml_circuit_breaker_trips_total",
+                    "Total circuit breaker transitions",
+                    labels={"component": self._component_id, "to_state": "open"},
+                    labelnames=("component", "to_state"),
+                )
             except Exception as exc:
                 logger.debug("Circuit breaker metrics (open) failed: %s", exc)
 

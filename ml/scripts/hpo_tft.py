@@ -74,7 +74,12 @@ def _score(npz_path: Path) -> dict[str, float]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="HPO sweep for TFT teacher (BCE)")
-    ap.add_argument("--dataset_csv", required=True)
+    ap.add_argument("--dataset_csv", required=False)
+    ap.add_argument(
+        "--dataset_parquet",
+        required=False,
+        help="Path to a Parquet dataset; if provided, supersedes --dataset_csv",
+    )
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--feature_registry_dir", required=True)
     ap.add_argument("--feature_set_id", required=True)
@@ -106,6 +111,19 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    # Choose dataset source
+    train_flag: list[str]
+    train_path: str
+    if args.dataset_parquet:
+        train_flag = ["--train_data_parquet"]
+        train_path = str(args.dataset_parquet)
+    elif args.dataset_csv:
+        train_flag = ["--train_data_csv"]
+        train_path = str(args.dataset_csv)
+    else:  # pragma: no cover - CLI guard
+        print("ERROR: one of --dataset_parquet or --dataset_csv is required", file=sys.stderr)
+        return 2
+
     # Small grid
     hidden_sizes = [32, 64]
     lstm_layers = [2, 3]
@@ -117,8 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     train_args_common = [
         "-m",
         "ml.training.teacher.tft_cli",
-        "--train_data_csv",
-        args.dataset_csv,
+        *train_flag,
+        train_path,
         "--feature_registry_dir",
         args.feature_registry_dir,
         "--feature_set_id",
@@ -162,8 +180,8 @@ def main(argv: list[str] | None = None) -> int:
 
                             rc = train_main(
                                 [
-                                    "--train_data_csv",
-                                    args.dataset_csv,
+                                    *train_flag,
+                                    train_path,
                                     "--out_dir",
                                     str(run_dir),
                                     "--model_id",

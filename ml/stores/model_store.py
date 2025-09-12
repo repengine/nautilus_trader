@@ -884,15 +884,25 @@ class ModelStore(
                     completeness_pct=100.0,  # Predictions are complete once written
                 )
 
-                # Update Prometheus metrics if available
-                if data_events_total:
-                    data_events_total.labels(
-                        dataset_type="predictions",
-                        component=model_id,
-                        stage=Stage.PREDICTION_EMITTED.value,
-                        source=src_enum.value,
-                        status=EventStatus.SUCCESS.value,
-                    ).inc()
+                # Update metrics via MetricsManager (best-effort)
+                try:  # pragma: no cover - metrics optional
+                    from ml.common.metrics_manager import MetricsManager
+
+                    mm = MetricsManager.default()
+                    mm.inc(
+                        "nautilus_ml_data_events_total",
+                        "Total data events processed by stage",
+                        labels={
+                            "dataset_type": "predictions",
+                            "component": model_id,
+                            "stage": Stage.PREDICTION_EMITTED.value,
+                            "source": src_enum.value,
+                            "status": EventStatus.SUCCESS.value,
+                        },
+                        labelnames=("dataset_type", "component", "stage", "source", "status"),
+                    )
+                except Exception:
+                    pass
 
                 logger.debug(
                     "Emitted PREDICTION_EMITTED event: dataset=%s, instrument=%s, "

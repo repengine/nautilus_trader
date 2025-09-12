@@ -2,6 +2,7 @@
 Test the integrated FeatureStore with MLSignalActor and training pipeline.
 """
 
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -233,8 +234,8 @@ class TestFeatureStoreIntegration:
         # Prepare data with FeatureStore
         X, y, feature_names = trainer.prepare_data_with_feature_store(
             instrument_id="EURUSD",
-            start=datetime.utcnow() - timedelta(days=30),
-            end=datetime.utcnow(),
+            start=datetime.now(UTC) - timedelta(days=30),
+            end=datetime.now(UTC),
         )
 
         # Verify FeatureStore methods were called
@@ -361,13 +362,15 @@ class TestBackwardCompatibility:
             instrument_id=InstrumentId(Symbol("EURUSD"), Venue("IDEALPRO")),
             signal_strategy=SignalStrategy.THRESHOLD,
             prediction_threshold=0.7,
+            # Explicitly disable persistence to preserve legacy behavior
+            persist_features=False,
         )
 
         # Should not raise any errors
         with patch("ml.actors.signal.MLSignalActor._load_model_with_metadata"):
             actor = MLSignalActor(config)
 
-            # Should fall back to original behavior
+            # Should fall back to original behavior (no persistence)
             assert actor._feature_store is not None  # Always initialized now
             assert actor._persist_features is False
             assert actor._feature_engineer is not None

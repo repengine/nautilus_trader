@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -26,7 +27,7 @@ from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Text
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 
@@ -38,6 +39,11 @@ if TYPE_CHECKING:
     from sqlalchemy.orm.session import sessionmaker as SessionMaker
 
 Base = declarative_base()
+
+
+def utcnow() -> datetime:
+    """Timezone-aware UTC now to avoid deprecation warnings."""
+    return datetime.now(UTC)
 
 
 class BackendType(Enum):
@@ -71,11 +77,11 @@ class ModelTable(Base):
     deployment_status: Column[str] = Column(String(50), nullable=False)
     deployed_to: Column[list[str]] = Column(ARRAY(Text))
     version = Column(String(50), nullable=False)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(TIMESTAMP(timezone=True), default=utcnow)
     last_modified = Column(
         TIMESTAMP(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
     )
     extra_metadata = Column("metadata", JSON)
     model_path = Column(Text, nullable=False)
@@ -113,11 +119,11 @@ class FeatureTable(Base):
     perf_digest = Column(JSON)
     parent_feature_set_id = Column(String(255))
     stage = Column(String(50), nullable=False, index=True)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(TIMESTAMP(timezone=True), default=utcnow)
     last_modified = Column(
         TIMESTAMP(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
     )
     extra_metadata = Column("metadata", JSON)
 
@@ -151,11 +157,11 @@ class StrategyTable(Base):
     default_config = Column(JSON)
     backtest_metrics = Column(JSON)
     live_metrics = Column(JSON)
-    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    created_at = Column(TIMESTAMP(timezone=True), default=utcnow)
     last_modified = Column(
         TIMESTAMP(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
     )
     author = Column(String(255))
     description = Column(Text)
@@ -174,7 +180,7 @@ class AuditLogTable(Base):
     action = Column(String(50), nullable=False)
     changes = Column(JSON)
     user_id = Column(String(255))
-    timestamp = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, index=True)
+    timestamp = Column(TIMESTAMP(timezone=True), default=utcnow, index=True)
 
 
 @dataclass(frozen=True)
@@ -366,7 +372,7 @@ class PersistenceManager:
                 "action": action,
                 "changes": changes,
                 "user_id": user_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utcnow().isoformat(),
             }
             with open(audit_file, "a") as f:
                 f.write(json.dumps(audit_entry_dict, default=str) + "\n")

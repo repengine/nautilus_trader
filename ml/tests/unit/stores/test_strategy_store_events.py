@@ -13,6 +13,9 @@ from unittest.mock import patch
 
 import pytest
 
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
 from ml.stores.strategy_store import StrategyStore
 
 
@@ -63,10 +66,11 @@ def test_strategy_store_emits_signal_events(test_database):
         call_args = mock_registry.emit_event.call_args[1]
         assert call_args["dataset_id"] == "signals"
         assert call_args["instrument_id"] == "EUR/USD"
-        assert call_args["stage"] == "SIGNAL_EMITTED"
-        assert call_args["source"] == "realtime"
+        assert call_args["stage"] == Stage.SIGNAL_EMITTED
+        # is_live=False -> historical source
+        assert call_args["source"] == Source.HISTORICAL
         assert call_args["count"] == 3
-        assert call_args["status"] == "success"
+        assert call_args["status"] == EventStatus.SUCCESS
         assert call_args["ts_min"] == 1700000000000000000
         assert call_args["ts_max"] == 1700000002000000000
 
@@ -75,7 +79,7 @@ def test_strategy_store_emits_signal_events(test_database):
         watermark_args = mock_registry.update_watermark.call_args[1]
         assert watermark_args["dataset_id"] == "signals"
         assert watermark_args["instrument_id"] == "EUR/USD"
-        assert watermark_args["source"] == "realtime"
+        assert watermark_args["source"] == Source.HISTORICAL
         assert watermark_args["last_success_ns"] == 1700000002000000000
         assert watermark_args["count"] == 3
         assert watermark_args["completeness_pct"] == 100.0

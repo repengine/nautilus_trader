@@ -51,6 +51,14 @@ class NautilusPatternValidator(ast.NodeVisitor):
         self.in_event_handler = False
         self.total_lines: int = 0
         self._in_type_checking_block: int = 0
+        # Protocol compliance tracking
+        self.has_protocol_imports = False
+        self.implemented_protocols: list[str] = []
+        self.class_methods: dict[str, list[str]] = {}
+        self.method_signatures: dict[str, dict] = {}
+        self.try_except_blocks: list[dict] = []
+        self.uses_stores = False
+        self.inherits_from_base_actor = False
 
     def visit_Import(self, node):
         """
@@ -82,6 +90,17 @@ class NautilusPatternValidator(ast.NodeVisitor):
         if self._in_type_checking_block > 0:
             return
         if node.module:
+            # Check for Protocol imports
+            if node.module == "typing":
+                for alias in node.names:
+                    if alias.name in ["Protocol", "runtime_checkable"]:
+                        self.has_protocol_imports = True
+            # Check for direct prometheus_client imports (violation)
+            elif node.module == "prometheus_client":
+                self.errors.append(
+                    f"Line {node.lineno}: Direct prometheus_client import detected - use ml.common.metrics_bootstrap"
+                )
+            
             for alias in node.names:
                 full_name = f"{node.module}.{alias.name}"
                 self.imports[alias.name] = alias.asname or alias.name
@@ -113,10 +132,36 @@ class NautilusPatternValidator(ast.NodeVisitor):
         """
         self.current_class = node.name
         self.has_on_start = False
+        
+        # Track methods for protocol compliance
+        self.class_methods[node.name] = []
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                self.class_methods[node.name].append(item.name)
+                # Track method signatures for protocol validation
+                self.method_signatures[f"{node.name}.{item.name}"] = {
+                    "args": [arg.arg for arg in item.args.args],
+                    "returns": self._get_return_annotation(item),
+                    "has_docstring": ast.get_docstring(item) is not None
+                }
+        
+        # Check for Protocol implementations
+        for base in node.bases:
+            if isinstance(base, ast.Name):
+                if "Protocol" in base.id:
+                    self.implemented_protocols.append(base.id)
+                elif base.id == "BaseMLInferenceActor":
+                    self.inherits_from_base_actor = True
+                    self.uses_stores = True
+            elif isinstance(base, ast.Attribute):
+                if base.attr == "BaseMLInferenceActor":
+                    self.inherits_from_base_actor = True
+                    self.uses_stores = True
 
         # Check Actor patterns
         if self._is_actor_class(node):
             self._validate_actor_patterns(node)
+            self._validate_protocol_compliance(node)
 
         # Check Strategy patterns
         if self._is_strategy_class(node):
@@ -171,6 +216,22 @@ class NautilusPatternValidator(ast.NodeVisitor):
         self.in_init = old_in_init
         self.in_event_handler = old_in_event_handler
         self.current_function = old_current_function
+    
+    def visit_Try(self, node):
+        """
+        Track try/except blocks for fallback validation.
+        
+        Parameters
+        ----------
+        node : ast.Try
+            Try/except node.
+        """
+        self.try_except_blocks.append({
+            "method": self.current_function,
+            "handlers": len(node.handlers),
+            "has_finally": node.finalbody is not None
+        })
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call):  # type: ignore[override]
         """
@@ -486,6 +547,112 @@ class NautilusPatternValidator(ast.NodeVisitor):
                         self.errors.append(
                             f"Line {child.lineno}: Blocking operation in event handler '{node.name}'",
                         )
+    
+    def _validate_protocol_compliance(self, node):
+        """
+        Validate Protocol-First Interface Design (Pattern 2) with deep AST analysis.
+        
+        Parameters
+        ----------
+        node : ast.ClassDef
+            Actor class node.
+        """
+        # Check if actor uses stores (indicates need for MLComponentProtocol)
+        uses_stores = False
+        for child in ast.walk(node):
+            if isinstance(child, ast.Attribute):
+                if isinstance(child.value, ast.Name) and child.value.id == "self":
+                    if child.attr in ["feature_store", "model_store", "strategy_store", "data_store"]:
+                        uses_stores = True
+                        break
+        
+        # If using stores, validate MLComponentProtocol compliance
+        if uses_stores or self.inherits_from_base_actor:
+            self.uses_stores = True
+            
+            # Check for required MLComponentProtocol methods
+            required_methods = ["get_health_status", "get_performance_metrics", "validate_configuration"]
+            methods_in_class = self.class_methods.get(node.name, [])
+            
+            for method in required_methods:
+                if method not in methods_in_class:
+                    self.errors.append(
+                        f"Line {node.lineno}: Actor '{node.name}' uses stores but missing MLComponentProtocol method: {method}"
+                    )
+                else:
+                    # Validate method signatures
+                    sig_key = f"{node.name}.{method}"
+                    if sig_key in self.method_signatures:
+                        sig = self.method_signatures[sig_key]
+                        
+                        # Check return type annotations
+                        if method == "get_health_status":
+                            if sig["returns"] and "dict" not in str(sig["returns"]):
+                                self.warnings.append(
+                                    f"Line {node.lineno}: {method} should return dict[str, Any]"
+                                )
+                        elif method == "get_performance_metrics":
+                            if sig["returns"] and "dict" not in str(sig["returns"]):
+                                self.warnings.append(
+                                    f"Line {node.lineno}: {method} should return dict[str, float]"
+                                )
+                        elif method == "validate_configuration":
+                            if sig["returns"] and "list" not in str(sig["returns"]):
+                                self.warnings.append(
+                                    f"Line {node.lineno}: {method} should return list[str]"
+                                )
+        
+        # Check for BaseMLInferenceActor inheritance for ML actors
+        if "ML" in node.name and ("Actor" in node.name or "Signal" in node.name):
+            if not self.inherits_from_base_actor:
+                # Check if it inherits from Actor directly
+                is_base_actor = any(
+                    (isinstance(base, ast.Name) and base.id == "Actor")
+                    or (isinstance(base, ast.Attribute) and base.attr == "Actor")
+                    for base in node.bases
+                )
+                if is_base_actor:
+                    self.errors.append(
+                        f"Line {node.lineno}: ML Actor '{node.name}' must inherit from BaseMLInferenceActor, not Actor directly"
+                    )
+        
+        # Check for fallback handling in critical methods
+        critical_methods = ["__init__", "_init_stores", "on_start"]
+        for method_name in critical_methods:
+            if method_name in methods_in_class:
+                # Check if method has error handling
+                method_has_handling = any(
+                    block["method"] == method_name 
+                    for block in self.try_except_blocks
+                )
+                
+                if not method_has_handling and method_name in ["__init__", "_init_stores"]:
+                    if self.uses_stores:
+                        self.warnings.append(
+                            f"Line {node.lineno}: {method_name} should have error handling for store initialization fallback"
+                        )
+    
+    def _get_return_annotation(self, node):
+        """
+        Extract return type annotation from function.
+        
+        Parameters
+        ----------
+        node : ast.FunctionDef
+            Function node.
+            
+        Returns
+        -------
+        str | None
+            Return type annotation as string.
+        """
+        if node.returns:
+            # Try to convert AST node to string representation
+            if hasattr(ast, 'unparse'):  # Python 3.9+
+                return ast.unparse(node.returns)
+            else:
+                # Fallback for older Python versions
+                return ast.dump(node.returns)
 
     def visit_Dict(self, node: ast.Dict):  # type: ignore[override]
         """

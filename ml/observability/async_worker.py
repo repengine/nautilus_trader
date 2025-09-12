@@ -275,11 +275,15 @@ class ObservabilityAsyncWorker:
             self._Q_DEPTH.labels(component=self.component_label).set(self._queue.qsize())
             return True
         except asyncio.QueueFull:
-            # Reuse centralized backpressure metric to avoid duplicate registration
+            # Record backpressure drop via MetricsManager (off hot path)
             try:
-                from ml.common.metrics import backpressure_drops_total as _drops
-
-                _drops.labels(component=self.component_label, reason="queue_full").inc()
+                mm = MetricsManager.default()
+                mm.inc(
+                    "nautilus_ml_backpressure_drops_total",
+                    "Total events dropped due to backpressure",
+                    labels={"component": self.component_label, "reason": "queue_full"},
+                    labelnames=("component", "reason"),
+                )
             except Exception:
                 # Best-effort metrics; never raise from hot path
                 pass

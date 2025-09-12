@@ -125,15 +125,39 @@ The monitoring system implements a dual-path approach:
 
 ### Centralized Metrics Bootstrap System
 
-**MANDATORY**: All metrics must be obtained via `ml.common.metrics_bootstrap.py`:
+**Preferred**: Acquire metrics via the `MetricsManager` facade (which delegates to the bootstrap under the hood). The central catalog remains `ml/common/metrics.py`.
 
 ```python
-from ml.common.metrics_bootstrap import get_counter, get_histogram, get_gauge
+from ml.common.metrics_manager import MetricsManager
 
-# Safe, idempotent metric creation
-counter = get_counter("nautilus_ml_predictions_total", "Total predictions", ["model", "instrument"])
-histogram = get_histogram("nautilus_ml_inference_duration", "Inference time", ["model"], buckets=[0.001, 0.005, 0.01])
-gauge = get_gauge("nautilus_ml_model_confidence", "Model confidence", ["model"])
+mm = MetricsManager.default()
+
+# Counter
+mm.inc(
+    "nautilus_ml_predictions_total",
+    "Total predictions",
+    labels={"model": "tft_v1", "instrument": "EURUSD.SIM"},
+    labelnames=("model", "instrument"),
+)
+
+# Histogram
+mm.observe(
+    "nautilus_ml_inference_duration",
+    "Inference time",
+    value=0.003,
+    labels={"model": "tft_v1"},
+    labelnames=("model",),
+    buckets=(0.001, 0.005, 0.01),
+)
+
+# Gauge
+mm.set_gauge(
+    "nautilus_ml_model_confidence",
+    "Model confidence",
+    value=0.87,
+    labels={"model": "tft_v1"},
+    labelnames=("model",),
+)
 ```
 
 ## Async Observability Worker
@@ -163,10 +187,11 @@ worker = ObservabilityAsyncWorker(
 worker.start()
 
 # hot path
+from ml.config.events import Stage
 worker.enqueue_latency(
     correlation_id="c1",
     instrument_id="EURUSD.SIM",
-    pipeline_stage="FEATURE_COMPUTED",
+    pipeline_stage=Stage.FEATURE_COMPUTED.value,
     ts_stage_start=1,
     ts_stage_end=2,
 )
@@ -284,15 +309,16 @@ See the Observability Runbook for remediation and tuning guidance.
 
 ```python
 from ml.common.metrics import record_pipeline_event, update_pipeline_health
+from ml.config.events import Stage, Source, EventStatus
 
 # Record pipeline events with consistent labeling
 record_pipeline_event(
     dataset_type="features",
     component="technical_indicators",
-    stage="FEATURE_COMPUTED",
-    source="live",
-    status="success",
-    count=100
+    stage=Stage.FEATURE_COMPUTED.value,
+    source=Source.LIVE.value,
+    status=EventStatus.SUCCESS.value,
+    count=100,
 )
 
 # Update component health scores

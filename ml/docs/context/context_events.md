@@ -341,13 +341,14 @@ bus = InMemoryPublisher()
 bus.subscribe("aggregated.#", lambda t, p: writer.handle(t, p))
 agg = AggregatingConsumer(downstream=bus, topic_mapper=lambda _stage: "aggregated.lineage")
 
+from ml.config.events import Stage
 for i, row in enumerate(df.itertuples(index=False), start=1):
     env = {
         "id": f"e{i}",
         "parent_id": None,
         "instrument_id": row.instrument_id,
         "ts_event": int(row.ts_event),
-        "stage": "FEATURE_COMPUTED",
+        "stage": Stage.FEATURE_COMPUTED,
         "correlation_id": "c1",
         "payload": {"bid_px": float(row.bid_px), "ask_px": float(row.ask_px)},
     }

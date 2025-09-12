@@ -65,16 +65,21 @@ def emit_dataset_event_and_watermark(
 
     # Optional metrics: best-effort, no hard dependency
     try:  # pragma: no cover - metrics optional
-        from ml.common.metrics import data_events_total as _data_events_total
+        from ml.common.metrics_manager import MetricsManager
 
-        if _data_events_total is not None:
-            _data_events_total.labels(
-                dataset_type=(dataset_type or dataset_id),
-                component=(component or ""),
-                stage=stage.value,
-                source=source.value,
-                status=status.value,
-            ).inc()
+        mm = MetricsManager.default()
+        mm.inc(
+            "nautilus_ml_data_events_total",
+            "Total data events processed by stage",
+            labels={
+                "dataset_type": (dataset_type or dataset_id),
+                "component": (component or ""),
+                "stage": stage.value,
+                "source": source.value,
+                "status": status.value,
+            },
+            labelnames=("dataset_type", "component", "stage", "source", "status"),
+        )
     except Exception:
         # Metrics are best-effort; ignore in hot paths
         pass
@@ -119,16 +124,21 @@ def emit_dataset_event(
 
     # Optional metrics: best-effort, no hard dependency
     try:  # pragma: no cover - metrics optional
-        from ml.common.metrics import data_events_total as _data_events_total
+        from ml.common.metrics_manager import MetricsManager
 
-        if _data_events_total is not None:
-            _data_events_total.labels(
-                dataset_type=(dataset_type or dataset_id),
-                component=(component or ""),
-                stage=stage.value,
-                source=source.value,
-                status=status.value,
-            ).inc()
+        mm = MetricsManager.default()
+        mm.inc(
+            "nautilus_ml_data_events_total",
+            "Total data events processed by stage",
+            labels={
+                "dataset_type": (dataset_type or dataset_id),
+                "component": (component or ""),
+                "stage": stage.value,
+                "source": source.value,
+                "status": status.value,
+            },
+            labelnames=("dataset_type", "component", "stage", "source", "status"),
+        )
     except Exception:
         # Metrics are best-effort; ignore in hot paths
         pass

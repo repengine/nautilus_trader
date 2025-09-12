@@ -20,6 +20,7 @@ For high-throughput scenarios, use the async worker to enqueue observability row
 from pathlib import Path
 from ml.observability.service import ObservabilityService
 from ml.observability.async_worker import ObservabilityAsyncWorker
+from ml.config.events import Stage
 
 svc = ObservabilityService()
 worker = ObservabilityAsyncWorker(
@@ -38,7 +39,7 @@ worker.start()
 worker.enqueue_latency(
     correlation_id="c1",
     instrument_id="EURUSD.SIM",
-    pipeline_stage="FEATURE_COMPUTED",
+    pipeline_stage=Stage.FEATURE_COMPUTED.value,
     ts_stage_start=1,
     ts_stage_end=2,
 )

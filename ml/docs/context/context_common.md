@@ -340,13 +340,14 @@ class MyActor:
 
 ```python
 from ml.common.metrics import record_pipeline_event
+from ml.config.events import Stage, EventStatus
 
 record_pipeline_event(
     dataset_type="features",
     component="technical_indicators",
-    stage="FEATURE_COMPUTED",
-    status="success",
-    count=batch_size
+    stage=Stage.FEATURE_COMPUTED.value,  # persist enum value
+    status=EventStatus.SUCCESS.value,
+    count=batch_size,
 )
 ```
 

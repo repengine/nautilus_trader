@@ -104,50 +104,7 @@ class MessageBusConfig(NautilusConfig):
 **Pattern**: Unified event status tracking with strongly-typed enums across all components.
 
 ```python
-from enum import Enum
-
-class EventStatus(str, Enum):
-    """Standardized event status across ML pipeline."""
-
-    # Success states
-    SUCCESS = "success"
-    COMPLETED = "completed"
-
-    # Processing states
-    PROCESSING = "processing"
-    PENDING = "pending"
-    RETRYING = "retrying"
-
-    # Warning states
-    PARTIAL_SUCCESS = "partial_success"
-    DEGRADED = "degraded"
-
-    # Error states
-    FAILED = "failed"
-    ERROR = "error"
-    TIMEOUT = "timeout"
-    CANCELLED = "cancelled"
-
-class Stage(str, Enum):
-    """Pipeline stage identifiers."""
-
-    INGESTED = "ingested"
-    COMPUTED = "computed"
-    PREDICTED = "predicted"
-    SIGNALED = "signaled"
-    EXECUTED = "executed"
-    VALIDATED = "validated"
-    EXPORTED = "exported"
-
-class Source(str, Enum):
-    """Event source identifiers."""
-
-    FEATURES = "ml.features"
-    MODELS = "ml.models"
-    STRATEGIES = "ml.strategies"
-    DATA = "ml.data"
-    REGISTRY = "ml.registry"
-    PIPELINE = "ml.pipeline"
+from ml.config.events import Stage, Source, EventStatus
 
 # ✅ USAGE: Standardized event emission
 class DataStore:
@@ -160,8 +117,8 @@ class DataStore:
 
             # ✅ REQUIRED: Standardized event emission
             self._emit_event(
-                stage=Stage.INGESTED,
-                source=Source.DATA,
+                stage=Stage.DATA_INGESTED,
+                source=Source.LIVE,
                 status=EventStatus.SUCCESS,
                 payload={
                     "bars_count": len(bars),
@@ -173,8 +130,8 @@ class DataStore:
 
         except Exception as e:
             self._emit_event(
-                stage=Stage.INGESTED,
-                source=Source.DATA,
+                stage=Stage.DATA_INGESTED,
+                source=Source.LIVE,
                 status=EventStatus.FAILED,
                 payload={
                     "error": str(e),
@@ -326,8 +283,8 @@ class MLSignalActor(BaseMLInferenceActor):
         # ✅ REQUIRED: Non-blocking event publishing
         if prediction > self.config.prediction_threshold:
             self.event_bridge.publish_event(
-                stage=Stage.PREDICTED,
-                source=Source.MODELS,
+                stage=Stage.PREDICTION_EMITTED,
+                source=Source.HISTORICAL,
                 status=EventStatus.SUCCESS,
                 payload={
                     "instrument_id": bar.instrument_id.value,
@@ -386,7 +343,7 @@ class FeatureStore:
         correlation_id = EventCorrelationManager.generate_correlation_id(
             instrument_id=instrument_id,
             ts_event=ts_event,
-            stage=Stage.COMPUTED,
+            stage=Stage.FEATURE_COMPUTED,
             additional_context=f"features_{len(features)}"
         )
 

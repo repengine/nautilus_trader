@@ -16,6 +16,9 @@ from typing import Any
 
 import pytest
 
+from ml.config.events import EventStatus
+from ml.config.events import Source
+from ml.config.events import Stage
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
@@ -71,13 +74,13 @@ def test_data_registry_json_emit_event_and_watermark(tmp_path: Path) -> None:
     reg.emit_event(
         dataset_id="features_test",
         instrument_id="EUR/USD",
-        stage="CATALOG_WRITTEN",
-        source="historical",
+        stage=Stage.CATALOG_WRITTEN,
+        source=Source.HISTORICAL,
         run_id="run_1",
         ts_min=1,
         ts_max=2,
         count=10,
-        status="success",
+        status=EventStatus.SUCCESS,
         metadata={"foo": "bar"},
     )
     # The JSON backend stores events in memory and flushes to file immediately
@@ -87,12 +90,12 @@ def test_data_registry_json_emit_event_and_watermark(tmp_path: Path) -> None:
     reg.update_watermark(
         dataset_id="features_test",
         instrument_id="EUR/USD",
-        source="live",
+        source=Source.LIVE,
         last_success_ns=2,
         count=10,
         completeness_pct=100.0,
     )
-    wm = reg.get_watermark("features_test", "EUR/USD", "live")
+    wm = reg.get_watermark("features_test", "EUR/USD", Source.LIVE)
     assert wm is not None
     assert wm.last_success_ns == 2
     assert wm.last_count == 10

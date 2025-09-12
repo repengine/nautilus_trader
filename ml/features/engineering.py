@@ -28,15 +28,15 @@ from ml.config.constants import TechnicalIndicatorPeriods
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.features.pipeline import TransformSpec
+from ml.ml_types import DataFrameLike
+from ml.ml_types import PandasDF
+from ml.ml_types import PolarsDF
+from ml.ml_types import PolarsSeries
+from ml.ml_types import StandardScaler as StandardScalerT
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
-from ml.typing import DataFrameLike
-from ml.typing import PandasDF
-from ml.typing import PolarsDF
-from ml.typing import PolarsSeries
-from ml.typing import StandardScaler as StandardScalerT
 
 
 if TYPE_CHECKING:

@@ -17,8 +17,7 @@ from typing import Any, NamedTuple
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_bus import publisher_from_config  # re-exported for tests
-from ml.common.metrics import backpressure_drops_total
-from ml.common.metrics import backpressure_queue_depth
+from ml.common.metrics_manager import MetricsManager
 from ml.common.throttler import Throttler
 
 
@@ -108,25 +107,36 @@ class DomainEventBridge:
                 except Exception:
                     now_ns_int = 0
                 if not self._throttler.should_publish(topic, now_ns_int):
-                    backpressure_drops_total.labels(
-                        component=self._component_id,
-                        reason="throttled",
-                    ).inc()
+                    mm = MetricsManager.default()
+                    mm.inc(
+                        "nautilus_ml_backpressure_drops_total",
+                        "Total events dropped due to backpressure",
+                        labels={"component": self._component_id, "reason": "throttled"},
+                        labelnames=("component", "reason"),
+                    )
                     return False
             self._queue.put_nowait(_QueuedEvent(topic, payload))
             try:
-                backpressure_queue_depth.labels(component=self._component_id).set(
+                mm = MetricsManager.default()
+                mm.set_gauge(
+                    "nautilus_ml_backpressure_queue_depth",
+                    "Current depth of actor-side domain event queue",
                     float(self._queue.qsize()),
+                    labels={"component": self._component_id},
+                    labelnames=("component",),
                 )
             except Exception as exc:
                 logger = logging.getLogger(__name__)
                 logger.debug("Domain event queue depth gauge update failed (ignored): %s", exc)
             return True
         except queue.Full:
-            backpressure_drops_total.labels(
-                component=self._component_id,
-                reason="queue_full",
-            ).inc()
+            mm = MetricsManager.default()
+            mm.inc(
+                "nautilus_ml_backpressure_drops_total",
+                "Total events dropped due to backpressure",
+                labels={"component": self._component_id, "reason": "queue_full"},
+                labelnames=("component", "reason"),
+            )
             return False
 
     def _run(self) -> None:

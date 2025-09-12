@@ -985,7 +985,7 @@ class MLSignalActor(BaseMLInferenceActor):
         # Feature engineering setup
         # Note: _feature_store is always available from base class
         self._feature_engineer = FeatureEngineer(self._feature_config)
-        # Persistence defaults:
+        # Persistence defaults (backward‑compatible):
         # - If 'persist_features' explicitly provided, honor it.
         # - Else, if a DB connection is provided (non-empty), enable persistence by default.
         # - Else, do not persist.

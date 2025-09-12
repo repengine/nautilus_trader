@@ -8,6 +8,7 @@ PARITY REQUIREMENT: 1e-10 tolerance (no fidelity sacrifices).
 
 """
 
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from typing import Any, cast
@@ -86,7 +87,7 @@ class TestFeatureParity:
                 high=Price.from_str(f"{high_price:.5f}"),
                 low=Price.from_str(f"{low_price:.5f}"),
                 volume=float(base_volume + int(_rng.integers(-100000, 100000))),
-                ts_event=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),
+                ts_event=int((datetime.now(UTC) + timedelta(minutes=i)).timestamp() * 1e9),
             )
             bars.append(bar)
 
@@ -403,8 +404,8 @@ class TestFeatureParity:
                 low=Price.from_str(f"{low_val:.5f}"),
                 close=Price.from_str(f"{close_val:.5f}"),
                 volume=Quantity.from_int(1000000),
-                ts_event=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),
-                ts_init=int((datetime.utcnow() + timedelta(minutes=i)).timestamp() * 1e9),
+                ts_event=int((datetime.now(UTC) + timedelta(minutes=i)).timestamp() * 1e9),
+                ts_init=int((datetime.now(UTC) + timedelta(minutes=i)).timestamp() * 1e9),
             )
             bars.append(bar)
 

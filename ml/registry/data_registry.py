@@ -18,7 +18,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 from sqlalchemy import text
 
@@ -1240,7 +1240,13 @@ class DataRegistry(MLComponentMixin):
                 completeness_pct,
             )
 
-    def get_watermark(self, dataset_id: str, instrument_id: str, source: str) -> Watermark | None:
+    @overload
+    def get_watermark(self, dataset_id: str, instrument_id: str, source: Source) -> Watermark | None: ...
+
+    @overload
+    def get_watermark(self, dataset_id: str, instrument_id: str, source: str) -> Watermark | None: ...
+
+    def get_watermark(self, dataset_id: str, instrument_id: str, source: Source | str) -> Watermark | None:
         """
         Get watermark for a dataset/instrument/source combination.
 
@@ -1250,8 +1256,8 @@ class DataRegistry(MLComponentMixin):
             Dataset identifier
         instrument_id : str
             Instrument identifier
-        source : str
-            Data source (live, historical, backfill)
+        source : Source | str
+            Data source as enum (preferred) or persisted string ("live", "historical", "backfill").
 
         Returns
         -------
@@ -1261,13 +1267,15 @@ class DataRegistry(MLComponentMixin):
         Examples
         --------
         >>> watermark = registry.get_watermark("bars_eurusd_1m", "EUR/USD", "live")
+        >>> watermark = registry.get_watermark("bars_eurusd_1m", "EUR/USD", Source.LIVE)
         >>> if watermark:
         ...     print(f"Last success: {watermark.last_success_ns}")
         ...     print(f"Completeness: {watermark.completeness_pct}%")
 
         """
         with self._lock:
-            watermark_key = f"{dataset_id}:{instrument_id}:{source}"
+            source_val = source.value if isinstance(source, Source) else str(source)
+            watermark_key = f"{dataset_id}:{instrument_id}:{source_val}"
 
             if self.backend == BackendType.JSON:
                 return self._watermarks.get(watermark_key)
@@ -1299,7 +1307,7 @@ class DataRegistry(MLComponentMixin):
                         {
                             "dataset_id": dataset_id,
                             "instrument_id": instrument_id,
-                            "source": source,
+                            "source": source_val,
                         },
                     ).fetchone()
 

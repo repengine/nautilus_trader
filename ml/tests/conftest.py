@@ -912,6 +912,13 @@ def pytest_sessionstart(session):
     """
     # Ensure test mode permits non-ONNX models where needed
     os.environ.setdefault("ML_TEST_ALLOW_NON_ONNX", "1")
+    # Silence Pandera top-level import warning (pandas-specific path)
+    os.environ.setdefault("DISABLE_PANDERA_IMPORT_WARNING", "True")
+
+    # Skip DB initialization if requested (e.g., for test collection only)
+    if os.environ.get("SKIP_DB_INIT", "").lower() in ("1", "true", "yes"):
+        print("Skipping database initialization (SKIP_DB_INIT is set)")
+        return
 
     # Proactively clear pytest cache to avoid stale collection/results
     try:

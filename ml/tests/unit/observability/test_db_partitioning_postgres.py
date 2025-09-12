@@ -16,6 +16,9 @@ from ml.observability.migrations import ensure_monthly_partitions
 # Ensure DDL operations run without parallel interference (PostgreSQL locks can deadlock under xdist)
 pytestmark = pytest.mark.serial
 
+# Mark as database-dependent so it's excluded by default non-DB runs
+pytestmark = [pytest.mark.serial, pytest.mark.database]
+
 
 def _pg_available(url: str) -> bool:
     try:
