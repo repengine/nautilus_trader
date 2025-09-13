@@ -4,8 +4,7 @@
 
 ```
 ml/tests/
-├── conftest.py                 # Main pytest configuration
-├── conftest.py                 # Central fixtures & pytest config (aggregates fixtures/*)
+├── conftest.py                 # Central pytest config & fixtures aggregator (imports from fixtures/*)
 ├── test_smoke.py               # Quick smoke tests (keep in root for easy access)
 ├── README.md                   # Main test documentation
 ├── __init__.py                 # Package marker
@@ -54,10 +53,12 @@ ml/tests/
 ├── examples/                  # Example tests for reference
 │   └── test_parameterization_example.py
 │
-├── fixtures/                  # Test fixtures and utilities
-│   ├── database_fixtures.py
-│   ├── mock_services.py
-│   └── dummy_model.py
+├── fixtures/                  # Shared fixtures and utilities (imported by conftest.py)
+│   ├── integration.py         # Integration fixtures (bars, models, ONNX helpers, parquet catalog)
+│   ├── monitoring_collectors.py  # Metrics/Prometheus fixtures (autouse mocks/cleanup when needed)
+│   ├── database_fixtures.py   # DB lifecycle helpers (snapshots, temp DBs)
+│   ├── mock_services.py       # External service mocks (Databento, FRED, Redis, etc.)
+│   └── dummy_model.py         # Simple test models
 │
 ├── tools/                     # Test analysis and maintenance tools
 │   ├── analyze_test_redundancy.py
@@ -116,6 +117,7 @@ pytest ml/tests --cov=ml --cov-report=html
 ```bash
 # Analyze for redundancy
 python ml/tests/tools/analyze_test_redundancy.py
+```
 
 ## Key Files
 
@@ -127,7 +129,14 @@ python ml/tests/tools/analyze_test_redundancy.py
 ## Notes
 
 - PostgreSQL is required for integration and E2E tests
+- Integration tests run serially by default (centrally marked); non-integration tests run in parallel.
+- Class/module DB cleanup uses TRUNCATE once per scope; per-test cleanup is disabled via `TEST_DB_SKIP_TRUNCATE=1`.
 - Use `use_dummy_stores=True` in configs for unit tests to avoid DB connections
 - Property tests provide better coverage than example tests
 - Pairwise testing reduces combinatorial explosion
 - See `docs/TESTING_STRATEGY.md` for detailed testing philosophy
+
+## Running Shortcuts
+
+- Green lane (fast, DB-free): `make pytest-green`
+- Mixed parallel/serial (recommended): `make pytest-ml`

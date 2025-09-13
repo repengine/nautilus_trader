@@ -68,9 +68,21 @@ This document summarizes the ML testing architecture and conventions. The test i
 
 ## Test Infrastructure
 
-### Consolidated Configuration (`conftest.py`)
+### Consolidated Configuration & Fixtures
 
-The test configuration has been unified into a single `conftest.py` that provides:
+The ML test configuration is centralized in `ml/tests/conftest.py`. It aggregates
+shared fixtures from `ml/tests/fixtures/` (e.g., `integration.py`, `monitoring_collectors.py`,
+`database_fixtures.py`, `mock_services.py`) so contributors and code agents have one
+obvious entrypoint.
+
+Highlights:
+
+- Session‑scoped engine via `EngineManager` to avoid pool exhaustion
+- Transaction‑isolated sessions for function‑scoped DB tests
+- Automatic prototype marking and DB gating when PostgreSQL is unreachable
+- Central serial marking for `ml/tests/integration/` during collection
+- xdist grouping (`xdist_group('db')`) for DB/serial tests when xdist is active
+- Per‑scope TRUNCATE with `TEST_DB_SKIP_TRUNCATE=1` to disable per‑test cleanup
 
 ```python
 # Session-scoped database engine (prevents connection exhaustion)
@@ -95,7 +107,7 @@ def database_session(database_session_factory):
 
 ### DB Cleanup Scopes & Hypothesis Profiles
 
-Three testing profiles for different environments:
+Three Hypothesis profiles are available (selected via `HYPOTHESIS_PROFILE`):
 
 - **CI Profile**: Fast (50 examples, 5s deadline, deterministic)
 - **Dev Profile**: Thorough (200 examples, no deadline)
@@ -187,10 +199,14 @@ ml/tests/
 │   ├── stores/
 │   ├── features/
 │   └── strategies/
-├── integration/           # Integration tests
-│   └── conftest.py       # Integration-specific fixtures
+├── integration/           # Integration tests (serial)
 ├── e2e/                  # End-to-end tests
 ├── performance/          # Performance benchmarks
+├── fixtures/             # Shared fixtures (imported by conftest.py)
+│   ├── integration.py
+│   ├── monitoring_collectors.py
+│   ├── database_fixtures.py
+│   └── mock_services.py
 └── tools/                # Test utilities and analysis
 
 ```
@@ -251,13 +267,19 @@ pytest ml -m "not integration" -n auto --dist=loadscope -q -x --maxfail=1 --tb=s
 
 Tip: append `--durations=10` to surface slowest tests.
 
+### Green Lane (DB-free, fast correctness)
+
+```bash
+make pytest-green
+```
+
 ## Developer Tips
 
 - Use `EngineManager.get_engine(...)` for all DB access to avoid pool exhaustion.
 - Mark DDL/DB-heavy tests `serial`; parallelize with `-n auto --dist=loadscope` elsewhere.
 - Profiles: `HYPOTHESIS_PROFILE=ci|dev|debug` to trade speed vs. depth.
 - Monitor connections: add `connection_monitor` fixture to suspect tests.
-- Default selection: pytest excludes `prototype` tests by default (see `pyproject.toml` addopts).
+- Default selection: pytest excludes `prototype` tests by default (marked during collection).
 - DB readiness:
   - Start local DB: `make docker-up-test`
   - Wait/check: `make check-db` (uses current `DATABASE_URL`)
