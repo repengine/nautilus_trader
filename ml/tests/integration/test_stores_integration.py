@@ -25,6 +25,7 @@ from ml.stores.data_processor import QualityFlags
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.strategy_store import StrategyStore
+from ml.tests.builders import DataBuilder
 
 
 @pytest.fixture
@@ -110,7 +111,7 @@ class TestFeatureStore:
     Test FeatureStore functionality with PostgreSQL.
     """
 
-    def test_write_features(self, feature_store):
+    def test_write_features(self, feature_store, default_instrument_id):
         """
         Test writing features.
         """
@@ -118,7 +119,7 @@ class TestFeatureStore:
 
         feature_store.write_features(
             feature_set_id="test_features",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             features={"sma_20": 150.5, "rsi_14": 65.2},
             ts_event=ts_event,
         )
@@ -129,7 +130,7 @@ class TestFeatureStore:
 
         df = (
             feature_store.read_features(
-                instrument_id="AAPL",
+                instrument_id=str(default_instrument_id),
                 start_ts=ts_event,
                 end_ts=ts_event,
             )
@@ -148,7 +149,7 @@ class TestFeatureStore:
                         LIMIT 1
                         """,
                     ),
-                    {"fsid": "test_features", "iid": "AAPL"},
+                    {"fsid": "test_features", "iid": str(default_instrument_id)},
                 ).fetchone()
                 assert result is not None
         else:
@@ -157,7 +158,7 @@ class TestFeatureStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_auto_flush(self, feature_store):
+    def test_auto_flush(self, feature_store, default_instrument_id):
         """
         Test automatic buffer flushing.
         """
@@ -165,7 +166,7 @@ class TestFeatureStore:
         for i in range(11):
             feature_store.write_features(
                 feature_set_id=f"features_{i}",
-                instrument_id="AAPL",
+                instrument_id=str(default_instrument_id),
                 features={"value": float(i)},
                 ts_event=int(time.time() * 1e9) + i,
             )
@@ -174,7 +175,7 @@ class TestFeatureStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_read_range(self, feature_store, mock_persistence_manager):
+    def test_read_range(self, feature_store, mock_persistence_manager, default_instrument_id):
         """
         Test reading features by time range.
         """
@@ -191,7 +192,7 @@ class TestFeatureStore:
                 ),
                 {
                     "fsid": "test_features",
-                    "iid": "AAPL",
+                    "iid": str(default_instrument_id),
                     "tse": 1000,
                     "tsi": 1001,
                     "vals": json.dumps({"sma_20": 150.5}),
@@ -201,7 +202,7 @@ class TestFeatureStore:
         result = feature_store.read_range(
             start_ns=900,
             end_ns=1100,
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
         )
 
         assert len(result) == 1
@@ -220,7 +221,7 @@ class TestModelStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_write_prediction(self, model_store):
+    def test_write_prediction(self, model_store, default_instrument_id, sample_features):
         """
         Test writing model predictions.
         """
@@ -228,10 +229,10 @@ class TestModelStore:
 
         model_store.write_prediction(
             model_id="xgboost_v1",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             prediction=0.75,
             confidence=0.85,
-            features={"sma_20": 150.5},
+            features=sample_features,
             inference_time_ms=2.5,
             ts_event=ts_event,
             is_live=True,
@@ -246,7 +247,7 @@ class TestModelStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_read_latest_predictions(self, model_store, mock_persistence_manager):
+    def test_read_latest_predictions(self, model_store, mock_persistence_manager, default_instrument_id, sample_features):
         """
         Test reading latest predictions.
         """
@@ -263,12 +264,12 @@ class TestModelStore:
                 ),
                 {
                     "mid": "xgboost_v1",
-                    "iid": "AAPL",
+                    "iid": str(default_instrument_id),
                     "tse": 1000,
                     "tsi": 1001,
                     "pred": 0.75,
                     "conf": 0.85,
-                    "feats": json.dumps({"sma_20": 150.5}),
+                    "feats": json.dumps(sample_features),
                     "lat": 2.5,
                     "live": True,
                 },
@@ -285,7 +286,7 @@ class TestModelStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_get_model_performance(self, model_store, mock_persistence_manager):
+    def test_get_model_performance(self, model_store, mock_persistence_manager, default_instrument_id, sample_features):
         """
         Test getting model performance metrics.
         """
@@ -307,12 +308,12 @@ class TestModelStore:
                     ),
                     {
                         "mid": "xgboost_v1",
-                        "iid": "AAPL",
+                        "iid": str(default_instrument_id),
                         "tse": ts,
                         "tsi": ts,
                         "pred": 0.5 + (i % 2) * 0.1,
                         "conf": 0.75,
-                        "feats": json.dumps({"sma_20": 150.5}),
+                        "feats": json.dumps(sample_features),
                         "lat": 2.5,
                         "live": True,
                     },
@@ -339,7 +340,7 @@ class TestStrategyStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_write_signal(self, strategy_store):
+    def test_write_signal(self, strategy_store, default_instrument_id):
         """
         Test writing strategy signals.
         """
@@ -347,7 +348,7 @@ class TestStrategyStore:
 
         strategy_store.write_signal(
             strategy_id="momentum_v1",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             signal_type="BUY",
             strength=0.8,
             model_predictions={"xgboost": 0.75},
@@ -366,7 +367,7 @@ class TestStrategyStore:
     @pytest.mark.serial
     @pytest.mark.integration
     @pytest.mark.usefixtures("clean_postgres_db")
-    def test_read_active_signals(self, strategy_store, mock_persistence_manager):
+    def test_read_active_signals(self, strategy_store, mock_persistence_manager, default_instrument_id):
         """
         Test reading active signals.
         """
@@ -386,7 +387,7 @@ class TestStrategyStore:
                 ),
                 {
                     "sid": "momentum_v1",
-                    "iid": "AAPL",
+                    "iid": str(default_instrument_id),
                     "tse": now_ns,
                     "tsi": now_ns,
                     "stype": "BUY",
@@ -419,7 +420,7 @@ class TestDataProcessor:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_process_market_data(self, data_processor):
+    def test_process_market_data(self, data_processor, default_instrument_id):
         """
         Test processing market data.
         """
@@ -434,7 +435,7 @@ class TestDataProcessor:
         }
 
         processed, metrics = data_processor.process_market_data(
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             data=data,
             ts_event=ts_event,
         )
@@ -447,7 +448,7 @@ class TestDataProcessor:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_process_market_data_with_crossed_market(self, data_processor):
+    def test_process_market_data_with_crossed_market(self, data_processor, default_instrument_id):
         """
         Test processing crossed market.
         """
@@ -461,7 +462,7 @@ class TestDataProcessor:
         }
 
         processed, metrics = data_processor.process_market_data(
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             data=data,
             ts_event=ts_event,
         )
@@ -473,7 +474,7 @@ class TestDataProcessor:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_process_features_with_nan(self, data_processor):
+    def test_process_features_with_nan(self, data_processor, default_instrument_id):
         """
         Test processing features with NaN values.
         """
@@ -487,7 +488,7 @@ class TestDataProcessor:
 
         feature_data, metrics = data_processor.process_features(
             feature_set_id="test_features",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             features=features,
             ts_event=ts_event,
         )
@@ -499,7 +500,7 @@ class TestDataProcessor:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_process_prediction(self, data_processor):
+    def test_process_prediction(self, data_processor, default_instrument_id, sample_features):
         """
         Test processing model predictions.
         """
@@ -507,10 +508,10 @@ class TestDataProcessor:
 
         pred_data, metrics = data_processor.process_prediction(
             model_id="xgboost_v1",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             prediction=0.75,
             confidence=0.85,
-            features={"sma_20": 150.5},
+            features=sample_features,
             inference_time_ms=2.5,
             ts_event=ts_event,
         )
@@ -522,7 +523,7 @@ class TestDataProcessor:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_process_signal_with_risk_limits(self, data_processor):
+    def test_process_signal_with_risk_limits(self, data_processor, default_instrument_id):
         """
         Test processing signals with risk limits.
         """
@@ -530,7 +531,7 @@ class TestDataProcessor:
 
         signal_data, metrics = data_processor.process_signal(
             strategy_id="momentum_v1",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             signal_type="BUY",
             strength=1.0,
             model_predictions={"xgboost": 0.75},
@@ -571,12 +572,12 @@ class TestDataProcessor:
         """
         batch = [
             {
-                "instrument_id": "AAPL",
+                "instrument_id": "EUR/USD.SIM",
                 "data": {"bid": 150.0, "ask": 150.1},
                 "ts_event": int(time.time() * 1e9),
             },
             {
-                "instrument_id": "GOOGL",
+                "instrument_id": "GBP/USD.SIM",
                 "data": {"bid": 2800.0, "ask": 2800.1},
                 "ts_event": int(time.time() * 1e9) + 1000,
             },
@@ -602,7 +603,7 @@ class TestIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_end_to_end_flow(self, feature_store, model_store, strategy_store, data_processor):
+    def test_end_to_end_flow(self, feature_store, model_store, strategy_store, data_processor, default_instrument_id, sample_features):
         """
         Test complete data flow through all stores.
         """
@@ -610,17 +611,16 @@ class TestIntegration:
 
         # 1. Process market data
         market_data, _ = data_processor.process_market_data(
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             data={"bid": 150.0, "ask": 150.1, "volume": 10000},
             ts_event=ts_event,
         )
 
         # 2. Process and store features
-        features = {"sma_20": 150.5, "rsi_14": 65.2}
         feature_data, _ = data_processor.process_features(
             feature_set_id="test_features",
-            instrument_id="AAPL",
-            features=features,
+            instrument_id=str(default_instrument_id),
+            features=sample_features,
             ts_event=ts_event,
         )
 
@@ -629,10 +629,10 @@ class TestIntegration:
         # 3. Process and store predictions
         pred_data, _ = data_processor.process_prediction(
             model_id="xgboost_v1",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             prediction=0.75,
             confidence=0.85,
-            features=features,
+            features=sample_features,
             inference_time_ms=2.5,
             ts_event=ts_event,
         )
@@ -642,7 +642,7 @@ class TestIntegration:
         # 4. Process and store signals
         signal_data, _ = data_processor.process_signal(
             strategy_id="momentum_v1",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             signal_type="BUY",
             strength=0.8,
             model_predictions={"xgboost_v1": 0.75},
@@ -659,7 +659,7 @@ class TestIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_data_quality_propagation(self, data_processor):
+    def test_data_quality_propagation(self, data_processor, default_instrument_id):
         """
         Test that data quality issues propagate through pipeline.
         """
@@ -673,7 +673,7 @@ class TestIntegration:
         }
 
         market_data, market_metrics = data_processor.process_market_data(
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             data=bad_data,
             ts_event=ts_event,
         )
@@ -690,7 +690,7 @@ class TestIntegration:
 
         feature_data, feature_metrics = data_processor.process_features(
             feature_set_id="test_features",
-            instrument_id="AAPL",
+            instrument_id=str(default_instrument_id),
             features=features,
             ts_event=ts_event,
         )
@@ -738,7 +738,7 @@ class TestDataProcessorSimple:
             }
 
             processed, metrics = processor.process_market_data(
-                instrument_id="AAPL",
+                instrument_id="EUR/USD.SIM",
                 data=data,
                 ts_event=ts_event,
             )
@@ -772,7 +772,7 @@ class TestDataProcessorSimple:
             }
 
             processed, metrics = processor.process_market_data(
-                instrument_id="AAPL",
+                instrument_id="EUR/USD.SIM",
                 data=data,
                 ts_event=ts_event,
             )
@@ -805,7 +805,7 @@ class TestDataProcessorSimple:
 
             processed, metrics = processor.process_features(
                 feature_set_id="test_features",
-                instrument_id="AAPL",
+                instrument_id="EUR/USD.SIM",
                 features=features,
                 ts_event=ts_event,
             )

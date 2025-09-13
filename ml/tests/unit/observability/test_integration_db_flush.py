@@ -8,7 +8,7 @@ from ml.core.integration import MLIntegrationManager
 
 
 class TestIntegrationDBFlush:
-    def test_flush_observability_to_db(self, tmp_path: Path) -> None:
+    def test_flush_observability_to_db(self, tmp_path: Path, default_instrument_id) -> None:
         mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
         MLIntegrationManager.initialize_observability_pipeline(mgr)
         svc = mgr.observability_service  # type: ignore[attr-defined]
@@ -17,7 +17,7 @@ class TestIntegrationDBFlush:
         # Add minimal rows
         svc.add_latency_stage(
             correlation_id="c1",
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             pipeline_stage="data_ingestion",
             ts_stage_start=1,
             ts_stage_end=2,
@@ -27,13 +27,13 @@ class TestIntegrationDBFlush:
             metric_type="counter",
             value=1.0,
             timestamp=1,
-            labels={"instrument_id": "EURUSD.SIM"},
+            labels={"instrument_id": str(default_instrument_id)},
         )
         svc.add_correlation(
             correlation_id="c1",
             event_id="e1",
             parent_event_id=None,
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             domain="data",
             lineage_depth=0,
             ts_event=1,

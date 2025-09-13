@@ -49,6 +49,8 @@ from ml.stores.base import StrategySignal
 from ml.stores.data_processor import DataProcessor
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
+from ml.stores.raw_io import RawIngestionWriterProtocol
+from ml.stores.raw_io import RawReaderProtocol
 from ml.stores.strategy_store import StrategyStore
 
 
@@ -285,6 +287,8 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         batch_size: int = 10000,
         allow_schema_migration: bool = False,
         schema_migration_window_hours: int = 24,
+        raw_writer: RawIngestionWriterProtocol | None = None,
+        raw_reader: RawReaderProtocol | None = None,
     ) -> None:
         """
         Initialize DataStore with registry and underlying stores.
@@ -315,6 +319,10 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         self.registry: RegistryProtocol
         # Expose connection_string for DataRegistryMixin
         self.connection_string = connection_string
+
+        # Raw IO adapters (optional)
+        self._raw_writer = raw_writer
+        self._raw_reader = raw_reader
 
         # Allow registry to be optional for convenience in tests/integration
         if registry is None:
@@ -883,13 +891,131 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                 self.strategy_store.write_batch(signals)
 
             else:
-                # For raw market data types, write directly to catalog or appropriate location
-                # This would integrate with Nautilus catalog or data adapters
-                logger.info(
-                    "Writing %s data type %s (not implemented in this example)",
-                    dataset_id,
-                    manifest.dataset_type,
-                )
+                # Raw dataset types: delegate to optional writer if configured
+                if self._raw_writer is not None:
+                    try:
+                        written = self._raw_writer.write(
+                            dataset_type=manifest.dataset_type,
+                            data=df,
+                        )
+                        if written <= 0:
+                            logger.warning(
+                                "Raw writer reported 0 records written for %s", dataset_id,
+                            )
+                            # Emit PARTIAL without watermark to avoid false coverage
+                            self._emit_partial_event(
+                                dataset_id=dataset_id,
+                                instrument_id=instrument_id,
+                                stage=stage,
+                                source=source,
+                                run_id=run_id,
+                                ts_min=ts_min,
+                                ts_max=ts_max,
+                                count=len(df),
+                                reason="no_records_written",
+                            )
+                            return DataEvent(
+                                event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
+                                dataset_id=dataset_id,
+                                instrument_id=instrument_id,
+                                operation="write_ingestion",
+                                source=source,
+                                run_id=run_id,
+                                ts_min=ts_min,
+                                ts_max=ts_max,
+                                record_count=len(df),
+                                status=EventStatus.PARTIAL.value,
+                                metadata={"no_write": True},
+                            )
+                    except Exception as e:  # best-effort; keep off hot path
+                        logger.error("Raw writer failed for %s: %s", dataset_id, e)
+                        self._emit_failed_event(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            stage=stage,
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(df),
+                            error=str(e),
+                        )
+                        return DataEvent(
+                            event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            operation="write_ingestion",
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            record_count=len(df),
+                            status=EventStatus.FAILED.value,
+                            error_message=str(e),
+                        )
+                else:
+                    # No raw writer configured. Enforcement mode determines behavior:
+                    # - strict: mark PARTIAL (no watermark) to avoid false success
+                    # - lenient/monitor_only: proceed with SUCCESS (best-effort ingestion semantics)
+                    if contract.enforcement_mode in ("lenient", "monitor_only") and self.fail_on_validation_error:
+                        logger.info(
+                            "Raw writer not configured; proceeding with success in %s mode for %s",
+                            contract.enforcement_mode,
+                            dataset_id,
+                        )
+                        # Emit SUCCESS event and update watermark for visibility
+                        self._emit_success_event_and_update(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            stage=stage,
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(df),
+                        )
+                        return DataEvent(
+                            event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            operation="write_ingestion",
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            record_count=len(df),
+                            status=EventStatus.SUCCESS.value,
+                            metadata={"no_write": True},
+                        )
+                    else:
+                        logger.warning(
+                            "Raw writer not configured; skipping persistence for %s", dataset_id,
+                        )
+                        # Emit PARTIAL event without watermark; annotate metadata
+                        self._emit_partial_event(
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            stage=stage,
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            count=len(df),
+                            reason="raw_writer_missing",
+                        )
+                        return DataEvent(
+                            event_id=f"{run_id}_{dataset_id}_{time.time_ns()}",
+                            dataset_id=dataset_id,
+                            instrument_id=instrument_id,
+                            operation="write_ingestion",
+                            source=source,
+                            run_id=run_id,
+                            ts_min=ts_min,
+                            ts_max=ts_max,
+                            record_count=len(df),
+                            status=EventStatus.PARTIAL.value,
+                            metadata={"no_write": True},
+                        )
 
             # Create event
             event = DataEvent(
@@ -1474,7 +1600,14 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
             )
 
         else:
-            # For raw market data types, would integrate with Nautilus catalog
+            # Raw datasets: delegate to optional reader when available
+            if self._raw_reader is not None:
+                return self._raw_reader.read_range(
+                    dataset_type=manifest.dataset_type,
+                    instrument_id=instrument_id,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                )
             raise NotImplementedError(
                 f"Read not implemented for dataset type {manifest.dataset_type}",
             )
@@ -1732,6 +1865,81 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
             DatasetType.SIGNALS: Stage.SIGNAL_EMITTED.value,
         }
         return stage_map.get(dataset_type, Stage.DATA_INGESTED.value)
+
+    # ------------------------------ event helpers ------------------------------
+    def _emit_partial_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: str,
+        source: str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        reason: str,
+    ) -> None:
+        try:
+            src_enum = Source(source) if not isinstance(source, Source) else source
+            stg_enum = Stage(stage) if not isinstance(stage, Stage) else stage
+            from ml.common.event_emitter import emit_dataset_event
+
+            emit_dataset_event(
+                self.registry,
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stg_enum,
+                source=src_enum,
+                run_id=run_id,
+                ts_min=ts_min,
+                ts_max=ts_max,
+                count=count,
+                status=EventStatus.PARTIAL,
+                metadata={"reason": reason},
+                dataset_type=dataset_id,
+                component=self.__class__.__name__,
+            )
+        except Exception:
+            # Events are best-effort; never fail
+            pass
+
+    def _emit_failed_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: str,
+        source: str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        error: str,
+    ) -> None:
+        try:
+            src_enum = Source(source) if not isinstance(source, Source) else source
+            stg_enum = Stage(stage) if not isinstance(stage, Stage) else stage
+            from ml.common.event_emitter import emit_dataset_event
+
+            emit_dataset_event(
+                self.registry,
+                dataset_id=dataset_id,
+                instrument_id=instrument_id,
+                stage=stg_enum,
+                source=src_enum,
+                run_id=run_id,
+                ts_min=ts_min,
+                ts_max=ts_max,
+                count=count,
+                status=EventStatus.FAILED,
+                error=error,
+                dataset_type=dataset_id,
+                component=self.__class__.__name__,
+            )
+        except Exception:
+            # Events are best-effort; never fail
+            pass
 
     def _apply_validation_rule(
         self,

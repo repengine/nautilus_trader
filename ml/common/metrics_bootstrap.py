@@ -14,9 +14,46 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from ml.common.metrics import Counter
-from ml.common.metrics import Gauge
-from ml.common.metrics import Histogram
+
+try:  # Centralized backend import (allowed)
+    from prometheus_client import Counter as _PC_Counter
+    from prometheus_client import Gauge as _PC_Gauge
+    from prometheus_client import Histogram as _PC_Histogram
+
+    HAS_METRICS_BACKEND = True
+    _CounterCls: type[Any] = _PC_Counter
+    _GaugeCls: type[Any] = _PC_Gauge
+    _HistogramCls: type[Any] = _PC_Histogram
+except Exception:  # pragma: no cover - prometheus optional
+    HAS_METRICS_BACKEND = False
+
+    class _DummyCounter:
+        def __init__(self, *args: object, **kwargs: object) -> None: ...
+
+        def labels(self, **_: object) -> _DummyCounter:
+            return self
+
+        def inc(self, *args: object, **kwargs: object) -> None: ...
+
+    class _DummyGauge:
+        def __init__(self, *args: object, **kwargs: object) -> None: ...
+
+        def labels(self, **_: object) -> _DummyGauge:
+            return self
+
+        def set(self, *args: object, **kwargs: object) -> None: ...
+
+    class _DummyHistogram:
+        def __init__(self, *args: object, **kwargs: object) -> None: ...
+
+        def labels(self, **_: object) -> _DummyHistogram:
+            return self
+
+        def observe(self, *args: object, **kwargs: object) -> None: ...
+
+    _CounterCls = _DummyCounter
+    _GaugeCls = _DummyGauge
+    _HistogramCls = _DummyHistogram
 
 
 _METRICS: dict[str, Any] = {}
@@ -27,11 +64,11 @@ def _key(name: str, labelnames: Iterable[str] | None) -> str:
     return f"{name}||{labels_tuple!r}"
 
 
-def get_counter(name: str, description: str, labelnames: Iterable[str] | None = None) -> Counter:
+def get_counter(name: str, description: str, labelnames: Iterable[str] | None = None) -> Any:
     k = _key(name, labelnames)
     metric = _METRICS.get(k)
     if metric is None:
-        metric = Counter(name, description, list(labelnames or ()))
+        metric = _CounterCls(name, description, list(labelnames or ()))
         _METRICS[k] = metric
     return metric
 
@@ -42,25 +79,25 @@ def get_histogram(
     labelnames: Iterable[str] | None = None,
     *,
     buckets: Iterable[float] | None = None,
-) -> Histogram:
+) -> Any:
     k = _key(name, labelnames)
     metric = _METRICS.get(k)
     if metric is None:
         if buckets is None:
-            metric = Histogram(name, description, list(labelnames or ()))
+            metric = _HistogramCls(name, description, list(labelnames or ()))
         else:
-            metric = Histogram(name, description, list(labelnames or ()), buckets=tuple(buckets))
+            metric = _HistogramCls(name, description, list(labelnames or ()), buckets=tuple(buckets))
         _METRICS[k] = metric
     return metric
 
 
-def get_gauge(name: str, description: str, labelnames: Iterable[str] | None = None) -> Gauge:
+def get_gauge(name: str, description: str, labelnames: Iterable[str] | None = None) -> Any:
     k = _key(name, labelnames)
     metric = _METRICS.get(k)
     if metric is None:
-        metric = Gauge(name, description, list(labelnames or ()))
+        metric = _GaugeCls(name, description, list(labelnames or ()))
         _METRICS[k] = metric
     return metric
 
 
-__all__ = ["get_counter", "get_gauge", "get_histogram"]
+__all__ = ["HAS_METRICS_BACKEND", "get_counter", "get_gauge", "get_histogram"]

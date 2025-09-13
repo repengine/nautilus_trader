@@ -66,6 +66,7 @@ else:
 
 if TYPE_CHECKING:
     # Protocols for type safety without enforcing concrete implementations
+    from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreProtocol
     from ml.stores.protocols import ModelStoreProtocol
     from ml.stores.protocols import StrategyStoreProtocol
@@ -391,8 +392,9 @@ class CircuitBreaker:
         }
 
 
-# Model loading now uses the registry system
-# Legacy imports removed - use ModelRegistry instead
+# Model loading supports both registry (preferred) and direct path (fallback)
+# Registry path follows Universal ML Architecture Pattern #1
+# Direct path maintained for testing and legacy compatibility
 
 
 class SecurityError(Exception):
@@ -703,7 +705,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     _feature_store: FeatureStoreProtocol  # Protocol-typed; DummyStore conforms at runtime
     _model_store: ModelStoreProtocol
     _strategy_store: StrategyStoreProtocol
-    _data_store: Any  # DataStore facade over stores
+    _data_store: DataStoreFacadeProtocol  # Narrow facade used in actors
     _feature_registry: Any
     _model_registry: Any
     _strategy_registry: Any
@@ -794,14 +796,15 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         from ml.actors.actor_services import init_actor_services
 
         services = init_actor_services(self._config)
-        # Avoid Protocol imports at runtime using Any casts
+
+        # Attach services; attributes are Protocol-typed for static safety
+        self._feature_store = services.feature_store
+        self._model_store = services.model_store
+        self._strategy_store = services.strategy_store
         from typing import Any as _Any
         from typing import cast as _cast
 
-        self._feature_store = _cast(_Any, services.feature_store)
-        self._model_store = _cast(_Any, services.model_store)
-        self._strategy_store = _cast(_Any, services.strategy_store)
-        self._data_store = services.data_store
+        self._data_store = _cast(_Any, services.data_store)
         self._feature_registry = services.feature_registry
         self._model_registry = services.model_registry
         self._strategy_registry = services.strategy_registry
@@ -831,7 +834,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         return self._strategy_store
 
     @property
-    def data_store(self) -> object:
+    def data_store(self) -> DataStoreFacadeProtocol:
         """
         Get the data store facade instance.
         """
@@ -1239,8 +1242,17 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 
         """
         try:
+            # Try registry first (preferred path per Universal Pattern #1)
             loaded_from_registry = self._try_load_from_registry()
+
+            # Fall back to direct path loading for testing/legacy configs
             if not loaded_from_registry:
+                if not (hasattr(self._config, "model_path") and self._config.model_path):
+                    raise ValueError(
+                        "No model_id found in registry and no model_path provided. "
+                        "Please specify either model_id (preferred) or model_path (legacy)."
+                    )
+
                 # Enforce ONNX-only in production unless explicitly allowed
                 import os as _os
                 from pathlib import Path as _Path
@@ -1259,7 +1271,9 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 allow_dev = getattr(self._config, "allow_non_onnx_in_dev", False)
                 if model_ext != ".onnx" and not (is_test_env or allow_dev):
                     raise ValueError(f"Non-ONNX model format disallowed in prod: {model_ext}")
-                # Load from direct path (existing behavior)
+
+                # Load from direct path (fallback/legacy behavior)
+                self.log.info(f"Loading model from direct path (fallback): {self._config.model_path}")
                 self._model, self._model_metadata = self._model_loader.load_model(
                     self._config.model_path,
                 )
@@ -1308,28 +1322,28 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     def _try_load_from_registry(self) -> bool:
         """
         Attempt to load model and metadata from registry; return True if loaded.
+
+        Priority:
+        1. Use model_id with shared ModelRegistry (preferred)
+        2. Fall back to model_path for testing/development
         """
-        if (
-            hasattr(self._config, "model_id")
-            and self._config.model_id
-            and (not hasattr(self._config, "model_path") or not self._config.model_path)
-        ):
-            from pathlib import Path
-
-            from ml.registry.model_registry import ModelRegistry
-
-            registry_path = (
-                Path(self._config.registry_path)
-                if hasattr(self._config, "registry_path")
-                else Path("ml/models")
-            )
-            registry = ModelRegistry(registry_path)
+        # Check if we have a model_id to use with registry
+        if hasattr(self._config, "model_id") and self._config.model_id:
+            # Use the shared registry instance (not a new one!)
+            registry = self._model_registry
 
             model_info = registry.get_model(self._config.model_id)
             if not model_info:
+                # If model_id provided but not found, check for fallback path
+                if hasattr(self._config, "model_path") and self._config.model_path:
+                    self.log.warning(
+                        f"Model {self._config.model_id} not found in registry, "
+                        f"falling back to direct path: {self._config.model_path}"
+                    )
+                    return False  # Let the fallback path handle it
                 raise ValueError(f"Model {self._config.model_id} not found in registry")
 
-            # Load the actual model
+            # Load the actual model via registry
             self._model = registry.load_model(self._config.model_id)
 
             # Extract metadata from manifest

@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.tests.builders import RegistryBuilder
 
 
 def test_strict_parity_requires_feature_set_id(
@@ -32,7 +32,7 @@ def test_strict_parity_requires_feature_set_id(
     model_path = reg_dir / "m.onnx"
     model_path.write_bytes(b"onnx")
 
-    manifest = ModelManifest(
+    manifest = RegistryBuilder.model_manifest(
         model_id="",
         role=ModelRole.STUDENT,
         data_requirements=DataRequirements.L1_ONLY,

@@ -27,8 +27,8 @@ from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Text
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from ml.core.db_engine import EngineManager

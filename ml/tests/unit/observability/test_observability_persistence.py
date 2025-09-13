@@ -9,13 +9,13 @@ from ml.observability.service import ObservabilityService
 
 
 class TestObservabilityPersistorJsonl:
-    def test_persist_writes_non_empty_tables_as_jsonl(self, tmp_path: Path) -> None:
+    def test_persist_writes_non_empty_tables_as_jsonl(self, tmp_path: Path, default_instrument_id) -> None:
         svc = ObservabilityService()
 
         # Add at least one row to each category
         svc.add_latency_stage(
             correlation_id="c1",
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             pipeline_stage="data_ingested",
             ts_stage_start=1,
             ts_stage_end=3,
@@ -31,7 +31,7 @@ class TestObservabilityPersistorJsonl:
             correlation_id="c1",
             event_id="e1",
             parent_event_id=None,
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             domain="data",
             lineage_depth=0,
             ts_event=1,
@@ -67,7 +67,7 @@ class TestObservabilityPersistorJsonl:
 
 
 class TestIntegrationFlush:
-    def test_integration_manager_flushes_observability_to_path(self, tmp_path: Path) -> None:
+    def test_integration_manager_flushes_observability_to_path(self, tmp_path: Path, default_instrument_id) -> None:
         mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
 
         # Initialize service and add a couple of rows
@@ -77,7 +77,7 @@ class TestIntegrationFlush:
 
         svc.add_latency_stage(
             correlation_id="c2",
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             pipeline_stage="prediction_emitted",
             ts_stage_start=10,
             ts_stage_end=15,

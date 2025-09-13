@@ -11,13 +11,19 @@ This module provides a production-ready ML strategy that can:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ml.actors.base import MLSignal
 from ml.strategies.base import BaseMLStrategy
 from nautilus_trader.model.enums import OrderSide
+
+
+if TYPE_CHECKING:  # typing-only imports to avoid runtime coupling
+    from nautilus_trader.model.events import OrderFilled
+    from nautilus_trader.model.identifiers import ClientOrderId
+    from nautilus_trader.model.position import Position
 
 
 class MLTradingStrategy(BaseMLStrategy):
@@ -60,14 +66,13 @@ class MLTradingStrategy(BaseMLStrategy):
         """
         current_position = self._get_current_position()
 
-        # Determine target side based on prediction
+        # Determine target side based on prediction (use shared helper)
         # Using 0.5 as threshold for binary classification
-        if signal.prediction > 0.5:
-            target_side = OrderSide.BUY
+        target_side = self.target_side_from_prediction(signal.prediction, 0.5)
+        if target_side == OrderSide.BUY:
             signal_direction = "LONG"
             decision_type = "BUY"
         else:
-            target_side = OrderSide.SELL
             signal_direction = "SHORT"
             decision_type = "SELL"
 
@@ -206,7 +211,7 @@ class MLTradingStrategy(BaseMLStrategy):
 
     def _reverse_position(
         self,
-        current_position: Any,
+        current_position: Position,
         target_side: OrderSide,
         signal: MLSignal,
     ) -> None:
@@ -258,7 +263,7 @@ class MLTradingStrategy(BaseMLStrategy):
 
     def _should_reverse_position(
         self,
-        current_position: Any,
+        current_position: Position,
         target_side: OrderSide,
     ) -> bool:
         """
@@ -277,16 +282,13 @@ class MLTradingStrategy(BaseMLStrategy):
             True if position should be reversed.
 
         """
-        return bool(
-            (current_position.side.name == "LONG" and target_side == OrderSide.SELL)
-            or (current_position.side.name == "SHORT" and target_side == OrderSide.BUY),
-        )
+        return self.should_reverse(current_position, target_side)
 
     def _track_trade_entry(
         self,
         model_id: str,
         signal: MLSignal,
-        order_id: Any,
+        order_id: ClientOrderId,
     ) -> None:
         """
         Track trade entry for performance analysis.
@@ -311,7 +313,7 @@ class MLTradingStrategy(BaseMLStrategy):
             "entry_time": self.clock.timestamp_ns(),
         }
 
-    def on_order_filled(self, event: Any) -> None:
+    def on_order_filled(self, event: OrderFilled) -> None:
         """
         Handle order fills and track model performance.
 

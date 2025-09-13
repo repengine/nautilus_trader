@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tempfile
-import time
 from pathlib import Path
 
 import numpy as np
@@ -12,8 +11,8 @@ import pytest
 from ml._imports import HAS_ONNX
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelRole
-from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
+from ml.tests.builders import RegistryBuilder
 
 
 @pytest.mark.skipif(not HAS_ONNX, reason="ONNX not installed")
@@ -43,7 +42,7 @@ def test_model_registry_register_load_deploy_lineage() -> None:
 
         registry = ModelRegistry(base)
 
-        manifest = ModelManifest(
+        manifest = RegistryBuilder.model_manifest(
             model_id="",
             role=ModelRole.STUDENT,
             data_requirements=DataRequirements.L1_ONLY,
@@ -52,9 +51,6 @@ def test_model_registry_register_load_deploy_lineage() -> None:
             feature_schema_hash="abc123",
             parent_id="teacher_model_001",  # Add parent_id for student model
             performance_metrics={"inference_latency_ms": 1.2},
-            version="1.0.0",
-            created_at=time.time(),
-            last_modified=time.time(),
         )
 
         mid = registry.register_model(

@@ -20,6 +20,7 @@ import pytest
 
 from ml.actors.base import MLSignal
 from ml.strategies.base import BaseMLStrategy
+from ml.tests.builders import MLConfigBuilder
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -30,7 +31,33 @@ class TestStrategyContracts:
     Test suite for strategy signal handling contracts.
     """
 
-    def test_strategy_receives_ml_signals(self) -> None:
+    def _create_ml_signal(
+        self,
+        default_instrument_id: InstrumentId,
+        test_timestamps: tuple[int, int],
+        model_id: str = "test_model",
+        prediction: float = 0.7,
+        confidence: float = 0.8,
+        time_offset_ns: int = 0,
+        **kwargs: Any,
+    ) -> MLSignal:
+        """Helper to create MLSignal with defaults."""
+        ts_event, ts_init = test_timestamps
+        return MLSignal(
+            instrument_id=default_instrument_id,
+            model_id=model_id,
+            prediction=prediction,
+            confidence=confidence,
+            metadata=kwargs.get("metadata", {}),
+            ts_event=ts_event + time_offset_ns,
+            ts_init=ts_init + time_offset_ns,
+        )
+
+    def test_strategy_receives_ml_signals(
+        self,
+        default_instrument_id: InstrumentId,
+        test_timestamps: tuple[int, int],
+    ) -> None:
         """
         Strategy MUST receive MLSignal via on_data().
 
@@ -56,14 +83,12 @@ class TestStrategyContracts:
         # For testing, we'll just simulate the data reception directly
 
         # Create and "publish" signal
-        signal = MLSignal(
-            instrument_id=InstrumentId.from_str("EURUSD.SIM"),
-            model_id="test_model_v1",  # Use the dedicated field
+        signal = self._create_ml_signal(
+            default_instrument_id=default_instrument_id,
+            test_timestamps=test_timestamps,
+            model_id="test_model_v1",
             prediction=0.7,
             confidence=0.85,
-            metadata={},
-            ts_event=time.time_ns(),
-            ts_init=time.time_ns(),
         )
 
         # Simulate signal reception
@@ -75,7 +100,11 @@ class TestStrategyContracts:
         assert received_data[0].prediction == 0.7, "Signal data should be preserved"
         assert received_data[0].confidence == 0.85, "Signal confidence should be preserved"
 
-    def test_strategy_filters_by_model_id(self) -> None:
+    def test_strategy_filters_by_model_id(
+        self,
+        default_instrument_id: InstrumentId,
+        test_timestamps: tuple[int, int],
+    ) -> None:
         """
         Strategy can filter signals by model_id.
 
@@ -93,32 +122,26 @@ class TestStrategyContracts:
 
         # Create signals from different models
         signals = [
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="xgb_eurusd_1h_v1",
                 prediction=0.6,
                 confidence=0.7,
-                metadata={},
-                ts_event=time.time_ns(),
-                ts_init=time.time_ns(),
             ),
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="xgb_eurusd_1h_v2",  # Target model
                 prediction=0.8,
                 confidence=0.9,
-                metadata={},
-                ts_event=time.time_ns(),
-                ts_init=time.time_ns(),
             ),
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="lgb_eurusd_1h_v1",
                 prediction=0.5,
                 confidence=0.6,
-                metadata={},
-                ts_event=time.time_ns(),
-                ts_init=time.time_ns(),
             ),
         ]
 
@@ -130,7 +153,11 @@ class TestStrategyContracts:
         assert len(processed_signals) == 1, "Only target model signal should be processed"
         assert processed_signals[0].model_id == "xgb_eurusd_1h_v2"
 
-    def test_strategy_handles_multiple_model_signals(self) -> None:
+    def test_strategy_handles_multiple_model_signals(
+        self,
+        default_instrument_id: InstrumentId,
+        test_timestamps: tuple[int, int],
+    ) -> None:
         """
         Strategy can aggregate signals from multiple models.
 
@@ -151,34 +178,29 @@ class TestStrategyContracts:
         strategy._execute_trade = Mock(side_effect=lambda d: trading_decisions.append(d))
 
         # Create signals from 3 models (all bullish)
-        base_time = time.time_ns()
         signals = [
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="model_1",
                 prediction=0.7,  # Bullish
                 confidence=0.8,
-                metadata={},
-                ts_event=base_time,
-                ts_init=base_time,
             ),
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="model_2",
                 prediction=0.65,  # Bullish
                 confidence=0.75,
-                metadata={},
-                ts_event=base_time + 100_000_000,  # 100ms later
-                ts_init=base_time + 100_000_000,
+                time_offset_ns=100_000_000,  # 100ms later
             ),
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="model_3",
                 prediction=0.8,  # Bullish
                 confidence=0.9,
-                metadata={},
-                ts_event=base_time + 200_000_000,  # 200ms later
-                ts_init=base_time + 200_000_000,
+                time_offset_ns=200_000_000,  # 200ms later
             ),
         ]
 
@@ -196,7 +218,11 @@ class TestStrategyContracts:
             decision["confidence"] > 0.7
         ), "Aggregated confidence should be high with 3 bullish signals"
 
-    def test_strategy_respects_signal_confidence_threshold(self) -> None:
+    def test_strategy_respects_signal_confidence_threshold(
+        self,
+        default_instrument_id: InstrumentId,
+        test_timestamps: tuple[int, int],
+    ) -> None:
         """
         Strategy only acts on high-confidence signals.
 
@@ -214,32 +240,26 @@ class TestStrategyContracts:
 
         # Create signals with different confidence levels
         signals = [
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="model_1",
                 prediction=0.9,
                 confidence=0.7,  # Below threshold
-                metadata={},
-                ts_event=time.time_ns(),
-                ts_init=time.time_ns(),
             ),
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="model_1",
                 prediction=0.9,
                 confidence=0.85,  # Above threshold
-                metadata={},
-                ts_event=time.time_ns(),
-                ts_init=time.time_ns(),
             ),
-            MLSignal(
-                instrument_id=InstrumentId.from_str("EURUSD.SIM"),
+            self._create_ml_signal(
+                default_instrument_id=default_instrument_id,
+                test_timestamps=test_timestamps,
                 model_id="model_1",
                 prediction=0.9,
                 confidence=0.6,  # Below threshold
-                metadata={},
-                ts_event=time.time_ns(),
-                ts_init=time.time_ns(),
             ),
         ]
 
@@ -251,7 +271,11 @@ class TestStrategyContracts:
         assert len(executed_trades) == 1, "Only one high-confidence trade should execute"
         assert executed_trades[0]["signal"].confidence >= 0.8
 
-    def test_strategy_handles_conflicting_signals(self) -> None:
+    def test_strategy_handles_conflicting_signals(
+        self,
+        default_instrument_id: InstrumentId,
+        test_timestamps: tuple[int, int],
+    ) -> None:
         """
         Strategy handles conflicting signals from different models.
 
@@ -507,18 +531,12 @@ class TestStrategyContracts:
                 Abstract method implementation for testing.
                 """
 
-        # Create config
-        from ml.config.base import MLStrategyConfig
-        from nautilus_trader.model.identifiers import InstrumentId
-
-        class TestConfig(MLStrategyConfig, frozen=True):
-            instrument_id: InstrumentId = InstrumentId.from_str("EURUSD.SIM")
-            ml_signal_source: str = "ML_ACTOR"
-            position_size_pct: float = 0.1
-            min_confidence: float = kwargs.get("min_confidence", 0.0)
-            max_positions: int = 1
-
-        config = TestConfig()
+        # Create config using builder
+        config = MLConfigBuilder.strategy_config(
+            min_confidence=kwargs.get("min_confidence", 0.0),
+            position_size_pct=0.1,
+            max_positions=1,
+        )
 
         # Simple initialization - just create the strategy
         strategy = TestMLStrategy(config)

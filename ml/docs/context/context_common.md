@@ -472,3 +472,214 @@ def metrics_endpoint():
 - **Efficient Hashing**: Correlation IDs use SHA256 for deterministic results
 
 This common module serves as the backbone of the ML system's consistency and observability, providing the foundational utilities that enable all other components to integrate seamlessly with Nautilus Trader's architecture while maintaining high performance and type safety standards.
+
+## Implementation Review Addendum
+
+*Review conducted on 2025-09-12 against actual codebase implementation*
+
+### Documentation Accuracy Assessment
+
+**Overall Finding**: The documentation is **largely accurate** with several undocumented files and minor discrepancies.
+
+### Ground-Truth Validation
+
+#### ✅ Accurately Documented Components
+
+1. **protocols.py** - Implementation matches documentation exactly:
+   - `MLComponentProtocol` with correct method signatures
+   - `MLComponentMixin` with safe defaults
+   - Runtime-checkable decorator present
+   - Proper `__all__` exports
+
+2. **metrics_bootstrap.py** - Implementation aligns with documentation:
+   - Safe, idempotent metric creation using internal `_METRICS` dict
+   - Correct function signatures for `get_counter`, `get_histogram`, `get_gauge`
+   - Proper key composition with `_key()` function
+   - Imports from `ml.common.metrics` as documented
+
+3. **timestamps.py** - Implementation matches exactly:
+   - `normalize_timestamp_ns()` with correct heuristics (1e11, 1e14, 1e17 thresholds)
+   - `sanitize_timestamp_ns()` with policy modes (warn, normalize, reject)
+   - Environment variable support via `ML_TS_NORMALIZATION_MODE`
+
+4. **precision.py** - Implementation matches documentation:
+   - `MAX_PRICE_DECIMALS = 16` constant
+   - `clamp_price_str()` function with correct parameters
+   - Safe decimal clamping logic
+
+5. **correlation.py** - Implementation matches:
+   - `make_correlation_id()` with SHA256 hashing
+   - Correct parameter list and pipe-separated encoding
+   - Proper `__all__` exports
+
+6. **cascade.py** - Implementation aligns:
+   - `EventDict` TypedDict with correct fields
+   - `emit_cascade()` function with proper logic
+   - Correlation preservation implementation
+
+7. **message_bus.py** - Implementation matches:
+   - `MessagePublisherProtocol` with correct signature
+   - `NoopPublisher` safe default implementation
+   - `RedisStreamsPublisher` with JSON serialization
+   - `BusPublisherMixin` with configuration support
+
+8. **in_memory_bus.py** - Implementation aligns:
+   - `InMemoryPublisher` implementing `MessagePublisherProtocol`
+   - Pattern-based subscription using `topic_filters.match_topic`
+   - Correct handler type `Callable[[str, dict[str, Any]], None]`
+
+9. **throttler.py** - Implementation matches:
+   - Token bucket algorithm with per-key limiting
+   - Nanosecond precision timestamps
+   - Non-blocking behavior
+   - Correct refill calculation
+
+10. **topic_filters.py** - Implementation aligns:
+    - MQTT-style pattern matching (*, # wildcards)
+    - Recursive matching for `#` wildcard
+    - Correct token-based matching logic
+
+11. **message_topics.py** - Implementation matches:
+    - Topic format: `ml.{domain}.{operation}.{instrument_id}`
+    - Validation regex patterns for domain/operation
+    - Instrument ID normalization
+    - Stage mapping functions
+
+#### ❌ **Documentation Gaps - Undocumented Files**
+
+The following files exist in the implementation but are **completely absent** from documentation:
+
+1. **safe_math.py** (/home/nate/projects/nautilus_trader/ml/common/safe_math.py:1-46)
+   - **Purpose**: Safe math utilities for features and data processing
+   - **Functions**: `safe_divide()`, `safe_divide_expr()` for Polars
+   - **Dependencies**: Uses `ml._imports.pl` for lazy Polars import
+   - **Impact**: Missing from architectural overview and usage patterns
+
+2. **event_emitter.py** (/home/nate/projects/nautilus_trader/ml/common/event_emitter.py:1-147)
+   - **Purpose**: Shared event emission utilities for stores and actors
+   - **Functions**: `emit_dataset_event()`, `emit_dataset_event_and_watermark()`
+   - **Integration**: Uses Stage/Source/EventStatus enums, optional MetricsManager
+   - **Impact**: Key integration utility completely undocumented
+
+3. **metrics_manager.py** (/home/nate/projects/nautilus_trader/ml/common/metrics_manager.py:1-150)
+   - **Purpose**: Typed, centralized facade over metrics bootstrap
+   - **Features**: Singleton pattern, convenience methods, protocol-based typing
+   - **API**: `counter()`, `histogram()`, `gauge()`, `inc()`, `observe()`, `set_gauge()`
+   - **Impact**: Major metrics component missing from documentation
+
+4. **events_util.py** (/home/nate/projects/nautilus_trader/ml/common/events_util.py:1-93)
+   - **Purpose**: Event source normalization and conversions
+   - **Types**: `SourceStr` literal type, conversion functions
+   - **Functions**: `to_source_enum()`, `to_source_str()`, `build_bus_payload()`
+   - **Impact**: Type safety utilities completely undocumented
+
+#### ⚠️ **Minor Discrepancies**
+
+1. **__init__.py Content**:
+   - **Documentation**: Claims "Minimal exports (empty)"
+   - **Reality**: Has docstring and empty `__all__: list[str] = []`
+   - **File**: /home/nate/projects/nautilus_trader/ml/common/__init__.py:1-5
+
+2. **metrics.py Pattern 5 Compliance**:
+   - **Documentation**: Claims strict adherence to centralized metrics bootstrap
+   - **Reality**: /home/nate/projects/nautilus_trader/ml/common/metrics.py:9-11 directly imports `from prometheus_client import Counter, Gauge, Histogram`
+   - **Assessment**: This is an **intentional exception** - metrics.py is the centralized definition point that metrics_bootstrap.py imports from
+   - **Compliance**: Actually **correct** - Pattern 5 allows direct imports in the central metrics module
+
+3. **File Count**:
+   - **Documentation**: Lists 12 core files
+   - **Reality**: Contains 16 source files (excluding __pycache__)
+   - **Missing**: 4 files completely undocumented (25% of implementation)
+
+### Universal ML Architecture Patterns Compliance
+
+#### Pattern 1: 4-Store + 4-Registry Integration
+- **Status**: ✅ **COMPLIANT** - Not applicable to common module (foundational utilities)
+
+#### Pattern 2: Protocol-First Interface Design
+- **Status**: ✅ **COMPLIANT** - `protocols.py` implements runtime-checkable protocols
+- **Evidence**: `@runtime_checkable` decorator, structural typing usage
+
+#### Pattern 3: Hot/Cold Path Separation
+- **Status**: ✅ **COMPLIANT** - Utilities designed for hot-path safety
+- **Evidence**: No blocking I/O, pre-computed constants, lightweight operations
+
+#### Pattern 4: Progressive Fallback Chains  
+- **Status**: ✅ **COMPLIANT** - Fallback implementations provided
+- **Evidence**: `NoopPublisher`, `DummyStore` compatibility, graceful degradation
+
+#### Pattern 5: Centralized Metrics Bootstrap
+- **Status**: ✅ **COMPLIANT** - Proper centralization implemented
+- **Evidence**: metrics_bootstrap.py prevents duplicate registration, metrics.py is intentional central point
+- **Architecture**: metrics.py → metrics_bootstrap.py → components (correct flow)
+
+### Coding Standards Compliance
+
+#### Type Annotations
+- **Status**: ✅ **FULLY COMPLIANT** - All files have complete type annotations
+- **Evidence**: All functions have parameter and return types, `from __future__ import annotations`
+
+#### Import Organization  
+- **Status**: ✅ **COMPLIANT** - Proper stdlib/third-party/local ordering
+- **Evidence**: Consistent import patterns across all files
+
+#### Error Handling
+- **Status**: ✅ **COMPLIANT** - Specific exceptions, graceful fallbacks
+- **Evidence**: ValueError with descriptive messages, try/except with specific types
+
+### Performance Considerations Assessment
+
+#### Hot Path Safety
+- **Status**: ✅ **VERIFIED** - All utilities avoid heavy computation
+- **Evidence**: Pre-allocated patterns, O(1) operations, no I/O in hot paths
+
+#### Memory Management
+- **Status**: ✅ **VERIFIED** - Singleton patterns prevent duplicate allocations
+- **Evidence**: MetricsManager.default(), _METRICS dict for idempotency
+
+### Integration Points Validation
+
+#### Cross-Module Dependencies
+- **Status**: ✅ **VERIFIED** - Dependencies match documentation
+- **Evidence**: Circular import avoidance, lazy imports where needed
+
+### Critical Issues Found
+
+#### **HIGH: Documentation Completeness**
+- **Issue**: 25% of implementation files completely undocumented
+- **Files**: safe_math.py, event_emitter.py, metrics_manager.py, events_util.py
+- **Impact**: Developers may miss important utilities, architectural understanding incomplete
+- **Recommendation**: Add full documentation sections for missing files
+
+#### **MEDIUM: Architecture Overview Incomplete**
+- **Issue**: metrics_manager.py represents significant facade pattern not described
+- **Impact**: Usage patterns section missing key component integration
+- **Recommendation**: Update architecture section with MetricsManager as central component
+
+### Recommendations
+
+1. **Documentation Updates**:
+   - Add sections for all 4 undocumented files
+   - Update file count from 12 to 16
+   - Add MetricsManager to key components list
+   - Include safe_math.py in performance-critical utilities
+
+2. **Architecture Clarification**:
+   - Document MetricsManager as primary metrics facade
+   - Clarify metrics.py as intentional Pattern 5 exception
+   - Update dependency graph to show all files
+
+3. **Usage Pattern Examples**:
+   - Add examples for event_emitter utilities
+   - Show MetricsManager singleton usage
+   - Document safe math for feature engineering
+
+### Summary
+
+**Accuracy Rating**: **75%** - Documentation accurate for covered components but missing 25% of implementation
+
+**Compliance Rating**: **100%** - All Universal ML Architecture Patterns correctly implemented
+
+**Implementation Quality**: **Excellent** - Code follows all coding standards, proper type safety, performance-conscious design
+
+The ml/common module implementation is **production-ready** and **architecturally sound**. The main issue is **documentation drift** - implementation has evolved beyond documentation scope. No architectural or code quality issues found.

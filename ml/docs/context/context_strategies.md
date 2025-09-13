@@ -1486,3 +1486,219 @@ The current implementation provides a solid, production-tested foundation ready 
 - **Monitoring**: See `context_monitoring.md` for observability
 - **Actors**: See `context_actors.md` for inference actors
 - **Models**: See `context_models.md` for model implementations
+
+## Implementation Review Addendum
+
+### Ground-Truth Implementation Analysis
+
+This addendum provides a comprehensive validation of the implementation against documented claims, focusing on the actual codebase state as of September 12, 2025.
+
+### Critical Documentation vs Implementation Discrepancies
+
+#### **Pattern 1: 4-Store + 4-Registry Integration - MAJOR DEVIATION**
+
+**Documentation Claim** (Line 8, 77-82):
+> "Mandatory 4-Store + 4-Registry Integration: Automatic initialization ensures consistent data lifecycle management"
+> "All strategies MUST integrate with the complete 4-store + 4-registry system"
+
+**Actual Implementation**:
+- **ONLY StrategyStore** is implemented (`base.py:36, 199-217`)
+- **NO BaseMLInferenceActor inheritance** - strategies inherit from `nautilus_trader.trading.strategy.Strategy`
+- **Missing stores**: FeatureStore, ModelStore, DataStore (0/4 implemented)
+- **Missing registries**: All 4 registries are absent (0/4 implemented)
+
+**Evidence**: `base.py:128` - `class BaseMLStrategy(Strategy, ABC)` instead of `BaseMLInferenceActor`
+
+**Impact**: **CRITICAL** - Core architectural pattern completely unimplemented
+
+#### **Pattern 2: Protocol-First Interface Design - PARTIALLY IMPLEMENTED**
+
+**Documentation Claim** (Lines 84-89):
+> "Protocol-based interfaces for type safety without implementation coupling"
+
+**Actual Implementation**:
+- ✅ `StrategyStoreProtocol` correctly used (`base.py:39, 199`)
+- ❌ Missing protocols for the other 3 stores (not implemented)
+- ✅ Proper TYPE_CHECKING imports (`base.py:38-39`)
+
+**Evidence**: Only 1 of 4 required store protocols implemented
+
+#### **Pattern 3: Hot/Cold Path Separation - COMPLIANT**
+
+**Documentation Claim** (Lines 92-96):
+> "<5ms P99 latency, zero allocations, pre-allocated arrays for inference"
+
+**Actual Implementation**: ✅ **COMPLIANT**
+- No pandas/DataFrame usage in strategies
+- Pre-allocated buffers (`base.py:174-179`)
+- Bounded data structures (`deque` with maxlen)
+- No `.fit()` calls in hot path
+- No blocking I/O in signal processing
+
+**Evidence**: Clean hot path implementation in `_handle_ml_signal()` and `_process_ml_signal()`
+
+#### **Pattern 4: Progressive Fallback Chains - IMPLEMENTED FOR STRATEGYSTORE ONLY**
+
+**Documentation Claim** (Lines 98-103):
+> "Progressive fallback: PostgreSQL → Container Auto-start → DummyStore → RuntimeError"
+
+**Actual Implementation**:
+- ✅ StrategyStore fallback implemented (`base.py:212-217`)
+- ❌ Only for 1 of 4 required stores
+- ✅ Graceful degradation with logging
+
+**Evidence**: `base.py:212-217` - fallback to `None` with warning log
+
+#### **Pattern 5: Centralized Metrics Bootstrap - DEVIATION**
+
+**Documentation Claim** (Lines 105-110):
+> "All metrics via `ml.common.metrics_bootstrap` preventing duplicate registration"
+
+**Actual Implementation**: **DEVIATION**
+- ❌ Uses `ml.common.metrics_manager.MetricsManager` instead (`base.py:73`)
+- ❌ No imports of `metrics_bootstrap` module
+- ✅ No direct `prometheus_client` imports (compliant)
+- ✅ Centralized metrics initialization pattern followed
+
+**Evidence**: `base.py:73` - `from ml.common.metrics_manager import MetricsManager`
+
+### Production Claims vs Implementation Status
+
+#### **95% Complete System Status - OVERSTATED**
+
+**Documentation Claim** (Lines 5-7, 138-139):
+> "95% Complete - See ROADMAP.md for detailed progress tracking"
+> "✅ Production-Ready Core Systems (95% Complete)"
+
+**Actual Implementation Status**: **~40% Complete** based on core patterns
+- Pattern 1 (Mandatory): 25% (1/4 stores, 0/4 registries)
+- Pattern 2 (Protocols): 25% (1/4 store protocols)  
+- Pattern 3 (Hot/Cold): 100% ✅
+- Pattern 4 (Fallbacks): 25% (1/4 stores)
+- Pattern 5 (Metrics): 75% (correct pattern, wrong module)
+
+**Comprehensive Issues Analysis**:
+
+### Architecture Compliance Issues
+
+1. **BaseMLInferenceActor Missing** (`base.py:128`)
+   - Strategies inherit from `Strategy` not `BaseMLInferenceActor` 
+   - Violates mandatory inheritance requirement
+   - Missing automatic 4-store + 4-registry initialization
+
+2. **Incomplete Store Integration**
+   - Only `StrategyStore` implemented
+   - Missing: `FeatureStore`, `ModelStore`, `DataStore`
+   - Missing all 4 registry integrations
+
+3. **Metrics Bootstrap Deviation** (`base.py:73`)
+   - Uses `MetricsManager` instead of documented `metrics_bootstrap`
+   - May cause registry conflicts mentioned in documentation
+
+### File-Level Implementation Analysis
+
+#### `/ml/strategies/__init__.py` - COMPLIANT ✅
+- **Status**: Fully implemented and compliant
+- Exports all documented classes correctly
+- Clean public API surface
+
+#### `/ml/strategies/base.py` - PARTIAL IMPLEMENTATION ⚠️
+- **Total Lines**: 999 (substantial implementation)
+- **Status**: Core functionality implemented, architectural compliance failed
+
+**Implemented Features**:
+- ✅ Complete BaseMLStrategy with comprehensive signal processing
+- ✅ SimpleMLStrategy implementation (lines 905-999)
+- ✅ StrategyStore integration with progressive fallback
+- ✅ Hot path performance optimizations
+- ✅ Comprehensive metrics integration
+- ✅ Multi-model signal aggregation
+- ✅ Advanced position management
+
+**Critical Missing**:
+- ❌ BaseMLInferenceActor inheritance (line 128)
+- ❌ 3 of 4 mandatory stores
+- ❌ All 4 registries
+- ❌ Correct metrics bootstrap module
+
+#### `/ml/strategies/ml_strategy.py` - FUNCTIONAL BUT NON-COMPLIANT ⚠️  
+- **Total Lines**: 434 (solid implementation)
+- **Status**: Business logic complete, architectural violations inherited
+
+**Implemented Features**:
+- ✅ MLTradingStrategy with full decision persistence (lines 29-353)
+- ✅ MultiModelMLStrategy with dynamic weighting (lines 355-434)  
+- ✅ Advanced performance attribution
+- ✅ Complete order management
+- ✅ Multi-model ensemble orchestration
+
+**Inherited Issues**:
+- ❌ Same architectural compliance failures as base class
+- ❌ Missing 4-store + 4-registry integration
+
+### Completion Percentage Reality Check
+
+**Documentation Claims vs Ground Truth**:
+
+| Component | Claimed | Actual | Evidence |
+|-----------|---------|--------|----------|
+| Overall System | 95% | ~40% | Core patterns incomplete |
+| Store Integration | 100% | 25% | Only StrategyStore implemented |
+| Registry System | 100% | 0% | No registry integration found |
+| Protocol Design | Complete | 25% | Only StrategyStoreProtocol exists |
+| Metrics Bootstrap | Complete | 75% | Wrong module imported |
+| Strategy Framework | 95% | 80% | Business logic solid, architecture broken |
+
+### Hyperbolic Claims Identified
+
+1. **Line 5**: "95% Complete" - Should be ~40% based on core pattern compliance
+2. **Lines 77-82**: "Automatic initialization" - Not implemented without BaseMLInferenceActor
+3. **Line 144**: "Complete implementation ensuring consistency" - Major inconsistencies found
+4. **Lines 866-873**: "Complete Strategy Framework" - Architecture incomplete
+5. **Line 1441**: "production-hardened, enterprise-ready" - Core patterns not implemented
+
+### Specific File:Line Discrepancies
+
+1. **Line 77**: Claims "4 Stores: FeatureStore, ModelStore, StrategyStore, DataStore (automatic via BaseMLInferenceActor)" 
+   - `base.py:128` - No BaseMLInferenceActor inheritance
+   - Only StrategyStore implemented
+
+2. **Line 107**: Claims "All metrics via `ml.common.metrics_bootstrap`"
+   - `base.py:73` - Uses `MetricsManager` instead
+
+3. **Lines 500-501**: "ML strategies MUST integrate with the complete 4-store + 4-registry system"
+   - Implementation has 1/8 required components
+
+4. **Line 866**: "✅ Complete Strategy Framework" with "BaseMLStrategy: Production abstract base with mandatory 4-store integration"
+   - `base.py:199` - Only StrategyStore initialized
+
+### Recommendations for Documentation Accuracy
+
+1. **Update completion percentage** from 95% to 40-50% until core patterns implemented
+2. **Remove hyperbolic claims** about "production-hardened" and "enterprise-ready"
+3. **Clarify current limitations** regarding missing stores and registries  
+4. **Update architecture diagrams** to reflect actual implementation state
+5. **Add migration plan** for implementing missing core patterns
+6. **Revise Pattern 1 documentation** to reflect current StrategyStore-only implementation
+
+### Positive Implementation Highlights
+
+Despite architectural compliance issues, the strategies implementation demonstrates:
+
+✅ **Excellent Business Logic**: Comprehensive signal processing, position management, and order handling
+✅ **Production Safety**: Dry-run mode, comprehensive error handling, position sizing validation  
+✅ **Performance Optimization**: Hot path compliance, pre-allocated buffers, bounded data structures
+✅ **Monitoring Integration**: Comprehensive Prometheus metrics with proper labeling
+✅ **Multi-Model Support**: Advanced ensemble capabilities with dynamic weighting
+✅ **Code Quality**: Clean abstractions, proper typing, comprehensive documentation
+
+### Summary Assessment
+
+The ml/strategies implementation provides **solid trading strategy business logic** but **fails to comply with the documented Universal ML Architecture Patterns**. While the code is well-written and functionally complete for strategy execution, it represents approximately **40% completion** rather than the claimed 95%, primarily due to missing core architectural components.
+
+**Priority Actions**:
+1. Implement BaseMLInferenceActor inheritance
+2. Add remaining 3 stores + 4 registries  
+3. Update documentation to reflect current state
+4. Revise completion percentages realistically
+5. Create migration roadmap for full pattern compliance

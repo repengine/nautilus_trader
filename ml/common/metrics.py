@@ -1,14 +1,15 @@
 """
 Centralized Prometheus metrics for the ML system.
 
-This module defines all metrics once to avoid duplication and registration conflicts.
-All components should import metrics from here rather than defining their own.
+This module defines all metrics once via the metrics bootstrap to avoid duplicate
+registration and direct prometheus_client imports. Callers should import metrics from
+here rather than instantiating their own collectors.
 
 """
 
-from prometheus_client import Counter
-from prometheus_client import Gauge
-from prometheus_client import Histogram
+from ml.common.metrics_bootstrap import get_counter
+from ml.common.metrics_bootstrap import get_gauge
+from ml.common.metrics_bootstrap import get_histogram
 
 
 # ============================================================================
@@ -16,28 +17,28 @@ from prometheus_client import Histogram
 # ============================================================================
 
 # Event tracking across all pipeline stages
-data_events_total = Counter(
+data_events_total = get_counter(
     "nautilus_ml_data_events_total",
     "Total data events processed by stage",
     ["dataset_type", "component", "stage", "source", "status"],
 )
 
 # Watermark lag tracking
-watermark_lag_seconds = Gauge(
+watermark_lag_seconds = get_gauge(
     "nautilus_ml_watermark_lag_seconds",
     "Lag in seconds since last successful processing",
     ["dataset", "instrument", "source"],
 )
 
 # Stage coverage percentage
-stage_coverage_pct = Gauge(
+stage_coverage_pct = get_gauge(
     "nautilus_ml_stage_coverage_pct",
     "Coverage percentage between pipeline stages",
     ["dataset", "from_stage", "to_stage"],
 )
 
 # Contract violations
-contract_violations_total = Counter(
+contract_violations_total = get_counter(
     "nautilus_ml_contract_violations_total",
     "Total contract validation violations",
     ["dataset", "rule"],
@@ -47,19 +48,19 @@ contract_violations_total = Counter(
 # DATA COLLECTION METRICS
 # ============================================================================
 
-data_collection_duration = Histogram(
+data_collection_duration = get_histogram(
     "nautilus_ml_data_collection_duration_seconds",
     "Duration of data collection operations",
     ["source", "schema"],
 )
 
-data_collection_errors_total = Counter(
+data_collection_errors_total = get_counter(
     "nautilus_ml_data_collection_errors",
     "Total data collection errors",
     ["source", "instrument", "error_type"],
 )
 
-catalog_write_operations_total = Counter(
+catalog_write_operations_total = get_counter(
     "nautilus_ml_catalog_write_operations",
     "Total catalog write operations",
     ["status"],
@@ -69,19 +70,19 @@ catalog_write_operations_total = Counter(
 # FEATURE STORE METRICS
 # ============================================================================
 
-feature_store_operations_total = Counter(
+feature_store_operations_total = get_counter(
     "nautilus_ml_feature_store_operations",
     "Total feature store operations",
     ["operation", "status"],
 )
 
-feature_computation_duration = Histogram(
+feature_computation_duration = get_histogram(
     "nautilus_ml_feature_computation_duration_seconds",
     "Duration of feature computation",
     ["feature_set", "mode"],  # mode: batch or realtime
 )
 
-feature_drift_score = Gauge(
+feature_drift_score = get_gauge(
     "nautilus_ml_feature_drift_score",
     "Feature drift score (0-1)",
     ["feature_set", "feature_name"],
@@ -91,25 +92,25 @@ feature_drift_score = Gauge(
 # MODEL STORE METRICS
 # ============================================================================
 
-model_store_operations_total = Counter(
+model_store_operations_total = get_counter(
     "nautilus_ml_model_store_operations",
     "Total model store operations",
     ["operation", "status"],
 )
 
-model_inference_duration = Histogram(
+model_inference_duration = get_histogram(
     "nautilus_ml_model_inference_duration_seconds",
     "Duration of model inference",
     ["model_id", "version"],
 )
 
-model_accuracy = Gauge(
+model_accuracy = get_gauge(
     "nautilus_ml_model_accuracy",
     "Model accuracy score",
     ["model_id", "version"],
 )
 
-model_confidence = Gauge(
+model_confidence = get_gauge(
     "nautilus_ml_model_confidence",
     "Average model confidence score",
     ["model_id", "version"],
@@ -139,19 +140,19 @@ PREDICTION_COUNTER = _ProxyMetric()
 # STRATEGY STORE METRICS
 # ============================================================================
 
-strategy_store_operations_total = Counter(
+strategy_store_operations_total = get_counter(
     "nautilus_ml_strategy_store_operations",
     "Total strategy store operations",
     ["operation", "status"],
 )
 
-strategy_signal_generation_duration = Histogram(
+strategy_signal_generation_duration = get_histogram(
     "nautilus_ml_strategy_signal_generation_duration_seconds",
     "Duration of signal generation",
     ["strategy_id"],
 )
 
-strategy_pnl = Gauge(
+strategy_pnl = get_gauge(
     "nautilus_ml_strategy_pnl",
     "Strategy P&L",
     ["strategy_id", "timeframe"],
@@ -161,31 +162,31 @@ strategy_pnl = Gauge(
 # VALIDATION METRICS
 # ============================================================================
 
-validation_violations_counter = Counter(
+validation_violations_counter = get_counter(
     "nautilus_ml_validation_violations",
     "Data validation violations by type and severity",
     ["dataset_id", "rule_type", "severity"],
 )
 
-validation_duration_histogram = Histogram(
+validation_duration_histogram = get_histogram(
     "nautilus_ml_validation_duration_seconds",
     "Time spent on data validation",
     ["dataset_id"],
 )
 
-schema_mismatch_counter = Counter(
+schema_mismatch_counter = get_counter(
     "nautilus_ml_schema_mismatches",
     "Schema validation failures",
     ["dataset", "mismatch_type"],
 )
 
-write_rejection_counter = Counter(
+write_rejection_counter = get_counter(
     "nautilus_ml_write_rejections",
     "Writes rejected due to validation failures",
     ["dataset_id", "reason"],
 )
 
-quality_score_histogram = Histogram(
+quality_score_histogram = get_histogram(
     "nautilus_ml_data_quality_score",
     "Distribution of data quality scores",
     ["dataset_id"],
@@ -196,13 +197,13 @@ quality_score_histogram = Histogram(
 # SYSTEM HEALTH METRICS
 # ============================================================================
 
-pipeline_health = Gauge(
+pipeline_health = get_gauge(
     "nautilus_ml_pipeline_health",
     "Overall pipeline health score (0-1)",
     ["component"],
 )
 
-system_ready = Gauge(
+system_ready = get_gauge(
     "nautilus_ml_system_ready",
     "System readiness status (0=not ready, 1=ready)",
     ["component"],
@@ -213,28 +214,28 @@ system_ready = Gauge(
 # ============================================================================
 
 # Backpressure drops (e.g., throttled, queue_full)
-backpressure_drops_total = Counter(
+backpressure_drops_total = get_counter(
     "nautilus_ml_backpressure_drops_total",
     "Total events dropped due to backpressure",
     ["component", "reason"],
 )
 
 # Optional queue depth gauge for actor-side bridge
-backpressure_queue_depth = Gauge(
+backpressure_queue_depth = get_gauge(
     "nautilus_ml_backpressure_queue_depth",
     "Current depth of actor-side domain event queue",
     ["component"],
 )
 
 # Circuit breaker state (0=closed, 0.5=half_open, 1=open)
-circuit_breaker_state = Gauge(
+circuit_breaker_state = get_gauge(
     "nautilus_ml_circuit_breaker_state",
     "Circuit breaker state (0=closed, 0.5=half_open, 1=open)",
     ["component"],
 )
 
 # Circuit breaker transitions counter
-circuit_breaker_trips_total = Counter(
+circuit_breaker_trips_total = get_counter(
     "nautilus_ml_circuit_breaker_trips_total",
     "Total circuit breaker transitions",
     ["component", "to_state"],
@@ -244,25 +245,25 @@ circuit_breaker_trips_total = Counter(
 # CONSUMER / AGGREGATOR METRICS
 # ============================================================================
 
-aggregator_buffer_size = Gauge(
+aggregator_buffer_size = get_gauge(
     "nautilus_ml_aggregator_buffer_size",
     "Current buffered envelope count per instrument",
     ["instrument"],
 )
 
-aggregator_duplicates_total = Counter(
+aggregator_duplicates_total = get_counter(
     "nautilus_ml_aggregator_duplicates_total",
     "Total duplicate envelopes dropped by id",
     [],
 )
 
-aggregator_flushed_total = Counter(
+aggregator_flushed_total = get_counter(
     "nautilus_ml_aggregator_flushed_total",
     "Total envelopes flushed after watermark gating",
     ["instrument"],
 )
 
-aggregator_watermark_lag_seconds = Gauge(
+aggregator_watermark_lag_seconds = get_gauge(
     "nautilus_ml_aggregator_watermark_lag_seconds",
     "Watermark lag (watermark_ns - last_flushed_ts) per instrument",
     ["instrument"],
@@ -328,9 +329,6 @@ __all__ = [
     "FEATURE_CALCULATION_TIMER",
     "MODEL_INFERENCE_TIMER",
     "PREDICTION_COUNTER",
-    "Counter",
-    "Gauge",
-    "Histogram",
     "aggregator_buffer_size",
     "aggregator_duplicates_total",
     "aggregator_flushed_total",

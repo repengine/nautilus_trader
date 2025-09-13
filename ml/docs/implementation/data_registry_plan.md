@@ -28,8 +28,8 @@ trategy_store.py`.
 - Health views: `ml/stores/migrations/005_views.sql` (freshness, errors, processing).
 - Monitoring: `ml/monitoring/README.md`, `ml/monitoring/grafana/GRAFANA_INTEGRAT
 ION_PLAN.md`.
-- Registry (models/features/strategies): `ml/registry/*`, `ml/docs/context/conte
-xt_registry.md`.
+- Registry (models/features/strategies): `ml/registry/*`, `ml/docs/context/context_registry.md`.
+  - Note: Feature/Model/Strategy registries share a common base (`ml/registry/abstract_registry.py`) for persistence/locking/audit/health wiring; DataRegistry remains separate due to event/watermark/time‑series semantics.
 - Context docs: `ml/docs/context/context_data.md`, `ml/docs/context/context_stor
 es.md`.
 
@@ -46,6 +46,7 @@ pec.
   - Typed read/write façade that validates batches against contracts and emits e
 vents/watermarks.
   - File to add: `ml/stores/data_store.py`.
+  - Implementation notes: event helpers centralize enum‑typed events and deterministic correlation IDs; SQL function fallbacks are honored (extended vs legacy), and the DataStore façade remains strictly off actor hot paths (actors only call `flush()` on stop).
 
 - Manifests + Contracts:
   - DatasetManifest: dataset_id, dataset_type (BARS|TRADES|QUOTES|MBP1|TBBO|FEAT
@@ -392,3 +393,8 @@ exing.
     - Add chaos engineering tests for resilience
     - Implement synthetic data generation for testing
     - Create regression test suite with historical scenarios
+- Implementation Notes (actual design choices)
+
+  - Event emission is centralized with enum‑safe helpers and deterministic correlation IDs. If the extended SQL function `emit_data_event_ext` (with metadata) is available it is used; otherwise the implementation falls back to `emit_data_event` or a direct insert. This increases robustness across environments without sacrificing observability.
+
+  - The DataStore façade is intentionally kept off actor hot paths. Actors are given only a minimal `DataStoreFacadeProtocol` (currently `flush()`), which prevents accidental heavy operations inside `on_*` handlers while retaining a unified, validated data pipeline for batch and CLI workflows.

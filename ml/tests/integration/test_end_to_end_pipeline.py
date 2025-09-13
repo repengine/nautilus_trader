@@ -75,6 +75,7 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
+from ml.tests.builders import DataBuilder
 
 # Check if databento is available
 try:
@@ -262,7 +263,7 @@ class TestEndToEndPipeline:
         catalog.write_data(mock_bars)
 
         # Verify data was written
-        instrument_ids = ["SPY.NYSE"]
+        instrument_ids = [str(default_instrument_id)]
         df = bars_to_dataframe(catalog, instrument_ids)
 
         assert not df.is_empty()
@@ -274,7 +275,7 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_feature_computation_and_storage(self, test_database, temp_data_dir: Path) -> None:
+    def test_feature_computation_and_storage(self, test_database, temp_data_dir: Path, default_instrument_id) -> None:
         """
         Test feature computation and storage in FeatureStore.
         """
@@ -284,7 +285,7 @@ class TestEndToEndPipeline:
         catalog.write_data(mock_bars)
 
         # Load data
-        df = bars_to_dataframe(catalog, ["SPY.NYSE"])
+        df = bars_to_dataframe(catalog, [str(default_instrument_id)])
 
         # Configure feature engineering
         config = FeatureConfig(
@@ -328,7 +329,7 @@ class TestEndToEndPipeline:
         # Store features using real PostgreSQL store
         for i, row in enumerate(features_df.to_dicts()):
             feature_store.store_features(
-                instrument_id="SPY.NYSE",
+                instrument_id=str(default_instrument_id),
                 ts_event=mock_bars[i].ts_event,
                 features=row,
             )
@@ -339,7 +340,7 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_signal_generation_from_features(self, temp_data_dir: Path) -> None:
+    def test_signal_generation_from_features(self, temp_data_dir: Path, default_instrument_id) -> None:
         """
         Test ML signal generation from computed features.
         """
@@ -352,7 +353,7 @@ class TestEndToEndPipeline:
         catalog.write_data(mock_bars)
 
         # Load and compute features
-        df = bars_to_dataframe(catalog, ["SPY.NYSE"])
+        df = bars_to_dataframe(catalog, [str(default_instrument_id)])
         config = FeatureConfig(rsi_period=14)
         engineer = FeatureEngineer(config)
         features_df, scaler = engineer.calculate_features(df, mode="batch", fit_scaler=True)
@@ -382,7 +383,7 @@ class TestEndToEndPipeline:
         signals = []
         for i in range(len(predictions)):
             signal = {
-                "instrument_id": "SPY.NYSE",
+                "instrument_id": str(default_instrument_id),
                 "ts_event": mock_bars[i].ts_event,
                 "prediction": int(predictions[i]) - 1,  # Convert to -1, 0, 1
                 "confidence": float(np.max(probabilities[i])),
@@ -400,7 +401,7 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_persistence_verification(self, test_database, temp_data_dir: Path) -> None:
+    def test_persistence_verification(self, test_database, temp_data_dir: Path, default_instrument_id) -> None:
         """
         Test that all data is correctly persisted to stores.
         """
@@ -418,7 +419,7 @@ class TestEndToEndPipeline:
 
         # 1. Store features
         feature_store.store_features(
-            instrument_id="SPY.NYSE",
+            instrument_id=str(default_instrument_id),
             ts_event=int(time.time_ns()),
             features={"rsi": 50.0, "volume_ratio": 1.2},
         )
@@ -426,7 +427,7 @@ class TestEndToEndPipeline:
         # 2. Store model predictions
         model_store.store_prediction(
             model_id="xgb_v1",
-            instrument_id="SPY.NYSE",
+            instrument_id=str(default_instrument_id),
             ts_event=int(time.time_ns()),
             prediction=1,
             confidence=0.85,
@@ -435,7 +436,7 @@ class TestEndToEndPipeline:
         # 3. Store strategy decisions
         strategy_store.store_decision(
             strategy_id="ml_strategy_v1",
-            instrument_id="SPY.NYSE",
+            instrument_id=str(default_instrument_id),
             ts_event=int(time.time_ns()),
             action="BUY",
             confidence=0.85,
@@ -483,7 +484,7 @@ class TestEndToEndPipeline:
             # Should handle store errors gracefully
             try:
                 feature_store.store_features(
-                    instrument_id="SPY.NYSE",
+                    instrument_id=str(default_instrument_id),
                     ts_event=123456,
                     features={},
                 )
@@ -511,7 +512,7 @@ class TestEndToEndPipeline:
         catalog.write_data(mock_bars)
 
         # Load data
-        df = bars_to_dataframe(catalog, ["SPY.NYSE"])
+        df = bars_to_dataframe(catalog, [str(default_instrument_id)])
         assert len(df) == n_bars
 
         # Feature computation should scale
@@ -623,7 +624,7 @@ class TestEndToEndPipeline:
         mock_bars = self._create_mock_bars("SPY", n_bars=50)
         catalog.write_data(mock_bars)
 
-        df = bars_to_dataframe(catalog, ["SPY.NYSE"])
+        df = bars_to_dataframe(catalog, [str(default_instrument_id)])
         config = FeatureConfig(rsi_period=14)
         engineer = FeatureEngineer(config)
 

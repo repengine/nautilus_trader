@@ -4,15 +4,15 @@ import json
 from pathlib import Path
 
 from ml.registry.base import DataRequirements
-from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
+from ml.tests.builders import RegistryBuilder
 
 
 def test_update_manifest_persists_perf_digest_json(tmp_path: Path) -> None:
     reg = FeatureRegistry(tmp_path)
-    m = FeatureManifest(
+    m = RegistryBuilder.feature_manifest(
         feature_set_id="",
         name="fs",
         version="1.0.0",

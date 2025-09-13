@@ -141,6 +141,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Number of DataLoader workers for train/val (default: 0)",
     )
     ap.add_argument(
+        "--precision",
+        required=False,
+        default="32",
+        help="Training precision for Lightning Trainer (e.g., 32, 16, 16-mixed, bf16)",
+    )
+    ap.add_argument(
         "--learning_rate",
         required=False,
         type=float,
@@ -346,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_prediction_length=args.max_prediction_length,
                 time_varying_unknown_reals=feature_names,
                 batch_size=int(args.batch_size),
+                precision=str(args.precision),
                 static_categoricals=(
                     [s for s in (args.static_categoricals or "").split(",") if s]
                     if args.static_categoricals

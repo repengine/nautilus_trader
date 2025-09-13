@@ -8,12 +8,15 @@ import polars as pl
 
 import ml.data.fred_join as fred_mod
 from ml.data.fred_join import join_fred_asof
+from ml.tests.builders import DataBuilder
 
 
 def test_join_fred_asof_polars_basic(monkeypatch) -> None:
-    # Market data every minute
+    # Market data every minute - use DataBuilder for consistent timestamps
     base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
-    ts = [base + timedelta(minutes=i) for i in range(6)]
+    base_ns = int(base.timestamp() * 1e9)
+    ts_ns = DataBuilder.time_series(n_points=6, start_time=base_ns, interval_ns=60_000_000_000)
+    ts = [datetime.fromtimestamp(t / 1e9, tz=UTC) for t in ts_ns]
     left = pl.DataFrame({"timestamp": ts, "close": [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]})
     # FRED releases at T0 and T+3min
     fred_ml = pl.DataFrame(

@@ -182,8 +182,9 @@ validate-events:  #-- Validate canonical event stage constants usage
 	uv run --active --no-sync python tools/validate_event_constants.py
 
 .PHONY: validate-nautilus-patterns
-validate-nautilus-patterns:  #-- Run extended ML validation suite (semgrep, import-linter, duplication, xenon)
+validate-nautilus-patterns:  #-- Run extended ML validation suite (patterns, semgrep, import-linter, duplication, xenon)
 	$(info $(M) Running ML validation suite...)
+	uv run --active --no-sync python .pre-commit-hooks/check_nautilus_patterns.py $$(find ml -name "*.py" -not -path "ml/tests/*" -not -name "test_*.py") || true
 	uv run --active --no-sync semgrep --config tools/semgrep/ml-rules.yml --error || true
 	uv run --active --no-sync python tools/duplication/check_duplication.py || true
 	uv run --active --no-sync lint-imports --config importlinter.ini || true
@@ -191,6 +192,67 @@ validate-nautilus-patterns:  #-- Run extended ML validation suite (semgrep, impo
 	uv run --active --no-sync bandit -q -r ml -x ml/tests || true
 	uv run --active --no-sync vulture ml --min-confidence 90 --exclude ml/tests || true
 	@echo "Validation suite complete (non-blocking). To enforce, run via pre-commit hooks."
+
+#== ML Orchestrator
+
+.PHONY: ml-pipeline-orchestrator
+ml-pipeline-orchestrator:  #-- Run cold-path pipeline: optional ingestion + dataset build + optional HPO + teacher train
+	$(info $(M) Running ML pipeline orchestrator...)
+	$Q uv run --active --no-sync python -m ml.cli.pipeline_orchestrator \
+		$(if $(INGEST),--ingest,) \
+		$(if $(DATASET_ID),--dataset_id $(DATASET_ID),) \
+		$(if $(SCHEMA),--schema $(SCHEMA),) \
+		$(if $(INSTRUMENTS),--instruments $(INSTRUMENTS),) \
+		$(if $(LOOKBACK_DAYS),--lookback_days $(LOOKBACK_DAYS),) \
+		$(if $(COVERAGE_MODE),--coverage_mode $(COVERAGE_MODE),) \
+		$(if $(CATALOG_PATH),--catalog_path $(CATALOG_PATH),) \
+		$(if $(DB),--db $(DB),) \
+		$(if $(WRITE_MODE),--write_mode $(WRITE_MODE),) \
+		$(if $(DATA_DIR),--data_dir $(DATA_DIR),) \
+		$(if $(SYMBOLS),--symbols $(SYMBOLS),) \
+		$(if $(OUT_DIR),--out_dir $(OUT_DIR),) \
+		$(if $(INCLUDE_MACRO),--include_macro,) \
+		$(if $(MACRO_LAG_DAYS),--macro_lag_days $(MACRO_LAG_DAYS),) \
+		$(if $(INCLUDE_MICRO),--include_micro,) \
+		$(if $(INCLUDE_L2),--include_l2,) \
+		$(if $(HORIZON_MINUTES),--horizon_minutes $(HORIZON_MINUTES),) \
+		$(if $(THRESHOLD),--threshold $(THRESHOLD),) \
+		$(if $(LOOKBACK_PERIODS),--lookback_periods $(LOOKBACK_PERIODS),) \
+		$(if $(HPO),--hpo,) \
+		$(if $(HPO_EPOCHS),--hpo_epochs $(HPO_EPOCHS),) \
+		$(if $(HPO_BATCH_SIZE),--hpo_batch_size $(HPO_BATCH_SIZE),) \
+		$(if $(HPO_TAIL_ROWS),--hpo_tail_rows $(HPO_TAIL_ROWS),) \
+		$(if $(HPO_LIMIT_GROUPS),--hpo_limit_groups $(HPO_LIMIT_GROUPS),) \
+		$(if $(TRAIN),--train,) \
+		$(if $(TEACHER_MODEL_ID),--teacher_model_id $(TEACHER_MODEL_ID),) \
+		$(if $(FEATURE_REGISTRY_DIR),--feature_registry_dir $(FEATURE_REGISTRY_DIR),) \
+		$(if $(FEATURE_SET_ID),--feature_set_id $(FEATURE_SET_ID),) \
+		$(if $(MAX_EPOCHS),--max_epochs $(MAX_EPOCHS),)
+
+.PHONY: ml-pipeline-scheduler
+ml-pipeline-scheduler:  #-- Run the scheduler for the cold-path orchestrator (env-driven)
+	$(info $(M) Starting ML pipeline scheduler...)
+	$Q uv run --active --no-sync python -m ml.cli.pipeline_scheduler \
+		$(if $(SCHEDULE_TIME),--schedule-time $(SCHEDULE_TIME),) \
+		$(if $(INTERVAL_MIN),--interval-min $(INTERVAL_MIN),) \
+		$(if $(ORCH_CONFIG),--config $(ORCH_CONFIG),) \
+		$(if $(DRY_RUN),--dry-run,) \
+		$(if $(FORCE),--force,)
+
+.PHONY: ml-pipeline-scheduler-example
+ml-pipeline-scheduler-example:  #-- Run scheduler with example TOML and 24h interval (dry run via DRY_RUN=1)
+	$(info $(M) Running scheduler with example config...)
+	$Q $(MAKE) ml-pipeline-scheduler \
+		ORCH_CONFIG=ml/config/pipeline_scheduler_example.toml \
+		INTERVAL_MIN=1440 $(if $(DRY_RUN),DRY_RUN=$(DRY_RUN),DRY_RUN=1)
+
+.PHONY: ml-scheduler-smoke
+ml-scheduler-smoke:  #-- CI one-shot smoke run (forces dummy integration)
+	$(info $(M) Running scheduler smoke...)
+	$Q ML_ALLOW_DUMMY=$(if $(ML_ALLOW_DUMMY),$(ML_ALLOW_DUMMY),1) \
+		uv run --active --no-sync python -m ml.cli.scheduler_smoke \
+		$(if $(ORCH_CONFIG),--config $(ORCH_CONFIG),) \
+		$(if $(DRY_RUN),--dry-run,)
 
 .PHONY: clippy
 clippy:  #-- Run Rust clippy linter with fixes
@@ -475,6 +537,27 @@ pytest-ml-coverage:  #-- Run all ML tests with coverage (no DB startup)
 pytest:  #-- Run Python tests with pytest in parallel with immediate failure reporting
 	$(info $(M) Running Python tests in parallel with immediate failure reporting...)
 	uv run --active --no-sync pytest --new-first --failed-first --tb=line -n logical --dist=loadgroup --maxfail=50 --durations=0 --durations-min=10.0 $(if $(filter true,$(VERBOSE)),-v,)
+
+.PHONY: pytest-green
+pytest-green:  #-- Run correctness lane only (no perf/real API), with coverage gate
+	$(info $(M) Running green lane (correctness only) with coverage gate...)
+	uv run --active --no-sync pytest -q ml/tests \
+		-m "not integration and not performance and not real_api and not prototype" \
+		-n auto --dist=loadscope \
+		-k "not microbench and not performance and not integration and not real_api and not strategies" \
+		--cov=ml --cov-report=term-missing:skip-covered --cov-fail-under=43
+
+.PHONY: pytest-perf
+pytest-perf:  #-- Run microbench performance lane (non-blocking)
+	$(info $(M) Running performance microbench lane...)
+	ML_BENCH_RELAX?=3 uv run --active --no-sync pytest -q ml/tests/performance -k microbench --benchmark-only || true
+
+.PHONY: pytest-real-api
+pytest-real-api:  #-- Run real API tests (Databento/FRED) when keys are present
+	$(info $(M) Running real API tests when keys are set...)
+	@[ -n "$$DATABENTO_API_KEY" ] || echo "Warning: DATABENTO_API_KEY not set; tests may skip";
+	@[ -n "$$FRED_API_KEY" ] || echo "Warning: FRED_API_KEY not set; tests may skip";
+	uv run --active --no-sync pytest -q ml -m real_api
 
 .PHONY: pytest-memory-tracking
 pytest-memory-tracking:  #-- Run Python tests with memory tracking enabled

@@ -30,6 +30,16 @@ from ml.core.integration import MLIntegrationManager
 from nautilus_trader.core.uuid import UUID4
 
 
+# Strategies that can optionally use DataBuilder
+@st.composite
+def instrument_ids_strategy(draw, use_builder=False):
+    """Generate instrument IDs, optionally using DataBuilder."""
+    if use_builder:
+        # Use default instrument ID pattern from fixtures
+        return "EUR/USD.SIM"
+    return draw(st.text(min_size=5, max_size=15))
+
+
 class PipelineState(Enum):
     """
     Pipeline execution states.
@@ -140,7 +150,7 @@ class DomainBookkeepingStateMachine(RuleBasedStateMachine):
     @rule(
         target=pipelines,
         correlation_id=correlations,
-        instrument_id=st.text(min_size=5, max_size=15),
+        instrument_id=instrument_ids_strategy(),
     )
     def start_pipeline_execution(
         self,
@@ -561,7 +571,7 @@ class PipelineRecoveryStateMachine(RuleBasedStateMachine):
         self.recovery_attempts = 0
         self.successful_recoveries = 0
 
-    @rule(target=pipelines, instrument_id=st.text(min_size=5, max_size=15))
+    @rule(target=pipelines, instrument_id=instrument_ids_strategy())
     def create_pipeline(self, instrument_id: str) -> str:
         """
         Create a new pipeline for testing recovery.

@@ -9,10 +9,6 @@ describing manifests, following test contract driven development.
 
 from __future__ import annotations
 
-import hashlib
-import json
-
-# import pickle  # Removed - using ONNX only for security
 import tempfile
 import time
 from pathlib import Path
@@ -26,6 +22,7 @@ from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
+from ml.tests.builders import RegistryBuilder
 from ml.tests.unit.registry.test_model_contracts import ModelContractValidator
 from ml.tests.unit.registry.test_model_contracts import create_valid_student_manifest
 from ml.tests.unit.registry.test_model_contracts import create_valid_teacher_manifest
@@ -380,10 +377,13 @@ class TestUnifiedRegistry:
             "volume": "float32",
             "volatility": "float32",
         }
+
+        import hashlib
+        import json
         schema_json = json.dumps(feature_schema, sort_keys=True)
         schema_hash = hashlib.sha256(schema_json.encode()).hexdigest()
 
-        manifest = ModelManifest(
+        manifest = RegistryBuilder.model_manifest(
             model_id="inference_001",
             role=ModelRole.INFERENCE,
             data_requirements=DataRequirements.L1_ONLY,

@@ -52,6 +52,7 @@ ml/stores/*.db
 *.env
 .env.local
 .env.*.local
+ml/tests/.env
 
 # Compressed files
 *.tar.gz*

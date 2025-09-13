@@ -205,7 +205,7 @@ model = xgb.XGBClassifier()
 ### Type Annotation Pattern
 
 ```python
-from ml.typing import DataFrameLike, StandardScaler
+from ml.ml_types import DataFrameLike, StandardScaler
 
 def process_data(df: DataFrameLike) -> DataFrameLike:
     """Function works with both Pandas and Polars DataFrames."""

@@ -4,15 +4,15 @@ from pathlib import Path
 
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
-from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
+from ml.tests.builders import RegistryBuilder
 
 
 def test_feature_registry_validate_and_promote(tmp_path: Path) -> None:
     freg = FeatureRegistry(tmp_path)
-    manifest = FeatureManifest(
+    manifest = RegistryBuilder.feature_manifest(
         feature_set_id="",
         name="test_features",
         version="1.0.0",

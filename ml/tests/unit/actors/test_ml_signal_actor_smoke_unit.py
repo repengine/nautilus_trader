@@ -21,14 +21,13 @@ from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 
 
-def _stub_bar() -> object:
-    inst = InstrumentId(Symbol("EURUSD"), Venue("SIM"))
-    bar_type = SimpleNamespace(instrument_id=inst)
+def _stub_bar(instrument_id) -> object:
+    bar_type = SimpleNamespace(instrument_id=instrument_id)
     # Only the attributes used by strategies are required
     return SimpleNamespace(bar_type=bar_type, ts_event=1)
 
 
-def test_ml_signal_actor_try_generate_signal_smoke() -> None:
+def test_ml_signal_actor_try_generate_signal_smoke(default_instrument_id) -> None:
     # Dummy self object implementing attributes used by _try_generate_signal
     class _Dummy:
         pass
@@ -70,7 +69,7 @@ def test_ml_signal_actor_try_generate_signal_smoke() -> None:
     features = np.array([0.1, 0.2], dtype=np.float32)
     MLSignalActor._try_generate_signal(  # type: ignore[misc]
         actor,  # self
-        bar=_stub_bar(),
+        bar=_stub_bar(default_instrument_id),
         prediction=0.9,
         confidence=0.8,
         features=features,

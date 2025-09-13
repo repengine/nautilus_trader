@@ -30,6 +30,7 @@ import time
 from abc import ABC
 from abc import abstractmethod
 from collections import deque
+from collections.abc import MutableMapping
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -261,7 +262,7 @@ class SignalGenerationStrategy(ABC):
         prediction: float,
         confidence: float,
         features: npt.NDArray[np.float32],
-        context: dict[str, Any],
+        context: MutableMapping[str, Any],
     ) -> MLSignal | None:
         """
         Generate a signal based on the strategy logic.
@@ -297,7 +298,7 @@ class ThresholdSignalStrategy(SignalGenerationStrategy):
         prediction: float,
         confidence: float,
         features: npt.NDArray[np.float32],
-        context: dict[str, Any],
+        context: MutableMapping[str, Any],
     ) -> MLSignal | None:
         """
         Generate signal based on confidence threshold.
@@ -363,7 +364,7 @@ class ExtremesStrategy(SignalGenerationStrategy):
         prediction: float,
         confidence: float,
         features: npt.NDArray[np.float32],
-        context: dict[str, Any],
+        context: MutableMapping[str, Any],
     ) -> MLSignal | None:
         """
         Generate signal based on prediction extremes.
@@ -467,7 +468,7 @@ class MomentumStrategy(SignalGenerationStrategy):
         prediction: float,
         confidence: float,
         features: npt.NDArray[np.float32],
-        context: dict[str, Any],
+        context: MutableMapping[str, Any],
     ) -> MLSignal | None:
         """
         Generate signal based on prediction momentum.
@@ -837,7 +838,7 @@ class ModelSwapper:
         """
         self._current_model: object | None = None
         self._current_metadata: dict[str, Any] | None = None
-        self._next_model: Any | None = None
+        self._next_model: object | None = None
         self._next_metadata: dict[str, Any] | None = None
         self._swap_pending = False
         self._load_error: Exception | None = None
@@ -1099,7 +1100,7 @@ class MLSignalActor(BaseMLInferenceActor):
         self._market_regime_metric = _market_regime_metric
 
         # Optimized components (lazy initialized)
-        self._optimized_buffers: dict[str, Any] = {}
+        self._optimized_buffers: dict[str, object] = {}
 
         # Optional actor-side message bus bridge (off by default); centralized helper
         self._actor_bus_bridge: DomainEventBridge | None = None

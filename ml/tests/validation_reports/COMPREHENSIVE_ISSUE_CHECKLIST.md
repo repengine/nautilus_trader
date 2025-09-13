@@ -1,7 +1,7 @@
 # Comprehensive Code Quality Issue Checklist
 ## Nautilus Trader ML System - Complete Issue Inventory
 
-**Report Date:** 2025-09-11
+**Report Date:** 2025-09-12
 **Total Issues Found:** 127
 **Critical Issues:** 28
 **High Priority Issues:** 46
@@ -47,10 +47,11 @@
     - Updated modules: `ml/stores/partition_manager.py`, `ml/stores/db_preflight.py`, plus existing consistent usage in `FeatureStore`, `ModelStore`, `StrategyStore`, `coverage_sql` helpers, and `_upsert_mixin`.
     - Acceptance: grep shows consistent begin/commit usage; focused persistence/event tests green; mypy strict/ruff/validators clean.
 
-- [ ] **C005** - 4-registry pattern implemented differently across files
-  - **Files**: `ml/registry/` all implementations
+- [x] **C005** - 4-registry pattern implemented differently across files
+  - **Files**: `ml/registry/abstract_registry.py` (new), `ml/registry/feature_registry.py`, `ml/registry/model_registry.py`, `ml/registry/strategy_registry.py`
   - **Impact**: Cross-registry coupling, maintenance burden
-  - **Effort**: 5-7 days to extract `AbstractRegistry` base class
+  - **Status**: Fixed by introducing `AbstractRegistry` to centralize RLock lifecycle, dual-backend wiring via `PersistenceManager`, JSON helpers, audit logging, and a common health summary. Feature/Model/Strategy registries inherit the base; DataRegistry remains separate (event/watermark/time-series semantics).
+  - **Acceptance**: `uv run --active --no-sync mypy ml --strict` clean; `make ruff` clean; validators OK (`make validate-metrics` / `make validate-events`); focused unit tests for registries green (`pytest -q ml/tests/unit/registry -k "feature_registry or model_registry or strategy_registry"`).
 
 - [x] **C006** - Store health monitoring inconsistent
   - **Files**: Multiple store implementations
@@ -155,35 +156,60 @@
   - **Effort**: 2-3 days to complete annotations
   - Status: Added return type to lazy getter; cleaned up training package mypy issues (`losses.py` ignore). `mypy ml/training --strict` passes.
 
-- [ ] **C023** - Incompatible type assignment in TFT CLI
+- [x] **C023** - Incompatible type assignment in TFT CLI
   - **File**: `ml/training/teacher/tft_cli.py:529`
   - **Impact**: Potential runtime failure in training pipeline
   - **Effort**: 1 day to fix None assignment to ndarray
+  - **Status**: Fixed by annotating logits as optional ndarrays and adding guards
+    before calibration; fallback paths normalized. `mypy ml/training --strict`
+    passes on changed files; manual inspection confirms no None assigned to
+    non-optional ndarrays.
 
 - [ ] **C024** - Any types in performance-critical hot path
-  - **File**: `ml/features/l2_enhanced_engineering.py`
+  - **File**: `ml/features/engineering.py` (was `l2_enhanced_engineering.py`)
   - **Impact**: Disables optimizations, reduces type safety
   - **Effort**: 2-3 days to replace with proper types
+  - **Status**: Partial improvement. Typed `feature_store` param as
+    `FeatureStoreProtocol | None` under TYPE_CHECKING, narrowed internal
+    `_feature_cache` to `dict[str, float]`. Added a typing-only `ComputeTimerProtocol`
+    to document expected timer interface while keeping runtime casts to avoid
+    context-manager typing friction. Deferred broader refactors to avoid hot path risk;
+    compute functions remain zero-allocation.
 
 - [ ] **C025** - Inconsistent type usage across actors
   - **Files**: `ml/actors/base.py`, `ml/actors/signal.py`
   - **Impact**: Mix of Any and specific types without clear rationale
   - **Effort**: 3-4 days to standardize type annotations
+  - **Status**: Partially addressed. Added `DataStoreFacadeProtocol` and adopted in
+    `BaseMLInferenceActor`; standardized store attachments without runtime casts;
+    tightened signal strategy contexts to `MutableMapping[str, Any]`; refined
+    `_next_model` to `object | None`. Remaining Any usages are intentional where
+    upstream types are dynamic. Mypy strict clean; hot path unchanged.
 
-- [ ] **C026** - Missing type annotations for strategy methods
+- [x] **C026** - Missing type annotations for strategy methods
   - **File**: `ml/strategies/ml_strategy.py:209,262,289,314,365`
   - **Impact**: `Any` usage where specific types possible
   - **Effort**: 1-2 days to add proper type annotations
+  - **Status**: Added TYPE_CHECKING imports and precise annotations for
+    `Position`, `OrderFilled`, and `ClientOrderId` in strategy methods
+    (`_reverse_position`, `_should_reverse_position`, `_track_trade_entry`,
+    `on_order_filled`). Mypy strict clean across ML package.
 
 - [ ] **C027** - Unused type ignore comments in training
   - **File**: `ml/training/teacher/losses.py:52`
   - **Impact**: Dead code, potential hidden type issues
   - **Effort**: 1 day to clean up type ignore comments
+  - **Status**: Reviewed. The ignore on subclassing `MultiHorizonMetric` is necessary
+    due to upstream providing `Any` typing; removing it breaks mypy (misc error).
+    Keep until a local stub is introduced.
 
-- [ ] **C028** - Missing TYPE_CHECKING guards in imports
+- [x] **C028** - Missing TYPE_CHECKING guards in imports
   - **Files**: Multiple training files
   - **Impact**: Import performance degradation
   - **Effort**: 1-2 days to add proper TYPE_CHECKING guards
+  - **Status**: Training modules gate typing-only imports with TYPE_CHECKING
+    (base, non_distilled/{lightgbm,xgboost}, teacher/tft_torchscript). Heavy
+    deps imported lazily at runtime where needed. Mypy strict clean.
 
 ---
 
@@ -208,11 +234,14 @@
   - **Effort**: 1-2 days to standardize key generation
   - Status: BaseStaticProvider handles cache keys internally; InstrumentMetadataProvider delegates to base. Remaining providers can follow the same pattern.
 
-- [ ] **H004** - Data transformation code duplicated in catalog utilities
+- [x] **H004** - Data transformation code duplicated in catalog utilities
   - **Files**: `ml/data/catalog_utils.py:79-93,148-161,215-227`
   - **Impact**: Inconsistent data processing
   - **Effort**: 2-3 days to extract common transformations
   - **Details**: Similar patterns in `bars_to_dataframe`, `quotes_to_dataframe`, `trades_to_dataframe`
+  - **Status**: Deduplicated transforms (commit 7cba92ac1). Shared helpers now
+    back `bars_to_dataframe`, `quotes_to_dataframe`, and `trades_to_dataframe`.
+    Changed modules are ruff/mypy clean; focused catalog tests pass locally.
 
 - [ ] **H005** - Different error handling strategies (return None vs raise)
   - **Files**: Multiple data processing modules
@@ -257,10 +286,14 @@
   - **Impact**: Cannot trace data quality issues to source
   - **Effort**: 3-4 days to implement lineage tracking
 
-- [ ] **H013** - Unsafe temporary file cleanup in ONNX conversion
+- [x] **H013** - Unsafe temporary file cleanup in ONNX conversion
   - **Files**: `ml/training/non_distilled/xgboost.py:381-413`
   - **Impact**: Security concerns, potential disk space issues
   - **Effort**: 1-2 days to implement safe cleanup patterns
+  - **Status**: Implemented robust cleanup with `Path.unlink()` in `finally`
+    and tracked the temporary file path outside the context manager to ensure
+    deletion on all code paths. Behavior unchanged; only resource safety
+    improved. Mypy/Ruff/validators pass.
 
 - [ ] **H014** - Mixed abstraction levels in CLI and library code
   - **File**: `ml/training/distillation/cli.py`
@@ -280,11 +313,16 @@
   - **Files**: `ml/features/microstructure.py`, `ml/features/l2_enhanced_engineering.py`, `ml/features/l2_aggregate.py`
   - **Impact**: Overlapping calculations, inconsistent error handling
   - **Effort**: 3-4 days to extract common computation patterns
+  - **Notes**: `ml/features/l2_enhanced_engineering.py` no longer exists; re-scope to
+    current hot-path modules (`engineering.py`, `l2_aggregate.py`, `micro_aggregate.py`).
 
-- [ ] **H017** - Position direction logic duplicated in strategies
+- [x] **H017** - Position direction logic duplicated in strategies
   - **Files**: `ml/strategies/base.py:915-917`, `ml/strategies/ml_strategy.py:280-283`
   - **Impact**: Maintenance burden, potential inconsistent behavior
   - **Effort**: 1-2 days to extract to base class method
+  - **Status**: Added helpers in `BaseMLStrategy` (`target_side_from_prediction`,
+    `should_reverse`) and adopted in both `SimpleMLStrategy` and
+    `MLTradingStrategy`. Reduces duplication; semantics centralized. Types/lint OK.
 
 - [x] **H018** - Metrics bootstrap pattern duplicated in 5+ files
   - **Files**: All monitoring collector files

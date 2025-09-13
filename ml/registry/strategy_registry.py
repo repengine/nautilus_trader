@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
-from ml.common.protocols import MLComponentMixin
+from ml.registry.abstract_registry import AbstractRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
@@ -161,7 +161,7 @@ class StrategyInfo:
 # =================================================================================================
 
 
-class StrategyRegistry(MLComponentMixin):
+class StrategyRegistry(AbstractRegistry):
     """
     Strategy registry with configurable persistence backend.
 
@@ -199,8 +199,8 @@ class StrategyRegistry(MLComponentMixin):
                 backend=BackendType.JSON,
                 json_path=self.strategies_dir,
             )
-        self.persistence = PersistenceManager(persistence_config)
-        self.backend = persistence_config.backend
+        persistence = PersistenceManager(persistence_config)
+        super().__init__(persistence)
 
         # Initialize registry
         if self.backend == BackendType.JSON:
@@ -257,7 +257,7 @@ class StrategyRegistry(MLComponentMixin):
             self._save_strategy_to_db(manifest, dest_path)
 
         # Log audit
-        self.persistence.log_audit(
+        self.log_audit(
             entity_type="strategy",
             entity_id=manifest.strategy_id,
             action="registered",
@@ -579,9 +579,8 @@ class StrategyRegistry(MLComponentMixin):
         Load registry from file.
         """
         if self.registry_file.exists():
-            with open(self.registry_file) as f:
-                data: dict[str, Any] = json.load(f)
-                return data
+            data = self._json_load("registry.json")
+            return data or {}
         return {}
 
     def _save_registry(self, registry: dict[str, Any]) -> None:
@@ -589,8 +588,47 @@ class StrategyRegistry(MLComponentMixin):
         Save registry to file.
         """
         if self.backend == BackendType.JSON:
-            self.persistence.save_json(registry, "registry.json")
+            self._json_save("registry.json", registry)
         # PostgreSQL doesn't need this as it's saved per operation
+
+    # ------------------------------ health hook ------------------------------
+    def _health_snapshot(self) -> tuple[int, float | None]:
+        if self.backend == BackendType.JSON:
+            registry = self._load_registry()
+            if not registry:
+                return 0, None
+            # Attempt to read manifests for last_modified
+            last: float | None = None
+            for entry in registry.values():
+                try:
+                    manifest_path = Path(entry.get("manifest_path", ""))
+                    if manifest_path.exists():
+                        with open(manifest_path) as f:
+                            data = json.load(f)
+                            lm = float(data.get("last_modified", 0.0))
+                            if last is None or lm > last:
+                                last = lm
+                except Exception:
+                    # Best-effort only
+                    continue
+            return len(registry), last
+
+        # POSTGRES: count and max(last_modified)
+        session = self.persistence.get_session()
+        if session is None:
+            return 0, None
+        try:
+            count = session.query(StrategyTable).count()
+            latest = (
+                session.query(StrategyTable.last_modified)
+                .order_by(StrategyTable.last_modified.desc())
+                .first()
+            )
+            if latest and latest[0] is not None:
+                return count, latest[0].timestamp()
+            return count, None
+        finally:
+            session.close()
 
     def _db_to_strategy_info(self, db_strategy: StrategyTable) -> StrategyInfo:
         """

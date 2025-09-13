@@ -8,12 +8,12 @@ from ml.observability.service import ObservabilityService
 
 
 class TestObservabilityFlusher:
-    def test_tick_flushes_when_interval_elapsed(self, tmp_path: Path) -> None:
+    def test_tick_flushes_when_interval_elapsed(self, tmp_path: Path, default_instrument_id) -> None:
         svc = ObservabilityService()
         # Add a row so flush writes something
         svc.add_latency_stage(
             correlation_id="c1",
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             pipeline_stage="data_ingested",
             ts_stage_start=1,
             ts_stage_end=2,

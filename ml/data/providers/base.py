@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
-from ml.data.providers.utils import validate_timestamps
 
 
 if TYPE_CHECKING:

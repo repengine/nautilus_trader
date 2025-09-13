@@ -27,7 +27,6 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import date
@@ -35,25 +34,13 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 
-from ml._imports import HAS_POLARS
-from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml.features.micro_aggregate import MicrostructureAggregator
+from ml.data.cache_common import day_partition_path
+from ml.data.cache_common import ensure_polars
+from ml.data.cache_common import filter_df_by_ns_range
+from ml.data.cache_common import iter_days
 
-
-def _ensure_polars() -> None:
-    if not HAS_POLARS:
-        check_ml_dependencies(["polars"])  # pragma: no cover
-
-
-def _iter_days(start: datetime, end: datetime) -> Iterator[date]:
-    cur = datetime(start.year, start.month, start.day, tzinfo=UTC)
-    stop = datetime(end.year, end.month, end.day, tzinfo=UTC)
-    if end.time() != datetime.min.time():
-        stop = stop + timedelta(days=1)
-    while cur < stop:
-        yield cur.date()
-        cur += timedelta(days=1)
 
 
 @dataclass(slots=True)
@@ -69,13 +56,10 @@ class MicroMinuteCache:
     cache_dir: Path
 
     def path_for(self, symbol: str, day: date) -> Path:
-        y = f"year={day.year:04d}"
-        m = f"month={day.month:02d}"
-        d = f"day={day.day:02d}"
-        return self.cache_dir / symbol / y / m / f"{d}.parquet"
+        return day_partition_path(self.cache_dir, symbol, day)
 
     def ensure_day(self, symbol: str, day: date, raw_base_dir: Path) -> Path:
-        _ensure_polars()
+        ensure_polars()
         out = self.path_for(symbol, day)
         if out.exists():
             return out
@@ -108,9 +92,9 @@ class MicroMinuteCache:
         end: datetime,
         raw_base_dir: Path,
     ) -> pl.DataFrame:
-        _ensure_polars()
+        ensure_polars()
         parts: list[pl.DataFrame] = []
-        for day in _iter_days(start, end):
+        for day in iter_days(start, end):
             p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
             if p.exists():
                 parts.append(pl.read_parquet(str(p)))
@@ -120,12 +104,4 @@ class MicroMinuteCache:
         if df.is_empty():
             return df
         # Filter to exact [start, end) and sort
-        if df["timestamp"].dtype != pl.Datetime:
-            df = df.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
-        start_ns = int(start.timestamp() * 1_000_000_000)
-        end_ns = int(end.timestamp() * 1_000_000_000)
-        df = df.filter(
-            (pl.col("timestamp").cast(pl.Int64) >= start_ns)
-            & (pl.col("timestamp").cast(pl.Int64) < end_ns),
-        ).sort("timestamp")
-        return df
+        return filter_df_by_ns_range(df, start=start, end=end)

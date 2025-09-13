@@ -12,18 +12,18 @@ from ml.observability.pipeline import build_metrics_collection
 
 
 class TestLatencyWatermarks:
-    def test_watermarks_monotonic_and_latency_match(self) -> None:
+    def test_watermarks_monotonic_and_latency_match(self, default_instrument_id) -> None:
         rows = [
             {
                 "correlation_id": "c1",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": 1000,
                 "ts_stage_end": 1500,
             },
             {
                 "correlation_id": "c1",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "pipeline_stage": "feature_computation",
                 "ts_stage_start": 1500,
                 "ts_stage_end": 1800,
@@ -61,13 +61,13 @@ class TestMetricsCollection:
 
 
 class TestEventCorrelation:
-    def test_root_parent_null_and_depth_non_negative(self) -> None:
+    def test_root_parent_null_and_depth_non_negative(self, default_instrument_id) -> None:
         rows = [
             {
                 "correlation_id": "c1",
                 "event_id": "e1",
                 "parent_event_id": None,
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "domain": "data",
                 "lineage_depth": 0,
                 "ts_event": 1000,
@@ -77,7 +77,7 @@ class TestEventCorrelation:
                 "correlation_id": "c1",
                 "event_id": "e2",
                 "parent_event_id": "e1",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "domain": "features",
                 "lineage_depth": 1,
                 "ts_event": 1500,

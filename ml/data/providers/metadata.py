@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
 from ml.data.providers.base import BaseStaticProvider
+from ml.data.sources.metadata import default_metadata
 
 
 if TYPE_CHECKING:
@@ -184,22 +185,8 @@ class InstrumentMetadataProvider(BaseStaticProvider):
         if pl is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
 
-        return pl.DataFrame(
-            {
-                "instrument_id": instruments,
-                "tick_size": [0.01] * len(instruments),
-                "lot_size": [100.0] * len(instruments),
-                "contract_size": [1.0] * len(instruments),
-                "min_price_increment": [0.01] * len(instruments),
-                "exchange": ["UNKNOWN"] * len(instruments),
-                "asset_class": ["EQUITY"] * len(instruments),
-                "currency": ["USD"] * len(instruments),
-                "margin_initial": [0.0] * len(instruments),
-                "margin_maintenance": [0.0] * len(instruments),
-                "fee_class": ["DEFAULT"] * len(instruments),
-                "market_segment": ["UNKNOWN"] * len(instruments),
-            },
-        )
+        rows = [default_metadata(sym) for sym in instruments]
+        return pl.DataFrame(rows)
 
     # (Removed legacy duplicate _load_metadata_impl)
 

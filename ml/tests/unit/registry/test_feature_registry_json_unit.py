@@ -12,17 +12,17 @@ from pathlib import Path
 
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
-from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
 from ml.registry.feature_registry import compute_schema_hash
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.tests.builders import RegistryBuilder
 
 
-def _mk_manifest(schema_hash: str) -> FeatureManifest:
-    return FeatureManifest(
+def _mk_manifest(schema_hash: str):
+    return RegistryBuilder.feature_manifest(
         feature_set_id="fs1",
         name="features",
         version="1.0.0",

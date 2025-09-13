@@ -21,13 +21,13 @@ def _ts_for(
     return int(dt.timestamp() * 1e9)
 
 
-def test_rotate_daily_writes_to_day_directory(tmp_path: Path) -> None:
+def test_rotate_daily_writes_to_day_directory(tmp_path: Path, default_instrument_id) -> None:
     day_ts = _ts_for(2024, 1, 2, 12, 0, 0)
     df = pd.DataFrame(
         [
             {
                 "correlation_id": "00000000-0000-0000-0000-000000000001",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": day_ts,
                 "ts_stage_end": day_ts + 1_000_000,

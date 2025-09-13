@@ -40,7 +40,26 @@ from ml.registry.feature_registry import compute_schema_hash
 
 
 if TYPE_CHECKING:
+    from typing import Protocol
+
     from ml.monitoring.collectors.features import FeatureEngineeringCollector
+    from ml.stores.protocols import FeatureStoreProtocol
+
+    class ComputeTimerProtocol(Protocol):
+        def __enter__(self) -> object: ...
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            _tb: object | None,
+        ) -> bool | None: ...
+        def set_computation_result(
+            self,
+            *,
+            features_computed: int,
+            cache_hit: bool,
+            **kwargs: object,
+        ) -> None: ...
 
 
 # sklearn is optional; import lazily where used and gate via HAS_SKLEARN
@@ -611,7 +630,7 @@ class FeatureEngineer:
         self,
         config: FeatureConfig | None = None,
         metrics_collector: FeatureEngineeringCollector | None = None,
-        feature_store: Any | None = None,
+        feature_store: FeatureStoreProtocol | None = None,
     ) -> None:
         """
         Initialize feature engineer.
@@ -680,7 +699,7 @@ class FeatureEngineer:
         )
 
         # Cache statistics for metrics
-        self._feature_cache: dict[str, Any] = {}
+        self._feature_cache: dict[str, float] = {}
         self._cache_hits = 0
         self._cache_misses = 0
         # Use float32 for feature buffer to match expected output dtype

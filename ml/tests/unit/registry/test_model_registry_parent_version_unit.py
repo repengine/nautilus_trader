@@ -7,11 +7,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.tests.builders import RegistryBuilder
 
 
 def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
@@ -28,7 +28,7 @@ def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
     student_path.write_bytes(b"onnx")
 
     # Register teacher with explicit version
-    t_manifest = ModelManifest(
+    t_manifest = RegistryBuilder.model_manifest(
         model_id="",
         role=ModelRole.TEACHER,
         data_requirements=DataRequirements.L1_ONLY,
@@ -43,7 +43,7 @@ def test_model_registry_parent_child_and_auto_version(tmp_path: Path) -> None:
     teacher_id = reg.register_model(model_path=teacher_path, manifest=t_manifest, auto_deploy=False)
 
     # Register student with parent, blank version (auto-increment patch)
-    s_manifest = ModelManifest(
+    s_manifest = RegistryBuilder.model_manifest(
         model_id="",
         role=ModelRole.STUDENT,
         data_requirements=DataRequirements.L1_ONLY,

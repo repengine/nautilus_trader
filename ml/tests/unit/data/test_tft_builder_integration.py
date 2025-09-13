@@ -9,12 +9,15 @@ import polars as pl
 
 import ml.data.tft_dataset_builder as builder_mod
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
+from ml.tests.builders import DataBuilder
 
 
 def _fake_bars_to_dataframe(catalog, instrument_ids, start=None, end=None) -> pl.DataFrame:  # type: ignore[no-redef]
-    # Produce 5 minutes of bars
+    # Produce 5 minutes of bars using DataBuilder for consistent test data
     base = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
-    ts = [base + timedelta(minutes=i) for i in range(5)]
+    base_ns = int(base.timestamp() * 1e9)
+    ts_ns = DataBuilder.time_series(n_points=5, start_time=base_ns, interval_ns=60_000_000_000)
+    ts = [datetime.fromtimestamp(t / 1e9, tz=UTC) for t in ts_ns]
     return pl.DataFrame(
         {
             "instrument_id": [instrument_ids[0]] * len(ts),
@@ -39,7 +42,9 @@ def test_tft_builder_macro_and_micro(monkeypatch, tmp_path) -> None:
 
         def compute_for_symbol(self, symbol: str) -> pl.DataFrame:
             base2 = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
-            ts2 = [base2 + timedelta(minutes=i) for i in range(5)]
+            base2_ns = int(base2.timestamp() * 1e9)
+            ts2_ns = DataBuilder.time_series(n_points=5, start_time=base2_ns, interval_ns=60_000_000_000)
+            ts2 = [datetime.fromtimestamp(t / 1e9, tz=UTC) for t in ts2_ns]
             return pl.DataFrame(
                 {"timestamp": ts2, "midprice": [100.05, 100.1, 100.2, 100.3, 100.4]},
             )

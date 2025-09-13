@@ -24,6 +24,7 @@ import time
 from typing import Any
 from unittest.mock import MagicMock
 from unittest.mock import patch
+from ml.tests.builders import DataBuilder, MockBuilder
 
 import numpy as np
 import pytest
@@ -50,6 +51,43 @@ if HAS_POLARS:
 # ========================================================================
 # Test Fixtures
 # ========================================================================
+
+# Add missing fixtures that are not in conftest but are needed
+@pytest.fixture
+def mock_feature_store() -> MagicMock:
+    """Mock feature store."""
+    from ml.tests.builders import MockBuilder
+    return MockBuilder.store_with_data(store_type="feature")
+
+
+@pytest.fixture
+def mock_model_store() -> MagicMock:
+    """Mock model store."""
+    from ml.tests.builders import MockBuilder
+    return MockBuilder.store_with_data(store_type="model")
+
+
+@pytest.fixture
+def mock_strategy_store() -> MagicMock:
+    """Mock strategy store."""
+    from ml.tests.builders import MockBuilder
+    return MockBuilder.store_with_data(store_type="strategy")
+
+
+@pytest.fixture
+def mock_stores_bundle(
+    mock_feature_store: MagicMock,
+    mock_model_store: MagicMock,
+    mock_strategy_store: MagicMock,
+) -> dict[str, MagicMock]:
+    """Bundle of all store mocks."""
+    from ml.tests.builders import MockBuilder
+    return {
+        "feature_store": mock_feature_store,
+        "model_store": mock_model_store,
+        "strategy_store": mock_strategy_store,
+        "data_store": MockBuilder.store_with_data(store_type="data"),
+    }
 
 
 @pytest.fixture
@@ -150,21 +188,16 @@ def mock_registry() -> MagicMock:
 
 
 @pytest.fixture
-def data_store(mock_registry: MagicMock, test_database) -> DataStore:
+def data_store(mock_registry: MagicMock, test_database, mock_stores_bundle) -> DataStore:
     """
     Create a DataStore instance with proper PostgreSQL connection.
     """
-    # Mock the underlying stores
-    feature_store = MagicMock()
-    model_store = MagicMock()
-    strategy_store = MagicMock()
-
     store = DataStore(
         registry=mock_registry,
         connection_string=test_database.connection_string,
-        feature_store=feature_store,
-        model_store=model_store,
-        strategy_store=strategy_store,
+        feature_store=mock_stores_bundle["feature_store"],
+        model_store=mock_stores_bundle["model_store"],
+        strategy_store=mock_stores_bundle["strategy_store"],
         fail_on_validation_error=True,
         allow_schema_migration=False,
     )
@@ -177,17 +210,21 @@ def valid_bar_data() -> list[dict[str, Any]]:
     """
     Create valid bar data for testing.
     """
-    base_time = time.time_ns()
+    from ml.tests.builders import DataBuilder
+
+    ohlcv_data = DataBuilder.ohlcv_data(n_bars=10, as_dataframe=False)
+    timestamps = DataBuilder.time_series(n_points=10)
+
     return [
         {
             "instrument_id": "EUR/USD",
-            "ts_event": base_time + i * 60_000_000_000,  # 1 minute intervals
-            "ts_init": base_time + i * 60_000_000_000,
-            "open": 1.1000 + i * 0.0001,
-            "high": 1.1005 + i * 0.0001,
-            "low": 1.0995 + i * 0.0001,
-            "close": 1.1002 + i * 0.0001,
-            "volume": 1000.0 + i * 100,
+            "ts_event": int(timestamps[i]),
+            "ts_init": int(timestamps[i]),
+            "open": ohlcv_data["open"][i],
+            "high": ohlcv_data["high"][i],
+            "low": ohlcv_data["low"][i],
+            "close": ohlcv_data["close"][i],
+            "volume": ohlcv_data["volume"][i],
         }
         for i in range(10)
     ]
@@ -951,7 +988,7 @@ class TestPropertyBased:
         """
         Test validation is consistent across different data patterns.
         """
-        # Create mock registry inside the test to avoid fixture issues
+        # Create mock registry using builder
         mock_registry = MagicMock()
 
         # Set up default manifest and contract
@@ -1031,31 +1068,33 @@ class TestPropertyBased:
         mock_registry.get_manifest.return_value = manifest
         mock_registry.get_contract.return_value = contract
 
-        # Create data store inside the test
-        # Use a static connection string to avoid function-scoped fixtures with Hypothesis
+        # Create data store with mock stores
         conn_str = "postgresql://postgres:postgres@localhost:5432/nautilus"
+        mock_stores = MockBuilder.all_registries()  # This creates store mocks
         data_store = DataStore(
             registry=mock_registry,
             connection_string=conn_str,
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=MockBuilder.store_with_data(store_type="feature"),
+            model_store=MockBuilder.store_with_data(store_type="model"),
+            strategy_store=MockBuilder.store_with_data(store_type="strategy"),
             fail_on_validation_error=True,
         )
 
-        base_time = time.time_ns()
-        data = []
+        # Generate base data using DataBuilder
+        ohlcv_data = DataBuilder.ohlcv_data(n_bars=num_records, as_dataframe=False)
+        timestamps = DataBuilder.time_series(n_points=num_records)
 
+        data = []
         for i in range(num_records):
             row = {
                 "instrument_id": "EUR/USD" if np.random.random() > null_probability else None,
-                "ts_event": base_time + i * 60_000_000_000,
-                "ts_init": base_time + i * 60_000_000_000,
-                "open": 1.1000 + i * 0.0001,
-                "high": 1.1005 + i * 0.0001,
-                "low": 1.0995 + i * 0.0001,
-                "close": 1.1002 + i * 0.0001,
-                "volume": 1000.0 + i * 100,
+                "ts_event": int(timestamps[i]),
+                "ts_init": int(timestamps[i]),
+                "open": ohlcv_data["open"][i],
+                "high": ohlcv_data["high"][i],
+                "low": ohlcv_data["low"][i],
+                "close": ohlcv_data["close"][i],
+                "volume": ohlcv_data["volume"][i],
             }
 
             # Introduce duplicates if requested
@@ -1108,7 +1147,7 @@ class TestPropertyBased:
         """
         Test range validation with fuzzy boundaries.
         """
-        # Create mock registry inside the test
+        # Create mock registry using builder
         mock_registry = MagicMock()
 
         # Set up manifest
@@ -1173,13 +1212,13 @@ class TestPropertyBased:
         store = DataStore(
             registry=mock_registry,
             connection_string=conn_str,
-            feature_store=MagicMock(),
-            model_store=MagicMock(),
-            strategy_store=MagicMock(),
+            feature_store=MockBuilder.store_with_data(store_type="feature"),
+            model_store=MockBuilder.store_with_data(store_type="model"),
+            strategy_store=MockBuilder.store_with_data(store_type="strategy"),
         )
 
         # Generate data within and outside ranges
-        base_time = time.time_ns()
+        timestamps = DataBuilder.time_series(n_points=10)
         data = []
 
         for i in range(10):
@@ -1194,8 +1233,8 @@ class TestPropertyBased:
             data.append(
                 {
                     "instrument_id": "EUR/USD",
-                    "ts_event": base_time + i * 60_000_000_000,
-                    "ts_init": base_time + i * 60_000_000_000,
+                    "ts_event": int(timestamps[i]),
+                    "ts_init": int(timestamps[i]),
                     "open": abs(close) * 0.99,
                     "high": abs(close) * 1.01,
                     "low": abs(close) * 0.98,
@@ -1357,21 +1396,22 @@ class TestIntegration:
         """
         Test complete validation pipeline from preflight to write.
         """
-        # Create comprehensive test data
-        base_time = time.time_ns()
-        data = []
+        # Create comprehensive test data using DataBuilder
+        ohlcv_data = DataBuilder.ohlcv_data(n_bars=100, volatility=0.001, as_dataframe=False)
+        timestamps = DataBuilder.time_series(n_points=100)
 
+        data = []
         for i in range(100):
             data.append(
                 {
                     "instrument_id": "EUR/USD",
-                    "ts_event": base_time + i * 60_000_000_000,
-                    "ts_init": base_time + i * 60_000_000_000,
-                    "open": 1.1000 + np.random.normal(0, 0.001),
-                    "high": 1.1005 + np.random.normal(0, 0.001),
-                    "low": 1.0995 + np.random.normal(0, 0.001),
-                    "close": 1.1002 + np.random.normal(0, 0.001),
-                    "volume": 1000.0 + np.random.exponential(100),
+                    "ts_event": int(timestamps[i]),
+                    "ts_init": int(timestamps[i]),
+                    "open": ohlcv_data["open"][i],
+                    "high": ohlcv_data["high"][i],
+                    "low": ohlcv_data["low"][i],
+                    "close": ohlcv_data["close"][i],
+                    "volume": ohlcv_data["volume"][i] + np.random.exponential(100),
                 },
             )
 
@@ -1413,22 +1453,23 @@ class TestIntegration:
         """
         Test validation performance with large datasets.
         """
-        # Create large dataset
-        base_time = time.time_ns()
+        # Create large dataset using DataBuilder
         num_records = 10000
+        ohlcv_data = DataBuilder.ohlcv_data(n_bars=num_records, as_dataframe=False)
+        timestamps = DataBuilder.time_series(n_points=num_records, interval_ns=1_000_000_000)  # 1 second intervals
 
         data = []
         for i in range(num_records):
             data.append(
                 {
                     "instrument_id": "EUR/USD",
-                    "ts_event": base_time + i * 1_000_000_000,  # 1 second intervals
-                    "ts_init": base_time + i * 1_000_000_000,
-                    "open": 1.1000 + (i % 100) * 0.0001,
-                    "high": 1.1005 + (i % 100) * 0.0001,
-                    "low": 1.0995 + (i % 100) * 0.0001,
-                    "close": 1.1002 + (i % 100) * 0.0001,
-                    "volume": 1000.0 + (i % 1000),
+                    "ts_event": int(timestamps[i]),
+                    "ts_init": int(timestamps[i]),
+                    "open": ohlcv_data["open"][i],
+                    "high": ohlcv_data["high"][i],
+                    "low": ohlcv_data["low"][i],
+                    "close": ohlcv_data["close"][i],
+                    "volume": ohlcv_data["volume"][i],
                 },
             )
 

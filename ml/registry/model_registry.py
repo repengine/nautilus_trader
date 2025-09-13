@@ -17,11 +17,11 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
-from ml.common.protocols import MLComponentMixin
 from ml.config.constants import SUFFIX_ONNX
 from ml.config.constants import Versions
 from ml.config.registry import RegistryPolicyConfig
 from ml.config.runtime import OnnxRuntimeConfig
+from ml.registry.abstract_registry import AbstractRegistry
 from ml.registry.base import DataRequirements
 from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelInfo
@@ -42,7 +42,7 @@ from ml.registry.statistics import welch_t_test
 logger = logging.getLogger(__name__)
 
 
-class ModelRegistry(MLComponentMixin):
+class ModelRegistry(AbstractRegistry):
     """
     Model registry with configurable persistence backend.
 
@@ -94,11 +94,11 @@ class ModelRegistry(MLComponentMixin):
                 backend=BackendType.JSON,
                 json_path=registry_path,
             )
-        self.persistence = PersistenceManager(persistence_config)
-        self.backend = persistence_config.backend
+        persistence = PersistenceManager(persistence_config)
+        super().__init__(persistence)
 
         self.registry_file = self.registry_path / "registry.json"
-        self._lock = threading.RLock()  # Use RLock to allow reentrant locking
+        # RLock provided by AbstractRegistry
 
         # In-memory model cache for performance
         self._model_cache: dict[str, Any] = {}
@@ -125,7 +125,7 @@ class ModelRegistry(MLComponentMixin):
         """
         if self.backend == BackendType.JSON:
             if self.registry_file.exists():
-                data = self.persistence.load_json("registry.json")
+                data = self._json_load("registry.json")
                 if data is not None:
                     self._models: dict[str, ModelInfo] = {
                         model_id: self._dict_to_model_info(model_data)
@@ -552,7 +552,7 @@ class ModelRegistry(MLComponentMixin):
                 self._save_registry()
 
             # Log audit
-            self.persistence.log_audit(
+            self.log_audit(
                 entity_type="model",
                 entity_id=manifest.model_id,
                 action="registered",
@@ -571,6 +571,20 @@ class ModelRegistry(MLComponentMixin):
                 self._maybe_auto_deploy(manifest)
 
             return manifest.model_id
+
+    # ------------------------------ health hook ------------------------------
+    def _health_snapshot(self) -> tuple[int, float | None]:
+        try:
+            count = len(self._models)
+        except AttributeError:
+            return 0, None
+        if count == 0:
+            return 0, None
+        try:
+            last_modified = max(mi.manifest.last_modified for mi in self._models.values())
+        except ValueError:
+            last_modified = None
+        return count, last_modified
 
     # ---------------------------- internal helpers ----------------------------
 

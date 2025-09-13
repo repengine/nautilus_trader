@@ -88,6 +88,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--batch_size", type=int, default=64)
     ap.add_argument("--tail_rows", type=int, default=0)
     ap.add_argument("--limit_groups", type=int, default=0)
+    ap.add_argument(
+        "--val_days",
+        type=int,
+        default=14,
+        help="If >0 and timestamp exists, use last N days for validation (default: 14)",
+    )
     # Hardware / Accelerator passthrough to teacher CLI
     ap.add_argument(
         "--accelerator",
@@ -105,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
         "--inproc",
         action="store_true",
         help="Run training in-process (default runs each config in a subprocess for memory isolation)",
+    )
+    ap.add_argument(
+        "--precision",
+        default="32",
+        help="Training precision to pass to teacher CLI (e.g., 32, 16, 16-mixed, bf16)",
     )
     args = ap.parse_args(argv)
 
@@ -143,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
         args.feature_set_id,
         "--max_epochs",
         str(args.epochs),
+        "--val_days",
+        str(int(args.val_days)),
         "--loss",
         "bce",
         "--dataloader_workers",
@@ -155,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         str(args.accelerator),
         "--devices",
         str(int(args.devices)),
+        "--precision",
+        str(args.precision),
     ]
     # Optional dataset capping
     if int(args.tail_rows or 0) > 0:
@@ -192,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
                                     args.feature_set_id,
                                     "--max_epochs",
                                     str(args.epochs),
+                                    "--val_days",
+                                    str(int(args.val_days)),
                                     "--loss",
                                     "bce",
                                     "--dataloader_workers",
@@ -204,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
                                     str(args.accelerator),
                                     "--devices",
                                     str(int(args.devices)),
+                                    "--precision",
+                                    str(args.precision),
                                     "--hidden_size",
                                     str(hs),
                                     "--lstm_layers",

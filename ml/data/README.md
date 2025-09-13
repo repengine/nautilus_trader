@@ -78,6 +78,31 @@ bars_df = bars_to_dataframe(
 )
 ```
 
+### Public API (quick imports)
+
+For common workflows, import directly from `ml.data`:
+
+```python
+from ml.data import (
+    DataCollector,
+    DataScheduler,
+    TFTDatasetBuilder,
+    InstrumentMetadataProvider,
+    MarketCalendarProvider,
+    EventScheduleProvider,
+    MockCalendarSource,
+    SimpleCalendarSource,
+    PandasCalendarSource,
+    DatabentoMetadataSource,
+    NautilusMetadataSource,
+    L2MinuteCache,
+    MicroMinuteCache,
+    bars_to_dataframe,
+    quotes_to_dataframe,
+    trades_to_dataframe,
+)
+```
+
 ### Collecting New Data
 
 ```python

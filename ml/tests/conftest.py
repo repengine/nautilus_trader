@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: RUF022
 """
 Consolidated pytest fixtures and configuration for ML module tests.
 
@@ -17,6 +18,8 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Generator
+import errno
+import fcntl
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -906,6 +909,58 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         pass
 
 
+_DB_LOCK_FH: dict[str, Any] = {}
+
+
+def _acquire_db_lock(name: str = "db") -> Any:
+    """
+    Acquire an interprocess file lock to serialize DB/serial-marked tests across workers.
+
+    This complements xdist grouping and is effective regardless of the distribution
+    mode in use. On POSIX systems, uses fcntl.flock for advisory locking.
+    """
+    from pathlib import Path as _Path
+
+    lock_dir = _Path.home() / ".nautilus" / "ml"
+    try:
+        lock_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    lock_path = lock_dir / f"pytest_{name}.lock"
+    fh = open(lock_path, "a+")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    except OSError as e:  # pragma: no cover - unlikely path
+        if e.errno not in (errno.EAGAIN, errno.EACCES):
+            raise
+    return fh
+
+
+def _release_db_lock(fh: Any) -> None:
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    finally:
+        try:
+            fh.close()
+        except Exception:
+            pass
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """
+    Serialize tests marked as database or serial across xdist workers using a file lock.
+    """
+    if "database" in item.keywords or "serial" in item.keywords:
+        fh = _acquire_db_lock("db")
+        _DB_LOCK_FH[item.nodeid] = fh
+
+
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> None:
+    if item.nodeid in _DB_LOCK_FH:
+        fh = _DB_LOCK_FH.pop(item.nodeid)
+        _release_db_lock(fh)
+
+
 def pytest_sessionstart(session):
     """
     Set up test database at session start.
@@ -914,6 +969,19 @@ def pytest_sessionstart(session):
     os.environ.setdefault("ML_TEST_ALLOW_NON_ONNX", "1")
     # Silence Pandera top-level import warning (pandas-specific path)
     os.environ.setdefault("DISABLE_PANDERA_IMPORT_WARNING", "True")
+    # Provide libpq with a default password if the URL embeds one; fallback to 'postgres'
+    try:
+        from urllib.parse import urlparse
+
+        url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/nautilus")
+        parsed = urlparse(url)
+        if not os.getenv("PGPASSWORD"):
+            if parsed.password:
+                os.environ["PGPASSWORD"] = parsed.password
+            else:
+                os.environ.setdefault("PGPASSWORD", "postgres")
+    except Exception:
+        os.environ.setdefault("PGPASSWORD", "postgres")
 
     # Skip DB initialization if requested (e.g., for test collection only)
     if os.environ.get("SKIP_DB_INIT", "").lower() in ("1", "true", "yes"):
@@ -1005,34 +1073,101 @@ def pytest_sessionfinish(session, exitstatus):
 from ml.tests.fixtures.database_fixtures import *  # noqa: E402, F403 - test re-exports
 from ml.tests.fixtures.mock_services import *  # noqa: E402, F403 - test re-exports
 
+# Import new common fixtures and builders
+from ml.tests.fixtures.common import (  # noqa: E402
+    alternative_bar_type,
+    alternative_instrument_id,
+    base_feature_config,
+    base_ml_config,
+    base_signal_config,
+    default_bar_type,
+    default_instrument_id,
+    default_venue,
+    dummy_onnx_model,
+    dummy_xgboost_model,
+    mock_data_store,
+    mock_feature_registry,
+    mock_model_registry,
+    mock_stores_bundle,
+    model_registry_config,
+    sample_feature_array,
+    sample_feature_manifest,
+    sample_features,
+    sample_model_manifest,
+    sample_predictions,
+    test_component_id,
+    test_timestamps,
+)
+
+# Import builder classes for direct use in tests
+from ml.tests.builders import (  # noqa: E402
+    DataBuilder,
+    MLConfigBuilder,
+    MockBuilder,
+    RegistryBuilder,
+)
 
 # Re-export test utilities
 __all__ = [
+    # Database fixtures
     "DatabaseSnapshot",
     "TestDatabase",
     "clean_postgres_db",
     "connection_monitor",
-    "create_mock_databento_client",
-    "create_mock_fred_client",
-    "create_mock_postgresql",
-    "create_mock_redis",
-    "create_mock_yahoo_client",
-    "create_test_database",
     "database_engine",
     "database_session",
     "database_session_factory",
     "database_snapshot",
     "hypothesis_database_session",
     "isolated_engine",
-    "mock_feature_store",
-    "mock_model_store",
-    "mock_strategy_store",
     "postgres_connection",
     "seeded_database",
     "temp_database",
     "test_database",
     "test_db_engine",
     "test_db_session",
+    # Mock service fixtures
+    "create_mock_databento_client",
+    "create_mock_fred_client",
+    "create_mock_postgresql",
+    "create_mock_redis",
+    "create_mock_yahoo_client",
+    "create_test_database",
+    # Mock store fixtures
+    "mock_data_store",
+    "mock_feature_registry",
+    "mock_feature_store",
+    "mock_model_registry",
+    "mock_model_store",
+    "mock_stores_bundle",
+    "mock_strategy_store",
+    # Common type fixtures
+    "alternative_bar_type",
+    "alternative_instrument_id",
+    "default_bar_type",
+    "default_instrument_id",
+    "default_venue",
+    "test_component_id",
+    # ML config fixtures
+    "base_feature_config",
+    "base_ml_config",
+    "base_signal_config",
+    "model_registry_config",
+    # Model fixtures
+    "dummy_onnx_model",
+    "dummy_xgboost_model",
+    # Data fixtures
+    "sample_feature_array",
+    "sample_feature_manifest",
+    "sample_features",
+    "sample_model_manifest",
+    "sample_predictions",
+    "test_timestamps",
+    # Builder classes
+    "DataBuilder",
+    "MLConfigBuilder",
+    "MockBuilder",
+    "RegistryBuilder",
 ]
 
 

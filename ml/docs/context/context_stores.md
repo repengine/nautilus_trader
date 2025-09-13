@@ -19,55 +19,33 @@ The Nautilus Trader ML stores infrastructure implements a sophisticated four-tie
 
 ## Core Architecture
 
-### The Mandatory Store Quartet
+### The Mandatory Store Quartet (Vault) + Registry Quartet (Ledger)
 
-The ML infrastructure is built around four stores that form the backbone of the data persistence layer. **Every ML actor MUST inherit from BaseMLInferenceActor** to ensure proper initialization and integration:
+The ML infrastructure is built around four stores that form the “vaults” of the system and four registries that serve as the “ledgers”. Every ML actor inherits from `BaseMLInferenceActor`, which acquires the four stores and four registries via a centralized integration helper rather than constructing them directly. This keeps the actor hot path clean and enforces consistent wiring. The three non‑event registries (Feature/Model/Strategy) now share a common base (`AbstractRegistry`) that centralizes persistence/locking/audit wiring without changing public APIs.
+
+Key points:
+
+- Actors use `ml.actors.actor_services.init_actor_services(config)` (behind `BaseMLInferenceActor`) to obtain Protocol‑typed stores/registries.
+- Actor‑side exposure of the data façade is intentionally minimal via `DataStoreFacadeProtocol` (currently `flush()` only) to ensure no heavy operations happen on hot paths. Full data operations are performed off the hot path by services/CLI.
+- Event emission and message bus publishing are centralized through helpers and mixins:
+  - `ml.common.event_emitter` for enum‑safe events + watermarks and correlation IDs.
+  - `ml.common.message_topics.build_topic_for_stage(...)` for stage‑first topics.
+  - `BusPublisherMixin` and `DataRegistryMixin` avoid duplicated config in stores.
+
+Example (conceptual):
 
 ```python
-# BaseMLInferenceActor automatically initializes the mandatory 4-store architecture
-class BaseMLInferenceActor(NautilusActor, MLComponentMixin):
-    """Base class enforcing mandatory 4-store + 4-registry integration."""
+from ml.actors.actor_services import init_actor_services
 
-    def __init__(self, config: MLActorConfig):
-        super().__init__(config)
-
-        # Automatic store initialization with progressive fallback
-        try:
-            persistence_config = self._create_persistence_config(config)
-
-            # Core stores (mandatory quartet)
-            self.feature_store = FeatureStore(config.db_connection, **store_kwargs)
-            self.model_store = ModelStore(persistence_config=persistence_config)
-            self.strategy_store = StrategyStore(persistence_config=persistence_config)
-            self.data_store = DataStore(persistence_config.connection_string, registry)
-
-            # Registries (mandatory quartet)
-            self.feature_registry = FeatureRegistry(persistence_config)
-            self.model_registry = ModelRegistry(persistence_config)
-            self.strategy_registry = StrategyRegistry(persistence_config)
-            self.data_registry = DataRegistry(persistence_config)
-
-        except Exception as e:
-            # Progressive fallback to DummyStore implementations
-            logger.warning(f"Database unavailable, using DummyStore fallbacks: {e}")
-            self._init_dummy_stores()
-
-# DataStore provides unified facade with comprehensive validation
-class DataStore(MLComponentMixin):
-    """Unified data store facade with contract validation and event emission."""
-
-    def __init__(self, connection_string: str, registry: RegistryProtocol | None = None):
-        # Component stores
-        self.feature_store = FeatureStore(connection_string)
-        self.model_store = ModelStore(connection_string)
-        self.strategy_store = StrategyStore(connection_string)
-        self.data_processor = DataProcessor(connection_string)
-
-        # Registry integration with lazy initialization
-        self._registry = registry
-        self._correlation_tracking = True
-        self._enable_publishing = False
-        self._publisher: MessagePublisherProtocol | None = None
+services = init_actor_services(config)
+self._feature_store = services.feature_store            # Protocol typed
+self._model_store = services.model_store                # Protocol typed
+self._strategy_store = services.strategy_store          # Protocol typed
+self._data_store = services.data_store                  # DataStoreFacadeProtocol (flush only)
+self._feature_registry = services.feature_registry      # Ledger
+self._model_registry = services.model_registry
+self._strategy_registry = services.strategy_registry
+self._data_registry = services.data_registry
 ```
 
 #### FeatureStore (`ml/stores/feature_store.py`)
@@ -85,7 +63,7 @@ class DataStore(MLComponentMixin):
 
 **Integration Capabilities**:
 
-- **Registry Integration**: Lazy DataRegistry initialization for event emission and watermark tracking
+- **Registry Integration**: Unified via `DataRegistryMixin` for event emission and watermark tracking (enum‑typed; best‑effort; JSON/PG backends)
 - **Engine Management**: Centralized EngineManager with thread-safe connection pooling
 - **Message Bus Publishing**: Optional real-time feature updates with configurable publish modes
 - **Pipeline Specifications**: Declarative PipelineSpec support for feature transformations
@@ -168,16 +146,16 @@ class DataStore(MLComponentMixin):
 - **Registry Integration**: PersistenceManager support for unified configuration
 - **Analytics Interface**: Rich query methods for strategy performance analysis and signal distribution
 
-#### DataStore (`ml/stores/data_store.py`)
+#### DataStore (`ml/stores/data_store.py`) — Unified Data Façade (Off Hot Path)
 
 **Purpose**: Unified data store facade providing typed read/write operations with comprehensive contract validation and event-driven architecture
 
 **Core Architecture**:
 
-- **Facade Pattern**: Unified interface over FeatureStore, ModelStore, StrategyStore with added validation layer
-- **Contract-Based Validation**: Schema validation against DataRegistry contracts with quality scoring
-- **Event-Driven Design**: Automatic event emission for all data operations with correlation tracking
-- **Progressive Fallback**: Graceful degradation when components are unavailable
+- **Façade Pattern**: Unified interface over FeatureStore, ModelStore, StrategyStore with added validation layer
+- **Contract‑Based Validation**: Validates batches against DataRegistry contracts and computes a `QualityReport`
+- **Event‑Driven Design**: Automatic event emission + watermark updates (enum‑typed) with deterministic correlation IDs
+- **Progressive Fallback**: JSON registry fallback for dev/test; non‑blocking publish guarded by try/except
 
 **Validation Framework**:
 
@@ -191,18 +169,39 @@ class DataStore(MLComponentMixin):
 
 **Event & Lineage System**:
 
-- **Correlation Tracking**: Deterministic correlation_id generation for end-to-end lineage
-- **Event Metadata**: JSONB metadata storage in PostgreSQL with fallback to JSON backend
+- **Correlation Tracking**: Deterministic `correlation_id` for end‑to‑end lineage, attached to events and bus payloads
+- **Event Metadata**: Supports extended metadata column (if migration adds `emit_data_event_ext`); falls back gracefully
 - **Watermark Management**: Automatic timestamp watermark tracking for data freshness
 - **Cross-Domain Events**: Event cascading across data, features, models, and strategy domains
 
 **Advanced Features**:
 
-- **Schema Evolution**: Dual-write window support during schema migrations
+- **Schema Evolution**: Dual‑write window support during schema migrations (guarded by `allow_schema_migration`)
 - **Message Bus Integration**: Optional real-time event publishing with topic routing
 - **Quality Reports**: Comprehensive validation reports with violation details and metadata
 - **Batch Validation**: Efficient batch processing with per-record quality tracking
 - **Registry Integration**: Deep integration with DataRegistry for manifest and contract management
+
+#### Raw Dataset IO (optional adapters)
+
+- For raw datasets (BARS/TRADES/QUOTES/MBP1/TBBO), DataStore can delegate persistence and reads to optional adapters:
+  - `RawIngestionWriterProtocol` and `RawReaderProtocol` (see `ml/stores/raw_io.py`).
+  - Configure via `DataStore(..., raw_writer=..., raw_reader=...)`.
+  - Emits `EventStatus.SUCCESS` and updates watermarks only after successful writes; otherwise emits `PARTIAL`/`FAILED` without watermark updates (avoids false coverage).
+  - Keeps ingestion/catalog writes strictly off actor hot paths.
+  - Provided adapters:
+    - `ParquetCatalogRawReader` (see `ml/stores/raw_io_parquet.py`) which uses catalog utilities to return DataFrames.
+    - `ParquetCatalogRawWriter` pass‑through for domain objects; generic row→domain mapping should remain in ingestion flows where instrument metadata/bar types are known.
+
+**Integration Manager wiring**:
+
+- When `CATALOG_PATH` is set, `MLIntegrationManager` attaches Parquet-based raw adapters to `DataStore` automatically, enabling centralized validation + persistence + eventing for raw datasets without modifying hot paths.
+
+#### Orchestration Writers (cold path)
+
+- For scheduled backfills and cold-path orchestrations, use a dedicated writer:
+  - `DataStoreMarketDataWriter`: validates via `DataStore` and emits events/watermarks. Requires a configured raw writer for persistence.
+  - `ParquetCatalogMarketDataWriter`: maps DataFrame rows to Nautilus `Bar` objects and writes directly to `ParquetDataCatalog` (orchestration-only). Eventing/watermarks can be handled by the orchestrator after writes.
 
 ### Base Classes and Data Models
 
@@ -1386,6 +1385,114 @@ Key strengths:
 - **📝 ADDITION:** Enhanced event metadata support for better observability
 
 The implementation successfully provides a robust, validated, and observable foundation for both research and production ML trading systems, with comprehensive data quality controls and full lifecycle management.
+
+## Implementation Review Addendum
+
+### Ground-Truth Analysis
+
+After comprehensive review of all 25+ files in `/home/nate/projects/nautilus_trader/ml/stores/`, this section validates actual implementation against documented claims and architectural requirements.
+
+### Universal ML Architecture Pattern Compliance
+
+**❌ Pattern 1: Mandatory 4-Store + 4-Registry Integration - PARTIAL COMPLIANCE**
+- **CLAIM**: "All ML actors MUST use all 4 stores and 4 registries via BaseMLInferenceActor inheritance"
+- **REALITY**: No `BaseMLInferenceActor` found in stores domain. DataStore class implements 3/4 stores integration:
+  - ✅ FeatureStore: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:364`
+  - ✅ ModelStore: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:365`  
+  - ✅ StrategyStore: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:366`
+  - ❌ DataStore: Self-referential (DataStore creates itself)
+- **Registry Integration**: Only DataRegistry via `DataRegistryMixin`: `/home/nate/projects/nautilus_trader/ml/stores/_registry_mixin.py:23`
+- **Missing Registries**: FeatureRegistry, ModelRegistry, StrategyRegistry not integrated
+
+**✅ Pattern 2: Protocol-First Interface Design - COMPLIANT**
+- **Implementation**: `/home/nate/projects/nautilus_trader/ml/stores/protocols.py` defines comprehensive protocols
+- **Store protocols**: FeatureStoreProtocol (line 24), ModelStoreProtocol (line 45), StrategyStoreProtocol (line 66)
+- **All concrete stores implement their respective protocols correctly**
+
+**❌ Pattern 3: Hot/Cold Path Separation - VIOLATIONS FOUND**
+- **VIOLATION**: DataStore validation logic in hot path: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:798` (validate_batch calls during write_ingestion)
+- **VIOLATION**: Heavy DataFrame operations in write paths: lines 777-798 with polars/pandas conversions
+- **POSITIVE**: DataProcessor attempts separation: `/home/nate/projects/nautilus_trader/ml/stores/data_processor.py:230-310`
+
+**❌ Pattern 4: Progressive Fallback Chains - INCOMPLETE**
+- **PostgreSQL → JSON Fallback**: Implemented in `_registry_mixin.py:52-86`
+- **Missing**: No DummyStore implementations for testing/degraded mode
+- **Missing**: Connection failure graceful degradation in stores
+
+**❌ Pattern 5: Centralized Metrics Bootstrap - VIOLATIONS**
+- **VIOLATION**: Direct prometheus_client usage in `data_store.py:90-111` (metric variables declared directly)
+- **INCONSISTENT**: Some files use MetricsManager (`_health_mixin.py:37-47`), others use direct imports
+- **VIOLATION**: Manual metric instantiation instead of bootstrap pattern
+
+### Documentation Accuracy Issues
+
+**Store Count Claims**
+- **CLAIM**: "4 required stores" (FeatureStore, ModelStore, StrategyStore, DataStore)
+- **REALITY**: DataStore is a facade over the other 3, not a separate store. True count is 3 stores + 1 facade.
+
+**Completion Percentages**
+- **CLAIM**: "95% complete validation pipeline" 
+- **REALITY**: DataProcessor has placeholder methods: lines 793-863 return empty dicts or hardcoded values
+- **EVIDENCE**: `_get_feature_statistics` returns `{}` (line 794), `_get_calibration_params` returns `{}` (line 807)
+
+**Protocol Implementation Claims**
+- **CLAIM**: "Full protocol conformance"
+- **REALITY**: Missing required methods in some implementations:
+  - ModelStore missing `read_predictions_batch` method referenced in protocol
+  - StrategyStore missing advanced querying methods
+
+### Coding Standards Violations
+
+**Type Annotation Issues**
+- **VIOLATION**: Mixed use of `Any` in critical paths: `data_store.py:24` imports Any but uses throughout hot paths
+- **VIOLATION**: Untyped mixin attributes: `_upsert_mixin.py:26-27` explicitly declares untyped attributes
+
+**Import Management**  
+- **VIOLATION**: Direct third-party imports in hot paths: `data_store.py:14-53` mixes system and ML imports
+- **POSITIVE**: Proper ML import pattern in `data_processor.py:18` using text imports
+
+**Configuration Management**
+- **VIOLATION**: Hardcoded constants in DataProcessor: staleness_threshold_seconds=300 (line 88)
+- **POSITIVE**: Configurable parameters in store constructors
+
+### Architectural Inconsistencies
+
+**Event Emission Patterns**
+- **INCONSISTENT**: Multiple event emission patterns:
+  - `emit_dataset_event_and_watermark` in some places
+  - `emit_dataset_event` in others  
+  - Direct registry calls in others
+- **FILE**: `data_store.py` uses 3 different emission patterns
+
+**Health Check Implementation**
+- **INCONSISTENT**: Multiple health check patterns:
+  - HealthMixin with comprehensive probes (`_health_mixin.py:49-86`)
+  - BufferedStoreMixin with basic connectivity (`_buffered_store.py:91-104`)
+  - Some stores have no health checks
+
+### Critical Gaps Identified
+
+1. **Missing DummyStore Implementations**: No fallback stores for testing or degraded operation
+2. **Incomplete Batch Processing**: Many `write_batch` methods don't implement proper batching
+3. **Registry Integration**: Only DataRegistry integrated, missing 3/4 registries
+4. **Metrics Inconsistency**: Mixed usage of metrics patterns violates bootstrap requirement
+5. **Hot Path Performance**: Validation and processing in critical write paths
+
+### Recommendations
+
+1. **Implement Missing Registries**: Add FeatureRegistry, ModelRegistry, StrategyRegistry integration
+2. **Create DummyStore Classes**: For progressive fallback compliance  
+3. **Refactor Hot Paths**: Move validation to cold path, pre-allocate data structures
+4. **Standardize Metrics**: Enforce MetricsManager usage across all stores
+5. **Complete DataProcessor**: Replace placeholder methods with actual implementations
+6. **Type Safety**: Remove `Any` usage in hot paths, add complete type annotations
+
+### Files Requiring Attention
+
+- `/home/nate/projects/nautilus_trader/ml/stores/data_store.py`: Hot path violations, metrics inconsistency
+- `/home/nate/projects/nautilus_trader/ml/stores/data_processor.py`: Incomplete implementations
+- `/home/nate/projects/nautilus_trader/ml/stores/_registry_mixin.py`: Missing 3/4 registries
+- `/home/nate/projects/nautilus_trader/ml/stores/protocols.py`: Missing protocol methods
 
 ## Cross-Module References
 

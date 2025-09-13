@@ -107,13 +107,17 @@ class DomainEventBridge:
                 except Exception:
                     now_ns_int = 0
                 if not self._throttler.should_publish(topic, now_ns_int):
-                    mm = MetricsManager.default()
-                    mm.inc(
-                        "nautilus_ml_backpressure_drops_total",
-                        "Total events dropped due to backpressure",
-                        labels={"component": self._component_id, "reason": "throttled"},
-                        labelnames=("component", "reason"),
-                    )
+                    try:
+                        mm = MetricsManager.default()
+                        mm.inc(
+                            "nautilus_ml_backpressure_drops_total",
+                            "Total events dropped due to backpressure",
+                            labels={"component": self._component_id, "reason": "throttled"},
+                            labelnames=("component", "reason"),
+                        )
+                    except Exception:
+                        # Never allow metrics errors to affect behavior
+                        pass
                     return False
             self._queue.put_nowait(_QueuedEvent(topic, payload))
             try:
@@ -130,13 +134,17 @@ class DomainEventBridge:
                 logger.debug("Domain event queue depth gauge update failed (ignored): %s", exc)
             return True
         except queue.Full:
-            mm = MetricsManager.default()
-            mm.inc(
-                "nautilus_ml_backpressure_drops_total",
-                "Total events dropped due to backpressure",
-                labels={"component": self._component_id, "reason": "queue_full"},
-                labelnames=("component", "reason"),
-            )
+            try:
+                mm = MetricsManager.default()
+                mm.inc(
+                    "nautilus_ml_backpressure_drops_total",
+                    "Total events dropped due to backpressure",
+                    labels={"component": self._component_id, "reason": "queue_full"},
+                    labelnames=("component", "reason"),
+                )
+            except Exception:
+                # Ignore metrics errors
+                pass
             return False
 
     def _run(self) -> None:

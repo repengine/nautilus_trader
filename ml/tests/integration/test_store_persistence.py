@@ -23,7 +23,7 @@ class TestStorePersistence:
 
     @pytest.mark.database
     @pytest.mark.serial
-    def test_feature_store_persistence(self, test_database):
+    def test_feature_store_persistence(self, test_database, default_instrument_id):
         """
         Test that FeatureStore actually persists and retrieves features.
         """

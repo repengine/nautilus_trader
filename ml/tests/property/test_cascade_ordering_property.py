@@ -7,6 +7,15 @@ from hypothesis import given, strategies as st
 from ml.common.cascade import emit_cascade
 
 
+@st.composite
+def instrument_ids_strategy(draw, use_builder=False):
+    """Generate instrument IDs, optionally using DataBuilder."""
+    if use_builder:
+        # Use default instrument ID pattern from fixtures
+        return "EUR/USD.SIM"
+    return "EURUSD.SIM"  # Simple default for property tests
+
+
 @given(
     base_ts=st.integers(min_value=0, max_value=2**32),
     delays=st.lists(st.integers(min_value=0, max_value=10_000), min_size=1, max_size=50),
@@ -20,7 +29,7 @@ def test_cascade_with_non_negative_delays_is_monotonic(base_ts: int, delays: lis
         "domain": "data",
         "event_type": "INGESTED",
         "correlation_id": "CID-TEST",
-        "instrument_id": "EURUSD.SIM",
+        "instrument_id": "EUR/USD.SIM",
         "ts_event": base_ts,
         "event_id": "E0",
         "payload": {},

@@ -27,7 +27,7 @@ def _pg_available(url: str) -> bool:
     not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
     reason="PostgreSQL not reachable",
 )
-def test_apply_observability_indices_creates_brin_and_composites() -> None:
+def test_apply_observability_indices_creates_brin_and_composites(default_instrument_id) -> None:
     url = os.getenv("DATABASE_URL", _DEFAULT_URL)
     eng = create_engine(url)
 
@@ -37,7 +37,7 @@ def test_apply_observability_indices_creates_brin_and_composites() -> None:
             [
                 {
                     "correlation_id": "c1",
-                    "instrument_id": "EURUSD.SIM",
+                    "instrument_id": str(default_instrument_id),
                     "pipeline_stage": "data_ingestion",
                     "ts_stage_start": 1,
                     "ts_stage_end": 2,
@@ -68,7 +68,7 @@ def test_apply_observability_indices_creates_brin_and_composites() -> None:
                     "correlation_id": "c1",
                     "event_id": "e1",
                     "parent_event_id": None,
-                    "instrument_id": "EURUSD.SIM",
+                    "instrument_id": str(default_instrument_id),
                     "domain": "data",
                     "lineage_depth": 0,
                     "ts_event": 1,

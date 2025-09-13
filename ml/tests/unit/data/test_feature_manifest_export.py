@@ -10,16 +10,20 @@ from ml.data.feature_manifest_export import infer_feature_columns
 from ml.registry.base import DataRequirements
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
+from ml.tests.builders import DataBuilder
 
 
 def test_export_feature_manifest_roundtrip(tmp_path: Path) -> None:
+    # Use DataBuilder for consistent test data generation
+    timestamps = DataBuilder.time_series(n_points=3, start_time=1, interval_ns=1)
+    feature_data = DataBuilder.feature_data(n_samples=3, n_features=2)
     df = pl.DataFrame(
         {
-            "timestamp": [1, 2, 3],
+            "timestamp": timestamps,
             "instrument_id": ["SPY", "SPY", "SPY"],
             "time_index": [0, 1, 2],
-            "f1": [0.1, 0.2, 0.3],
-            "f2": [1.0, 1.1, 1.2],
+            "f1": feature_data[:, 0],
+            "f2": feature_data[:, 1],
             "y": [0, 1, 0],
         },
     )

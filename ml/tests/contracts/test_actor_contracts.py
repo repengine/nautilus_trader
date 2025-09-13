@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from ml.actors.base import MLSignal
+from ml.tests.builders import MLConfigBuilder
 from nautilus_trader.common.actor import Actor
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType

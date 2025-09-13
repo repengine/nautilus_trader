@@ -36,10 +36,12 @@ from nautilus_trader.model.identifiers import Venue
 
 # Custom strategies for domain objects
 @st.composite
-def instrument_ids(draw):
+def instrument_ids(draw, default_instrument_id=None):
     """
-    Generate valid instrument IDs.
+    Generate valid instrument IDs, with option to use fixture default.
     """
+    if default_instrument_id is not None:
+        return default_instrument_id
     symbol = draw(st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=2, max_size=6))
     venue = draw(st.sampled_from(["SIM", "BINANCE", "FTX", "NASDAQ"]))
     return InstrumentId(Symbol(symbol), Venue(venue))
@@ -58,10 +60,16 @@ def nanosecond_timestamps(draw, min_value=None, max_value=None):
 
 
 @st.composite
-def feature_values(draw, n_features=None):
+def feature_values(draw, n_features=None, use_builder=False):
     """
     Generate feature value dictionaries.
     """
+    if use_builder:
+        from ml.tests.builders import DataBuilder
+        n_features = draw(st.integers(min_value=1, max_value=20)) if n_features is None else n_features
+        feature_data = DataBuilder.feature_data(n_samples=1, n_features=n_features, as_dataframe=True)
+        return feature_data.iloc[0].to_dict()
+
     if n_features is None:
         n_features = draw(st.integers(min_value=1, max_value=20))
 

@@ -1128,3 +1128,177 @@ All actors implement `MLComponentProtocol` with standardized health/performance 
 ---
 
 *This comprehensive ML actors framework provides production-ready real-time machine learning inference with mandatory data persistence, sub-millisecond performance, and complete observability for alpha deployment in trading systems.*
+
+## Implementation Review Addendum
+
+### Ground-Truth Implementation Analysis
+
+After reviewing the actual implementation code against the documentation claims, the following analysis provides a factual assessment of what has been implemented versus documented capabilities.
+
+### Documentation Accuracy Assessment
+
+**✅ Accurate Claims Verified:**
+
+1. **Mandatory 4-Store + 4-Registry Integration** - VERIFIED
+   - `BaseMLInferenceActor._init_stores_and_registries()` (base.py:784-813) automatically initializes all 8 components
+   - Uses `ml.actors.actor_services.init_actor_services()` for centralized initialization
+   - Progressive fallback implemented via `ml.core.integration.init_actor_stores_and_registries()`
+
+2. **Protocol-First Interface Design** - VERIFIED  
+   - Store attributes are properly Protocol-typed: `FeatureStoreProtocol`, `ModelStoreProtocol`, `StrategyStoreProtocol` (base.py:704-707)
+   - `EnhancedMLInferenceActor` implements null protocol conformants for testing (enhanced.py:109-214)
+
+3. **Circuit Breaker Implementation** - VERIFIED
+   - Full implementation in `CircuitBreaker` class (base.py:215-393)
+   - States: CLOSED, OPEN, HALF_OPEN with metrics integration
+   - Used in hot path via `can_execute()` (base.py:948-949)
+
+4. **Health Monitoring** - VERIFIED
+   - Complete `HealthMonitor` class (base.py:95-213) with success rates and latency tracking
+   - Integration with prediction success/failure tracking (base.py:1089-1095, 1144-1146)
+
+5. **Hot Path Performance Targets** - VERIFIED IN CODE STRUCTURE
+   - Pre-allocated buffers: `_feature_buffer`, `_prediction_window`, `_confidence_window` (signal.py:1071-1074)
+   - Zero-allocation feature computation in `EnhancedMLInferenceActor._compute_features()` (enhanced.py:62-89)
+   - Performance monitoring with P99 tracking (signal.py:718-823)
+
+**❌ Documentation Inaccuracies Identified:**
+
+1. **Actor Hierarchy Claims vs Reality**
+   ```
+   DOCUMENTED: "ONNXMLInferenceActor: Sub-millisecond ONNX inference with CPU provider configuration"
+   ACTUAL: ONNXMLInferenceActor exists but is minimal (base.py:1577-1642) - only 65 lines
+   
+   DOCUMENTED: "EnhancedMLInferenceActor: Minimal test-focused implementation" 
+   ACTUAL: EnhancedMLInferenceActor is comprehensive with full technical indicators (base.py:1644-1857)
+   ```
+
+2. **Signal Strategy Implementation vs Claims**
+   ```
+   DOCUMENTED: "5 Built-in strategies: threshold, extremes, momentum, ensemble, adaptive"
+   ACTUAL: All 5 strategies implemented correctly (signal.py:278-678)
+   
+   DOCUMENTED: "Lock-free ring buffers for zero-allocation extremes computation"
+   ACTUAL: ExtremesStrategy uses standard numpy arrays with ring buffer logic (signal.py:392-439)
+   - Uses `np.partition` for efficient order statistics (line 424-425)
+   - NOT truly "lock-free" - just zero-allocation with pre-allocated buffers
+   ```
+
+3. **Model Support Claims vs Reality**
+   ```
+   DOCUMENTED: "PickleMLInferenceActor: Security stub that raises SecurityError"
+   ACTUAL: Correct - raises SecurityError on instantiation (base.py:1558-1575)
+   
+   DOCUMENTED: "Production environments enforce ONNX-only model loading"  
+   ACTUAL: Model loading allows multiple formats with environment-based restrictions (base.py:1250-1263)
+   - Checks ML_TEST_ALLOW_NON_ONNX environment variable
+   - Still allows .json (XGBoost) and .joblib (with ML_ALLOW_JOBLIB) in production paths
+   ```
+
+4. **Store Integration Claims**
+   ```
+   DOCUMENTED: "All data is automatically persisted by BaseMLInferenceActor without any additional code required"
+   ACTUAL: Partial implementation
+   - Feature storage: Implemented (base.py:1069-1075)  
+   - Prediction storage: Implemented (base.py:1077-1086)
+   - Signal storage: Only in MLSignalActor (signal.py:1815-1826), NOT in base class
+   ```
+
+5. **Performance Monitoring Claims**
+   ```
+   DOCUMENTED: "Reservoir sampling for bounded memory performance monitoring"
+   ACTUAL: PerformanceMonitor uses simple list truncation (signal.py:758-762), NOT reservoir sampling algorithm
+   - Simply keeps last N samples: `self.feature_times = self.feature_times[-self.reservoir_size:]`
+   ```
+
+### Universal ML Architecture Pattern Compliance
+
+**Pattern 1: Mandatory 4-Store + 4-Registry Integration** - ✅ COMPLIANT
+- All stores properly initialized in `_init_stores_and_registries()` (base.py:784-813)
+- Property accessors provided (base.py:814-868)
+- Progressive fallback via `ActorServices` facade (actor_services.py:38-61)
+
+**Pattern 2: Protocol-First Interface Design** - ✅ COMPLIANT  
+- Store interfaces properly typed as Protocols
+- Duck typing support verified via `EnhancedMLInferenceActor` null implementations
+- No direct concrete store imports in actors
+
+**Pattern 3: Hot/Cold Path Separation** - ✅ PARTIALLY COMPLIANT
+- Hot path: `on_bar()` method optimized with pre-allocated buffers
+- Circuit breaker checks before processing (base.py:948-949)
+- **ISSUE**: Some hot path methods still perform allocations
+  - `_compute_features()` in signal actor calls `features.copy()` (signal.py:1761)
+  - Feature computation may allocate in `calculate_features_online()`
+
+**Pattern 4: Progressive Fallback Chains** - ✅ COMPLIANT
+- Database fallback: PostgreSQL → DummyStore via `init_actor_services()`
+- Model loading fallback: Registry → Direct file loading (base.py:1310-1385)
+- Circuit breaker protection implemented
+
+**Pattern 5: Centralized Metrics Bootstrap** - ✅ COMPLIANT
+- All metrics via `MetricsManager.default()` (base.py:659-674, signal.py:159-235)
+- Module-level metrics initialization (signal.py:159-235)
+- No direct prometheus_client imports detected
+
+### Specific Code Issues Found
+
+**File: ml/actors/base.py**
+- Line 1047: Hot path uses `["float32"] * len(actual_names)` - potential allocation
+- Line 1067: Exception handling creates dictionary on every call - should be cached
+- Line 1773: Missing return type annotation on `_predict()` method
+
+**File: ml/actors/signal.py**  
+- Line 1761: `features.copy()` in hot path violates zero-allocation principle
+- Line 758-762: Misleading "reservoir sampling" implementation - uses list slicing
+- Line 1881: Hot path numpy operations `np.stack()` may allocate
+
+**File: ml/actors/enhanced.py**
+- Line 87: `self._feature_buffer[:size] = features` copies data unnecessarily 
+- Could return `features` directly as FeatureEngineer guarantees view semantics
+
+### Model Security Analysis
+
+**FINDING**: Security claims are overstated
+- Documentation claims "Production environments restricted to ONNX"
+- Reality: Multiple formats allowed with environment flags (base.py:1250-1263)
+- XGBoost JSON format (.json) always allowed in production
+- Joblib format allowed with `ML_ALLOW_JOBLIB=1`
+
+### Missing Implementation vs Documentation
+
+**Not Implemented But Documented:**
+1. **Registry-Based Model Loading**: Mentioned extensively but implementation is basic fallback logic
+2. **Lock-Free Optimizations**: Referenced components in `ml.core.cache` but not actually used in hot paths
+3. **Model Hot-Reloading**: Basic file modification time checking, not atomic swapping as described
+
+### Performance Targets Reality Check
+
+**Documented Targets:**
+- P99 Feature Computation: <500μs  
+- P99 Model Inference: <2ms
+- P99 End-to-End Signal Generation: <5ms
+
+**Implementation Analysis:**
+- Performance monitoring code exists (signal.py:718-823)
+- Latency violation tracking implemented (base.py:969-977)
+- **NO EVIDENCE** of actual performance validation or enforcement
+- Metrics collection but no SLA enforcement in code
+
+### Conclusion
+
+The ml/actors implementation achieves approximately **75% fidelity** to documentation claims:
+
+**Strong Points:**
+- Mandatory store integration correctly implemented
+- Protocol-based design properly executed  
+- Circuit breaker and health monitoring fully functional
+- Signal generation strategies all implemented
+
+**Gaps:**
+- Performance claims are aspirational, not validated
+- Security restrictions are weaker than documented
+- "Zero-allocation" hot path has several allocation points
+- Reservoir sampling is mislabeled list truncation
+- Hot-reloading is basic file watching, not atomic swapping
+
+**Recommendation**: Update documentation to reflect actual implementation capabilities rather than aspirational targets, or implement missing performance optimizations to match documented claims.

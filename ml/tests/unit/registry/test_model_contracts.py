@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from abc import ABC
 from abc import abstractmethod
 
@@ -19,6 +18,7 @@ import pytest
 from ml.registry.base import DataRequirements
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelManifest
+from ml.tests.builders import RegistryBuilder
 
 
 class ModelContract(ABC):
@@ -396,7 +396,7 @@ def create_valid_teacher_manifest() -> ModelManifest:
     schema_json = json.dumps(feature_schema, sort_keys=True)
     schema_hash = hashlib.sha256(schema_json.encode()).hexdigest()
 
-    return ModelManifest(
+    return RegistryBuilder.model_manifest(
         model_id="teacher_001",
         role=ModelRole.TEACHER,
         data_requirements=DataRequirements.L1_L2_L3,
@@ -412,8 +412,6 @@ def create_valid_teacher_manifest() -> ModelManifest:
             "max_latency_ms": 1000,
             "max_memory_mb": 2000,
         },
-        created_at=time.time(),
-        last_modified=time.time(),
     )
 
 
@@ -434,7 +432,7 @@ def create_valid_student_manifest(teacher_id: str) -> ModelManifest:
     schema_json = json.dumps(feature_schema, sort_keys=True)
     schema_hash = hashlib.sha256(schema_json.encode()).hexdigest()
 
-    return ModelManifest(
+    return RegistryBuilder.model_manifest(
         model_id="student_001",
         role=ModelRole.STUDENT,
         data_requirements=DataRequirements.L1_ONLY,
@@ -452,8 +450,6 @@ def create_valid_student_manifest(teacher_id: str) -> ModelManifest:
             "max_latency_ms": 5,
             "max_memory_mb": 256,
         },
-        created_at=time.time(),
-        last_modified=time.time(),
     )
 
 

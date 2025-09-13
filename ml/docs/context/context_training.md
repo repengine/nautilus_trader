@@ -708,3 +708,131 @@ The infrastructure ensures strict feature parity between training and inference 
 - **Actors**: See `context_actors.md` for inference actors, BaseMLInferenceActor, and production integration
 - **Models**: See `context_models.md` for model implementations, inference patterns, and deployment strategies
 - **Preprocessing**: See `context_preprocessing.md` for StationarityTransformer, PurgedCrossValidator, and data preparation
+
+## Implementation Review Addendum
+
+### Ground-Truth Code Analysis
+
+**Review Date**: December 2024  
+**Files Analyzed**: 20 Python files totaling **5,697 lines of code**  
+**Documentation Claims**: 95% complete training infrastructure with 5,000+ lines
+
+### Major Discrepancies Between Documentation and Implementation
+
+#### 1. **Line Count Accuracy** ✅
+- **Documentation Claim**: "5,000+ lines of thoroughly tested training code"
+- **Actual Implementation**: 5,697 total lines across all training modules
+- **Validation**: Line count claim is **accurate and conservative**
+
+#### 2. **BaseMLTrainer Implementation** ✅
+- **Documentation Claim**: "Complete training orchestration with 1,200+ lines of production code"
+- **Actual Implementation**: `/ml/training/base.py` contains **1,231 lines**
+- **Validation**: Implementation matches documentation claims with comprehensive:
+  - MLflow experiment tracking
+  - Optuna hyperparameter optimization
+  - Cross-validation (time-series and K-fold)
+  - Trading-specific metrics calculation
+  - ONNX export capabilities
+  - FeatureStore integration for train-serve parity
+
+#### 3. **Universal ML Architecture Pattern Compliance** ❌
+- **Documentation Claim**: "Complete feature and model lifecycle management with lineage tracking"
+- **Critical Finding**: **Training modules do NOT implement the 5 Universal ML Architecture Patterns**
+- **Missing Components**:
+  - No `BaseMLInferenceActor` inheritance in any trainer
+  - No 4-store + 4-registry integration
+  - No `ml.common.metrics_bootstrap` usage (Pattern 5 violation)
+  - Training is purely cold-path without actor integration
+
+#### 4. **Export System Implementation** ✅
+- **Documentation Claim**: "Cross-framework ONNX/TorchScript/native format support with metadata sidecars"
+- **Actual Implementation**: `/ml/training/export.py` contains **485 lines** with:
+  - `ModelExportMixin` and `TrainingActorContract` protocols
+  - Comprehensive ONNX conversion for XGBoost, LightGBM, sklearn
+  - TorchScript export capabilities
+  - Metadata sidecar generation
+  - Production validation methods
+
+#### 5. **Console Scripts Configuration** ✅
+- **Documentation Claim**: "Production console scripts (ml-teacher-tft, ml-student-lightgbm)"
+- **Actual Implementation**: Found in `pyproject.toml`:
+  ```toml
+  [tool.poetry.scripts]
+  ml-teacher-tft = "ml.training.teacher.tft_cli:main"
+  ml-student-lightgbm = "ml.training.student.lightgbm_cli:main"
+  ```
+
+#### 6. **Teacher-Student Distillation** ✅
+- **Documentation Claim**: "Complete knowledge distillation pipeline with sub-millisecond inference optimization"
+- **Actual Implementation**:
+  - `TFTTeacher`: 456 lines with pytorch-forecasting integration
+  - `LightGBMStudentDistiller`: 344 lines with three distillation objectives
+  - Comprehensive CLI tools: `tft_cli.py` (786 lines), `lightgbm_cli.py` (107 lines)
+  - ONNX export with baked-in calibration
+
+#### 7. **Advanced Optimizers** ✅
+- **Documentation Claim**: "XGBoostOptunaOptimizer: 300+ lines of sophisticated HPO"
+- **Actual Implementation**: `/ml/training/optuna_optimizer.py` contains **490 lines** with:
+  - Multiple sampling algorithms (TPE, Random, CMA-ES, Grid)
+  - Advanced pruning strategies
+  - Financial-optimized parameter ranges
+  - GPU-aware optimization
+
+### Implementation Completeness Analysis
+
+#### Fully Implemented Components ✅
+1. **BaseMLTrainer Framework** - Complete with all claimed features
+2. **Export System** - Comprehensive ONNX/TorchScript support
+3. **Teacher-Student Architecture** - Full distillation pipeline
+4. **Non-Distilled Trainers** - Advanced XGBoost (635 lines) and LightGBM (350 lines)
+5. **Hyperparameter Optimization** - Sophisticated Optuna integration
+6. **Console Script Infrastructure** - Production CLI tools configured
+
+#### Missing or Incomplete Components ❌
+
+1. **Universal Pattern Integration**: Training modules operate in isolation from the actor/registry ecosystem
+2. **Metrics Bootstrap Integration**: No usage of centralized metrics system (Pattern 5)
+3. **Progressive Fallback**: Limited fallback strategies beyond optional dependencies
+4. **Hot Path Separation**: Training is purely cold-path with no inference actor integration
+
+### Specific Code Validation
+
+#### Feature Parity Validation ✅
+- `BaseMLTrainer.prepare_data_with_feature_store()` method implemented (lines 279-337)
+- Schema hash validation present in student distiller
+- Float32 output compliance for inference compatibility
+
+#### Registry Integration Status ❌
+- **Expected**: Mandatory FeatureRegistry and ModelRegistry integration
+- **Found**: Registry usage is **optional** and implemented only in CLI tools
+- **Gap**: Core trainer classes do not enforce registry compliance
+
+#### ONNX Export Validation ✅
+- All trainers implement `_convert_to_onnx()` method
+- Student distiller bakes Sigmoid + Platt calibration into ONNX graph
+- Proper float32 type handling and metadata generation
+
+### Production Readiness Assessment
+
+#### Architecture Alignment ❌
+- **Critical Gap**: Training infrastructure does not integrate with the 5 Universal ML Architecture Patterns
+- **Impact**: Training outputs may not seamlessly integrate with production ML actors
+- **Recommendation**: Implement pattern compliance or clarify architectural boundaries
+
+#### Code Quality ✅
+- Comprehensive type annotations throughout
+- Proper error handling and dependency management
+- Extensive configuration support
+- Production-grade logging and monitoring hooks
+
+### Summary
+
+The ml/training domain represents a **sophisticated, well-implemented training infrastructure** that largely delivers on its documentation promises in terms of functionality and code volume. However, there is a **fundamental architectural disconnect** between the training layer and the broader ML system's Universal Architecture Patterns.
+
+**Key Findings**:
+- Line count and feature claims are accurate
+- Individual training components are production-ready
+- Missing integration with the mandatory 4-store + 4-registry pattern
+- Training operates as a standalone system rather than integrated ML ecosystem component
+
+**Recommendation**: Either integrate training infrastructure with Universal ML Architecture Patterns or explicitly document the architectural boundaries and handoff protocols between training and inference systems.

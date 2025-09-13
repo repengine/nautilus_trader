@@ -12,7 +12,7 @@ from ml.observability.pipeline import build_latency_watermarks
 from ml.observability.pipeline import build_metrics_collection
 
 
-def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
+def test_db_persistor_writes_and_validates(tmp_path: Path, default_instrument_id) -> None:
     # Optional dependency: skip if pandera not available (schemas rely on it)
     pytest.importorskip("pandera")
     from ml.tests.contracts.test_observability_pipeline_schemas import (
@@ -27,7 +27,7 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
         [
             {
                 "correlation_id": "00000000-0000-0000-0000-000000000001",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": 1000,
                 "ts_stage_end": 2000,
@@ -51,7 +51,7 @@ def test_db_persistor_writes_and_validates(tmp_path: Path) -> None:
                 "correlation_id": "00000000-0000-0000-0000-000000000001",
                 "event_id": "00000000-0000-0000-0000-000000000002",
                 "parent_event_id": None,
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "domain": "data",
                 "lineage_depth": 0,
                 "ts_event": 1000,

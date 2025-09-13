@@ -5,19 +5,17 @@ from typing import Any
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import ThresholdSignalStrategy
 from ml.actors.signal import MLSignalActorConfig as _MLSignalActorConfig
+from ml.tests.builders import MLConfigBuilder
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 
-def test_invalid_policy_falls_back_to_threshold(tmp_path: Any) -> None:
-    inst = InstrumentId.from_str("EURUSD.SIM")
-    bar_type = BarType.from_str("EURUSD.SIM-1-MINUTE-MID-EXTERNAL")
-    cfg = _MLSignalActorConfig(
+def test_invalid_policy_falls_back_to_threshold(tmp_path: Any, default_instrument_id, default_bar_type) -> None:
+    cfg = MLConfigBuilder.signal_config(
         model_path=str(tmp_path / "model.onnx"),
         model_id="demo",
-        bar_type=bar_type,
-        instrument_id=inst,
-        use_dummy_stores=True,
+        bar_type=default_bar_type,
+        instrument_id=default_instrument_id,
         prediction_threshold=0.33,
         signal_strategy="threshold",
     )

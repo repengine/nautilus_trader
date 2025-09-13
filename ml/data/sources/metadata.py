@@ -139,23 +139,8 @@ class DatabentoMetadataSource(MetadataSource):
             return MockMetadataSource().fetch_metadata(instruments)
 
     def _default_metadata(self, symbol: str) -> dict[str, Any]:
-        """
-        Get default metadata for a symbol.
-        """
-        return {
-            "instrument_id": symbol,
-            "tick_size": 0.01,
-            "lot_size": 100.0,
-            "contract_size": 1.0,
-            "min_price_increment": 0.01,
-            "exchange": "UNKNOWN",
-            "asset_class": "EQUITY",
-            "currency": "USD",
-            "margin_initial": 0.0,
-            "margin_maintenance": 0.0,
-            "fee_class": "DEFAULT",
-            "market_segment": "UNKNOWN",
-        }
+        """Get default metadata for a symbol (canonical)."""
+        return default_metadata(symbol)
 
 
 class NautilusMetadataSource(MetadataSource):
@@ -200,21 +185,8 @@ class NautilusMetadataSource(MetadataSource):
                 inst = self.instruments[symbol]
                 metadata = self._extract_metadata(inst)
             else:
-                # Use defaults for unknown instruments
-                metadata = {
-                    "instrument_id": symbol,
-                    "tick_size": 0.01,
-                    "lot_size": 100.0,
-                    "contract_size": 1.0,
-                    "min_price_increment": 0.01,
-                    "exchange": "UNKNOWN",
-                    "asset_class": "EQUITY",
-                    "currency": "USD",
-                    "margin_initial": 0.0,
-                    "margin_maintenance": 0.0,
-                    "fee_class": "DEFAULT",
-                    "market_segment": "UNKNOWN",
-                }
+                # Use canonical defaults for unknown instruments
+                metadata = default_metadata(symbol)
 
             metadata_list.append(metadata)
 
@@ -429,3 +401,28 @@ class MockMetadataSource(MetadataSource):
         if pl is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
         return pl.DataFrame(metadata_list)
+
+
+# ----------------------------------------------------------------------------
+# Canonical default metadata (single source of truth)
+# ----------------------------------------------------------------------------
+
+def default_metadata(symbol: str) -> dict[str, Any]:
+    """Canonical default metadata values for instruments.
+
+    This helper prevents drift between different metadata sources/providers.
+    """
+    return {
+        "instrument_id": symbol,
+        "tick_size": 0.01,
+        "lot_size": 100.0,
+        "contract_size": 1.0,
+        "min_price_increment": 0.01,
+        "exchange": "UNKNOWN",
+        "asset_class": "EQUITY",
+        "currency": "USD",
+        "margin_initial": 0.0,
+        "margin_maintenance": 0.0,
+        "fee_class": "DEFAULT",
+        "market_segment": "UNKNOWN",
+    }

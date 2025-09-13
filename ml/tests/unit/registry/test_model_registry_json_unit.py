@@ -11,15 +11,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
-from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import compute_schema_hash
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.tests.builders import RegistryBuilder
 
 
 def test_model_registry_register_happy_path(tmp_path: Path) -> None:
@@ -36,7 +35,7 @@ def test_model_registry_register_happy_path(tmp_path: Path) -> None:
     pipeline_sig = "sig_v1"
     schema_hash = compute_schema_hash(feature_names, feature_dtypes, pipeline_sig)
 
-    fm = FeatureManifest(
+    fm = RegistryBuilder.feature_manifest(
         feature_set_id="feat_v1",
         name="test_features",
         version="1.0.0",
@@ -60,7 +59,7 @@ def test_model_registry_register_happy_path(tmp_path: Path) -> None:
         registry_path=reg_dir,
         persistence_config=PersistenceConfig(backend=BackendType.JSON, json_path=reg_dir),
     )
-    manifest = ModelManifest(
+    manifest = RegistryBuilder.model_manifest(
         model_id="",
         role=ModelRole.STUDENT,
         data_requirements=DataRequirements.L1_ONLY,

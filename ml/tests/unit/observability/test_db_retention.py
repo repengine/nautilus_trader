@@ -14,7 +14,7 @@ def _ns(dt: datetime) -> int:
     return int(dt.timestamp() * 1e9)
 
 
-def test_apply_retention_deletes_old_rows(tmp_path: Path) -> None:
+def test_apply_retention_deletes_old_rows(tmp_path: Path, default_instrument_id) -> None:
     now = datetime.now(UTC)
     old = now - timedelta(days=10)
     recent = now - timedelta(days=1)
@@ -23,7 +23,7 @@ def test_apply_retention_deletes_old_rows(tmp_path: Path) -> None:
         [
             {
                 "correlation_id": "c1",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": _ns(old),
                 "ts_stage_end": _ns(old) + 1_000,
@@ -32,7 +32,7 @@ def test_apply_retention_deletes_old_rows(tmp_path: Path) -> None:
             },
             {
                 "correlation_id": "c2",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": _ns(recent),
                 "ts_stage_end": _ns(recent) + 1_000,

@@ -17,6 +17,7 @@ from hypothesis import strategies as st
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.tests.builders import DataBuilder
 
 
 if TYPE_CHECKING:
@@ -124,11 +125,12 @@ class TestBaseDataProvider:
 
         provider = BaseDataProvider()
 
-        # Valid data with required columns
+        # Valid data with required columns - using DataBuilder for consistent test data
+        timestamps = DataBuilder.time_series(n_points=2, start_time=100, interval_ns=100)
         valid_df = pl.DataFrame(
             {
                 "instrument_id": ["SPY", "QQQ"],
-                "timestamp": [100, 200],
+                "timestamp": timestamps,
                 "value": [1.0, 2.0],
             },
         )
@@ -139,10 +141,11 @@ class TestBaseDataProvider:
         assert not provider.validate_data(empty_df)
 
         # Data with nulls in required columns should fail
+        timestamps_null = DataBuilder.time_series(n_points=2, start_time=100, interval_ns=100)
         null_df = pl.DataFrame(
             {
                 "instrument_id": ["SPY", None],
-                "timestamp": [100, 200],
+                "timestamp": timestamps_null,
             },
         )
         assert not provider.validate_data(null_df)

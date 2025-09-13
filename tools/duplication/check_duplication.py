@@ -18,7 +18,12 @@ import sys
 from pathlib import Path
 
 
-ROOTS = [Path("ml/actors"), Path("ml/stores"), Path("ml/registry")]
+ROOTS = [
+    Path("ml/actors"),
+    Path("ml/stores"),
+    Path("ml/registry"),
+    Path("ml/data"),  # include data layer to catch cache/provider duplication
+]
 MIN_LINES = 8  # min non-empty lines per block
 WINDOW = 12  # shingle window size (lines)
 MAX_REPORTS = 50

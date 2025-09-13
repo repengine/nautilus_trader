@@ -11,6 +11,7 @@ from ml.actors.base import MLSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.common.message_bus import MessagePublisherProtocol
+from ml.tests.builders import MLConfigBuilder
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
@@ -38,7 +39,7 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-def test_actor_side_domain_event_bridge_publishes(monkeypatch, tmp_path) -> None:
+def test_actor_side_domain_event_bridge_publishes(monkeypatch, tmp_path, default_instrument_id, default_bar_type) -> None:
     # Arrange: env enables actor-side bridge with stage-first scheme
     pub = CapturePublisher()
 
@@ -60,20 +61,17 @@ def test_actor_side_domain_event_bridge_publishes(monkeypatch, tmp_path) -> None
             lambda self, s: None,
         )
 
-        inst = InstrumentId.from_str("EURUSD.SIM")
-        bar_type = BarType.from_str("EURUSD.SIM-1-MINUTE-MID-EXTERNAL")
-        cfg = MLSignalActorConfig(
+        cfg = MLConfigBuilder.signal_config(
             model_path=str(tmp_path / "model.onnx"),
             model_id="demo",
-            bar_type=bar_type,
-            instrument_id=inst,
-            use_dummy_stores=True,
+            bar_type=default_bar_type,
+            instrument_id=default_instrument_id,
         )
         actor = MLSignalActor(cfg)
 
         # Act: publish a signal; bridge enqueues event in background
         sig = MLSignal(
-            instrument_id=inst,
+            instrument_id=default_instrument_id,
             model_id="demo",
             prediction=0.9,
             confidence=0.9,

@@ -74,7 +74,9 @@ class MetricsManager:
         if metric is None:
             metric = _get_counter(name, description, labels)
             self._cache[k] = metric
-        return metric
+        from typing import cast as _cast
+
+        return _cast(_CounterLike, metric)
 
     def histogram(
         self,
@@ -89,7 +91,9 @@ class MetricsManager:
         if metric is None:
             metric = _get_histogram(name, description, labels, buckets=buckets)
             self._cache[k] = metric
-        return metric
+        from typing import cast as _cast
+
+        return _cast(_HistogramLike, metric)
 
     def gauge(self, name: str, description: str, labels: Iterable[str] | None = None) -> _GaugeLike:
         k = _key(name, labels, "gauge")
@@ -97,7 +101,9 @@ class MetricsManager:
         if metric is None:
             metric = _get_gauge(name, description, labels)
             self._cache[k] = metric
-        return metric
+        from typing import cast as _cast
+
+        return _cast(_GaugeLike, metric)
 
     # --------- Convenience helpers ---------
     def inc(

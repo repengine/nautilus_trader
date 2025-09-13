@@ -34,6 +34,7 @@ from ml.config.actors import StrategyConfig
 from ml.config.base import CircuitBreakerConfig
 from ml.features.engineering import FeatureConfig
 from ml.tests.fixtures.model_factory import TestModelFactory
+from ml.tests.builders import MLConfigBuilder
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
@@ -164,8 +165,8 @@ class TestMLSignalActorParameterized:
             atr_period=14,
         )
 
-        # Default config
-        self.config = MLSignalActorConfig(
+        # Default config using builder
+        self.config = MLConfigBuilder.signal_config(
             model_id="test_model",
             component_id="MLSignalActor-001",
             model_path=str(self.temp_model_file_path),
@@ -175,7 +176,6 @@ class TestMLSignalActorParameterized:
             warm_up_period=30,
             signal_strategy=SignalStrategy.THRESHOLD,
             feature_config=self.feature_config,
-            use_dummy_stores=True,
         )
 
     def create_test_actor(
@@ -263,7 +263,7 @@ class TestMLSignalActorParameterized:
         """
         Test various signal generation strategies with different inputs.
         """
-        config = MLSignalActorConfig(
+        config = MLConfigBuilder.signal_config(
             model_id="test_model",
             component_id="MLSignalActor-001",
             model_path=str(self.temp_model_file_path),
@@ -278,7 +278,6 @@ class TestMLSignalActorParameterized:
                 momentum_lookback=3,
             ),
             feature_config=self.feature_config,
-            use_dummy_stores=True,
         )
 
         actor = self.create_test_actor(config)
@@ -336,7 +335,7 @@ class TestMLSignalActorParameterized:
             output_path=model_path,
         )
 
-        config = MLSignalActorConfig(
+        config = MLConfigBuilder.signal_config(
             model_id="test_model",
             component_id="MLSignalActor-001",
             model_path=str(model_path),
@@ -346,7 +345,6 @@ class TestMLSignalActorParameterized:
             warm_up_period=1,
             signal_strategy=SignalStrategy.THRESHOLD,
             feature_config=self.feature_config,
-            use_dummy_stores=True,
         )
 
         actor = self.create_test_actor(config)
@@ -388,7 +386,7 @@ class TestMLSignalActorParameterized:
         """
         Test strategies handle insufficient history correctly.
         """
-        config = MLSignalActorConfig(
+        config = MLConfigBuilder.signal_config(
             model_id="test_model",
             component_id="MLSignalActor-001",
             model_path=str(self.temp_model_file_path),
@@ -402,7 +400,6 @@ class TestMLSignalActorParameterized:
                 extremes_top_pct=0.2,
             ),
             feature_config=self.feature_config,
-            use_dummy_stores=True,
         )
 
         actor = self.create_test_actor(config)
@@ -528,7 +525,7 @@ class TestMLSignalActorParameterized:
         """
         Test circuit breaker state transitions with different failure counts.
         """
-        config = MLSignalActorConfig(
+        config = MLConfigBuilder.signal_config(
             model_id="test_model",
             component_id="MLSignalActor-001",
             model_path=str(self.temp_model_file_path),
@@ -543,7 +540,6 @@ class TestMLSignalActorParameterized:
                 half_open_attempts=3,
             ),
             feature_config=self.feature_config,
-            use_dummy_stores=True,
         )
 
         actor = self.create_test_actor(config)

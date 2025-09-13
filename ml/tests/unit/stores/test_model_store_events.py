@@ -15,6 +15,9 @@ from ml.stores.model_store import ModelStore
 def test_model_store_emits_event_to_data_registry_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    default_instrument_id,
+    test_timestamps,
+    sample_features,
 ) -> None:
     # Shared DataRegistry (JSON backend)
     reg = DataRegistry(
@@ -33,27 +36,29 @@ def test_model_store_emits_event_to_data_registry_json(
     # Avoid DB dependency in unit test by stubbing out the actual write
     monkeypatch.setattr(ms, "_execute_write", lambda values: None)
 
-    now_ns = int(time.time_ns())
+    ts_event, ts_init = test_timestamps
+    instrument_id_str = str(default_instrument_id).split(".")[0]  # Get "EUR/USD" from "EUR/USD.SIM"
+
     batch = [
         ModelPrediction(
             model_id="m1",
-            instrument_id="SPY",
+            instrument_id=instrument_id_str,
             prediction=0.6,
             confidence=0.7,
-            features_used={"a": 1.0},
+            features_used=sample_features,
             inference_time_ms=1.2,
-            _ts_event=now_ns,
-            _ts_init=now_ns,
+            _ts_event=ts_event,
+            _ts_init=ts_init,
         ),
         ModelPrediction(
             model_id="m1",
-            instrument_id="SPY",
+            instrument_id=instrument_id_str,
             prediction=0.55,
             confidence=0.65,
-            features_used={"a": 2.0},
+            features_used=sample_features,
             inference_time_ms=1.1,
-            _ts_event=now_ns + 1,
-            _ts_init=now_ns + 1,
+            _ts_event=ts_event + 1,
+            _ts_init=ts_init + 1,
         ),
     ]
 

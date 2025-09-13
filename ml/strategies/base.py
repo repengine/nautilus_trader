@@ -216,6 +216,39 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 )
                 self.strategy_store = None
 
+    # --- Common decision helpers (to reduce duplication across strategies) ---
+    def target_side_from_prediction(self, prediction: float, threshold: float = 0.5) -> OrderSide:
+        """
+        Map a prediction score to an order side using a threshold.
+
+        Parameters
+        ----------
+        prediction : float
+            Model prediction in [0, 1].
+        threshold : float
+            Decision threshold for BUY/SELL split.
+
+        Returns
+        -------
+        OrderSide
+            BUY if prediction > threshold, else SELL.
+        """
+        return OrderSide.BUY if float(prediction) > float(threshold) else OrderSide.SELL
+
+    def should_reverse(self, current_position: Position, target_side: OrderSide) -> bool:
+        """
+        Check if an existing position should be reversed given a target side.
+
+        Returns
+        -------
+        bool
+            True if reversing is required.
+        """
+        return bool(
+            (current_position.side.name == "LONG" and target_side == OrderSide.SELL)
+            or (current_position.side.name == "SHORT" and target_side == OrderSide.BUY)
+        )
+
     def on_start(self) -> None:
         """
         Initialize the strategy and subscribe to ML signals.
@@ -843,14 +876,8 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         static analysis tools. It's not called in normal operation.
 
         """
-        # Representative metric calls for validator recognition
-        if False:  # Never actually executed
-            if self.signals_received_metric:
-                self.signals_received_metric.inc()
-            if self.orders_submitted_metric:
-                self.orders_submitted_metric.inc()
-            if self.position_count_metric:
-                self.position_count_metric.set(0)
+        # Intentionally left as a no-op to avoid unsatisfiable conditions flagged by linters.
+        return None
 
     @abstractmethod
     def _process_ml_signal(self, signal: MLSignal) -> None:
@@ -892,11 +919,8 @@ class SimpleMLStrategy(BaseMLStrategy):
         """
         current_position = self._get_current_position()
 
-        # Determine target side based on prediction
-        if signal.prediction > 0.5:
-            target_side = OrderSide.BUY
-        else:
-            target_side = OrderSide.SELL
+        # Determine target side based on prediction (shared helper)
+        target_side = self.target_side_from_prediction(signal.prediction, 0.5)
 
         # Check if we need to change position
         if current_position is None:
@@ -917,9 +941,7 @@ class SimpleMLStrategy(BaseMLStrategy):
                     instrument=str(self._config.instrument_id),
                 ).set(self._active_positions)
 
-        elif (current_position.side.name == "LONG" and target_side == OrderSide.SELL) or (
-            current_position.side.name == "SHORT" and target_side == OrderSide.BUY
-        ):
+        elif self.should_reverse(current_position, target_side):
             # Position exists but signal suggests opposite direction
             # Close current position first
             close_side = OrderSide.SELL if current_position.side.name == "LONG" else OrderSide.BUY

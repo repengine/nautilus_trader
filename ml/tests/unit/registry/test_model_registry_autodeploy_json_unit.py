@@ -7,11 +7,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from ml.registry.base import DataRequirements
-from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.tests.builders import RegistryBuilder
 
 
 def test_auto_deploy_student_targets_signal_actor(tmp_path: Path) -> None:
@@ -24,7 +24,7 @@ def test_auto_deploy_student_targets_signal_actor(tmp_path: Path) -> None:
     # Create teacher (non-serveable) first
     teacher_path = reg_dir / "teacher.onnx"
     teacher_path.write_bytes(b"onnx")
-    teacher = ModelManifest(
+    teacher = RegistryBuilder.model_manifest(
         model_id="",
         role=ModelRole.TEACHER,
         data_requirements=DataRequirements.L1_ONLY,
@@ -42,7 +42,7 @@ def test_auto_deploy_student_targets_signal_actor(tmp_path: Path) -> None:
     model_path = reg_dir / "student.onnx"
     model_path.write_bytes(b"onnx")
 
-    manifest = ModelManifest(
+    manifest = RegistryBuilder.model_manifest(
         model_id="",
         role=ModelRole.STUDENT,
         data_requirements=DataRequirements.L1_ONLY,

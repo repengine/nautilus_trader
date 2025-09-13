@@ -8,7 +8,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_async_db_persistor_writes_and_validates(tmp_path: Path) -> None:
+async def test_async_db_persistor_writes_and_validates(tmp_path: Path, default_instrument_id) -> None:
     """
     Persist small frames via async DB persistor using sqlite+aiosqlite backend.
 
@@ -34,7 +34,7 @@ async def test_async_db_persistor_writes_and_validates(tmp_path: Path) -> None:
         [
             {
                 "correlation_id": "CID-1",
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "pipeline_stage": "data_ingestion",
                 "ts_stage_start": 1000,
                 "ts_stage_end": 2000,
@@ -58,7 +58,7 @@ async def test_async_db_persistor_writes_and_validates(tmp_path: Path) -> None:
                 "correlation_id": "CID-1",
                 "event_id": "EID-2",
                 "parent_event_id": None,
-                "instrument_id": "EURUSD.SIM",
+                "instrument_id": str(default_instrument_id),
                 "domain": "data",
                 "lineage_depth": 0,
                 "ts_event": 1000,

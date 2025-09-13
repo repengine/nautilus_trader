@@ -10,7 +10,7 @@ from ml.observability.service import ObservabilityService
 
 
 @pytest.mark.asyncio
-async def test_async_worker_file_sink_flush(tmp_path: Path) -> None:
+async def test_async_worker_file_sink_flush(tmp_path: Path, default_instrument_id) -> None:
     """
     Async worker enqueues rows and flushes them to JSONL files.
     """
@@ -29,7 +29,7 @@ async def test_async_worker_file_sink_flush(tmp_path: Path) -> None:
     # Enqueue one row per table
     assert worker.enqueue_latency(
         correlation_id="c1",
-        instrument_id="EURUSD.SIM",
+        instrument_id=str(default_instrument_id),
         pipeline_stage="data_ingestion",
         ts_stage_start=1,
         ts_stage_end=2,
@@ -45,7 +45,7 @@ async def test_async_worker_file_sink_flush(tmp_path: Path) -> None:
         correlation_id="c1",
         event_id="e1",
         parent_event_id=None,
-        instrument_id="EURUSD.SIM",
+        instrument_id=str(default_instrument_id),
         domain="data",
         lineage_depth=0,
         ts_event=1,

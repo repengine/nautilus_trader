@@ -43,10 +43,16 @@ def correlation_ids(draw):
 
 
 @st.composite
-def event_timestamps(draw, min_year=2020, max_year=2025):
+def event_timestamps(draw, min_year=2020, max_year=2025, use_builder=False):
     """
     Generate valid event timestamps in nanoseconds.
     """
+    if use_builder:
+        from ml.tests.builders import DataBuilder
+        # Generate a single timestamp using DataBuilder
+        timestamps = DataBuilder.time_series(n_points=1)
+        return int(timestamps[0])
+
     year = draw(st.integers(min_value=min_year, max_value=max_year))
     month = draw(st.integers(min_value=1, max_value=12))
     day = draw(st.integers(min_value=1, max_value=28))  # Safe for all months

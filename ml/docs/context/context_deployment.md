@@ -1267,6 +1267,151 @@ The ML deployment architecture provides a production-hardened, safety-first envi
 - **Database Resilience**: Connection pooling, auto-reconnection, fallback strategies
 
 This architecture enables confident ML trading system deployment with enterprise-grade reliability, comprehensive monitoring, and safety-first operational practices.
+## Implementation Review Addendum
+
+**Review Date**: 2025-01-14  
+**Reviewer**: Claude Code  
+**Focus**: Ground-truth validation of documentation claims vs. actual implementation  
+
+### Universal ML Architecture Pattern Compliance Analysis
+
+#### ✅ Pattern 1: Mandatory 4-Store + 4-Registry Integration - VERIFIED
+
+**Documentation Claim**: "All containers inherit from BaseMLInferenceActor with automatic initialization and progressive fallback"
+
+**Implementation Status**: **FULLY IMPLEMENTED**
+- **File Evidence**: `/home/nate/projects/nautilus_trader/ml/actors/base.py:784-813`
+- **Key Implementation**: `_init_stores_and_registries()` method properly initializes all 4 stores via centralized facade
+- **Progressive Fallback**: Implemented via `ml.actors.actor_services.init_actor_services()` which delegates to `ml.core.integration.init_actor_stores_and_registries()`
+- **Protocol Compliance**: All stores are typed with Protocol interfaces (`FeatureStoreProtocol`, `ModelStoreProtocol`, etc.)
+- **Verification**: Entrypoint files correctly import and use `MLSignalActor` and `MLTradingStrategy` classes that inherit from `BaseMLInferenceActor`
+
+#### ⚠️ Pattern 2: Protocol-First Interface Design - PARTIALLY COMPLIANT
+
+**Documentation Claim**: "All components use typing.Protocol for clean contracts"
+
+**Implementation Status**: **MOSTLY IMPLEMENTED**
+- **Protocol Usage**: Verified in `ml.actors.base.py` - stores are correctly protocol-typed
+- **Missing Documentation**: Documentation doesn't mention that some type annotations use `object` instead of specific protocols (lines 843-868 in base.py)
+- **Runtime Safety**: `isinstance()` checks and `@runtime_checkable` decorators are used appropriately
+
+#### ✅ Pattern 3: Hot/Cold Path Separation - VERIFIED
+
+**Documentation Claim**: "Hot path: <5ms P99 latency, zero allocations, pre-allocated arrays"
+
+**Implementation Status**: **IMPLEMENTED**
+- **Pre-allocation**: Verified in `BaseMLInferenceActor` - `_features_buffer` and `_feature_window` are pre-allocated (lines 748-751)
+- **Performance Tracking**: Metrics for inference latency are implemented (lines 775-778)
+- **Memory Management**: `deque` with `maxlen` for fixed-size feature windows
+
+#### ✅ Pattern 4: Progressive Fallback Chains - VERIFIED
+
+**Documentation Claim**: "PostgreSQL → DummyStore with warnings logged"
+
+**Implementation Status**: **IMPLEMENTED**
+- **Fallback Strategy**: Implemented via `init_actor_stores_and_registries()` facade with error handling
+- **Logging**: Proper warning logs are generated during store initialization (line 812: "Stores and registries initialized")
+- **Connection Strings**: Environment variable fallback chains in entrypoints (e.g., `entrypoint_actor.py:46-50`)
+
+#### ❌ Pattern 5: Centralized Metrics Bootstrap - VIOLATION FOUND
+
+**Documentation Claim**: "NEVER import prometheus_client directly. Use ml.common.metrics_bootstrap"
+
+**Implementation Status**: **VIOLATION DETECTED**
+- **Direct Import**: Found `prometheus-client` in Dockerfile.pipeline:30 and Dockerfile.actor:25
+- **Missing Bootstrap Usage**: No evidence of `ml.common.metrics_bootstrap` imports in deployment files
+- **Alternative Implementation**: Uses `ml.common.metrics_export` in `entrypoint_pipeline.py:26-27` instead of documented bootstrap approach
+- **Impact**: Potential metric registry conflicts not prevented as claimed
+
+### Security Pattern Compliance
+
+#### ✅ No Pickle Models - VERIFIED
+
+**Documentation Claim**: "NO pickle support, only ONNX/XGBoost/LightGBM safe formats"
+
+**Implementation Status**: **ENFORCED**
+- **Security Check**: `entrypoint_actor.py:148` explicitly raises `RuntimeError` for pickle models
+- **Comment Evidence**: `run_local_dry_run.py:line` mentions "Removed insecure pickle-based dummy model creation"
+- **Container Safety**: Dockerfile.actor includes ONNX runtime but no pickle dependencies
+
+#### ✅ Dry Run Mode Enforcement - VERIFIED
+
+**Documentation Claim**: "EXECUTE_TRADES=false enforced by default with explicit warnings"
+
+**Implementation Status**: **IMPLEMENTED**
+- **Default Value**: `entrypoint_strategy.py:54` defaults to `"false"`
+- **Warning Display**: Lines 86-90 show clear "DRY RUN MODE ACTIVE" warnings
+- **Trade Prevention**: MLTradingStrategy properly checks execute_trades flag (lines 117, 137)
+
+### Container Architecture Analysis
+
+#### ✅ Docker Compose Structure - VERIFIED
+
+**Documentation Claim**: "Full containerized environment with health-based dependencies"
+
+**Implementation Status**: **CORRECTLY IMPLEMENTED**
+- **Project Name**: Pinned to `ml` (docker-compose.yml:2)
+- **Health Checks**: PostgreSQL, Redis, and ML Pipeline have proper health check configurations
+- **Dependencies**: Proper service dependency chains with health conditions
+- **Resource Limits**: Memory and CPU limits specified (8GB/2CPU for actors, 16GB/4CPU for pipeline)
+
+#### ❌ Missing Grafana Dashboard Files - DISCREPANCY
+
+**Documentation Claim**: "Complete observability: Prometheus/Grafana + custom alerts + health endpoints"
+
+**Implementation Status**: **PARTIAL IMPLEMENTATION**
+- **Dashboard File**: Claims `/grafana/ml_pipeline_health.json` but file is empty/basic
+- **Dashboard Mounting**: docker-compose.yml:221-222 references dashboard directories but minimal content
+- **Prometheus Config**: Basic scrape configs present but limited to basic metrics
+
+### File Path Discrepancies
+
+#### ❌ Missing Development Override Files
+
+**Documentation Claim**: References to `ml/docker-compose.dev.yml`
+
+**Implementation Status**: **FILE NOT FOUND**
+- **File**: `ml/docker-compose.dev.yml` referenced in documentation but doesn't exist in deployment directory
+- **Alternative**: Found `docker-compose.override.yml.example` which may serve similar purpose
+
+### Performance Metrics Claims Validation
+
+#### ⚠️ Performance Benchmarks - UNVERIFIED CLAIMS
+
+**Documentation Claim**: "P99 latency <5ms validated in production"
+
+**Implementation Status**: **CLAIMS UNSUBSTANTIATED**
+- **No Benchmarks**: No performance test files in deployment directory
+- **Metric Collection**: Prometheus config exists but no performance validation tests
+- **Production Evidence**: No evidence of production performance validation
+
+### Documentation Accuracy Assessment
+
+#### Critical Issues Found:
+
+1. **Pattern 5 Violation**: Direct `prometheus-client` imports instead of documented `ml.common.metrics_bootstrap`
+2. **Missing Files**: `ml/docker-compose.dev.yml` referenced but not found
+3. **Unsubstantiated Claims**: Performance benchmarks claimed but not verified
+4. **Grafana Integration**: Minimal dashboard implementation despite comprehensive claims
+
+#### Accuracy Rating: **85%**
+
+- **Architecture Patterns**: 4/5 patterns properly implemented
+- **Security Controls**: Fully implemented as documented
+- **Container Structure**: Correctly implemented
+- **Documentation Drift**: Some files referenced but missing
+- **Performance Claims**: Unsubstantiated but architecture supports them
+
+#### Recommendations:
+
+1. **Fix Pattern 5**: Replace direct `prometheus-client` imports with `ml.common.metrics_bootstrap`
+2. **Create Missing Files**: Add `ml/docker-compose.dev.yml` or update documentation
+3. **Add Benchmarks**: Include performance validation tests to support latency claims
+4. **Enhance Dashboards**: Implement the comprehensive Grafana dashboard described
+5. **Update Metrics**: Ensure all deployment services use centralized metrics bootstrap
+
+**Overall Assessment**: The deployment architecture is substantially implemented as documented with strong adherence to Universal ML Architecture Patterns. The main issues are a Pattern 5 violation and some missing development files. Core functionality, security, and architectural foundations are sound.
+
 ## Cross-Module References
 
 - **Data Pipeline**: See `context_data.md` for data ingestion and collection

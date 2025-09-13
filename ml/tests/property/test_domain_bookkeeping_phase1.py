@@ -27,6 +27,26 @@ from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.identifiers import InstrumentId
 
 
+# Strategies that can optionally use DataBuilder
+@st.composite
+def ml_timestamps(draw, use_builder=False):
+    """Generate ML pipeline timestamps, optionally using DataBuilder."""
+    if use_builder:
+        from ml.tests.builders import DataBuilder
+        timestamps = DataBuilder.time_series(n_points=1)
+        return int(timestamps[0])
+    return draw(st.integers(min_value=0, max_value=2**63 - 1))
+
+
+@st.composite
+def instrument_ids_strategy(draw, use_builder=False):
+    """Generate instrument IDs, optionally using DataBuilder."""
+    if use_builder:
+        # Use default instrument ID pattern from fixtures
+        return "EUR/USD.SIM"
+    return draw(st.text(min_size=5, max_size=20))
+
+
 @pytest.mark.property
 @pytest.mark.parallel_safe
 class TestEventEmissionInvariant:
@@ -39,9 +59,9 @@ class TestEventEmissionInvariant:
             st.fixed_dictionaries(
                 {
                     "event_id": st.uuids().map(str),
-                    "instrument_id": st.text(min_size=5, max_size=20),
-                    "ts_event": st.integers(min_value=0, max_value=2**63 - 1),
-                    "ts_init": st.integers(min_value=0, max_value=2**63 - 1),
+                    "instrument_id": instrument_ids_strategy(),
+                    "ts_event": ml_timestamps(),
+                    "ts_init": ml_timestamps(),
                     "domain": st.sampled_from(["data", "features", "models", "strategies"]),
                     "operation": st.sampled_from(["created", "updated", "deprecated"]),
                     "payload": st.dictionaries(st.text(), st.text(), max_size=5),
@@ -125,7 +145,7 @@ class TestEventEmissionInvariant:
         ), "Cross-domain event propagation must preserve correlation IDs"
 
     @given(
-        instrument_id=st.text(min_size=5, max_size=15),
+        instrument_id=instrument_ids_strategy(),
         event_count=st.integers(min_value=1, max_value=50),
         message_failures=st.lists(
             st.integers(min_value=0, max_value=49),  # Index of failed messages
@@ -203,7 +223,7 @@ class TestMessageTopicRoutingInvariant:
     @given(
         domain=st.sampled_from(["data", "features", "models", "strategies"]),
         operation=st.sampled_from(["created", "updated", "deprecated"]),
-        instrument_id=st.text(min_size=5, max_size=20),
+        instrument_id=instrument_ids_strategy(),
         invalid_chars=st.lists(
             st.sampled_from(["/", "*", "#", "+", "$"]),  # Invalid topic characters
             max_size=3,
@@ -261,7 +281,7 @@ class TestMessageTopicRoutingInvariant:
                         ["data", "features", "models", "strategies", "*"],
                     ),
                     "operation_filter": st.sampled_from(["created", "updated", "deprecated", "*"]),
-                    "instrument_filter": st.text(min_size=3, max_size=15),
+                    "instrument_filter": instrument_ids_strategy(),
                 },
             ),
             min_size=1,
@@ -271,7 +291,7 @@ class TestMessageTopicRoutingInvariant:
             {
                 "domain": st.sampled_from(["data", "features", "models", "strategies"]),
                 "operation": st.sampled_from(["created", "updated", "deprecated"]),
-                "instrument_id": st.text(min_size=3, max_size=15),
+                "instrument_id": instrument_ids_strategy(),
             },
         ),
     )
@@ -337,8 +357,8 @@ class TestEventPropagationInvariant:
             {
                 "domain": st.just("data"),  # Always start with data domain
                 "operation": st.sampled_from(["created", "updated"]),
-                "instrument_id": st.text(min_size=5, max_size=15),
-                "ts_event": st.integers(min_value=1000, max_value=2**32),
+                "instrument_id": instrument_ids_strategy(),
+                "ts_event": ml_timestamps(),
                 "payload": st.dictionaries(st.text(), st.text(), max_size=3),
             },
         ),

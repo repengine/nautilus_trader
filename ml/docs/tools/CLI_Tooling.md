@@ -8,6 +8,8 @@ Contents
 - Orchestrate builds with `ml.pipelines.build_runner`
 - Generate dataset quality reports with `dataset_report.py`
 - Promote feature sets based on metrics with `promote_features.py`
+- Run end-to-end pipeline with `ml.cli.pipeline_orchestrator`
+- Schedule pipeline runs with `ml.cli.pipeline_scheduler`
 
 ## 1) Build a Dataset (Single-Run)
 
@@ -133,3 +135,54 @@ python -m ml.scripts.dataset_report --dataset /tmp/tft_ds_small/QQQ/dataset.parq
 ```
 
 You should see macro columns (e.g., `DGS10`, `VIXCLS`) in the datasets and a target distribution summary in the markdown files.
+
+## 6) End-to-End Pipeline Orchestrator (Cold Path)
+
+Run ingestion + dataset build + optional HPO + teacher training in a single command. All heavy work remains off hot paths.
+
+```bash
+python -m ml.cli.pipeline_orchestrator \
+  --ingest \
+  --dataset_id EQUS.MINI --schema bars --instruments SPY.NYSE --lookback_days 7 \
+  --coverage_mode catalog --catalog_path ./data/catalog \
+  --write_mode parquet \
+  --data_dir data/tier1 --symbols SPY.NYSE --out_dir ml_out \
+  --include_micro --horizon_minutes 15 --threshold 0.001 --lookback_periods 30 \
+  --hpo --hpo_epochs 2 --hpo_batch_size 32 --hpo_tail_rows 5000 --hpo_limit_groups 50 \
+  --train --teacher_model_id teacher_model --max_epochs 5
+```
+
+Notes:
+
+- Ingestion:
+  - `--coverage_mode catalog` uses Parquet catalog coverage (requires `--catalog_path`).
+  - `--coverage_mode sql` uses SQL coverage (requires `--db`).
+  - `--write_mode parquet` writes raw data to Parquet; `--write_mode datastore` uses `DataStore` (with adapters when `CATALOG_PATH` is set via `MLIntegrationManager`).
+  - Set `DATABENTO_API_KEY` to enable Databento API; when missing, ingestion is skipped.
+
+- Dataset build, HPO, and training reuse in-process CLIs and respect all repo standards (typed, strict, and off hot paths).
+
+## 7) Pipeline Scheduler (Cold Path)
+
+Run the orchestrator on a fixed UTC schedule or interval. Uses a file lock to avoid overlapping runs and emits SUCCESS/FAILED events via the DataRegistry.
+
+Flags and env (env is used as fallback):
+
+- `--schedule-time HH:MMZ` or `--interval-min N` (env: `ORCH_SCHEDULE_TIME`, `ORCH_INTERVAL_MIN`)
+- `--config <path>` to a JSON/TOML orchestrator config (env: `ORCH_CONFIG`)
+- `--dry-run` to log actions only (env: `ORCH_DRY_RUN=1`)
+- `--force` to ignore existing outputs (env: `ORCH_FORCE=1`)
+- Lock path/TTL via env: `ORCH_LOCK_PATH`, `ORCH_LOCK_TTL_HOURS` (default 12)
+
+Examples:
+
+```bash
+# Run daily at 02:30Z from env
+ORCH_SCHEDULE_TIME=02:30Z ORCH_CONFIG=ml/config/pipeline.toml \
+  make ml-pipeline-scheduler
+
+# Or every 1440 minutes (24h) with flags and a dry run
+make ml-pipeline-scheduler INTERVAL_MIN=1440 ORCH_CONFIG=ml/config/pipeline.toml DRY_RUN=1
+```
+
+See the detailed Orchestration Runbook for environment variables, lock behavior, and example invocations: `ml/docs/tools/ORCHESTRATION_RUNBOOK.md`.

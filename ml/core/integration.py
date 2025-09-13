@@ -32,6 +32,8 @@ from ml.stores import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 from ml.stores.partition_manager import PartitionManager
+from ml.stores.raw_io_parquet import ParquetCatalogRawReader
+from ml.stores.raw_io_parquet import ParquetCatalogRawWriter
 from ml.stores.strategy_store import StrategyStore
 
 
@@ -280,9 +282,27 @@ class MLIntegrationManager:
         )
 
         # Now initialize DataStore with the registry
+        # Optionally attach raw adapters when a catalog path is provided
+        raw_reader = None
+        raw_writer = None
+        try:  # best-effort; keep init resilient
+            import os
+
+            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+            catalog_path = os.getenv("CATALOG_PATH", "").strip()
+            if catalog_path:
+                catalog = ParquetDataCatalog(catalog_path)
+                raw_reader = ParquetCatalogRawReader(catalog)
+                raw_writer = ParquetCatalogRawWriter(catalog)
+        except Exception:
+            logger.debug("Parquet catalog adapters not attached", exc_info=True)
+
         self.data_store = DataStore(
             registry=self.data_registry,
             connection_string=self.db_connection,
+            raw_reader=raw_reader,
+            raw_writer=raw_writer,
         )
         # Ensure FeatureStore/ModelStore publish into the same DataRegistry instance
         try:

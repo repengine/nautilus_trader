@@ -368,6 +368,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             Path to save ONNX model.
 
         """
+        tmp_path: Path | None = None
         try:
             # IMPORTANT: onnxmltools expects feature names in format f0, f1, f2...
             # So we need to temporarily save the model with default feature names
@@ -381,6 +382,8 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
                 # Save model without feature names (XGBoost will use f0, f1, f2...)
                 model.save_model(tmp.name)
+                # Track for cleanup outside the context to ensure deletion even on errors
+                tmp_path = Path(tmp.name)
                 # Reload model without feature names
                 from ml._imports import xgb as _xgb
 
@@ -407,10 +410,6 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
                 with open(path, "wb") as f:
                     f.write(onnx_model.SerializeToString())
 
-                # Clean up temp file
-                import os
-
-                os.unlink(tmp.name)
 
         except ImportError:
             self._log_warning(
@@ -419,6 +418,13 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             # Fallback to xgboost native save
             model.save_model(str(path.with_suffix(".json")))
             self._log_info(f"Model saved in XGBoost JSON format: {path.with_suffix('.json')}")
+        finally:
+            # Robust cleanup of temporary file
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink()
+                except FileNotFoundError:
+                    pass
 
     def get_feature_importance(self) -> dict[str, float] | None:
         """

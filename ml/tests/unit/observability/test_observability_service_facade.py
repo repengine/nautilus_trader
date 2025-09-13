@@ -9,20 +9,20 @@ from ml.observability.service import ObservabilityService
 
 
 class TestObservabilityServiceFacade:
-    def test_service_builds_contract_dataframes(self) -> None:
+    def test_service_builds_contract_dataframes(self, default_instrument_id) -> None:
         svc = ObservabilityService()
 
         # Populate latency rows
         svc.add_latency_stage(
             correlation_id="corr-1",
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             pipeline_stage="data_ingested",
             ts_stage_start=1,
             ts_stage_end=6,
         )
         svc.add_latency_stage(
             correlation_id="corr-1",
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             pipeline_stage="feature_computed",
             ts_stage_start=6,
             ts_stage_end=10,
@@ -42,7 +42,7 @@ class TestObservabilityServiceFacade:
             correlation_id="corr-1",
             event_id="e1",
             parent_event_id=None,
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             domain="data",
             lineage_depth=0,
             ts_event=1,
@@ -77,7 +77,7 @@ class TestObservabilityServiceFacade:
 
 
 class TestIntegrationObservability:
-    def test_integration_manager_initializes_and_collects(self) -> None:
+    def test_integration_manager_initializes_and_collects(self, default_instrument_id) -> None:
         # Avoid heavy __init__ by constructing via __new__ like other tests
         mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
 
@@ -89,7 +89,7 @@ class TestIntegrationObservability:
         # Add minimal rows through the service
         svc.add_latency_stage(
             correlation_id="c2",
-            instrument_id="EURUSD.SIM",
+            instrument_id=str(default_instrument_id),
             pipeline_stage="prediction_emitted",
             ts_stage_start=10,
             ts_stage_end=15,

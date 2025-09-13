@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from ml.registry.base import DataRequirements
-from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
+from ml.tests.builders import RegistryBuilder
 
 
 def test_attach_artifact_persists_json(tmp_path: Path) -> None:
     reg = FeatureRegistry(tmp_path)
-    m = FeatureManifest(
+    m = RegistryBuilder.feature_manifest(
         feature_set_id="",
         name="fs",
         version="1.0.0",

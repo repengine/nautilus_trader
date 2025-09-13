@@ -62,6 +62,7 @@ class TFTTeacher(BaseTeacher):
         batch_size: int = 64,
         accelerator: str = "auto",
         devices: int = 1,
+        precision: str = "32",
     ) -> None:
         super().__init__(config)
         self.max_encoder_length = int(max_encoder_length)
@@ -84,6 +85,7 @@ class TFTTeacher(BaseTeacher):
         self.batch_size = int(batch_size)
         self._accelerator = str(accelerator)
         self._devices = int(devices)
+        self._precision = str(precision)
         self._logger = logging.getLogger(__name__)
 
         # Runtime state
@@ -187,16 +189,38 @@ class TFTTeacher(BaseTeacher):
             stop_randomization=True,
         )
 
-        train_loader = training.to_dataloader(
-            train=True,
-            batch_size=self.batch_size,
-            num_workers=self.dataloader_workers,
-        )
-        val_loader = val.to_dataloader(
-            train=False,
-            batch_size=self.batch_size,
-            num_workers=self.dataloader_workers,
-        )
+        # DataLoader tuning: pin memory, persistent workers, prefetch
+        loader_kwargs: dict[str, Any] = {"pin_memory": True}
+        if self.dataloader_workers > 0:
+            loader_kwargs.update({
+                "persistent_workers": True,
+                "prefetch_factor": 2,
+            })
+        try:
+            train_loader = training.to_dataloader(
+                train=True,
+                batch_size=self.batch_size,
+                num_workers=self.dataloader_workers,
+                **loader_kwargs,
+            )
+            val_loader = val.to_dataloader(
+                train=False,
+                batch_size=self.batch_size,
+                num_workers=self.dataloader_workers,
+                **loader_kwargs,
+            )
+        except TypeError:
+            # Older PF/DataLoader may not support these kwargs; fall back safely
+            train_loader = training.to_dataloader(
+                train=True,
+                batch_size=self.batch_size,
+                num_workers=self.dataloader_workers,
+            )
+            val_loader = val.to_dataloader(
+                train=False,
+                batch_size=self.batch_size,
+                num_workers=self.dataloader_workers,
+            )
 
         from typing import cast as _cast
 
@@ -238,6 +262,20 @@ class TFTTeacher(BaseTeacher):
 
         callbacks = None
         # Force CPU for stability across environments; avoids CUDA kernel asserts in PF paths
+        # Normalize precision for Lightning 2.x ("16" → "16-mixed", "bf16" → "bf16-mixed")
+        precision_arg: Any = self._precision
+        try:  # pragma: no cover - environment/version specific
+            import lightning.pytorch as _lpl  # type: ignore[unused-ignore]
+
+            if isinstance(precision_arg, str):
+                if precision_arg == "16":
+                    precision_arg = "16-mixed"
+                elif precision_arg.lower() == "bf16":
+                    precision_arg = "bf16-mixed"
+        except Exception:
+            # Use value as-is for pytorch_lightning 1.x
+            pass
+
         self._trainer = pl_module.Trainer(
             max_epochs=self.max_epochs,
             gradient_clip_val=1.0,
@@ -247,6 +285,7 @@ class TFTTeacher(BaseTeacher):
             accelerator=self._accelerator,
             devices=self._devices,
             enable_checkpointing=False,
+            precision=precision_arg,
         )
         # Workaround: Some PF versions raise during validation due to interpretability logging
         # (e.g., integer_histogram index bounds). Disable interpretability/logging by overriding
@@ -288,7 +327,7 @@ class TFTTeacher(BaseTeacher):
         dataset = TimeSeriesDataSet.from_dataset(
             training,
             df,
-            predict=True,
+            predict=False,
             stop_randomization=True,
         )
         loader = dataset.to_dataloader(train=False, batch_size=self.batch_size, num_workers=0)
@@ -362,7 +401,7 @@ class TFTTeacher(BaseTeacher):
         dataset = TimeSeriesDataSet.from_dataset(
             training,
             df,
-            predict=True,
+            predict=False,
             stop_randomization=True,
         )
         loader = dataset.to_dataloader(train=False, batch_size=self.batch_size, num_workers=0)

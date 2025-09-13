@@ -7,7 +7,12 @@ from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 
 
-def test_modelstore_sanitizes_seconds_to_ns(monkeypatch, tmp_path) -> None:
+def test_modelstore_sanitizes_seconds_to_ns(
+    monkeypatch,
+    tmp_path,
+    default_instrument_id,
+    sample_features
+) -> None:
     captured: list[dict] = []
 
     db_path = tmp_path / "model_store.db"
@@ -19,12 +24,14 @@ def test_modelstore_sanitizes_seconds_to_ns(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(store, "_execute_write", fake_execute)
 
     secs = int(time.time())  # seconds
+    instrument_id_str = str(default_instrument_id).split(".")[0]  # Get "EUR/USD" from "EUR/USD.SIM"
+
     store.write_prediction(
         model_id="m1",
-        instrument_id="EUR/USD",
+        instrument_id=instrument_id_str,
         prediction=0.5,
         confidence=0.8,
-        features={"f": 1.0},
+        features=sample_features,
         inference_time_ms=1.2,
         ts_event=secs,
         is_live=False,
@@ -36,16 +43,24 @@ def test_modelstore_sanitizes_seconds_to_ns(monkeypatch, tmp_path) -> None:
     assert ts_event >= 10**12  # should be nanoseconds scale
 
 
-def test_featurestore_upsert_idempotent(tmp_path) -> None:
+def test_featurestore_upsert_idempotent(
+    tmp_path,
+    default_instrument_id,
+    test_timestamps,
+    sample_features
+) -> None:
     db_path = tmp_path / "feature_store.db"
     store = FeatureStore(connection_string=f"sqlite:///{db_path}")
 
+    ts_event, ts_init = test_timestamps
+    instrument_id_str = str(default_instrument_id).split(".")[0]  # Get "EUR/USD" from "EUR/USD.SIM"
+
     row = {
         "feature_set_id": "fs_test",
-        "instrument_id": "EUR/USD",
-        "ts_event": int(time.time()),  # seconds (will be sanitized)
-        "ts_init": int(time.time()),
-        "values": {"x": 1.0},
+        "instrument_id": instrument_id_str,
+        "ts_event": ts_event // 1_000_000_000,  # Convert to seconds (will be sanitized back to ns)
+        "ts_init": ts_init // 1_000_000_000,
+        "values": sample_features,
         "is_live": False,
         "source": "computed",
     }

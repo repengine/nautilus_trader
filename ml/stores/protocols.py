@@ -184,3 +184,13 @@ class StrategyStoreStrictProtocol(Protocol):
     ) -> None: ...
     def write_batch(self, data: Sequence[Any]) -> None: ...
     def flush(self) -> None: ...
+
+
+class DataStoreFacadeProtocol(Protocol):
+    """
+    Minimal facade for actor-attached data store.
+
+    Only the methods exercised by actors are included to keep the protocol narrow.
+    """
+
+    def flush(self) -> None: ...

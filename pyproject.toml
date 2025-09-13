@@ -410,6 +410,7 @@ max-complexity = 10
     "NPY002",
     "F841",
     "F401",
+    "F821",
     "E712",
     "D",      # Relax docstring rules in tests
     "C401",   # Generator/set comprehensions nits

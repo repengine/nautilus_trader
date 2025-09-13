@@ -24,6 +24,7 @@ from ml.registry.base import DeploymentStatus
 from ml.registry.base import ModelRole
 from ml.registry.model_registry import ModelManifest
 from ml.registry.model_registry import ModelRegistry
+from ml.tests.builders import RegistryBuilder
 
 
 @pytest.mark.skip(
@@ -65,17 +66,13 @@ class TestRegistryBehaviors:
                     schema_json = json.dumps(feature_schema, sort_keys=True)
                     schema_hash = hashlib.sha256(schema_json.encode()).hexdigest()
 
-                    manifest = ModelManifest(
+                    manifest = RegistryBuilder.model_manifest(
                         model_id=f"concurrent_model_{index}",
-                        role=ModelRole.INFERENCE,
-                        data_requirements=DataRequirements.L1_ONLY,
                         architecture="ConcurrentTest",
                         feature_schema=feature_schema,
                         feature_schema_hash=schema_hash,
                         performance_metrics={"accuracy": 0.8 + index * 0.01},
                         version=f"{index}.0.0",
-                        created_at=time.time(),
-                        last_modified=time.time(),
                     )
 
                     # Register model
@@ -138,17 +135,13 @@ class TestRegistryBehaviors:
             model_v1_path = registry_path / "model_v1.onnx"
             model_v1_path.write_text("model_v1_weights")
 
-            manifest_v1 = ModelManifest(
+            manifest_v1 = RegistryBuilder.model_manifest(
                 model_id="prod_model_v1",
-                role=ModelRole.INFERENCE,
-                data_requirements=DataRequirements.L1_ONLY,
                 architecture="XGBoost",
                 feature_schema={"close": "float32", "volume": "int64"},
                 feature_schema_hash="v1_hash",
                 performance_metrics={"accuracy": 0.92, "latency_ms": 2.5},
                 version="1.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             model_id_v1 = registry.register_model(model_v1_path, manifest_v1)
@@ -169,17 +162,13 @@ class TestRegistryBehaviors:
             model_v2_path = registry_path / "model_v2.onnx"
             model_v2_path.write_text("model_v2_weights")
 
-            manifest_v2 = ModelManifest(
+            manifest_v2 = RegistryBuilder.model_manifest(
                 model_id="prod_model_v2",
-                role=ModelRole.INFERENCE,
-                data_requirements=DataRequirements.L1_ONLY,
                 architecture="XGBoost",
                 feature_schema={"close": "float32", "volume": "int64", "rsi": "float32"},
                 feature_schema_hash="v2_hash",
                 performance_metrics={"accuracy": 0.94, "latency_ms": 3.0},  # Slower!
                 version="2.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             model_id_v2 = registry.register_model(model_v2_path, manifest_v2)
@@ -231,17 +220,13 @@ class TestRegistryBehaviors:
             control_path = registry_path / "control_model.onnx"
             control_path.write_text("control_weights")
 
-            control_manifest = ModelManifest(
+            control_manifest = RegistryBuilder.model_manifest(
                 model_id="control_model",
-                role=ModelRole.INFERENCE,
-                data_requirements=DataRequirements.L1_ONLY,
                 architecture="LightGBM",
                 feature_schema={"close": "float32", "sma_20": "float32"},
                 feature_schema_hash="control_hash",
                 performance_metrics={"accuracy": 0.88},
                 version="1.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             control_id = registry.register_model(control_path, control_manifest)
@@ -250,17 +235,13 @@ class TestRegistryBehaviors:
             treatment_path = registry_path / "treatment_model.onnx"
             treatment_path.write_text("treatment_weights")
 
-            treatment_manifest = ModelManifest(
+            treatment_manifest = RegistryBuilder.model_manifest(
                 model_id="treatment_model",
-                role=ModelRole.INFERENCE,
-                data_requirements=DataRequirements.L1_ONLY,
                 architecture="XGBoost",
                 feature_schema={"close": "float32", "sma_20": "float32", "rsi_14": "float32"},
                 feature_schema_hash="treatment_hash",
                 performance_metrics={"accuracy": 0.90},  # Claims to be better
                 version="1.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             treatment_id = registry.register_model(treatment_path, treatment_manifest)
@@ -330,17 +311,13 @@ class TestRegistryBehaviors:
             model_v1_path = registry_path / "model_v1.onnx"
             model_v1_path.write_text("v1_weights")
 
-            manifest_v1 = ModelManifest(
+            manifest_v1 = RegistryBuilder.model_manifest(
                 model_id="live_model_v1",
-                role=ModelRole.INFERENCE,
-                data_requirements=DataRequirements.L1_ONLY,
                 architecture="ONNX",
                 feature_schema={"feature": "float32"},
                 feature_schema_hash="v1_hash",
                 performance_metrics={"latency_ms": 1.5},
                 version="1.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             model_id_v1 = registry.register_model(model_v1_path, manifest_v1)
@@ -356,17 +333,13 @@ class TestRegistryBehaviors:
             model_v2_path = registry_path / "model_v2.onnx"
             model_v2_path.write_text("v2_weights_improved")
 
-            manifest_v2 = ModelManifest(
+            manifest_v2 = RegistryBuilder.model_manifest(
                 model_id="live_model_v2",
-                role=ModelRole.INFERENCE,
-                data_requirements=DataRequirements.L1_ONLY,
                 architecture="ONNX",
                 feature_schema={"feature": "float32"},  # Same schema for compatibility
                 feature_schema_hash="v1_hash",  # Same hash = compatible
                 performance_metrics={"latency_ms": 1.2},  # Faster!
                 version="2.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             model_id_v2 = registry.register_model(model_v2_path, manifest_v2)
@@ -405,10 +378,9 @@ class TestRegistryBehaviors:
             model_path = registry_path / "constrained_model.onnx"
             model_path.write_text("model_weights")
 
-            manifest = ModelManifest(
+            manifest = RegistryBuilder.model_manifest(
                 model_id="constrained_model",
                 role=ModelRole.STUDENT,  # Students have strict requirements
-                data_requirements=DataRequirements.L1_ONLY,
                 architecture="LightGBM",
                 feature_schema={"close": "float32", "volume": "int64"},
                 feature_schema_hash="constrained_hash",
@@ -423,8 +395,6 @@ class TestRegistryBehaviors:
                     "max_memory_mb": 256,
                 },
                 version="1.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             model_id = registry.register_model(model_path, manifest)
@@ -437,7 +407,7 @@ class TestRegistryBehaviors:
             bad_model_path = registry_path / "slow_model.onnx"
             bad_model_path.write_text("slow_model_weights")
 
-            bad_manifest = ModelManifest(
+            bad_manifest = RegistryBuilder.model_manifest(
                 model_id="slow_model",
                 role=ModelRole.STUDENT,
                 data_requirements=DataRequirements.L1_L2,  # Wrong! Students need L1-only
@@ -453,8 +423,6 @@ class TestRegistryBehaviors:
                     "max_latency_ms": 5.0,  # Can't meet this
                 },
                 version="1.0.0",
-                created_at=time.time(),
-                last_modified=time.time(),
             )
 
             bad_model_id = registry.register_model(bad_model_path, bad_manifest)

@@ -21,9 +21,9 @@ from hypothesis import strategies as st
 
 from ml.registry.strategy_registry import MarketRegime
 from ml.registry.strategy_registry import StrategyInfo
-from ml.registry.strategy_registry import StrategyManifest
 from ml.registry.strategy_registry import StrategyRegistry
 from ml.registry.strategy_registry import StrategyType
+from ml.tests.builders import RegistryBuilder
 
 
 # =================================================================================================
@@ -48,7 +48,7 @@ def market_regime_strategy(draw: st.DrawFn) -> MarketRegime:
 
 
 @st.composite
-def strategy_manifest_strategy(draw: st.DrawFn) -> StrategyManifest:
+def strategy_manifest_strategy(draw: st.DrawFn):
     """
     Generate valid StrategyManifest instances.
     """
@@ -59,7 +59,7 @@ def strategy_manifest_strategy(draw: st.DrawFn) -> StrategyManifest:
     # Ensure unique strategy_id by adding a counter
     strategy_id = f"strategy_{strategy_id}_{draw(st.integers(0, 1000))}"
 
-    return StrategyManifest(
+    return RegistryBuilder.strategy_manifest(
         strategy_id=strategy_id,
         strategy_type=draw(strategy_type_strategy()),
         version=f"{draw(st.integers(0, 10))}.{draw(st.integers(0, 10))}.{draw(st.integers(0, 10))}",
@@ -180,7 +180,7 @@ def test_strategy_registry_register_and_query() -> None:
         strategy_file = base / "my_strategy.py"
         _write_dummy_strategy(strategy_file)
 
-        manifest = StrategyManifest(
+        manifest = RegistryBuilder.strategy_manifest(
             strategy_id="momentum_v1",
             strategy_type=StrategyType.MOMENTUM,
             version="1.0.0",
@@ -424,7 +424,7 @@ class TestStrategyRegistry:
             registry = StrategyRegistry(Path(tmpdir))
 
             # Create manifest with specific requirements
-            manifest = StrategyManifest(
+            manifest = RegistryBuilder.strategy_manifest(
                 strategy_id="test_strategy",
                 strategy_type=StrategyType.TREND_FOLLOWING,
                 version="1.0.0",
@@ -543,7 +543,7 @@ class TestStrategyRegistry:
             registry = StrategyRegistry(Path(tmpdir))
 
             # Create a lineage: parent -> child -> grandchild
-            parent = StrategyManifest(
+            parent = RegistryBuilder.strategy_manifest(
                 strategy_id="parent_strategy",
                 strategy_type=StrategyType.TREND_FOLLOWING,
                 version="1.0.0",
@@ -571,7 +571,7 @@ class TestStrategyRegistry:
                 description="Parent strategy",
             )
 
-            child = StrategyManifest(
+            child = RegistryBuilder.strategy_manifest(
                 strategy_id="child_strategy",
                 strategy_type=StrategyType.TREND_FOLLOWING,
                 version="2.0.0",
@@ -599,7 +599,7 @@ class TestStrategyRegistry:
                 description="Child strategy",
             )
 
-            grandchild = StrategyManifest(
+            grandchild = RegistryBuilder.strategy_manifest(
                 strategy_id="grandchild_strategy",
                 strategy_type=StrategyType.TREND_FOLLOWING,
                 version="3.0.0",

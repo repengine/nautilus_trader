@@ -9,8 +9,12 @@ provides flags for feature availability.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+
+from ml.common.metrics_bootstrap import HAS_METRICS_BACKEND as HAS_PROMETHEUS
+
+
+PROMETHEUS_IMPORT_ERROR: Exception | None = None
 
 
 # Type checking imports (always available, no runtime cost)
@@ -28,9 +32,6 @@ if TYPE_CHECKING:
     import sklearn
     import torch
     import xgboost as xgb
-    from prometheus_client import Counter
-    from prometheus_client import Gauge
-    from prometheus_client import Histogram
 
 
 # ONNX Runtime
@@ -222,202 +223,80 @@ except ImportError as e:
     mcal = None  # type: ignore[assignment,unused-ignore]
 
 
-# Prometheus Client (already handled in metrics.py, included for completeness)
+"""Prometheus wrappers: avoid direct prometheus_client imports here.
+
+We expose light adapters that delegate to the centralized metrics bootstrap to
+create collectors. This satisfies the "no direct prometheus_client" policy and keeps
+existing imports working in modules/tests which patch these names.
+"""
+
+class Counter:
+    def __init__(self, name: str, description: str, labels: list[str] | None = None) -> None:
+        from ml.common.metrics_bootstrap import get_counter as _get
+
+        self._collector = _get(name, description, labels)
+
+    def labels(self, **kwargs: object) -> Any:
+        return self._collector.labels(**kwargs)
+
+    def inc(self, *args: object, **kwargs: object) -> None:
+        # Allow inc on base collector for compatibility
+        try:
+            self._collector.inc(*args, **kwargs)
+        except Exception:
+            pass
 
 
-_PROM_REGISTRY: Any
-_GENERATE_LATEST: Callable[[Any], bytes]
+class Gauge:
+    def __init__(self, name: str, description: str, labels: list[str] | None = None) -> None:
+        from ml.common.metrics_bootstrap import get_gauge as _get
 
-try:
-    from prometheus_client import Counter
-    from prometheus_client import Gauge
-    from prometheus_client import Histogram
+        self._collector = _get(name, description, labels)
 
-    HAS_PROMETHEUS = True
-    PROMETHEUS_IMPORT_ERROR = None
-except ImportError as e:
-    HAS_PROMETHEUS = False
-    PROMETHEUS_IMPORT_ERROR = e
+    def labels(self, **kwargs: object) -> Any:
+        return self._collector.labels(**kwargs)
 
-    # Dummy implementations
-    class Counter:  # type: ignore[no-redef]
-        """
-        Dummy Counter when prometheus-client is not available.
-        """
+    def set(self, value: float) -> None:
+        try:
+            self._collector.set(float(value))
+        except Exception:
+            pass
 
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            """
-            Initialize mock Counter.
 
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
+class Histogram:
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        labels: list[str] | None = None,
+        *,
+        buckets: tuple[float, ...] | None = None,
+    ) -> None:
+        from ml.common.metrics_bootstrap import get_histogram as _get
 
-            """
+        self._collector = _get(name, description, labels, buckets=buckets)
 
-        def inc(self, *args: object, **kwargs: object) -> None:
-            """
-            Increment counter (no-op).
+    def labels(self, **kwargs: object) -> Any:
+        return self._collector.labels(**kwargs)
 
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
+    def observe(self, value: float) -> None:
+        try:
+            self._collector.observe(float(value))
+        except Exception:
+            pass
 
-            """
+_PROM_REGISTRY = object()  # placeholder for compatibility
 
-        def labels(self, *args: object, **kwargs: object) -> object:
-            """
-            Get labeled counter (returns self for chaining).
+def _generate_latest_dummy(registry: object | None = None) -> bytes:
+    from ml.common.metrics_export import generate_latest as _gen
 
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
+    return _gen()
 
-            Returns
-            -------
-            Any
-                Self for method chaining.
-
-            """
-            return self
-
-    class Gauge:  # type: ignore[no-redef]
-        """
-        Dummy Gauge when prometheus-client is not available.
-        """
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            """
-            Initialize mock Gauge.
-
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
-
-            """
-
-        def set(self, *args: object, **kwargs: object) -> None:
-            """
-            Set gauge value (no-op).
-
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
-
-            """
-
-        def labels(self, *args: object, **kwargs: object) -> object:
-            """
-            Get labeled gauge (returns self for chaining).
-
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
-
-            Returns
-            -------
-            Any
-                Self for method chaining.
-
-            """
-            return self
-
-    class Histogram:  # type: ignore[no-redef]
-        """
-        Dummy Histogram when prometheus-client is not available.
-        """
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            """
-            Initialize mock Histogram.
-
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
-
-            """
-
-        def observe(self, *args: object, **kwargs: object) -> None:
-            """
-            Observe value (no-op).
-
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
-
-            """
-
-        def labels(self, *args: object, **kwargs: object) -> object:
-            """
-            Get labeled histogram (returns self for chaining).
-
-            Parameters
-            ----------
-            *args : Any
-                Positional arguments (ignored).
-            **kwargs : Any
-                Keyword arguments (ignored).
-
-            Returns
-            -------
-            Any
-                Self for method chaining.
-
-            """
-            return self
-
-    class _DummyRegistry:
-        """
-        Minimal dummy of prometheus_client.REGISTRY used for name lookups.
-        """
-
-        def __init__(self) -> None:
-            self._names_to_collectors: dict[str, Any] = {}
-
-    # Provide underlying symbols, then expose unified names below
-    _PROM_REGISTRY = _DummyRegistry()
-
-    def _generate_latest_dummy(registry: object | None = None) -> bytes:
-        return b""
-
-    _GENERATE_LATEST = _generate_latest_dummy
-else:
-    # When Prometheus is available, normalize symbol names for consistent exports
-    from prometheus_client import REGISTRY as _REAL_REGISTRY
-    from prometheus_client import generate_latest as _REAL_GENERATE_LATEST
-
-    _PROM_REGISTRY = _REAL_REGISTRY
-    _GENERATE_LATEST = _REAL_GENERATE_LATEST
+_GENERATE_LATEST = _generate_latest_dummy
 
 
 # Public, unified names with stable signatures
 def generate_latest(registry: object | None = None) -> bytes:
-    if registry is None:
-        registry = _PROM_REGISTRY
     return _GENERATE_LATEST(registry)
 
 

@@ -8,7 +8,7 @@ import pandas as pd
 from ml.core.integration import MLIntegrationManager
 
 
-def test_background_db_flusher(tmp_path: Path) -> None:
+def test_background_db_flusher(tmp_path: Path, default_instrument_id) -> None:
     mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
     MLIntegrationManager.initialize_observability_pipeline(mgr)
     svc = mgr.observability_service  # type: ignore[attr-defined]
@@ -17,7 +17,7 @@ def test_background_db_flusher(tmp_path: Path) -> None:
     # Add one row so flush writes something
     svc.add_latency_stage(
         correlation_id="c1",
-        instrument_id="EURUSD.SIM",
+        instrument_id=str(default_instrument_id),
         pipeline_stage="data_ingestion",
         ts_stage_start=1,
         ts_stage_end=2,

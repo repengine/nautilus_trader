@@ -11,7 +11,6 @@ hashing, and simple lineage queries.
 from __future__ import annotations
 
 import hashlib
-import threading
 import time
 from dataclasses import dataclass
 from dataclasses import field
@@ -19,7 +18,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
-from ml.common.protocols import MLComponentMixin
+from ml.registry.abstract_registry import AbstractRegistry
 from ml.registry.base import DataRequirements
 from ml.registry.dataclasses import QualityGate
 from ml.registry.persistence import BackendType
@@ -151,7 +150,7 @@ class FeatureInfo:
     artifacts: dict[str, str] = field(default_factory=dict)
 
 
-class FeatureRegistry(MLComponentMixin):
+class FeatureRegistry(AbstractRegistry):
     """
     Feature registry with configurable persistence backend.
 
@@ -181,7 +180,6 @@ class FeatureRegistry(MLComponentMixin):
         self._root = registry_path
         self._root.mkdir(parents=True, exist_ok=True)
         self._file = self._root / "feature_registry.json"
-        self._lock = threading.RLock()
         self._features: dict[str, FeatureInfo] = {}
 
         # Setup persistence
@@ -190,8 +188,8 @@ class FeatureRegistry(MLComponentMixin):
                 backend=BackendType.JSON,
                 json_path=registry_path,
             )
-        self.persistence = PersistenceManager(persistence_config)
-        self.backend = persistence_config.backend
+        persistence = PersistenceManager(persistence_config)
+        super().__init__(persistence)
 
         self._load()
 
@@ -288,7 +286,7 @@ class FeatureRegistry(MLComponentMixin):
                     },
                     "last_updated": time.time(),
                 }
-                self.persistence.save_json(serial, "feature_registry.json")
+                self._json_save("feature_registry.json", serial)
             elif self.backend == BackendType.POSTGRES:
                 # PostgreSQL is updated on each operation
                 pass
@@ -446,7 +444,7 @@ class FeatureRegistry(MLComponentMixin):
                 self._save()
 
             # Log audit
-            self.persistence.log_audit(
+            self.log_audit(
                 entity_type="feature",
                 entity_id=fid,
                 action="registered",
@@ -682,3 +680,13 @@ class FeatureRegistry(MLComponentMixin):
 
         """
         self.update_manifest(feature_set_id, artifacts=artifacts)
+
+    # ------------------------------ health hook ------------------------------
+    def _health_snapshot(self) -> tuple[int, float | None]:
+        if not self._features:
+            return 0, None
+        try:
+            last_modified = max(fi.manifest.last_modified for fi in self._features.values())
+        except ValueError:
+            last_modified = None
+        return len(self._features), last_modified

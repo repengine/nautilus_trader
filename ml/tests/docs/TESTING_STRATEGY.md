@@ -193,6 +193,29 @@ pytest ml/tests/combinatorial -x
 pytest ml/tests/property ml/tests/contracts ml/tests/metamorphic ml/tests/combinatorial -x
 ```
 
+## New Paper-Trading Critical Tests
+
+- Data routing (DB‑free) ensures the `DataStore` facade dispatches correctly:
+  - `predictions_<model_id>` → `ModelStore.read_predictions(...)`
+  - `signals_<strategy_id>` → `StrategyStore.read_signals(...)`
+  - See `ml/tests/unit/stores/test_data_store_routing.py` (read routing cases).
+
+- Upsert dedup/update (DB) validates conflict handling in batch hot paths:
+  - Within‑batch duplicates are deduplicated (last row wins).
+  - Cross‑batch upserts update existing rows.
+  - See `ml/tests/unit/stores/test_upsert_dedup_update.py`.
+
+- Registry events for predictions (DB‑free) verify non‑blocking emission on flush:
+  - See `ml/tests/unit/stores/test_model_store_registry_emit.py`.
+
+- Strategy performance aggregation (DB) verifies summary rollups:
+  - See `ml/tests/unit/stores/test_strategy_performance_agg.py`.
+
+- Conversion helpers validate robust ingestion inputs (dict/pandas/polars):
+  - See `ml/tests/unit/stores/test_data_store_conversions.py`.
+
+All new tests follow strict typing (mypy --strict), lint (ruff), and run in the green lane (make pytest-green). Validators are advisory and can be run with `make validate-nautilus-patterns`.
+
 ## Writing New Tests
 
 ### When to Use Each Type
