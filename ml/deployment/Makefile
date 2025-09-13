@@ -1,4 +1,7 @@
 # ML Pipeline Docker Makefile
+# NOTE: Root Makefile is the source of truth for ML targets (lint, tests, stack).
+#       Prefer invoking root targets (e.g., `make ml-up`, `make pytest-ml`).
+#       This file keeps only deployment-oriented shortcuts to avoid drift.
 .PHONY: help build up down logs clean test health
 
 # Default target

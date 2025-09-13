@@ -338,6 +338,11 @@ def clean_postgres_db() -> Generator[None, None, None]:
     where possible, but this keeps existing tests unblocked.
 
     """
+    # Allow class/module-scoped fixtures to disable per-test TRUNCATE
+    if os.getenv("TEST_DB_SKIP_TRUNCATE") == "1":
+        yield
+        return
+
     engine = EngineManager.get_engine(
         DATABASE_URL,
         pool_size=2,
@@ -891,6 +896,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             if "database" in item.keywords:
                 item.add_marker(skip_db)
 
+    # Ensure integration tests run serially (avoid cross-worker DDL/DML interference)
+    for item in items:
+        node = item.nodeid.replace("::", "/")
+        if "/ml/tests/integration/" in node and "serial" not in item.keywords:
+            item.add_marker(pytest.mark.serial)
+
     # When xdist is active, group database tests to run on a single worker to prevent
     # cross-worker DDL/DML interference and deadlocks.
     try:
@@ -1107,6 +1118,34 @@ from ml.tests.builders import (  # noqa: E402
     RegistryBuilder,
 )
 
+# Import consolidated integration and monitoring fixtures for global availability
+from ml.tests.fixtures.integration import (  # noqa: E402
+    TEST_INSTRUMENT_ID,
+    TEST_SYMBOL,
+    TEST_VENUE,
+    create_onnx_model_for_features,
+    generate_test_bars,
+    lightgbm_test_model,
+    mock_parquet_catalog,
+    multi_instrument_bars,
+    onnx_test_model_path,
+    test_bar_type,
+    test_feature_data,
+    test_instrument,
+    test_ml_config,
+    test_ml_signals,
+    xgboost_test_model,
+)
+from ml.tests.fixtures.monitoring_collectors import (  # noqa: E402
+    MetricNameManager,
+    disabled_monitoring_config,
+    metric_name_manager,
+    mock_data_catalog,
+    mock_prometheus_when_unavailable,
+    monitoring_config,
+    prometheus_registry_cleanup,
+)
+
 # Re-export test utilities
 __all__ = [
     # Database fixtures
@@ -1168,6 +1207,30 @@ __all__ = [
     "MLConfigBuilder",
     "MockBuilder",
     "RegistryBuilder",
+    # Integration fixtures
+    "TEST_INSTRUMENT_ID",
+    "TEST_SYMBOL",
+    "TEST_VENUE",
+    "create_onnx_model_for_features",
+    "generate_test_bars",
+    "lightgbm_test_model",
+    "mock_parquet_catalog",
+    "multi_instrument_bars",
+    "onnx_test_model_path",
+    "test_bar_type",
+    "test_feature_data",
+    "test_instrument",
+    "test_ml_config",
+    "test_ml_signals",
+    "xgboost_test_model",
+    # Monitoring fixtures
+    "MetricNameManager",
+    "disabled_monitoring_config",
+    "metric_name_manager",
+    "mock_data_catalog",
+    "mock_prometheus_when_unavailable",
+    "monitoring_config",
+    "prometheus_registry_cleanup",
 ]
 
 

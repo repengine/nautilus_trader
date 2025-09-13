@@ -5,7 +5,7 @@
 ```
 ml/tests/
 ├── conftest.py                 # Main pytest configuration
-├── conftest_hypothesis.py      # Hypothesis testing configuration
+├── conftest.py                 # Central fixtures & pytest config (aggregates fixtures/*)
 ├── test_smoke.py               # Quick smoke tests (keep in root for easy access)
 ├── README.md                   # Main test documentation
 ├── __init__.py                 # Package marker
@@ -117,14 +117,10 @@ pytest ml/tests --cov=ml --cov-report=html
 # Analyze for redundancy
 python ml/tests/tools/analyze_test_redundancy.py
 
-# Find tests to clean up
-python ml/tests/tools/cleanup_redundant_tests.py --dry-run
-```
-
 ## Key Files
 
-- `conftest.py`: Main pytest configuration, fixtures, database setup
-- `conftest_hypothesis.py`: Hypothesis profile configuration
+- `conftest.py`: Central pytest configuration and fixtures aggregator (imports from `fixtures/`)
+- `fixtures/`: Shared fixture modules (integration, monitoring collectors, common builders)
 - `test_smoke.py`: Quick validation tests (keep in root for `pytest ml/tests/test_smoke.py`)
 - `README.md`: Detailed test documentation
 
