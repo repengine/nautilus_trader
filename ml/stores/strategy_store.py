@@ -26,6 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 from typing_extensions import override
 
+from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus
@@ -35,6 +36,7 @@ from ml.core.db_engine import EngineManager
 from ml.stores._buffered_store import BufferedStoreMixin
 from ml.stores._engine_mixin import EngineInitMixin
 from ml.stores._health_mixin import HealthMixin
+from ml.stores._init_mixin import StoreInitMixin
 from ml.stores._read_helpers import ReadQueryMixin
 from ml.stores._registry_mixin import DataRegistryMixin
 from ml.stores._upsert_mixin import SQLUpsertMixin
@@ -89,6 +91,7 @@ class StrategyStore(
     BusPublisherMixin,
     DataRegistryMixin,
     EngineInitMixin,
+    StoreInitMixin,
 ):
     """
     Store for strategy signals and decisions with PostgreSQL backend.
@@ -111,7 +114,7 @@ class StrategyStore(
         publisher: MessagePublisherProtocol | None = None,
         publish_mode: Literal["batch", "row", "both"] = "batch",
         **_: object,
-    ) -> None:
+        ) -> None:
         """
         Initialize strategy store.
 
@@ -139,82 +142,42 @@ class StrategyStore(
             Controls whether to publish batch summaries, per-row events, or both. Defaults to "batch".
 
         """
-        # Handle legacy connection string parameter
-        if connection_string and not persistence_config:
-            from ml.registry.persistence import BackendType
-            from ml.registry.persistence import PersistenceConfig
-
-            if "postgresql://" in connection_string or "postgres://" in connection_string:
-                persistence_config = PersistenceConfig(
-                    backend=BackendType.POSTGRES,
-                    connection_string=connection_string,
-                )
-
-        if persistence_config:
-            from ml.registry.persistence import PersistenceManager
-
-            self.persistence: PersistenceManager | None = PersistenceManager(persistence_config)
-            self.connection_string = persistence_config.connection_string
-        else:
-            # Fallback for testing
-            self.persistence = None
-            self.connection_string = (
-                connection_string or "postgresql://postgres:postgres@localhost:5432/nautilus"
-            )
-
-        self.batch_size = batch_size
-        self.flush_interval_ms = int(flush_interval_ms)
-        if flush_interval_seconds is not None:
-            self.flush_interval_ms = int(flush_interval_seconds * 1000)
-        self.clock = clock
-        # Optional message publishing
-        self._init_bus_publishing(
+        # Shared initialization (connection, persistence, bus, engine, flush settings)
+        self._init_store_common(
+            connection_string=connection_string,
+            persistence_config=persistence_config,
+            batch_size=batch_size,
+            flush_interval_ms=flush_interval_ms,
+            flush_interval_seconds=flush_interval_seconds,
+            clock=clock,
             enable_publishing=enable_publishing,
             publisher=publisher,
             publish_mode=publish_mode,
+            persistence_manager=persistence_manager,
         )
-
-        # Allow tests to inject a mock persistence manager directly
-        if persistence_manager is not None:
-            try:
-                self.persistence = persistence_manager  # type: ignore[assignment]
-            except Exception as exc:
-                logger.debug("Ignoring persistence_manager injection error: %s", exc)
 
         # Write buffer for batching
         self._write_buffer: list[StrategySignal] = []
-        self._last_flush_ns = 0
-
         # Back-compat: expose `_buffer` alias used by older tests
         self._buffer: list[StrategySignal] = self._write_buffer
 
         # DataRegistry for event emission (lazy initialization)
         self._data_registry: RegistryProtocol | None = None
-
-        # Create engine, metadata, and setup tables (shared init)
-        self._init_engine_and_tables()
+        # Engine + tables already initialized by _init_store_common
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         # Delegate to shared mixin
         return DataRegistryMixin._get_data_registry(self)
 
     # -- SQL identifier safety -------------------------------------------------
+    # Thin wrappers for shared helpers to preserve test compatibility
     def _safe_identifier(self, name: str, allowed: set[str]) -> str:
-        """
-        Validate identifier against an allowlist to prevent SQL injection in f-strings.
+        return ReadQueryMixin._safe_identifier(self, name, allowed)
 
-        This is used only for table/base names which cannot be bound as parameters.
-        """
-        if name not in allowed:
-            raise ValueError(f"Disallowed identifier: {name}")
-        return name
-
-    def _safe_table(self, base: str) -> str:
-        """
-        Return a qualified table name after allowlist validation.
-        """
-        base_safe = self._safe_identifier(base, {"ml_strategy_signals", "ml_strategy_performance"})
-        return self._qualified_table(base_safe)
+    def _safe_table(self, base: str, allowed: set[str] | None = None) -> str:
+        if allowed is None:
+            allowed = {"ml_strategy_signals", "ml_strategy_performance"}
+        return ReadQueryMixin._safe_table(self, base, allowed)
 
     def _setup_tables(self) -> None:
         """
@@ -444,10 +407,9 @@ class StrategyStore(
             Signals within range
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
-        table_name = self._safe_table("ml_strategy_signals")
+        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
         # nosec B608: table name validated via _safe_table allowlist
         sql = _text(
             f"""
@@ -460,22 +422,32 @@ class StrategyStore(
                 ORDER BY ts_event
                 """,
         )
-        with self.engine.connect() as conn:
-            from collections.abc import Mapping
-            from typing import cast
+        from collections.abc import Mapping as _Mapping
+        from typing import cast as _cast
+        _params = _cast(
+            _Mapping[str, Any],
+            {
+                "strategy_id": strategy_id,
+                "instrument_id": instrument_id,
+                "start_ns": int(start_ns),
+                "end_ns": int(end_ns),
+            },
+        )
+        from typing import cast as _cast
 
-            _params = cast(
-                Mapping[str, Any],
-                {
-                    "strategy_id": strategy_id,
-                    "instrument_id": instrument_id,
-                    "start_ns": int(start_ns),
-                    "end_ns": int(end_ns),
-                },
-            )
-            # Pass the actual bound parameters to avoid InvalidRequestError
-            df = pd.read_sql_query(sql, conn, params=_params)
-        return df
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            _params,
+            columns=[
+                "ts_event",
+                "signal_type",
+                "strength",
+                "model_predictions",
+                "risk_metrics",
+                "execution_params",
+            ],
+        ))
 
     @override
     def read_range(
@@ -502,7 +474,6 @@ class StrategyStore(
             Signals within range
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
         params: dict[str, Any] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
@@ -515,14 +486,27 @@ class StrategyStore(
             f"""
             SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
                    model_predictions, risk_metrics
-            FROM {self._safe_table('ml_strategy_signals')}
+            FROM {self._safe_table('ml_strategy_signals', {'ml_strategy_signals'})}
             WHERE {' AND '.join(where_parts)}
             ORDER BY ts_event
             """,
         )
-        with self.engine.connect() as conn:
-            df = pd.read_sql_query(sql, conn, params=params)
-        return df
+        from typing import cast as _cast
+
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            params,
+            columns=[
+                "strategy_id",
+                "instrument_id",
+                "ts_event",
+                "signal_type",
+                "strength",
+                "model_predictions",
+                "risk_metrics",
+            ],
+        ))
 
     @override
     def get_latest(
@@ -546,11 +530,9 @@ class StrategyStore(
             Latest signals
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
-        table_name = self._qualified_table("ml_strategy_signals")
-        table_name = self._safe_table("ml_strategy_signals")
+        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
         # nosec B608: table name validated via _safe_table allowlist
         sql = _text(
             f"""
@@ -561,21 +543,24 @@ class StrategyStore(
                 LIMIT :limit
                 """,
         )
-        with self.engine.connect() as conn:
-            from collections.abc import Mapping
-            from typing import Any as _Any
-            from typing import cast as _cast
+        from collections.abc import Mapping as _Mapping
+        from typing import Any as _Any
+        from typing import cast as _cast
+        _params = _cast(_Mapping[str, _Any], {"instrument_id": instrument_id, "limit": int(limit)})
+        from typing import cast as _cast
 
-            _params = _cast(
-                Mapping[str, _Any],
-                {"instrument_id": instrument_id, "limit": int(limit)},
-            )
-            df = pd.read_sql_query(
-                sql,
-                conn,
-                params=_params,
-            )
-        return df
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            _params,
+            columns=[
+                "strategy_id",
+                "ts_event",
+                "signal_type",
+                "strength",
+                "risk_metrics",
+            ],
+        ))
 
     @override
     def get_statistics(
@@ -599,48 +584,45 @@ class StrategyStore(
             Statistics dictionary
 
         """
-        with self.engine.connect() as conn:
-            # Get statistics with optional filters
-            table_name = self._safe_table("ml_strategy_signals")
-            # nosec B608: table name validated via _safe_table allowlist
-            query = text(  # nosec B608: table name validated via _safe_table allowlist
-                f"""
-                    SELECT
-                        COUNT(*) as total_signals,
-                        COUNT(DISTINCT strategy_id) as unique_strategies,
-                        COUNT(DISTINCT instrument_id) as unique_instruments,
-                        SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_signals,
-                        SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_signals,
-                        SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_signals,
-                        AVG(strength) as avg_strength,
-                        MIN(ts_event) as min_ts,
-                        MAX(ts_event) as max_ts
-                    FROM {table_name}
-                    WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
-                      AND (:end_ns IS NULL OR ts_event < :end_ns)
-                    """,
-            )
+        # Get statistics with optional filters
+        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
+        # nosec B608: table name validated via _safe_table allowlist
+        query = text(  # nosec B608: table name validated via _safe_table allowlist
+            f"""
+                SELECT
+                    COUNT(*) as total_signals,
+                    COUNT(DISTINCT strategy_id) as unique_strategies,
+                    COUNT(DISTINCT instrument_id) as unique_instruments,
+                    SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_signals,
+                    SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_signals,
+                    SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_signals,
+                    AVG(strength) as avg_strength,
+                    MIN(ts_event) as min_ts,
+                    MAX(ts_event) as max_ts
+                FROM {table_name}
+                WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
+                  AND (:end_ns IS NULL OR ts_event < :end_ns)
+                """,
+        )
 
-            result = conn.execute(
-                query,
-                {
-                    "start_ns": int(start_ns) if start_ns is not None else None,
-                    "end_ns": int(end_ns) if end_ns is not None else None,
-                },
-            ).fetchone()
+        params2 = {
+            "start_ns": int(start_ns) if start_ns is not None else None,
+            "end_ns": int(end_ns) if end_ns is not None else None,
+        }
+        result = self._fetch_one(query, params2)
 
-            if result:
-                return {
-                    "total_signals": result[0] or 0,
-                    "unique_strategies": result[1] or 0,
-                    "unique_instruments": result[2] or 0,
-                    "buy_signals": result[3] or 0,
-                    "sell_signals": result[4] or 0,
-                    "hold_signals": result[5] or 0,
-                    "avg_strength": float(result[6]) if result[6] else 0.0,
-                    "min_timestamp_ns": result[7] or 0,
-                    "max_timestamp_ns": result[8] or 0,
-                }
+        if result:
+            return {
+                "total_signals": result[0] or 0,
+                "unique_strategies": result[1] or 0,
+                "unique_instruments": result[2] or 0,
+                "buy_signals": result[3] or 0,
+                "sell_signals": result[4] or 0,
+                "hold_signals": result[5] or 0,
+                "avg_strength": float(result[6]) if result[6] else 0.0,
+                "min_timestamp_ns": result[7] or 0,
+                "max_timestamp_ns": result[8] or 0,
+            }
 
         return {
             "total_signals": 0,
@@ -699,18 +681,13 @@ class StrategyStore(
                 ts_min = min(ts_values)
                 ts_max = max(ts_values)
 
-                # Use canonical dataset id; strategy_id is conveyed via metrics/metadata
-                dataset_id = "signals"
-
                 # Map to canonical Source enum
-                if hasattr(group_signals[0], "is_live") and bool(getattr(group_signals[0], "is_live")):
-                    src_enum = Source.LIVE
-                else:
-                    src_enum = Source.HISTORICAL
+                src_enum = Source.LIVE if getattr(group_signals[0], "is_live", False) else Source.HISTORICAL
 
-                # Emit the event
-                registry.emit_event(
-                    dataset_id=dataset_id,
+                # Unified event + watermark + metrics emission
+                emit_dataset_event_and_watermark(
+                    registry,
+                    dataset_id="signals",
                     instrument_id=instrument_id,
                     stage=Stage.SIGNAL_EMITTED,
                     source=src_enum,
@@ -719,42 +696,14 @@ class StrategyStore(
                     ts_max=ts_max,
                     count=len(group_signals),
                     status=EventStatus.SUCCESS,
+                    dataset_type="signals",
+                    component=strategy_id,
                 )
-
-                # Update watermark for tracking progress
-                registry.update_watermark(
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                    source=src_enum,
-                    last_success_ns=ts_max,
-                    count=len(group_signals),
-                    completeness_pct=100.0,  # Signals are complete once written
-                )
-
-                # Update Prometheus metrics via MetricsManager (best-effort)
-                try:  # pragma: no cover - metrics are optional
-                    from ml.common.metrics_manager import MetricsManager
-
-                    mm = MetricsManager.default()
-                    mm.inc(
-                        "nautilus_ml_data_events_total",
-                        "Total data events processed by stage",
-                        labels={
-                            "dataset_type": "signals",
-                            "component": strategy_id,
-                            "stage": Stage.SIGNAL_EMITTED.value,
-                            "source": src_enum.value,
-                            "status": EventStatus.SUCCESS.value,
-                        },
-                        labelnames=("dataset_type", "component", "stage", "source", "status"),
-                    )
-                except Exception:
-                    pass
 
                 logger.debug(
                     "Emitted SIGNAL_EMITTED event: dataset=%s, instrument=%s, "
                     "strategy=%s, count=%d, ts_range=[%d, %d], source=%s",
-                    dataset_id,
+                    "signals",
                     instrument_id,
                     strategy_id,
                     len(group_signals),
@@ -830,46 +779,43 @@ class StrategyStore(
             Performance metrics
 
         """
-        with self.engine.connect() as conn:
-            table_name = self._safe_table("ml_strategy_signals")
-            # nosec B608: table name validated via _safe_table allowlist
-            query = text(  # nosec B608: table name validated via _safe_table allowlist
-                f"""
-                SELECT
-                    COUNT(*) as signal_count,
-                    SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
-                    SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_count,
-                    SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
-                    AVG(strength) as avg_strength,
-                    STDDEV(strength) as std_strength,
-                    MIN(strength) as min_strength,
-                    MAX(strength) as max_strength
-                FROM {table_name}
-                WHERE strategy_id = :strategy_id
-                  AND (:start_ns IS NULL OR ts_event >= :start_ns)
-                  AND (:end_ns IS NULL OR ts_event < :end_ns)
-                """,
-            )
-            result = conn.execute(
-                query,
-                {
-                    "strategy_id": strategy_id,
-                    "start_ns": int(start_ns) if start_ns is not None else None,
-                    "end_ns": int(end_ns) if end_ns is not None else None,
-                },
-            ).fetchone()
+        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
+        # nosec B608: table name validated via _safe_table allowlist
+        query = text(  # nosec B608: table name validated via _safe_table allowlist
+            f"""
+            SELECT
+                COUNT(*) as signal_count,
+                SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
+                SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_count,
+                SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
+                AVG(strength) as avg_strength,
+                STDDEV(strength) as std_strength,
+                MIN(strength) as min_strength,
+                MAX(strength) as max_strength
+            FROM {table_name}
+            WHERE strategy_id = :strategy_id
+              AND (:start_ns IS NULL OR ts_event >= :start_ns)
+              AND (:end_ns IS NULL OR ts_event < :end_ns)
+            """,
+        )
+        params2 = {
+            "strategy_id": strategy_id,
+            "start_ns": int(start_ns) if start_ns is not None else None,
+            "end_ns": int(end_ns) if end_ns is not None else None,
+        }
+        result = self._fetch_one(query, params2)
 
-            if result:
-                return {
-                    "signal_count": result[0] or 0,
-                    "buy_count": result[1] or 0,
-                    "sell_count": result[2] or 0,
-                    "hold_count": result[3] or 0,
-                    "avg_strength": float(result[4]) if result[4] else 0.0,
-                    "std_strength": float(result[5]) if result[5] else 0.0,
-                    "min_strength": float(result[6]) if result[6] else 0.0,
-                    "max_strength": float(result[7]) if result[7] else 0.0,
-                }
+        if result:
+            return {
+                "signal_count": result[0] or 0,
+                "buy_count": result[1] or 0,
+                "sell_count": result[2] or 0,
+                "hold_count": result[3] or 0,
+                "avg_strength": float(result[4]) if result[4] else 0.0,
+                "std_strength": float(result[5]) if result[5] else 0.0,
+                "min_strength": float(result[6]) if result[6] else 0.0,
+                "max_strength": float(result[7]) if result[7] else 0.0,
+            }
 
         return {
             "signal_count": 0,
@@ -906,32 +852,27 @@ class StrategyStore(
             Signal type counts
 
         """
-        with self.engine.connect() as conn:
-            table_name = self._safe_table("ml_strategy_signals")
-            # nosec B608: table name validated via _safe_table allowlist
-            query = text(
-                f"""
-                SELECT signal_type, COUNT(*) as count
-                FROM {table_name}
-                WHERE (:strategy_id IS NULL OR strategy_id = :strategy_id)
-                  AND (:start_ns IS NULL OR ts_event >= :start_ns)
-                  AND (:end_ns IS NULL OR ts_event < :end_ns)
-                GROUP BY signal_type
-                """,
-            )
+        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
+        query = text(  # nosec B608: table name validated via _safe_table allowlist
+            f"""
+            SELECT signal_type, COUNT(*) as count
+            FROM {table_name}
+            WHERE (:strategy_id IS NULL OR strategy_id = :strategy_id)
+              AND (:start_ns IS NULL OR ts_event >= :start_ns)
+              AND (:end_ns IS NULL OR ts_event < :end_ns)
+            GROUP BY signal_type
+            """,
+        )
 
-            result = conn.execute(
-                query,
-                {
-                    "strategy_id": strategy_id,
-                    "start_ns": int(start_ns) if start_ns is not None else None,
-                    "end_ns": int(end_ns) if end_ns is not None else None,
-                },
-            ).fetchall()
-
-            distribution = {}
-            for signal_type, count in result:
-                distribution[signal_type] = count
+        params2 = {
+            "strategy_id": strategy_id,
+            "start_ns": int(start_ns) if start_ns is not None else None,
+            "end_ns": int(end_ns) if end_ns is not None else None,
+        }
+        rows = self._fetch_all(query, params2)
+        distribution: dict[str, int] = {}
+        for signal_type, count in rows:
+            distribution[str(signal_type)] = int(count)
 
         return distribution
 
@@ -956,7 +897,7 @@ class StrategyStore(
         """
         with self.engine.begin() as conn:
             # Calculate metrics for period
-            table_name = self._safe_table("ml_strategy_signals")
+            table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
             # nosec B608: table name validated via _safe_table allowlist
             query = text(
                 f"""
@@ -1056,7 +997,6 @@ class StrategyStore(
         """
         import time as _time
 
-        import pandas as pd
         from sqlalchemy import text as _text
 
         now_ns: int = int(_time.time() * 1e9)
@@ -1071,7 +1011,7 @@ class StrategyStore(
             where_parts.append("instrument_id = :instrument_id")
             params["instrument_id"] = instrument_id
 
-        table_name = self._safe_table("ml_strategy_signals")
+        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
         # nosec B608: table name validated via _safe_table allowlist
         sql = _text(  # nosec B608: table name validated via _safe_table allowlist
             f"""
@@ -1091,61 +1031,24 @@ class StrategyStore(
                 """,
         )
 
-        # Prefer a mock-friendly session when available; else engine
-        sess: Any | None = None
-        try:
-            if hasattr(self, "persistence") and self.persistence is not None:
-                # Prefer `.session` when present (MagicMock friendly)
-                sess = getattr(self.persistence, "session", None)
-                if sess is None and hasattr(self.persistence, "get_session"):
-                    sess = self.persistence.get_session()
-        except Exception:
-            sess = None
+        from typing import cast as _cast
 
-        if sess is not None:
-            # Use simple execute/fetch for MagicMock compatibility
-            try:
-                from sqlalchemy import text as _text2
-
-                rows = sess.execute(_text2(str(sql)), params).fetchall()
-            except Exception:
-                rows = []
-            data = [
-                {
-                    "strategy_id": r[0],
-                    "instrument_id": r[1],
-                    "signal_type": r[2],
-                    "strength": r[3],
-                    "model_predictions": r[4],
-                    "risk_metrics": r[5],
-                    "execution_params": r[6],
-                    "ts_event": r[7],
-                    "ts_init": r[8],
-                }
-                for r in rows
-            ]
-            df = pd.DataFrame(
-                data,
-                columns=[
-                    "strategy_id",
-                    "instrument_id",
-                    "signal_type",
-                    "strength",
-                    "model_predictions",
-                    "risk_metrics",
-                    "execution_params",
-                    "ts_event",
-                    "ts_init",
-                ],
-            )
-            if not len(df.index):
-                # Pandas typing: external API expects diverse scalar types; use explicit Any per standards
-                with self.engine.connect() as conn:
-                    return pd.read_sql_query(sql, conn, params=cast(Any, params))
-            return df
-        else:
-            with self.engine.connect() as conn:
-                return pd.read_sql_query(sql, conn, params=cast(Any, params))
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            params,
+            columns=[
+                "strategy_id",
+                "instrument_id",
+                "signal_type",
+                "strength",
+                "model_predictions",
+                "risk_metrics",
+                "execution_params",
+                "ts_event",
+                "ts_init",
+            ],
+        ))
 
     # Backwards-compatible public API used in some tests
     def get_signals(
@@ -1162,7 +1065,6 @@ class StrategyStore(
         provided, and otherwise reading across instruments.
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
         # Accept seconds or nanoseconds; normalize to ns
@@ -1192,20 +1094,34 @@ class StrategyStore(
             f"""
             SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
                    model_predictions, risk_metrics
-            FROM {self._safe_table('ml_strategy_signals')}
+            FROM {self._safe_table('ml_strategy_signals', {'ml_strategy_signals'})}
             WHERE strategy_id = :strategy_id
               AND ts_event >= :start_ns
               AND ts_event < :end_ns
             ORDER BY instrument_id, ts_event
             """,
         )
-        with self.engine.connect() as conn:
-            params2: dict[str, int | str] = {
-                "strategy_id": strategy_id,
-                "start_ns": int(start_ns),
-                "end_ns": int(end_ns),
-            }
-            return pd.read_sql_query(sql, conn, params=params2)
+        params2: dict[str, int | str] = {
+            "strategy_id": strategy_id,
+            "start_ns": int(start_ns),
+            "end_ns": int(end_ns),
+        }
+        from typing import cast as _cast
+
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            params2,
+            columns=[
+                "strategy_id",
+                "instrument_id",
+                "ts_event",
+                "signal_type",
+                "strength",
+                "model_predictions",
+                "risk_metrics",
+            ],
+        ))
 
     def store_decision(self, *args: Any, **kwargs: Any) -> None:
         """
@@ -1242,3 +1158,10 @@ class StrategyStore(
             execution_params=execution_params,
             ts_event=int(cast(int, ts_event)),
         )
+    # Attributes initialized via StoreInitMixin
+    batch_size: int
+    flush_interval_ms: int
+    clock: Clock | None
+    connection_string: str | None
+    persistence: object | None
+    _last_flush_ns: int

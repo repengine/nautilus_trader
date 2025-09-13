@@ -896,11 +896,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             if "database" in item.keywords:
                 item.add_marker(skip_db)
 
-    # Ensure integration tests run serially (avoid cross-worker DDL/DML interference)
+    # Ensure integration tests run serially and are marked as integration
     for item in items:
         node = item.nodeid.replace("::", "/")
-        if "/ml/tests/integration/" in node and "serial" not in item.keywords:
-            item.add_marker(pytest.mark.serial)
+        if "/ml/tests/integration/" in node:
+            if "serial" not in item.keywords:
+                item.add_marker(pytest.mark.serial)
+            if "integration" not in item.keywords:
+                item.add_marker(pytest.mark.integration)
 
     # When xdist is active, group database tests to run on a single worker to prevent
     # cross-worker DDL/DML interference and deadlocks.

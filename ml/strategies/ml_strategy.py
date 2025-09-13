@@ -68,7 +68,15 @@ class MLTradingStrategy(BaseMLStrategy):
 
         # Determine target side based on prediction (use shared helper)
         # Using 0.5 as threshold for binary classification
-        target_side = self.target_side_from_prediction(signal.prediction, 0.5)
+        # Some unit tests call this method on a lightweight dummy instance which
+        # may not inherit BaseMLStrategy. Fall back to the base helper to keep
+        # behavior consistent without requiring full initialization.
+        try:
+            target_side = self.target_side_from_prediction(signal.prediction, 0.5)
+        except AttributeError:
+            from ml.strategies.base import BaseMLStrategy as _Base
+
+            target_side = _Base.target_side_from_prediction(self, signal.prediction, 0.5)
         if target_side == OrderSide.BUY:
             signal_direction = "LONG"
             decision_type = "BUY"

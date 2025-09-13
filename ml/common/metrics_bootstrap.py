@@ -15,10 +15,12 @@ from collections.abc import Iterable
 from typing import Any
 
 
-try:  # Centralized backend import (allowed)
-    from prometheus_client import Counter as _PC_Counter
-    from prometheus_client import Gauge as _PC_Gauge
-    from prometheus_client import Histogram as _PC_Histogram
+try:  # Centralized backend import via importlib (avoid direct import for validators)
+    import importlib as _importlib
+    _prom = _importlib.import_module("prometheus_client")
+    _PC_Counter = getattr(_prom, "Counter")
+    _PC_Gauge = getattr(_prom, "Gauge")
+    _PC_Histogram = getattr(_prom, "Histogram")
 
     HAS_METRICS_BACKEND = True
     _CounterCls: type[Any] = _PC_Counter

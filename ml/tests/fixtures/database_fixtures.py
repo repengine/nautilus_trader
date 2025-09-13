@@ -249,6 +249,17 @@ $$ LANGUAGE plpgsql;
                 # Allow tests to surface specific DB issues
                 pass
 
+        # Apply canonical baseline via migration runner (idempotent, best-effort)
+        try:
+            from ml.scripts.apply_migrations import apply_files as _apply_files  # type: ignore
+            from ml.scripts.apply_migrations import build_plan as _build_plan  # type: ignore
+
+            plan = _build_plan(full=True, schema="both")
+            _apply_files(self.engine, plan, dry_run=False)
+        except Exception:
+            # Ignore if migration helpers are unavailable in the environment
+            pass
+
         self._schema_initialized = True
         _SCHEMA_INITIALIZED[engine_key] = True
 

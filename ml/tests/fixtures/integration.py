@@ -302,24 +302,28 @@ def create_onnx_model_for_features(
         model_path = tmp_path / model_name
         save_onnx_model(onnx_model, str(model_path))
         return model_path
-    except Exception:  # pragma: no cover - helper is best-effort
-        # Fallback older converter path
-        from skl2onnx.common.data_types import FloatTensorType
-        from skl2onnx import convert_sklearn as convert_xgboost
+    except Exception:
+        # Fallback older converter path (best-effort)
+        try:
+            from skl2onnx.common.data_types import FloatTensorType
+            from skl2onnx import convert_sklearn as convert_xgboost
 
-        rng = np.random.default_rng(42)
-        X = rng.standard_normal((200, n_features)).astype(np.float32)
-        y = rng.integers(0, 2, 200)
-        import xgboost as _xgb2
+            rng = np.random.default_rng(42)
+            X = rng.standard_normal((200, n_features)).astype(np.float32)
+            y = rng.integers(0, 2, 200)
+            import xgboost as _xgb2
 
-        model = _xgb2.XGBClassifier(n_estimators=10, max_depth=3, learning_rate=0.1)
-        model.fit(X, y)
-        initial_type2 = [("float_input", FloatTensorType([None, n_features]))]
-        onnx_model2 = convert_xgboost(model, initial_types=initial_type2)
-        model_path2 = tmp_path / model_name
-        with open(model_path2, "wb") as f:
-            f.write(onnx_model2.SerializeToString())
-        return model_path2
+            model = _xgb2.XGBClassifier(n_estimators=10, max_depth=3, learning_rate=0.1)
+            model.fit(X, y)
+            initial_type2 = [("float_input", FloatTensorType([None, n_features]))]
+            onnx_model2 = convert_xgboost(model, initial_types=initial_type2)
+            model_path2 = tmp_path / model_name
+            with open(model_path2, "wb") as f:
+                f.write(onnx_model2.SerializeToString())
+            return model_path2
+        except Exception:
+            # As a last resort, skip integration tests that require ONNX export
+            pytest.skip("ONNX export for XGBoost unavailable in this environment")
 
 
 @pytest.fixture
@@ -422,4 +426,3 @@ __all__ = [
     "test_ml_signals",
     "xgboost_test_model",
 ]
-

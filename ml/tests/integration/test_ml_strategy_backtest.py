@@ -199,7 +199,7 @@ class TestMLStrategyBacktest:
         # Create model with correct feature dimensions
         from ml.features import FeatureEngineer
 
-        from .conftest import create_onnx_model_for_features
+        from ml.tests.fixtures.integration import create_onnx_model_for_features
 
         engineer = FeatureEngineer(config=feature_config)
         n_features = len(engineer.get_feature_names())

@@ -113,7 +113,6 @@ class TFTTeacher(BaseTeacher):
                 import pytorch_lightning as _pl
 
                 pl_module = _pl
-            import torch
             from pytorch_forecasting import TemporalFusionTransformer
             from pytorch_forecasting import TimeSeriesDataSet
 
@@ -245,17 +244,11 @@ class TFTTeacher(BaseTeacher):
         # Optional warm-start from a pretrained state dict (best-effort partial load)
         if self.pretrained_state_path:
             try:
-                import torch  # local import for typing
+                # Use hardened loader with optional checksum (if caller sets via env)
+                from ml.training.safe_torch import safe_torch_load
 
-                # Prefer weights_only=True for safer loading on newer torch; fall back otherwise
-                try:
-                    state = torch.load(
-                        self.pretrained_state_path,
-                        map_location="cpu",
-                        weights_only=True,
-                    )
-                except TypeError:
-                    state = torch.load(self.pretrained_state_path, map_location="cpu")
+                expected = None  # Could wire from config later
+                state = safe_torch_load(self.pretrained_state_path, expected_sha256=expected)
                 _missing, _unexpected = self._tft.load_state_dict(state, strict=False)
             except Exception as exc:
                 logger.debug("Optional TFT warm-start failed: %s", exc)

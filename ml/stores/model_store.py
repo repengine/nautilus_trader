@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -28,6 +27,7 @@ from typing_extensions import override
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
+from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import EventStatus
@@ -37,6 +37,7 @@ from ml.core.db_engine import EngineManager
 from ml.stores._buffered_store import BufferedStoreMixin
 from ml.stores._engine_mixin import EngineInitMixin
 from ml.stores._health_mixin import HealthMixin
+from ml.stores._init_mixin import StoreInitMixin
 from ml.stores._read_helpers import ReadQueryMixin
 from ml.stores._registry_mixin import DataRegistryMixin
 from ml.stores._upsert_mixin import SQLUpsertMixin
@@ -81,6 +82,7 @@ class ModelStore(
     BusPublisherMixin,
     DataRegistryMixin,
     EngineInitMixin,
+    StoreInitMixin,
 ):
     """
     Store for model predictions with PostgreSQL backend.
@@ -103,7 +105,7 @@ class ModelStore(
         publisher: MessagePublisherProtocol | None = None,
         publish_mode: Literal["batch", "row", "both"] = "batch",
         **_: object,
-    ) -> None:
+        ) -> None:
         """
         Initialize model store.
 
@@ -131,62 +133,31 @@ class ModelStore(
             Controls whether to publish batch summaries, per-row events, or both. Defaults to "batch".
 
         """
-        # Handle legacy connection string parameter
-        if connection_string and not persistence_config:
-            # Only create PersistenceConfig for PostgreSQL connections
-            if "postgresql://" in connection_string or "postgres://" in connection_string:
-                from ml.registry.persistence import BackendType
-                from ml.registry.persistence import PersistenceConfig
-
-                persistence_config = PersistenceConfig(
-                    backend=BackendType.POSTGRES,
-                    connection_string=connection_string,
-                )
-
-        if persistence_config:
-            from ml.registry.persistence import PersistenceManager
-
-            self.persistence: PersistenceManager | None = PersistenceManager(persistence_config)
-            self.connection_string = persistence_config.connection_string
-        else:
-            # Fallback for testing
-            self.persistence = None
-            self.connection_string = (
-                connection_string or "postgresql://postgres:postgres@localhost:5432/nautilus"
-            )
-
-        self.batch_size = batch_size
-        self.flush_interval_ms = int(flush_interval_ms)
-        if flush_interval_seconds is not None:
-            self.flush_interval_ms = int(flush_interval_seconds * 1000)
-        self.clock = clock
-        # Optional message publishing
-        self._init_bus_publishing(
+        # Shared initialization (connection, persistence, bus, engine, flush settings)
+        self._init_store_common(
+            connection_string=connection_string,
+            persistence_config=persistence_config,
+            batch_size=batch_size,
+            flush_interval_ms=flush_interval_ms,
+            flush_interval_seconds=flush_interval_seconds,
+            clock=clock,
             enable_publishing=enable_publishing,
             publisher=publisher,
             publish_mode=publish_mode,
+            persistence_manager=persistence_manager,
         )
-
-        # Allow tests to inject a mock persistence manager directly
-        if persistence_manager is not None:
-            try:
-                self.persistence = persistence_manager  # type: ignore[assignment]
-            except Exception as exc:
-                logger.debug("Ignoring persistence_manager injection error: %s", exc)
 
         # Write buffer for batching
         self._write_buffer: list[ModelPrediction] = []
-        self._last_flush_ns = 0
-
         # Back-compat: expose `_buffer` alias used by older tests
         # Do not store a separate list; keep a reference to the same object.
         self._buffer: list[ModelPrediction] = self._write_buffer
+        # batch_size already set by init mixin; class attribute annotated for mypy
 
         # DataRegistry for event emission (lazy initialization)
         self._data_registry: RegistryProtocol | None = None
 
-        # Create engine, metadata, and setup tables (shared init)
-        self._init_engine_and_tables()
+        # Engine + tables already initialized by _init_store_common
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         # Delegate to shared mixin
@@ -420,7 +391,6 @@ class ModelStore(
             Predictions within range
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
         table_name = self._qualified_table("ml_model_predictions")
@@ -435,17 +405,26 @@ class ModelStore(
             ORDER BY ts_event
             """,
         )
-
-        from typing import cast
-
-        with self.engine.connect() as conn:
-            params: dict[str, int | str] = {
-                "model_id": model_id,
-                "instrument_id": instrument_id,
-                "start_ns": int(start_ns),
-                "end_ns": int(end_ns),
-            }
-        return pd.read_sql_query(sql, conn, params=cast(Mapping[str, int | str], params))
+        from collections.abc import Mapping as _Mapping
+        from typing import cast as _cast
+        params: dict[str, int | str] = {
+            "model_id": model_id,
+            "instrument_id": instrument_id,
+            "start_ns": int(start_ns),
+            "end_ns": int(end_ns),
+        }
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            _cast(_Mapping[str, int | str], params),
+            columns=[
+                "ts_event",
+                "prediction",
+                "confidence",
+                "features_used",
+                "inference_time_ms",
+            ],
+        ))
 
     # -------------------------------------------------------------------------------------
     # Compatibility reads and aliases
@@ -476,7 +455,6 @@ class ModelStore(
             inference_time_ms, is_live, ts_event, ts_init.
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
         table_name = self._qualified_table("ml_model_predictions")
@@ -504,60 +482,23 @@ class ModelStore(
             """,
         )
 
-        # Prefer a mock-friendly session if available; else use engine
-        sess: Any | None = None
-        try:
-            if hasattr(self, "persistence") and self.persistence is not None:
-                # Support both real manager and test doubles providing `get_session` or `session`
-                if hasattr(self.persistence, "get_session"):
-                    sess = self.persistence.get_session()
-                elif hasattr(self.persistence, "session"):
-                    sess = getattr(self.persistence, "session")
-        except Exception:
-            sess = None
+        from typing import cast as _cast
 
-        if sess is not None:
-            # Use simple execute/fetch for MagicMock compatibility
-            try:
-                from sqlalchemy import text as _text2
-
-                rows = sess.execute(_text2(str(sql)), params).fetchall()
-            except Exception:
-                rows = []
-            data = [
-                {
-                    "model_id": r[0],
-                    "instrument_id": r[1],
-                    "prediction": r[2],
-                    "confidence": r[3],
-                    "inference_time_ms": r[5],
-                    "is_live": r[6],
-                    "ts_event": r[7],
-                    "ts_init": r[8],
-                }
-                for r in rows
-            ]
-            df = pd.DataFrame(
-                data,
-                columns=[
-                    "model_id",
-                    "instrument_id",
-                    "prediction",
-                    "confidence",
-                    "inference_time_ms",
-                    "is_live",
-                    "ts_event",
-                    "ts_init",
-                ],
-            )
-            if not len(df.index):
-                with self.engine.connect() as conn:
-                    return pd.read_sql_query(sql, conn, params=cast(Any, params))
-            return df
-        else:
-            # External API typing variance; use explicit Any per standards
-            with self.engine.connect() as conn:
-                return pd.read_sql_query(sql, conn, params=cast(Any, params))
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            params,
+            columns=[
+                "model_id",
+                "instrument_id",
+                "prediction",
+                "confidence",
+                "inference_time_ms",
+                "is_live",
+                "ts_event",
+                "ts_init",
+            ],
+        ))
 
     def read_range(
         self,
@@ -583,7 +524,6 @@ class ModelStore(
             Predictions within range
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
         if instrument_id is None:
@@ -612,8 +552,21 @@ class ModelStore(
                 "instrument_id": instrument_id,
             }
 
-        with self.engine.connect() as conn:
-            return pd.read_sql_query(sql, conn, params=cast(Any, params))
+        from typing import cast as _cast
+
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            params,
+            columns=[
+                "model_id",
+                "instrument_id",
+                "ts_event",
+                "prediction",
+                "confidence",
+                "inference_time_ms",
+            ],
+        ))
 
     # Backwards-compatible public API used in some tests
     def get_predictions(
@@ -629,8 +582,6 @@ class ModelStore(
         This is a compatibility shim delegating to read_predictions.
 
         """
-        import pandas as pd
-
         # Accept seconds or nanoseconds; normalize to ns
         from ml.common.timestamps import sanitize_timestamp_ns
 
@@ -656,13 +607,26 @@ class ModelStore(
                 ORDER BY instrument_id, ts_event
                 """,
             )
-            with self.engine.connect() as conn:
-                params2: dict[str, int | str] = {
-                    "model_id": model_id,
-                    "start_ns": int(start_ns),
-                    "end_ns": int(end_ns),
-                }
-                return pd.read_sql_query(sql, conn, params=params2)
+            params2: dict[str, int | str] = {
+                "model_id": model_id,
+                "start_ns": int(start_ns),
+                "end_ns": int(end_ns),
+            }
+            from typing import cast as _cast
+
+            import pandas as pd
+            return _cast(pd.DataFrame, self._execute_read(
+                sql,
+                params2,
+                columns=[
+                    "model_id",
+                    "instrument_id",
+                    "ts_event",
+                    "prediction",
+                    "confidence",
+                    "inference_time_ms",
+                ],
+            ))
         else:
             return self.read_predictions(
                 model_id=model_id,
@@ -693,7 +657,6 @@ class ModelStore(
             Latest predictions
 
         """
-        import pandas as pd
         from sqlalchemy import text as _text
 
         sql = _text(
@@ -706,9 +669,21 @@ class ModelStore(
             """,
         )
 
-        with self.engine.connect() as conn:
-            params2: dict[str, int | str] = {"instrument_id": instrument_id, "limit": int(limit)}
-            return pd.read_sql_query(sql, conn, params=params2)
+        params2: dict[str, int | str] = {"instrument_id": instrument_id, "limit": int(limit)}
+        from typing import cast as _cast
+
+        import pandas as pd
+        return _cast(pd.DataFrame, self._execute_read(
+            sql,
+            params2,
+            columns=[
+                "model_id",
+                "ts_event",
+                "prediction",
+                "confidence",
+                "inference_time_ms",
+            ],
+        ))
 
     @override
     def get_statistics(
@@ -742,6 +717,7 @@ class ModelStore(
             conditions.append("ts_event < :end_ns")
             params["end_ns"] = int(end_ns)
 
+        table = self._qualified_table("ml_model_predictions")
         base_sql = (
             "SELECT COUNT(*) as total_predictions, "
             "COUNT(DISTINCT model_id) as unique_models, "
@@ -750,45 +726,23 @@ class ModelStore(
             "MAX(inference_time_ms) as max_inference_ms, "
             "MIN(ts_event) as min_ts, "
             "MAX(ts_event) as max_ts "
-            "FROM public.ml_model_predictions "
+            f"FROM {table} "
         )
         if conditions:
             base_sql += "WHERE " + " AND ".join(conditions)
 
-        # Prefer a mock-friendly session when available; else engine
-        sess: Any | None = None
-        try:
-            if hasattr(self, "persistence") and self.persistence is not None:
-                # Prefer `.session` when present (MagicMock friendly)
-                sess = getattr(self.persistence, "session", None)
-                if sess is None and hasattr(self.persistence, "get_session"):
-                    sess = self.persistence.get_session()
-        except Exception:
-            sess = None
+        result = self._fetch_one(text(base_sql), params)
 
-        if sess is not None:
-            from sqlalchemy import text as _text2
-
-            query = _text2(base_sql)
-            try:
-                result = sess.execute(query, params).fetchone()
-            except Exception:
-                result = None
-        else:
-            with self.engine.connect() as conn:
-                query = text(base_sql)
-                result = conn.execute(query, params).fetchone()
-
-            if result:
-                return {
-                    "total_predictions": result[0] or 0,
-                    "unique_models": result[1] or 0,
-                    "unique_instruments": result[2] or 0,
-                    "avg_inference_ms": float(result[3]) if result[3] else 0.0,
-                    "max_inference_ms": float(result[4]) if result[4] else 0.0,
-                    "min_timestamp_ns": result[5] or 0,
-                    "max_timestamp_ns": result[6] or 0,
-                }
+        if result:
+            return {
+                "total_predictions": result[0] or 0,
+                "unique_models": result[1] or 0,
+                "unique_instruments": result[2] or 0,
+                "avg_inference_ms": float(result[3]) if result[3] else 0.0,
+                "max_inference_ms": float(result[4]) if result[4] else 0.0,
+                "min_timestamp_ns": result[5] or 0,
+                "max_timestamp_ns": result[6] or 0,
+            }
 
         return {
             "total_predictions": 0,
@@ -850,19 +804,13 @@ class ModelStore(
                 ts_min = min(ts_values)
                 ts_max = max(ts_values)
 
-                # Use canonical dataset id; model_id is conveyed via metrics/metadata
-                dataset_id = "predictions"
-
                 # Determine source based on is_live flag (if available)
-                # Map to canonical Source enum
-                if hasattr(group_preds[0], "is_live") and bool(getattr(group_preds[0], "is_live")):
-                    src_enum = Source.LIVE
-                else:
-                    src_enum = Source.HISTORICAL
+                src_enum = Source.LIVE if getattr(group_preds[0], "is_live", False) else Source.HISTORICAL
 
-                # Emit the event
-                registry.emit_event(
-                    dataset_id=dataset_id,
+                # Unified event + watermark + metrics emission
+                emit_dataset_event_and_watermark(
+                    registry,
+                    dataset_id="predictions",
                     instrument_id=instrument_id,
                     stage=Stage.PREDICTION_EMITTED,
                     source=src_enum,
@@ -871,43 +819,14 @@ class ModelStore(
                     ts_max=ts_max,
                     count=len(group_preds),
                     status=EventStatus.SUCCESS,
-                    metadata={"model_id": model_id},
+                    dataset_type="predictions",
+                    component=model_id,
                 )
-
-                # Update watermark for tracking progress
-                registry.update_watermark(
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                    source=src_enum,
-                    last_success_ns=ts_max,
-                    count=len(group_preds),
-                    completeness_pct=100.0,  # Predictions are complete once written
-                )
-
-                # Update metrics via MetricsManager (best-effort)
-                try:  # pragma: no cover - metrics optional
-                    from ml.common.metrics_manager import MetricsManager
-
-                    mm = MetricsManager.default()
-                    mm.inc(
-                        "nautilus_ml_data_events_total",
-                        "Total data events processed by stage",
-                        labels={
-                            "dataset_type": "predictions",
-                            "component": model_id,
-                            "stage": Stage.PREDICTION_EMITTED.value,
-                            "source": src_enum.value,
-                            "status": EventStatus.SUCCESS.value,
-                        },
-                        labelnames=("dataset_type", "component", "stage", "source", "status"),
-                    )
-                except Exception:
-                    pass
 
                 logger.debug(
                     "Emitted PREDICTION_EMITTED event: dataset=%s, instrument=%s, "
                     "model=%s, count=%d, ts_range=[%d, %d], source=%s",
-                    dataset_id,
+                    "predictions",
                     instrument_id,
                     model_id,
                     len(group_preds),
@@ -919,38 +838,6 @@ class ModelStore(
         except Exception as e:
             # Non-blocking: log but don't fail the prediction storage
             logger.warning(f"Failed to emit prediction event: {e}")
-
-    def _should_flush_by_time(self) -> bool:
-        """
-        Check if flush is needed based on time.
-        """
-        if not self.clock or not self._last_flush_ns:
-            return False
-
-        elapsed_ms = (self.clock.timestamp_ns() - self._last_flush_ns) / 1e6
-        return bool(elapsed_ms >= float(self.flush_interval_ms))
-
-    def is_healthy(self) -> bool:
-        """
-        Check if the model store is healthy and accessible.
-
-        Returns
-        -------
-        bool
-            True if store is healthy, False otherwise
-
-        """
-        try:
-            # Try a simple query to verify connection
-            if self.engine:
-                with self.engine.connect() as conn:
-                    from sqlalchemy import text
-
-                    result = conn.execute(text("SELECT 1"))
-                    return result is not None
-            return True  # If no engine, assume healthy (in-memory mode)
-        except Exception:
-            return False
 
     def clear_predictions(
         self,
@@ -1025,6 +912,7 @@ class ModelStore(
             conditions.append("ts_event < :end_ns")
             params["end_ns"] = int(end_ns)
 
+        table = self._qualified_table("ml_model_predictions")
         sql = (
             "SELECT COUNT(*) as prediction_count, "
             "AVG(confidence) as avg_confidence, "
@@ -1033,24 +921,22 @@ class ModelStore(
             "PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY inference_time_ms) as p50_latency_ms, "
             "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY inference_time_ms) as p95_latency_ms, "
             "PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY inference_time_ms) as p99_latency_ms "
-            "FROM public.ml_model_predictions "
-            "WHERE " + " AND ".join(conditions)
+            f"FROM {table} WHERE " + " AND ".join(conditions)
         )
 
-        with self.engine.connect() as conn:
-            query = text(sql)
-            result = conn.execute(query, params).fetchone()
+        query = text(sql)
+        result = self._fetch_one(query, params)
 
-            if result:
-                return {
-                    "prediction_count": result[0] or 0,
-                    "avg_confidence": float(result[1]) if result[1] else 0.0,
-                    "std_confidence": float(result[2]) if result[2] else 0.0,
-                    "avg_latency_ms": float(result[3]) if result[3] else 0.0,
-                    "p50_latency_ms": float(result[4]) if result[4] else 0.0,
-                    "p95_latency_ms": float(result[5]) if result[5] else 0.0,
-                    "p99_latency_ms": float(result[6]) if result[6] else 0.0,
-                }
+        if result:
+            return {
+                "prediction_count": result[0] or 0,
+                "avg_confidence": float(result[1]) if result[1] else 0.0,
+                "std_confidence": float(result[2]) if result[2] else 0.0,
+                "avg_latency_ms": float(result[3]) if result[3] else 0.0,
+                "p50_latency_ms": float(result[4]) if result[4] else 0.0,
+                "p95_latency_ms": float(result[5]) if result[5] else 0.0,
+                "p99_latency_ms": float(result[6]) if result[6] else 0.0,
+            }
 
         return {
             "prediction_count": 0,
@@ -1092,3 +978,10 @@ class ModelStore(
             inference_time_ms=float(cast(float, inference_time_ms)),
             ts_event=int(cast(int, ts_event)),
         )
+    # Attributes initialized via StoreInitMixin
+    batch_size: int
+    flush_interval_ms: int
+    clock: Clock | None
+    connection_string: str | None
+    persistence: object | None
+    _last_flush_ns: int

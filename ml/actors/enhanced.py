@@ -19,9 +19,7 @@ from ml.config.base import MLActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
-from ml.stores.protocols import FeatureStoreProtocol
-from ml.stores.protocols import ModelStoreProtocol
-from ml.stores.protocols import StrategyStoreProtocol
+from ml.stores.base import DummyStore
 from nautilus_trader.model.data import Bar
 
 
@@ -105,115 +103,12 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
 
     # Override persistence wiring to avoid DB/JSON requirements in tests
     def _init_stores_and_registries(self) -> None:
-        # Use in-memory no-op stores to satisfy protocol types without external dependencies
-        class _NullFeatureStore(FeatureStoreProtocol):
-            def write_features(
-                self,
-                feature_set_id: str | None = None,
-                instrument_id: str | None = None,
-                features: dict[str, float] | None = None,
-                ts_event: int | None = None,
-                ts_init: int | None = None,
-                data: Any | None = None,
-            ) -> None:
-                return None
-
-            def flush(self) -> None:
-                return None
-
-            def compute_realtime(
-                self,
-                bar: Any,
-                store: bool = True,
-                indicator_manager: Any | None = None,
-            ) -> Any:
-                return {}
-
-        class _NullModelStore(ModelStoreProtocol):
-            def write_prediction(
-                self,
-                model_id: str,
-                instrument_id: str,
-                prediction: float,
-                confidence: float,
-                features: dict[str, float],
-                inference_time_ms: float,
-                ts_event: int,
-                is_live: bool = False,
-            ) -> None:
-                return None
-
-            def write_batch(self, data: list[Any], emit_events: bool = True) -> None:
-                return None
-
-            def read_predictions(
-                self,
-                model_id: str,
-                instrument_id: str,
-                start_ns: int,
-                end_ns: int,
-            ) -> Any:
-                return []
-
-            def get_model_performance(
-                self,
-                model_id: str,
-                start_ns: int | None = None,
-                end_ns: int | None = None,
-            ) -> dict[str, Any]:
-                return {}
-
-            def flush(self) -> None:
-                return None
-
-        class _NullStrategyStore(StrategyStoreProtocol):
-            def write_signal(
-                self,
-                strategy_id: str,
-                instrument_id: str,
-                signal_type: str,
-                strength: float,
-                model_predictions: dict[str, float],
-                risk_metrics: dict[str, float],
-                execution_params: dict[str, Any],
-                ts_event: int,
-                is_live: bool = False,
-            ) -> None:
-                return None
-
-            def write_batch(self, data: list[Any]) -> None:
-                return None
-
-            def read_signals(
-                self,
-                strategy_id: str,
-                instrument_id: str,
-                start_ns: int,
-                end_ns: int,
-            ) -> Any:
-                return []
-
-            def get_strategy_performance(
-                self,
-                strategy_id: str,
-                start_ns: int | None = None,
-                end_ns: int | None = None,
-            ) -> dict[str, Any]:
-                return {}
-
-            def get_signal_distribution(
-                self,
-                strategy_id: str | None = None,
-                start_ns: int | None = None,
-                end_ns: int | None = None,
-            ) -> dict[str, int]:
-                return {}
-
-            def flush(self) -> None:
-                return None
-
-        self._feature_store = _NullFeatureStore()
-        self._model_store = _NullModelStore()
-        self._strategy_store = _NullStrategyStore()
+        # Use shared DummyStore to satisfy protocols without external dependencies
+        # DummyStore implements permissive no-op methods used by tests
+        dummy = DummyStore()
+        # Casts not required at runtime; protocols are structural
+        self._feature_store = dummy
+        self._model_store = dummy
+        self._strategy_store = dummy
         # Registries are not used in this minimal actor; leave base attributes as-is when possible
         return None

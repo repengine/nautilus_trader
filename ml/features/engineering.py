@@ -1047,6 +1047,13 @@ class FeatureEngineer:
         else:
             features_array = features_df.to_numpy()
 
+        # Gracefully handle empty feature frames (e.g., when upstream selection
+        # produces no rows due to instrument mismatch in tests).
+        # In this case, skip fitting and return the unscaled frame.
+        if getattr(features_array, "shape", (0,))[0] == 0:
+            # Ensure scaler is initialized for callers which expect a scaler instance
+            return features_df, self.scaler
+
         # CRITICAL: Only fit scaler on training portion to prevent look-ahead bias
         train_size = int(len(features_array) * scaler_fit_ratio)
         if train_size < 1:

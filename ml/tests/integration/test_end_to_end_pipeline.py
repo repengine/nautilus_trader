@@ -262,8 +262,8 @@ class TestEndToEndPipeline:
         mock_bars = self._create_mock_bars("SPY", n_bars=100)
         catalog.write_data(mock_bars)
 
-        # Verify data was written
-        instrument_ids = [str(default_instrument_id)]
+        # Verify data was written for the instrument we just created (SPY.NYSE)
+        instrument_ids = [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))]
         df = bars_to_dataframe(catalog, instrument_ids)
 
         assert not df.is_empty()
@@ -285,7 +285,8 @@ class TestEndToEndPipeline:
         catalog.write_data(mock_bars)
 
         # Load data
-        df = bars_to_dataframe(catalog, [str(default_instrument_id)])
+        # Use the same instrument identifier we wrote (SPY.NYSE)
+        df = bars_to_dataframe(catalog, [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))])
 
         # Configure feature engineering
         config = FeatureConfig(
@@ -353,7 +354,8 @@ class TestEndToEndPipeline:
         catalog.write_data(mock_bars)
 
         # Load and compute features
-        df = bars_to_dataframe(catalog, [str(default_instrument_id)])
+        # Use the instrument we wrote to the catalog (SPY.NYSE)
+        df = bars_to_dataframe(catalog, [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))])
         config = FeatureConfig(rsi_period=14)
         engineer = FeatureEngineer(config)
         features_df, scaler = engineer.calculate_features(df, mode="batch", fit_scaler=True)
@@ -452,7 +454,7 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_pipeline_error_recovery(self, temp_data_dir: Path) -> None:
+    def test_pipeline_error_recovery(self, temp_data_dir: Path, default_instrument_id) -> None:
         """
         Test pipeline error handling and recovery.
         """

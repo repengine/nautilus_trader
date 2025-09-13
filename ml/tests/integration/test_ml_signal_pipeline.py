@@ -42,7 +42,7 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.model.objects import Money
 
-from .conftest import create_onnx_model_for_features
+from ml.tests.fixtures.integration import create_onnx_model_for_features
 
 
 @pytest.mark.slow
