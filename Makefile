@@ -738,10 +738,11 @@ sanity:
 	@python ml/scripts/sanity_check.py || true
 
 .PHONY: pytest-ml
-pytest-ml:  #-- Run ML tests optimized for speed (parallel non-integration + serial integration)
-	$(info $(M) Running ML tests: parallel non-integration, then serial integration...)
-	uv run --active --no-sync pytest ml -m "not integration" -q -n auto --dist=loadscope || exit $$?
-	uv run --active --no-sync pytest ml -m integration -q -n 1 || exit $$?
+
+pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API), then serial integration (no real API)
+	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api), then serial integration (excl. real_api) ...)
+	uv run --active --no-sync pytest ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
+	uv run --active --no-sync pytest ml -m "integration and not real_api" -q -n 1 || exit $$?
 	@echo "$(GREEN)ML tests completed$(RESET)"
 
 .PHONY: pytest-ml-perf

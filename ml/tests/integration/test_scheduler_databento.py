@@ -285,9 +285,10 @@ class TestDataSchedulerIntegration:
                     instrument_id = call_args.kwargs["instrument_id"]
                     assert str(instrument_id) == f"TEST.{expected_venue}"
 
+    @pytest.mark.real_api
     @pytest.mark.skipif(
-        not os.getenv("DATABENTO_API_KEY"),
-        reason="DATABENTO_API_KEY not set",
+        not (os.getenv("DATABENTO_API_KEY") and os.getenv("ML_TEST_REAL_API")),
+        reason="Real API test gated; set DATABENTO_API_KEY and ML_TEST_REAL_API=1",
     )
     @pytest.mark.database
     @pytest.mark.serial
