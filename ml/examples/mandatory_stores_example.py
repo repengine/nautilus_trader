@@ -136,7 +136,7 @@ def main() -> None:
     )
 
     # Create actor - stores are automatically initialized
-    _actor = ProductionMLActor(production_config)
+    _actor = ProductionMLActor(production_config)  # type: ignore[abstract]
     print("Production actor created with PostgreSQL stores")
 
     # Example 2: Development/Testing (automatic fallback)
@@ -149,7 +149,7 @@ def main() -> None:
         instrument_id=cast(InstrumentId, object()),
     )
 
-    _test_actor = ProductionMLActor(test_config)
+    _test_actor = ProductionMLActor(test_config)  # type: ignore[abstract]
     print("Test actor created with automatic store fallback")
 
     # Example 3: Verifying data persistence

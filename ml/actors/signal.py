@@ -546,7 +546,7 @@ class EnsembleStrategy(SignalGenerationStrategy):
         prediction: float,
         confidence: float,
         features: npt.NDArray[np.float32],
-        context: dict[str, Any],
+        context: MutableMapping[str, Any],
     ) -> MLSignal | None:
         """
         Generate signal using weighted ensemble voting.
@@ -632,7 +632,7 @@ class AdaptiveStrategy(SignalGenerationStrategy):
         prediction: float,
         confidence: float,
         features: npt.NDArray[np.float32],
-        context: dict[str, Any],
+        context: MutableMapping[str, Any],
     ) -> MLSignal | None:
         """
         Generate adaptive signal based on dynamic thresholds.

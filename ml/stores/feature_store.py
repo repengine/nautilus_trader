@@ -60,8 +60,8 @@ from ml.stores.mixins import HealthMixin
 if TYPE_CHECKING:
     import pandas as pd
     from nautilus_trader.model.data import Bar
+    from polars import DataFrame as PlDataFrame
 
-    from ml._imports import pl
     from ml.registry.protocols import RegistryProtocol
 
 
@@ -106,9 +106,9 @@ def _get_data_events_total() -> _CounterLike | None:
             from ml.common.metrics_bootstrap import get_counter
 
             _data_events_total = get_counter(
-                name="nautilus_ml_data_events_total",
-                documentation="Total data events processed by stage",
-                labels=["dataset_type", "component", "stage", "source", "status"],
+                "nautilus_ml_data_events_total",
+                "Total data events processed by stage",
+                labelnames=["dataset_type", "component", "stage", "source", "status"],
             )
         except Exception:
             _data_events_total = None
@@ -825,7 +825,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         instrument_id: str,
         start: datetime,
         end: datetime,
-    ) -> pl.DataFrame:
+    ) -> PlDataFrame:
         """
         Load bars from Nautilus PostgreSQL tables.
 
@@ -844,10 +844,14 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             Bars dataframe with Nautilus schema.
 
         """
+        from typing import Any as _Any
+        from typing import cast as _cast
+
         import pandas as pd
         from sqlalchemy import text as _text
 
         from ml._imports import pl
+        pl = _cast(_Any, pl)
         from ml.common.timestamps import sanitize_timestamp_ns
 
         start_ns = sanitize_timestamp_ns(
@@ -882,7 +886,8 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 },
             )
             pdf = pd.read_sql_query(sql, conn, params=_params)
-        return pl.from_pandas(pdf)
+        from typing import cast as _cast
+        return _cast("PlDataFrame", pl.from_pandas(pdf))
 
     def _features_exist(
         self,

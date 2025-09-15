@@ -55,8 +55,12 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
         "filterwarnings",
         "ignore:.*pandas-specific classes and functions from the top-level pandera.*:FutureWarning",
     )
+    # Silence third-party PyFilesystem2/pkg_resources deprecation noise
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore:pkg_resources is deprecated as an API.*:UserWarning",
+    )
     # Pytest fixtures usage warnings in example tests
     config.addinivalue_line("filterwarnings", "ignore::pytest.PytestReturnNotNoneWarning")
     # Pytest-benchmark plug-in noisy notices
     config.addinivalue_line("filterwarnings", "ignore:.*Benchmark fixture was not used.*:pytest.PytestWarning")
-

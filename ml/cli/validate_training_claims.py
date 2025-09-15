@@ -9,6 +9,7 @@ Focus on checking what actually exists and works vs. documentation claims.
 import importlib
 import inspect
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -97,7 +98,7 @@ def main() -> int:
     print("Validating Teacher-Student Training Pipeline Claims")
     print("=" * 65)
 
-    tests = [
+    tests: list[tuple[str, Callable[[], tuple[bool, str]]]] = [
         # Core infrastructure
         (
             "Base Training Infrastructure",
@@ -235,7 +236,7 @@ def main() -> int:
         ),
     ]
 
-    results = {}
+    results: dict[str, bool] = {}
 
     print("Testing core implementations...")
     print("-" * 65)

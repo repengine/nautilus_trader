@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 HAS_ONNX: bool
 ort: Any | None
-check_ml_dependencies: _Callable[[Sequence[str]], None]
+check_ml_dependencies: _Callable[[list[str]], None]
 
 try:  # pragma: no cover - import depends on environment
     from ml._imports import HAS_ONNX as _HAS_ONNX

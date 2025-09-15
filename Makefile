@@ -540,6 +540,7 @@ pytest-ml-fast:  #-- Quick ML test run (smoke + unit + core + actors + features)
 pytest-ml-coverage:  #-- Run ML tests with coverage (exclude perf), then guardrails baseline
 	# Coverage run (exclude performance/prototype to keep stable and fast); continue to guardrails
 	@status=0; \
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
 	uv run --active --no-sync pytest -n logical --dist=loadgroup \
 		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
 		-m "not performance and not prototype and not slow" -k "not tft" -v ml/tests || status=$$?; \

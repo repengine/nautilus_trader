@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Final
 
 import numpy as np
+from numpy.typing import ArrayLike
 from numpy.typing import NDArray
 
 from ml._imports import HAS_SKLEARN
@@ -52,16 +53,18 @@ def _sigmoid(x: NDArray[np.float64]) -> NDArray[np.float64]:
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def _flatten(arr: NDArray[np.generic]) -> NDArray[np.float64]:
-    if arr.ndim == 2 and arr.shape[1] == 1:
-        return arr.reshape(-1).astype(np.float64)
-    return arr.reshape(-1).astype(np.float64)
+def _flatten(arr: ArrayLike) -> NDArray[np.float64]:
+    a = np.asarray(arr)
+    if a.ndim == 2 and a.shape[1] == 1:
+        return a.reshape(-1).astype(np.float64)
+    return a.reshape(-1).astype(np.float64)
 
 
 def _compute_metrics(y_true: NDArray[np.float64], p_pred: NDArray[np.float64]) -> dict[str, float]:
     # Cast to explicit dtypes
+    from typing import cast as _cast
     y = y_true.astype(np.int32).reshape(-1)
-    p = p_pred.astype(np.float64).reshape(-1)
+    p = _cast(NDArray[np.float64], p_pred.astype(np.float64).reshape(-1))
     # Clip probabilities for logloss stability
     eps: Final[float] = 1e-15
     p = np.clip(p, eps, 1.0 - eps)
@@ -83,21 +86,22 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     data = np.load(args.preds)
-    y_arr = data.get(args.y_key)
-    if y_arr is None:
+    y_raw = data.get(args.y_key)
+    if y_raw is None:
         raise SystemExit(f"Missing labels in NPZ: {args.y_key}")
+    y_arr = np.asarray(y_raw)
 
-    q_arr = data.get(args.probs_key)
-    z_arr = data.get(args.logits_key)
-    if q_arr is None and z_arr is None:
+    q_raw = data.get(args.probs_key)
+    z_raw = data.get(args.logits_key)
+    if q_raw is None and z_raw is None:
         raise SystemExit("Provide either probabilities (q_val) or logits (z_val) in NPZ")
 
-    if q_arr is None:
-        p_arr = _sigmoid(_flatten(z_arr))  # type: ignore[arg-type]
+    if q_raw is None:
+        p_arr = _sigmoid(_flatten(np.asarray(z_raw)))
     else:
-        p_arr = _flatten(q_arr)
+        p_arr = _flatten(np.asarray(q_raw))
 
-    y = _flatten(y_arr)
+    y = _flatten(np.asarray(y_arr))
     if y.shape[0] != p_arr.shape[0]:
         raise SystemExit(f"Length mismatch y={y.shape[0]} vs p={p_arr.shape[0]}")
 

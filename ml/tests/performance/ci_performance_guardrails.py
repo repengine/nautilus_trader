@@ -75,11 +75,18 @@ class PerformanceGuardrailRunner:
         print(f"Environment: {self.results['environment']}")
         print("=" * 80)
 
-        # Configure environment for strict mode
+        # Configure environment for strict mode and silence noisy third‑party warnings
         env = os.environ.copy()
         if self.strict:
             env["ML_BENCH_RELAX"] = "0.8"  # Stricter requirements
             print("⚡ STRICT MODE: Using tighter performance requirements")
+        # Silence PyFilesystem2/pkg_resources deprecation noise emitted at interpreter startup
+        warn_filter = "ignore:pkg_resources is deprecated as an API.*:UserWarning"
+        if env.get("PYTHONWARNINGS"):
+            if warn_filter not in env["PYTHONWARNINGS"]:
+                env["PYTHONWARNINGS"] = f"{env['PYTHONWARNINGS']},{warn_filter}"
+        else:
+            env["PYTHONWARNINGS"] = warn_filter
 
         # Performance test categories
         class _Category(TypedDict):
@@ -257,7 +264,9 @@ class PerformanceGuardrailRunner:
             "-k", "allocation",
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Ensure noisy warnings are silenced in this subprocess as well
+        env = os.environ.copy() | {"PYTHONWARNINGS": "ignore:pkg_resources is deprecated as an API.*:UserWarning"}
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
 
         if result.returncode == 0:
             print("✅ Zero-allocation validation PASSED")

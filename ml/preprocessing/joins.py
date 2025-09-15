@@ -9,6 +9,7 @@ lookahead bias in ML model training and evaluation.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import cast as _cast
 
 import numpy as np
 import numpy.typing as npt
@@ -23,8 +24,10 @@ from ml.ml_types import DataFrameLike
 
 
 # Runtime aliases for convenience in implementations
-pd = pd_runtime
-pl = pl_runtime
+PD = cast(Any, pd_runtime)
+
+
+pl = _cast(Any, pl_runtime)
 
 
 if TYPE_CHECKING:
@@ -125,8 +128,9 @@ def asof_join(
     else:
         if not HAS_PANDAS:
             check_ml_dependencies(["pandas"])
+        left_pd = cast("_pd.DataFrame", left)
         right_pd = cast("_pd.DataFrame", right)
-        return _asof_join_pandas(left, right_pd, on, by, tolerance, direction)
+        return _asof_join_pandas(left_pd, right_pd, on, by, tolerance, direction)
 
 
 def _asof_join_polars(
@@ -198,17 +202,18 @@ def _asof_join_pandas(
 
     # Convert tolerance if provided as string
     if tolerance is not None and isinstance(tolerance, str):
-        tolerance = pd.Timedelta(tolerance)
+        tolerance = PD.Timedelta(tolerance)
 
     # Perform merge_asof
-    return pd.merge_asof(
+    from typing import cast as _cast
+    return _cast(_pd.DataFrame, PD.merge_asof(
         left,
         right,
         on=on,
         by=by,
         tolerance=tolerance,
         direction=cast(Literal["backward", "forward", "nearest"], pd_direction),
-    )
+    ))
 
 
 def embargo_window(
@@ -267,8 +272,9 @@ def embargo_window(
             timestamp_col,
         )
     else:
+        df_pd = cast("_pd.DataFrame", df)
         return _embargo_window_pandas(
-            df,
+            df_pd,
             event_timestamps,
             embargo_before_ns,
             embargo_after_ns,
@@ -425,7 +431,8 @@ def create_lag_features(
     if pl_runtime is not None and isinstance(df, pl_runtime.DataFrame):
         return _create_lag_features_polars(df, columns, lags, group_by, timestamp_col)
     else:
-        return _create_lag_features_pandas(df, columns, lags, group_by, timestamp_col)
+        df_pd = cast("_pd.DataFrame", df)
+        return _create_lag_features_pandas(df_pd, columns, lags, group_by, timestamp_col)
 
 
 def _create_lag_features_polars(

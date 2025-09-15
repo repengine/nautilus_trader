@@ -25,7 +25,7 @@ from ml.core.db_engine import EngineManager
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    pass
+    from pandas import DataFrame as PdDataFrame
 from ml.stores.feature_store import FeatureStore
 from ml.stores.infrastructure import PartitionManager
 from ml.stores.io_raw import ParquetCatalogRawReader
@@ -951,7 +951,7 @@ class MLIntegrationManager:
         """
         return None
 
-    def collect_observability_dataframes(self) -> dict[str, object]:
+    def collect_observability_dataframes(self) -> dict[str, PdDataFrame | None]:
         """
         Materialize observability DataFrames from the service, if available.
 
@@ -998,16 +998,13 @@ class MLIntegrationManager:
 
         """
         try:
-            from typing import Any as _Any
-            from typing import cast as _cast
-
             from ml.observability.persistence import ObservabilityPersistor
 
-            tables = _cast(dict[str, _Any], self.collect_observability_dataframes())
+            tables = self.collect_observability_dataframes()
             # Collect returns DataFrame | None; persist accepts Mapping[str, DataFrame | None]
             sink = ObservabilityPersistor(base_path=base_path, file_format=file_format)
             res = sink.persist(tables)
-            return _cast(dict[str, Path], res)
+            return res
         except Exception:  # pragma: no cover - defensive
             return {}
 
@@ -1021,15 +1018,12 @@ class MLIntegrationManager:
 
         """
         try:
-            from typing import Any as _Any
-            from typing import cast as _cast
-
             from ml.observability.db_persistence import ObservabilityDBPersistor
 
-            tables = _cast(dict[str, _Any], self.collect_observability_dataframes())
+            tables = self.collect_observability_dataframes()
             per = ObservabilityDBPersistor(connection_string=connection_string)
             res = per.persist(tables)
-            return _cast(dict[str, int], res)
+            return res
         except Exception:  # pragma: no cover - defensive
             return {}
 
@@ -1283,9 +1277,7 @@ class MLIntegrationManager:
         # Avoid strict typing dependency; use duck-typing and assign when attribute exists
         if hasattr(self, "data_store") and hasattr(self.data_store, "publisher"):
             try:
-                from typing import Any as _Any
-
-                cast(_Any, self.data_store).publisher = publisher
+                cast(Any, self.data_store).publisher = publisher
             except Exception:
                 logger.debug("Failed to attach publisher to data_store", exc_info=True)
 

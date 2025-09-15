@@ -474,7 +474,8 @@ def load_config(config_path: str | None) -> dict[str, Any]:
                 raise ValueError(f"Unsupported config format: {config_file.suffix}")
 
         logger.info(f"Loaded configuration from {config_path}")
-        return config
+        from typing import cast as _cast
+        return _cast(dict[str, Any], config)
 
     # Return default configuration
     return {

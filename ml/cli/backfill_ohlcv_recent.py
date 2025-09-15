@@ -30,18 +30,29 @@ from collections.abc import Iterable
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from typing import Any as _Any
+from typing import cast as _cast
 
 import numpy as np
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+
+
+if TYPE_CHECKING:
+    from polars import DataFrame as PlDataFrame
+else:  # pragma: no cover - typing only
+    PlDataFrame = object  # type: ignore[misc,assignment]
 from ml.data.ingest.policy import DatabentoCoveragePolicy
 
 
 if not HAS_POLARS:
     check_ml_dependencies(["polars"])  # pragma: no cover
+# Cast runtime pl handle to Any to avoid Optional union noise in type checkers
+pl = _cast(_Any, pl)
+PL = pl
 
 
 def _discover_symbols(data_dir: Path) -> list[str]:
@@ -95,10 +106,10 @@ def _symbols_from_universe_file(path: Path) -> list[str]:
 def _last_bar_timestamp(base: Path, symbol: str) -> datetime | None:
     # Check l0 file first
     l0 = base / symbol / "l0" / f"{symbol}_ohlcv.parquet"
-    frames: list[pl.DataFrame] = []
+    frames: list[PlDataFrame] = []
     if l0.exists():
         try:
-            df = pl.read_parquet(str(l0))
+            df = PL.read_parquet(str(l0))
             if not df.is_empty():
                 col = (
                     "timestamp"
@@ -114,32 +125,33 @@ def _last_bar_timestamp(base: Path, symbol: str) -> datetime | None:
         f = base / symbol / name
         if f.exists():
             try:
-                df = pl.read_parquet(str(f)).select([pl.col("timestamp").alias("timestamp")])
+                df = PL.read_parquet(str(f)).select([PL.col("timestamp").alias("timestamp")])
                 if not df.is_empty():
                     frames.append(df)
             except Exception:
                 pass
     if not frames:
         return None
-    dfc = pl.concat(frames, how="vertical").drop_nulls()
+    dfc = PL.concat(frames, how="vertical").drop_nulls()
     if dfc.is_empty():
         return None
     # Databento returns tz-aware; ensure UTC
-    ts = dfc.select(pl.col("timestamp").max())[0, 0]
+    ts = dfc.select(PL.col("timestamp").max())[0, 0]
     if hasattr(ts, "to_pydatetime"):
-        return ts.to_pydatetime()
+        from typing import cast as _cast
+        return _cast(datetime, ts.to_pydatetime())
     return datetime.fromtimestamp(np.datetime64(ts, "ns").astype("int64") / 1e9)
 
 
-def _merge_save(base: Path, symbol: str, df_new) -> None:
+def _merge_save(base: Path, symbol: str, df_new: _Any) -> None:
     out_dir = base / symbol / "l0"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{symbol}_ohlcv.parquet"
     # Convert incoming pandas DataFrame with index (Databento often uses time index)
     if hasattr(df_new, "to_dict"):
-        new_pl = pl.from_pandas(df_new, include_index=True)
+        new_pl = PL.from_pandas(df_new, include_index=True)
     else:
-        new_pl = pl.DataFrame(df_new)
+        new_pl = PL.DataFrame(df_new)
 
     # Normalize potential time column names to "timestamp"
     time_aliases = ("timestamp", "ts_event", "ts", "time", "index")
@@ -155,7 +167,7 @@ def _merge_save(base: Path, symbol: str, df_new) -> None:
     # Ensure dtype is datetime[ns] if possible
     if "timestamp" in new_pl.columns:
         try:
-            new_pl = new_pl.with_columns(pl.col("timestamp").cast(pl.Datetime("ns")))
+            new_pl = new_pl.with_columns(PL.col("timestamp").cast(PL.Datetime("ns")))
         except Exception:
             pass
     keep = [
@@ -164,9 +176,9 @@ def _merge_save(base: Path, symbol: str, df_new) -> None:
     new_pl = new_pl.select(keep)
     if out_path.exists():
         try:
-            old = pl.read_parquet(str(out_path)).select(keep)
+            old = PL.read_parquet(str(out_path)).select(keep)
             merged = (
-                pl.concat([old, new_pl], how="vertical")
+                PL.concat([old, new_pl], how="vertical")
                 .unique(subset=["timestamp"])
                 .sort("timestamp")
             )

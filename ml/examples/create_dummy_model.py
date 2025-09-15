@@ -17,14 +17,14 @@ from ml._imports import HAS_SKLEARN, check_ml_dependencies
 if not HAS_SKLEARN:
     check_ml_dependencies(["scikit-learn"])
 
-from sklearn.ensemble import RandomForestClassifier  # type: ignore[import-untyped]
-from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
-from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 try:
-    import onnx  # type: ignore[import-untyped]
-    from skl2onnx import convert_sklearn  # type: ignore[import-untyped]
-    from skl2onnx.common.data_types import FloatTensorType  # type: ignore[import-untyped]
+    import onnx
+    from skl2onnx import convert_sklearn
+    from skl2onnx.common.data_types import FloatTensorType
     HAS_ONNX_EXPORT = True
 except ImportError:
     HAS_ONNX_EXPORT = False

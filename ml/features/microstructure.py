@@ -9,19 +9,24 @@ on market microstructure.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
 
-from ml._imports import pd
 from ml._imports import pl
 from ml.common.safe_math import safe_divide
 
 
+PL = cast(Any, pl)
+
+
 if TYPE_CHECKING:
-    import pandas as pd
-    import polars as pl
+    from pandas import DataFrame as PdDataFrame
+    from polars import DataFrame as PlDataFrame
+else:  # pragma: no cover - typing only
+    PdDataFrame = Any  # type: ignore[assignment]
+    PlDataFrame = Any  # type: ignore[assignment]
 
 
 class L2MicrostructureFeatures:
@@ -349,7 +354,7 @@ class L2MicrostructureFeatures:
 
     def compute_all_features(
         self,
-        df: pl.DataFrame | pd.DataFrame,
+        df: PlDataFrame | PdDataFrame,
     ) -> dict[str, npt.NDArray[np.float64]]:
         """
         Compute all L2 microstructure features.
@@ -422,7 +427,7 @@ class L2MicrostructureFeatures:
 
     def _extract_l2_data(
         self,
-        df: pl.DataFrame | pd.DataFrame,
+        df: PlDataFrame | PdDataFrame,
     ) -> tuple[
         npt.NDArray[np.float64],
         npt.NDArray[np.float64],
@@ -443,7 +448,7 @@ class L2MicrostructureFeatures:
             bid_prices, ask_prices, bid_sizes, ask_sizes arrays
 
         """
-        if isinstance(df, pl.DataFrame):
+        if isinstance(df, PL.DataFrame):
             # Extract from Polars DataFrame
             bid_prices = []
             ask_prices = []
@@ -474,6 +479,7 @@ class L2MicrostructureFeatures:
             ask_prices = []
             bid_sizes = []
             ask_sizes = []
+            df_pd = cast(PdDataFrame, df)
 
             for level in range(self.n_levels):
                 bid_col = f"bid_price_{level}"
@@ -481,11 +487,11 @@ class L2MicrostructureFeatures:
                 bid_size_col = f"bid_size_{level}"
                 ask_size_col = f"ask_size_{level}"
 
-                if bid_col in df.columns:
-                    bid_prices.append(np.asarray(df[bid_col].values))
-                    ask_prices.append(np.asarray(df[ask_col].values))
-                    bid_sizes.append(np.asarray(df[bid_size_col].values))
-                    ask_sizes.append(np.asarray(df[ask_size_col].values))
+                if bid_col in df_pd.columns:
+                    bid_prices.append(np.asarray(df_pd[bid_col].to_numpy()))
+                    ask_prices.append(np.asarray(df_pd[ask_col].to_numpy()))
+                    bid_sizes.append(np.asarray(df_pd[bid_size_col].to_numpy()))
+                    ask_sizes.append(np.asarray(df_pd[ask_size_col].to_numpy()))
 
             bid_prices_arr = np.column_stack(bid_prices)
             ask_prices_arr = np.column_stack(ask_prices)
@@ -826,7 +832,7 @@ class L3TradeFlowFeatures:
 
     def compute_all_features(
         self,
-        df: pl.DataFrame | pd.DataFrame,
+        df: PlDataFrame | PdDataFrame,
     ) -> dict[str, npt.NDArray[np.float64]]:
         """
         Compute all L3 trade flow features.
@@ -895,7 +901,7 @@ class L3TradeFlowFeatures:
 
     def _extract_l3_data(
         self,
-        df: pl.DataFrame | pd.DataFrame,
+        df: PlDataFrame | PdDataFrame,
     ) -> tuple[
         npt.NDArray[np.int64],
         npt.NDArray[np.float64],
@@ -916,7 +922,7 @@ class L3TradeFlowFeatures:
             timestamps, prices, volumes, sides arrays
 
         """
-        if isinstance(df, pl.DataFrame):
+        if isinstance(df, PL.DataFrame):
             # Extract from Polars DataFrame
             timestamps = df["ts_event"].to_numpy()
             prices = df["price"].to_numpy()
@@ -935,16 +941,17 @@ class L3TradeFlowFeatures:
                 sides = np.where(price_changes >= 0, 1, -1)
         else:
             # Extract from Pandas DataFrame
-            timestamps = np.asarray(df["ts_event"].values, dtype=np.int64)
-            prices = np.asarray(df["price"].values, dtype=np.float64)
-            volumes = np.asarray(df["volume"].values, dtype=np.float64)
+            df_pd = cast(PdDataFrame, df)
+            timestamps = np.asarray(df_pd["ts_event"].to_numpy(), dtype=np.int64)
+            prices = np.asarray(df_pd["price"].to_numpy(), dtype=np.float64)
+            volumes = np.asarray(df_pd["volume"].to_numpy(), dtype=np.float64)
 
             # Convert side to numeric
-            if "side" in df.columns:
-                side_str = np.asarray(df["side"].values)
+            if "side" in df_pd.columns:
+                side_str = np.asarray(df_pd["side"].to_numpy())
                 sides = np.where(side_str == "BUY", 1, -1)
-            elif "aggressor_side" in df.columns:
-                side_str = np.asarray(df["aggressor_side"].values)
+            elif "aggressor_side" in df_pd.columns:
+                side_str = np.asarray(df_pd["aggressor_side"].to_numpy())
                 sides = np.where(side_str == "BUY", 1, -1)
             else:
                 # Infer from price movement

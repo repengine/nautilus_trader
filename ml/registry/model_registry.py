@@ -361,24 +361,24 @@ class ModelRegistry(AbstractRegistry):
 
         """
         manifest = ModelManifest(
-            model_id=cast(str, db_model.model_id),
-            role=ModelRole(cast(str, db_model.role)),
-            data_requirements=DataRequirements(cast(str, db_model.data_requirements)),
-            architecture=cast(str, db_model.architecture),
+            model_id=db_model.model_id,
+            role=ModelRole(db_model.role),
+            data_requirements=DataRequirements(db_model.data_requirements),
+            architecture=db_model.architecture,
             feature_schema=cast(dict[str, str], db_model.feature_schema) or {},
-            feature_schema_hash=cast(str, db_model.feature_schema_hash),
+            feature_schema_hash=db_model.feature_schema_hash,
             parent_id=db_model.parent_id,
             children_ids=cast(list[str], db_model.children_ids) or [],
             training_config=cast(dict[str, Any], db_model.training_config) or {},
             performance_metrics=cast(dict[str, float], db_model.performance_metrics) or {},
             deployment_constraints=cast(dict[str, Any], db_model.deployment_constraints) or {},
-            version=cast(str, db_model.version),
+            version=db_model.version,
             created_at=db_model.created_at.timestamp() if db_model.created_at else time.time(),
             last_modified=(
                 db_model.last_modified.timestamp() if db_model.last_modified else time.time()
             ),
             serveable=db_model.serveable == "true" if db_model.serveable else True,
-            artifact_format=cast(str, db_model.artifact_format) if db_model.artifact_format else "onnx",
+            artifact_format=db_model.artifact_format if db_model.artifact_format else "onnx",
             feature_set_id=db_model.feature_set_id,
             pipeline_signature=db_model.pipeline_signature,
             pipeline_version=db_model.pipeline_version,
@@ -387,8 +387,8 @@ class ModelRegistry(AbstractRegistry):
 
         return ModelInfo(
             manifest=manifest,
-            model_path=Path(cast(str, db_model.model_path)),
-            deployment_status=DeploymentStatus(cast(str, db_model.deployment_status)),
+            model_path=Path(db_model.model_path),
+            deployment_status=DeploymentStatus(db_model.deployment_status),
             deployed_to=cast(list[str], db_model.deployed_to) or [],
             performance_history=cast(list[dict[str, Any]], db_model.performance_history) or [],
             metadata=cast(dict[str, Any], db_model.extra_metadata) or {},

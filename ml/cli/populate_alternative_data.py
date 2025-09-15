@@ -48,8 +48,10 @@ from typing import Any as _Any
 from typing import cast as _cast
 
 
+# Cast 'pl' to Any and provide an uppercase alias for attribute access
 assert pl is not None
 pl = _cast(_Any, pl)
+PL = pl
 
 # Setup logging
 logging.basicConfig(
@@ -87,13 +89,13 @@ class CBOEDataLoader:
                 "vix_pc_ratio": [0.95],
             }
 
-            df = pl.DataFrame(data)
+            df = PL.DataFrame(data)
             logger.info(f"Fetched {len(df)} put/call ratio records")
             return _cast(PlDataFrame, df)
 
         except Exception as e:
             logger.error(f"Failed to fetch put/call ratio: {e}")
-            return _cast(PlDataFrame, pl.DataFrame())
+            return _cast(PlDataFrame, PL.DataFrame())
 
     def fetch_term_structure(self) -> PlDataFrame:
         """
@@ -114,7 +116,7 @@ class CBOEDataLoader:
         # Would fetch actual data from CBOE
         # Showing structure for now
 
-        return _cast(PlDataFrame, pl.DataFrame(data))
+        return _cast(PlDataFrame, PL.DataFrame(data))
 
 
 class AAIISentimentLoader:
@@ -142,7 +144,7 @@ class AAIISentimentLoader:
             "bull_bear_spread": [],
         }
 
-        return _cast(PlDataFrame, pl.DataFrame(data))
+        return _cast(PlDataFrame, PL.DataFrame(data))
 
 
 class COTReportLoader:
@@ -185,7 +187,7 @@ class COTReportLoader:
         }
 
         # Would download actual CSV files from CFTC
-        return _cast(PlDataFrame, pl.DataFrame(data))
+        return _cast(PlDataFrame, PL.DataFrame(data))
 
 
 class ShortInterestLoader:
@@ -203,7 +205,7 @@ class ShortInterestLoader:
         # - FINRA (free but delayed)
         # - NYSE/NASDAQ (official but delayed)
 
-        data = {
+        data: dict[str, list[object]] = {
             "settlement_date": [],
             "symbol": [],
             "short_interest": [],
@@ -213,7 +215,7 @@ class ShortInterestLoader:
         }
 
         # Would fetch from FINRA API or scrape
-        return pl.DataFrame(data)
+        return _cast(PlDataFrame, PL.DataFrame(data))
 
 
 class MarketMicrostructureLoader:
@@ -252,7 +254,7 @@ class MarketMicrostructureLoader:
         }
 
         # Would calculate from actual L1/L2 data
-        return _cast(PlDataFrame, pl.DataFrame(metrics))
+        return _cast(PlDataFrame, PL.DataFrame(metrics))
 
 
 class NewsSentimentLoader:
@@ -281,7 +283,7 @@ class NewsSentimentLoader:
             "sentiment_volatility": [],
         }
 
-        return _cast(PlDataFrame, pl.DataFrame(data))
+        return _cast(PlDataFrame, PL.DataFrame(data))
 
 
 class EarningsCalendarLoader:
@@ -311,7 +313,7 @@ class EarningsCalendarLoader:
             "days_until_earnings": [],
         }
 
-        return _cast(PlDataFrame, pl.DataFrame(data))
+        return _cast(PlDataFrame, PL.DataFrame(data))
 
 
 class SectorIndustryLoader:
@@ -328,7 +330,7 @@ class SectorIndustryLoader:
         # Map symbols to sectors/industries
         # Can use free sources like Yahoo Finance
 
-        data = {
+        data: dict[str, list[object]] = {
             "symbol": [],
             "gics_sector": [],
             "gics_industry_group": [],
@@ -338,7 +340,7 @@ class SectorIndustryLoader:
             "style_category": [],  # value/growth/blend
         }
 
-        return pl.DataFrame(data)
+        return _cast(PlDataFrame, PL.DataFrame(data))
 
 
 class AlternativeDataPopulator:
@@ -346,7 +348,7 @@ class AlternativeDataPopulator:
     Main class to populate all alternative data sources.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.cboe_loader = CBOEDataLoader()
         self.aaii_loader = AAIISentimentLoader()
         self.cot_loader = COTReportLoader()
@@ -386,7 +388,7 @@ class AlternativeDataPopulator:
                     micro_data.append(micro)
 
         if micro_data:
-            results["microstructure"] = pl.concat(micro_data)
+            results["microstructure"] = PL.concat(micro_data)
 
         return results
 
@@ -415,7 +417,7 @@ def get_tier1_symbols() -> list[str]:
     return []
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Populate alternative data sources")
 
     parser.add_argument(
@@ -483,7 +485,7 @@ def main():
                 if not micro.is_empty():
                     micro_data.append(micro)
             if micro_data:
-                data["microstructure"] = pl.concat(micro_data)
+                data["microstructure"] = PL.concat(micro_data)
         elif args.source == "news":
             data["news_sentiment"] = populator.news_loader.fetch_news_sentiment(symbols)
         elif args.source == "earnings":

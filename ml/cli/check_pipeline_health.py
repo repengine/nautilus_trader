@@ -36,7 +36,6 @@ except ImportError:
     )
 
 try:
-    # Mypy: tabulate has no official stubs; treat as Any
     from tabulate import tabulate  # type: ignore[import-untyped]
 
     HAS_TABULATE = True
