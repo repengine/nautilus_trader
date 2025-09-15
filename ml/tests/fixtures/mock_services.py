@@ -29,6 +29,15 @@ import numpy as np
 import pandas as pd
 
 
+from typing import TypedDict, Sequence, Callable as _Callable
+
+
+class _DatasetInfo(TypedDict):
+    start: str
+    end: str
+    symbols: list[str]
+
+
 class MockDatabentoClient:
     """
     Mock Databento client for testing.
@@ -52,7 +61,7 @@ class MockDatabentoClient:
         self.rate_limit_hits = 0
 
         # Mock datasets
-        self.datasets = {
+        self.datasets: dict[str, _DatasetInfo] = {
             "XNAS.ITCH": {
                 "start": "2022-01-01T00:00:00Z",
                 "end": "2024-12-31T23:59:59Z",
@@ -131,13 +140,11 @@ class MockDatabentoClient:
         """
         Generate mock OHLCV data.
         """
-        if isinstance(start, str):
-            start = pd.Timestamp(start)
-        if isinstance(end, str):
-            end = pd.Timestamp(end)
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
 
         # Generate time index
-        time_index = pd.date_range(start, end, freq="1min")
+        time_index = pd.date_range(start_ts, end_ts, freq="1min")
 
         data = []
         for symbol in symbols:
@@ -176,10 +183,8 @@ class MockDatabentoClient:
         """
         Generate mock trades data.
         """
-        if isinstance(start, str):
-            start = pd.Timestamp(start)
-        if isinstance(end, str):
-            end = pd.Timestamp(end)
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
 
         data = []
         for symbol in symbols:
@@ -187,8 +192,9 @@ class MockDatabentoClient:
 
             # Generate random trades
             n_trades = np.random.randint(100, 500)
+            from typing import cast as _cast
             timestamps = pd.to_datetime(
-                np.random.uniform(start.value, end.value, n_trades),
+                _cast(Any, np.random.uniform(start_ts.value, end_ts.value, n_trades)),
                 unit="ns",
             ).sort_values()
 
@@ -218,13 +224,11 @@ class MockDatabentoClient:
         """
         Generate mock L2 market depth data.
         """
-        if isinstance(start, str):
-            start = pd.Timestamp(start)
-        if isinstance(end, str):
-            end = pd.Timestamp(end)
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
 
         data = []
-        time_index = pd.date_range(start, end, freq="1s")  # L2 updates every second
+        time_index = pd.date_range(start_ts, end_ts, freq="1s")  # L2 updates every second
 
         for symbol in symbols:
             base_price = 100.0 + hash(symbol) % 400
@@ -263,13 +267,11 @@ class MockDatabentoClient:
         """
         Generate mock top-of-book data.
         """
-        if isinstance(start, str):
-            start = pd.Timestamp(start)
-        if isinstance(end, str):
-            end = pd.Timestamp(end)
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
 
         data = []
-        time_index = pd.date_range(start, end, freq="100ms")  # TBBO updates frequently
+        time_index = pd.date_range(start_ts, end_ts, freq="100ms")  # TBBO updates frequently
 
         for symbol in symbols:
             base_price = 100.0 + hash(symbol) % 400
@@ -605,7 +607,7 @@ class MockRedis:
             callback(message)
         return len(subscribers)
 
-    def subscribe(self, channel: str, callback: Callable) -> None:
+    def subscribe(self, channel: str, callback: Callable[[Any], Any]) -> None:
         """
         Subscribe to channel.
         """
@@ -640,7 +642,7 @@ class MockPostgreSQL:
         self.transaction_active = False
         self.transaction_data: dict[str, pd.DataFrame] = {}
 
-    def execute(self, query: str, params: tuple | None = None) -> Mock:
+    def execute(self, query: str, params: tuple[Any, ...] | None = None) -> Mock:
         """
         Execute SQL query.
         """
@@ -690,7 +692,7 @@ class MockPostgreSQL:
         result.rowcount = 0
         return result
 
-    def _handle_insert(self, query: str, params: tuple | None) -> Mock:
+    def _handle_insert(self, query: str, params: tuple[Any, ...] | None) -> Mock:
         """
         Handle INSERT query.
         """
@@ -708,7 +710,7 @@ class MockPostgreSQL:
         result.rowcount = 1
         return result
 
-    def _handle_select(self, query: str, params: tuple | None) -> Mock:
+    def _handle_select(self, query: str, params: tuple[Any, ...] | None) -> Mock:
         """
         Handle SELECT query.
         """
@@ -719,7 +721,7 @@ class MockPostgreSQL:
         result.rowcount = 0
         return result
 
-    def _handle_update(self, query: str, params: tuple | None) -> Mock:
+    def _handle_update(self, query: str, params: tuple[Any, ...] | None) -> Mock:
         """
         Handle UPDATE query.
         """
@@ -727,7 +729,7 @@ class MockPostgreSQL:
         result.rowcount = 0
         return result
 
-    def _handle_delete(self, query: str, params: tuple | None) -> Mock:
+    def _handle_delete(self, query: str, params: tuple[Any, ...] | None) -> Mock:
         """
         Handle DELETE query.
         """

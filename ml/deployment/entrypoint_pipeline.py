@@ -44,7 +44,10 @@ from ml.stores.model_store import ModelStore
 
 
 if TYPE_CHECKING:  # pragma: no cover - avoid heavy import at module import time
-    from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+    pass
+else:
+    # Provide a patchable symbol for tests; resolved lazily at runtime.
+    ParquetDataCatalog: object | None = None
 
 
 # Configure logging
@@ -186,16 +189,19 @@ class PipelineRunner:
 
         return feature_store, model_store
 
-    def _initialize_catalog(self, config: SchedulerConfig) -> ParquetDataCatalog:
+    def _initialize_catalog(self, config: SchedulerConfig):  # -> ParquetDataCatalog
         """
         Initialize the data catalog.
         """
         catalog_path = Path(os.environ.get("CATALOG_PATH", "/app/data/catalog"))
         catalog_path.mkdir(parents=True, exist_ok=True)
-        # Lazy import to avoid heavy dependency at module import time
-        from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC
-
-        return _PDC(str(catalog_path))
+        # Resolve catalog class: prefer patched module-level symbol if present
+        global ParquetDataCatalog
+        if ParquetDataCatalog is None:
+            # Lazy import to avoid heavy dependency at module import time
+            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC
+            ParquetDataCatalog = _PDC  # type: ignore[assignment]
+        return ParquetDataCatalog(str(catalog_path))  # type: ignore[operator]
 
     def run(self) -> None:
         """

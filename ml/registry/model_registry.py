@@ -41,6 +41,26 @@ from ml.registry.statistics import welch_t_test
 
 
 logger = logging.getLogger(__name__)
+__all__ = [
+    "DataRequirements",
+    "DeploymentStatus",
+    "ModelInfo",
+    "ModelManifest",
+    "ModelRegistry",
+    "ModelRole",
+]
+
+# Re-export security-related runtime toggles for tests to patch.
+# Tests patch ml.registry.model_registry.HAS_ONNX and .ort directly.
+try:  # Lightweight import; symbols are stubs when onnxruntime is unavailable
+    from ml.common.security import HAS_ONNX as HAS_ONNX  # type: ignore
+    from ml.common.security import check_ml_dependencies as check_ml_dependencies  # type: ignore
+    from ml.common.security import ort as ort  # type: ignore
+except Exception:  # pragma: no cover - fallback when security module unavailable
+    HAS_ONNX = False  # type: ignore[assignment]
+    ort = None  # type: ignore[assignment]
+    def check_ml_dependencies(_deps: list[str]) -> None:  # type: ignore[no-redef]
+        raise RuntimeError("Dependency check unavailable")
 
 
 class ModelRegistry(AbstractRegistry):
@@ -717,9 +737,8 @@ class ModelRegistry(AbstractRegistry):
         """
         Validate model path, format, security, and parity constraints.
         """
-        # Validate model file exists
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
+        # Existence check is deferred to digest calculation to align with
+        # error semantics expected by tests (ValueError on missing file).
 
         # Security: Validate model format for serving
         if model_path.suffix != SUFFIX_ONNX:
@@ -1123,20 +1142,17 @@ class ModelRegistry(AbstractRegistry):
                     expected_digest = model_info.manifest.artifact_sha256_digest
                     self._verify_artifact_integrity(model_path, expected_digest)
 
-                    # Load ONNX model following signal actor pattern
-                    from ml._imports import HAS_ONNX
-                    from ml._imports import check_ml_dependencies
-                    from ml._imports import ort
-
+                    # Load ONNX model using module-level re-exported symbols so tests
+                    # can patch them directly.
                     if not HAS_ONNX:
-                        check_ml_dependencies(["onnxruntime"])
+                        check_ml_dependencies(["onnxruntime"])  # type: ignore[arg-type]
 
                     # Create optimized session via helper
                     from ml.config.runtime import to_session_options as _to_sess
 
                     session_options, providers = _to_sess(self._onnx_rt)
 
-                    model = ort.InferenceSession(
+                    model = ort.InferenceSession(  # type: ignore[union-attr]
                         str(model_path),
                         sess_options=session_options,
                         providers=providers,

@@ -181,14 +181,17 @@ class TestDatabase:
                         sql = self._adapt_sql_for_sqlite(sql)
 
                     # Execute SQL statements, respecting dollar-quoted function bodies
+                    from typing import Callable, Iterable, cast as _cast
                     try:
-                        from ml.cli.apply_migrations import _split_statements  # type: ignore
+                        from ml.cli.apply_migrations import _split_statements as _split  # noqa: WPS433
+                        splitter: Callable[[str], Iterable[str]] = _split
                     except Exception:
                         # Fallback simple splitter if import fails
-                        def _split_statements(x: str) -> list[str]:
+                        def _fallback_splitter(x: str) -> list[str]:
                             return [s for s in x.split(";") if s.strip()]
+                        splitter = _fallback_splitter
 
-                    for statement in _split_statements(sql):
+                    for statement in splitter(sql):
                         statement = statement.strip()
                         if statement and not statement.startswith("--"):
                             try:
@@ -251,8 +254,8 @@ $$ LANGUAGE plpgsql;
 
         # Apply canonical baseline via migration runner (idempotent, best-effort)
         try:
-            from ml.cli.apply_migrations import apply_files as _apply_files  # type: ignore
-            from ml.cli.apply_migrations import build_plan as _build_plan  # type: ignore
+            from ml.cli.apply_migrations import apply_files as _apply_files
+            from ml.cli.apply_migrations import build_plan as _build_plan
 
             plan = _build_plan(full=True, schema="both")
             _apply_files(self.engine, plan, dry_run=False)

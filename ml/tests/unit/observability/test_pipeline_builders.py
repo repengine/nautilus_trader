@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast as _cast
 
 import pandas as pd
 
@@ -12,7 +12,7 @@ from ml.observability.pipeline import build_metrics_collection
 
 
 class TestLatencyWatermarks:
-    def test_watermarks_monotonic_and_latency_match(self, default_instrument_id) -> None:
+    def test_watermarks_monotonic_and_latency_match(self, default_instrument_id: Any) -> None:
         rows = [
             {
                 "correlation_id": "c1",
@@ -34,7 +34,8 @@ class TestLatencyWatermarks:
         assert (
             df["stage_latency_ns"] == (df["ts_stage_end"] - df["ts_stage_start"]).clip(lower=0)
         ).all()
-        assert (df["cumulative_latency_ns"].diff().fillna(df["stage_latency_ns"]) >= 0).all()
+        s = df["cumulative_latency_ns"].diff().fillna(df["stage_latency_ns"])  # type: ignore[no-redef]
+        assert (_cast(Any, (s >= 0)).all())
 
 
 class TestMetricsCollection:
@@ -57,11 +58,11 @@ class TestMetricsCollection:
         ]
         df = build_metrics_collection(rows)
         assert df["labels"].apply(lambda s: isinstance(s, str) and json.loads(s)).all()
-        assert pd.api.types.is_float_dtype(df["value"]) and pd.api.types.is_integer_dtype(df["timestamp"])  # type: ignore[attr-defined]
+        assert pd.api.types.is_float_dtype(df["value"]) and pd.api.types.is_integer_dtype(df["timestamp"])
 
 
 class TestEventCorrelation:
-    def test_root_parent_null_and_depth_non_negative(self, default_instrument_id) -> None:
+    def test_root_parent_null_and_depth_non_negative(self, default_instrument_id: Any) -> None:
         rows = [
             {
                 "correlation_id": "c1",
@@ -84,6 +85,7 @@ class TestEventCorrelation:
                 "propagation_path": ["data", "features"],
             },
         ]
+        rows = _cast(list[dict[str, Any]], rows)
         df = build_event_correlation(rows)
         assert (df["lineage_depth"] >= 0).all()
         # propagation_path is JSON string

@@ -1,8 +1,11 @@
 """
-Compatibility shim package for older import paths used in tests.
+Compatibility shim package for older import paths used in docs/tests.
 
-Provides ml.scripts.build_tft_dataset -> ml.cli.build_tft_dataset.
+Provides compatibility for:
+- ml.scripts.apply_migrations -> ml.cli.apply_migrations
+- ml.scripts.build_tft_dataset -> ml.cli.build_tft_dataset
 """
 
 # Re-export submodules so attribute access via monkeypatch works
+from . import apply_migrations  # type: ignore  # noqa: F401
 from . import build_tft_dataset  # noqa: F401

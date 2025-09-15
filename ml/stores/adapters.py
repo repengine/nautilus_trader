@@ -26,6 +26,15 @@ class FeatureStoreStrictAdapter(FeatureStoreStrictProtocol):
     def __init__(self, store: object) -> None:
         self._store = store
 
+    @property
+    def connection_string(self) -> str | None:
+        """Expose underlying store connection string when available."""
+        return getattr(self._store, "connection_string", None)
+
+    def __getattr__(self, name: str) -> Any:  # pragma: no cover - passthrough
+        # Delegate attribute access for non-protocol conveniences used in tests
+        return getattr(self._store, name)
+
     def write_features(
         self,
         feature_set_id: str,
@@ -50,6 +59,13 @@ class FeatureStoreStrictAdapter(FeatureStoreStrictProtocol):
 class ModelStoreStrictAdapter(ModelStoreStrictProtocol):
     def __init__(self, store: object) -> None:
         self._store = store
+
+    @property
+    def connection_string(self) -> str | None:
+        return getattr(self._store, "connection_string", None)
+
+    def __getattr__(self, name: str) -> Any:  # pragma: no cover - passthrough
+        return getattr(self._store, name)
 
     def write_prediction(
         self,
@@ -85,6 +101,13 @@ class ModelStoreStrictAdapter(ModelStoreStrictProtocol):
 class StrategyStoreStrictAdapter(StrategyStoreStrictProtocol):
     def __init__(self, store: object) -> None:
         self._store = store
+
+    @property
+    def connection_string(self) -> str | None:
+        return getattr(self._store, "connection_string", None)
+
+    def __getattr__(self, name: str) -> Any:  # pragma: no cover - passthrough
+        return getattr(self._store, name)
 
     def write_signal(
         self,
@@ -123,4 +146,3 @@ __all__ = [
     "ModelStoreStrictAdapter",
     "StrategyStoreStrictAdapter",
 ]
-
