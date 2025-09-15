@@ -15,11 +15,30 @@
 # -------------------------------------------------------------------------------------------------
 """
 Pre-commit hook to check test coverage for new ML modules.
+
+This hook enforces a minimum coverage on new ML modules. The minimum is read
+from tools/coverage_target.txt when available (the project-wide ratcheting
+baseline). If not present, it falls back to 90% for strong coverage on new
+code.
 """
 
 import subprocess
 import sys
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BASELINE_PATH = ROOT / "tools" / "coverage_target.txt"
+
+
+def read_dynamic_threshold(default: int = 90) -> int:
+    try:
+        value = int(BASELINE_PATH.read_text().strip())
+        # Use the project baseline for new modules as well. If teams prefer a
+        # stricter bar for new code, you can add an offset here (e.g., +5).
+        return value
+    except Exception:
+        return default
 
 
 def is_new_file(file_path):
@@ -60,6 +79,8 @@ def check_coverage(module_path, test_path):
     """
     module_name = Path(module_path).stem
 
+    threshold = read_dynamic_threshold()
+
     cmd = [
         sys.executable,
         "-m",
@@ -67,7 +88,7 @@ def check_coverage(module_path, test_path):
         str(test_path),
         f"--cov={module_name}",
         "--cov-report=term-missing",
-        "--cov-fail-under=90",
+        f"--cov-fail-under={threshold}",
         "--no-header",
         "-q",
     ]

@@ -62,7 +62,7 @@ repos:
         entry: python tools/duplication/check_duplication.py
         language: system
         pass_filenames: false
-        stages: [manual]
+        stages: [pre-push]
 
       - id: import-linter
         name: import-linter (architecture contracts)
@@ -71,7 +71,7 @@ repos:
         language: python
         pass_filenames: false
         additional_dependencies: [import-linter]
-        stages: [manual]
+        stages: [pre-push]
 
       - id: xenon
         name: xenon (complexity gate)
@@ -81,7 +81,7 @@ repos:
         pass_filenames: false
         additional_dependencies: [xenon]
         args: ["--max-absolute", "B", "--max-modules", "B", "--max-average", "B", "ml/"]
-        stages: [manual]
+        stages: [pre-push]
 
       - id: pylint-ml
         name: pylint (ML subset)
@@ -91,7 +91,7 @@ repos:
         pass_filenames: false
         additional_dependencies: [pylint]
         args: ["-rn", "-j", "0", "--rcfile", "pylintrc", "ml/actors", "ml/stores", "ml/registry"]
-        stages: [manual]
+        stages: [pre-push]
 
       - id: bandit-ml
         name: bandit (security)
@@ -101,7 +101,7 @@ repos:
         pass_filenames: false
         additional_dependencies: [bandit]
         args: ["-q", "-r", "ml", "-x", "ml/tests"]
-        stages: [manual]
+        stages: [pre-push]
 
       - id: detect-secrets
         name: detect-secrets
@@ -111,7 +111,7 @@ repos:
         pass_filenames: false
         additional_dependencies: [detect-secrets]
         args: ["scan", "--baseline", ".secrets.baseline"]
-        stages: [manual]
+        stages: [pre-push]
 
       - id: vulture-deadcode
         name: vulture (dead code)
@@ -121,7 +121,7 @@ repos:
         pass_filenames: false
         additional_dependencies: [vulture]
         args: ["ml", "--min-confidence", "90", "--exclude", "ml/tests/*"]
-        stages: [manual]
+        stages: [pre-push]
 
       - id: sqlfluff
         name: sqlfluff lint
@@ -131,7 +131,7 @@ repos:
         pass_filenames: false
         additional_dependencies: [sqlfluff]
         args: ["lint", "schema", "ml/stores/migrations"]
-        stages: [manual]
+        stages: [pre-push]
       - id: check-hidden-chars
         name: check hidden unicode/control chars
         description: Fail on hidden control or zero-width unicode characters in source
@@ -204,6 +204,14 @@ repos:
         pass_filenames: true
         stages: [pre-commit]
 
+      - id: ratchet-coverage
+        name: ratchet ML coverage
+        description: Ratchets project ML coverage baseline upward by 1% when possible; fails if below baseline
+        entry: python .pre-commit-hooks/ratchet_coverage.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: check-tests-clean
         name: check tests pass cleanly
         description: Ensures tests pass with no failures, errors, or warnings
@@ -258,7 +266,7 @@ repos:
         entry: python ml/cli/sanity_check.py
         language: system
         pass_filenames: false
-        stages: [manual]
+        stages: [pre-push]
 
   ##############################################################################
   #  Rust formatting and linting
