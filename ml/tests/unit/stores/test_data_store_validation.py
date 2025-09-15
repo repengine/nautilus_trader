@@ -311,7 +311,7 @@ class TestPreflightCheck:
         ]
 
         # Don't convert to DataFrame to keep the string type
-        success, error, details = data_store.preflight_check("test_bars", data, strict=False)
+        success, _error, details = data_store.preflight_check("test_bars", data, strict=False)
 
         # In non-strict mode, type mismatches generate warnings
         assert success is True
@@ -334,7 +334,7 @@ class TestPreflightCheck:
         else:
             df = valid_bar_data
 
-        success, error, details = data_store.preflight_check("test_bars", df, strict=True)
+        success, error, _details = data_store.preflight_check("test_bars", df, strict=True)
 
         assert success is False
         assert "Unexpected columns" in error or "Schema hash mismatch" in details.get(
@@ -357,7 +357,7 @@ class TestPreflightCheck:
         else:
             df = valid_bar_data
 
-        success, error, details = data_store.preflight_check("test_bars", df)
+        success, error, _details = data_store.preflight_check("test_bars", df)
 
         assert success is False
         assert "Primary key field" in error or "null values" in error
@@ -588,7 +588,7 @@ class TestFailClosedWrites:
         else:
             df = valid_bar_data
 
-        with pytest.raises(ValueError, match="Data validation failed.*fail-closed"):
+        with pytest.raises(ValueError, match=r"Data validation failed.*fail-closed"):
             data_store.write_ingestion(
                 dataset_id="test_bars",
                 records=df,
@@ -883,7 +883,7 @@ class TestSchemaMigration:
             df = valid_bar_data
 
         # Should fail in strict mode due to hash mismatch
-        success, error, details = store.preflight_check("test_bars", df, strict=True)
+        success, error, _details = store.preflight_check("test_bars", df, strict=True)
         assert success is False
         assert "Schema hash mismatch" in error or "Unexpected columns" in error
 
@@ -925,7 +925,7 @@ class TestSchemaMigration:
             mock_counter.return_value.inc = MagicMock()
 
             # Use non-strict mode to trigger schema hash mismatch path
-            success, error, details = store.preflight_check("test_bars", df, strict=False)
+            _success, _error, details = store.preflight_check("test_bars", df, strict=False)
 
             # In non-strict mode with extra columns, should trigger hash mismatch metrics
             # when the computed hash doesn't match the expected hash
@@ -1056,7 +1056,7 @@ class TestSchemaMigration:
             df = modified_data
 
         # During migration window, preflight should pass with warnings
-        success, error, details = store.preflight_check("test_bars", df, strict=False)
+        success, _error, details = store.preflight_check("test_bars", df, strict=False)
         assert success is True
         assert any("migration" in str(w).lower() for w in details.get("warnings", []))
         assert details.get("migration_mode") is True
@@ -1175,7 +1175,7 @@ class TestSchemaMigration:
 
         # Preflight should pass with warning during migration
         # Use strict=False since we're testing migration scenario
-        success, error, details = store.preflight_check("test_bars", df, strict=False)
+        success, _error, details = store.preflight_check("test_bars", df, strict=False)
 
         assert success is True, f"Preflight failed: {error}, Details: {details}"
         assert any("migration" in str(w).lower() for w in details.get("warnings", []))
@@ -1708,14 +1708,14 @@ class TestSchemaMigrationContracts:
             df = modified_data
 
         # CONTRACT 1: No access without migration window
-        success, error, details = store.preflight_check("test_bars", df, strict=True)
+        success, _error, details = store.preflight_check("test_bars", df, strict=True)
         assert success is False
 
         # CONTRACT 2: Controlled access during migration window
         manifest = mock_registry.get_manifest.return_value
         store._start_migration_window("test_bars", manifest)
 
-        success, error, details = store.preflight_check("test_bars", df, strict=False)
+        success, _error, details = store.preflight_check("test_bars", df, strict=False)
         assert success is True
         assert details.get("migration_mode") is True
 
@@ -1729,7 +1729,7 @@ class TestSchemaMigrationContracts:
         assert "test_bars" not in store._schema_migration_state  # Auto-cleanup
 
         # And preflight should now fail
-        success, error, details = store.preflight_check("test_bars", df, strict=True)
+        success, _error, _details = store.preflight_check("test_bars", df, strict=True)
         assert success is False
 
     def test_contract_metrics_emission_on_violations(
@@ -1915,7 +1915,7 @@ class TestNegativeEdgeCases:
         )
 
         # Empty list
-        success, error, details = store.preflight_check("test_bars", [], strict=True)
+        success, error, _details = store.preflight_check("test_bars", [], strict=True)
         # Should handle gracefully
         assert success is True or "empty" in str(error).lower()
 
@@ -1931,7 +1931,7 @@ class TestNegativeEdgeCases:
                 "high": [],
                 "low": [],
             })
-            success, error, details = store.preflight_check("test_bars", empty_df, strict=True)
+            success, _error, _details = store.preflight_check("test_bars", empty_df, strict=True)
             # Should succeed for empty but correctly structured data
             assert success is True
 
@@ -1957,7 +1957,7 @@ class TestNegativeEdgeCases:
             {"instrument_id": "GBP/USD", "close": 1.1},
         ]
 
-        success, error, details = store.preflight_check("test_bars", malformed_list, strict=True)
+        success, _error, _details = store.preflight_check("test_bars", malformed_list, strict=True)
         # Should handle gracefully or fail predictably
         assert success is False or error is not None
 
@@ -2138,11 +2138,11 @@ class TestPrometheusMetrics:
             mock_counter.return_value.inc = MagicMock()
 
             # Preflight check should detect schema mismatch
-            success, error, details = data_store.preflight_check("test_bars", df, strict=False)
+            _success, _error, _details = data_store.preflight_check("test_bars", df, strict=False)
 
             # In non-strict mode, may not increment counter for extra columns
             # But will increment for hash mismatch if detected
-            if "schema_hash" in str(details):
+            if "schema_hash" in str(_details):
                 mock_counter.assert_called()
 
 
@@ -2189,7 +2189,7 @@ class TestIntegration:
             df = data
 
         # 1. Preflight check
-        success, error, details = data_store.preflight_check("test_bars", df)
+        success, _error, _details = data_store.preflight_check("test_bars", df)
         assert success is True
 
         # 2. Validation

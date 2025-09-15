@@ -440,7 +440,7 @@ def example_basic_monitoring() -> None:
     )
 
     # Process data
-    bars, features = pipeline.process_batch(
+    _bars, _features = pipeline.process_batch(
         instrument_ids=["EURUSD.SIM"],
         start="2023-01-01",
         end="2023-12-31",

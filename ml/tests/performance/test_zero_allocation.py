@@ -245,7 +245,7 @@ class TestZeroAllocationHotPath:
         """
         Test that hot path maintains stable memory over many iterations.
         """
-        bar_type, bars = setup_bar_data
+        _bar_type, bars = setup_bar_data
 
         # Setup feature engineering
         config = FeatureConfig()
@@ -304,7 +304,7 @@ class TestZeroAllocationHotPath:
         """
         Test that using views maintains feature parity.
         """
-        bar_type, bars = setup_bar_data
+        _bar_type, bars = setup_bar_data
 
         # Setup feature engineering
         config = FeatureConfig()

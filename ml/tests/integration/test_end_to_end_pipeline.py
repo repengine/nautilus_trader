@@ -302,7 +302,7 @@ class TestEndToEndPipeline:
         engineer = FeatureEngineer(config, feature_store=feature_store)
 
         # Compute features in batch mode
-        features_df, scaler = engineer.calculate_features(
+        features_df, _scaler = engineer.calculate_features(
             df,
             mode="batch",
             fit_scaler=True,
@@ -358,14 +358,14 @@ class TestEndToEndPipeline:
         df = bars_to_dataframe(catalog, [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))])
         config = FeatureConfig(rsi_period=14)
         engineer = FeatureEngineer(config)
-        features_df, scaler = engineer.calculate_features(df, mode="batch", fit_scaler=True)
+        features_df, _scaler = engineer.calculate_features(df, mode="batch", fit_scaler=True)
 
         # Create simple XGBoost model for signal generation
         n_features = len(features_df.columns)
-        X = features_df.to_numpy()
+        _X = features_df.to_numpy()
 
         # Generate synthetic labels for training
-        y = default_rng(123).integers(0, 3, len(X))  # 0: sell, 1: hold, 2: buy
+        _y = default_rng(123).integers(0, 3, len(_X))  # 0: sell, 1: hold, 2: buy
 
         # Train model
         model = xgb.XGBClassifier(
@@ -375,7 +375,7 @@ class TestEndToEndPipeline:
             objective="multi:softprob",
             num_class=3,
         )
-        model.fit(X, y)
+        model.fit(_X, _y)
 
         # Generate signals
         predictions = model.predict(X)

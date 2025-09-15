@@ -458,4 +458,4 @@ class TestBackwardCompatibility:
         assert trainer._feature_store is None  # No DB connection in old config
 
         # prepare_data should still work
-        X, y, metadata = trainer.prepare_data(None)
+        _X, _y, _metadata = trainer.prepare_data(None)

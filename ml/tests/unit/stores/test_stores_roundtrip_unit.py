@@ -36,7 +36,7 @@ def test_feature_store_write_explicit_args(
 
     monkeypatch.setattr(fs, "_execute_write", _fake_exec)
 
-    ts_event, ts_init = test_timestamps
+    ts_event, _ts_init = test_timestamps
     instrument_id_str = str(default_instrument_id)
 
     fs.write_features(
@@ -66,7 +66,7 @@ def test_model_store_write_batch_and_events(
 
     monkeypatch.setattr(ms, "_execute_write", _fake_exec)
 
-    ts_event, ts_init = test_timestamps
+    ts_event, _ts_init = test_timestamps
     instrument_id_str = str(default_instrument_id)
 
     # Buffer two predictions then flush via write_batch
@@ -110,7 +110,7 @@ def test_strategy_store_write_batch(
 
     monkeypatch.setattr(ss, "_execute_write", _fake_exec)
 
-    ts_event, ts_init = test_timestamps
+    ts_event, _ts_init = test_timestamps
     instrument_id_str = str(default_instrument_id)
 
     # Buffer signals via write_signal, then flush through write_batch

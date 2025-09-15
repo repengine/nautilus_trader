@@ -211,11 +211,11 @@ class TestFeatureParityValidator:
         df = self.create_test_dataframe(100)
 
         # Start >= end
-        with pytest.raises(ValueError, match="start_idx .* must be less than end_idx"):
+        with pytest.raises(ValueError, match=r"start_idx .* must be less than end_idx"):
             validator.validate_parity(df, start_idx=60, end_idx=50)
 
         # Start == end
-        with pytest.raises(ValueError, match="start_idx .* must be less than end_idx"):
+        with pytest.raises(ValueError, match=r"start_idx .* must be less than end_idx"):
             validator.validate_parity(df, start_idx=50, end_idx=50)
 
     def test_validate_parity_edge_case_small_data(self) -> None:
@@ -500,14 +500,14 @@ class TestUnifiedFeatureCalculation:
         df = validator.generate_test_data(n_samples=100)
 
         # Calculate using unified method
-        features_unified, scaler_unified = engineer.calculate_features(
+        features_unified, _scaler_unified = engineer.calculate_features(
             data=df,
             mode="batch",
             fit_scaler=True,
         )
 
         # Calculate using direct method
-        features_direct, scaler_direct = engineer.calculate_features_batch(
+        features_direct, _scaler_direct = engineer.calculate_features_batch(
             df=df,
             fit_scaler=True,
         )

@@ -298,8 +298,9 @@ class MLTradingStrategy(BaseMLStrategy):
             fn = getattr(self, "should_reverse")
             if callable(fn):  # type: ignore[call-overload]
                 return bool(fn(current_position, target_side))  # type: ignore[misc]
-        except Exception:
-            pass
+        except Exception as exc:
+            # Non-fatal: fallback to heuristic below and log at debug level
+            self.log.debug("should_reverse hook failed; using heuristic: %s", exc)
         side_name = getattr(getattr(current_position, "side", object()), "name", "")
         if side_name == "LONG" and target_side == OrderSide.SELL:
             return True

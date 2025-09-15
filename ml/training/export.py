@@ -437,7 +437,8 @@ class ModelExportMixin(ABC):
 
             from ml._imports import ort as _ort
 
-            assert _ort is not None  # Satisfy type checker; guarded by HAS_ONNX
+            if _ort is None:
+                return False
             session = _cast(object, _ort).InferenceSession(str(model_path))
             # Basic metadata check
             _ = [i.name for i in session.get_inputs()]
@@ -679,6 +680,10 @@ def register_model_with_registry(
     # Ensure persistence for immediate re-load scenarios in tests/tools
     try:
         registry.flush()
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "ModelRegistry flush failed (non-blocking): %s", exc,
+        )
     return model_id

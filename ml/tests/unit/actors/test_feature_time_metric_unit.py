@@ -66,5 +66,5 @@ def test_compute_features_records_feature_time() -> None:
     res = MLSignalActor._compute_features(actor, _stub_bar())  # type: ignore[misc]
     assert isinstance(res, np.ndarray)
     assert hist.observed, "Expected feature-time histogram observation"
-    labels, value = hist.observed[-1]
+    labels, _value = hist.observed[-1]
     assert labels.get("feature_set_id") == "fs1"

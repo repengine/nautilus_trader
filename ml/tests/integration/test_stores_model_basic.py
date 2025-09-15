@@ -29,7 +29,7 @@ def test_model_store_write_and_read(
     # Avoid DataRegistry emissions in this unit test
     monkeypatch.setattr(store, "_emit_events", lambda predictions: None)
 
-    ts_event, ts_init = test_timestamps
+    ts_event, _ts_init = test_timestamps
     instrument_id_str = str(default_instrument_id).split(".")[0]  # Get "EUR/USD" from "EUR/USD.SIM"
 
     # Two buffered writes should trigger flush by batch size
@@ -62,4 +62,3 @@ def test_model_store_write_and_read(
     df = store.read_predictions("model-A", instrument_id_str, start_ns, end_ns)
     assert len(df) == 2
     assert list(df["prediction"]) == [0.7, 0.2]
-

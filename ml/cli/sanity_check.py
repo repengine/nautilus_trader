@@ -39,7 +39,7 @@ def header(title: str) -> None:
 def check_ruff() -> None:
     header("Ruff checks (S608/C901 on ml/)")
     if shutil.which("ruff"):
-        code, out = run(["ruff", "check", "ml", "--select", "S608,C901", "--quiet"])
+        _code, out = run(["ruff", "check", "ml", "--select", "S608,C901", "--quiet"])
         print(out.strip() or "No S608/C901 issues detected in ml/")
     else:
         print("ruff not installed; skipping")
@@ -57,10 +57,10 @@ def check_mypy() -> None:
             "ml",
             "--strict",
         ]
-        code, out = run(cmd)
+        _code, out = run(cmd)
         print(out.strip())
     elif shutil.which("mypy"):
-        code, out = run(["mypy", "ml", "--strict"])
+        _code, out = run(["mypy", "ml", "--strict"])
         print(out.strip())
     else:
         print("mypy not installed; skipping")
@@ -71,7 +71,7 @@ def rg(pattern: str) -> list[str]:
     Return matching lines (path:line:content).
     """
     if shutil.which("rg"):
-        code, out = run(["rg", "-n", "-S", pattern])
+        _code, out = run(["rg", "-n", "-S", pattern])
         return [l for l in out.splitlines() if l.strip()]
     # Fallback: walk and search text files
     matches: list[str] = []
@@ -127,25 +127,25 @@ def check_architecture_imports() -> None:
 def optional_tools() -> None:
     header("Optional tools (advisory)")
     if shutil.which("pip-audit"):
-        code, out = run(["pip-audit", "-r", "pyproject.toml"])
+        _code, out = run(["pip-audit", "-r", "pyproject.toml"])
         print("pip-audit:\n" + out.strip())
     else:
         print("pip-audit not installed; skipping")
 
     if shutil.which("bandit"):
-        code, out = run(["bandit", "-q", "-r", "ml"])  # quiet recursive
+        _code, out = run(["bandit", "-q", "-r", "ml"])  # quiet recursive
         print("bandit:\n" + out.strip())
     else:
         print("bandit not installed; skipping")
 
     if shutil.which("vulture"):
-        code, out = run(["vulture", "ml", "--min-confidence", "80"])
+        _code, out = run(["vulture", "ml", "--min-confidence", "80"])
         print("vulture:\n" + out.strip())
     else:
         print("vulture not installed; skipping")
 
     if shutil.which("deptry"):
-        code, out = run(["deptry", "."])  # repo root
+        _code, out = run(["deptry", "."])  # repo root
         print("deptry:\n" + out.strip())
     else:
         print("deptry not installed; skipping")

@@ -434,7 +434,7 @@ class TestDataProcessor:
             "volume": 10000,
         }
 
-        processed, metrics = data_processor.process_market_data(
+        processed, _metrics = data_processor.process_market_data(
             instrument_id=str(default_instrument_id),
             data=data,
             ts_event=ts_event,
@@ -461,7 +461,7 @@ class TestDataProcessor:
             "ask_size": 200,
         }
 
-        processed, metrics = data_processor.process_market_data(
+        processed, _metrics = data_processor.process_market_data(
             instrument_id=str(default_instrument_id),
             data=data,
             ts_event=ts_event,
@@ -610,7 +610,7 @@ class TestIntegration:
         ts_event = int(time.time() * 1e9)
 
         # 1. Process market data
-        market_data, _ = data_processor.process_market_data(
+        _market_data, _ = data_processor.process_market_data(
             instrument_id=str(default_instrument_id),
             data={"bid": 150.0, "ask": 150.1, "volume": 10000},
             ts_event=ts_event,
@@ -688,7 +688,7 @@ class TestIntegration:
             "volume_based_feature": np.nan,  # Based on missing volume
         }
 
-        feature_data, feature_metrics = data_processor.process_features(
+        _feature_data, feature_metrics = data_processor.process_features(
             feature_set_id="test_features",
             instrument_id=str(default_instrument_id),
             features=features,
@@ -737,7 +737,7 @@ class TestDataProcessorSimple:
                 "volume": 10000,
             }
 
-            processed, metrics = processor.process_market_data(
+            processed, _metrics = processor.process_market_data(
                 instrument_id="EUR/USD.SIM",
                 data=data,
                 ts_event=ts_event,
@@ -771,7 +771,7 @@ class TestDataProcessorSimple:
                 "ask_size": 200,
             }
 
-            processed, metrics = processor.process_market_data(
+            processed, _metrics = processor.process_market_data(
                 instrument_id="EUR/USD.SIM",
                 data=data,
                 ts_event=ts_event,

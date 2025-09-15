@@ -309,7 +309,7 @@ class BrutalPerformanceTester:
                     # Full hot path: feature computation + prediction
                     features = actor._compute_features(bar)
                     if features is not None:
-                        prediction, confidence = actor._predict(features)
+                        _prediction, _confidence = actor._predict(features)
 
                     end_time = time.perf_counter()
 

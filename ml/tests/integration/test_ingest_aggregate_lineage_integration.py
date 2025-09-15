@@ -32,7 +32,7 @@ def _envelopes_from_tbbo(df: pd.DataFrame) -> list[Envelope]:
 
 def test_ingest_to_aggregator_to_lineage_with_metrics() -> None:
     # Prepare deterministic TBBO fixture and record ingest metrics (provider-agnostic)
-    df, manifest = make_tbbo_fixture(rows=10)
+    df, _manifest = make_tbbo_fixture(rows=10)
     record_ingest_batch(
         dataset="tbbo",
         instrument=df["instrument_id"].iloc[0],

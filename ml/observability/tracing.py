@@ -114,7 +114,9 @@ from ml._imports import check_ml_dependencies
 F = TypeVar("F", bound=Callable[..., Any])
 
 # Global tracing state
-_TRACING_ENABLED = os.getenv("ML_TRACING_ENABLED", "false").lower() == "true"
+def _enabled() -> bool:
+    """Return whether tracing is enabled from environment at call time."""
+    return os.getenv("ML_TRACING_ENABLED", "false").lower() == "true"
 _SERVICE_NAME = os.getenv("ML_TRACING_SERVICE_NAME", "nautilus-ml")
 _OTLP_ENDPOINT = os.getenv("ML_TRACING_ENDPOINT")
 _SAMPLE_RATE = float(os.getenv("ML_TRACING_SAMPLE_RATE", "0.1"))
@@ -136,7 +138,7 @@ def _ensure_tracing_backend() -> bool:
     """
     global _tracer, _context, _propagate
 
-    if not _TRACING_ENABLED:
+    if not _enabled():
         return False
 
     if _tracer is not None:
@@ -197,7 +199,7 @@ def is_tracing_enabled() -> bool:
     bool
         True if tracing is enabled and backend available
     """
-    return _TRACING_ENABLED and _ensure_tracing_backend()
+    return _enabled() and _ensure_tracing_backend()
 
 
 @contextmanager
@@ -286,7 +288,7 @@ def trace_cold_path_decorator(
     ...     return features
     """
     def decorator(func: F) -> F:
-        if not _TRACING_ENABLED:
+        if not _enabled():
             # Return function unchanged when tracing disabled
             return func
 
@@ -338,7 +340,7 @@ def trace_inference(operation_name: str) -> Callable[[F], F]:
     ...         prediction = self.model.predict(features)
     """
     def decorator(func: F) -> F:
-        if not _TRACING_ENABLED:
+        if not _enabled():
             return func
 
         @functools.wraps(func)
@@ -468,7 +470,7 @@ def extract_and_link_trace_context(metadata: dict[str, Any]) -> None:
 
 
 # Import guards for optional dependency
-if not HAS_OPENTELEMETRY and _TRACING_ENABLED:
+if not HAS_OPENTELEMETRY and _enabled():
     import warnings
     warnings.warn(
         "OpenTelemetry tracing enabled but dependencies not available. "

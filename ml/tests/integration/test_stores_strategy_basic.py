@@ -20,7 +20,7 @@ def test_strategy_store_write_and_read(
 ) -> None:  # type: ignore[override]
     store = StrategyStore(connection_string=postgres_connection, batch_size=2, flush_interval_seconds=0.01)
 
-    ts_event, ts_init = test_timestamps
+    ts_event, _ts_init = test_timestamps
     instrument_id_str = str(default_instrument_id).split(".")[0]  # Get "EUR/USD" from "EUR/USD.SIM"
 
     # Two buffered writes should trigger flush by batch size
@@ -57,4 +57,3 @@ def test_strategy_store_write_and_read(
     assert len(df) == 2
     # Assert monotone ordering and first/last types
     assert list(df["signal_type"]) == ["BUY", "HOLD"]
-

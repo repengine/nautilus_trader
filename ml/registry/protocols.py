@@ -51,7 +51,7 @@ TManifest = TypeVar("TManifest")
 TKey = TypeVar("TKey")
 
 
-class TypedRegistryProtocol(Generic[TManifest, TKey], Protocol):
+class TypedRegistryProtocol(Protocol, Generic[TManifest, TKey]):
     """
     Strictly-typed registry interface (adopt incrementally).
 

@@ -92,11 +92,6 @@ from ml.stores.data_processor import DataProcessor
 from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
 
-
-# Lower-case aliases to match some test patch paths that derive module names
-datastore = data_store
-featurestore = feature_store
-
 # Infrastructure utilities
 from ml.stores.infrastructure import PartitionManager
 from ml.stores.infrastructure import check_db_prereqs
@@ -156,6 +151,11 @@ from ml.stores.strategy_store import StrategyStore
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.writers import LiveDataRecorder
 from ml.stores.writers import ParquetCatalogMarketDataWriter
+
+
+# Lower-case aliases to match some test patch paths that derive module names
+datastore = data_store
+featurestore = feature_store
 
 
 # =============================================================================

@@ -19,6 +19,7 @@ import threading
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.pool import NullPool
 from sqlalchemy.pool import QueuePool
 
@@ -148,6 +149,32 @@ class EngineManager:
         # Fast path: check if engine exists without locking
         if connection_string in cls._instances:
             return cls._instances[connection_string]
+
+        # If the incoming URL has a masked password (e.g., "***"), attempt to
+        # find an already-created engine that matches the same target (driver,
+        # user, host, port, database) regardless of password. This situation
+        # occurs when callers pass `str(engine.url)` which hides the password.
+        try:
+            parsed = make_url(connection_string)
+            masked = isinstance(parsed.password, str) and parsed.password.strip() == "***"
+        except Exception:
+            parsed = None
+            masked = False
+
+        if masked and parsed is not None:
+            for existing in cls._instances.values():
+                try:
+                    eurl = existing.url
+                    if (
+                        str(eurl.drivername) == str(parsed.drivername)
+                        and str(eurl.username or "") == str(parsed.username or "")
+                        and str(eurl.host or "") == str(parsed.host or "")
+                        and int(eurl.port or 0) == int(parsed.port or 0)
+                        and str(eurl.database or "") == str(parsed.database or "")
+                    ):
+                        return existing
+                except Exception:
+                    continue
 
         # Slow path: acquire lock and create engine if needed
         with cls._lock:

@@ -1166,6 +1166,9 @@ class ModelRegistry(AbstractRegistry):
                 return _cast(object, model)
 
             except Exception as e:
+                # Propagate integrity failures to satisfy security contract tests
+                if isinstance(e, ValueError):
+                    raise
                 logger.error(f"Failed to load model {model_id}: {e}")
                 return None
 

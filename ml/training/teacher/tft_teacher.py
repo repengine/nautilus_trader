@@ -265,9 +265,9 @@ class TFTTeacher(BaseTeacher):
                     precision_arg = "16-mixed"
                 elif precision_arg.lower() == "bf16":
                     precision_arg = "bf16-mixed"
-        except Exception:
+        except Exception as exc:
             # Use value as-is for pytorch_lightning 1.x
-            pass
+            logger.debug("Lightning precision normalization skipped: %s", exc)
 
         self._trainer = pl_module.Trainer(
             max_epochs=self.max_epochs,

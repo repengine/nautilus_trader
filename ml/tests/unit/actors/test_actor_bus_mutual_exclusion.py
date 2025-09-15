@@ -36,7 +36,7 @@ def test_actor_bus_bridge_disables_store_publishers(monkeypatch) -> None:
 
     # Force NoopPublisher construction from config
     with patch("ml.actors.ml_domain_events.publisher_from_config", return_value=NoopPublisher()):
-        bridge, scheme, prefix = init_actor_bus_bridge(actor)
+        bridge, _scheme, _prefix = init_actor_bus_bridge(actor)
 
     try:
         assert bridge is not None
@@ -53,4 +53,3 @@ def test_actor_bus_bridge_disables_store_publishers(monkeypatch) -> None:
         # Stop background thread if started
         if bridge is not None:
             bridge.stop(drain=True)
-

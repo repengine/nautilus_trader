@@ -56,6 +56,8 @@ from ml.stores.strategy_store import StrategyStore
 
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+
     from ml.registry.protocols import RegistryProtocol
 
     # Type-only bases to satisfy mypy when follow_imports=skip
@@ -2926,7 +2928,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         return nullcontext()
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
 # This delegates to the centralized EngineManager.
-def create_engine(connection_string: str, **kwargs: Any):
+def create_engine(connection_string: str, **kwargs: Any) -> Engine:
     """
     Return the shared SQLAlchemy engine for the given connection string.
 

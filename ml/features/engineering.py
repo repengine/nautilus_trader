@@ -1292,7 +1292,7 @@ class FeatureEngineer:
         feature_rows: list[dict[str, float]] = []
 
         # Extract price arrays
-        open_prices, high_prices, low_prices, close_prices, volumes = self._extract_price_arrays(df)
+        _open_prices, high_prices, low_prices, close_prices, volumes = self._extract_price_arrays(df)
 
         # Process sequentially using the same code paths as online
         feature_names = self.config.get_feature_names()

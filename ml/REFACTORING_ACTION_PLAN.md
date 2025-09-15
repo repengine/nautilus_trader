@@ -237,7 +237,7 @@ Verification:
 
 - [x] Ruff clean.
 - [x] mypy --strict (follow-imports=skip) on `retry_utils.py` and touched CLI file: clean.
-- [ ] mypy --strict on `ml/cli/coverage.py` — mypy internal error (module‑level cache serialization). Change is typed and ruff clean; proceed with broader mypy once toolchain quirk is resolved.
+ - [x] mypy --strict on `ml/cli/coverage.py` — resolved in current toolchain; strict run clean.
 - [x] Focused stores tests: green (unchanged behavior for stores).
 
 ## Phase 3: Implement Gradual Migration (Week 3-4)

@@ -314,7 +314,7 @@ def test_bridge_does_not_mutate_watermark_fields_throttled_and_published() -> No
 
     # Publisher should have received the original watermark values
     assert len(cap.calls) >= 1
-    topics, payloads = zip(*cap.calls)
+    _topics, payloads = zip(*cap.calls)
     for p in payloads:
         assert p.get("ts_min") == 111 and p.get("ts_max") == 222
 
