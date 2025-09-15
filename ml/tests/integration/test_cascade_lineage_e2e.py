@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ml.common.cascade import emit_cascade
+from typing import cast
+from ml.common.cascade import emit_cascade, EventDict
 from ml.common.in_memory_bus import InMemoryPublisher
 from ml.common.message_topics import build_stage_topic
 from ml.consumers.idempotent import IdempotentConsumer
@@ -15,7 +16,7 @@ def test_end_to_end_cascade_preserves_correlation_and_order() -> None:
     Chain: data -> features -> models -> strategies, with positive delays.
 
     """
-    src = {
+    src_any: dict[str, object] = {
         "domain": "data",
         "event_type": "INGESTED",
         "correlation_id": "CID-123",
@@ -24,6 +25,7 @@ def test_end_to_end_cascade_preserves_correlation_and_order() -> None:
         "event_id": "E-1",
         "payload": {"dataset_id": "data"},
     }
+    src = cast(EventDict, src_any)
 
     e_feat = emit_cascade(src, target_domain="features", delay_ns=10)
     e_model = emit_cascade(dict(e_feat), target_domain="models", delay_ns=20)
@@ -54,7 +56,7 @@ def test_idempotent_consumer_with_cascaded_feature_events() -> None:
     bus.subscribe("events.ml.FEATURE_COMPUTED.#", handler)
 
     # Create a base data event and cascade to a feature event
-    base = {
+    base_any: dict[str, object] = {
         "domain": "data",
         "event_type": "INGESTED",
         "correlation_id": "CID-999",
@@ -63,6 +65,7 @@ def test_idempotent_consumer_with_cascaded_feature_events() -> None:
         "event_id": "E-DATA",
         "payload": {"dataset_id": "data"},
     }
+    base = cast(EventDict, base_any)
     feat = emit_cascade(base, target_domain="features", delay_ns=100)
 
     # Build feature-computed payload for consumer schema

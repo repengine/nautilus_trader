@@ -16,7 +16,10 @@ import sys
 from pathlib import Path
 
 
-def run_benchmarks():
+from typing import List
+
+
+def run_benchmarks() -> int:
     """
     Run all ML hot path benchmarks and generate report.
     """
@@ -100,7 +103,7 @@ def run_benchmarks():
         return 1
 
 
-def run_memory_tests():
+def run_memory_tests() -> int:
     """
     Run memory allocation and leak detection tests.
     """
@@ -146,7 +149,7 @@ def run_memory_tests():
         return 1
 
 
-def main():
+def main() -> int:
     """
     Main entry point.
     """

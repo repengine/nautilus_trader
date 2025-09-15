@@ -91,7 +91,7 @@ def test_redis_streams_consumer_gates_and_handles() -> None:
         # Construct consumer (will use DummyRedis.Redis.from_url)
         consumer = RedisStreamsConsumer(url="redis://", stream="ml-events", handler=handler)
         # Attach our primed client to the instance
-        consumer._client = client  # type: ignore[attr-defined]
+        consumer._client = client
         processed = consumer.poll_once()
         assert processed == 1
         assert len(received) == 1 and received[0][0].startswith("events.ml.FEATURE_COMPUTED")

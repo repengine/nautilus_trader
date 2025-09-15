@@ -254,17 +254,22 @@ class TestMarkerFixer:
             Set of existing marker names
 
         """
-        markers = set()
+        markers: set[str] = set()
 
-        # Check decorators on the node
-        for decorator in node.decorator_list:
+        # Check decorators on the node (only for supported node types)
+        decorators: list[ast.AST] = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            decorators = list(node.decorator_list)
+
+        for decorator in decorators:
             marker_name = self._extract_marker_name(decorator)
             if marker_name:
                 markers.add(marker_name)
 
-        # Also check lines above the node for markers
-        start_line = max(0, node.lineno - 10)
-        end_line = node.lineno
+        # Also check lines above the node for markers (use safe line numbers)
+        lineno = int(getattr(node, "lineno", 0) or 0)
+        start_line = max(0, lineno - 10)
+        end_line = lineno
         for i in range(start_line, end_line):
             if i < len(lines):
                 line = lines[i]
@@ -386,7 +391,7 @@ class TestMarkerFixer:
         print("=" * 60)
 
 
-def main():
+def main() -> None:
     """
     Run the marker fixer.
     """

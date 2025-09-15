@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from collections.abc import Iterator
 
 from ml.config.actor_bus import ActorBusConfig
 
 
 @contextmanager
-def env(vars: dict[str, str]) -> None:
+def env(vars: dict[str, str]) -> Iterator[None]:
     old = {k: os.environ.get(k) for k in vars}
     try:
         os.environ.update(vars)

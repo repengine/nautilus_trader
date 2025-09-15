@@ -11,21 +11,24 @@ import time
 from pathlib import Path
 
 
-def run_quick_test():
+from typing import Callable, Any, cast
+
+
+def run_quick_test() -> int:
     """
     Run the quick performance test.
     """
     print("Running quick ML performance test...")
     try:
         from quick_performance_test import main as quick_main
-
-        return quick_main()
+        quick = cast(Callable[[], int], quick_main)
+        return quick()
     except Exception as e:
         print(f"Quick test failed: {e}")
         return 1
 
 
-def run_existing_benchmark():
+def run_existing_benchmark() -> int:
     """
     Run the existing benchmark test.
     """
@@ -47,7 +50,7 @@ def run_existing_benchmark():
         return 1
 
 
-def main():
+def main() -> int:
     """
     Run performance assessment.
     """

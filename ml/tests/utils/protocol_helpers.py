@@ -14,16 +14,16 @@ def assert_implements_ml_component(obj: object) -> None:
         MLComponentProtocol,
     ), f"{type(obj)} does not implement MLComponentProtocol"
 
-    health = obj.get_health_status()  # type: ignore[attr-defined]
+    health = obj.get_health_status()
     assert isinstance(health, dict)
 
-    metrics = obj.get_performance_metrics()  # type: ignore[attr-defined]
+    metrics = obj.get_performance_metrics()
     assert isinstance(metrics, dict)
     for k, v in metrics.items():
         assert isinstance(k, str)
         assert isinstance(v, float)
 
-    issues = obj.validate_configuration()  # type: ignore[attr-defined]
+    issues = obj.validate_configuration()
     assert isinstance(issues, list)
     for item in issues:
         assert isinstance(item, str)

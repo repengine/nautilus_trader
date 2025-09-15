@@ -35,6 +35,7 @@ from ml.stores.mixins import HealthMixin
 from ml.stores.mixins import ReadQueryMixin
 from ml.stores.mixins import SQLUpsertMixin
 from ml.stores.mixins import StoreInitMixin
+from ml.stores.services.strategy_services import StrategySignalClearService
 from ml.stores.services.strategy_services import StrategySignalEventService
 from ml.stores.services.strategy_services import StrategySignalQueryService
 from ml.stores.services.strategy_services import StrategySignalStatsService
@@ -166,6 +167,7 @@ class StrategyStore(
         self._query_service = StrategySignalQueryService(self)
         self._stats_service = StrategySignalStatsService(self)
         self._event_service = StrategySignalEventService(self, logger)
+        self._clear_service = StrategySignalClearService(self)
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         # Delegate to shared mixin
@@ -543,20 +545,7 @@ class StrategyStore(
             Clear only for specific instrument
 
         """
-        with self.engine.begin() as conn:
-            delete_stmt = self.strategy_signals_table.delete()
-
-            if strategy_id:
-                delete_stmt = delete_stmt.where(
-                    self.strategy_signals_table.c.strategy_id == strategy_id,
-                )
-
-            if instrument_id:
-                delete_stmt = delete_stmt.where(
-                    self.strategy_signals_table.c.instrument_id == instrument_id,
-                )
-
-            conn.execute(delete_stmt)
+        self._clear_service.clear(strategy_id=strategy_id, instrument_id=instrument_id)
 
     def get_strategy_performance(
         self,
@@ -665,94 +654,21 @@ class StrategyStore(
         """
         Read currently active strategy signals within a recent time window.
 
-        Parameters
-        ----------
-        strategy_id : str | None
-            Optional strategy filter.
-        instrument_id : str | None
-            Optional instrument filter.
-        hours_back : int
-            Lookback window in hours from now.
-        limit : int
-            Maximum number of rows to return.
-
-        Returns
-        -------
-        pd.DataFrame
-            A DataFrame with columns: strategy_id, instrument_id, signal_type,
-            strength, model_predictions, risk_metrics, execution_params, ts_event, ts_init.
-
+        Returns a DataFrame with columns:
+        strategy_id, instrument_id, signal_type, strength, model_predictions,
+        risk_metrics, execution_params, ts_event, ts_init.
         """
-        import time as _time
-
-        from sqlalchemy import text as _text
-
-        # Normalize current time and window start using centralized sanitizer
-        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
-
-        _clk = getattr(self, "clock", None)
-        now_ns_raw: int = _clk.timestamp_ns() if _clk is not None else _time.time_ns()
-        now_ns: int = _sanitize(
-            int(now_ns_raw),
-            logger=logger,
-            context="StrategyStore.read_active_signals:now",
-        )
-        start_delta_ns: int = int(hours_back) * 3600 * 1_000_000_000
-        start_ns: int = _sanitize(
-            int(now_ns - start_delta_ns),
-            logger=logger,
-            context="StrategyStore.read_active_signals:start",
-        )
-
-        where_parts: list[str] = ["ts_event >= :start_ns"]
-        params: dict[str, Any] = {"start_ns": start_ns, "limit": int(limit)}
-        if strategy_id is not None:
-            where_parts.append("strategy_id = :strategy_id")
-            params["strategy_id"] = strategy_id
-        if instrument_id is not None:
-            where_parts.append("instrument_id = :instrument_id")
-            params["instrument_id"] = instrument_id
-
-        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
-        # nosec B608: table name validated via _safe_table allowlist
-        sql = _text(  # nosec B608: table name validated via _safe_table allowlist
-            f"""
-                SELECT strategy_id,
-                       instrument_id,
-                       signal_type,
-                       strength,
-                       model_predictions,
-                       risk_metrics,
-                       execution_params,
-                       ts_event,
-                       ts_init
-                FROM {table_name}
-                WHERE {' AND '.join(where_parts)}
-                ORDER BY ts_event DESC
-                LIMIT :limit
-                """,
-        )
-
         from typing import cast as _cast
 
         import pandas as pd
 
         return _cast(
             pd.DataFrame,
-            self._execute_read(
-                sql,
-                params,
-                columns=[
-                    "strategy_id",
-                    "instrument_id",
-                    "signal_type",
-                    "strength",
-                    "model_predictions",
-                    "risk_metrics",
-                    "execution_params",
-                    "ts_event",
-                    "ts_init",
-                ],
+            self._query_service.read_active_signals(
+                hours_back=hours_back,
+                limit=limit,
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
             ),
         )
 
@@ -771,8 +687,6 @@ class StrategyStore(
         provided, and otherwise reading across instruments.
 
         """
-        from sqlalchemy import text as _text
-
         # Accept seconds or nanoseconds; normalize to ns
         from ml.common.timestamps import sanitize_timestamp_ns
 
@@ -787,49 +701,17 @@ class StrategyStore(
             context="StrategyStore.get_signals:end",
         )
 
-        if instrument_id is not None:
-            return self.read_signals(
-                strategy_id=strategy_id,
-                instrument_id=instrument_id,
-                start_ns=start_ns,
-                end_ns=end_ns,
-            )
-
-        # nosec B608: table name validated via _safe_table allowlist
-        sql = _text(  # nosec B608: table name validated via _safe_table allowlist
-            f"""
-            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
-                   model_predictions, risk_metrics
-            FROM {self._safe_table('ml_strategy_signals', {'ml_strategy_signals'})}
-            WHERE strategy_id = :strategy_id
-              AND ts_event >= :start_ns
-              AND ts_event < :end_ns
-            ORDER BY instrument_id, ts_event
-            """,
-        )
-        params2: dict[str, int | str] = {
-            "strategy_id": strategy_id,
-            "start_ns": int(start_ns),
-            "end_ns": int(end_ns),
-        }
         from typing import cast as _cast
 
         import pandas as pd
 
         return _cast(
             pd.DataFrame,
-            self._execute_read(
-                sql,
-                params2,
-                columns=[
-                    "strategy_id",
-                    "instrument_id",
-                    "ts_event",
-                    "signal_type",
-                    "strength",
-                    "model_predictions",
-                    "risk_metrics",
-                ],
+            self._query_service.get_signals(
+                strategy_id=strategy_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
+                instrument_id=instrument_id,
             ),
         )
 

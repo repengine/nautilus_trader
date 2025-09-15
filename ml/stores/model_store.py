@@ -37,6 +37,7 @@ from ml.stores.mixins import HealthMixin
 from ml.stores.mixins import ReadQueryMixin
 from ml.stores.mixins import SQLUpsertMixin
 from ml.stores.mixins import StoreInitMixin
+from ml.stores.services.model_services import ModelClearService
 from ml.stores.services.model_services import ModelEventService
 from ml.stores.services.model_services import ModelQueryService
 from ml.stores.services.model_services import ModelStatsService
@@ -161,6 +162,7 @@ class ModelStore(
         self._query_service = ModelQueryService(self)
         self._stats_service = ModelStatsService(self)
         self._event_service = ModelEventService(self, logger)
+        self._clear_service = ModelClearService(self)
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         # Delegate to shared mixin
@@ -607,18 +609,7 @@ class ModelStore(
             Clear only for specific instrument
 
         """
-        with self.engine.begin() as conn:
-            delete_stmt = self.model_predictions_table.delete()
-
-            if model_id:
-                delete_stmt = delete_stmt.where(self.model_predictions_table.c.model_id == model_id)
-
-            if instrument_id:
-                delete_stmt = delete_stmt.where(
-                    self.model_predictions_table.c.instrument_id == instrument_id,
-                )
-
-            conn.execute(delete_stmt)
+        self._clear_service.clear(model_id=model_id, instrument_id=instrument_id)
 
     def get_model_performance(
         self,

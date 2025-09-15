@@ -5,29 +5,30 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any, cast
 
 
 def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> None:
     # Prepare stub promotions module (capturing calls)
     prom = ModuleType("ml.orchestration.promotions")
-    prom.calls: dict[str, list[dict[str, object]]] = {"model": [], "features": []}
+    setattr(prom, "calls", {"model": [], "features": []})
 
-    def _reg_and_promote(**kwargs: object) -> str:  # type: ignore[no-redef]
-        prom.calls["model"].append(dict(kwargs))
+    def _reg_and_promote(**kwargs: object) -> str:
+        cast(dict[str, list[dict[str, object]]], getattr(prom, "calls"))["model"].append(dict(kwargs))
         return "mid123"
 
-    def _reg_or_refresh(**kwargs: object) -> str | None:  # type: ignore[no-redef]
-        prom.calls["features"].append(dict(kwargs))
+    def _reg_or_refresh(**kwargs: object) -> str | None:
+        cast(dict[str, list[dict[str, object]]], getattr(prom, "calls"))["features"].append(dict(kwargs))
         return "fid123"
 
-    prom.register_and_promote_model = _reg_and_promote  # type: ignore[attr-defined]
-    prom.register_or_refresh_features = _reg_or_refresh  # type: ignore[attr-defined]
+    setattr(prom, "register_and_promote_model", _reg_and_promote)
+    setattr(prom, "register_or_refresh_features", _reg_or_refresh)
     sys.modules["ml.orchestration.promotions"] = prom
 
     # Stub dataset builder to write dataset.csv and return 0
     build = ModuleType("ml.scripts.build_tft_dataset")
 
-    def _build_main(argv: list[str] | None = None) -> int:  # type: ignore[no-redef]
+    def _build_main(argv: list[str] | None = None) -> int:
         out_dir = None
         if argv is not None and "--out_dir" in argv:
             out_dir = Path(argv[argv.index("--out_dir") + 1])
@@ -35,16 +36,16 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
             (out_dir / "dataset.csv").write_text("id,ts\n1,1\n", encoding="utf-8")
         return 0
 
-    build.main = _build_main  # type: ignore[attr-defined]
+    setattr(build, "main", _build_main)
     sys.modules["ml.scripts.build_tft_dataset"] = build
 
     # Stub teacher CLI
     tft = ModuleType("ml.training.teacher.tft_cli")
 
-    def _tft_main(argv: list[str] | None = None) -> int:  # type: ignore[no-redef]
+    def _tft_main(argv: list[str] | None = None) -> int:
         return 0
 
-    tft.main = _tft_main  # type: ignore[attr-defined]
+    setattr(tft, "main", _tft_main)
     sys.modules["ml.training.teacher.tft_cli"] = tft
 
     # Feature metrics file for registration
@@ -64,9 +65,9 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
             self.feature_registry = object()
             self.data_store = object()
 
-    orch_cli_mod.MLIntegrationManager = _StubMgr  # type: ignore[assignment]
+    cast(Any, orch_cli_mod).MLIntegrationManager = _StubMgr
     import ml.core.integration as core_integ
-    core_integ.MLIntegrationManager = _StubMgr  # type: ignore[assignment]
+    cast(Any, core_integ).MLIntegrationManager = _StubMgr
 
     out_dir = tmp_path / "out"
     args = [

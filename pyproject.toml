@@ -175,9 +175,6 @@ pytest-xdist = {version = "~=3.5", extras = ["psutil"]}
 pytest-env = "~=0.8"  # enable [pytest] env section
 coverage = "~=7.5"
 hypothesis = "~=6.138"
-## Temporary override to silence pkg_resources deprecation noise from PyFilesystem2.
-## Once upstream drops pkg_resources usage, this constraint can be relaxed/removed.
-fs = ">=2.4.18"
 
 [project.optional-dependencies]
 betfair = [
@@ -478,28 +475,7 @@ disable_error_code = [
     "union-attr",  # For Column[T] | T union attribute access
 ]
 
-# Scope down strict checks from scripts/examples during the core stabilization pass
-[[tool.mypy.overrides]]
-module = [
-    "ml.scripts.*",
-    "ml.examples.*",
-]
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = [
-    "ml.cli.*",
-    "ml.monitoring.scripts.*",
-]
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = [
-    "ml.training.*",
-    "ml.pipelines.*",
-    "ml.strategies.*",
-]
-ignore_errors = true
+# (Removed ignores on ml/* to enforce strict typing across ML modules)
 
 [[tool.mypy.overrides]]
 module = [
@@ -519,47 +495,13 @@ disable_error_code = [
     "import-untyped",
 ]
 
-[[tool.mypy.overrides]]
-module = [
-    "ml.core.integration",
-]
-disable_error_code = [
-    "abstract",
-    "redundant-cast",
-]
+# (Removed special-case disables for ml.core.integration)
 
-[[tool.mypy.overrides]]
-module = [
-    "ml.observability.tracing",
-]
-ignore_errors = true
+# (Removed ignore on ml.observability.tracing)
 
-[[tool.mypy.overrides]]
-module = [
-    "ml.data.__init__",
-]
-ignore_errors = true
+# (Removed ignore on ml.data.__init__)
 
-[[tool.mypy.overrides]]
-module = [
-    "ml.preprocessing.*",
-    "ml.monitoring.*",
-    "ml.stores.feature_store",
-    "ml.registry.model_registry",
-    "ml.features.l2_aggregate",
-    "ml.features.microstructure",
-    "ml.data.tft_dataset_builder",
-    "ml.data.cache_common",
-    "ml.data.sources.*",
-    "ml.data.providers.utils",
-    "ml.data.providers.base",
-    "ml.data.providers.calendar",
-    "ml.data.providers.events",
-    "ml.data.providers.metadata",
-    "ml.data.l2_cache",
-    
-]
-ignore_errors = true
+# (Removed broad ignore on multiple ml.* modules)
 
 [[tool.mypy.overrides]]
 module = [
@@ -570,17 +512,7 @@ disable_error_code = [
     "redundant-cast",
 ]
 
-[[tool.mypy.overrides]]
-module = [
-    "ml.actors.signal",
-    "ml.deployment.*",
-    "ml.tests.*",
-    "ml.test_feature_claims",
-    "ml.test_l2_aggregation_fix",
-    "ml.test_microstructure_validation",
-    "ml.test_performance_benchmark",
-]
-ignore_errors = true
+# (Removed ignores on ml.actors.signal, ml.deployment.*, and test modules)
 
 ## NOTE: Pytest configuration is centralized in ml/pytest.ini to avoid duplication.
 

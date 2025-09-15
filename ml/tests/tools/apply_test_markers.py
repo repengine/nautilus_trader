@@ -10,6 +10,7 @@ based on imports, fixtures, and content.
 import ast
 import re
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -87,7 +88,9 @@ def detect_test_characteristics(filepath: Path) -> dict[str, bool]:
             if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
                 # Check for large tests (>100 lines)
                 if hasattr(node, "end_lineno") and hasattr(node, "lineno"):
-                    if node.end_lineno - node.lineno > 100:
+                    end_ln = getattr(node, "end_lineno", None)
+                    ln = getattr(node, "lineno", None)
+                    if isinstance(end_ln, int) and isinstance(ln, int) and (end_ln - ln > 100):
                         characteristics["slow"] = True
 
                 # Check for concurrent/async tests
@@ -210,7 +213,7 @@ def analyze_test_directory(test_dir: Path) -> dict[str, list[str]]:
 @click.option("--test-dir", default="ml/tests", help="Test directory to analyze")
 @click.option("--apply", is_flag=True, help="Actually apply markers (default is dry run)")
 @click.option("--output", default=None, help="Output file for suggestions")
-def main(test_dir, apply, output):
+def main(test_dir: str, apply: bool, output: str | None) -> None:
     """
     Analyze tests and suggest or apply appropriate markers.
     """
@@ -224,7 +227,7 @@ def main(test_dir, apply, output):
     suggestions = analyze_test_directory(test_path)
 
     # Group by marker for summary
-    marker_stats = {}
+    marker_stats: dict[str, int] = {}
     for markers in suggestions.values():
         for marker in markers:
             marker_stats[marker] = marker_stats.get(marker, 0) + 1

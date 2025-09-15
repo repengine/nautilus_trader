@@ -83,7 +83,7 @@ def fix_test_file_indentation(filepath: Path) -> bool:
     return False
 
 
-def main():
+def main() -> None:
     """
     Fix indentation in all test files.
     """

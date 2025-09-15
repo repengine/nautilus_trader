@@ -186,6 +186,10 @@ Additional consolidation:
 - [x] mypy --strict (follow-imports=skip) on touched files: clean.
 - [x] Ruff clean; focused store tests and validators remain green.
 
+Service extractions:
+
+- [x] Extract `StrategySignalClearService` and `ModelClearService` for deletion paths; adopt in `StrategyStore.clear_signals` and `ModelStore.clear_predictions`.
+
 ### Priority 2d: Shared Numeric Stats Fragment
 
 Goal: Consolidate repeated AVG/STDDEV/MIN/MAX patterns for numeric columns.

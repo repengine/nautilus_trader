@@ -5,17 +5,18 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any, cast
 
 
 def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) -> None:
     # Stub event emitter to capture calls
     emitter = ModuleType("ml.common.event_emitter")
-    emitter.calls = []  # type: ignore[attr-defined]
+    setattr(emitter, "calls", [])
 
     def _emit_dataset_event(*args: object, **kwargs: object) -> None:  # noqa: D401 - test stub
         emitter.calls.append(kwargs)
 
-    emitter.emit_dataset_event = _emit_dataset_event  # type: ignore[attr-defined]
+    setattr(emitter, "emit_dataset_event", _emit_dataset_event)
     sys.modules["ml.common.event_emitter"] = emitter
 
     # Stub IntegrationManager to avoid DB
@@ -29,8 +30,8 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
             self.feature_registry = object()
             self.data_store = object()
 
-    orch_mod.MLIntegrationManager = _Mgr  # type: ignore[assignment]
-    core_integ.MLIntegrationManager = _Mgr  # type: ignore[assignment]
+    cast(Any, orch_mod).MLIntegrationManager = _Mgr
+    cast(Any, core_integ).MLIntegrationManager = _Mgr
 
     # Stub dataset builder and teacher mains
     build = ModuleType("ml.scripts.build_tft_dataset")
@@ -42,11 +43,11 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
             (out / "dataset.csv").write_text("id,ts\n1,1\n", encoding="utf-8")
         return 0
 
-    build.main = _build_main  # type: ignore[attr-defined]
+    setattr(build, "main", _build_main)
     sys.modules["ml.scripts.build_tft_dataset"] = build
 
     teacher = ModuleType("ml.training.teacher.tft_cli")
-    teacher.main = lambda argv=None: 0  # type: ignore[assignment]
+    setattr(teacher, "main", lambda argv=None: 0)
     sys.modules["ml.training.teacher.tft_cli"] = teacher
 
     from ml.cli.pipeline_orchestrator import main as orch_main

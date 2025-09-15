@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from ml.common.timestamps import normalize_timestamp_ns, sanitize_timestamp_ns
+import pytest
 
 
 def test_normalize_timestamp_units() -> None:
@@ -20,7 +21,7 @@ def test_normalize_timestamp_units() -> None:
     assert not changed and ns == 123_000_000_000_000_000
 
 
-def test_sanitize_reject_and_warn_modes(caplog) -> None:
+def test_sanitize_reject_and_warn_modes(caplog: pytest.LogCaptureFixture) -> None:
     # reject mode raises when normalization needed
     try:
         sanitize_timestamp_ns(1, mode="reject")

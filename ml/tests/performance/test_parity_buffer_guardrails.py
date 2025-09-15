@@ -38,7 +38,9 @@ from ml.config.actors import OptimizationConfig, StrategyConfig
 from ml.features.engineering import FeatureConfig, FeatureEngineer, IndicatorManager
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import Bar, BarSpecification, BarType
-from nautilus_trader.model.enums import AggressorSide, BarAggregation, PriceType
+from typing import Callable
+
+from nautilus_trader.model.enums import AggregationSource, BarAggregation, PriceType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.model.objects import Price, Quantity
 
@@ -63,7 +65,7 @@ if UNDER_XDIST:
 # Performance Measurement Utilities
 # =============================================================================
 
-def measure_p99_latency_ns(func, iterations: int = 1000) -> int:
+def measure_p99_latency_ns(func: Callable[[], object], iterations: int = 1000) -> int:
     """
     Measure P99 latency in nanoseconds with warmup.
 
@@ -77,7 +79,7 @@ def measure_p99_latency_ns(func, iterations: int = 1000) -> int:
         func()
 
     # Measure
-    durations = []
+    durations: list[int] = []
     for _ in range(iterations):
         start = time.perf_counter_ns()
         func()
@@ -111,7 +113,7 @@ def assert_p99_budget(actual_ns: int, budget_ns: int, component: str) -> None:
     print(f"✅ {component} P99 latency {actual_ms:.2f}ms within budget {budget_ms:.2f}ms")
 
 
-def assert_zero_allocations(func, iterations: int, component: str) -> None:
+def assert_zero_allocations(func: Callable[[], object], iterations: int, component: str) -> None:
     """
     Assert that function has zero allocations after warmup.
 
@@ -146,9 +148,15 @@ def assert_zero_allocations(func, iterations: int, component: str) -> None:
     top_stats = snapshot2.compare_to(snapshot1, "lineno")
 
     # Filter to ML module allocations only
+    # Only include allocations originating from ml/ runtime code, explicitly
+    # excluding test files under ml/tests/ to avoid counting test harness
+    # reshapes and helpers as hot path allocations.
     ml_allocations = [
-        stat for stat in top_stats
-        if stat.size_diff > 0 and "ml/" in str(stat.traceback)
+        stat
+        for stat in top_stats
+        if stat.size_diff > 0
+        and "ml/" in str(stat.traceback)
+        and "ml/tests/" not in str(stat.traceback)
     ]
 
     total_allocated = sum(stat.size_diff for stat in ml_allocations)
@@ -204,7 +212,7 @@ def bar_type(instrument_id: InstrumentId) -> BarType:
             aggregation=BarAggregation.MINUTE,
             price_type=PriceType.LAST,
         ),
-        aggregation_source=AggressorSide.NO_AGGRESSOR,
+        aggregation_source=AggregationSource.EXTERNAL,
     )
 
 

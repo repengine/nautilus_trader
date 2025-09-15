@@ -22,7 +22,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 class PerformanceGuardrailRunner:
@@ -82,7 +82,12 @@ class PerformanceGuardrailRunner:
             print("⚡ STRICT MODE: Using tighter performance requirements")
 
         # Performance test categories
-        test_categories = [
+        class _Category(TypedDict):
+            name: str
+            pattern: str
+            critical: bool
+
+        test_categories: list[_Category] = [
             {
                 "name": "Feature Computation Guardrails",
                 "pattern": "test_parity_buffer_guardrails.py::TestFeatureComputationGuardrails",
@@ -123,7 +128,7 @@ class PerformanceGuardrailRunner:
             print("-" * 60)
 
             # Run pytest for this category
-            cmd = [
+            cmd: list[str] = [
                 sys.executable, "-m", "pytest",
                 str(test_dir / category["pattern"]),
                 "-v", "--tb=short",

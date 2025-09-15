@@ -65,7 +65,7 @@ def test_lock_behavior_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     sleeper = _OnceSleeper()
 
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _invoke, sleeper)  # type: ignore[arg-type]
+        run_forever(_cfg, _invoke, sleeper)
     # Dry-run means invoke not called
     assert called["n"] == 0
 
@@ -73,7 +73,7 @@ def test_lock_behavior_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     lock_path.write_text("locked", encoding="utf-8")
     called["n"] = 0
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _invoke, sleeper)  # type: ignore[arg-type]
+        run_forever(_cfg, _invoke, sleeper)
     assert called["n"] == 0
 
     # Stale lock should be cleared
@@ -82,7 +82,7 @@ def test_lock_behavior_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     os.environ.pop("ORCH_DRY_RUN", None)
     sleeper2 = _OnceSleeper()
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _invoke, sleeper2)  # type: ignore[arg-type]
+        run_forever(_cfg, _invoke, sleeper2)
     assert called["n"] == 1
 
 
@@ -98,7 +98,7 @@ def test_event_emission_success_and_failed(tmp_path: Path) -> None:
 
     statuses: list[str] = []
 
-    def _emit(_registry: Any, **kwargs: Any) -> None:  # type: ignore[override]
+    def _emit(_registry: Any, **kwargs: Any) -> None:
         statuses.append(kwargs["status"].value)
 
     # Success case
@@ -107,7 +107,7 @@ def test_event_emission_success_and_failed(tmp_path: Path) -> None:
 
     sl1 = _OnceSleeper()
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _ok, sl1, emit_event=_emit)  # type: ignore[arg-type]
+        run_forever(_cfg, _ok, sl1, emit_event=_emit)
     assert statuses[-1] == "success"
 
     # Fail case
@@ -116,7 +116,7 @@ def test_event_emission_success_and_failed(tmp_path: Path) -> None:
 
     sl2 = _OnceSleeper()
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _fail, sl2, emit_event=_emit)  # type: ignore[arg-type]
+        run_forever(_cfg, _fail, sl2, emit_event=_emit)
     assert statuses[-1] == "failed"
 
 
@@ -140,5 +140,5 @@ def test_skip_if_outputs_exist(tmp_path: Path) -> None:
 
     sl = _OnceSleeper()
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _invoke, sl)  # type: ignore[arg-type]
+        run_forever(_cfg, _invoke, sl)
     assert called["n"] == 0
