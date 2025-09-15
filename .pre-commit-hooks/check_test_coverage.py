@@ -16,10 +16,10 @@
 """
 Pre-commit hook to check test coverage for new ML modules.
 
-This hook enforces a minimum coverage on new ML modules. The minimum is read
-from tools/coverage_target.txt when available (the project-wide ratcheting
-baseline). If not present, it falls back to 90% for strong coverage on new
-code.
+This hook enforces a minimum coverage on new ML modules. The minimum is read from
+tools/coverage_target.txt when available (the project-wide ratcheting baseline). If not
+present, it falls back to 90% for strong coverage on new code.
+
 """
 
 import subprocess
@@ -81,13 +81,17 @@ def check_coverage(module_path, test_path):
 
     threshold = read_dynamic_threshold()
 
+    # Use uv-managed environment to ensure pytest + plugins are present
     cmd = [
-        sys.executable,
-        "-m",
+        "uv",
+        "run",
+        "--active",
+        "--no-sync",
         "pytest",
         str(test_path),
         f"--cov={module_name}",
         "--cov-report=term-missing",
+        "--cov-config=/dev/null",
         f"--cov-fail-under={threshold}",
         "--no-header",
         "-q",

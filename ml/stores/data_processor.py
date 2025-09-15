@@ -351,7 +351,7 @@ class DataProcessor:
                     z_score = abs(value - mean) / std
                     drift_scores.append(min(z_score, 10.0))  # Cap at 10
 
-        return np.mean(drift_scores) if drift_scores else 0.0
+        return float(np.mean(drift_scores)) if drift_scores else 0.0
 
     # =========================================================================
     # Model Prediction Processing
@@ -751,12 +751,14 @@ class DataProcessor:
 
         try:
             with self.engine.connect() as conn:
+                from ml.stores.services.common_stats import select_avg_std as _avgstd
+                expr = "(bid + ask) / 2"
+                frag = _avgstd(expr, avg_alias="mean", std_alias="std")
                 result = conn.execute(
                     text(
-                        """
+                        f"""
                         SELECT
-                            AVG((bid + ask) / 2) as mean,
-                            STDDEV((bid + ask) / 2) as std
+                            {frag}
                         FROM market_data
                         WHERE instrument_id = :instrument_id
                         AND ts_event > :cutoff

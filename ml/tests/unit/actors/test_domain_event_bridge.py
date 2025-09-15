@@ -21,7 +21,9 @@ class CapturePublisher(MessagePublisherProtocol):
 
 
 class SlowPublisher(MessagePublisherProtocol):
-    """Publisher that simulates slow downstream system."""
+    """
+    Publisher that simulates slow downstream system.
+    """
 
     def __init__(self, delay_seconds: float = 0.1) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -38,7 +40,9 @@ class SlowPublisher(MessagePublisherProtocol):
 
 
 class MetricsCapture:
-    """Capture metrics calls for testing."""
+    """
+    Capture metrics calls for testing.
+    """
 
     def __init__(self) -> None:
         self.counters: dict[str, int] = {}
@@ -51,7 +55,14 @@ class MetricsCapture:
         if labels:
             self.counter_labels[name] = labels
 
-    def set_gauge(self, name: str, doc: str, value: float, labels: dict[str, str] | None = None, **kwargs) -> None:
+    def set_gauge(
+        self,
+        name: str,
+        doc: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+        **kwargs,
+    ) -> None:
         self.gauges[name] = value
         if labels:
             self.gauge_labels[name] = labels
@@ -102,7 +113,9 @@ def test_bridge_respects_throttler() -> None:
 
 
 def test_per_topic_throttling() -> None:
-    """Test per-topic throttling configuration."""
+    """
+    Test per-topic throttling configuration.
+    """
     cap = CapturePublisher()
     per_topic_throttles = {
         "ml.features": TopicThrottleConfig(rate_per_sec=2.0, burst=1),
@@ -186,7 +199,7 @@ def test_stress_throttling_behavior_under_load() -> None:
         max_queue=100,
         throttler=throttler,
         per_topic_throttles=per_topic_throttles,
-        component_id="throttle_stress"
+        component_id="throttle_stress",
     )
     bridge.start()
 
@@ -269,6 +282,43 @@ def test_stress_concurrent_publishing() -> None:
         assert metrics_capture.gauges["nautilus_ml_backpressure_queue_depth"] >= 0
 
 
+def test_bridge_does_not_mutate_watermark_fields_throttled_and_published() -> None:
+    """
+    The bridge must not mutate payload watermark fields like ts_min/ts_max.
+    """
+    cap = CapturePublisher()
+    throttler = Throttler(rate_per_sec=0.1, burst=1)  # very restrictive
+    bridge = DomainEventBridge(cap, max_queue=8, throttler=throttler)
+    bridge.start()
+    try:
+        # Prepare payload with watermark fields
+        base_payload = {"ts_min": 111, "ts_max": 222, "event_id": 1}
+
+        # First publish uses burst token → should enqueue
+        payload1 = dict(base_payload)
+        assert bridge.publish("topic", payload1) is True
+        # Bridge must not mutate payload
+        assert payload1["ts_min"] == 111 and payload1["ts_max"] == 222
+
+        # Second publish at same timestamp throttled → should return False
+        payload2 = dict(base_payload)
+        assert bridge.publish("topic", payload2) is False
+        # Still must not mutate payload even when throttled
+        assert payload2["ts_min"] == 111 and payload2["ts_max"] == 222
+
+        # Allow some time for background worker to drain
+        time.sleep(0.05)
+
+    finally:
+        bridge.stop(drain=True, timeout=1.0)
+
+    # Publisher should have received the original watermark values
+    assert len(cap.calls) >= 1
+    topics, payloads = zip(*cap.calls)
+    for p in payloads:
+        assert p.get("ts_min") == 111 and p.get("ts_max") == 222
+
+
 def test_stress_metrics_accuracy_under_load() -> None:
     """Stress test: Verify metrics accuracy under high event load."""
     metrics_capture = MetricsCapture()
@@ -312,7 +362,9 @@ def test_stress_metrics_accuracy_under_load() -> None:
 
 
 def test_throttle_stats_tracking() -> None:
-    """Test throttle statistics tracking accuracy."""
+    """
+    Test throttle statistics tracking accuracy.
+    """
     cap = CapturePublisher()
     throttler = Throttler(rate_per_sec=1.0, burst=1)
     bridge = DomainEventBridge(cap, max_queue=5, throttler=throttler)

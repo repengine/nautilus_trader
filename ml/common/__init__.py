@@ -69,6 +69,8 @@ from ml.common.metrics_bootstrap import get_histogram
 from ml.common.metrics_export import CONTENT_TYPE_LATEST
 from ml.common.metrics_export import generate_latest
 from ml.common.metrics_manager import MetricsManager
+from ml.common.observability_utils import is_observability_enabled
+from ml.common.observability_utils import record_stage_boundary
 from ml.common.precision import MAX_PRICE_DECIMALS
 from ml.common.precision import clamp_price_str
 
@@ -140,11 +142,13 @@ __all__ = [
     "get_counter",
     "get_gauge",
     "get_histogram",
+    "is_observability_enabled",
     "make_correlation_id",
     "map_stage_to_topic_segments",
     "match_topic",
     "normalize_timestamp_ns",
     "publisher_from_config",
+    "record_stage_boundary",
     "safe_divide",
     "safe_divide_expr",
     "sanitize_timestamp_ns",

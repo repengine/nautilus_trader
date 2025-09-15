@@ -429,15 +429,16 @@ class ModelExportMixin(ABC):
             if model_path.suffix.lower() != ".onnx":
                 return False
 
-            # Ensure dependencies
+            # Ensure dependencies: require onnxruntime availability
             if not HAS_ONNX:
-                from ml._imports import check_ml_dependencies as _check
+                return False
 
-                _check(["onnx"])
+            from typing import cast as _cast
 
-            from ml._imports import ort
+            from ml._imports import ort as _ort
 
-            session = ort.InferenceSession(str(model_path))
+            assert _ort is not None  # Satisfy type checker; guarded by HAS_ONNX
+            session = _cast(object, _ort).InferenceSession(str(model_path))
             # Basic metadata check
             _ = [i.name for i in session.get_inputs()]
             _ = [o.name for o in session.get_outputs()]

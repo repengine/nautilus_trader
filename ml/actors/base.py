@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
@@ -40,9 +43,6 @@ from ml.config.names import METRIC_SIGNAL_CONFIDENCE
 from ml.config.runtime import OnnxRuntimeConfig
 from ml.config.runtime import to_session_options
 from nautilus_trader.common.config import ActorConfig
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 if TYPE_CHECKING:
@@ -67,8 +67,11 @@ if TYPE_CHECKING:
     # Protocols for type safety without enforcing concrete implementations
     from ml.stores.protocols import DataStoreFacadeProtocol
     from ml.stores.protocols import FeatureStoreProtocol
+    from ml.stores.protocols import FeatureStoreStrictProtocol
     from ml.stores.protocols import ModelStoreProtocol
+    from ml.stores.protocols import ModelStoreStrictProtocol
     from ml.stores.protocols import StrategyStoreProtocol
+    from ml.stores.protocols import StrategyStoreStrictProtocol
 
 
 class HealthStatus(Enum):
@@ -461,11 +464,12 @@ class ProductionModelLoader(ModelLoader):
         elif path.endswith((".pkl", ".pickle")):
             # Pickle models are completely forbidden for security
             import os
+
             onnx_only_mode = os.environ.get("ML_ONNX_ONLY", "").lower() in {"1", "true", "yes"}
             if onnx_only_mode:
                 raise ValueError(
                     "Pickle model formats are forbidden in ONNX-only mode. "
-                    "Use ONNX models for secure production deployment."
+                    "Use ONNX models for secure production deployment.",
                 )
             else:
                 raise ValueError(
@@ -482,7 +486,7 @@ class ProductionModelLoader(ModelLoader):
             if os.environ.get("ML_ONNX_ONLY", "").lower() in {"1", "true", "yes"}:
                 raise ValueError(
                     "Joblib models are disabled in ONNX-only mode. "
-                    "Use ONNX models for production deployment."
+                    "Use ONNX models for production deployment.",
                 )
 
             # Standard test-only guards
@@ -502,7 +506,9 @@ class ProductionModelLoader(ModelLoader):
             from ml._imports import joblib as _joblib
 
             if _joblib is None:
-                raise ImportError("joblib not available; install for test-only usage or export to ONNX")
+                raise ImportError(
+                    "joblib not available; install for test-only usage or export to ONNX",
+                )
 
             model = _joblib.load(path)
             metadata = {
@@ -521,7 +527,7 @@ class ProductionModelLoader(ModelLoader):
             session = secure_onnx_load(
                 file_path=model_path,
                 expected_digest=None,  # No digest available for direct path loading
-                strict_integrity=False  # Don't fail on missing digest for backward compatibility
+                strict_integrity=False,  # Don't fail on missing digest for backward compatibility
             )
             metadata = {
                 "type": "onnx",
@@ -569,7 +575,7 @@ class ONNXModelLoader(ModelLoader):
             expected_digest=None,  # No digest available for direct path loading
             session_options=session_options,
             providers=providers,
-            strict_integrity=False  # Don't fail on missing digest for backward compatibility
+            strict_integrity=False,  # Don't fail on missing digest for backward compatibility
         )
 
         # Generate metadata
@@ -842,25 +848,31 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self.log.info("Stores and registries initialized (runtime facade)")
 
     @property
-    def feature_store(self) -> FeatureStoreProtocol:
+    def feature_store(self) -> FeatureStoreStrictProtocol:
         """
         Get the feature store instance.
         """
-        return self._feature_store
+        from typing import cast as _cast
+
+        return _cast(FeatureStoreStrictProtocol, self._feature_store)
 
     @property
-    def model_store(self) -> ModelStoreProtocol:
+    def model_store(self) -> ModelStoreStrictProtocol:
         """
         Get the model store instance.
         """
-        return self._model_store
+        from typing import cast as _cast
+
+        return _cast(ModelStoreStrictProtocol, self._model_store)
 
     @property
-    def strategy_store(self) -> StrategyStoreProtocol:
+    def strategy_store(self) -> StrategyStoreStrictProtocol:
         """
         Get the strategy store instance.
         """
-        return self._strategy_store
+        from typing import cast as _cast
+
+        return _cast(StrategyStoreStrictProtocol, self._strategy_store)
 
     @property
     def data_store(self) -> DataStoreFacadeProtocol:
@@ -1279,7 +1291,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 if not (hasattr(self._config, "model_path") and self._config.model_path):
                     raise ValueError(
                         "No model_id found in registry and no model_path provided. "
-                        "Please specify either model_id (preferred) or model_path (legacy)."
+                        "Please specify either model_id (preferred) or model_path (legacy).",
                     )
 
                 # Enforce ONNX-only in production unless explicitly allowed
@@ -1302,7 +1314,9 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                     raise ValueError(f"Non-ONNX model format disallowed in prod: {model_ext}")
 
                 # Load from direct path (fallback/legacy behavior)
-                self.log.info(f"Loading model from direct path (fallback): {self._config.model_path}")
+                self.log.info(
+                    f"Loading model from direct path (fallback): {self._config.model_path}",
+                )
                 self._model, self._model_metadata = self._model_loader.load_model(
                     self._config.model_path,
                 )
@@ -1355,6 +1369,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         Priority:
         1. Use model_id with shared ModelRegistry (preferred)
         2. Fall back to model_path for testing/development
+
         """
         # Check if we have a model_id to use with registry
         if hasattr(self._config, "model_id") and self._config.model_id:
@@ -1367,7 +1382,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 if hasattr(self._config, "model_path") and self._config.model_path:
                     self.log.warning(
                         f"Model {self._config.model_id} not found in registry, "
-                        f"falling back to direct path: {self._config.model_path}"
+                        f"falling back to direct path: {self._config.model_path}",
                     )
                     return False  # Let the fallback path handle it
                 raise ValueError(f"Model {self._config.model_id} not found in registry")

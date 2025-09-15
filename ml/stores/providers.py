@@ -5,6 +5,9 @@ from dataclasses import field
 from typing import Any, Final, cast
 
 import pandas as pd
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
 from sqlalchemy import BIGINT
 from sqlalchemy import Column
 from sqlalchemy import MetaData
@@ -16,9 +19,6 @@ from sqlalchemy.engine import Engine
 from ml.core.db_engine import EngineManager
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -38,7 +38,9 @@ def _schema_to_dataclass(schema: str) -> type[Any]:
 
 @dataclass(slots=True)
 class CatalogCoverageProvider(CoverageProviderProtocol):
-    """Coverage provider backed by Nautilus ParquetDataCatalog."""
+    """
+    Coverage provider backed by Nautilus ParquetDataCatalog.
+    """
 
     catalog_path: str
 
@@ -80,7 +82,9 @@ class CatalogCoverageProvider(CoverageProviderProtocol):
 
 @dataclass(slots=True)
 class SqlCoverageProvider(CoverageProviderProtocol):
-    """SQL coverage provider using a canonical market data table."""
+    """
+    SQL coverage provider using a canonical market data table.
+    """
 
     connection_string: str
     table_name: str = "market_data"
@@ -123,7 +127,9 @@ class SqlCoverageProvider(CoverageProviderProtocol):
 class SqlMarketDataWriter(MarketDataWriterProtocol):
     """
     SQL writer for canonical market data table.
+
     Inserts (instrument_id, ts_event, ts_init) rows and ignores conflicts.
+
     """
 
     connection_string: str

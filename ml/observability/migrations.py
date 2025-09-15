@@ -113,9 +113,8 @@ def ensure_monthly_partitions(engine: Engine, table: str, ts_col: str) -> None:
                 ).scalar_one(),
             )
             if not is_partitioned:
-                rowcount = conn.execute(text(f"SELECT COUNT(1) FROM {table}"))
-                rowcount = rowcount.scalar_one()
-                if int(rowcount or 0) == 0:
+                rowcount_val = int(conn.execute(text(f"SELECT COUNT(1) FROM {table}")).scalar_one())
+                if rowcount_val == 0:
                     conn.execute(text(f"DROP TABLE {table} CASCADE"))
                     # Create partitioned parent
                     conn.execute(

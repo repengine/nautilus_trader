@@ -280,12 +280,10 @@ class BuildResult:
 def _infer_feature_columns(df: Any) -> list[str]:
     """Infer numeric feature columns, excluding label/index/meta fields."""
     exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
-    from ml._imports import pl  # type: ignore
+    from ml._imports import HAS_PANDAS, pl, pd
     if pl is not None and isinstance(df, pl.DataFrame):
         return [c for c in df.columns if df[c].dtype.is_numeric() and c not in exclude]
-    from ml._imports import HAS_PANDAS  # type: ignore
-    from ml._imports import pd  # type: ignore
-    if HAS_PANDAS and isinstance(df, pd.DataFrame):  # pragma: no cover - alt path
+    if HAS_PANDAS and pd is not None and isinstance(df, pd.DataFrame):  # pragma: no cover - alt path
         numeric = df.select_dtypes(include=[np.number]).columns.tolist()
         return [c for c in numeric if c not in exclude]
     return []
@@ -293,8 +291,8 @@ def _infer_feature_columns(df: Any) -> list[str]:
 
 def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     """Build a TFT dataset and persist artifacts under `cfg.out_dir`."""
-    from ml._imports import check_ml_dependencies  # type: ignore
-    from ml._imports import pl  # type: ignore
+    from ml._imports import check_ml_dependencies
+    from ml._imports import pl
     if pl is None:
         check_ml_dependencies(["polars"])  # Guard for cold-path environment
 
@@ -317,10 +315,13 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     )
 
     # Optional chunked build (date slices)
-    from ml._imports import pl  # type: ignore
-    df: pl.DataFrame
+    from ml._imports import HAS_POLARS, pl
+    from ml.ml_types import PolarsDF
+    assert HAS_POLARS and pl is not None
+    df: PolarsDF
     if cfg.chunk_days > 0 and cfg.start and cfg.end:
-        dfs: list[pl.DataFrame] = []
+        from ml.ml_types import PolarsDF
+        dfs: list[PolarsDF] = []
         cursor = cfg.start
         while cursor < cfg.end:
             chunk_end = min(cursor + timedelta(days=cfg.chunk_days), cfg.end)
@@ -349,8 +350,7 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         if isinstance(df_any, pl.DataFrame):
             df = df_any
         else:  # pragma: no cover - fallback path
-            from ml._imports import HAS_PANDAS  # type: ignore
-            from ml._imports import pd  # type: ignore
+            from ml._imports import HAS_PANDAS, pd
             if not HAS_PANDAS:
                 check_ml_dependencies(["pandas"])  # pragma: no cover
             assert pd is not None
@@ -363,8 +363,7 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     df.write_csv(str(dataset_csv))
 
     # Build feature matrix artifacts
-    from ml._imports import HAS_PANDAS  # type: ignore
-    from ml._imports import pd  # type: ignore
+    from ml._imports import HAS_PANDAS, pd
     if not HAS_PANDAS:
         check_ml_dependencies(["pandas"])  # pragma: no cover
     assert pd is not None
@@ -427,7 +426,7 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     )
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     """
     Lazy import heavy or cycle-prone symbols.
 

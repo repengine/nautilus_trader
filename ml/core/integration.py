@@ -22,12 +22,10 @@ from sqlalchemy.exc import OperationalError
 
 from ml.common.protocols import MLComponentProtocol
 from ml.core.db_engine import EngineManager
-from ml.registry import DataRegistry
-from ml.registry import FeatureRegistry
-from ml.registry import ModelRegistry
-from ml.registry import StrategyRegistry
-from ml.registry.persistence import BackendType
-from ml.registry.persistence import PersistenceConfig
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    pass
 from ml.stores import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.infrastructure import PartitionManager
@@ -221,6 +219,10 @@ class MLIntegrationManager:
         """
         Initialize all store components.
         """
+        # Import persistence types lazily to avoid import-time cycles
+        from ml.registry.persistence import BackendType
+        from ml.registry.persistence import PersistenceConfig
+
         # Create persistence config
         persistence_config = PersistenceConfig(
             backend=BackendType.POSTGRES,
@@ -251,6 +253,14 @@ class MLIntegrationManager:
         """
         Initialize all registry components.
         """
+        # Import registry components lazily to avoid import-time cycles
+        from ml.registry import DataRegistry
+        from ml.registry import FeatureRegistry
+        from ml.registry import ModelRegistry
+        from ml.registry import StrategyRegistry
+        from ml.registry.persistence import BackendType
+        from ml.registry.persistence import PersistenceConfig
+
         # Create persistence config for registries
         persistence_config = PersistenceConfig(
             backend=BackendType.POSTGRES,
@@ -997,7 +1007,8 @@ class MLIntegrationManager:
             tables = _cast(dict[str, _Any], self.collect_observability_dataframes())
             # Collect returns DataFrame | None; persist accepts Mapping[str, DataFrame | None]
             sink = ObservabilityPersistor(base_path=base_path, file_format=file_format)
-            return sink.persist(tables)
+            res = sink.persist(tables)
+            return _cast(dict[str, Path], res)
         except Exception:  # pragma: no cover - defensive
             return {}
 
@@ -1018,7 +1029,8 @@ class MLIntegrationManager:
 
             tables = _cast(dict[str, _Any], self.collect_observability_dataframes())
             per = ObservabilityDBPersistor(connection_string=connection_string)
-            return per.persist(tables)
+            res = per.persist(tables)
+            return _cast(dict[str, int], res)
         except Exception:  # pragma: no cover - defensive
             return {}
 
@@ -1090,8 +1102,9 @@ class MLIntegrationManager:
         """
         Inject the observability service into all stores for stage boundary tracking.
 
-        This enables stores to record latency and metrics for cold path operations
-        when observability is enabled via ML_OBSERVABILITY_ENABLED environment variable.
+        This enables stores to record latency and metrics for cold path operations when
+        observability is enabled via ML_OBSERVABILITY_ENABLED environment variable.
+
         """
         try:
             obs_service = getattr(self, "observability_service", None)
@@ -1111,7 +1124,10 @@ class MLIntegrationManager:
                     # Set the observability service as a private attribute
                     setattr(store, "_observability_service", obs_service)
 
-            logger.debug("Injected observability service into %d stores", len([s for s in stores if s]))
+            logger.debug(
+                "Injected observability service into %d stores",
+                len([s for s in stores if s]),
+            )
 
         except Exception:
             # Silently ignore injection errors to avoid impacting core functionality
@@ -1317,6 +1333,15 @@ def reset_integration_manager() -> None:
 
 @dataclass(slots=True)
 class ActorStoresRegistries:
+    """
+    Simple container for actor-attached stores and registries.
+
+    This dataclass groups the primary store and registry instances provided to ML actors
+    after applying progressive fallback (PRIMARY → CACHED → FILE → DUMMY). It also
+    carries persistence and connection information discovered during initialization.
+
+    """
+
     feature_store: object
     model_store: object
     strategy_store: object
@@ -1325,7 +1350,7 @@ class ActorStoresRegistries:
     model_registry: object
     strategy_registry: object
     data_registry: object
-    persistence_config: PersistenceConfig | None
+    persistence_config: object | None
     connection_string: str | None
 
 
@@ -1337,6 +1362,14 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
     Attempts to probe PostgreSQL if no connection string is provided.
 
     """
+    # Local imports to avoid import-time cycles
+    from ml.registry import DataRegistry
+    from ml.registry import FeatureRegistry
+    from ml.registry import ModelRegistry
+    from ml.registry import StrategyRegistry
+    from ml.registry.persistence import BackendType
+    from ml.registry.persistence import PersistenceConfig
+
     # Fast-path for tests
     if bool(getattr(config, "use_dummy_stores", False)):
         from ml.registry.base import DummyRegistry

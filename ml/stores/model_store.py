@@ -45,10 +45,10 @@ from ml.stores.services.model_services import ModelWriteService
 
 if TYPE_CHECKING:
     import pandas as pd
+    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ class ModelStore(
         publisher: MessagePublisherProtocol | None = None,
         publish_mode: Literal["batch", "row", "both"] = "batch",
         **_: object,
-        ) -> None:
+    ) -> None:
         """
         Initialize model store.
 
@@ -297,23 +297,8 @@ class ModelStore(
         # Track stage boundary for observability (cold path only)
         ts_stage_start = time.time_ns()
 
-        # Build value dicts to preserve patch hook semantics
-        values: list[dict[str, Any]] = []
-        for item in data:
-            values.append(
-                {
-                    "model_id": item.model_id,
-                    "instrument_id": item.instrument_id,
-                    "ts_event": item.ts_event,
-                    "ts_init": item.ts_init,
-                    "prediction": item.prediction,
-                    "confidence": item.confidence,
-                    "features_used": item.features_used if item.features_used else None,
-                    "inference_time_ms": item.inference_time_ms,
-                    "is_live": getattr(item, "is_live", False),
-                }
-            )
-        self._execute_write(values)
+        # Delegate to write service to avoid duplication and preserve patch points
+        self._write_service.write_batch(data)
 
         # Emit events after successful write if this is a direct call (not from flush)
         if emit_events:
@@ -340,53 +325,24 @@ class ModelStore(
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """
-        Record observability data for stage boundaries (cold path only).
+        """Record observability data via centralized helper (cold path only)."""
+        from ml.common.observability_utils import record_stage_boundary as _rec
 
-        This method should only be called from background/cold path operations,
-        never from hot path real-time processing.
-        """
-        try:
-            # Try to access observability service
-            import os
-
-            # Only proceed if observability is explicitly enabled
-            if os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() not in {"1", "true", "yes"}:
-                return
-
-            # Try to get observability service from instance attribute
-            obs_service = getattr(self, "_observability_service", None)
-            if obs_service is None:
-                return
-
-            # Generate correlation ID for this operation
-            correlation_id = f"model_store_{hash((instrument_id, ts_stage_start)) % 1000000}"
-
-            # Record latency stage
-            obs_service.add_latency_stage(
-                correlation_id=correlation_id,
-                instrument_id=instrument_id,
-                pipeline_stage=stage,
-                ts_stage_start=ts_stage_start,
-                ts_stage_end=ts_stage_end,
-            )
-
-            # Record metric
-            latency_ms = (ts_stage_end - ts_stage_start) / 1_000_000
-            obs_service.add_metric(
-                metric_name="model_store_latency_ms",
-                metric_type="histogram",
-                value=latency_ms,
-                timestamp=ts_stage_end,
-                labels={"stage": stage, "instrument_id": instrument_id, "row_count": str(row_count)},
-            )
-
-        except Exception:
-            # Silently ignore observability errors to avoid impacting core functionality
-            pass
+        obs_service = getattr(self, "_observability_service", None)
+        _rec(
+            obs_service,
+            component="model_store",
+            instrument_id=instrument_id,
+            stage=stage,
+            ts_stage_start=ts_stage_start,
+            ts_stage_end=ts_stage_end,
+            row_count=row_count,
+        )
 
     def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
-        """Patch point preserved; delegates to write service."""
+        """
+        Patch point preserved; delegates to write service.
+        """
         self._write_service.execute_write(values)
 
     # Backwards-compatible alias used in some tests
@@ -423,6 +379,7 @@ class ModelStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.read_predictions(
@@ -465,10 +422,13 @@ class ModelStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.read_latest_predictions(
-                model_id=model_id, instrument_id=instrument_id, limit=limit
+                model_id=model_id,
+                instrument_id=instrument_id,
+                limit=limit,
             ),
         )
 
@@ -499,10 +459,13 @@ class ModelStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.read_range(
-                start_ns=start_ns, end_ns=end_ns, instrument_id=instrument_id
+                start_ns=start_ns,
+                end_ns=end_ns,
+                instrument_id=instrument_id,
             ),
         )
 
@@ -537,6 +500,7 @@ class ModelStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.get_predictions(
@@ -572,10 +536,12 @@ class ModelStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.get_latest_by_instrument(
-                instrument_id=instrument_id, limit=limit
+                instrument_id=instrument_id,
+                limit=limit,
             ),
         )
 
@@ -617,7 +583,9 @@ class ModelStore(
         self._emit_prediction_events(predictions)
 
     def _emit_prediction_events(self, predictions: list[ModelPrediction]) -> None:
-        """Delegate to event service (non-blocking)."""
+        """
+        Delegate to event service (non-blocking).
+        """
         try:
             self._event_service.emit_prediction_events(predictions)
         except Exception:
@@ -681,7 +649,10 @@ class ModelStore(
 
         """
         return self._stats_service.get_model_performance(
-            model_id=model_id, start_ns=start_ns, end_ns=end_ns, hours_back=hours_back
+            model_id=model_id,
+            start_ns=start_ns,
+            end_ns=end_ns,
+            hours_back=hours_back,
         )
 
     def store_prediction(self, *args: Any, **kwargs: Any) -> None:
@@ -714,6 +685,7 @@ class ModelStore(
             inference_time_ms=float(cast(float, inference_time_ms)),
             ts_event=int(cast(int, ts_event)),
         )
+
     # Attributes initialized via StoreInitMixin
     batch_size: int
     flush_interval_ms: int

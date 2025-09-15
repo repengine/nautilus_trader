@@ -332,6 +332,7 @@ class CoverageReporter:
         # Process events
         coverage_by_date: dict[tuple[str, str], dict[str, Any]] = {}
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
         start_ns = _sanitize(
             int(start_date.timestamp() * 1e9),
             context="cli.coverage:range.start",
@@ -375,6 +376,7 @@ class CoverageReporter:
 
         # Add watermark data
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize2
+
         current_time_ns = _sanitize2(
             int(datetime.now().timestamp() * 1e9),
             context="cli.coverage:now",
@@ -383,7 +385,7 @@ class CoverageReporter:
             parts = watermark_key.split(":")
             if len(parts) != 3:
                 continue
-            dataset_id, instrument_id, source = parts
+            dataset_id, instrument_id, _source = parts
 
             if dataset_id not in target_datasets:
                 continue
@@ -748,6 +750,7 @@ def plan_backfill(
 
     # Convert date to nanosecond timestamps for the day
     from ml.common.timestamps import sanitize_timestamp_ns as _sanitize3
+
     start_ns = _sanitize3(
         int(target_date.timestamp() * 1e9),
         context="cli.coverage:target.start",
@@ -1102,12 +1105,12 @@ def apply_backfill(
     try:
         from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
-        catalog = ParquetDataCatalog(catalog_path)
+        _catalog = ParquetDataCatalog(catalog_path)
     except ImportError:
         logger.error("Failed to import ParquetDataCatalog")
         if not dry_run:
             sys.exit(1)
-        catalog = None  # Allow dry-run without catalog
+        _catalog = None  # Allow dry-run without catalog
 
     # Track execution state
     successful_instruments = []
@@ -1154,161 +1157,189 @@ def apply_backfill(
             print("  ✓ Already processed successfully")
             continue
 
-        # Implement retry logic with exponential backoff
-        retry_count = 0
-        success = False
-        last_error = None
+        # Implement retry logic with exponential backoff using shared helper
 
-        while retry_count < max_retries and not success:
+        def _to_dataframe(obj: object) -> object | None:
             try:
-                if dry_run:
-                    # Simulate API call and data storage
-                    print(f"  [DRY RUN] Would fetch data for {instrument_id}")
-                    print(f"  [DRY RUN] Date range: {date_range['date']}")
-                    print(f"  [DRY RUN] Dataset: {source_dataset}")
+                import pandas as pd
+            except Exception:
+                return None
+            try:
+                if hasattr(obj, "to_df"):
+                    return getattr(obj, "to_df")()  # type: ignore[no-any-return]
+                if isinstance(obj, pd.DataFrame):
+                    return obj
+            except Exception:
+                return None
+            return None
 
-                    # Simulate processing time
-                    time.sleep(0.1)
+        class _TransientError(Exception):
+            pass
 
-                    # Simulate data size
-                    simulated_bytes = source_count * 100  # ~100 bytes per record
-                    total_bytes_stored += simulated_bytes
+        class _TerminalError(Exception):
+            pass
 
-                    # Simulate API call
-                    api_calls_made += 1
+        from ml.common.retry_utils import retry_with_backoff as _retry
 
-                    # Simulate registry event
-                    print("  [DRY RUN] Would emit CATALOG_WRITTEN event")
+        def _on_exc(attempt: int, exc: BaseException) -> None:
+            wait_time = min(60, 2 ** (attempt + 1))
+            logger.warning(f"  Attempt {attempt + 1} failed: {exc}")
+            logger.info(f"  Retrying in {wait_time} seconds...")
 
-                    success = True
-                    successful_instruments.append(instrument_id)
-                    print("  ✓ [DRY RUN] Simulated successful fetch")
+        def _attempt() -> bool:
+            nonlocal total_bytes_stored, api_calls_made
+            if dry_run:
+                # Simulate API call and data storage
+                print(f"  [DRY RUN] Would fetch data for {instrument_id}")
+                print(f"  [DRY RUN] Date range: {date_range['date']}")
+                print(f"  [DRY RUN] Dataset: {source_dataset}")
 
-                else:
-                    # Real execution - fetch from Databento
-                    if not databento_client:
-                        raise RuntimeError("Databento client not initialized")
+                # Simulate processing time
+                time.sleep(0.1)
 
-                    # Parse instrument for Databento format
-                    # Format is typically "SYMBOL.VENUE" e.g., "EUR/USD.GLBX"
-                    parts = instrument_id.split(".")
-                    if len(parts) == 2:
-                        symbol_code, venue = parts
-                    else:
-                        symbol_code = instrument_id
-                        venue = "GLBX"  # Default venue
+                # Simulate data size
+                simulated_bytes = source_count * 100  # ~100 bytes per record
+                total_bytes_stored += simulated_bytes
 
-                    # Convert date range to datetime objects
-                    start_ns = date_range["start"]
-                    end_ns = date_range["end"]
-                    start_dt = datetime.fromtimestamp(start_ns / 1e9)
-                    end_dt = datetime.fromtimestamp(end_ns / 1e9)
+                # Simulate API call
+                api_calls_made += 1
 
-                    print("  Fetching from Databento...")
-                    print(f"    Symbol: {symbol_code}")
-                    print(f"    Venue: {venue}")
-                    print(f"    Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                    print(f"    End: {end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                # Simulate registry event
+                print("  [DRY RUN] Would emit CATALOG_WRITTEN event")
 
-                    # Map dataset types to Databento schemas
-                    schema_map = {
-                        "BARS": "ohlcv-1m",
-                        "MBP1": "mbp-1",
-                        "TRADES": "trades",
-                        "QUOTES": "quotes",
-                        "TBBO": "tbbo",
-                    }
-                    schema = schema_map.get(source_dataset, "ohlcv-1m")
+                print("  ✓ [DRY RUN] Simulated successful fetch")
+                return True
 
-                    # Throttle API calls (client-side pacing)
-                    rl.wait()
+            # Real execution - fetch from Databento
+            if not databento_client:
+                raise _TerminalError("Databento client not initialized")
 
-                    # Fetch data from Databento
-                    try:
-                        data = databento_client.timeseries.get_range(
-                            dataset=f"{venue}.MDP3",  # Adjust dataset format as needed
-                            symbols=[symbol_code],
-                            schema=schema,
-                            start=start_dt.isoformat(),
-                            end=end_dt.isoformat(),
-                            stype_in="raw_symbol",
-                        )
-                        api_calls_made += 1
+            # Parse instrument for Databento format
+            # Format is typically "SYMBOL.VENUE" e.g., "EUR/USD.GLBX"
+            parts = instrument_id.split(".")
+            if len(parts) == 2:
+                symbol_code, venue = parts
+            else:
+                symbol_code = instrument_id
+                venue = "GLBX"  # Default venue
 
-                        # Process and store data in batches
-                        if catalog and data:
-                            # Convert to DataFrame for storage
-                            df = data.to_df()
+            # Convert date range to datetime objects
+            start_ns = date_range["start"]
+            end_ns = date_range["end"]
+            start_dt = datetime.fromtimestamp(start_ns / 1e9)
+            end_dt = datetime.fromtimestamp(end_ns / 1e9)
 
-                            # Check batch size
-                            estimated_mb = (
-                                len(df)
-                                * df.memory_usage(deep=True).sum()
-                                / (1024 * 1024 * len(df.columns))
-                            )
+            print("  Fetching from Databento...")
+            print(f"    Symbol: {symbol_code}")
+            print(f"    Venue: {venue}")
+            print(f"    Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"    End: {end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
 
-                            if estimated_mb > storage_batch_mb:
-                                # Split into smaller batches
-                                batch_size = int(len(df) * storage_batch_mb / estimated_mb)
-                                for batch_start in range(0, len(df), batch_size):
-                                    batch_end = min(batch_start + batch_size, len(df))
-                                    batch_df = df.iloc[batch_start:batch_end]
+            # Map dataset types to Databento schemas
+            schema_map = {
+                "BARS": "ohlcv-1m",
+                "MBP1": "mbp-1",
+                "TRADES": "trades",
+                "QUOTES": "quotes",
+                "TBBO": "tbbo",
+            }
+            schema = schema_map.get(source_dataset, "ohlcv-1m")
 
-                                    # Write to catalog (implementation depends on catalog API)
-                                    print(
-                                        f"    Writing batch {batch_start}-{batch_end} to catalog...",
-                                    )
-                                    # catalog.write(batch_df, ...)  # Actual implementation needed
+            # Throttle API calls (client-side pacing)
+            rl.wait()
 
-                                    total_bytes_stored += batch_df.memory_usage(deep=True).sum()
-                            else:
-                                # Write entire dataset
-                                print(f"    Writing {len(df)} records to catalog...")
-                                # catalog.write(df, ...)  # Actual implementation needed
-                                total_bytes_stored += df.memory_usage(deep=True).sum()
+            # Fetch data from Databento
+            try:
+                data = databento_client.timeseries.get_range(
+                    dataset=f"{venue}.MDP3",  # Adjust dataset format as needed
+                    symbols=[symbol_code],
+                    schema=schema,
+                    start=start_dt.isoformat(),
+                    end=end_dt.isoformat(),
+                    stype_in="raw_symbol",
+                )
+                api_calls_made += 1
 
-                            # Emit registry event
-                            registry.emit_event(
-                                dataset_id=source_dataset.lower(),
-                                instrument_id=instrument_id,
-                                stage=Stage.CATALOG_WRITTEN,
-                                source=Source.BACKFILL,
-                                run_id=job_id,
-                                ts_min=start_ns,
-                                ts_max=end_ns,
-                                count=len(df),
-                                status=EventStatus.SUCCESS,
-                            )
+            except Exception as api_error:
+                # Typed retry/backoff: classify known errors
+                error_msg = str(api_error)
+                if "rate limit" in error_msg.lower():
+                    logger.warning("Rate limit hit, backing off...")
+                    raise _TransientError(error_msg)
+                if "not found" in error_msg.lower():
+                    logger.error(f"Symbol not found: {symbol_code}")
+                    raise _TerminalError(error_msg)
+                # Treat unknown API errors as transient by default
+                raise _TransientError(error_msg)
 
-                        success = True
-                        successful_instruments.append(instrument_id)
-                        print("  ✓ Successfully fetched and stored data")
+            # Convert to DataFrame and write to catalog in batches
+            if data is None:
+                # Defensive: treat as transient
+                raise _TransientError("No data returned from API")
 
-                    except Exception as api_error:
-                        # Handle specific Databento API errors
-                        error_msg = str(api_error)
-                        if "rate limit" in error_msg.lower():
-                            logger.warning("Rate limit hit, backing off...")
-                            time.sleep(min(60, 2**retry_count))  # Exponential backoff up to 60s
-                        elif "not found" in error_msg.lower():
-                            logger.error(f"Symbol not found: {symbol_code}")
-                            failed_instruments.append(instrument_id)
-                            break  # Don't retry if symbol doesn't exist
-                        else:
-                            raise api_error
+            tmp_df = _to_dataframe(data)
+            if tmp_df is None:
+                logger.warning("  No data returned for this range.")
+                return True
+            from typing import Any as _Any
 
-            except Exception as e:
-                last_error = e
-                retry_count += 1
+            df = cast(_Any, tmp_df)
+            if len(df) == 0:
+                logger.warning("  No data returned for this range.")
+                # No data is not an error; treat as success with zero bytes
+                return True
 
-                if retry_count < max_retries:
-                    wait_time = min(60, 2**retry_count)  # Exponential backoff
-                    logger.warning(f"  Attempt {retry_count} failed: {e}")
-                    logger.info(f"  Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"  ✗ Failed after {max_retries} attempts: {last_error}")
-                    failed_instruments.append(instrument_id)
+            estimated_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
+            if storage_batch_mb > 0 and estimated_mb > storage_batch_mb:
+                # Write in chunks
+                batch_size = max(1, int(len(df) * storage_batch_mb / max(estimated_mb, 1e-6)))
+                for batch_start in range(0, len(df), batch_size):
+                    batch_end = min(batch_start + batch_size, len(df))
+                    batch_df = df.iloc[batch_start:batch_end]
+                    print(
+                        f"    Writing batch {batch_start}-{batch_end} to catalog...",
+                    )
+                    # catalog.write(batch_df, ...)  # Actual implementation needed
+                    total_bytes_stored += batch_df.memory_usage(deep=True).sum()
+            else:
+                print(f"    Writing {len(df)} records to catalog...")
+                # catalog.write(df, ...)  # Actual implementation needed
+                total_bytes_stored += df.memory_usage(deep=True).sum()
+
+            # Emit registry event
+            registry.emit_event(
+                dataset_id=source_dataset.lower(),
+                instrument_id=instrument_id,
+                stage=Stage.CATALOG_WRITTEN,
+                source=Source.BACKFILL,
+                run_id=job_id,
+                ts_min=start_ns,
+                ts_max=end_ns,
+                count=len(df),
+                status=EventStatus.SUCCESS,
+            )
+
+            print("  ✓ Successfully fetched and stored data")
+            return True
+
+        try:
+            _retry(
+                _attempt,
+                max_attempts=max_retries,
+                initial_delay=1.0,
+                multiplier=2.0,
+                max_delay=60.0,
+                on_exception=_on_exc,
+                sleep_fn=time.sleep,
+                retry_on=(_TransientError,),
+            )
+            successful_instruments.append(instrument_id)
+        except _TerminalError as e:
+            logger.error(f"  ✗ Terminal error for {instrument_id}: {e}")
+            failed_instruments.append(instrument_id)
+        except Exception as e:  # Last attempt failed after retries
+            logger.error(f"  ✗ Failed after {max_retries} attempts: {e}")
+            failed_instruments.append(instrument_id)
 
     # Calculate execution summary
     elapsed_time = time.time() - start_time

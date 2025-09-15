@@ -21,7 +21,7 @@ class DatabentoConfig:
     Attributes
     ----------
     dataset : str
-        Databento dataset to use (e.g., "GLBX.MDP3", "XNAS.ITCH")
+        Databento dataset to use (e.g., "EQUS.MINI", "GLBX.MDP3")
     schema : str
         Data schema to fetch (e.g., "ohlcv-1m", "trades", "mbp-1")
     stype_in : str

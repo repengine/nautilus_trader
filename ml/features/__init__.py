@@ -180,7 +180,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     """Lazy import implementation to avoid circular imports."""
     if name == "FeatureConfig":
         from ml.features.engineering import FeatureConfig

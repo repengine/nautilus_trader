@@ -26,6 +26,7 @@ from ml.stores.providers import SqlMarketDataWriter
 
 if TYPE_CHECKING:  # pragma: no cover
     from nautilus_trader.model.data import Bar as NautilusBar
+
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 else:  # pragma: no cover - avoid hard dependency for tools
     NautilusBar = object  # type: ignore[assignment]
@@ -73,6 +74,7 @@ class _CatalogIngestClient:
         e_val: int | str | float
         if isinstance(start, datetime):
             from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
             s_val = _sanitize(int(start.timestamp() * 1e9), context="cli.ingest_backfill:start")
         else:
             s_val = start

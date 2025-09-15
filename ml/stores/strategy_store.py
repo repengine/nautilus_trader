@@ -20,7 +20,6 @@ from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from typing_extensions import override
 
@@ -44,10 +43,10 @@ from ml.stores.services.strategy_services import StrategySignalWriteService
 
 if TYPE_CHECKING:
     import pandas as pd
+    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -112,7 +111,7 @@ class StrategyStore(
         publisher: MessagePublisherProtocol | None = None,
         publish_mode: Literal["batch", "row", "both"] = "batch",
         **_: object,
-        ) -> None:
+    ) -> None:
         """
         Initialize strategy store.
 
@@ -318,25 +317,11 @@ class StrategyStore(
 
         # Track stage boundary for observability (cold path only)
         import time
+
         ts_stage_start = time.time_ns()
 
-        values: list[dict[str, Any]] = []
-        for item in data:
-            values.append(
-                {
-                    "strategy_id": item.strategy_id,
-                    "instrument_id": item.instrument_id,
-                    "ts_event": item.ts_event,
-                    "ts_init": item.ts_init,
-                    "signal_type": item.signal_type,
-                    "strength": item.strength,
-                    "model_predictions": item.model_predictions if item.model_predictions else None,
-                    "risk_metrics": item.risk_metrics if item.risk_metrics else None,
-                    "execution_params": item.execution_params if item.execution_params else None,
-                    "is_live": getattr(item, "is_live", False),
-                }
-            )
-        self._execute_write(values)
+        # Delegate to write service to avoid duplication and preserve patch points
+        self._write_service.write_batch(data)
 
         # Record observability data (off hot path - background processing only)
         ts_stage_end = time.time_ns()
@@ -359,53 +344,24 @@ class StrategyStore(
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """
-        Record observability data for stage boundaries (cold path only).
+        """Record observability data via centralized helper (cold path only)."""
+        from ml.common.observability_utils import record_stage_boundary as _rec
 
-        This method should only be called from background/cold path operations,
-        never from hot path real-time processing.
-        """
-        try:
-            # Try to access observability service
-            import os
-
-            # Only proceed if observability is explicitly enabled
-            if os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() not in {"1", "true", "yes"}:
-                return
-
-            # Try to get observability service from instance attribute
-            obs_service = getattr(self, "_observability_service", None)
-            if obs_service is None:
-                return
-
-            # Generate correlation ID for this operation
-            correlation_id = f"strategy_store_{hash((instrument_id, ts_stage_start)) % 1000000}"
-
-            # Record latency stage
-            obs_service.add_latency_stage(
-                correlation_id=correlation_id,
-                instrument_id=instrument_id,
-                pipeline_stage=stage,
-                ts_stage_start=ts_stage_start,
-                ts_stage_end=ts_stage_end,
-            )
-
-            # Record metric
-            latency_ms = (ts_stage_end - ts_stage_start) / 1_000_000
-            obs_service.add_metric(
-                metric_name="strategy_store_latency_ms",
-                metric_type="histogram",
-                value=latency_ms,
-                timestamp=ts_stage_end,
-                labels={"stage": stage, "instrument_id": instrument_id, "row_count": str(row_count)},
-            )
-
-        except Exception:
-            # Silently ignore observability errors to avoid impacting core functionality
-            pass
+        obs_service = getattr(self, "_observability_service", None)
+        _rec(
+            obs_service,
+            component="strategy_store",
+            instrument_id=instrument_id,
+            stage=stage,
+            ts_stage_start=ts_stage_start,
+            ts_stage_end=ts_stage_end,
+            row_count=row_count,
+        )
 
     def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
-        """Patch point preserved; delegates to write service."""
+        """
+        Patch point preserved; delegates to write service.
+        """
         self._write_service.execute_write(values)
 
     # Backwards-compatible alias used in some tests
@@ -442,6 +398,7 @@ class StrategyStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.read_signals(
@@ -480,6 +437,7 @@ class StrategyStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.read_range(
@@ -514,6 +472,7 @@ class StrategyStore(
         from typing import cast as _cast
 
         import pandas as pd
+
         return _cast(
             pd.DataFrame,
             self._query_service.get_latest(instrument_id=instrument_id, limit=limit),
@@ -552,7 +511,9 @@ class StrategyStore(
         _BSM.flush(self)
 
     def _emit_signal_events(self, signals: list[StrategySignal]) -> None:
-        """Delegate to event service (non-blocking)."""
+        """
+        Delegate to event service (non-blocking).
+        """
         try:
             self._event_service.emit_signal_events(signals)
         except Exception:
@@ -621,54 +582,11 @@ class StrategyStore(
             Performance metrics
 
         """
-        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
-        # nosec B608: table name validated via _safe_table allowlist
-        query = text(  # nosec B608: table name validated via _safe_table allowlist
-            f"""
-            SELECT
-                COUNT(*) as signal_count,
-                SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
-                SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_count,
-                SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
-                AVG(strength) as avg_strength,
-                STDDEV(strength) as std_strength,
-                MIN(strength) as min_strength,
-                MAX(strength) as max_strength
-            FROM {table_name}
-            WHERE strategy_id = :strategy_id
-              AND (:start_ns IS NULL OR ts_event >= :start_ns)
-              AND (:end_ns IS NULL OR ts_event < :end_ns)
-            """,
+        return self._stats_service.get_strategy_performance(
+            strategy_id=strategy_id,
+            start_ns=start_ns,
+            end_ns=end_ns,
         )
-        params2 = {
-            "strategy_id": strategy_id,
-            "start_ns": int(start_ns) if start_ns is not None else None,
-            "end_ns": int(end_ns) if end_ns is not None else None,
-        }
-        result = self._fetch_one(query, params2)
-
-        if result:
-            return {
-                "signal_count": result[0] or 0,
-                "buy_count": result[1] or 0,
-                "sell_count": result[2] or 0,
-                "hold_count": result[3] or 0,
-                "avg_strength": float(result[4]) if result[4] else 0.0,
-                "std_strength": float(result[5]) if result[5] else 0.0,
-                "min_strength": float(result[6]) if result[6] else 0.0,
-                "max_strength": float(result[7]) if result[7] else 0.0,
-            }
-
-        return {
-            "signal_count": 0,
-            "buy_count": 0,
-            "sell_count": 0,
-            "hold_count": 0,
-            "avg_strength": 0.0,
-            "std_strength": 0.0,
-            "min_strength": 0.0,
-            "max_strength": 0.0,
-        }
 
     def get_signal_distribution(
         self,
@@ -695,7 +613,9 @@ class StrategyStore(
 
         """
         return self._stats_service.get_signal_distribution(
-            strategy_id=strategy_id, start_ns=start_ns, end_ns=end_ns
+            strategy_id=strategy_id,
+            start_ns=start_ns,
+            end_ns=end_ns,
         )
 
     def update_performance_metrics(
@@ -770,9 +690,8 @@ class StrategyStore(
         # Normalize current time and window start using centralized sanitizer
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
 
-        now_ns_raw: int = (
-            self.clock.timestamp_ns() if getattr(self, "clock", None) else _time.time_ns()
-        )
+        _clk = getattr(self, "clock", None)
+        now_ns_raw: int = _clk.timestamp_ns() if _clk is not None else _time.time_ns()
         now_ns: int = _sanitize(
             int(now_ns_raw),
             logger=logger,
@@ -817,21 +736,25 @@ class StrategyStore(
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            params,
-            columns=[
-                "strategy_id",
-                "instrument_id",
-                "signal_type",
-                "strength",
-                "model_predictions",
-                "risk_metrics",
-                "execution_params",
-                "ts_event",
-                "ts_init",
-            ],
-        ))
+
+        return _cast(
+            pd.DataFrame,
+            self._execute_read(
+                sql,
+                params,
+                columns=[
+                    "strategy_id",
+                    "instrument_id",
+                    "signal_type",
+                    "strength",
+                    "model_predictions",
+                    "risk_metrics",
+                    "execution_params",
+                    "ts_event",
+                    "ts_init",
+                ],
+            ),
+        )
 
     # Backwards-compatible public API used in some tests
     def get_signals(
@@ -892,19 +815,23 @@ class StrategyStore(
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            params2,
-            columns=[
-                "strategy_id",
-                "instrument_id",
-                "ts_event",
-                "signal_type",
-                "strength",
-                "model_predictions",
-                "risk_metrics",
-            ],
-        ))
+
+        return _cast(
+            pd.DataFrame,
+            self._execute_read(
+                sql,
+                params2,
+                columns=[
+                    "strategy_id",
+                    "instrument_id",
+                    "ts_event",
+                    "signal_type",
+                    "strength",
+                    "model_predictions",
+                    "risk_metrics",
+                ],
+            ),
+        )
 
     def store_decision(self, *args: Any, **kwargs: Any) -> None:
         """
@@ -941,6 +868,7 @@ class StrategyStore(
             execution_params=execution_params,
             ts_event=int(cast(int, ts_event)),
         )
+
     # Attributes initialized via StoreInitMixin
     batch_size: int
     flush_interval_ms: int

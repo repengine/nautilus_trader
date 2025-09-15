@@ -17,8 +17,13 @@
 Pre-commit hook to ensure mypy passes with zero errors.
 """
 
+import shutil
 import subprocess
 import sys
+
+
+def _has_cmd(cmd: str) -> bool:
+    return shutil.which(cmd) is not None
 
 
 def check_mypy(changed_files):
@@ -39,19 +44,44 @@ def check_mypy(changed_files):
     if not python_files:
         return True, "No Python files to check"
 
-    print(f"Running mypy on {len(python_files)} file(s)...")
+    print(f"Running mypy on {len(python_files)} file(s) (strict mode)...")
 
-    # Run mypy with same config as in pre-commit
-    cmd = [
-        sys.executable,
-        "-m",
-        "mypy",
-        "--config-file",
-        "pyproject.toml",
-        "--allow-incomplete-defs",
-        "--no-error-summary",  # Cleaner output
-        *python_files,
-    ]
+    # Prefer the project's Poetry venv if available; fallback to uv; then system
+    if _has_cmd("poetry"):
+        cmd = [
+            "poetry",
+            "run",
+            "mypy",
+            "--config-file",
+            "pyproject.toml",
+            "--strict",
+            "--no-error-summary",
+            *python_files,
+        ]
+    elif _has_cmd("uv"):
+        cmd = [
+            "uv",
+            "run",
+            "--active",
+            "--no-sync",
+            "mypy",
+            "--config-file",
+            "pyproject.toml",
+            "--strict",
+            "--no-error-summary",
+            *python_files,
+        ]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--config-file",
+            "pyproject.toml",
+            "--strict",
+            "--no-error-summary",
+            *python_files,
+        ]
 
     # Run mypy
     result = subprocess.run(cmd, capture_output=True, text=True)

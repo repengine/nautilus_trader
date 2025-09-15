@@ -18,9 +18,10 @@ import ml._imports as _ml_imports
 pd = _ml_imports.pd
 pl = _ml_imports.pl
 check_ml_dependencies = _ml_imports.check_ml_dependencies
+from ml.ml_types import PolarsDF, DataFrameLike
 
 
-def _load_fred_ml_pl(fred_path: str | Path | None = None) -> Any:
+def _load_fred_ml_pl(fred_path: str | Path | None = None) -> PolarsDF:
     """
     Load FRED ML-format parquet (timestamp, series_id, value) as a Polars DataFrame.
 
@@ -29,14 +30,16 @@ def _load_fred_ml_pl(fred_path: str | Path | None = None) -> Any:
     """
     if pl is None:
         check_ml_dependencies(["polars"])  # pragma: no cover
+    _pl = pl
+    assert _pl is not None
     path_ml = Path(fred_path) if fred_path else Path("data/fred/fred_indicators_ml_format.parquet")
     path_wide = Path("data/fred/fred_indicators_updated.parquet")
 
     if path_ml.exists():
-        return pl.read_parquet(str(path_ml))
+        return cast(PolarsDF, _pl.read_parquet(str(path_ml)))
 
     if path_wide.exists():
-        wide = pl.read_parquet(str(path_wide))
+        wide = _pl.read_parquet(str(path_wide))
         # Convert to long format: (timestamp, series_id, value)
         value_cols = [c for c in wide.columns if c not in {"date", "timestamp_ns"}]
         long = wide.melt(
@@ -45,25 +48,24 @@ def _load_fred_ml_pl(fred_path: str | Path | None = None) -> Any:
             variable_name="series_id",
             value_name="value",
         )
-        return (
+        return cast(
+            PolarsDF,
             long.rename({"date": "timestamp"})
             .select(["timestamp", "series_id", "value"])
-            .with_columns(
-                [pl.col("timestamp").cast(pl.Datetime("ns"))],
-            )
+            .with_columns([_pl.col("timestamp").cast(_pl.Datetime("ns"))]),
         )
 
     # Return empty frame with expected schema if nothing present
-    return pl.DataFrame({"timestamp": [], "series_id": [], "value": []})
+    return cast(PolarsDF, _pl.DataFrame({"timestamp": [], "series_id": [], "value": []}))
 
 
 def join_fred_asof(
-    df: Any,
+    df: DataFrameLike,
     *,
     timestamp_col: str = "timestamp",
     lag_days: int = 1,
     fred_path: str | Path | None = None,
-) -> Any:
+) -> DataFrameLike:
     """
     Join FRED macro features to a time-indexed market DataFrame using as-of semantics.
 
@@ -85,9 +87,11 @@ def join_fred_asof(
     """
     # Polars path
     if pl is not None and isinstance(df, pl.DataFrame):
+        _pl = pl
+        assert _pl is not None
         fred = _load_fred_ml_pl(fred_path)
         if fred.is_empty():
-            return df
+            return cast(DataFrameLike, df)
 
         # Wide pivot for efficient as-of join (cast due to stub signature variance)
         fred_wide = (
@@ -96,15 +100,15 @@ def join_fred_asof(
             .sort("timestamp")
         )
         if fred_wide.is_empty():
-            return df
+            return cast(DataFrameLike, df)
 
         fred_wide = fred_wide.with_columns(
-            [pl.col("timestamp").dt.offset_by(f"{int(lag_days)}d").alias("ts_effective")],
+            [_pl.col("timestamp").dt.offset_by(f"{int(lag_days)}d").alias("ts_effective")],
         )
 
         # Ensure left is sorted by timestamp for join_asof
         if timestamp_col not in df.columns:
-            return df
+            return cast(DataFrameLike, df)
         left_pl = df.sort(timestamp_col)
         right_pl = fred_wide.sort("ts_effective")
 
@@ -117,7 +121,8 @@ def join_fred_asof(
         # Drop join key column
         if "ts_effective" in joined.columns:
             joined = joined.drop("ts_effective")
-        return joined
+        from typing import cast as _cast
+        return _cast(DataFrameLike, joined)
 
     # Pandas path
     if pd is not None and isinstance(df, pd.DataFrame):
@@ -137,10 +142,10 @@ def join_fred_asof(
                 wide[c] = wide_src[c].to_numpy()
             wide = wide.set_index("timestamp")
         else:
-            return df
+            return cast(DataFrameLike, df)
 
         if wide.empty or timestamp_col not in df.columns:
-            return df
+            return cast(DataFrameLike, df)
 
         # Effective time and asof merge
         wide = wide.sort_index()
@@ -153,7 +158,7 @@ def join_fred_asof(
             right_on="ts_effective",
             direction="backward",
         )
-        return merged.drop(columns=["ts_effective"], errors="ignore")
+        return cast(DataFrameLike, merged.drop(columns=["ts_effective"], errors="ignore"))
 
     # If neither pandas nor polars matches, return as-is
     return df

@@ -201,7 +201,7 @@ python ml/scripts/fred_integration_bridge.py
   - Estimation mode: `--estimate-only` prints costs and exits without downloading
 
 - Datasets and schemas (examples)
-  - Datasets: `DBEQ.BASIC`, `XNAS.ITCH`, `OPRA.PILLAR` (availability depends on your plan)
+  - Datasets: `EQUS.MINI` (US equities standard), `DBEQ.BASIC`, `OPRA.PILLAR` (availability depends on your plan)
   - Schemas: `ohlcv-1d`, `ohlcv-1h`, `ohlcv-1m` (L0), `trades`, `tbbo` (L1), `mbp-1`, `mbp-10` (L2), `mbo` (L3)
   - Use the check script to list your exact datasets and schemas
 

@@ -662,18 +662,18 @@ def main():
     # Schema configuration
     schema_configs = {
         "core": [
-            {"schema": "ohlcv-1m", "dataset": "XNAS.ITCH"},
-            {"schema": "ohlcv-1d", "dataset": "XNAS.ITCH"},
+            {"schema": "ohlcv-1m", "dataset": "EQUS.MINI"},
+            {"schema": "ohlcv-1d", "dataset": "EQUS.MINI"},
         ],
         "l1": [
-            {"schema": "tbbo", "dataset": "XNAS.ITCH"},
-            {"schema": "trades", "dataset": "XNAS.ITCH"},
+            {"schema": "tbbo", "dataset": "EQUS.MINI"},
+            {"schema": "trades", "dataset": "EQUS.MINI"},
         ],
         "l2": [
-            {"schema": "mbp-10", "dataset": "XNAS.ITCH"},
+            {"schema": "mbp-10", "dataset": "EQUS.MINI"},
         ],
         "l3": [
-            {"schema": "mbp-1", "dataset": "XNAS.ITCH"},
+            {"schema": "mbp-1", "dataset": "EQUS.MINI"},
         ],
     }
 

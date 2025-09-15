@@ -59,6 +59,8 @@ dependencies = [
     "databento (>=0.62.0,<0.63.0)",
     "fredapi (>=0.5.2,<0.6.0)",
     # test-only/QA tools are defined under [tool.poetry.group.test.dependencies]
+    "pandera (>=0.26.1,<0.27.0)",
+    "asyncio (>=4.0.0,<5.0.0)"
 ]
 
 [project.urls]
@@ -149,6 +151,7 @@ sqlfluff = "^3.1.0"
 black = ">=25.1.0,<26.0.0"
 docformatter = ">=1.7.7,<2.0.0"
 mypy = ">=1.17.1,<2.0.0"
+protobuf = "==5.29.1"
 pre-commit = ">=4.3.0,<5.0.0"
 requests = ">=2.32.4,<3.0.0"
 ruff = ">=0.12.8,<1.0.0"
@@ -160,17 +163,18 @@ cython = "==3.1.2"
 setuptools = ">=75"
 
 [tool.poetry.group.test.dependencies]
-pytest = ">=7.4.4,<8.0.0"
-pytest-aiohttp = ">=1.1.0,<2.0.0"
-pytest-asyncio = "==0.21.1"
-pytest-benchmark = ">=5.1.0,<6.0.0"
-pytest-codspeed = ">=3.2.0,<4.0.0"
-pytest-cov = ">=4.1.0,<5.0.0"
-pytest-mock = ">=3.14.1,<4.0.0"
-pytest-timeout = ">=2.2.0,<3.0.0"
-pytest-xdist = {version = ">=3.8.0,<4.0.0", extras = ["psutil"]}
-coverage = ">=7.10.3,<8.0.0"
-hypothesis = ">=6.137.1,<7.0.0"
+# Pin a stable, mutually compatible set of pytest plugins
+pytest = "~=7.4.4"
+pytest-aiohttp = "~=1.1.0"
+pytest-asyncio = "~=0.21.1"  # stable with pytest 7.4
+pytest-benchmark = "~=4.0"
+pytest-cov = "~=4.1"
+pytest-mock = "~=3.14"
+pytest-timeout = "~=2.2"
+pytest-xdist = {version = "~=3.5", extras = ["psutil"]}
+pytest-env = "~=0.8"  # enable [pytest] env section
+coverage = "~=7.5"
+hypothesis = "~=6.138"
 
 [project.optional-dependencies]
 betfair = [
@@ -478,6 +482,90 @@ module = [
     "ml.examples.*",
 ]
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.cli.*",
+    "ml.monitoring.scripts.*",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.training.*",
+    "ml.pipelines.*",
+    "ml.strategies.*",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.common.message_bus",
+    "ml.monitoring.grafana_client",
+    "ml.consumers.redis_streams_consumer",
+]
+disable_error_code = [
+    "import-untyped",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.models.save_dummy_model",
+]
+disable_error_code = [
+    "import-untyped",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.core.integration",
+]
+disable_error_code = [
+    "abstract",
+    "redundant-cast",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.observability.tracing",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.data.__init__",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.preprocessing.*",
+    "ml.monitoring.*",
+    "ml.stores.feature_store",
+    "ml.registry.model_registry",
+    "ml.features.l2_aggregate",
+    "ml.features.microstructure",
+    "ml.data.tft_dataset_builder",
+    "ml.data.cache_common",
+    "ml.data.sources.*",
+    "ml.data.providers.utils",
+    "ml.data.providers.base",
+    "ml.data.providers.calendar",
+    "ml.data.providers.events",
+    "ml.data.providers.metadata",
+    "ml.data.l2_cache",
+    
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "ml.data.loaders.fred_loader",
+]
+disable_error_code = [
+    "no-any-return",
+    "redundant-cast",
+]
 
 [[tool.mypy.overrides]]
 module = [

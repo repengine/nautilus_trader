@@ -14,12 +14,13 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.ml_types import PolarsDF
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 if TYPE_CHECKING:
-    import polars as pl
+    pass
 
 
 def bars_to_dataframe(
@@ -27,7 +28,7 @@ def bars_to_dataframe(
     instrument_ids: list[str],
     start: datetime | str | None = None,
     end: datetime | str | None = None,
-) -> pl.DataFrame:
+) -> PolarsDF:
     """
     Load bars from catalog and convert to Polars DataFrame.
 
@@ -80,7 +81,7 @@ def quotes_to_dataframe(
     instrument_ids: list[str],
     start: datetime | str | None = None,
     end: datetime | str | None = None,
-) -> pl.DataFrame:
+) -> PolarsDF:
     """
     Load quotes from catalog and convert to Polars DataFrame.
 
@@ -124,7 +125,7 @@ def trades_to_dataframe(
     instrument_ids: list[str],
     start: datetime | str | None = None,
     end: datetime | str | None = None,
-) -> pl.DataFrame:
+) -> PolarsDF:
     """
     Load trades from catalog and convert to Polars DataFrame.
 
@@ -171,12 +172,14 @@ def _load_and_build_df(
     loader: Callable[[ParquetDataCatalog, list[InstrumentId], datetime | str | None, datetime | str | None], Iterable[Any]],
     row_builder: Callable[[Any], dict[str, Any]],
     empty_columns: list[str],
-) -> pl.DataFrame:
+) -> PolarsDF:
     """
     Shared loader + builder for catalog → Polars DataFrame transforms.
     """
     if not HAS_POLARS:
         check_ml_dependencies(["polars"])
+    _pl = pl
+    assert _pl is not None
 
     # Convert string instrument IDs to InstrumentId objects once
     instrument_id_objs = [InstrumentId.from_str(id_str) for id_str in instrument_ids]
@@ -186,8 +189,10 @@ def _load_and_build_df(
 
     if not items:
         # Return empty DataFrame with expected schema
-        return pl.DataFrame({col: [] for col in empty_columns})
+        from typing import cast as _cast
+        return _cast(PolarsDF, _pl.DataFrame({col: [] for col in empty_columns}))
 
     # Build rows
     data = [row_builder(item) for item in items]
-    return pl.DataFrame(data)
+    from typing import cast as _cast
+    return _cast(PolarsDF, _pl.DataFrame(data))

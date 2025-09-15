@@ -328,6 +328,77 @@ assert process_features(postgres_store, "EUR/USD")
 assert process_features(dummy_store, "EUR/USD")
 ```
 
+#### Strict Store Protocols (Adoption)
+
+To strengthen public API contracts at ML boundaries, prefer the strict variants of store protocols for new and refactored code:
+
+- `FeatureStoreStrictProtocol`, `ModelStoreStrictProtocol`, `StrategyStoreStrictProtocol` (see `ml/stores/protocols.py`).
+
+Why use the strict variants
+- Safer boundaries: required parameters and Mapping/Sequence types catch integration bugs at type-check time.
+- Better decoupling: preserves structural typing while preventing accidental widening of public APIs.
+- Stronger tests: contract/property tests work cleanly across real and dummy implementations.
+
+When to use
+- New public APIs (actors, services, CLI entrypoints) should accept/return the strict protocols.
+- Existing surfaces can migrate incrementally via thin adapters or targeted refactors.
+
+Example: actor surfaces using strict protocols
+
+```python
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from ml.stores.protocols import (
+        FeatureStoreStrictProtocol,
+        ModelStoreStrictProtocol,
+        StrategyStoreStrictProtocol,
+    )
+
+class BaseMLInferenceActor:
+    # ... internal wiring provides concrete stores
+
+    @property
+    def feature_store(self) -> FeatureStoreStrictProtocol:
+        return cast(FeatureStoreStrictProtocol, self._feature_store)
+
+    @property
+    def model_store(self) -> ModelStoreStrictProtocol:
+        return cast(ModelStoreStrictProtocol, self._model_store)
+
+    @property
+    def strategy_store(self) -> StrategyStoreStrictProtocol:
+        return cast(StrategyStoreStrictProtocol, self._strategy_store)
+```
+
+Example: component accepting a strict protocol
+
+```python
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ml.stores.protocols import FeatureStoreStrictProtocol
+
+def publish_features(store: FeatureStoreStrictProtocol, instrument_id: str) -> None:
+    features = {"px": 1.0}
+    store.write_features(
+        feature_set_id="core",
+        instrument_id=instrument_id,
+        features=features,
+        ts_event=0,
+        ts_init=0,
+    )
+```
+
+Migration guidance
+- Prefer adapters over casts: introduce a thin adapter that implements the strict protocol and delegates to an existing store until the store is updated.
+- If a temporary cast is used at boundaries, track it and remove once the underlying implementation satisfies the strict protocol.
+
+Enforcement and tooling
+- Semgrep rule `ml-prefer-strict-store-protocol` (in `tools/semgrep/ml-rules.yml`) flags new public code using non‑strict protocols.
+- Type checking: run `poetry run mypy ml --strict` (or `uv run --active --no-sync mypy ml --strict`).
+- Keep hot-path safe: strict typing has no runtime overhead; avoid conversions/copies in tight loops.
+
 #### Protocol Validation
 
 ```python

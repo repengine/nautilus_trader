@@ -204,7 +204,6 @@ from ml.monitoring.server import MetricsServer
 
 __version__ = "1.0.0"
 
-# ruff: noqa: RUF022
 __all__ = [
     "AlertConfig",
     "BaseMetricsCollector",

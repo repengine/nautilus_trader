@@ -32,6 +32,7 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 ### 🧰 CLI Tooling
 
 - **[tools/CLI_Tooling.md](tools/CLI_Tooling.md)** - Build runner, dataset report, and feature promotion CLI usage
+  - Includes Databento guardrails (enabled on venv activate) and standardized dataset `EQUS.MINI` for US equities standard plan
 
 ### 🔬 Research & Analysis
 

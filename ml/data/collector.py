@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from ml.config.base import DataCollectorConfig
+from ml.data.ingest.policy import DatabentoCoveragePolicy
 
 
 warnings.filterwarnings("ignore")
@@ -112,6 +113,8 @@ class DataCollector:
 
         # Load existing symbols
         self.existing_symbols = self._load_existing_symbols()
+        # Optional coverage guard (env-driven; no-ops if unset)
+        self._policy = DatabentoCoveragePolicy.from_env()
 
         # Priority symbols for deep historical data
         self.PRIORITY_SYMBOLS = [
@@ -252,6 +255,8 @@ class DataCollector:
         collected = 0
         total_size_gb = 0.0
 
+        # Enforce symbol policy early
+        symbols = self._policy.filter_symbols(symbols)
         for i, symbol in enumerate(symbols, 1):
             # Check storage before each symbol
             current_storage = self._get_current_storage_gb()
@@ -275,13 +280,20 @@ class DataCollector:
             try:
                 # Collect L2 depth
                 start_date = self.end_date - timedelta(days=days)
+                # Clamp by policy
+                start_date, _end = self._policy.clamp_range(
+                    start=start_date,
+                    end=self.end_date,
+                    dataset="EQUS.MINI",
+                    schema="mbp-1",
+                )
 
                 print("  Collecting L2 depth (mbp-1)...")
                 data = self.client.timeseries.get_range(
                     dataset="EQUS.MINI",
                     symbols=[symbol],
                     start=start_date,
-                    end=self.end_date,
+                    end=_end,
                     schema="mbp-1",
                     limit=1000000,  # 1M rows max per symbol
                 )
@@ -340,6 +352,8 @@ class DataCollector:
 
         if symbols is None:
             symbols = self.PRIORITY_SYMBOLS
+        # Enforce symbol policy early
+        symbols = self._policy.filter_symbols(symbols)
 
         print(f"\n{'='*80}")
         print("L1 TRADES COLLECTION")
@@ -380,6 +394,13 @@ class DataCollector:
             for year_offset in range(years):
                 year_end = self.end_date - timedelta(days=365 * year_offset)
                 year_start = year_end - timedelta(days=365)
+                # Clamp by policy
+                year_start, year_end = self._policy.clamp_range(
+                    start=year_start,
+                    end=year_end,
+                    dataset="EQUS.MINI",
+                    schema="trades",
+                )
                 year_label = year_end.year
 
                 trades_file = symbol_dir / f"trades_{year_label}.parquet"
@@ -449,6 +470,8 @@ class DataCollector:
 
         if symbols is None:
             symbols = self.existing_symbols
+        # Enforce symbol policy early
+        symbols = self._policy.filter_symbols(symbols)
 
         print(f"\n{'='*80}")
         print("TBBO QUOTES COLLECTION")
@@ -477,13 +500,19 @@ class DataCollector:
 
             try:
                 start_date = self.end_date - timedelta(days=days)
+                start_date, _end = self._policy.clamp_range(
+                    start=start_date,
+                    end=self.end_date,
+                    dataset="EQUS.MINI",
+                    schema="tbbo",
+                )
 
                 print("  Collecting TBBO quotes...")
                 data = self.client.timeseries.get_range(
                     dataset="EQUS.MINI",
                     symbols=[symbol],
                     start=start_date,
-                    end=self.end_date,
+                    end=_end,
                     schema="tbbo",
                     limit=1000000,
                 )
@@ -536,6 +565,8 @@ class DataCollector:
 
         if symbols is None:
             symbols = self.existing_symbols
+        # Enforce symbol policy early
+        symbols = self._policy.filter_symbols(symbols)
 
         print(f"\n{'='*80}")
         print("MINUTE BARS COLLECTION")
@@ -563,12 +594,18 @@ class DataCollector:
 
             try:
                 start_date = self.end_date - timedelta(days=days)
+                start_date, _end = self._policy.clamp_range(
+                    start=start_date,
+                    end=self.end_date,
+                    dataset="EQUS.MINI",
+                    schema="ohlcv-1m",
+                )
 
                 data = self.client.timeseries.get_range(
                     dataset="EQUS.MINI",
                     symbols=[symbol],
                     start=start_date,
-                    end=self.end_date,
+                    end=_end,
                     schema="ohlcv-1m",
                     limit=500000,
                 )

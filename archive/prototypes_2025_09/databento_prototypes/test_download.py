@@ -26,7 +26,7 @@ def test_single_download():
         print(f"Testing download: ohlcv-1d for AAPL from {start_date.date()} to {end_date.date()}")
 
         df = client.timeseries.get_range(
-            dataset="XNAS.ITCH",
+            dataset="EQUS.MINI",
             symbols=["AAPL"],
             schema="ohlcv-1d",
             start=start_date,

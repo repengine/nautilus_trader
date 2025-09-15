@@ -19,6 +19,7 @@ Notes
 - This hook intentionally exits non-zero when it writes/updates the baseline
   file, so that pre-commit stops and the developer can `git add` the updated
   file and re-run the commit.
+
 """
 
 from __future__ import annotations
@@ -35,43 +36,110 @@ BASELINE_PATH = ROOT / "tools" / "coverage_target.txt"
 
 
 def run_pytest_with_coverage(packages: list[str]) -> Path:
-    """Run pytest with coverage for the given packages and produce coverage.xml.
-
-    Returns the path to the generated coverage.xml.
     """
-    # Ensure we produce an XML report we can parse deterministically.
-    cov_args = [f"--cov={pkg}" for pkg in packages]
-    cmd = [
-        sys.executable,
+    Run fast test subsets with coverage and emit coverage.xml.
+
+    Uses coverage.py directly to avoid pytest-cov plugin interactions that can fail to
+    generate reports in pre-commit environments.
+
+    """
+    tests_env = os.environ.get(
+        "COVERAGE_TEST_PATHS",
+        "ml/tests/unit ml/tests/property ml/tests/contracts",
+    )
+    test_paths = [p for p in tests_env.split() if p]
+
+    env = os.environ.copy()
+
+    # Create a minimal temporary coverage config to avoid repository plugins.
+    import tempfile
+
+    cfg = """
+    [run]
+    branch = True
+    parallel = False
+    source = {sources}
+
+    [report]
+    fail_under = 0
+    show_missing = true
+    precision = 2
+    skip_covered = false
+    skip_empty = true
+    """.strip().format(
+        sources=",".join(packages),
+    )
+
+    with tempfile.NamedTemporaryFile("w", delete=False, prefix="covratchet_", suffix=".ini") as tf:
+        tf.write(cfg)
+        tf.flush()
+        rcfile = tf.name
+
+    def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(cmd, text=True, capture_output=True, env=env)
+
+    # Erase any prior data (best effort)
+    run(["uv", "run", "--active", "--no-sync", "coverage", "erase"])  # noqa: F841
+
+    # Run tests under coverage
+    cmd_run = [
+        "uv",
+        "run",
+        "--active",
+        "--no-sync",
+        "coverage",
+        f"--rcfile={rcfile}",
+        "run",
         "-m",
         "pytest",
         "-q",
-        *cov_args,
-        "--cov-report=term-missing:skip-covered",
-        "--cov-report=xml",
-        "--no-header",
+        "-m",
+        "not prototype",
+        *test_paths,
     ]
-    # Avoid overly long runs by not forcing full failure traces; rely on other
-    # hooks/tests for strict pass/fail. We only need the coverage numbers here.
-    result = subprocess.run(cmd, text=True, capture_output=True)
-    if result.returncode != 0:
-        # We still may have produced coverage.xml; but indicate the test failures.
-        print("Tests did not fully pass during coverage run (coverage will still be parsed if available).", file=sys.stderr)
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
+    result_run = run(cmd_run)
+    if result_run.returncode != 0:
+        print(
+            "Tests did not fully pass during coverage run (continuing to report).",
+            file=sys.stderr,
+        )
+        if result_run.stderr:
+            print(result_run.stderr, file=sys.stderr)
+
+    # Always attempt to produce XML report
+    result_xml = run(
+        [
+            "uv",
+            "run",
+            "--active",
+            "--no-sync",
+            "coverage",
+            f"--rcfile={rcfile}",
+            "xml",
+            "-i",
+        ],
+    )
+    if result_xml.returncode != 0:
+        print("Failed to generate coverage.xml", file=sys.stderr)
+        if result_xml.stderr:
+            print(result_xml.stderr, file=sys.stderr)
+        sys.exit(2)
+
     xml_path = ROOT / "coverage.xml"
     if not xml_path.exists():
-        print("coverage.xml not found. Ensure pytest-cov is installed and enabled.", file=sys.stderr)
+        print("coverage.xml not found after coverage xml step.", file=sys.stderr)
         sys.exit(2)
     return xml_path
 
 
 def parse_total_coverage(xml_path: Path) -> float:
-    """Parse total line-rate percent from coverage.xml (0-100)."""
+    """
+    Parse total line-rate percent from coverage.xml (0-100).
+    """
     tree = ET.parse(xml_path)
     root = tree.getroot()
     # Coverage.py writes attributes on the root <coverage> element
-    # including 'line-rate' (0.0-1.0) and totals. Prefer computing from 
+    # including 'line-rate' (0.0-1.0) and totals. Prefer computing from
     # lines-valid and lines-covered when available for accuracy.
     lines_valid = root.attrib.get("lines-valid") or root.attrib.get("lines_valid")
     lines_covered = root.attrib.get("lines-covered") or root.attrib.get("lines_covered")
@@ -146,4 +214,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-def test_import(module_name: str) -> tuple[bool, str]:
+def probe_import(module_name: str) -> tuple[bool, str]:
     """Test if a module can be imported."""
     try:
         __import__(module_name)
@@ -20,7 +20,7 @@ def test_import(module_name: str) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Unexpected: {e}"
 
-def main():
+def main() -> int:
     """Test all ML submodules."""
     ml_modules = [
         "ml.actors",
@@ -51,7 +51,7 @@ def main():
     failures = []
 
     for module in ml_modules:
-        success, message = test_import(module)
+        success, message = probe_import(module)
         status = "✓" if success else "✗"
         print(f"{status} {module:30} {message if not success else ''}")
 

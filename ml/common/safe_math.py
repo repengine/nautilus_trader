@@ -40,7 +40,9 @@ def safe_divide_expr(numer: PlExpr, denom: PlExpr) -> PlExpr:
     """
     if pl is None:  # pragma: no cover - runtime dep guard
         raise RuntimeError("Polars is required for safe_divide_expr")
-    return numer / pl.when(denom > 0).then(denom).otherwise(1.0)
+    from typing import cast as _cast
+
+    return _cast("PlExpr", numer / pl.when(denom > 0).then(denom).otherwise(1.0))
 
 
 __all__ = ["safe_divide", "safe_divide_expr"]

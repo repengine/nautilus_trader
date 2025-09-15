@@ -59,10 +59,10 @@ from ml.stores.mixins import HealthMixin
 
 if TYPE_CHECKING:
     import pandas as pd
+    from nautilus_trader.model.data import Bar
 
     from ml._imports import pl
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ def _get_data_events_total() -> _CounterLike | None:
             _data_events_total = get_counter(
                 name="nautilus_ml_data_events_total",
                 documentation="Total data events processed by stage",
-                labelnames=["dataset_type", "component", "stage", "source", "status"],
+                labels=["dataset_type", "component", "stage", "source", "status"],
             )
         except Exception:
             _data_events_total = None
@@ -771,8 +771,14 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         _ = include_bars
         from ml.common.timestamps import sanitize_timestamp_ns
 
-        start_ns = sanitize_timestamp_ns(int(start.timestamp() * 1e9), context="feature_store.compute_and_store_historical.start")
-        end_ns = sanitize_timestamp_ns(int(end.timestamp() * 1e9), context="feature_store.compute_and_store_historical.end")
+        start_ns = sanitize_timestamp_ns(
+            int(start.timestamp() * 1e9),
+            context="feature_store.compute_and_store_historical.start",
+        )
+        end_ns = sanitize_timestamp_ns(
+            int(end.timestamp() * 1e9),
+            context="feature_store.compute_and_store_historical.end",
+        )
 
         # Query features for feature_set_id and time range
         feature_set_id = self._get_feature_set_id()
@@ -844,8 +850,14 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         from ml._imports import pl
         from ml.common.timestamps import sanitize_timestamp_ns
 
-        start_ns = sanitize_timestamp_ns(int(start.timestamp() * 1e9), context="feature_store._load_bars_from_nautilus.start")
-        end_ns = sanitize_timestamp_ns(int(end.timestamp() * 1e9), context="feature_store._load_bars_from_nautilus.end")
+        start_ns = sanitize_timestamp_ns(
+            int(start.timestamp() * 1e9),
+            context="feature_store._load_bars_from_nautilus.start",
+        )
+        end_ns = sanitize_timestamp_ns(
+            int(end.timestamp() * 1e9),
+            context="feature_store._load_bars_from_nautilus.end",
+        )
         sql = _text(
             """
             SELECT ts_event, open, high, low, close, volume
@@ -883,8 +895,14 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         """
         from ml.common.timestamps import sanitize_timestamp_ns
 
-        start_ns = sanitize_timestamp_ns(int(start.timestamp() * 1e9), context="feature_store._load_quotes_from_nautilus.start")
-        end_ns = sanitize_timestamp_ns(int(end.timestamp() * 1e9), context="feature_store._load_quotes_from_nautilus.end")
+        start_ns = sanitize_timestamp_ns(
+            int(start.timestamp() * 1e9),
+            context="feature_store._load_quotes_from_nautilus.start",
+        )
+        end_ns = sanitize_timestamp_ns(
+            int(end.timestamp() * 1e9),
+            context="feature_store._load_quotes_from_nautilus.end",
+        )
 
         feature_set_id = self._get_feature_set_id()
         query = (
@@ -1137,52 +1155,19 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """
-        Record observability data for stage boundaries (cold path only).
+        """Record observability data via centralized helper (cold path only)."""
+        from ml.common.observability_utils import record_stage_boundary as _rec
 
-        This method should only be called from background/cold path operations,
-        never from hot path real-time processing.
-        """
-        try:
-            # Try to access observability service from integration manager
-            # This is safe to fail silently if observability is not configured
-            import os
-
-            # Only proceed if observability is explicitly enabled
-            if os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() not in {"1", "true", "yes"}:
-                return
-
-            # Try to get observability service from a global registry or similar
-            # This is a minimal hook that doesn't create hard dependencies
-            obs_service = getattr(self, "_observability_service", None)
-            if obs_service is None:
-                return
-
-            # Generate correlation ID for this operation
-            correlation_id = f"feature_store_{hash((instrument_id, ts_stage_start)) % 1000000}"
-
-            # Record latency stage
-            obs_service.add_latency_stage(
-                correlation_id=correlation_id,
-                instrument_id=instrument_id,
-                pipeline_stage=stage,
-                ts_stage_start=ts_stage_start,
-                ts_stage_end=ts_stage_end,
-            )
-
-            # Record metric
-            latency_ms = (ts_stage_end - ts_stage_start) / 1_000_000
-            obs_service.add_metric(
-                metric_name="feature_store_latency_ms",
-                metric_type="histogram",
-                value=latency_ms,
-                timestamp=ts_stage_end,
-                labels={"stage": stage, "instrument_id": instrument_id},
-            )
-
-        except Exception:
-            # Silently ignore observability errors to avoid impacting core functionality
-            pass
+        obs_service = getattr(self, "_observability_service", None)
+        _rec(
+            obs_service,
+            component="feature_store",
+            instrument_id=instrument_id,
+            stage=stage,
+            ts_stage_start=ts_stage_start,
+            ts_stage_end=ts_stage_end,
+            row_count=row_count,
+        )
 
     def _execute_write(
         self,

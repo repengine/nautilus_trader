@@ -57,6 +57,32 @@ from ml.stores.strategy_store import StrategyStore
 if TYPE_CHECKING:
     from ml.registry.protocols import RegistryProtocol
 
+    # Type-only bases to satisfy mypy when follow_imports=skip
+    class _MLComponentBase(Protocol):
+        def get_health_status(self) -> dict[str, Any]: ...
+
+        def get_performance_metrics(self) -> dict[str, float]: ...
+
+        def validate_configuration(self) -> list[str]: ...
+
+    class _BusPublisherBase(Protocol):
+        def _init_bus_publishing(
+            self,
+            *,
+            enable_publishing: bool,
+            publisher: MessagePublisherProtocol | None,
+            publish_mode: str = "batch",
+        ) -> None: ...
+
+    class _DataRegistryBase(Protocol):
+        def _get_data_registry(self) -> RegistryProtocol | None: ...
+
+else:
+    # Runtime bases preserve behavior
+    _MLComponentBase = MLComponentMixin  # type: ignore[assignment]
+    _BusPublisherBase = BusPublisherMixin  # type: ignore[assignment]
+    _DataRegistryBase = DataRegistryMixin  # type: ignore[assignment]
+
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +265,7 @@ class ValidationViolation:
 # ========================================================================
 
 
-class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
+class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
     """
     Typed read/write facade with contract validation and event emission.
 
@@ -275,6 +301,12 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
 
     """
 
+    # Declare bus-related attributes for type checkers
+    _enable_publishing: bool = False
+    _topic_scheme: str = "domain_op"
+    _topic_prefix: str = "events.ml"
+    _publish_mode: str = "batch"
+
     def __init__(
         self,
         connection_string: str,
@@ -283,6 +315,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         model_store: ModelStore | None = None,
         strategy_store: StrategyStore | None = None,
         publisher: MessagePublisherProtocol | None = None,
+        enable_publishing: bool = False,
         fail_on_validation_error: bool = True,
         batch_size: int = 10000,
         allow_schema_migration: bool = False,
@@ -361,11 +394,11 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         self.allow_schema_migration = allow_schema_migration
         self.schema_migration_window_hours = schema_migration_window_hours
 
-        # Topic scheme/prefix (env-driven defaults). For backward compatibility,
-        # enable publishing when a publisher is provided, so tests that pass a
-        # stub publisher without an explicit flag still observe bus publishes.
+        # Topic scheme/prefix (env-driven defaults). Publishing is disabled by
+        # default and must be explicitly enabled by the caller to avoid
+        # accidental PII/cardinality leaks.
         self._init_bus_publishing(
-            enable_publishing=bool(publisher),
+            enable_publishing=enable_publishing,
             publisher=publisher,
             publish_mode="batch",
         )
@@ -452,14 +485,6 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
             source_enum = Source.LIVE
         status_enum = EventStatus(status) if not isinstance(status, EventStatus) else status
 
-        # Emit to registry: keep MagicMock-compatible behavior (strings) for legacy tests
-        try:
-            from unittest.mock import MagicMock as _MM  # type: ignore
-
-            is_mock = isinstance(self.registry, _MM)
-        except Exception:
-            is_mock = False
-
         # Build correlation_id and merged metadata once
         corr_id = make_correlation_id(
             run_id=run_id,
@@ -473,43 +498,25 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         if metadata:
             event_metadata.update({k: v for k, v in metadata.items() if k != "correlation_id"})
 
-        if is_mock:
-            try:
-                self.registry.emit_event(  # type: ignore[call-arg]
-                    dataset_id=dataset_id,
-                    instrument_id=instrument_id,
-                    stage=stage_enum.value,
-                    source=source_enum.value,
-                    run_id=run_id,
-                    ts_min=ts_min,
-                    ts_max=ts_max,
-                    count=count,
-                    status=status_enum.value if isinstance(status_enum, EventStatus) else str(status_enum),
-                    error=error,
-                    metadata=event_metadata,
-                )
-            except Exception:
-                logger.debug("Mock registry emit_event failed", exc_info=True)
-        else:
-            # Use centralized helper for consistent event emission
-            from ml.common.event_emitter import emit_dataset_event
+        # Use centralized helper for consistent event emission
+        from ml.common.event_emitter import emit_dataset_event
 
-            emit_dataset_event(
-                self.registry,
-                dataset_id=dataset_id,
-                instrument_id=instrument_id,
-                stage=stage_enum,
-                source=source_enum,
-                run_id=run_id,
-                ts_min=ts_min,
-                ts_max=ts_max,
-                count=count,
-                status=status_enum,
-                error=error,
-                metadata=event_metadata,
-                dataset_type=dataset_id,  # Use dataset_id as type for consistent labeling
-                component=self.__class__.__name__,
-            )
+        emit_dataset_event(
+            self.registry,
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage_enum,
+            source=source_enum,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status_enum,
+            error=error,
+            metadata=event_metadata,
+            dataset_type=dataset_id,  # Use dataset_id as type for consistent labeling
+            component=self.__class__.__name__,
+        )
 
         # Optionally publish to message bus using selected topic scheme (respects _enable_publishing flag)
         if self._enable_publishing and self.publisher is not None:
@@ -589,6 +596,16 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                 "warnings": [],
             }
 
+            # Empty data shortcut: accept empty DataFrames as valid shape
+            try:
+                if hasattr(df_any, "__len__") and len(df_any) == 0:
+                    validation_details["empty_data"] = True
+                    validation_details["preflight_passed"] = True
+                    return True, None, validation_details
+            except Exception:
+                # Continue with normal checks if len() is not supported
+                pass
+
             # Check 1: Required columns present
             if hasattr(df, "columns"):
                 actual_columns = set(df.columns)
@@ -612,6 +629,12 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                 if extra_columns and strict:
                     error_msg = f"Unexpected columns: {extra_columns}"
                     validation_details["extra_columns"] = list(extra_columns)
+                    # Treat as schema hash mismatch for metrics purposes
+                    if HAS_PROMETHEUS:
+                        schema_mismatch_counter.labels(
+                            dataset=dataset_id,
+                            mismatch_type="hash_mismatch",
+                        ).inc()
                     return False, error_msg, validation_details
                 elif extra_columns:
                     validation_details["warnings"].append(
@@ -732,50 +755,19 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """
-        Record observability data for stage boundaries (cold path only).
+        """Record observability data via centralized helper (cold path only)."""
+        from ml.common.observability_utils import record_stage_boundary as _rec
 
-        This method should only be called from background/cold path operations,
-        never from hot path real-time processing.
-        """
-        try:
-            # Try to access observability service
-            import os
-
-            # Only proceed if observability is explicitly enabled
-            if os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() not in {"1", "true", "yes"}:
-                return
-
-            # Try to get observability service from instance attribute
-            obs_service = getattr(self, "_observability_service", None)
-            if obs_service is None:
-                return
-
-            # Generate correlation ID for this operation
-            correlation_id = f"data_store_{hash((instrument_id, ts_stage_start)) % 1000000}"
-
-            # Record latency stage
-            obs_service.add_latency_stage(
-                correlation_id=correlation_id,
-                instrument_id=instrument_id,
-                pipeline_stage=stage,
-                ts_stage_start=ts_stage_start,
-                ts_stage_end=ts_stage_end,
-            )
-
-            # Record metric
-            latency_ms = (ts_stage_end - ts_stage_start) / 1_000_000
-            obs_service.add_metric(
-                metric_name="data_store_latency_ms",
-                metric_type="histogram",
-                value=latency_ms,
-                timestamp=ts_stage_end,
-                labels={"stage": stage, "instrument_id": instrument_id, "row_count": str(row_count)},
-            )
-
-        except Exception:
-            # Silently ignore observability errors to avoid impacting core functionality
-            pass
+        obs_service = getattr(self, "_observability_service", None)
+        _rec(
+            obs_service,
+            component="data_store",
+            instrument_id=instrument_id,
+            stage=stage,
+            ts_stage_start=ts_stage_start,
+            ts_stage_end=ts_stage_end,
+            row_count=row_count,
+        )
 
     def write_ingestion(
         self,
@@ -974,7 +966,8 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                         )
                         if written <= 0:
                             logger.warning(
-                                "Raw writer reported 0 records written for %s", dataset_id,
+                                "Raw writer reported 0 records written for %s",
+                                dataset_id,
                             )
                             # Emit PARTIAL without watermark to avoid false coverage
                             self._emit_partial_event(
@@ -1062,7 +1055,8 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                         )
                     else:
                         logger.warning(
-                            "Raw writer not configured; skipping persistence for %s", dataset_id,
+                            "Raw writer not configured; skipping persistence for %s",
+                            dataset_id,
                         )
                         # Emit PARTIAL event without watermark; annotate metadata
                         self._emit_partial_event(
@@ -1092,6 +1086,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
 
             # Create event
             from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
             ts_min_s = _sanitize(int(ts_min), context="data_store.write_ingestion:ts_min")
             ts_max_s = _sanitize(int(ts_max), context="data_store.write_ingestion:ts_max")
 
@@ -1304,6 +1299,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
 
         # Create event and emit/update registry watermarks
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
         ts_min_s = _sanitize(int(ts_min), context="data_store.write_features:ts_min")
         ts_max_s = _sanitize(int(ts_max), context="data_store.write_features:ts_max")
         event = DataEvent(
@@ -1391,6 +1387,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
 
         # Create event and emit/update registry watermarks
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
         ts_min_s = _sanitize(int(ts_min), context="data_store.write_predictions:ts_min")
         ts_max_s = _sanitize(int(ts_max), context="data_store.write_predictions:ts_max")
         event = DataEvent(
@@ -1484,6 +1481,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
 
         # Create event and emit/update registry watermarks
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
         ts_min_s = _sanitize(int(ts_min), context="data_store.write_signals:ts_min")
         ts_max_s = _sanitize(int(ts_max), context="data_store.write_signals:ts_max")
         event = DataEvent(
@@ -1807,6 +1805,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         if contract.quality_thresholds:
             # Calculate metrics
             from ml.common.dataframe_utils import total_nulls as _total_nulls
+
             df_any = cast(Any, df)
             null_count_total: int = _total_nulls(df_any)
 
@@ -1935,7 +1934,9 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         # Convert list of dicts to DataFrame
         if isinstance(data, list) and data and isinstance(data[0], dict):
             # Cast to DataFrameLike for strict typing compliance
-            return cast(DataFrameLike, pl.DataFrame(data))
+            if HAS_POLARS and pl is not None:
+                return cast(DataFrameLike, pl.DataFrame(data))
+            return data
 
         # Return as is for other formats
         return data
@@ -1944,17 +1945,17 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         """
         Map dataset type to processing stage.
         """
-        stage_map = {
-            DatasetType.BARS: Stage.CATALOG_WRITTEN.value,
-            DatasetType.TRADES: Stage.CATALOG_WRITTEN.value,
-            DatasetType.QUOTES: Stage.CATALOG_WRITTEN.value,
-            DatasetType.MBP1: Stage.CATALOG_WRITTEN.value,
-            DatasetType.TBBO: Stage.CATALOG_WRITTEN.value,
-            DatasetType.FEATURES: Stage.FEATURE_COMPUTED.value,
-            DatasetType.PREDICTIONS: Stage.PREDICTION_EMITTED.value,
-            DatasetType.SIGNALS: Stage.SIGNAL_EMITTED.value,
+        stage_map: dict[DatasetType, str] = {
+            DatasetType.BARS: str(Stage.CATALOG_WRITTEN.value),
+            DatasetType.TRADES: str(Stage.CATALOG_WRITTEN.value),
+            DatasetType.QUOTES: str(Stage.CATALOG_WRITTEN.value),
+            DatasetType.MBP1: str(Stage.CATALOG_WRITTEN.value),
+            DatasetType.TBBO: str(Stage.CATALOG_WRITTEN.value),
+            DatasetType.FEATURES: str(Stage.FEATURE_COMPUTED.value),
+            DatasetType.PREDICTIONS: str(Stage.PREDICTION_EMITTED.value),
+            DatasetType.SIGNALS: str(Stage.SIGNAL_EMITTED.value),
         }
-        return stage_map.get(dataset_type, Stage.DATA_INGESTED.value)
+        return stage_map.get(dataset_type, str(Stage.DATA_INGESTED.value))
 
     # ------------------------------ event helpers ------------------------------
     def _emit_partial_event(
@@ -1970,13 +1971,15 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         count: int,
         reason: str,
     ) -> None:
-        """Emit a partial processing event using centralized helper."""
+        """
+        Emit a partial processing event using centralized helper.
+        """
         try:
             # Use centralized helper for consistent event emission
             from ml.common.event_emitter import emit_dataset_event
 
-            # Normalize inputs
-            stage_enum = Stage(stage) if not isinstance(stage, Stage) else stage
+            # Normalize inputs (robust to historical aliases)
+            stage_enum = self._coerce_stage(stage)
             source_enum = Source(source) if not isinstance(source, Source) else source
 
             emit_dataset_event(
@@ -2010,13 +2013,15 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         count: int,
         error: str,
     ) -> None:
-        """Emit a failed processing event using centralized helper."""
+        """
+        Emit a failed processing event using centralized helper.
+        """
         try:
             # Use centralized helper for consistent event emission
             from ml.common.event_emitter import emit_dataset_event
 
-            # Normalize inputs
-            stage_enum = Stage(stage) if not isinstance(stage, Stage) else stage
+            # Normalize inputs (robust to historical aliases)
+            stage_enum = self._coerce_stage(stage)
             source_enum = Source(source) if not isinstance(source, Source) else source
 
             emit_dataset_event(
@@ -2036,6 +2041,57 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
             )
         except Exception:
             logger.warning("Failed to emit failed event", exc_info=True)
+
+    @staticmethod
+    def _coerce_stage(stage: str | Stage) -> Stage:
+        """
+        Coerce a string or Stage-like identifier to a valid Stage.
+
+        Accepts historical alias strings used in early tests/configs and maps them to
+        the canonical Stage values. Falls back to DATA_INGESTED if unknown to ensure
+        centralized helper emission still proceeds.
+
+        Parameters
+        ----------
+        stage : str | Stage
+            Stage enum or string alias/value.
+
+        Returns
+        -------
+        Stage
+            Canonical Stage enum value.
+
+        """
+        if isinstance(stage, Stage):
+            return stage
+        s_raw = str(stage).strip()
+        if not s_raw:
+            return Stage.DATA_INGESTED
+        s = s_raw.upper()
+        # Direct match on enum values
+        try:
+            return Stage(s)
+        except Exception:
+            pass
+        # Historical aliases (lowercased for matching)
+        sl = s_raw.lower()
+        if sl in {
+            "feature_engineering",
+            "features_engineered",
+            "features_computed",
+            "feature_computed",
+        }:
+            return Stage.FEATURE_COMPUTED
+        if sl in {"model_inference", "prediction", "predictions_emitted", "prediction_emitted"}:
+            return Stage.PREDICTION_EMITTED
+        if sl in {"data_ingested", "ingested", "ingest", "data_ingest"}:
+            return Stage.DATA_INGESTED
+        if sl in {"catalog_written", "catalog_write", "catalog"}:
+            return Stage.CATALOG_WRITTEN
+        if sl in {"signal_emitted", "signal_generation", "signal_generated", "emit_signal"}:
+            return Stage.SIGNAL_EMITTED
+        # Conservative default
+        return Stage.DATA_INGESTED
 
     def _apply_validation_rule(
         self,
@@ -2368,10 +2424,9 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                 # Check all fields
                 from ml.common.dataframe_utils import column_nulls as _col_nulls
                 from ml.common.dataframe_utils import total_nulls as _total
+
                 total_nulls = _total(df_any)
-                fields_with_nulls = [
-                    col for col in df_any.columns if _col_nulls(df_any, col) > 0
-                ]
+                fields_with_nulls = [col for col in df_any.columns if _col_nulls(df_any, col) > 0]
 
                 if total_nulls > 0:
                     return ValidationViolation(
@@ -2386,6 +2441,7 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
                 # Check specific field
                 if field_name in df_any.columns:
                     from ml.common.dataframe_utils import column_nulls as _col_nulls
+
                     null_count = _col_nulls(df_any, field_name)
 
                     if null_count > 0:
@@ -2418,8 +2474,12 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
             return None
 
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
         current_ns = _sanitize(int(time.time_ns()), context="data_store._validate_lateness:now")
-        latest_ts = _sanitize(int(cast(Any, df)[ts_field].max()), context="data_store._validate_lateness:latest")
+        latest_ts = _sanitize(
+            int(cast(Any, df)[ts_field].max()),
+            context="data_store._validate_lateness:latest",
+        )
 
         lateness_ns = current_ns - latest_ts
 
@@ -2794,7 +2854,11 @@ class DataStore(MLComponentMixin, BusPublisherMixin, DataRegistryMixin):
         window_ns = self.schema_migration_window_hours * 3600 * 1e9
 
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize2
-        current_time = _sanitize2(int(time.time_ns()), context="data_store._is_in_migration_window:now")
+
+        current_time = _sanitize2(
+            int(time.time_ns()),
+            context="data_store._is_in_migration_window:now",
+        )
         if current_time - migration_start < window_ns:
             return True
         else:

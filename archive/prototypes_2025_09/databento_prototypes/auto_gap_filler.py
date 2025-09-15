@@ -226,7 +226,7 @@ def download_gap(client: db.Historical, download_info: dict, dry_run: bool = Fal
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             df = client.timeseries.get_range(
-                dataset="XNAS.ITCH",
+                dataset="EQUS.MINI",
                 symbols=[symbol],
                 schema=schema,
                 start=start_date,

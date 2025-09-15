@@ -16,26 +16,32 @@ import numpy.typing as npt
 from ml._imports import HAS_PANDAS
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
-from ml._imports import pd
-from ml._imports import pl
+from ml._imports import pd as pd_runtime
+from ml._imports import pl as pl_runtime
+from ml.ml_types import DataFrameLike
+
+
+# Runtime aliases for convenience in implementations
+pd = pd_runtime
+pl = pl_runtime
 
 
 if TYPE_CHECKING:
-    import pandas as pd
-    import polars as pl
+    import pandas as _pd
+    import polars as _pl
 
 
 DirectionType = Literal["backward", "forward", "nearest"]
 
 
 def asof_join(
-    left: pl.DataFrame | pd.DataFrame,
-    right: pl.DataFrame | pd.DataFrame,
+    left: DataFrameLike,
+    right: DataFrameLike,
     on: str | list[str],
     by: str | list[str] | None = None,
     tolerance: str | None = None,
     direction: DirectionType = "backward",
-) -> pl.DataFrame | pd.DataFrame:
+) -> DataFrameLike:
     """
     Perform point-in-time correct as-of join between two dataframes.
 
@@ -83,26 +89,26 @@ def asof_join(
 
     """
     # Check dependencies
-    if isinstance(left, pl.DataFrame):
+    if pl_runtime is not None and isinstance(left, pl_runtime.DataFrame):
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
-        right_pl = cast(pl.DataFrame, right)
+        right_pl = cast("_pl.DataFrame", right)
         return _asof_join_polars(left, right_pl, on, by, tolerance, direction)
     else:
         if not HAS_PANDAS:
             check_ml_dependencies(["pandas"])
-        right_pd = cast(pd.DataFrame, right)
+        right_pd = cast("_pd.DataFrame", right)
         return _asof_join_pandas(left, right_pd, on, by, tolerance, direction)
 
 
 def _asof_join_polars(
-    left: pl.DataFrame,
-    right: pl.DataFrame,
+    left: _pl.DataFrame,
+    right: _pl.DataFrame,
     on: str | list[str],
     by: str | list[str] | None,
     tolerance: str | None,
     direction: DirectionType,
-) -> pl.DataFrame:
+) -> _pl.DataFrame:
     """
     Polars implementation of as-of join.
     """
@@ -134,13 +140,13 @@ def _asof_join_polars(
 
 
 def _asof_join_pandas(
-    left: pd.DataFrame,
-    right: pd.DataFrame,
+    left: _pd.DataFrame,
+    right: _pd.DataFrame,
     on: str | list[str],
     by: str | list[str] | None,
-    tolerance: str | pd.Timedelta | None,
+    tolerance: str | _pd.Timedelta | None,
     direction: DirectionType,
-) -> pd.DataFrame:
+) -> _pd.DataFrame:
     """
     Pandas implementation of as-of join.
     """
@@ -178,12 +184,12 @@ def _asof_join_pandas(
 
 
 def embargo_window(
-    df: pl.DataFrame | pd.DataFrame,
+    df: DataFrameLike,
     event_timestamps: list[int] | npt.NDArray[np.int64],
     embargo_before_ns: int = 3600_000_000_000,  # 1 hour default
     embargo_after_ns: int = 3600_000_000_000,
     timestamp_col: str = "ts_event",
-) -> pl.DataFrame | pd.DataFrame:
+) -> DataFrameLike:
     """
     Apply embargo windows around significant events to prevent information leakage.
 
@@ -224,7 +230,7 @@ def embargo_window(
     >>> # Rows at timestamps 200 and 300 will be marked as embargoed
 
     """
-    if isinstance(df, pl.DataFrame):
+    if pl_runtime is not None and isinstance(df, pl_runtime.DataFrame):
         return _embargo_window_polars(
             df,
             event_timestamps,
@@ -243,12 +249,12 @@ def embargo_window(
 
 
 def _embargo_window_polars(
-    df: pl.DataFrame,
+    df: _pl.DataFrame,
     event_timestamps: list[int] | npt.NDArray[np.int64],
     embargo_before_ns: int,
     embargo_after_ns: int,
     timestamp_col: str,
-) -> pl.DataFrame:
+) -> _pl.DataFrame:
     """
     Polars implementation of embargo window.
     """
@@ -269,12 +275,12 @@ def _embargo_window_polars(
 
 
 def _embargo_window_pandas(
-    df: pd.DataFrame,
+    df: _pd.DataFrame,
     event_timestamps: list[int] | npt.NDArray[np.int64],
     embargo_before_ns: int,
     embargo_after_ns: int,
     timestamp_col: str,
-) -> pd.DataFrame:
+) -> _pd.DataFrame:
     """
     Pandas implementation of embargo window.
     """
@@ -301,8 +307,8 @@ def _embargo_window_pandas(
 
 
 def validate_no_lookahead(
-    features_df: pl.DataFrame | pd.DataFrame,
-    targets_df: pl.DataFrame | pd.DataFrame,
+    features_df: DataFrameLike,
+    targets_df: DataFrameLike,
     feature_timestamp_col: str = "ts_event",
     target_timestamp_col: str = "ts_event",
 ) -> bool:
@@ -360,12 +366,12 @@ def validate_no_lookahead(
 
 
 def create_lag_features(
-    df: pl.DataFrame | pd.DataFrame,
+    df: DataFrameLike,
     columns: list[str],
     lags: list[int],
     group_by: str | list[str] | None = None,
     timestamp_col: str = "ts_event",
-) -> pl.DataFrame | pd.DataFrame:
+) -> DataFrameLike:
     """
     Create lagged features ensuring point-in-time correctness.
 
@@ -388,19 +394,19 @@ def create_lag_features(
         Original dataframe with added lag features
 
     """
-    if isinstance(df, pl.DataFrame):
+    if pl_runtime is not None and isinstance(df, pl_runtime.DataFrame):
         return _create_lag_features_polars(df, columns, lags, group_by, timestamp_col)
     else:
         return _create_lag_features_pandas(df, columns, lags, group_by, timestamp_col)
 
 
 def _create_lag_features_polars(
-    df: pl.DataFrame,
+    df: _pl.DataFrame,
     columns: list[str],
     lags: list[int],
     group_by: str | list[str] | None,
     timestamp_col: str,
-) -> pl.DataFrame:
+) -> _pl.DataFrame:
     """
     Polars implementation of lag features.
     """
@@ -421,12 +427,12 @@ def _create_lag_features_polars(
 
 
 def _create_lag_features_pandas(
-    df: pd.DataFrame,
+    df: _pd.DataFrame,
     columns: list[str],
     lags: list[int],
     group_by: str | list[str] | None,
     timestamp_col: str,
-) -> pd.DataFrame:
+) -> _pd.DataFrame:
     """
     Pandas implementation of lag features.
     """

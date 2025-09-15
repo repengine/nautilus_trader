@@ -15,6 +15,7 @@ migrated from the previous private modules:
 - _batch_utils.py
 
 The public surface remains unchanged via shims that re-export from here.
+
 """
 
 from __future__ import annotations
@@ -154,7 +155,9 @@ def publish_batch_and_rows(
 
 
 class BufferedStoreMixin:
-    """Buffered flush behavior, time-based flush decision, and health check."""
+    """
+    Buffered flush behavior, time-based flush decision, and health check.
+    """
 
     _write_buffer: list[Any]
     _last_flush_ns: int
@@ -213,7 +216,9 @@ logger = logging.getLogger(__name__)
 
 
 class EngineInitMixin:
-    """Initialize SQLAlchemy engine + metadata and call `_setup_tables()`."""
+    """
+    Initialize SQLAlchemy engine + metadata and call `_setup_tables()`.
+    """
 
     connection_string: str | None
     engine: Engine
@@ -237,8 +242,11 @@ class EngineInitMixin:
 # Health mixin (from _health_mixin)
 # =============================================================================
 
+
 class HealthMixin:
-    """Standard health checks and metrics for stores."""
+    """
+    Standard health checks and metrics for stores.
+    """
 
     engine: Any
 
@@ -325,13 +333,16 @@ class HealthMixin:
 # =============================================================================
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from nautilus_trader.common.clock import Clock
+
     from ml.common.message_bus import MessagePublisherProtocol
     from ml.registry.persistence import PersistenceConfig
-    from nautilus_trader.common.clock import Clock
 
 
 class StoreInitMixin:
-    """Shared constructor wiring for stores."""
+    """
+    Shared constructor wiring for stores.
+    """
 
     def _init_store_common(
         self: Any,
@@ -348,8 +359,10 @@ class StoreInitMixin:
         persistence_manager: object | None,
     ) -> None:
         cfg = persistence_config
-        if connection_string and not cfg and (
-            "postgresql://" in connection_string or "postgres://" in connection_string
+        if (
+            connection_string
+            and not cfg
+            and ("postgresql://" in connection_string or "postgres://" in connection_string)
         ):
             from ml.registry.persistence import BackendType
             from ml.registry.persistence import PersistenceConfig as _PC
@@ -398,7 +411,9 @@ class StoreInitMixin:
 
 
 class ReadQueryMixin:
-    """Helpers for read-side queries and schema-qualified names."""
+    """
+    Helpers for read-side queries and schema-qualified names.
+    """
 
     engine: Any
 
@@ -480,7 +495,7 @@ class ReadQueryMixin:
             else:
                 # Detect mocks and degrade to engine path for concrete values
                 try:
-                    from unittest.mock import MagicMock as _MM  # type: ignore
+                    from unittest.mock import MagicMock as _MM
 
                     if isinstance(row2, _MM):
                         row2 = None
@@ -520,7 +535,7 @@ class ReadQueryMixin:
                 rows2 = []
             else:
                 try:
-                    from unittest.mock import MagicMock as _MM  # type: ignore
+                    from unittest.mock import MagicMock as _MM
 
                     if isinstance(rows2, _MM) or (rows2 and isinstance(rows2[0], _MM)):
                         rows2 = []
@@ -543,7 +558,9 @@ class ReadQueryMixin:
 
 
 class DataRegistryMixin:
-    """Lazy DataRegistry initialization with progressive fallback."""
+    """
+    Lazy DataRegistry initialization with progressive fallback.
+    """
 
     _data_registry: Any | None = None
     connection_string: str | None
@@ -581,8 +598,14 @@ class DataRegistryMixin:
 
         try:
             json_cfg = PersistenceConfig(backend=BackendType.JSON, json_path=registry_path)
-            self._data_registry = DataRegistry(registry_path=registry_path, persistence_config=json_cfg)
-            logger.debug("Initialized DataRegistry (JSON%s)", " after PG fail" if tried_postgres else "")
+            self._data_registry = DataRegistry(
+                registry_path=registry_path,
+                persistence_config=json_cfg,
+            )
+            logger.debug(
+                "Initialized DataRegistry (JSON%s)",
+                " after PG fail" if tried_postgres else "",
+            )
         except Exception as e:
             logger.warning("Failed to initialize JSON DataRegistry: %s", e)
             self._data_registry = None
@@ -594,8 +617,11 @@ class DataRegistryMixin:
 # Upsert mixin (from _upsert_mixin)
 # =============================================================================
 
+
 class SQLUpsertMixin:
-    """Reusable upsert-and-publish operation."""
+    """
+    Reusable upsert-and-publish operation.
+    """
 
     def _execute_upsert_and_publish(
         self,

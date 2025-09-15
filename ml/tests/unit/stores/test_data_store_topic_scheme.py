@@ -78,6 +78,7 @@ def test_data_store_stage_first_topics(tmp_path) -> None:
             connection_string=f"sqlite:///{tmp_path}/ds.db",
             registry=StubRegistry(),
             publisher=pub,
+            enable_publishing=True,
         )
         store.emit_event(
             dataset_id="features",

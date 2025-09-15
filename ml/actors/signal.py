@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, cast
 import msgspec
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
@@ -72,7 +73,6 @@ from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.utils import assert_features_compatible
-from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
@@ -990,7 +990,9 @@ class MLSignalActor(BaseMLInferenceActor):
         # - If 'persist_features' explicitly provided, honor it.
         # - Else, if a DB connection is provided (non-empty), enable persistence by default.
         # - Else, do not persist.
-        db_conn_val = str(getattr(config, "db_connection", "")) if hasattr(config, "db_connection") else ""
+        db_conn_val = (
+            str(getattr(config, "db_connection", "")) if hasattr(config, "db_connection") else ""
+        )
         if hasattr(config, "persist_features"):
             self._persist_features = bool(getattr(config, "persist_features"))
         else:

@@ -76,7 +76,7 @@ class ParquetCatalogRawReader(RawReaderProtocol):
             from ml._imports import HAS_POLARS
             from ml._imports import pl as _pl
 
-            if HAS_POLARS:
+            if HAS_POLARS and _pl is not None:
                 return cast(DataFrameLike, _pl.DataFrame({}))
         except Exception:
             pass
@@ -110,4 +110,3 @@ __all__ = [
     "RawIngestionWriterProtocol",
     "RawReaderProtocol",
 ]
-

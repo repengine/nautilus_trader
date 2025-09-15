@@ -38,7 +38,7 @@ def test_datasets():
 
     # Datasets to try
     datasets = [
-        "XNAS.ITCH",  # Nasdaq TotalView-ITCH
+        "EQUS.MINI",  # US Equities mini dataset (standard plan)
         "GLBX.MDP3",  # CME Globex MDP 3.0
         "OPRA.PILLAR",  # OPRA
         "DBEQ.BASIC",  # Databento Equities Basic
@@ -83,7 +83,7 @@ def test_datasets():
     try:
         # This is what worked in the collector.py
         data = client.timeseries.get_range(
-            dataset="XNAS.ITCH",
+            dataset="EQUS.MINI",
             symbols=["AAPL"],
             start=datetime(2024, 1, 1),
             end=datetime(2024, 1, 31),
@@ -92,7 +92,7 @@ def test_datasets():
         )
 
         df = data.to_df()
-        print(f"XNAS.ITCH with AAPL: {len(df)} rows")
+        print(f"EQUS.MINI with AAPL: {len(df)} rows")
 
         if not df.empty:
             print("\nSample data:")

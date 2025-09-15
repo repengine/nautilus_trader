@@ -15,6 +15,10 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
+
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.config.base import MLFeatureConfig
@@ -23,9 +27,6 @@ from ml.observability.bootstrap import auto_start_if_configured
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
 
 
 class MLSignalActorNode:

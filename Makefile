@@ -55,6 +55,17 @@ install-just-deps:  #-- Install dependencies only without building the package
 	$(info $(M) Installing dependencies only without building the package...)
 	$Q uv sync --active --all-groups --all-extras --no-install-package nautilus_trader
 
+# == Poetry-backed installs (use Poetry as the source of truth for groups)
+.PHONY: install-poetry-tests
+install-poetry-tests:  #-- Install dev+test groups via Poetry into .venv (preferred for full pytest)
+	$(info $(M) Installing dev+test groups with Poetry into .venv...)
+	$Q POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --with dev,test
+
+.PHONY: install-poetry-all
+install-poetry-all:  #-- Install main+dev+test (and extras) via Poetry into .venv
+	$(info $(M) Installing all groups with Poetry into .venv...)
+	$Q POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --with dev,test --all-extras
+
 #== Build
 
 .PHONY: build
@@ -526,10 +537,13 @@ pytest-ml-fast:  #-- Quick ML test run (smoke + unit + core + actors + features)
 		-k "smoke or unit or actors or features or core or EngineManagerIntegration" -v ml/tests
 
 .PHONY: pytest-ml-coverage
-pytest-ml-coverage:  #-- Run all ML tests with coverage (no DB startup)
+pytest-ml-coverage:  #-- Run ML tests with coverage (exclude perf), then guardrails baseline
+	# Coverage run (exclude performance/prototype to keep stable and fast)
 	uv run --active --no-sync pytest -n logical --dist=loadgroup \
 		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
-		-k "not tft" -v ml/tests
+		-m "not performance and not prototype" -k "not tft" -v ml/tests || exit $$?
+	# Performance guardrails (no coverage; produce baseline report)
+	ML_REPORT_FILE=ml/tests/validation_reports/performance-guardrails.json $(MAKE) pytest-ml-guardrails || exit $$?
 
 #== Python Testing
 

@@ -9,6 +9,7 @@ provides flags for feature availability.
 from __future__ import annotations
 
 import os
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 
@@ -23,9 +24,9 @@ except Exception:
 
 
 # Early placeholders to avoid attribute errors during partial initialization
-pl = None  # type: ignore[assignment]
-pd = None  # type: ignore[assignment]
-ort = None  # type: ignore[assignment]
+pl: ModuleType | None = None
+pd: ModuleType | None = None
+ort: ModuleType | None = None
 HAS_PANDAS = False
 
 
@@ -38,11 +39,11 @@ if TYPE_CHECKING:
     import mlflow
     import onnx
     import onnxmltools
-    import onnxruntime as ort
+    import onnxruntime as _ort  # noqa: F401
     import optuna
-    import pandas as pd
+    import pandas as _pd  # noqa: F401
     import pandas_market_calendars as mcal
-    import polars as pl
+    import polars as _pl  # noqa: F401
     import skl2onnx
     import sklearn
     import torch
@@ -51,8 +52,9 @@ if TYPE_CHECKING:
 
 # ONNX Runtime
 try:
-    import onnxruntime as ort
+    import onnxruntime as _ort_runtime
 
+    ort = _ort_runtime
     HAS_ONNX = True
     ONNX_IMPORT_ERROR = None
 except ImportError as e:
@@ -75,8 +77,9 @@ except ImportError as e:
 
 # Polars
 try:
-    import polars as pl
+    import polars as _pl_runtime
 
+    pl = _pl_runtime
     HAS_POLARS = True
     POLARS_IMPORT_ERROR = None
 except ImportError as e:
@@ -180,8 +183,9 @@ except ImportError as e:
 
 # Pandas (used in some ML modules)
 try:
-    import pandas as pd
+    import pandas as _pd_runtime
 
+    pd = _pd_runtime
     HAS_PANDAS = True
     PANDAS_IMPORT_ERROR = None
 except ImportError as e:

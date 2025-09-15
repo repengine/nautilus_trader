@@ -1,4 +1,3 @@
-# ruff: noqa: RUF022
 """
 Observability module for ML pipeline monitoring and telemetry.
 

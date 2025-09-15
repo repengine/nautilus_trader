@@ -32,8 +32,8 @@ from typing import cast
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import polars as pl
-
 from ml.data.collectors.production_collector import ProductionDataCollector
+
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 

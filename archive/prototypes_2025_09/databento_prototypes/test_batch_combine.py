@@ -31,7 +31,7 @@ def test_batch_combine():
         for start, end in batches:
             print(f"Downloading batch: {start.date()} to {end.date()}")
             df = client.timeseries.get_range(
-                dataset="XNAS.ITCH",
+                dataset="EQUS.MINI",
                 symbols=["AAPL"],
                 schema="ohlcv-1d",
                 start=start,

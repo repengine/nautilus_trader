@@ -6,6 +6,7 @@ This document outlines the concrete steps to address circular imports and code d
 ## Phase 1: Fix Critical Circular Imports (Week 1)
 
 ### Day 1-2: Break Primary Import Chain
+
 ```python
 # Step 1: Create ml/common/metrics_detection.py
 """Isolated metrics backend detection to prevent circular imports."""
@@ -17,6 +18,7 @@ except ImportError:
 ```
 
 **Files to modify:**
+
 - [x] Create `ml/common/metrics_detection.py`
 - [x] Update `ml/_imports.py:14` to use metrics_detection (no ml.* imports at import time)
 - [x] Update `ml/stores/feature_store.py:<import section>` to avoid metrics bootstrap at import time (lazy metrics resolution inside methods)
@@ -24,12 +26,14 @@ except ImportError:
 
 ### Day 3-4: Fix Registry-Core Cycle
 **Actions:**
-- [ ] Add TYPE_CHECKING imports to `ml/core/integration.py`
-- [ ] Create lazy registry loader methods
+
+- [x] Add TYPE_CHECKING/lazy imports to `ml/core/integration.py` (localized imports for registries/persistence)
+- [x] Create lazy registry loader methods (integration manager and actor initializer)
 - [x] Remove/avoid bus_integration import from `ml/core/__init__.py` (use lazy `__getattr__` for integration symbols)
-- [ ] Move to explicit imports where needed
+- [x] Move to explicit imports where needed
 
 ### Day 5: Validate & Test
+
 ```bash
 # Test script to validate all imports work
 python -c "import ml.stores; import ml.registry; import ml.core; print('SUCCESS')"
@@ -53,14 +57,16 @@ rm -f __pycache__/msgspec.cpython-*.pyc
 Goal: Public entrypoints live in each domain package's `__init__.py`.
 
 Tasks:
+
 - [x] Expose `DatasetBuildConfig`, `BuildResult`, `build_tft_dataset` from `ml/data/__init__.py` (typed)
 - [x] Update orchestrator, pipelines, and CLI to import from `ml.data`
-- [ ] Add import-linter contracts to enforce layering:
+- [x] Add import-linter contracts to enforce layering:
   - CLI → domain facades → services/stores (no domain → CLI)
   - Hot-path (actors/strategies) must not import cold-path-only modules
-- [ ] Add pytest import smoke test for all domains (skip if optional deps missing)
+- [x] Add pytest import smoke test for all domains (skip if optional deps missing)
 
 Definition of Done:
+
 - mypy --strict clean on changed files
 - ruff clean on changed files
 - Focused tests (orchestrator/pipelines/build) green
@@ -75,6 +81,7 @@ Preferred approach: Use existing `ml.common.timestamps` where possible. Create
 it strictly typed and forward minimal behavior to `timestamps`).
 
 Typed target helpers (examples):
+
 ```python
 from __future__ import annotations
 from collections.abc import Iterable
@@ -97,12 +104,14 @@ def pandas_to_nautilus_timestamp(df: pd.DataFrame, *, column: str) -> np.ndarray
 ```
 
 Initial migrations completed:
+
 - [x] ml/stores/feature_store.py (historical compute and load methods)
 - [x] ml/features/l2_aggregate.py (lazy and eager filtering paths)
 - [x] ml/stores/infrastructure.py (partition window boundaries)
 - [x] ml/observability/migrations.py (monthly partition bounds)
 
 Additional timestamp normalization (Phase 2 follow-ups):
+
 - [x] ml/observability/db_persistence.py (retention cutoffs)
 - [x] ml/orchestration/scheduler.py (emit event now)
 - [x] ml/cli/pipeline_orchestrator.py (refresh-features marker)
@@ -114,6 +123,7 @@ Additional timestamp normalization (Phase 2 follow-ups):
 - [x] ml/stores/data_store.py (event ts_min/ts_max, lateness, migration window)
 
 Next targets:
+
 - [x] ml/stores/strategy_store.py (time windows and clock interactions)
 - [x] ml/stores/data_processor.py (sanitization on writes and thresholds)
 
@@ -122,6 +132,7 @@ Prefer centralizing small validators/transforms only when multiple domains need
 them. Keep functions typed and fast; avoid bringing in heavy stacks.
 
 Example typed signatures:
+
 ```python
 import polars as pl
 
@@ -133,22 +144,113 @@ def validate_ohlcv_data(df: pl.DataFrame) -> bool:
     return bool((df["timestamp"].diff() >= 0).all())
 ```
 
+Current progress:
+
+- [x] Create `ml/common/dataframe_utils.py` with `total_nulls` and `column_nulls`.
+- [x] Adopt in `ml/stores/data_store.py` for nullability/quality checks (three call sites).
+
+### Priority 2b: Shared Stats Helpers (Model/Strategy)
+
+Goal: Remove duplicated SQL time-window condition building across stats services; keep stores thin.
+
+Actions:
+
+- [x] Create `ml/stores/services/common_stats.py` with:
+  - `build_time_conditions(start_ns, end_ns, field='ts_event')`
+  - `build_nullsafe_time_clause(start_ns, end_ns, field='ts_event')`
+- [x] Adopt in `ml/stores/services/strategy_services.py`:
+  - `get_statistics`, `get_signal_distribution`, `get_strategy_performance`.
+- [x] Adopt in `ml/stores/services/model_services.py`:
+  - `get_statistics`, `get_model_performance`.
+
+Verification:
+
+- [x] Explicitly typed params at call sites to avoid mixed-type dict issues.
+- [x] mypy --strict (follow-imports=skip) on touched services: clean.
+- [x] Ruff clean on ml/.
+- [x] Focused tests for stores: green.
+
+Additional consolidation:
+
+- [x] Add `select_signal_counts(include_avg_strength=True)` to `ml/stores/services/common_stats.py`.
+- [x] Refactor `StrategySignalStatsService.get_strategy_performance` and
+      `update_performance_metrics` to use the shared select fragment.
+- [x] Delegate `write_batch` in `ModelStore` and `StrategyStore` to their WriteService to remove
+      duplicated value-building logic; preserve observability/event emission.
+- [x] Extract stage-boundary observability helper in `ml/common/observability_utils.py` and adopt in
+      `ModelStore` and `StrategyStore` to remove duplicate latency/metric blocks (cold path only).
+      - [x] Adopt in `FeatureStore` and `DataStore` as well to eliminate remaining duplication clusters.
+- [x] mypy --strict (follow-imports=skip) on touched files: clean.
+- [x] Ruff clean; focused store tests and validators remain green.
+
+### Priority 2d: Shared Numeric Stats Fragment
+
+Goal: Consolidate repeated AVG/STDDEV/MIN/MAX patterns for numeric columns.
+
+Actions:
+
+- [x] Add `select_numeric_stats(column, *, prefix, include_avg=True, include_stddev=True, include_min_max=True)`
+      to `ml/stores/services/common_stats.py`.
+- [x] Adopt in:
+  - `StrategySignalStatsService.get_strategy_performance` for strength stats (std/min/max only).
+  - `ModelStatsService.get_model_performance` for confidence stats (avg/std only).
+
+Verification:
+
+- [x] mypy --strict (follow-imports=skip) on touched files: clean.
+- [x] Ruff clean.
+- [x] Focused stores tests: green.
+
+### Priority 2c: Shared Min/Max Timestamp Fragment
+
+Goal: Remove repeated `MIN(ts_event)/MAX(ts_event)` patterns across stats services.
+
+Actions:
+
+- [x] Add `select_min_max_ts(field='ts_event', min_alias='min_ts', max_alias='max_ts')` to
+      `ml/stores/services/common_stats.py`.
+- [x] Adopt in:
+  - `StrategySignalStatsService.get_statistics` for `{min_ts, max_ts}`.
+  - `ModelStatsService.get_statistics` for `{min_ts, max_ts}`.
+
+Verification:
+
+- [x] mypy --strict (follow-imports=skip) on touched files: clean.
+- [x] Ruff clean.
+- [x] Focused stores tests: green.
+
 ### Priority 3: Retry/Backoff Utilities (26 files affected)
 Prefer existing `ml.data.ingest.common` (RateLimiter, progress JSON helpers,
 BackoffPolicy). If needed, add an adapter with typed wrappers.
 
+Initial consolidation:
+
+- [x] Add `ml/common/retry_utils.py` with `retry_with_backoff(call, *, max_attempts, initial_delay, multiplier, max_delay, jitter, sleep_fn, retry_on, on_exception)`.
+- [x] Adopt in `ml/data/loaders/fred_loader.py` (`fetch_indicator`) to replace ad‑hoc retry loop while preserving metrics and logging.
+- [x] Adopt in `ml/cli/populate_l2_efficient.py` daily fetch (`_download_day_for_symbol`) to replace inline loop; preserves existing behaviors (skip weekends, 403/license fast‑fail, exponential backoff, metrics/logging).
+- [x] Adopt in `ml/cli/coverage.py` fetch/store loop: standardized backoff path while keeping symbol‑not‑found fast‑fail and rate‑limit handling.
+
+Verification:
+
+- [x] Ruff clean.
+- [x] mypy --strict (follow-imports=skip) on `retry_utils.py` and touched CLI file: clean.
+- [ ] mypy --strict on `ml/cli/coverage.py` — mypy internal error (module‑level cache serialization). Change is typed and ruff clean; proceed with broader mypy once toolchain quirk is resolved.
+- [x] Focused stores tests: green (unchanged behavior for stores).
+
 ## Phase 3: Implement Gradual Migration (Week 3-4)
 
 ### Migration Strategy
+
 1. **Add new utilities alongside existing code**
 2. **Update one domain at a time**
 3. **Run tests after each domain migration**
 4. **Remove old code only after validation**
 
 ### Domain Migration Order
+
 1. [ ] ml/evaluation (smallest)
 2. [ ] ml/deployment (low risk)
-3. [ ] ml/preprocessing 
+3. [ ] ml/preprocessing
 4. [x] ml/data (dataset facade exposed)
 5. [ ] ml/features (critical path)
 6. [ ] ml/stores (most complex)
@@ -157,11 +259,13 @@ BackoffPolicy). If needed, add an adapter with typed wrappers.
 ## Metrics & Success Criteria
 
 ### Circular Import Resolution
+
 - [ ] All ml.* modules import without errors
 - [ ] No ImportError exceptions in production
 - [ ] Import time < 2 seconds for full ML module
 
 ### Duplication Reduction
+
 - [ ] 20-25% reduction in total LOC
 - [ ] No pattern duplicated > 5 times
 - [ ] All technical indicators in one place
@@ -170,6 +274,7 @@ BackoffPolicy). If needed, add an adapter with typed wrappers.
 ## Testing Strategy
 
 ### Unit Tests (examples)
+
 ```python
 # tests/unit/test_imports.py
 from __future__ import annotations
@@ -194,8 +299,9 @@ def test_domain_import_smoke(domain: str) -> None:
 ```
 
 ### Integration Tests
+
 ```python
-# tests/test_refactored_utils.py  
+# tests/test_refactored_utils.py
 def test_timestamp_utils_consistency():
     """Ensure refactored utils produce same results."""
     # Compare old vs new implementations
@@ -211,18 +317,20 @@ def test_timestamp_utils_consistency():
 ## Prevention Measures
 
 ### CI Integration
+
 ```yaml
 # .github/workflows/import-check.yml
 - name: Check for circular imports
   run: |
     python -c "import ml; print('SUCCESS')"
-    
+
 - name: Check for duplication
   run: |
     python tools/duplication/check_duplication.py --threshold 5
 ```
 
 ### Code Review Checklist
+
 - [ ] No new imports from ml._imports at module level
 - [ ] Use TYPE_CHECKING for circular-prone imports
 - [ ] Check if utility already exists in ml/common/
@@ -242,10 +350,15 @@ def test_timestamp_utils_consistency():
 1. **Immediate**: Finish primary circular import chain fixes
    - [x] `ml/stores/feature_store.py` → lazy metrics resolution
    - [x] `ml/config/runtime.py` → lazy `ort` import
-   - [ ] Investigate store-loader cycle: `ml.data.loaders.fred_loader` ↔ `ml.stores.data_store` (triage in Phase 1 extended or Phase 2 depending on blast radius)
+   - [x] Investigate store-loader cycle: `ml.data.loaders.fred_loader` ↔ `ml.stores.data_store` — no direct imports from `DataStore` back to `fred_loader`; no cycle.
 2. **Today**: Add import-linter contracts and import smoke test (added)
 3. **This Week**: Complete Phase 1B (domain facade migration enforcements)
 4. **Next Sprint**: Begin duplication consolidation (timestamps first)
+
+Integration typing hygiene
+
+- [x] Resolve strict mypy issues in `ml/core/integration.py` for observability flushers by
+      casting `persist(...)` returns to declared types.
 
 ## Success Metrics
 

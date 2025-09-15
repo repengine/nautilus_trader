@@ -33,7 +33,13 @@ def to_session_options(cfg: OnnxRuntimeConfig) -> tuple[object, list[str]]:
     Convert OnnxRuntimeConfig into ORT SessionOptions and provider list.
     """
     # Lazy import to avoid import-time cycles
-    from ml._imports import ort  # type: ignore
+    from ml._imports import HAS_ONNX
+    from ml._imports import ONNX_IMPORT_ERROR
+    from ml._imports import ort
+
+    if not HAS_ONNX or ort is None:  # Guard for optional dependency
+        err = ONNX_IMPORT_ERROR or ImportError("onnxruntime not available")
+        raise ImportError(f"ONNX Runtime not available: {err}")
 
     session_options = ort.SessionOptions()
     level_map = {

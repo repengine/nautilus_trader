@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from typing import Protocol
 
     from ml.monitoring.collectors.features import FeatureEngineeringCollector
-    from ml.stores.protocols import FeatureStoreProtocol
+    from ml.stores.protocols import FeatureStoreStrictProtocol
 
     class ComputeTimerProtocol(Protocol):
         def __enter__(self) -> object: ...
@@ -630,7 +630,7 @@ class FeatureEngineer:
         self,
         config: FeatureConfig | None = None,
         metrics_collector: FeatureEngineeringCollector | None = None,
-        feature_store: FeatureStoreProtocol | None = None,
+        feature_store: FeatureStoreStrictProtocol | None = None,
     ) -> None:
         """
         Initialize feature engineer.
@@ -842,7 +842,9 @@ class FeatureEngineer:
                 and hasattr(features_df, "__class__")
                 and "pandas" in str(type(features_df))
             ):
-                return pl.from_pandas(cast(PandasDF, features_df))
+                _pl = pl
+                assert _pl is not None
+                return cast(PolarsDF, _pl.from_pandas(cast(PandasDF, features_df)))
         except Exception:
             return None
         return None
@@ -931,12 +933,15 @@ class FeatureEngineer:
         Create empty DataFrame with correct columns.
         """
         if POLARS_AVAILABLE:
-            return cast(DataFrameLike, pl.DataFrame({name: [] for name in feature_names}))
+            _pl = pl
+            assert _pl is not None
+            return cast(DataFrameLike, _pl.DataFrame({name: [] for name in feature_names}))
         else:
             if pd is None:
                 from ml._imports import check_ml_dependencies
 
                 check_ml_dependencies(["pandas"])
+            assert pd is not None
             return cast(DataFrameLike, pd.DataFrame(columns=feature_names))
 
     def _create_pandas_features_dataframe(
@@ -952,6 +957,7 @@ class FeatureEngineer:
             from ml._imports import check_ml_dependencies
 
             check_ml_dependencies(["pandas"])
+        assert pd is not None
         features_df = pd.DataFrame(feature_rows)
         # Add timestamp if available
         if "timestamp" in df.columns:
@@ -972,6 +978,7 @@ class FeatureEngineer:
             features_df = features_df[feature_names]
         except Exception:
             # If column selection fails, create a new DataFrame with the correct columns
+            assert pd is not None
             new_df = pd.DataFrame(index=features_df.index)
             for col in feature_names:
                 if col in features_df.columns:
@@ -983,7 +990,8 @@ class FeatureEngineer:
         for col in feature_names:
             if col in features_df.columns:
                 features_df[col] = features_df[col].astype("float32")
-        return features_df
+        from typing import cast as _cast
+        return _cast(PandasDF, features_df)
 
     def _create_features_dataframe(
         self: Self,
@@ -1002,21 +1010,27 @@ class FeatureEngineer:
         features_df: DataFrameLike
         if POLARS_AVAILABLE and hasattr(df, "__module__") and "polars" in df.__module__:
             # Input is a Polars DataFrame
-            features_df = cast(DataFrameLike, pl.DataFrame(feature_rows))
+            _pl = pl
+            assert _pl is not None
+            features_df = cast(DataFrameLike, _pl.DataFrame(feature_rows))
             # Add timestamp if available and not already present
             if "timestamp" in df.columns and "timestamp" not in features_df.columns:
-                features_df = features_df.with_columns(
-                    [cast(Any, df)["timestamp"].alias("timestamp")],
-                )  # type: ignore[operator]
+                features_df = cast(
+                    DataFrameLike,
+                    cast(Any, features_df).with_columns([
+                        cast(Any, df)["timestamp"].alias("timestamp")
+                    ]),
+                )
             # Ensure column order matches config
-            features_df = features_df.select(feature_names)  # type: ignore[operator]
+            features_df = cast(DataFrameLike, cast(Any, features_df).select(feature_names))
             # Cast to float32 to match online path dtype exactly
-            features_df = features_df.with_columns(
-                [
-                    pl.col(name).cast(pl.Float32)
+            features_df = cast(
+                DataFrameLike,
+                cast(Any, features_df).with_columns([
+                    _pl.col(name).cast(_pl.Float32)
                     for name in feature_names
-                    if name in features_df.columns
-                ],
+                    if name in cast(Any, features_df).columns
+                ]),
             )
         else:
             features_df = self._create_pandas_features_dataframe(
@@ -1024,7 +1038,7 @@ class FeatureEngineer:
                 df,
                 feature_names,
             )
-        return cast(DataFrameLike, features_df)
+        return features_df
 
     def _apply_scaler(
         self: Self,
@@ -1075,17 +1089,21 @@ class FeatureEngineer:
         if POLARS_AVAILABLE:
             # Convert column names to list to avoid pandas Index issues
             column_names = list(features_df.columns)
-            features_scaled = pl.DataFrame(features_scaled_array, schema=column_names)
+            _pl = pl
+            assert _pl is not None
+            fs_df = _pl.DataFrame(features_scaled_array, schema=column_names)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:
                 # Polars expects Expr/Series; use alias for stable column name
-                features_scaled = cast(
+                fs_df = cast(
                     PolarsDF,
-                    cast(Any, features_scaled).with_columns(
+                    cast(Any, fs_df).with_columns(
                         [cast(Any, df)["timestamp"].alias("timestamp")],
                     ),
                 )
+            features_scaled = cast(DataFrameLike, fs_df)
         else:
+            assert pd is not None
             features_scaled = pd.DataFrame(features_scaled_array, columns=features_df.columns)
             # Add timestamp back if it exists
             if "timestamp" in df.columns:

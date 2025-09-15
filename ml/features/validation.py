@@ -14,6 +14,9 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
@@ -22,12 +25,9 @@ from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
-from nautilus_trader.model.data import BarSpecification
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 POLARS_AVAILABLE = HAS_POLARS
@@ -601,10 +601,12 @@ class FeatureParityValidator:
 
         # Create DataFrame (Polars or Pandas based on availability)
         if POLARS_AVAILABLE:
+            _pl = pl
+            assert _pl is not None
             data = {
-                "timestamp": pl.datetime_range(
-                    start=pl.datetime(2024, 1, 1),
-                    end=pl.datetime(2024, 1, 1) + pl.duration(days=n_samples - 1),
+                "timestamp": _pl.datetime_range(
+                    start=_pl.datetime(2024, 1, 1),
+                    end=_pl.datetime(2024, 1, 1) + _pl.duration(days=n_samples - 1),
                     interval="1d",
                     eager=True,
                 ),
@@ -614,13 +616,14 @@ class FeatureParityValidator:
                 "close": closes,
                 "volume": volumes,
             }
-            return pl.DataFrame(data)
+            return _pl.DataFrame(data)
         else:
             from ml._imports import check_ml_dependencies
             from ml._imports import pd
 
             if pd is None:
                 check_ml_dependencies(["pandas"])
+            assert pd is not None
             data = {
                 "timestamp": pd.date_range(
                     start="2024-01-01",

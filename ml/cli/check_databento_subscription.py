@@ -177,7 +177,7 @@ class SubscriptionChecker:
 
         # Common US equity datasets
         test_datasets = [
-            "XNAS.ITCH",  # NASDAQ TotalView-ITCH
+            "EQUS.MINI",  # US Equities mini dataset (standard plan)
             "DBEQ.BASIC",  # Databento Equities Basic
             "OPRA.PILLAR",  # Options
         ]
@@ -259,7 +259,7 @@ class SubscriptionChecker:
 
         # Find the best dataset
         for dataset in self.results.get("available_datasets", []):
-            if dataset in ["XNAS.ITCH", "DBEQ.BASIC"]:
+            if dataset in ["EQUS.MINI", "DBEQ.BASIC"]:
                 safe_config["datasets"].append(dataset)
 
         # Recommend safe date ranges based on cost checks

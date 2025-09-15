@@ -3,8 +3,9 @@
 """
 Unit tests for registry-first training export and promotion.
 
-Tests the integration between training outputs and the ModelRegistry/FeatureRegistry
-to ensure proper model registration with feature parity validation.
+Tests the integration between training outputs and the ModelRegistry/FeatureRegistry to
+ensure proper model registration with feature parity validation.
+
 """
 
 import tempfile
@@ -17,7 +18,12 @@ import pytest
 
 from ml.registry import FeatureRegistry, ModelRegistry
 from ml.registry.base import DataRequirements, ModelManifest, ModelRole
-from ml.registry.feature_registry import FeatureManifest, FeatureRole, FeatureStage, compute_schema_hash
+from ml.registry.feature_registry import (
+    FeatureManifest,
+    FeatureRole,
+    FeatureStage,
+    compute_schema_hash,
+)
 from ml.training.export import (
     create_model_manifest_stub,
     detect_model_type,
@@ -27,7 +33,9 @@ from ml.training.export import (
 
 
 class MockMLTrainer:
-    """Mock trainer for testing registry integration."""
+    """
+    Mock trainer for testing registry integration.
+    """
 
     def __init__(self, model_role: str = "inference"):
         self.model = MagicMock()
@@ -51,26 +59,34 @@ class MockMLTrainer:
 
 @pytest.fixture
 def temp_registry_dir():
-    """Create a temporary directory for registry testing."""
+    """
+    Create a temporary directory for registry testing.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
 @pytest.fixture
 def feature_registry(temp_registry_dir):
-    """Create a FeatureRegistry for testing."""
+    """
+    Create a FeatureRegistry for testing.
+    """
     return FeatureRegistry(temp_registry_dir)
 
 
 @pytest.fixture
 def model_registry(temp_registry_dir):
-    """Create a ModelRegistry for testing."""
+    """
+    Create a ModelRegistry for testing.
+    """
     return ModelRegistry(temp_registry_dir)
 
 
 @pytest.fixture
 def sample_feature_manifest():
-    """Create a sample FeatureManifest for testing."""
+    """
+    Create a sample FeatureManifest for testing.
+    """
     feature_names = ["feature_1", "feature_2", "feature_3", "rsi_14", "ema_20"]
     feature_dtypes = ["float32"] * len(feature_names)
     pipeline_signature = "test_pipeline_v1_hash"
@@ -93,10 +109,14 @@ def sample_feature_manifest():
 
 
 class TestCreateModelManifestStub:
-    """Tests for create_model_manifest_stub function."""
+    """
+    Tests for create_model_manifest_stub function.
+    """
 
     def test_create_basic_manifest_stub(self):
-        """Test creating a basic model manifest stub."""
+        """
+        Test creating a basic model manifest stub.
+        """
         mock_trainer = MockMLTrainer()
 
         manifest_data = create_model_manifest_stub(
@@ -113,7 +133,9 @@ class TestCreateModelManifestStub:
         assert manifest_data["data_requirements"] == "l1_only"
         assert manifest_data["architecture"] == "XGBoost"
         # Note: serveable is determined by model interface (has .run method)
-        assert manifest_data["artifact_format"] == "onnx" if manifest_data["serveable"] else "native"
+        assert (
+            manifest_data["artifact_format"] == "onnx" if manifest_data["serveable"] else "native"
+        )
 
         # Verify feature schema
         expected_schema = dict.fromkeys(mock_trainer.feature_names, "float32")
@@ -135,7 +157,9 @@ class TestCreateModelManifestStub:
         assert len(manifest_data["feature_schema_hash"]) == 64  # SHA-256
 
     def test_create_manifest_with_onnx_model(self):
-        """Test creating manifest for ONNX model (serveable)."""
+        """
+        Test creating manifest for ONNX model (serveable).
+        """
         mock_model = MagicMock()
         mock_model.run = MagicMock()  # ONNX-like interface
 
@@ -149,7 +173,9 @@ class TestCreateModelManifestStub:
         assert manifest_data["artifact_format"] == "onnx"
 
     def test_create_manifest_with_pipeline_info(self):
-        """Test creating manifest with pipeline signature and version."""
+        """
+        Test creating manifest with pipeline signature and version.
+        """
         mock_trainer = MockMLTrainer()
 
         manifest_data = create_model_manifest_stub(
@@ -165,7 +191,9 @@ class TestCreateModelManifestStub:
         assert manifest_data["pipeline_version"] == "2.1.0"
 
     def test_auto_detect_architecture(self):
-        """Test automatic architecture detection."""
+        """
+        Test automatic architecture detection.
+        """
         mock_model = MagicMock()
         mock_model.__class__.__name__ = "XGBClassifier"
 
@@ -183,10 +211,14 @@ class TestCreateModelManifestStub:
 
 
 class TestRegisterModelWithRegistry:
-    """Tests for register_model_with_registry function."""
+    """
+    Tests for register_model_with_registry function.
+    """
 
     def test_register_model_basic(self, temp_registry_dir):
-        """Test basic model registration."""
+        """
+        Test basic model registration.
+        """
         # Create a dummy model file
         model_path = temp_registry_dir / "test_model.onnx"
         model_path.write_text("dummy onnx content")
@@ -236,7 +268,9 @@ class TestRegisterModelWithRegistry:
         assert model_info.manifest.performance_metrics["accuracy"] == 0.85
 
     def test_register_with_auto_deploy(self, temp_registry_dir):
-        """Test model registration with auto-deploy enabled."""
+        """
+        Test model registration with auto-deploy enabled.
+        """
         model_path = temp_registry_dir / "test_model.onnx"
         model_path.write_text("dummy onnx content")
 
@@ -281,10 +315,14 @@ class TestRegisterModelWithRegistry:
 
 
 class TestFeatureParity:
-    """Tests for feature parity validation between ModelRegistry and FeatureRegistry."""
+    """
+    Tests for feature parity validation between ModelRegistry and FeatureRegistry.
+    """
 
     def test_feature_parity_validation_success(self, temp_registry_dir, sample_feature_manifest):
-        """Test successful feature parity validation."""
+        """
+        Test successful feature parity validation.
+        """
         # Register feature set first
         feature_registry = FeatureRegistry(temp_registry_dir)
         feature_set_id = feature_registry.register_feature_set(sample_feature_manifest)
@@ -321,8 +359,14 @@ class TestFeatureParity:
         assert model_info is not None
         assert model_info.manifest.feature_set_id == feature_set_id
 
-    def test_feature_parity_validation_hash_mismatch(self, temp_registry_dir, sample_feature_manifest):
-        """Test feature parity validation with hash mismatch."""
+    def test_feature_parity_validation_hash_mismatch(
+        self,
+        temp_registry_dir,
+        sample_feature_manifest,
+    ):
+        """
+        Test feature parity validation with hash mismatch.
+        """
         # Register feature set first
         feature_registry = FeatureRegistry(temp_registry_dir)
         feature_set_id = feature_registry.register_feature_set(sample_feature_manifest)
@@ -354,7 +398,9 @@ class TestFeatureParity:
         assert model_id != ""
 
     def test_feature_parity_strict_mode_failure(self, temp_registry_dir, sample_feature_manifest):
-        """Test feature parity validation failure in strict mode."""
+        """
+        Test feature parity validation failure in strict mode.
+        """
         # Enable strict parity mode
         with patch.dict("os.environ", {"ML_STRICT_FEATURE_PARITY": "1"}):
             # Register feature set first
@@ -387,10 +433,14 @@ class TestFeatureParity:
 
 
 class TestEndToEndTrainingIntegration:
-    """End-to-end integration tests."""
+    """
+    End-to-end integration tests.
+    """
 
     def test_complete_training_to_registry_flow(self, temp_registry_dir):
-        """Test complete flow from training to registry registration."""
+        """
+        Test complete flow from training to registry registration.
+        """
         # 1. Setup feature registry with feature set
         feature_registry = FeatureRegistry(temp_registry_dir)
         feature_manifest = FeatureManifest(
@@ -441,6 +491,7 @@ class TestEndToEndTrainingIntegration:
                 feature_set_id=feature_set_id,
                 pipeline_signature=feature_manifest.pipeline_signature,
                 pipeline_version=feature_manifest.pipeline_version,
+                parent_id=mock_trainer.config.parent_model_id,
             )
 
             model_id = register_model_with_registry(
@@ -468,10 +519,14 @@ class TestEndToEndTrainingIntegration:
         # 6. Verify feature registry still has the feature set
         retrieved_feature_info = feature_registry.get_feature_set(feature_set_id)
         assert retrieved_feature_info is not None
-        assert retrieved_feature_info.manifest.schema_hash == model_info.manifest.feature_schema_hash
+        assert (
+            retrieved_feature_info.manifest.schema_hash == model_info.manifest.feature_schema_hash
+        )
 
     def test_onnx_model_registration_with_validation(self, temp_registry_dir):
-        """Test ONNX model registration with proper validation."""
+        """
+        Test ONNX model registration with proper validation.
+        """
         # Create a minimal ONNX-like content
         model_path = temp_registry_dir / "validated_model.onnx"
         model_path.write_text("mock onnx model content")

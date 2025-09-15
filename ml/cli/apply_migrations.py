@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterable
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 
 from sqlalchemy import text
@@ -58,8 +59,8 @@ class Result:
     skipped: int = 0
     warnings: int = 0
     errors: int = 0
-    files_applied: list[str] | None = None
-    files_skipped: list[str] | None = None
+    files_applied: list[str] = field(default_factory=list)
+    files_skipped: list[str] = field(default_factory=list)
 
 
 def _read_sql(path: Path) -> str:
@@ -136,7 +137,7 @@ def _split_statements(sql: str) -> Iterable[str]:
 
 
 def apply_files(engine: Engine, files: list[Path], *, dry_run: bool = False) -> Result:
-    res = Result(files_applied=[], files_skipped=[])
+    res = Result()
     for file in files:
         if not file.exists():
             res.skipped += 1

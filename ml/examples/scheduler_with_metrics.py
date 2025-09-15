@@ -87,7 +87,7 @@ def main() -> None:
             symbols=["AAPL.XNAS", "MSFT.XNAS", "GOOGL.XNAS"],
             retention_days=30,
             databento=DatabentoConfig(
-                dataset="XNAS.ITCH",
+                dataset="EQUS.MINI",
                 schema="ohlcv-1m",
                 use_temporary_files=True,
                 temp_data_dir=str(Path(temp_dir) / "databento_temp"),

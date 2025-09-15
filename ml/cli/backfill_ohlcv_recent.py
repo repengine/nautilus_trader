@@ -37,6 +37,7 @@ import numpy as np
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.data.ingest.policy import DatabentoCoveragePolicy
 
 
 if not HAS_POLARS:
@@ -203,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
 
     client = db.Historical(api_key)
     base: Path = args.data_dir
+    # Load optional coverage policy from environment
+    policy = DatabentoCoveragePolicy.from_env()
 
     symbols: Iterable[str]
     if args.symbols:
@@ -229,6 +232,10 @@ def main(argv: list[str] | None = None) -> int:
         start_dt = end_dt - timedelta(days=max(1, int(args.days)))
 
     for sym in symbols:
+        # Enforce symbol allowlist/limit
+        if not policy.filter_symbols([sym]):
+            print(f"{sym}: skipped by policy (not permitted)")
+            continue
         # If no explicit start, try continue from last ts
         begin = start_dt
         if not args.start:
@@ -236,20 +243,22 @@ def main(argv: list[str] | None = None) -> int:
             if last_ts is not None:
                 # Add one minute margin
                 begin = max(last_ts + timedelta(minutes=1), start_dt)
-        if begin >= end_dt:
+        # Clamp window by policy
+        s_dt, e_dt = policy.clamp_range(begin, end_dt, dataset="EQUS.MINI", schema="ohlcv-1m")
+        if s_dt >= e_dt:
             continue
         try:
             df = client.timeseries.get_range(
-                dataset="XNAS.ITCH",
+                dataset="EQUS.MINI",
                 symbols=[sym],
                 schema="ohlcv-1m",
-                start=begin,
-                end=end_dt,
+                start=s_dt,
+                end=e_dt,
             ).to_df()
             if not df.empty:
                 _merge_save(base, sym, df)
                 print(
-                    f"{sym}: downloaded {len(df)} rows from {begin:%Y-%m-%d} to {end_dt:%Y-%m-%d}",
+                    f"{sym}: downloaded {len(df)} rows from {s_dt:%Y-%m-%d} to {e_dt:%Y-%m-%d}",
                 )
             else:
                 print(f"{sym}: no rows in requested window")

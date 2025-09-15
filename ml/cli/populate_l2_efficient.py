@@ -305,72 +305,82 @@ def download_l2_daily(
     if start.weekday() >= 5:
         return 0
 
-    # Simple retry with backoff for transient gateway or rate limit errors
-    attempts = 3
-    delay_secs = 2.0
-    last_err: Exception | None = None
-    for attempt in range(1, attempts + 1):
+    # Typed retry with backoff for transient gateway or rate limit errors
+    class _TransientError(Exception):
+        pass
+
+    class _NonTransientSkip(Exception):
+        pass
+
+    def _attempt() -> int:
+        # Get the data stream first
+        data_stream = client.timeseries.get_range(
+            dataset="EQUS.MINI",
+            symbols=[symbol],
+            schema="mbp-10",
+            start=start,
+            end=end,
+        )
+
+        # Handle empty data cases before conversion
         try:
-            # Get the data stream first
-            data_stream = client.timeseries.get_range(
-                dataset="XNAS.ITCH",
-                symbols=[symbol],
-                schema="mbp-10",
-                start=start,
-                end=end,
-            )
-
-            # Handle empty data cases before conversion
-            try:
-                df = data_stream.to_df()
-            except Exception as pandas_err:
-                # Handle pandas processing errors on empty/malformed data
-                if "No data found" in str(pandas_err):
-                    logger.info(f"  {date.date()}: No data available")
-                    return 0
-                # Re-raise other pandas errors
-                raise pandas_err
-
-            if df is None or df.empty:
+            df = data_stream.to_df()
+        except Exception as pandas_err:
+            # Handle pandas processing errors on empty/malformed data
+            if "No data found" in str(pandas_err):
                 logger.info(f"  {date.date()}: No data available")
                 return 0
+            # Re-raise other pandas errors
+            raise pandas_err
 
-            # Validate data integrity
-            if len(df) < 100:  # Suspiciously small for L2 data
-                logger.warning(f"  {date.date()}: Only {len(df)} records (may be incomplete)")
-
-            date_str = date.strftime("%Y%m%d")
-            output_file = output_dir / f"{symbol}_mbp10_{date_str}.parquet"
-            df.to_parquet(output_file)
-
-            size_mb = output_file.stat().st_size / (1024 * 1024)
-            logger.info(f"  {date.date()}: {len(df):,} records, {size_mb:.1f} MB")
-            return len(df)
-
-        except Exception as e:
-            msg = str(e)
-            last_err = e
-            # Known benign cases
-            if "403" in msg or "license" in msg:
-                logger.warning(f"  {date.date()}: Skipped (too recent for EQUS.MINI)")
-                return 0
-            # Retry on 5xx, timeouts, and 429
-            transient = any(code in msg for code in ("504", "502", "500", "timeout", "429"))
-            if transient and attempt < attempts:
-                logger.warning(
-                    f"  {date.date()}: Transient error (attempt {attempt}/{attempts}) - {msg}",
-                )
-                import time
-
-                time.sleep(delay_secs)
-                delay_secs *= 2.0
-                continue
-            logger.error(f"  {date.date()}: Error - {msg}")
+        if df is None or df.empty:
+            logger.info(f"  {date.date()}: No data available")
             return 0
-    # Should not reach here, but in case loop exits without return
-    if last_err is not None:
-        logger.error(f"  {date.date()}: Error - {last_err}")
-    return 0
+
+        # Validate data integrity
+        if len(df) < 100:  # Suspiciously small for L2 data
+            logger.warning(f"  {date.date()}: Only {len(df)} records (may be incomplete)")
+
+        date_str = date.strftime("%Y%m%d")
+        output_file = output_dir / f"{symbol}_mbp10_{date_str}.parquet"
+        df.to_parquet(output_file)
+
+        size_mb = output_file.stat().st_size / (1024 * 1024)
+        logger.info(f"  {date.date()}: {len(df):,} records, {size_mb:.1f} MB")
+        return len(df)
+
+    def _on_exc(attempt: int, exc: BaseException) -> None:
+        msg = str(exc)
+        # Known benign cases (fail fast without retries)
+        if "403" in msg or "license" in msg:
+            raise _NonTransientSkip(msg)
+        # Retry on 5xx, timeouts, and 429
+        transient = any(code in msg for code in ("504", "502", "500", "timeout", "429"))
+        if transient:
+            logger.warning(
+                f"  {date.date()}: Transient error (attempt {attempt + 1}) - {msg}",
+            )
+        else:
+            # Promote to non-retriable by raising different exception
+            raise _NonTransientSkip(msg)
+
+    try:
+        from ml.common.retry_utils import retry_with_backoff as _retry
+
+        res = _retry(
+            _attempt,
+            max_attempts=3,
+            initial_delay=2.0,
+            multiplier=2.0,
+            max_delay=30.0,
+            jitter=0.0,
+            on_exception=_on_exc,
+            retry_on=(_TransientError, Exception),
+        )
+        return int(res)
+    except _NonTransientSkip as e:
+        logger.error(f"  {date.date()}: Error - {e}")
+        return 0
 
 
 def _clean_stale_temp_files(symbol: str, output_dir: Path) -> None:

@@ -36,8 +36,8 @@ class SecurityAuditor(ast.NodeVisitor):
         self.is_test_file = self._is_test_file(file_path)
         self.is_example_file = self._is_example_file(file_path)
         self.has_test_guards = False
-        self.pickle_imports = []
-        self.joblib_imports = []
+        self.pickle_imports: list[int] = []
+        self.joblib_imports: list[int] = []
         self.current_function = None
         self.in_test_guard = False
 

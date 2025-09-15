@@ -30,6 +30,7 @@ from ml._imports import HAS_PROMETHEUS
 from ml._imports import check_ml_dependencies
 from ml._imports import fredapi as _fredapi
 from ml._imports import pl
+from ml.ml_types import PolarsDF
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
@@ -474,7 +475,8 @@ class FREDDataLoader:
         self._rate_limit_window = 60.0  # 1 minute window
 
         # Cache management
-        self._cache: dict[str, tuple[pl.DataFrame, float]] = {}
+        from typing import Tuple
+        self._cache: dict[str, Tuple[PolarsDF, float]] = {}
 
         logger.info(
             f"Initialized FRED loader with {len(self.indicators)} indicators, "
@@ -551,7 +553,7 @@ class FREDDataLoader:
             logger.warning(f"Error checking cache validity: {e}")
             return False
 
-    def _load_from_cache(self, series_id: str) -> pl.DataFrame | None:
+    def _load_from_cache(self, series_id: str) -> PolarsDF | None:
         """
         Load data from cache if valid.
 
@@ -571,18 +573,21 @@ class FREDDataLoader:
 
         try:
             cache_path = self._get_cache_path(series_id)
-            df = pl.read_parquet(cache_path)
+            _pl = pl
+            assert _pl is not None
+            df = _pl.read_parquet(cache_path)
 
             cache_hit_counter.labels(series=series_id).inc()
             logger.debug(f"Loaded {series_id} from cache")
 
-            return df
+            from typing import cast as _cast
+            return _cast(PolarsDF, df)
 
         except Exception as e:
             logger.warning(f"Error loading from cache: {e}")
             return None
 
-    def _save_to_cache(self, series_id: str, df: pl.DataFrame) -> None:
+    def _save_to_cache(self, series_id: str, df: PolarsDF) -> None:
         """
         Save data to cache.
 
@@ -623,7 +628,7 @@ class FREDDataLoader:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         use_cache: bool = True,
-    ) -> pl.DataFrame:
+    ) -> PolarsDF:
         """
         Fetch a single FRED indicator.
 
@@ -656,81 +661,86 @@ class FREDDataLoader:
         if start_date is None:
             start_date = end_date - timedelta(days=365 * self.config.backfill_years)
 
-        # Fetch from FRED API with retries
+        # Fetch from FRED API with retries (typed helper)
         start_time = time.time()
-        last_error = None
 
-        for attempt in range(self.config.max_retries):
-            try:
-                self._rate_limit()
+        def _fetch_once() -> Any:
+            self._rate_limit()
+            return self.fred.get_series(
+                series_id,
+                observation_start=start_date,
+                observation_end=end_date,
+            )
 
-                # Fetch data from FRED
-                series_data = self.fred.get_series(
-                    series_id,
-                    observation_start=start_date,
-                    observation_end=end_date,
-                )
+        def _on_exc(attempt: int, exc: BaseException) -> None:
+            logger.warning(
+                f"Error fetching {series_id} (attempt {attempt + 1}/{self.config.max_retries}): {exc}",
+            )
+            api_error_counter.labels(error_type=type(exc).__name__).inc()
 
-                # Convert to Polars DataFrame
-                df = pl.DataFrame(
-                    {
-                        "timestamp": series_data.index,
-                        "series_id": series_id,
-                        "value": series_data.values,
-                    },
-                )
+        try:
+            from ml.common.retry_utils import retry_with_backoff as _retry
 
-                # Convert timestamp to nanoseconds
-                df = df.with_columns(
-                    pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"),
-                )
+            series_data = _retry(
+                _fetch_once,
+                max_attempts=int(self.config.max_retries),
+                initial_delay=float(self.config.retry_delay_seconds),
+                multiplier=2.0,
+                max_delay=60.0,
+                jitter=0.0,
+                sleep_fn=time.sleep,
+                on_exception=_on_exc,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to fetch {series_id} after {self.config.max_retries} attempts: {e}",
+            ) from e
 
-                # Remove any null values
-                df = df.filter(pl.col("value").is_not_null())
-
-                # Sort by timestamp
-                df = df.sort("timestamp")
-
-                # Record metrics
-                duration = time.time() - start_time
-                data_fetch_counter.labels(series=series_id).inc()
-                data_fetch_duration_histogram.labels(source="fred", schema="economic").observe(
-                    duration,
-                )
-
-                logger.info(
-                    f"Fetched {series_id}: {len(df)} rows, "
-                    f"range={df['timestamp'].min()!s} to {df['timestamp'].max()!s}",
-                )
-
-                # Save to cache
-                if use_cache:
-                    self._save_to_cache(series_id, df)
-
-                return df
-
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    f"Error fetching {series_id} (attempt {attempt + 1}/{self.config.max_retries}): {e}",
-                )
-
-                if attempt < self.config.max_retries - 1:
-                    time.sleep(self.config.retry_delay_seconds * (2**attempt))
-
-                api_error_counter.labels(error_type=type(e).__name__).inc()
-
-        # All retries failed
-        raise RuntimeError(
-            f"Failed to fetch {series_id} after {self.config.max_retries} attempts: {last_error}",
+        # Convert to Polars DataFrame
+        _pl = pl
+        assert _pl is not None
+        df = _pl.DataFrame(
+            {
+                "timestamp": series_data.index,
+                "series_id": series_id,
+                "value": series_data.values,
+            },
         )
+
+        # Convert timestamp to nanoseconds
+        df = df.with_columns(_pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"))
+
+        # Remove any null values
+        df = df.filter(_pl.col("value").is_not_null())
+
+        # Sort by timestamp
+        df = df.sort("timestamp")
+
+        # Record metrics
+        duration = time.time() - start_time
+        data_fetch_counter.labels(series=series_id).inc()
+        data_fetch_duration_histogram.labels(source="fred", schema="economic").observe(
+            duration,
+        )
+
+        logger.info(
+            f"Fetched {series_id}: {len(df)} rows, "
+            f"range={df['timestamp'].min()!s} to {df['timestamp'].max()!s}",
+        )
+
+        # Save to cache
+        if use_cache:
+            self._save_to_cache(series_id, df)
+
+        from typing import cast as _cast
+        return _cast(PolarsDF, df)
 
     def fetch_all_indicators(
         self,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         use_cache: bool = True,
-    ) -> dict[str, pl.DataFrame]:
+    ) -> dict[str, PolarsDF]:
         """
         Fetch all configured indicators.
 
@@ -749,7 +759,7 @@ class FREDDataLoader:
             Dictionary mapping series_id to DataFrame
 
         """
-        results: dict[str, pl.DataFrame] = {}
+        results: dict[str, PolarsDF] = {}
 
         for indicator in self.indicators:
             try:
@@ -768,7 +778,7 @@ class FREDDataLoader:
         logger.info(f"Fetched {len(results)}/{len(self.indicators)} indicators")
         return results
 
-    def combine_indicators(self, data: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    def combine_indicators(self, data: dict[str, PolarsDF]) -> PolarsDF:
         """
         Combine multiple indicators into a single DataFrame.
 
@@ -783,52 +793,56 @@ class FREDDataLoader:
             Combined DataFrame with all indicators
 
         """
+        _pl = pl
+        assert _pl is not None
         if not data:
-            return pl.DataFrame()
+            from typing import cast as _cast
+            return _cast(PolarsDF, _pl.DataFrame())
 
         # Start with first indicator
-        combined = None
+        combined: PolarsDF | None = None
 
+        from typing import cast as _cast
         for series_id, df in data.items():
             # Pivot to wide format
-            wide_df = df.select(
+            wide_df = _cast(PolarsDF, df.select(
                 [
                     "timestamp",
-                    pl.col("value").alias(series_id),
+                    _pl.col("value").alias(series_id),
                 ],
-            )
+            ))
 
             if combined is None:
                 combined = wide_df
             else:
                 # Join on timestamp using 'full' instead of deprecated 'outer'
-                combined = combined.join(
+                combined = _cast(PolarsDF, combined.join(
                     wide_df,
                     on="timestamp",
                     how="full",
                     coalesce=True,  # Coalesce duplicate columns
-                )
+                ))
 
         # Sort by timestamp and filter out null timestamps
         if combined is not None:
             # Remove rows with null timestamps (shouldn't happen with coalesce=True)
-            combined = combined.filter(pl.col("timestamp").is_not_null())
+            combined = combined.filter(_pl.col("timestamp").is_not_null())
 
             # Sort by timestamp
             combined = combined.sort("timestamp")
 
             # Add timestamp_ns column
-            combined = combined.with_columns(
-                pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"),
-            )
+            combined = combined.with_columns(_pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"))
 
-        return combined if combined is not None else pl.DataFrame()
+        if combined is not None:
+            return combined
+        return _pl.DataFrame()
 
     def store_indicators(
         self,
         data_store: DataStore,
         data_registry: DataRegistry,
-        data: dict[str, pl.DataFrame] | None = None,
+        data: dict[str, PolarsDF] | None = None,
     ) -> None:
         """
         Store indicators in DataStore with proper registration.
@@ -954,6 +968,8 @@ class FREDDataLoader:
         timestamps = combined_df["timestamp_ns"].to_numpy()
 
         # Store each indicator as a separate feature
+        _pl = pl
+        assert _pl is not None
         for column in combined_df.columns:
             if column in ["timestamp", "timestamp_ns"]:
                 continue
@@ -970,7 +986,7 @@ class FREDDataLoader:
             # Store as ingestion data
             data_store.write_ingestion(
                 dataset_id=dataset_id,
-                records=pl.DataFrame(
+                records=_pl.DataFrame(
                     {
                         "instrument_id": str(instrument_id),
                         "timestamp_ns": timestamps,

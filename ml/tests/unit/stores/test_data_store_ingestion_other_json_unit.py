@@ -65,6 +65,7 @@ def test_ingestion_predictions_emits_event_and_updates_watermark(tmp_path: Path)
         model_store=model_store,
         strategy_store=cast(Any, MagicMock()),
         publisher=pub,
+        enable_publishing=True,
     )
     # Bypass schema preflight for deterministic behavior
     store.preflight_check = lambda *a, **k: (True, None, {"warnings": []})  # type: ignore[assignment]
@@ -106,7 +107,7 @@ def test_ingestion_predictions_emits_event_and_updates_watermark(tmp_path: Path)
     data = json.loads((reg_dir / "data_registry.json").read_text())
     key = f"{ds_id}:EURUSD.SIM:live"
     assert key in data.get("watermarks", {})
-    assert int(data["watermarks"][key]["last_success_ns"]) == 222
+    assert int(data["watermarks"][key]["last_success_ns"]) == 222 * 1_000_000_000
 
 
 def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> None:
@@ -127,6 +128,7 @@ def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> 
         model_store=cast(Any, MagicMock()),
         strategy_store=strategy_store,
         publisher=pub,
+        enable_publishing=True,
     )
     store.preflight_check = lambda *a, **k: (True, None, {"warnings": []})  # type: ignore[assignment]
 
@@ -165,4 +167,4 @@ def test_ingestion_signals_emits_event_and_updates_watermark(tmp_path: Path) -> 
     data = json.loads((reg_dir / "data_registry.json").read_text())
     key = f"{ds_id}:EURUSD.SIM:live"
     assert key in data.get("watermarks", {})
-    assert int(data["watermarks"][key]["last_success_ns"]) == 444
+    assert int(data["watermarks"][key]["last_success_ns"]) == 444 * 1_000_000_000

@@ -107,7 +107,7 @@ def map_stage_to_topic_segments(stage: Stage) -> tuple[str, str]:
     return ("data", "updated")
 
 
-__all__ = ["build_topic", "map_stage_to_topic_segments"]
+__all__: list[str]
 
 
 @overload
@@ -177,4 +177,9 @@ def build_topic_for_stage(
     return build_topic(domain, op, instrument_id)
 
 
-__all__ += ["build_stage_topic", "build_topic_for_stage"]
+__all__ = [
+    "build_stage_topic",
+    "build_topic",
+    "build_topic_for_stage",
+    "map_stage_to_topic_segments",
+]

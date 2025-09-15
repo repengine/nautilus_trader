@@ -427,7 +427,7 @@ class UniversePopulator:
                 }
 
             except Exception:
-                # For XNAS.ITCH (EQUS.MINI), everything should be $0
+                # For EQUS.MINI (US equities standard), everything should be $0
                 estimates[level] = {
                     "symbols": len(pending_symbols),
                     "cost_usd": 0.0,
@@ -537,9 +537,9 @@ class UniversePopulator:
             logger.info(f"OHLCV file already exists for {symbol}, skipping")
             return
 
-        # Use XNAS.ITCH for EQUS.MINI subscription (free tier)
+        # Use EQUS.MINI for US equities standard subscription
         df = self.client.timeseries.get_range(
-            dataset="XNAS.ITCH",
+            dataset="EQUS.MINI",
             symbols=[symbol],
             schema="ohlcv-1m",
             start=start,
@@ -564,7 +564,7 @@ class UniversePopulator:
         trades_file = output_dir / f"{symbol}_trades.parquet"
         if not trades_file.exists():
             df_trades = self.client.timeseries.get_range(
-                dataset="XNAS.ITCH",
+                dataset="EQUS.MINI",
                 symbols=[symbol],
                 schema="trades",
                 start=start,
@@ -579,7 +579,7 @@ class UniversePopulator:
         quotes_file = output_dir / f"{symbol}_bbo.parquet"
         if not quotes_file.exists():
             df_quotes = self.client.timeseries.get_range(
-                dataset="XNAS.ITCH",
+                dataset="EQUS.MINI",
                 symbols=[symbol],
                 schema="bbo-1s",
                 start=start,
@@ -611,7 +611,7 @@ class UniversePopulator:
         # Note: L2/L3 may not be available in EQUS.MINI
         # This will fail gracefully and be caught by error handling
         df = self.client.timeseries.get_range(
-            dataset="XNAS.ITCH",
+            dataset="EQUS.MINI",
             symbols=[symbol],
             schema=schema,
             start=start,

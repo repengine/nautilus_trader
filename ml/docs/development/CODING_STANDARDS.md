@@ -9,7 +9,9 @@ This document defines the coding standards for the `ml/` package. The goals are:
 ## Typing (Mandatory)
 
 - Enable and pass `mypy` with `--strict` on `ml/` at all times.
-  - Command: `uv run --active --no-sync mypy ml --strict`
+  - Preferred (uses the project Poetry venv): `poetry run mypy ml --strict`
+  - Alternative (uv): `uv run --active --no-sync mypy ml --strict`
+  - Why Poetry? It guarantees mypy resolves third‑party imports (e.g., the `google` namespace from protobuf) against the project venv instead of system site‑packages. If you see `mypy: can't read file '/usr/lib/python3/dist-packages//google'`, switch to `poetry run mypy ml --strict` or pass `--python-executable "$(poetry env info -p)/bin/python"`.
 - Functions, methods, and variables MUST be fully annotated.
   - No implicit `Any`. Use precise types from `typing`/`collections.abc`.
 - Prefer Protocols over `Any` for duck-typed interfaces.
@@ -95,6 +97,7 @@ Policy
 
 - Keep commits focused; include a concise summary of changes and their rationale.
 - PRs must be green on CI, including `ruff`, `mypy --strict`, tests, and docs (where applicable).
+
 ## Dependency Management
 
 We use Poetry as the authoritative dependency manager for this repository.

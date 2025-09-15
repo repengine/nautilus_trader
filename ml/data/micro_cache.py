@@ -28,6 +28,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast as _cast
 from datetime import UTC
 from datetime import date
 from datetime import datetime
@@ -35,6 +36,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from ml._imports import pl
+from ml.ml_types import PolarsDF
 from ml.features.micro_aggregate import MicrostructureAggregator
 from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
@@ -60,6 +62,8 @@ class MicroMinuteCache:
 
     def ensure_day(self, symbol: str, day: date, raw_base_dir: Path) -> Path:
         ensure_polars()
+        _pl = pl
+        assert _pl is not None
         out = self.path_for(symbol, day)
         if out.exists():
             return out
@@ -70,17 +74,17 @@ class MicroMinuteCache:
         agg = MicrostructureAggregator(raw_base_dir)
         df = agg.compute_for_symbol(symbol)
         if df.is_empty():
-            df = pl.DataFrame({"timestamp": []})
-        elif df["timestamp"].dtype != pl.Datetime:
-            df = df.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+            df = _pl.DataFrame({"timestamp": []})
+        elif df["timestamp"].dtype != _pl.Datetime:
+            df = df.with_columns(_pl.col("timestamp").cast(_pl.Datetime("ns", "UTC")))
         # Filter to exact day window
         start_dt = datetime(day.year, day.month, day.day, tzinfo=UTC)
         end_dt = start_dt + timedelta(days=1)
         start_ns = int(start_dt.timestamp() * 1_000_000_000)
         end_ns = int(end_dt.timestamp() * 1_000_000_000)
         df = df.filter(
-            (pl.col("timestamp").cast(pl.Int64) >= start_ns)
-            & (pl.col("timestamp").cast(pl.Int64) < end_ns),
+            (_pl.col("timestamp").cast(_pl.Int64) >= start_ns)
+            & (_pl.col("timestamp").cast(_pl.Int64) < end_ns),
         ).sort("timestamp")
         df.write_parquet(str(out))
         return out
@@ -91,17 +95,21 @@ class MicroMinuteCache:
         start: datetime,
         end: datetime,
         raw_base_dir: Path,
-    ) -> pl.DataFrame:
+    ) -> PolarsDF:
         ensure_polars()
-        parts: list[pl.DataFrame] = []
+        _pl = pl
+        assert _pl is not None
+        parts: list[PolarsDF] = []
         for day in iter_days(start, end):
             p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
             if p.exists():
-                parts.append(pl.read_parquet(str(p)))
+                parts.append(_pl.read_parquet(str(p)))
         if not parts:
-            return pl.DataFrame({"timestamp": []})
-        df = pl.concat(parts, how="vertical")
+            from typing import cast as _cast
+            return _cast(PolarsDF, _pl.DataFrame({"timestamp": []}))
+        df = _pl.concat(parts, how="vertical")
         if df.is_empty():
-            return df
+            return _cast(PolarsDF, df)
         # Filter to exact [start, end) and sort
-        return filter_df_by_ns_range(df, start=start, end=end)
+        from typing import cast as _cast
+        return _cast(PolarsDF, filter_df_by_ns_range(df, start=start, end=end))

@@ -1,4 +1,3 @@
-# ruff: noqa: RUF022
 """
 Advanced ML preprocessing utilities for Nautilus Trader.
 
@@ -115,6 +114,7 @@ See Also
 ml.config.preprocessing : Configuration classes for preprocessing pipelines
 ml.features : Feature engineering and transformation pipelines
 ml.common.validation : Data validation utilities
+
 """
 
 from __future__ import annotations
@@ -128,77 +128,87 @@ def __getattr__(name: str) -> Any:
     """
     Lazy loading of preprocessing components to avoid circular imports.
 
-    This approach prevents the circular import issue in the broader ML codebase
-    while maintaining a clean public API for cold-path preprocessing operations.
+    This approach prevents the circular import issue in the broader ML codebase while
+    maintaining a clean public API for cold-path preprocessing operations.
+
     """
     # Stationarity transformations
     if name == "StationarityTransformer":
         from ml.preprocessing.stationarity import StationarityTransformer
+
         return StationarityTransformer
     elif name == "DataNormalizer":
         from ml.preprocessing.stationarity import DataNormalizer
+
         return DataNormalizer
     elif name == "FeatureLagGenerator":
         from ml.preprocessing.stationarity import FeatureLagGenerator
+
         return FeatureLagGenerator
     elif name == "MarketMicrostructureFeatures":
         from ml.preprocessing.stationarity import MarketMicrostructureFeatures
+
         return MarketMicrostructureFeatures
     elif name == "PurgedCrossValidator":
         from ml.preprocessing.stationarity import PurgedCrossValidator
+
         return PurgedCrossValidator
 
     # Point-in-time join utilities (with circular import protection)
     elif name == "asof_join":
         try:
             from ml.preprocessing.joins import asof_join
+
             return asof_join
         except ImportError as e:
             raise ImportError(
                 f"Cannot import {name} due to circular import in ML dependencies. "
                 f"Import directly: 'from ml.preprocessing.joins import {name}'. "
-                f"Original error: {e}"
+                f"Original error: {e}",
             ) from e
     elif name == "create_lag_features":
         try:
             from ml.preprocessing.joins import create_lag_features
+
             return create_lag_features
         except ImportError as e:
             raise ImportError(
                 f"Cannot import {name} due to circular import in ML dependencies. "
                 f"Import directly: 'from ml.preprocessing.joins import {name}'. "
-                f"Original error: {e}"
+                f"Original error: {e}",
             ) from e
     elif name == "embargo_window":
         try:
             from ml.preprocessing.joins import embargo_window
+
             return embargo_window
         except ImportError as e:
             raise ImportError(
                 f"Cannot import {name} due to circular import in ML dependencies. "
                 f"Import directly: 'from ml.preprocessing.joins import {name}'. "
-                f"Original error: {e}"
+                f"Original error: {e}",
             ) from e
     elif name == "validate_no_lookahead":
         try:
             from ml.preprocessing.joins import validate_no_lookahead
+
             return validate_no_lookahead
         except ImportError as e:
             raise ImportError(
                 f"Cannot import {name} due to circular import in ML dependencies. "
                 f"Import directly: 'from ml.preprocessing.joins import {name}'. "
-                f"Original error: {e}"
+                f"Original error: {e}",
             ) from e
 
     # If attribute not found, raise AttributeError
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 if TYPE_CHECKING:
     # Type imports for static analysis only
     pass
 
 # Public API - sorted alphabetically
-# ruff: noqa: RUF022
 __all__ = [
     "DataNormalizer",
     "FeatureLagGenerator",

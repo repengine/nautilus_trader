@@ -36,3 +36,44 @@ def test_throttler_refill_at_rate_allows_steady_stream(rate: float) -> None:
     for _ in range(10):
         assert t.should_publish("k", now) is True
         now += dt_ns
+
+
+@given(
+    rate=st.floats(min_value=0.1, max_value=10_000.0),
+    burst=st.integers(min_value=1, max_value=20),
+    attempts=st.integers(min_value=1, max_value=100),
+)
+def test_throttler_burst_caps_single_tick(rate: float, burst: int, attempts: int) -> None:
+    """
+    At a single timestamp, allowed publishes cannot exceed burst tokens.
+    """
+    t = Throttler(rate_per_sec=rate, burst=burst)
+    now = 123456789
+    allowed = sum(1 for _ in range(attempts) if t.should_publish("k", now))
+    assert allowed <= burst
+
+
+@given(
+    rate=st.floats(min_value=0.5, max_value=5_000.0),
+    burst=st.integers(min_value=1, max_value=10),
+    steps=st.integers(min_value=1, max_value=200),
+)
+def test_throttler_tokens_accumulate_over_time(rate: float, burst: int, steps: int) -> None:
+    """
+    Over total time T, tokens available are <= burst + floor(T * rate).
+
+    Ensure allowed count does not exceed this upper bound.
+
+    """
+    t = Throttler(rate_per_sec=rate, burst=burst)
+    now = 0
+    # Choose dt to vary coverage; ensure some accumulation
+    dt_ns = int(NS_PER_SEC / max(rate, 1e-9))
+    allowed = 0
+    for i in range(steps):
+        if t.should_publish("key", now):
+            allowed += 1
+        now += dt_ns
+    total_time_sec = (steps * dt_ns) / NS_PER_SEC
+    theoretical_cap = burst + int(total_time_sec * rate) + 1  # +1 slack for integer rounding
+    assert allowed <= theoretical_cap

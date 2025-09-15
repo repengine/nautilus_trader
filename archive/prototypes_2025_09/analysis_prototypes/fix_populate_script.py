@@ -181,7 +181,7 @@ def download_l2_daily_with_validation(
     for attempt in range(1, attempts + 1):
         try:
             df = client.timeseries.get_range(
-                dataset="XNAS.ITCH",
+                dataset="EQUS.MINI",
                 symbols=[symbol],
                 schema="mbp-10",
                 start=start,

@@ -30,6 +30,8 @@ from ml.common.metrics_export import generate_latest
 # Add the parent directory to the path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from typing import TYPE_CHECKING
+
 from ml._imports import check_ml_dependencies
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
@@ -39,7 +41,10 @@ from ml.data.scheduler import DataScheduler
 from ml.observability.bootstrap import auto_start_if_configured
 from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
-from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+
+if TYPE_CHECKING:  # pragma: no cover - avoid heavy import at module import time
+    from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 # Configure logging
@@ -187,8 +192,10 @@ class PipelineRunner:
         """
         catalog_path = Path(os.environ.get("CATALOG_PATH", "/app/data/catalog"))
         catalog_path.mkdir(parents=True, exist_ok=True)
+        # Lazy import to avoid heavy dependency at module import time
+        from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC
 
-        return ParquetDataCatalog(str(catalog_path))
+        return _PDC(str(catalog_path))
 
     def run(self) -> None:
         """
@@ -207,7 +214,7 @@ class PipelineRunner:
             logger.info(f"Universe symbols: {len(config.symbols)}")
 
             # Initialize components
-            feature_store, model_store = self._initialize_stores(config)
+            _feature_store, _model_store = self._initialize_stores(config)
             catalog = self._initialize_catalog(config)
 
             # Create scheduler
@@ -275,9 +282,31 @@ class PipelineRunner:
         # Run continuous updates
         while self.running and not self._shutdown_event.is_set():
             try:
-                # Collect and process latest data (best-effort realtime)
                 assert self.scheduler is not None
-                self.scheduler.run_daily_update()
+
+                # Use standardized retry/backoff for transient realtime update failures
+                from ml.common.retry_utils import retry_with_backoff as _retry
+
+                def _on_exc(attempt: int, exc: BaseException) -> None:
+                    wait_time = min(60, 2 ** (attempt + 1))
+                    logger.warning(
+                        f"Realtime update attempt {attempt + 1} failed: {exc}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+
+                def _do_update() -> None:
+                    self.scheduler.run_daily_update()
+
+                _retry(
+                    _do_update,
+                    max_attempts=int(os.environ.get("REALTIME_MAX_RETRIES", "3")),
+                    initial_delay=1.0,
+                    multiplier=2.0,
+                    max_delay=60.0,
+                    on_exception=_on_exc,
+                    sleep_fn=time.sleep,
+                )
+
                 pipeline_status["last_run"] = datetime.now().isoformat()
 
                 # Wait before next update (configurable)
@@ -285,9 +314,10 @@ class PipelineRunner:
                 time.sleep(interval)
 
             except Exception as e:
-                logger.error(f"Realtime update failed: {e}")
+                logger.error(f"Realtime update failed after retries: {e}")
                 pipeline_status["errors"].append(str(e))
-                time.sleep(60)  # Wait before retry
+                # Cooldown before continuing loop
+                time.sleep(60)
 
         logger.info("Realtime mode stopped")
 
