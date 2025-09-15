@@ -29,12 +29,13 @@ from ml.data import build_tft_dataset as api_build
 
 
 def _infer_feature_columns(df: Any) -> list[str]:
-    if pl is not None and isinstance(df, pl.DataFrame):
-        numeric = [c for c in df.columns if df[c].dtype.is_numeric()]
-        exclude = {"y", "time_index"}
-        # Keep timestamp and instrument_id out of feature matrix
-        exclude |= {"timestamp", "instrument_id", "ts_event"}
-        return [c for c in numeric if c not in exclude]
+    if pl is not None:
+        if isinstance(df, pl.DataFrame):
+            numeric = [c for c in df.columns if df[c].dtype.is_numeric()]
+            exclude = {"y", "time_index"}
+            # Keep timestamp and instrument_id out of feature matrix
+            exclude |= {"timestamp", "instrument_id", "ts_event"}
+            return [c for c in numeric if c not in exclude]
     if HAS_PANDAS and isinstance(df, pd.DataFrame):  # pragma: no cover
         numeric = df.select_dtypes(include=[np.number]).columns.tolist()
         exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}

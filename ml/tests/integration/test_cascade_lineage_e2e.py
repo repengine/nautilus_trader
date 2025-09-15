@@ -28,8 +28,8 @@ def test_end_to_end_cascade_preserves_correlation_and_order() -> None:
     src = cast(EventDict, src_any)
 
     e_feat = emit_cascade(src, target_domain="features", delay_ns=10)
-    e_model = emit_cascade(dict(e_feat), target_domain="models", delay_ns=20)
-    e_strat = emit_cascade(dict(e_model), target_domain="strategies", delay_ns=30)
+    e_model = emit_cascade(cast(EventDict, dict(e_feat)), target_domain="models", delay_ns=20)
+    e_strat = emit_cascade(cast(EventDict, dict(e_model)), target_domain="strategies", delay_ns=30)
 
     # Correlation preserved and timestamps monotonic
     assert e_feat["correlation_id"] == src["correlation_id"]

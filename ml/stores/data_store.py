@@ -482,7 +482,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
 
         """
         # Normalize inputs (be tolerant of unknown sources by defaulting to 'live')
-        stage_enum = Stage(stage) if not isinstance(stage, Stage) else stage
+        stage_enum = stage if isinstance(stage, Stage) else Stage(str(stage).upper())
         try:
             source_enum = Source(source) if not isinstance(source, Source) else source
         except Exception:
@@ -548,6 +548,39 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 self.publisher.publish(topic, payload)
             except Exception:
                 logger.exception("Message bus publish failed for topic %s", topic)
+
+    # Backwards-compatible alias used by tests
+    def emit_dataset_event(
+        self,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage | str,
+        source: Source | str,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: str = "success",
+    ) -> None:
+        """
+        Alias for emit_event with a reduced parameter set used by unit tests.
+
+        Parameters mirror `emit_event` but omit optional error/metadata.
+        """
+        self.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status,
+            error=None,
+            metadata=None,
+        )
 
     def preflight_check(
         self,

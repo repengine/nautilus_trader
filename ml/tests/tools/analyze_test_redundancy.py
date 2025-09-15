@@ -17,7 +17,7 @@ import operator
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import click
 
@@ -27,16 +27,17 @@ class TestAnalyzer(ast.NodeVisitor):
     Analyze test files for redundancy patterns.
     """
 
-    def __init__(self):
-        self.test_functions = []
-        self.test_targets = defaultdict(list)  # What each test is testing
-        self.assertions = defaultdict(list)  # Assertions per test
-        self.fixtures_used = defaultdict(set)  # Fixtures per test
-        self.decorators = defaultdict(list)  # Decorators per test
-        self.current_class = None
-        self.current_function = None
+    def __init__(self) -> None:
+        self.test_functions: list[dict[str, Any]] = []
+        self.test_targets: dict[str, list[str]] = defaultdict(list)
+        self.assertions: dict[str, list[str]] = defaultdict(list)
+        self.fixtures_used: dict[str, set[str]] = defaultdict(set)
+        self.decorators: dict[str, list[str]] = defaultdict(list)
+        self.current_class: str | None = None
+        self.current_function: str | None = None
+        self.current_file: str = ""
 
-    def visit_ClassDef(self, node):
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """
         Track test classes.
         """
@@ -45,7 +46,7 @@ class TestAnalyzer(ast.NodeVisitor):
             self.generic_visit(node)
             self.current_class = None
 
-    def visit_FunctionDef(self, node):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """
         Track test functions.
         """
@@ -75,7 +76,7 @@ class TestAnalyzer(ast.NodeVisitor):
             self.generic_visit(node)
             self.current_function = None
 
-    def visit_Call(self, node):
+    def visit_Call(self, node: ast.Call) -> None:
         """
         Track what functions/methods are being called in tests.
         """
@@ -96,7 +97,7 @@ class TestAnalyzer(ast.NodeVisitor):
                     self.test_targets[self.current_function].append(node.func.value.id)
         self.generic_visit(node)
 
-    def _get_decorator_name(self, decorator):
+    def _get_decorator_name(self, decorator: ast.AST) -> str | None:
         """
         Extract decorator name.
         """
@@ -110,7 +111,7 @@ class TestAnalyzer(ast.NodeVisitor):
         return None
 
 
-def find_similar_tests(tests, threshold=0.8):
+def find_similar_tests(tests: list[dict[str, Any]], threshold: float = 0.8) -> list[list[dict[str, Any]]]:
     """
     Find tests with similar names that might be duplicates.
     """
@@ -145,7 +146,7 @@ def find_similar_tests(tests, threshold=0.8):
     return similar_groups
 
 
-def find_overlapping_coverage(analyzer):
+def find_overlapping_coverage(analyzer: TestAnalyzer) -> dict[str, list[str]]:
     """
     Find tests that test the same targets.
     """
@@ -156,7 +157,7 @@ def find_overlapping_coverage(analyzer):
             target_to_tests[target].append(test_name)
 
     # Find targets tested by multiple tests
-    overlapping = {}
+    overlapping: dict[str, list[str]] = {}
     for target, tests in target_to_tests.items():
         if len(tests) > 1:
             overlapping[target] = tests
@@ -164,11 +165,11 @@ def find_overlapping_coverage(analyzer):
     return overlapping
 
 
-def identify_redundant_patterns(analyzer):
+def identify_redundant_patterns(analyzer: TestAnalyzer) -> dict[str, list[dict[str, Any]] | list[tuple[str, ...]]]:
     """
     Identify common redundancy patterns.
     """
-    patterns = {
+    patterns: dict[str, list[Any]] = {
         "example_with_property": [],
         "duplicate_assertions": [],
         "similar_fixtures": [],
@@ -227,12 +228,12 @@ def identify_redundant_patterns(analyzer):
     return patterns
 
 
-def analyze_test_directory(test_dir):
+def analyze_test_directory(test_dir: str) -> tuple[TestAnalyzer, list[Path]]:
     """
     Analyze all test files in a directory.
     """
     analyzer = TestAnalyzer()
-    test_files = []
+    test_files: list[Path] = []
 
     for path in Path(test_dir).rglob("test_*.py"):
         test_files.append(path)
@@ -247,7 +248,7 @@ def analyze_test_directory(test_dir):
     return analyzer, test_files
 
 
-def generate_report(analyzer, test_files):
+def generate_report(analyzer: TestAnalyzer, test_files: list[Path]) -> str:
     """
     Generate redundancy analysis report.
     """
@@ -262,8 +263,10 @@ def generate_report(analyzer, test_files):
         report.append("## Similar Test Names (Potential Duplicates)\n")
         for group in similar:
             report.append("\n### Similar group:\n")
-            for test in group:
-                report.append(f"  - {test['name']} ({test['file']}:{test['line']})\n")
+            for test_case in group:
+                report.append(
+                    f"  - {test_case['name']} ({test_case['file']}:{test_case['line']})\n",
+                )
 
     # Find overlapping coverage
     overlapping = find_overlapping_coverage(analyzer)
@@ -273,8 +276,8 @@ def generate_report(analyzer, test_files):
             if len(tests) > 2:  # Only show if 3+ tests cover same target
                 report.append(f"\n### Target: {target}\n")
                 report.append(f"  Tested by {len(tests)} tests:\n")
-                for test in tests[:5]:  # Show first 5
-                    report.append(f"  - {test}\n")
+                for tname in tests[:5]:  # Show first 5
+                    report.append(f"  - {tname}\n")
                 if len(tests) > 5:
                     report.append(f"  ... and {len(tests) - 5} more\n")
 
@@ -284,22 +287,28 @@ def generate_report(analyzer, test_files):
     if patterns["example_with_property"]:
         report.append("\n## Example Tests with Property Test Coverage\n")
         report.append("These example tests might be redundant with property tests:\n")
-        for item in patterns["example_with_property"]:
-            report.append(f"  - {item['example_test']} (covered by {item['property_test']})\n")
+        from typing import cast
+        examples = cast(list[dict[str, Any]], patterns["example_with_property"])
+        for item in examples:
+            report.append(
+                f"  - {item['example_test']} (covered by {item['property_test']})\n",
+            )
 
     if patterns["duplicate_assertions"]:
         report.append("\n## Tests with Duplicate Assertion Patterns\n")
-        for item in patterns["duplicate_assertions"]:
+        duplicates = cast(list[dict[str, Any]], patterns["duplicate_assertions"])
+        for item in duplicates:
             report.append(f"\n### Pattern: {item['pattern']}\n")
-            for test in item["tests"]:
+            for test in cast(list[str], item["tests"]):
                 report.append(f"  - {test}\n")
 
     if patterns["could_be_parameterized"]:
         report.append("\n## Tests That Could Be Parameterized\n")
         report.append("These test families could potentially use pytest.mark.parametrize:\n")
-        for item in patterns["could_be_parameterized"]:
+        param_items = cast(list[dict[str, Any]], patterns["could_be_parameterized"])
+        for item in param_items:
             report.append(f"\n### Base: {item['base']}\n")
-            for test in item["tests"]:
+            for test in cast(list[str], item["tests"]):
                 report.append(f"  - {test}\n")
 
     # Statistics
@@ -341,7 +350,7 @@ def generate_report(analyzer, test_files):
 @click.option("--test-dir", default="ml/tests", help="Directory containing tests")
 @click.option("--output", default=None, help="Output file for report")
 @click.option("--verbose", is_flag=True, help="Verbose output")
-def main(test_dir, output, verbose):
+def main(test_dir: str, output: str | None, verbose: bool) -> None:
     """
     Analyze test suite for redundancy.
     """
@@ -374,7 +383,9 @@ def main(test_dir, output, verbose):
         )
 
     if patterns["could_be_parameterized"]:
-        total_param = sum(len(item["tests"]) for item in patterns["could_be_parameterized"])
+        from typing import cast
+        param_items = cast(list[dict[str, Any]], patterns["could_be_parameterized"])
+        total_param = sum(len(cast(list[str], item["tests"])) for item in param_items)
         print(f"Tests that could be parameterized: {total_param}")
 
 

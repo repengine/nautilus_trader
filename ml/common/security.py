@@ -11,11 +11,37 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable as _Callable
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 
 logger = logging.getLogger(__name__)
+
+# Re-export optional ML dependency flags for backward-compatible test patching
+# Use consistent signatures and avoid conditional redefinitions that confuse mypy.
+
+
+HAS_ONNX: bool
+ort: Any | None
+check_ml_dependencies: _Callable[[Sequence[str]], None]
+
+try:  # pragma: no cover - import depends on environment
+    from ml._imports import HAS_ONNX as _HAS_ONNX
+    from ml._imports import check_ml_dependencies as _check_ml_dependencies
+    from ml._imports import ort as _ORT
+
+    HAS_ONNX = bool(_HAS_ONNX)
+    check_ml_dependencies = _check_ml_dependencies
+    ort = _ORT
+except Exception:  # pragma: no cover - fallback
+    HAS_ONNX = False
+    ort = None
+
+    def check_ml_dependencies(packages: Sequence[str]) -> None:
+        missing = ", ".join(packages)
+        raise ImportError(f"Missing ML dependencies: {missing}")
 
 
 class ArtifactIntegrityError(Exception):
@@ -206,12 +232,8 @@ def secure_onnx_load(
     # Verify integrity before loading
     verify_artifact_integrity(file_path, expected_digest, strict=strict_integrity)
 
-    # Import ONNX Runtime
+    # Import ONNX Runtime (use module-level re-exports for patchability in tests)
     try:
-        from ml._imports import HAS_ONNX
-        from ml._imports import check_ml_dependencies
-        from ml._imports import ort
-
         if not HAS_ONNX:
             check_ml_dependencies(["onnxruntime"])
         # Help static analysis: ensure ort is non-None here

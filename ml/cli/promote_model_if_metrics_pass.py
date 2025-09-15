@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import brier_score_loss
 from sklearn.metrics import log_loss
@@ -52,8 +53,8 @@ def main(argv: list[str] | None = None) -> int:
         print("teacher_npz missing q_val or y_val_true", file=sys.stderr)
         return 2
 
-    p = np.asarray(q_val, dtype=float).reshape(-1)
-    y = np.asarray(y_val, dtype=int).reshape(-1)
+    p: npt.NDArray[np.float64] = np.asarray(q_val, dtype=float).reshape(-1)
+    y: npt.NDArray[np.int_] = np.asarray(y_val, dtype=int).reshape(-1)
     if p.size == 0 or y.size == 0:
         print("empty validation arrays", file=sys.stderr)
         return 2

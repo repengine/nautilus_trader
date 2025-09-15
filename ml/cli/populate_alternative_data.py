@@ -29,13 +29,27 @@ from pathlib import Path
 # Add parent to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
+from typing import TYPE_CHECKING
+
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
 
 
+if TYPE_CHECKING:  # type-only import for annotations
+    from polars import DataFrame as PlDataFrame
+else:  # pragma: no cover - used only for typing
+    PlDataFrame = object  # type: ignore[assignment]
+
+
 if not HAS_POLARS:
     check_ml_dependencies(["polars"])
+from typing import Any as _Any
+from typing import cast as _cast
+
+
+assert pl is not None
+pl = _cast(_Any, pl)
 
 # Setup logging
 logging.basicConfig(
@@ -52,7 +66,7 @@ class CBOEDataLoader:
 
     BASE_URL = "https://www.cboe.com/api/global/delayed_quotes"
 
-    def fetch_put_call_ratio(self) -> pl.DataFrame:
+    def fetch_put_call_ratio(self) -> PlDataFrame:
         """
         Fetch daily put/call ratio data.
         """
@@ -75,13 +89,13 @@ class CBOEDataLoader:
 
             df = pl.DataFrame(data)
             logger.info(f"Fetched {len(df)} put/call ratio records")
-            return df
+            return _cast(PlDataFrame, df)
 
         except Exception as e:
             logger.error(f"Failed to fetch put/call ratio: {e}")
-            return pl.DataFrame()
+            return _cast(PlDataFrame, pl.DataFrame())
 
-    def fetch_term_structure(self) -> pl.DataFrame:
+    def fetch_term_structure(self) -> PlDataFrame:
         """
         Fetch VIX term structure data.
         """
@@ -90,7 +104,7 @@ class CBOEDataLoader:
         # VIX futures term structure
         _symbols = ["VIX", "VIX9D", "VIX30D", "VIX90D", "VIX180D"]
 
-        data = {
+        data: dict[str, list[object]] = {
             "timestamp": [],
             "symbol": [],
             "value": [],
@@ -100,7 +114,7 @@ class CBOEDataLoader:
         # Would fetch actual data from CBOE
         # Showing structure for now
 
-        return pl.DataFrame(data)
+        return _cast(PlDataFrame, pl.DataFrame(data))
 
 
 class AAIISentimentLoader:
@@ -108,7 +122,7 @@ class AAIISentimentLoader:
     Load AAII Investor Sentiment Survey data.
     """
 
-    def fetch_sentiment(self) -> pl.DataFrame:
+    def fetch_sentiment(self) -> PlDataFrame:
         """
         Fetch weekly AAII sentiment data.
         """
@@ -120,7 +134,7 @@ class AAIISentimentLoader:
 
         # Would scrape or use API if available
         # Structure:
-        data = {
+        data: dict[str, list[object]] = {
             "week_ending": [],
             "bullish": [],
             "neutral": [],
@@ -128,7 +142,7 @@ class AAIISentimentLoader:
             "bull_bear_spread": [],
         }
 
-        return pl.DataFrame(data)
+        return _cast(PlDataFrame, pl.DataFrame(data))
 
 
 class COTReportLoader:
@@ -138,7 +152,7 @@ class COTReportLoader:
 
     BASE_URL = "https://www.cftc.gov/files/dea/cotarchives"
 
-    def fetch_cot_data(self, symbols: list[str]) -> pl.DataFrame:
+    def fetch_cot_data(self, symbols: list[str]) -> PlDataFrame:
         """
         Fetch COT positioning data for futures.
         """
@@ -158,7 +172,7 @@ class COTReportLoader:
             "DX": "US DOLLAR INDEX",  # Currency
         }
 
-        data = {
+        data: dict[str, list[object]] = {
             "report_date": [],
             "symbol": [],
             "commercial_long": [],
@@ -171,7 +185,7 @@ class COTReportLoader:
         }
 
         # Would download actual CSV files from CFTC
-        return pl.DataFrame(data)
+        return _cast(PlDataFrame, pl.DataFrame(data))
 
 
 class ShortInterestLoader:
@@ -179,7 +193,7 @@ class ShortInterestLoader:
     Load short interest data.
     """
 
-    def fetch_short_interest(self, symbols: list[str]) -> pl.DataFrame:
+    def fetch_short_interest(self, symbols: list[str]) -> PlDataFrame:
         """
         Fetch bi-monthly short interest data.
         """
@@ -207,7 +221,7 @@ class MarketMicrostructureLoader:
     Calculate market microstructure metrics from existing data.
     """
 
-    def calculate_metrics(self, symbol: str) -> pl.DataFrame:
+    def calculate_metrics(self, symbol: str) -> PlDataFrame:
         """
         Calculate microstructure metrics from L1/L2 data.
         """
@@ -217,7 +231,7 @@ class MarketMicrostructureLoader:
         _l1_path = Path(f"data/tier1/{symbol}/l1")
         _l2_path = Path(f"data/tier1/{symbol}/l2")
 
-        metrics = {
+        metrics: dict[str, list[object]] = {
             "timestamp": [],
             "symbol": [],
             # Liquidity metrics
@@ -238,7 +252,7 @@ class MarketMicrostructureLoader:
         }
 
         # Would calculate from actual L1/L2 data
-        return pl.DataFrame(metrics)
+        return _cast(PlDataFrame, pl.DataFrame(metrics))
 
 
 class NewsSentimentLoader:
@@ -246,7 +260,7 @@ class NewsSentimentLoader:
     Load news sentiment data from free sources.
     """
 
-    def fetch_news_sentiment(self, symbols: list[str]) -> pl.DataFrame:
+    def fetch_news_sentiment(self, symbols: list[str]) -> PlDataFrame:
         """
         Fetch news sentiment scores.
         """
@@ -257,7 +271,7 @@ class NewsSentimentLoader:
         # 2. Alpha Vantage News Sentiment (free tier available)
         # 3. Reddit API (sentiment from WSB, investing subreddits)
 
-        data = {
+        data: dict[str, list[object]] = {
             "timestamp": [],
             "symbol": [],
             "headline_sentiment": [],
@@ -267,7 +281,7 @@ class NewsSentimentLoader:
             "sentiment_volatility": [],
         }
 
-        return pl.DataFrame(data)
+        return _cast(PlDataFrame, pl.DataFrame(data))
 
 
 class EarningsCalendarLoader:
@@ -275,7 +289,7 @@ class EarningsCalendarLoader:
     Load earnings calendar and estimates.
     """
 
-    def fetch_earnings_calendar(self, symbols: list[str]) -> pl.DataFrame:
+    def fetch_earnings_calendar(self, symbols: list[str]) -> PlDataFrame:
         """
         Fetch earnings dates and estimates.
         """
@@ -286,7 +300,7 @@ class EarningsCalendarLoader:
         # - Alpha Vantage (free tier)
         # - Nasdaq.com (free)
 
-        data = {
+        data: dict[str, list[object]] = {
             "symbol": [],
             "earnings_date": [],
             "eps_estimate": [],
@@ -297,7 +311,7 @@ class EarningsCalendarLoader:
             "days_until_earnings": [],
         }
 
-        return pl.DataFrame(data)
+        return _cast(PlDataFrame, pl.DataFrame(data))
 
 
 class SectorIndustryLoader:
@@ -305,7 +319,7 @@ class SectorIndustryLoader:
     Load sector and industry classifications.
     """
 
-    def fetch_classifications(self, symbols: list[str]) -> pl.DataFrame:
+    def fetch_classifications(self, symbols: list[str]) -> PlDataFrame:
         """
         Fetch GICS sector/industry classifications.
         """
@@ -342,7 +356,7 @@ class AlternativeDataPopulator:
         self.earnings_loader = EarningsCalendarLoader()
         self.sector_loader = SectorIndustryLoader()
 
-    def populate_all(self, symbols: list[str]) -> dict[str, pl.DataFrame]:
+    def populate_all(self, symbols: list[str]) -> dict[str, PlDataFrame]:
         """
         Populate all alternative data sources.
         """
@@ -363,7 +377,7 @@ class AlternativeDataPopulator:
         results["sector_industry"] = self.sector_loader.fetch_classifications(symbols)
 
         # Calculate microstructure for symbols with L2 data
-        micro_data = []
+        micro_data: list[PlDataFrame] = []
         for symbol in symbols:
             l2_path = Path(f"data/tier1/{symbol}/l2")
             if l2_path.exists():
@@ -376,7 +390,7 @@ class AlternativeDataPopulator:
 
         return results
 
-    def save_data(self, data: dict[str, pl.DataFrame], output_dir: Path) -> None:
+    def save_data(self, data: dict[str, PlDataFrame], output_dir: Path) -> None:
         """
         Save alternative data to parquet files.
         """

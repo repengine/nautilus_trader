@@ -42,12 +42,10 @@ def main() -> None:
         # Initialize catalog
         catalog = ParquetDataCatalog(str(catalog_path))
 
-        # Configure features
+        # Configure features (use modern MLFeatureConfig; indicator-specific
+        # params are passed through FeatureConfig below)
         feature_config = MLFeatureConfig(
             lookback_window=20,
-            return_periods=[1, 5, 10],
-            rsi_period=14,
-            bb_period=20,
         )
 
         # Get PostgreSQL connection from environment or use default
@@ -63,9 +61,9 @@ def main() -> None:
                 connection_string=connection_string,
                 feature_config=FeatureConfig(
                     lookback_window=feature_config.lookback_window,
-                    return_periods=feature_config.return_periods,
-                    rsi_period=feature_config.rsi_period,
-                    bb_period=feature_config.bb_period,
+                    return_periods=[1, 5, 10],
+                    rsi_period=14,
+                    bb_period=20,
                 ),
             )
             logger.info("FeatureStore initialized successfully")

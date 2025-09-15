@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Final
 
 import numpy as np
+from numpy.typing import NDArray
 
 from ml._imports import HAS_SKLEARN
 from ml._imports import check_ml_dependencies
@@ -47,17 +48,17 @@ from sklearn.metrics import log_loss
 from sklearn.metrics import roc_auc_score
 
 
-def _sigmoid(x: np.ndarray) -> np.ndarray:
+def _sigmoid(x: NDArray[np.float64]) -> NDArray[np.float64]:
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def _flatten(arr: np.ndarray) -> np.ndarray:
+def _flatten(arr: NDArray[np.generic]) -> NDArray[np.float64]:
     if arr.ndim == 2 and arr.shape[1] == 1:
-        return arr.reshape(-1)
-    return arr.reshape(-1)
+        return arr.reshape(-1).astype(np.float64)
+    return arr.reshape(-1).astype(np.float64)
 
 
-def _compute_metrics(y_true: np.ndarray, p_pred: np.ndarray) -> dict[str, float]:
+def _compute_metrics(y_true: NDArray[np.float64], p_pred: NDArray[np.float64]) -> dict[str, float]:
     # Cast to explicit dtypes
     y = y_true.astype(np.int32).reshape(-1)
     p = p_pred.astype(np.float64).reshape(-1)

@@ -122,9 +122,9 @@ _OTLP_ENDPOINT = os.getenv("ML_TRACING_ENDPOINT")
 _SAMPLE_RATE = float(os.getenv("ML_TRACING_SAMPLE_RATE", "0.1"))
 
 # Lazy imports for OpenTelemetry (only when enabled and available)
-_tracer = None
-_context = None
-_propagate = None
+_tracer: Any | None = None
+_context: Any | None = None
+_propagate: Any | None = None
 
 
 def _ensure_tracing_backend() -> bool:
@@ -241,6 +241,8 @@ def trace_cold_path(
         yield None
         return
 
+    # Help static analysis: _tracer is set by _ensure_tracing_backend when enabled
+    assert _tracer is not None
     with _tracer.start_as_current_span(operation_name) as span:
         # Set standard attributes
         if correlation_id:
@@ -392,6 +394,7 @@ def get_trace_context() -> dict[str, str]:
     try:
         # Extract W3C trace context from current span
         carrier: dict[str, str] = {}
+        assert _propagate is not None
         _propagate.inject(carrier)
         return carrier
     except Exception:
@@ -462,6 +465,7 @@ def extract_and_link_trace_context(metadata: dict[str, Any]) -> None:
 
     try:
         # Extract and activate trace context
+        assert _propagate is not None and _context is not None
         ctx = _propagate.extract(trace_context)
         _context.attach(ctx)
     except Exception:

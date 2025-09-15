@@ -6,6 +6,7 @@ from sqlalchemy import MetaData
 from sqlalchemy import Table
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import insert
+from typing import Any
 
 
 def test_upsert_uses_bracket_style_for_values() -> None:
@@ -26,7 +27,7 @@ def test_upsert_uses_bracket_style_for_values() -> None:
         Column("values", JSON),
     )
 
-    stmt = insert(tbl).values(
+    stmt: Any = insert(tbl).values(
         {
             "feature_set_id": "f",
             "instrument_id": "i",
@@ -36,13 +37,15 @@ def test_upsert_uses_bracket_style_for_values() -> None:
         },
     )
 
-    stmt = stmt.on_conflict_do_update(
+    from typing import cast
+    stmt = cast(Any, stmt.on_conflict_do_update(
         index_elements=["feature_set_id", "instrument_id", "ts_event"],
         set_={
             "values": stmt.excluded["values"],
             "ts_init": stmt.excluded.ts_init,
         },
-    )
+    ))
 
     # Compilation to PostgreSQL dialect should not raise
-    _ = str(stmt.compile(dialect=postgresql.dialect()))
+    compiled: Any = stmt.compile(dialect=postgresql.dialect())
+    _ = str(compiled)

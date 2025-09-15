@@ -294,8 +294,11 @@ class PipelineRunner:
                         f"Retrying in {wait_time}s..."
                     )
 
+                scheduler = self.scheduler
+                assert scheduler is not None
+
                 def _do_update() -> None:
-                    self.scheduler.run_daily_update()
+                    scheduler.run_daily_update()
 
                 _retry(
                     _do_update,

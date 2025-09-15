@@ -296,8 +296,8 @@ class MLTradingStrategy(BaseMLStrategy):
         # to a simple heuristic: reverse when LONG->SELL or SHORT->BUY.
         try:
             fn = getattr(self, "should_reverse")
-            if callable(fn):  # type: ignore[call-overload]
-                return bool(fn(current_position, target_side))  # type: ignore[misc]
+            if callable(fn):
+                return bool(fn(current_position, target_side))
         except Exception as exc:
             # Non-fatal: fallback to heuristic below and log at debug level
             self.log.debug("should_reverse hook failed; using heuristic: %s", exc)

@@ -100,6 +100,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
         """
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
+        assert pl is not None
 
         # Ensure data is a Polars DataFrame
         if not isinstance(data, pl.DataFrame):

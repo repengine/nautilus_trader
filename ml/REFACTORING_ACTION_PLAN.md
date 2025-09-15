@@ -189,6 +189,7 @@ Additional consolidation:
 Service extractions:
 
 - [x] Extract `StrategySignalClearService` and `ModelClearService` for deletion paths; adopt in `StrategyStore.clear_signals` and `ModelStore.clear_predictions`.
+- [x] Delegate `StrategyStore.get_signals` and `read_active_signals` to `StrategySignalQueryService` (removed inline SQL; typed casts remain at facade boundary).
 
 ### Priority 2d: Shared Numeric Stats Fragment
 

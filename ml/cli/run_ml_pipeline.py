@@ -22,7 +22,7 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from types import FrameType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -111,8 +111,9 @@ class MLPipelineRunner:
             return signal_handler
 
         class _Wrapper:
-            def __init__(self, fn: SignalHandler) -> None:
-                self.__func__: SignalHandler = fn
+            def __init__(self, fn: Callable[[], SignalHandler]) -> None:
+                # Expose the underlying handler via __func__ for tests
+                self.__func__: SignalHandler = fn()
 
         return _Wrapper(_ref)
 
@@ -259,7 +260,7 @@ class MLPipelineRunner:
             feature_store_connection=os.getenv("DB_CONNECTION"),
         )
 
-    def _initialize_feature_engineer(self) -> object | None:
+    def _initialize_feature_engineer(self) -> FeatureEngineer | None:
         """
         Initialize feature engineer for feature computation.
 
@@ -473,7 +474,7 @@ def load_config(config_path: str | None) -> dict[str, Any]:
                 raise ValueError(f"Unsupported config format: {config_file.suffix}")
 
         logger.info(f"Loaded configuration from {config_path}")
-        return config  # type: ignore[no-any-return]
+        return config
 
     # Return default configuration
     return {
@@ -659,3 +660,5 @@ def main(
 
 if __name__ == "__main__":
     main()
+if TYPE_CHECKING:  # typing-only import to satisfy linters
+    from ml.features.engineering import FeatureEngineer

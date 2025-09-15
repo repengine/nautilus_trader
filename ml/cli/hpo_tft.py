@@ -282,10 +282,12 @@ def main(argv: list[str] | None = None) -> int:
                             # If process was killed by OOM, annotate in metrics later
                         dur = time.perf_counter() - t0
                         npz = run_dir / "teacher_preds.npz"
+                        err_msg: str | None = None
                         try:
                             metrics = _score(npz)
                         except Exception as exc:  # pragma: no cover
-                            metrics = {"error": str(exc)}  # type: ignore[assignment]
+                            metrics = {}
+                            err_msg = str(exc)
                         rec: dict[str, Any] = {
                             "model_id": model_id,
                             "rc": rc,
@@ -296,6 +298,8 @@ def main(argv: list[str] | None = None) -> int:
                             "dropout": dr,
                             "metrics": metrics,
                         }
+                        if err_msg is not None:
+                            rec["error"] = err_msg
                         results.append(rec)
 
     # Pick best by PRx then AUC

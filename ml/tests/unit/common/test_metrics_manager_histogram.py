@@ -8,11 +8,12 @@ then verifies that observe flows through with expected labels and value.
 from __future__ import annotations
 
 from typing import Any
+import pytest
 
 from ml.common.metrics_manager import MetricsManager
 
 
-def test_metrics_manager_histogram_observe(monkeypatch) -> None:
+def test_metrics_manager_histogram_observe(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, Any] = {"get_hist_count": 0}
 
     class _FakeHistogram:
@@ -20,11 +21,11 @@ def test_metrics_manager_histogram_observe(monkeypatch) -> None:
             self.labeled: dict[str, Any] | None = None
             self.observed: float | None = None
 
-        def labels(self, **kwargs: object) -> _FakeHistogram:  # type: ignore[override]
+        def labels(self, **kwargs: object) -> _FakeHistogram:
             self.labeled = dict(kwargs)
             return self
 
-        def observe(self, amount: float) -> None:  # type: ignore[override]
+        def observe(self, amount: float) -> None:
             self.observed = float(amount)
 
     def _fake_get_histogram(name: str, description: str, labelnames: list[str] | None = None, *, buckets: tuple[float, ...] | None = None) -> _FakeHistogram:  # noqa: E501
@@ -52,4 +53,3 @@ def test_metrics_manager_histogram_observe(monkeypatch) -> None:
     assert isinstance(hist, _FakeHistogram)
     assert hist.labeled == labels
     assert hist.observed == 12.3
-

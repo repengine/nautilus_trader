@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-@dataclass
+@dataclass(init=False)
 class FeatureData(NautilusData):
     """
     Nautilus-compatible feature data class.
@@ -58,6 +58,38 @@ class FeatureData(NautilusData):
     _ts_init: int  # nanoseconds
     # Optional quality flags for compatibility with tests expecting them on the payload
     quality_flags: int = 0
+
+    def __init__(
+        self,
+        feature_set_id: str | None = None,
+        instrument_id: str = "",
+        values: dict[str, float] | None = None,
+        _ts_event: int | None = None,
+        _ts_init: int | None = None,
+        *,
+        # Backward-compatible aliases used by tests
+        ts_event: int | None = None,
+        ts_init: int | None = None,
+        features: dict[str, float] | None = None,
+        quality_flags: int = 0,
+    ) -> None:
+        """
+        Create a FeatureData record.
+
+        Accepts both internal field names and test-friendly aliases:
+        - `values` or `features`
+        - `_ts_event`/`_ts_init` or `ts_event`/`ts_init`
+        - `feature_set_id` optional (defaults to "default")
+        """
+        self.feature_set_id = feature_set_id or "default"
+        self.instrument_id = instrument_id
+        self.values = dict(features if features is not None else (values or {}))
+        # Event/init timestamps: prefer public aliases when provided
+        evt = ts_event if ts_event is not None else _ts_event
+        init = ts_init if ts_init is not None else _ts_init
+        self._ts_event = int(evt) if evt is not None else 0
+        self._ts_init = int(init) if init is not None else self._ts_event
+        self.quality_flags = int(quality_flags)
 
     @property
     def feature_values(self) -> dict[str, float]:

@@ -1085,7 +1085,6 @@ class BaseMLTrainer(ABC):
         )
 
         self._log_info(f"Model registered with ID: {model_id} at {artifact_path}")
-        return model_id
 
     def _create_model_manifest(self, save_path: Path) -> ModelManifest:
         """

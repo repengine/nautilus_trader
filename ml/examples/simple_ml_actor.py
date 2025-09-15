@@ -75,11 +75,14 @@ class SimpleMLActor(BaseMLInferenceActor):
             self.log.warning(f"Model file not found at {model_path}, using dummy model")
             self._model = DummyModel()
         else:
-            # Use the secure model loader from base class
+            # Use the secure ONNX model loader
             try:
-                self._model, metadata = self._load_model_secure(str(model_path))
-                self.log.info(f"Loaded {metadata.get('format', 'unknown')} model from {model_path}")
-            except ValueError as e:
+                from ml.common.security import secure_onnx_load
+
+                session = secure_onnx_load(model_path)
+                self._model = session
+                self.log.info(f"Loaded ONNX model from {model_path}")
+            except Exception as e:
                 self.log.error(f"Failed to load model: {e}")
                 self.log.warning("Using dummy model instead")
                 self._model = DummyModel()

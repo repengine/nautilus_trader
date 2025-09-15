@@ -10,9 +10,10 @@ import importlib
 import inspect
 import sys
 from pathlib import Path
+from typing import Any
 
 
-def test_import(module_name, description):
+def test_import(module_name: str, description: str) -> tuple[bool, str]:
     """
     Test if a module can be imported.
     """
@@ -25,7 +26,7 @@ def test_import(module_name, description):
         return False, f"✗ {description}: Unexpected error: {e}"
 
 
-def test_class_exists(module_name, class_name, description):
+def test_class_exists(module_name: str, class_name: str, description: str) -> tuple[bool, str]:
     """
     Test if a class exists in a module.
     """
@@ -42,7 +43,7 @@ def test_class_exists(module_name, class_name, description):
         return False, f"✗ {description}: Unexpected error: {e}"
 
 
-def test_console_script(script_name):
+def test_console_script(script_name: str) -> tuple[bool, str]:
     """
     Test if console script exists and shows help.
     """
@@ -67,7 +68,7 @@ def test_console_script(script_name):
         return False, f"✗ Console script {script_name} error: {e}"
 
 
-def test_file_exists(file_path, description):
+def test_file_exists(file_path: str, description: str) -> tuple[bool, str]:
     """
     Test if a file exists.
     """
@@ -79,7 +80,7 @@ def test_file_exists(file_path, description):
         return False, f"✗ {description}: File not found"
 
 
-def test_function_call(module_name, func_name, args, description):
+def test_function_call(module_name: str, func_name: str, args: list[Any], description: str) -> tuple[bool, str]:
     """
     Test if a function can be called.
     """
@@ -92,7 +93,7 @@ def test_function_call(module_name, func_name, args, description):
         return False, f"✗ {description}: {e}"
 
 
-def main():
+def main() -> int:
     print("Validating Teacher-Student Training Pipeline Claims")
     print("=" * 65)
 

@@ -17,7 +17,7 @@ import polars as pl
 warnings.filterwarnings("ignore")
 
 
-def convert_simple_to_ml_format():
+def convert_simple_to_ml_format() -> bool:
     """
     Convert simple FRED updater format to ML pipeline format.
     """
@@ -177,7 +177,7 @@ def convert_simple_to_ml_format():
     return True
 
 
-def test_ml_integration():
+def test_ml_integration() -> bool:
     """
     Test integration with ML pipeline components.
     """
@@ -214,7 +214,7 @@ def test_ml_integration():
     return True
 
 
-def create_incremental_update_schedule():
+def create_incremental_update_schedule() -> str:
     """
     Create a simple cron-style scheduler for incremental updates.
     """
@@ -258,7 +258,7 @@ echo "$(date): FRED data update complete"
     return script_path
 
 
-def main():
+def main() -> None:
     """
     Main integration function.
     """

@@ -5,7 +5,7 @@ import json
 import sys
 from contextlib import redirect_stdout
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 from ml.cli.events_consumer import main
 
@@ -86,7 +86,8 @@ def test_events_consumer_cli_prints_filtered_events() -> None:
             # Instead, we simulate the redis module returning a client with primed batches
             # by setting Redis.from_url to return our client instance.
         # Re-run with patched constructor
-        sys.modules["redis"].Redis.from_url = lambda *args, **kwargs: client  # type: ignore[attr-defined]
+        redis_mod = cast(Any, sys.modules["redis"])
+        redis_mod.Redis.from_url = lambda *args, **kwargs: client
         client.prime(batch)
         out = io.StringIO()
         with redirect_stdout(out):

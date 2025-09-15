@@ -43,6 +43,7 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])
+        assert pl is not None
         if not isinstance(data, pl.DataFrame):
             data = pl.DataFrame(data)
         if target_col not in data.columns:

@@ -50,7 +50,7 @@ class MetricsCapture:
         self.counter_labels: dict[str, dict[str, str]] = {}
         self.gauge_labels: dict[str, dict[str, str]] = {}
 
-    def inc(self, name: str, doc: str, labels: dict[str, str] | None = None, **kwargs) -> None:
+    def inc(self, name: str, doc: str, labels: dict[str, str] | None = None, **kwargs: Any) -> None:
         self.counters[name] = self.counters.get(name, 0) + 1
         if labels:
             self.counter_labels[name] = labels
@@ -61,7 +61,7 @@ class MetricsCapture:
         doc: str,
         value: float,
         labels: dict[str, str] | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         self.gauges[name] = value
         if labels:

@@ -17,7 +17,8 @@ from ml.monitoring.extended_metrics import ExtendedMetricsManager
 
 
 if TYPE_CHECKING:
-    from ml._imports import pl
+    from polars import DataFrame as PlDataFrame
+
     from ml.features.engineering import FeatureEngineer
     from ml.features.engineering import IndicatorManager
     from ml.ml_types import StandardScaler as StandardScalerT
@@ -65,7 +66,7 @@ class MonitoredDataCatalog:
         instrument_ids: list[str],
         start: str | datetime | None = None,
         end: str | datetime | None = None,
-    ) -> pl.DataFrame:
+    ) -> PlDataFrame:
         """
         Load bars with quality metrics collection.
 
@@ -118,7 +119,7 @@ class MonitoredDataCatalog:
         instrument_ids: list[str],
         start: str | datetime | None = None,
         end: str | datetime | None = None,
-    ) -> pl.DataFrame:
+    ) -> PlDataFrame:
         """
         Load quotes with quality metrics collection.
 

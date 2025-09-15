@@ -7,6 +7,8 @@ import gc
 import logging
 import tracemalloc
 from contextlib import contextmanager
+from collections.abc import Iterator
+from typing import Any, cast
 
 import numpy as np
 
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def track_allocations():
+def track_allocations() -> Iterator[None]:
     """
     Track memory allocations precisely.
     """
@@ -47,10 +49,10 @@ def track_allocations():
     print(f"\nTotal allocated: {total_allocated:,} bytes")
     tracemalloc.stop()
 
-    track_allocations.total_bytes = total_allocated
+    cast(Any, track_allocations).total_bytes = total_allocated
 
 
-def test_ring_buffer_allocations():
+def test_ring_buffer_allocations() -> dict[str, Any]:
     """
     Test ring buffer allocation behavior.
     """
@@ -62,7 +64,7 @@ def test_ring_buffer_allocations():
     print("\n1. Buffer creation:")
     with track_allocations():
         buffer = LockFreeRingBuffer(1000)
-    creation_bytes = track_allocations.total_bytes
+    creation_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"Buffer creation allocated: {creation_bytes:,} bytes (expected)")
 
     # Test 2: Append operations (should be zero allocation)
@@ -70,7 +72,7 @@ def test_ring_buffer_allocations():
     with track_allocations():
         for i in range(1000):
             buffer.append(float(i))
-    append_bytes = track_allocations.total_bytes
+    append_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"1000 appends allocated: {append_bytes:,} bytes")
 
     # Test 3: Get operations (critical for zero allocation claim)
@@ -79,7 +81,7 @@ def test_ring_buffer_allocations():
         for _ in range(1000):
             result = buffer.get_last(10)
             _ = result[0]  # Access the data
-    get_bytes = track_allocations.total_bytes
+    get_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"1000 get_last calls allocated: {get_bytes:,} bytes")
 
     # Test 4: Views vs copies
@@ -93,7 +95,7 @@ def test_ring_buffer_allocations():
         view2 = buffer.get_last(3)
         # Check if they share memory
         shares_memory = np.shares_memory(view1, buffer._buffer)
-    view_bytes = track_allocations.total_bytes
+    view_bytes = int(getattr(track_allocations, "total_bytes", 0))
 
     print(f"View operations allocated: {view_bytes:,} bytes")
     print(f"Views share memory with buffer: {shares_memory}")
@@ -106,7 +108,7 @@ def test_ring_buffer_allocations():
     }
 
 
-def test_feature_cache_allocations():
+def test_feature_cache_allocations() -> dict[str, Any]:
     """
     Test feature cache allocation behavior.
     """
@@ -118,7 +120,7 @@ def test_feature_cache_allocations():
     print("\n1. Cache creation:")
     with track_allocations():
         cache = PreAllocatedFeatureCache(n_features=20, history_size=1000)
-    creation_bytes = track_allocations.total_bytes
+    creation_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"Cache creation allocated: {creation_bytes:,} bytes (expected)")
 
     # Test 2: Buffer access (should be zero allocation)
@@ -127,7 +129,7 @@ def test_feature_cache_allocations():
         for _ in range(1000):
             buffer = cache.get_current_buffer()
             buffer[:] = np.random.random(20).astype(np.float32)
-    buffer_access_bytes = track_allocations.total_bytes
+    buffer_access_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"1000 buffer accesses allocated: {buffer_access_bytes:,} bytes")
 
     # Test 3: Store operations
@@ -135,7 +137,7 @@ def test_feature_cache_allocations():
     with track_allocations():
         for _ in range(1000):
             cache.store_current_features()
-    store_bytes = track_allocations.total_bytes
+    store_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"1000 store operations allocated: {store_bytes:,} bytes")
 
     # Test 4: History access
@@ -144,7 +146,7 @@ def test_feature_cache_allocations():
         for _ in range(1000):
             history = cache.get_feature_history(10)
             _ = history[0, 0]  # Access data
-    history_bytes = track_allocations.total_bytes
+    history_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"1000 history accesses allocated: {history_bytes:,} bytes")
 
     return {
@@ -154,7 +156,7 @@ def test_feature_cache_allocations():
     }
 
 
-def test_real_world_usage_pattern():
+def test_real_world_usage_pattern() -> dict[str, Any]:
     """
     Test realistic usage pattern.
     """
@@ -200,7 +202,7 @@ def test_real_world_usage_pattern():
             # 6. Simulate model inference (access data)
             _ = feature_history.mean()
 
-    real_world_bytes = track_allocations.total_bytes
+    real_world_bytes = int(getattr(track_allocations, "total_bytes", 0))
     print(f"1000 realistic inference loops allocated: {real_world_bytes:,} bytes")
 
     return {
@@ -209,7 +211,7 @@ def test_real_world_usage_pattern():
     }
 
 
-def main():
+def main() -> int:
     """
     Run cache allocation tests.
     """

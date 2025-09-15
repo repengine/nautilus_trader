@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from hypothesis import given, strategies as st
 
-from ml.common.cascade import emit_cascade
+from ml.common.cascade import emit_cascade, EventDict
 
 
 def _event_strategy() -> st.SearchStrategy[dict[str, Any]]:
@@ -35,7 +35,7 @@ def test_emit_cascade_preserves_correlation_and_monotonic_ts(
     emit_cascade preserves correlation_id and yields non-decreasing timestamps for non-
     negative delay.
     """
-    out = emit_cascade(src, target_domain=target, delay_ns=delay)
+    out = emit_cascade(cast(EventDict, src), target_domain=target, delay_ns=delay)
     assert out["correlation_id"] == src["correlation_id"]
     assert out["domain"] == target
     assert out["ts_event"] >= src["ts_event"]
@@ -46,8 +46,10 @@ def test_emit_cascade_payload_is_copied(src: dict[str, Any], target: str) -> Non
     """
     Returned payload is a copy (mutations do not affect source).
     """
-    out = emit_cascade(src, target_domain=target, delay_ns=0)
+    out = emit_cascade(cast(EventDict, src), target_domain=target, delay_ns=0)
     if "payload" in src:
         # Mutate returned payload
-        out["payload"]["__mutated__"] = True  # type: ignore[index]
-        assert "__mutated__" not in src["payload"]  # type: ignore[index]
+        payload_out = out["payload"]
+        payload_out["__mutated__"] = True
+        payload_src = cast(dict[str, Any], src["payload"])
+        assert "__mutated__" not in payload_src

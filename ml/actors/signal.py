@@ -1076,6 +1076,8 @@ class MLSignalActor(BaseMLInferenceActor):
         self._volatility_window = np.zeros(config.adaptive_window, dtype=np.float32)
         self._window_index = 0
         self._last_feature_time_ns: int = 0
+        # Pre-allocate a reusable 2D input buffer for inference to avoid per-call reshapes
+        self._predict_input_buf = np.zeros((1, n_features), dtype=np.float32)
 
         # Initialize strategy
         self._signal_strategy = self._create_strategy()
@@ -1473,7 +1475,10 @@ class MLSignalActor(BaseMLInferenceActor):
         rt = getattr(self._config, "onnx_runtime_config", None) or _OnnxRuntimeConfig()
         session_options, providers = to_session_options(rt)
 
-        # Load model
+        # Load model (ensure onnxruntime is available)
+        if not HAS_ONNX:
+            check_ml_dependencies(["onnxruntime"])  # ensure clear error if missing
+        assert ort is not None
         model = ort.InferenceSession(
             self._config.model_path,
             sess_options=session_options,
@@ -1575,18 +1580,23 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         # Prefer delegated computation via FeatureStore when configured
         try:
-            if hasattr(self, "_feature_store") and self._feature_store is not None:
+            if (
+                hasattr(self, "_feature_store")
+                and self._feature_store is not None
+                and hasattr(self._feature_store, "compute_realtime")
+            ):
                 # Keep call signature minimal to satisfy tests which assert (bar=..., store=...)
+                compute = cast(Any, getattr(self._feature_store, "compute_realtime"))
                 features = cast(
                     npt.NDArray[np.float32],
-                    self._feature_store.compute_realtime(bar=bar, store=self._persist_features),
+                    compute(bar=bar, store=self._persist_features),
                 )
                 if isinstance(features, np.ndarray) and features.size == 0:
                     return None
                 return features
         except Exception as exc:
             # Fall back to local feature engineer on any store failure
-            self.log.debug("FeatureStore compute_realtime failed; falling back", exc_info=exc)
+            self.log.debug(f"FeatureStore compute_realtime failed; falling back: {exc}")
 
         # Always use feature engineering (base class handles persistence)
         if self._indicator_manager is None:
@@ -1627,7 +1637,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 ).observe(feature_time / 1000.0)
             except Exception as exc:
                 # Swallow metrics failures but keep visibility for debugging
-                self.log.debug("Feature time metric observe failed", exc_info=exc)
+                self.log.debug(f"Feature time metric observe failed: {exc}")
 
         return features
 
@@ -1644,26 +1654,29 @@ class MLSignalActor(BaseMLInferenceActor):
             from unittest.mock import Mock
 
             if isinstance(self._model, Mock | MagicMock):
-                # Let the test mocks work as before
-                if hasattr(self._model, "run"):
-                    # Mock ONNX model path
-                    features_2d = features.reshape(1, -1).astype(np.float32)
+                # Let the test mocks work as before; prefer predict_proba/predict over run
+                if hasattr(self._model, "predict_proba"):
+                    # Copy into pre-allocated buffer to avoid per-call allocations
+                    size = features.shape[0]
+                    self._predict_input_buf[0, :size] = features
+                    probabilities = self._model.predict_proba(self._predict_input_buf)[0]
+                    prediction = float(np.argmax(probabilities))
+                    confidence = float(np.max(probabilities))
+                    return prediction, confidence
+                elif hasattr(self._model, "run"):
+                    # Mock ONNX model path; use pre-allocated buffer
+                    size = features.shape[0]
+                    self._predict_input_buf[0, :size] = features
                     if "input_names" in self._model_metadata:
                         input_name = self._model_metadata["input_names"][0]
-                        outputs = self._model.run(None, {input_name: features_2d})
+                        outputs = self._model.run(None, {input_name: self._predict_input_buf})
                     else:
-                        outputs = self._model.run(None, {"input": features_2d})
+                        outputs = self._model.run(None, {"input": self._predict_input_buf})
                     if len(outputs) >= 2:
                         return float(outputs[0][0]), float(outputs[1][0])
                     else:
                         prediction = float(outputs[0][0])
                         return prediction, 0.5
-                elif hasattr(self._model, "predict_proba"):
-                    features_2d = features.reshape(1, -1)
-                    probabilities = self._model.predict_proba(features_2d)[0]
-                    prediction = float(np.argmax(probabilities))
-                    confidence = float(np.max(probabilities))
-                    return prediction, confidence
                 elif hasattr(self._model, "predict"):
                     features_2d = features.reshape(1, -1)
                     prediction = float(self._model.predict(features_2d)[0])

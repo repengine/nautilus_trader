@@ -433,13 +433,14 @@ class ModelExportMixin(ABC):
             if not HAS_ONNX:
                 return False
 
+            from typing import Any as _Any
             from typing import cast as _cast
 
             from ml._imports import ort as _ort
 
             if _ort is None:
                 return False
-            session = _cast(object, _ort).InferenceSession(str(model_path))
+            session = _cast(_Any, _ort).InferenceSession(str(model_path))
             # Basic metadata check
             _ = [i.name for i in session.get_inputs()]
             _ = [o.name for o in session.get_outputs()]

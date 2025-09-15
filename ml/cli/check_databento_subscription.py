@@ -18,7 +18,7 @@ import sys
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 
 # Check for API key
@@ -30,17 +30,35 @@ import databento as db
 import pandas as pd
 
 
+class DatasetInfo(TypedDict, total=False):
+    start: str
+    end: str
+    days: int
+    years: float
+    schemas: list[str]
+
+
+class Results(TypedDict, total=False):
+    available_datasets: list[str]
+    datasets: dict[str, DatasetInfo]
+    costs: dict[str, float]
+    warnings: list[str]
+    recommendations: list[str]
+    date_ranges: dict[str, str]
+    schemas: dict[str, list[str]]
+
+
 class SubscriptionChecker:
     """
     Check Databento subscription limits and available data.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the subscription checker.
         """
-        self.client = db.Historical(os.getenv("DATABENTO_API_KEY"))
-        self.results = {
+        self.client: Any = db.Historical(os.getenv("DATABENTO_API_KEY"))
+        self.results: Results = {
             "datasets": {},
             "costs": {},
             "warnings": [],
@@ -56,7 +74,7 @@ class SubscriptionChecker:
         print("=" * 60)
 
         try:
-            datasets = self.client.metadata.list_datasets()
+            datasets = cast(list[str], self.client.metadata.list_datasets())
             print(f"✅ Found {len(datasets)} available datasets:")
             for dataset in datasets:
                 print(f"   - {dataset}")
@@ -75,7 +93,7 @@ class SubscriptionChecker:
         print(f"\n📊 Checking range for {dataset}...")
 
         try:
-            range_info = self.client.metadata.get_dataset_range(dataset)
+            range_info = cast(dict[str, Any], self.client.metadata.get_dataset_range(dataset))
 
             # Parse the range
             start_date = range_info.get("start_date", "Unknown")
@@ -112,7 +130,7 @@ class SubscriptionChecker:
         print(f"\n📈 Checking schemas for {dataset}...")
 
         try:
-            schemas = self.client.metadata.list_schemas(dataset)
+            schemas = cast(list[str], self.client.metadata.list_schemas(dataset))
 
             # Map schemas to levels
             schema_levels = {
@@ -153,12 +171,15 @@ class SubscriptionChecker:
 
         """
         try:
-            cost = self.client.metadata.get_cost(
-                dataset=dataset,
-                symbols=symbols[:10],  # Test with first 10 symbols
-                schema=schema,
-                start=start_date,
-                end=end_date,
+            cost = cast(
+                float,
+                self.client.metadata.get_cost(
+                    dataset=dataset,
+                    symbols=symbols[:10],  # Test with first 10 symbols
+                    schema=schema,
+                    start=start_date,
+                    end=end_date,
+                ),
             )
 
             return cost
@@ -167,7 +188,7 @@ class SubscriptionChecker:
             print(f"   ⚠️ Could not estimate cost: {e}")
             return -1
 
-    def check_subscription_coverage(self):
+    def check_subscription_coverage(self) -> None:
         """
         Check what data levels and ranges are covered by the subscription.
         """
@@ -176,18 +197,18 @@ class SubscriptionChecker:
         print("=" * 60)
 
         # Common US equity datasets
-        test_datasets = [
+        test_datasets: list[str] = [
             "EQUS.MINI",  # US Equities mini dataset (standard plan)
             "DBEQ.BASIC",  # Databento Equities Basic
             "OPRA.PILLAR",  # Options
         ]
 
         # Test symbols
-        test_symbols = ["AAPL", "MSFT", "SPY", "QQQ", "TSLA"]
+        test_symbols: list[str] = ["AAPL", "MSFT", "SPY", "QQQ", "TSLA"]
 
         # Test date ranges
         today = datetime.now()
-        test_ranges = {
+        test_ranges: dict[str, tuple[datetime, datetime]] = {
             "7 years": (today - timedelta(days=7 * 365), today),
             "1 year": (today - timedelta(days=365), today),
             "30 days": (today - timedelta(days=30), today),
@@ -195,7 +216,7 @@ class SubscriptionChecker:
         }
 
         # Test schemas by level
-        test_schemas = {
+        test_schemas: dict[str, list[str]] = {
             "L0": ["ohlcv-1d", "ohlcv-1h"],
             "L1": ["trades", "tbbo"],
             "L2": ["mbp-1", "mbp-10"],
@@ -241,7 +262,7 @@ class SubscriptionChecker:
                         else:
                             print(f"    ⚠️ {range_name}: Could not check")
 
-    def generate_safe_config(self):
+    def generate_safe_config(self) -> dict[str, Any]:
         """
         Generate a configuration that stays within subscription limits.
         """
@@ -250,7 +271,7 @@ class SubscriptionChecker:
         print("=" * 60)
 
         # Analyze results to find safe ranges
-        safe_config = {
+        safe_config: dict[str, Any] = {
             "datasets": [],
             "date_ranges": {},
             "schemas": {},
@@ -284,7 +305,7 @@ class SubscriptionChecker:
 
         return safe_config
 
-    def run_full_check(self):
+    def run_full_check(self) -> None:
         """
         Run complete subscription check.
         """
