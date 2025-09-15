@@ -18,9 +18,9 @@ Unit tests for the dYdX execution engine.
 
 
 import pytest
+from nautilus_trader.model.identifiers import ClientOrderId
 
 from nautilus_trader.adapters.dydx.execution import ClientOrderIdHelper
-from nautilus_trader.model.identifiers import ClientOrderId
 
 
 @pytest.fixture

@@ -20,10 +20,10 @@ import argparse
 import asyncio
 
 import pandas as pd
-
-from nautilus_trader.adapters.okx.factories import get_cached_okx_http_client
 from nautilus_trader.common.component import Logger
 from nautilus_trader.common.component import init_logging
+
+from nautilus_trader.adapters.okx.factories import get_cached_okx_http_client
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.core import nautilus_pyo3
 

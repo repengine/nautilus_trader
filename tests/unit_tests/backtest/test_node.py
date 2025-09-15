@@ -15,8 +15,10 @@
 
 import msgspec
 import pytest
-
 from nautilus_trader.backtest.engine import BacktestEngineConfig
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.identifiers import InstrumentId
+
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.common.config import InvalidConfiguration
 from nautilus_trader.config import BacktestDataConfig
@@ -24,8 +26,6 @@ from nautilus_trader.config import BacktestRunConfig
 from nautilus_trader.config import BacktestVenueConfig
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.config import LoggingConfig
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.test_kit.mocks.data import load_catalog_with_stub_quote_ticks_audusd
 from nautilus_trader.test_kit.mocks.data import setup_catalog
 

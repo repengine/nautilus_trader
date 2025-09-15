@@ -16,16 +16,10 @@
 from decimal import Decimal
 
 import pytest
-
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
-from nautilus_trader.config import ExecEngineConfig
-from nautilus_trader.config import InvalidConfiguration
-from nautilus_trader.config import StrategyConfig
-from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.engine import DataEngine
 from nautilus_trader.execution.engine import ExecutionEngine
 from nautilus_trader.execution.messages import CancelOrder
@@ -33,20 +27,8 @@ from nautilus_trader.execution.messages import ModifyOrder
 from nautilus_trader.execution.messages import SubmitOrder
 from nautilus_trader.execution.messages import SubmitOrderList
 from nautilus_trader.execution.messages import TradingCommand
-from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import AggressorSide
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderStatus
-from nautilus_trader.model.enums import OrderType
-from nautilus_trader.model.enums import PositionSide
-from nautilus_trader.model.enums import TimeInForce
-from nautilus_trader.model.enums import TriggerType
-from nautilus_trader.model.events import OrderCanceled
-from nautilus_trader.model.events import OrderDenied
-from nautilus_trader.model.events import OrderUpdated
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
@@ -58,17 +40,35 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.identifiers import VenueOrderId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
-from nautilus_trader.model.orders import Order
 from nautilus_trader.model.orders.list import OrderList
 from nautilus_trader.model.position import Position
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.risk.engine import RiskEngine
+from nautilus_trader.trading.strategy import Strategy
+
+from nautilus_trader.config import ExecEngineConfig
+from nautilus_trader.config import InvalidConfiguration
+from nautilus_trader.config import StrategyConfig
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import AggressorSide
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderStatus
+from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.enums import PositionSide
+from nautilus_trader.model.enums import TimeInForce
+from nautilus_trader.model.enums import TriggerType
+from nautilus_trader.model.events import OrderCanceled
+from nautilus_trader.model.events import OrderDenied
+from nautilus_trader.model.events import OrderUpdated
+from nautilus_trader.model.orders import Order
 from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
 from nautilus_trader.test_kit.mocks.exec_clients import MockExecutionClient
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
-from nautilus_trader.trading.strategy import Strategy
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")

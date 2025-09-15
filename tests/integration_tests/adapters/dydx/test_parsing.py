@@ -17,6 +17,7 @@ Unit tests for the parsing methods used by the dYdX adapter.
 """
 
 import pytest
+from nautilus_trader.model.data import BarType
 
 from nautilus_trader.adapters.dydx.common.enums import DYDXCandlesResolution
 from nautilus_trader.adapters.dydx.common.enums import DYDXEnumParser
@@ -28,7 +29,6 @@ from nautilus_trader.adapters.dydx.common.enums import DYDXPositionSide
 from nautilus_trader.adapters.dydx.common.enums import DYDXTimeInForce
 from nautilus_trader.adapters.dydx.common.parsing import get_interval_from_bar_type
 from nautilus_trader.core.nautilus_pyo3 import PositionSide
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import LiquiditySide
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import OrderStatus

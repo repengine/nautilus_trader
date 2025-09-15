@@ -20,15 +20,15 @@ import time
 
 import psutil
 import pytest
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TradeId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 
 from nautilus_trader.adapters.tardis.loaders import TardisCSVDataLoader
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.providers import ensure_data_exists_tardis_binance_snapshot5
 from nautilus_trader.test_kit.providers import ensure_data_exists_tardis_binance_snapshot25
 from nautilus_trader.test_kit.providers import ensure_data_exists_tardis_bitmex_trades

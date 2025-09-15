@@ -16,6 +16,7 @@
 
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import capsule_to_data
+
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from tests.mem_leak_tests.conftest import snapshot_memory
 

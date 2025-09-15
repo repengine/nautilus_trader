@@ -14,18 +14,18 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
-from nautilus_trader import TEST_DATA_DIR
-from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
 from nautilus_trader.model.data import OrderBookDelta
-from nautilus_trader.model.enums import BookType
-from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import StrategyId
 from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.data import TestDataStubs

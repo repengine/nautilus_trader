@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 import pytest
 
 
@@ -38,16 +39,28 @@ def _under_coverage() -> bool:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    # Mark all tests in this package as performance for consistent selection
+    """Confine marks/skips to tests under this performance package only."""
+    perf_root = Path(__file__).parent.resolve()
+    is_unstable_env = _under_xdist() or _under_coverage()
+
     for item in items:
-        if "performance" not in item.keywords:
-            item.add_marker(pytest.mark.performance)
+        try:
+            item_path = Path(str(item.fspath)).resolve()
+        except Exception:
+            # Best-effort; if path cannot be resolved, skip tagging
+            continue
 
-    # Skip performance tests under coverage or xdist (see rationale above)
-    if _under_xdist() or _under_coverage():
-        skip_marker = pytest.mark.skip(
-            reason="Skip performance tests under coverage or xdist (invalid/unstable)"
-        )
-        for item in items:
-            item.add_marker(skip_marker)
-
+        if perf_root in item_path.parents or item_path == perf_root:
+            # Mark as performance
+            if "performance" not in item.keywords:
+                item.add_marker(pytest.mark.performance)
+            # Skip under unstable environments
+            if is_unstable_env:
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason=(
+                            "Skip performance tests under coverage or xdist "
+                            "(invalid/unstable)"
+                        )
+                    )
+                )

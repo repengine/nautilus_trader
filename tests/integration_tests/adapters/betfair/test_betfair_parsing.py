@@ -45,6 +45,24 @@ from betfair_parser.spec.streaming import BestAvailableToBack
 from betfair_parser.spec.streaming import MarketChange
 from betfair_parser.spec.streaming import MarketDefinition
 from betfair_parser.spec.streaming import stream_decode
+from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_price
+from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_quantity
+from nautilus_trader.adapters.betfair.orderbook import create_betfair_order_book
+from nautilus_trader.common.component import LiveClock
+from nautilus_trader.core.data import Data
+from nautilus_trader.model.book import OrderBook
+from nautilus_trader.model.data import CustomData
+from nautilus_trader.model.data import InstrumentClose
+from nautilus_trader.model.data import InstrumentStatus
+from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.events.account import AccountState
+from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import VenueOrderId
+from nautilus_trader.model.objects import AccountBalance
+from nautilus_trader.model.objects import Money
 
 # fmt: off
 from nautilus_trader.adapters.betfair.common import BETFAIR_TICK_SCHEME
@@ -52,9 +70,6 @@ from nautilus_trader.adapters.betfair.common import OrderSideParser
 from nautilus_trader.adapters.betfair.data_types import BetfairStartingPrice
 from nautilus_trader.adapters.betfair.data_types import BetfairTicker
 from nautilus_trader.adapters.betfair.data_types import BSPOrderBookDelta
-from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_price
-from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_quantity
-from nautilus_trader.adapters.betfair.orderbook import create_betfair_order_book
 from nautilus_trader.adapters.betfair.parsing.common import instrument_id_betfair_ids
 from nautilus_trader.adapters.betfair.parsing.core import BetfairParser
 from nautilus_trader.adapters.betfair.parsing.requests import betfair_account_to_account_state
@@ -72,29 +87,14 @@ from nautilus_trader.adapters.betfair.parsing.streaming import market_change_to_
 from nautilus_trader.adapters.betfair.parsing.streaming import market_definition_to_betfair_starting_prices
 from nautilus_trader.adapters.betfair.parsing.streaming import market_definition_to_instrument_closes
 from nautilus_trader.adapters.betfair.parsing.streaming import market_definition_to_instrument_status
-from nautilus_trader.common.component import LiveClock
-from nautilus_trader.core.data import Data
 from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.currencies import GBP
-from nautilus_trader.model.data import CustomData
-from nautilus_trader.model.data import InstrumentClose
-from nautilus_trader.model.data import InstrumentStatus
-from nautilus_trader.model.data import OrderBookDeltas
-from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import MarketStatusAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import OrderStatus as NautilusOrderStatus
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import order_side_from_str
-from nautilus_trader.model.events.account import AccountState
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.identifiers import ClientOrderId
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.objects import AccountBalance
-from nautilus_trader.model.objects import Money
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.commands import TestCommandStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs

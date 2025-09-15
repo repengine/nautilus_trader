@@ -14,15 +14,15 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
-from nautilus_trader.adapters.betfair.data_types import BetfairStartingPrice
-from nautilus_trader.adapters.betfair.data_types import BetfairTicker
-from nautilus_trader.adapters.betfair.data_types import BSPOrderBookDelta
 from nautilus_trader.core.rust.model import BookAction
 from nautilus_trader.core.rust.model import OrderSide
 from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.adapters.betfair.data_types import BetfairStartingPrice
+from nautilus_trader.adapters.betfair.data_types import BetfairTicker
+from nautilus_trader.adapters.betfair.data_types import BSPOrderBookDelta
 from nautilus_trader.serialization.arrow.serializer import ArrowSerializer
 from nautilus_trader.test_kit.mocks.data import setup_catalog
 from tests.integration_tests.adapters.betfair.test_kit import betting_instrument

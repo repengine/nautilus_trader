@@ -14,12 +14,12 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-from pandas.core.generic import pickle
-
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.instruments.synthetic import SyntheticInstrument
 from nautilus_trader.model.objects import Price
+from pandas.core.generic import pickle
+
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 

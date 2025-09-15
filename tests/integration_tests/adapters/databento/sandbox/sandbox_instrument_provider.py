@@ -15,9 +15,10 @@
 
 import asyncio
 
+from nautilus_trader.common.component import LiveClock
+
 from nautilus_trader.adapters.databento.factories import get_cached_databento_http_client
 from nautilus_trader.adapters.databento.providers import DatabentoInstrumentProvider
-from nautilus_trader.common.component import LiveClock
 from nautilus_trader.core import nautilus_pyo3
 
 

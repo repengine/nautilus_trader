@@ -14,8 +14,9 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
+
+from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from tests.integration_tests.adapters.databento.test_loaders import DATABENTO_TEST_DATA_DIR
 
 

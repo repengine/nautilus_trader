@@ -35,6 +35,13 @@ from betfair_parser.spec.streaming import Order
 from betfair_parser.spec.streaming import OrderMarketChange
 from betfair_parser.spec.streaming import OrderRunnerChange
 from betfair_parser.spec.streaming import stream_decode
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.instruments.betting import BettingInstrument
+from nautilus_trader.model.instruments.betting import null_handicap
+from nautilus_trader.model.objects import Money
 
 from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.adapters.betfair.client import BetfairHttpClient
@@ -58,13 +65,6 @@ from nautilus_trader.config import RiskEngineConfig
 from nautilus_trader.config import StreamingConfig
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 from nautilus_trader.model.currencies import GBP
-from nautilus_trader.model.data import OrderBookDelta
-from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.instruments.betting import BettingInstrument
-from nautilus_trader.model.instruments.betting import null_handicap
-from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 

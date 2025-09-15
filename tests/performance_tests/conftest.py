@@ -14,7 +14,6 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.common.component import LiveClock
 
 

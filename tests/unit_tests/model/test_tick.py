@@ -15,18 +15,19 @@
 
 import pickle
 
-from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.model import convert_to_raw_int
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import AggressorSide
-from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.model import convert_to_raw_int
+from nautilus_trader.model.enums import AggressorSide
+from nautilus_trader.model.enums import PriceType
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.rust.data_pyo3 import TestDataProviderPyo3
 

@@ -15,17 +15,9 @@
 
 import pytest
 from betfair_parser.spec.common import OrderSide as BetSide
-
 from nautilus_trader.accounting.accounts.betting import BettingAccount
-from nautilus_trader.adapters.betfair.parsing.common import bet_side_to_order_side
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
-from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.model.currencies import GBP
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import LiquiditySide
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.events import AccountState
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import StrategyId
@@ -34,6 +26,14 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.position import Position
+
+from nautilus_trader.adapters.betfair.parsing.common import bet_side_to_order_side
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import GBP
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import LiquiditySide
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.events import AccountState
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs

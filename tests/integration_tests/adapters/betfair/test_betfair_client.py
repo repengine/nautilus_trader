@@ -47,19 +47,19 @@ from betfair_parser.spec.common.messages import RPCError
 from betfair_parser.spec.identity import Login
 from betfair_parser.spec.identity import _LoginParams
 from betfair_parser.spec.navigation import Menu
-
 from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_price
 from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_quantity
+from nautilus_trader.execution.messages import SubmitOrder
+from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import PositionId
+from nautilus_trader.model.identifiers import VenueOrderId
+
 from nautilus_trader.adapters.betfair.parsing.requests import order_cancel_to_cancel_order_params
 from nautilus_trader.adapters.betfair.parsing.requests import order_submit_to_place_order_params
 from nautilus_trader.adapters.betfair.parsing.requests import order_update_to_replace_order_params
 from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.execution.messages import SubmitOrder
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
-from nautilus_trader.model.identifiers import ClientOrderId
-from nautilus_trader.model.identifiers import PositionId
-from nautilus_trader.model.identifiers import VenueOrderId
 from nautilus_trader.test_kit.stubs.commands import TestCommandStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs

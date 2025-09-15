@@ -16,12 +16,12 @@
 import os
 
 import pytest
+from nautilus_trader.common.component import LiveClock
+from nautilus_trader.model.identifiers import InstrumentId
 
 from nautilus_trader.adapters.bybit.common.enums import BybitProductType
 from nautilus_trader.adapters.bybit.factories import get_bybit_http_client
 from nautilus_trader.adapters.bybit.providers import BybitInstrumentProvider
-from nautilus_trader.common.component import LiveClock
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 @pytest.mark.asyncio()

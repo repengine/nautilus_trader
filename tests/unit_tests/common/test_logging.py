@@ -14,8 +14,8 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.common.component import Logger
+
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.common.enums import log_level_from_str

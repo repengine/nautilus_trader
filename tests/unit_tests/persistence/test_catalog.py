@@ -21,25 +21,25 @@ from unittest.mock import patch
 import pandas as pd
 import pyarrow.dataset as ds
 import pytest
-
-from nautilus_trader import TEST_DATA_DIR
-from nautilus_trader.adapters.betfair.constants import BETFAIR_PRICE_PRECISION
-from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
-from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.data import Data
-from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.core.rust.model import AggressorSide
 from nautilus_trader.core.rust.model import BookAction
-from nautilus_trader.model.custom import customdataclass
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import CustomData
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.instruments import BettingInstrument
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.adapters.betfair.constants import BETFAIR_PRICE_PRECISION
+from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.datetime import dt_to_unix_nanos
+from nautilus_trader.model.custom import customdataclass
+from nautilus_trader.model.instruments import BettingInstrument
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.persistence.wranglers_v2 import QuoteTickDataWranglerV2
 from nautilus_trader.persistence.wranglers_v2 import TradeTickDataWranglerV2

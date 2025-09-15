@@ -10,23 +10,24 @@ generate individual leg fills for portfolio tracking.
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.enums import LiquiditySide
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderType
 from nautilus_trader.model.events.order import OrderFilled
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.instruments import OptionContract
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.portfolio.portfolio import Portfolio
+
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.enums import LiquiditySide
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.instruments import OptionContract
 from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
@@ -69,14 +70,15 @@ class TestExecutionEngineLegFills:
         )
 
         # Create test instruments - use different option contracts for call and put
-        from nautilus_trader.model.enums import AssetClass
-        from nautilus_trader.model.enums import OptionKind
         from nautilus_trader.model.identifiers import InstrumentId
         from nautilus_trader.model.identifiers import Symbol
         from nautilus_trader.model.identifiers import Venue
         from nautilus_trader.model.objects import Currency
         from nautilus_trader.model.objects import Price
         from nautilus_trader.model.objects import Quantity
+
+        from nautilus_trader.model.enums import AssetClass
+        from nautilus_trader.model.enums import OptionKind
 
         # Create call option
         self.call_option = OptionContract(

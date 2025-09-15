@@ -13,9 +13,10 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.data import IndexPriceUpdate
 from nautilus_trader.model.objects import Price
+
+from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 

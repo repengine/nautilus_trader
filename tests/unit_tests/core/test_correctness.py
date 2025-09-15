@@ -16,7 +16,6 @@
 from decimal import Decimal
 
 import pytest
-
 from nautilus_trader.core.correctness import PyCondition
 
 

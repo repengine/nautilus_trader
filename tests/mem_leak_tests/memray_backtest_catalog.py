@@ -19,6 +19,10 @@ import tempfile
 from decimal import Decimal
 from pathlib import Path
 
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
+
 from nautilus_trader.backtest.node import BacktestDataConfig
 from nautilus_trader.backtest.node import BacktestEngineConfig
 from nautilus_trader.backtest.node import BacktestNode
@@ -27,10 +31,7 @@ from nautilus_trader.backtest.node import BacktestVenueConfig
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
-from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 

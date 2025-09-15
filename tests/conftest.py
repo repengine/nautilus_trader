@@ -19,13 +19,13 @@ import tracemalloc
 
 import psutil
 import pytest
-
 from nautilus_trader.common.component import init_logging
-from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
+
+from nautilus_trader.common.enums import LogLevel
+from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 

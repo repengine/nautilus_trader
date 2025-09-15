@@ -17,12 +17,12 @@ import pkgutil
 
 import msgspec
 import pytest
+from nautilus_trader.common.component import LiveClock
 
 from nautilus_trader.adapters.bybit.common.enums import BybitProductType
 from nautilus_trader.adapters.bybit.http.account import BybitAccountHttpAPI
 from nautilus_trader.adapters.bybit.http.client import BybitHttpClient
 from nautilus_trader.adapters.bybit.schemas.account.fee_rate import BybitFeeRateResponse
-from nautilus_trader.common.component import LiveClock
 from nautilus_trader.core.nautilus_pyo3 import HttpClient
 from tests.integration_tests.adapters.bybit.utils.get_mock import get_mock
 

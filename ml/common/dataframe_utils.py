@@ -53,3 +53,46 @@ def column_nulls(df: Any, column: str) -> int:
         return 0
     return 0
 
+
+def has_columns(df: Any, columns: set[str]) -> tuple[bool, set[str]]:
+    """
+    Return (ok, missing) indicating whether `df` contains all `columns`.
+
+    Works for pandas and polars DataFrames. Treats absence of `columns` attribute
+    as missing all.
+    """
+    try:
+        df_cols = set(getattr(df, "columns", []) or [])
+        missing = set(columns) - df_cols
+        return (len(missing) == 0, missing)
+    except Exception:
+        return (False, set(columns))
+
+
+def is_monotonic_non_decreasing(series_or_df_col: Any) -> bool:
+    """
+    Return True if a 1-D Series/column is monotonically non-decreasing.
+
+    Supports polars Series via `is_sorted(descending=False)` and pandas Series via
+    `is_monotonic_increasing`. Falls back to a simple pairwise check.
+    """
+    try:
+        # polars Series
+        if hasattr(series_or_df_col, "is_sorted"):
+            return bool(series_or_df_col.is_sorted(descending=False))
+        # pandas Series
+        if hasattr(series_or_df_col, "is_monotonic_increasing"):
+            return bool(series_or_df_col.is_monotonic_increasing)
+        # Fallback: try to iterate
+        it = iter(series_or_df_col)
+        try:
+            prev = next(it)
+        except StopIteration:
+            return True
+        for x in it:
+            if x < prev:
+                return False
+            prev = x
+        return True
+    except Exception:
+        return False

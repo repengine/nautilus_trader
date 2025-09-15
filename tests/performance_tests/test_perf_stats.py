@@ -14,7 +14,6 @@
 # -------------------------------------------------------------------------------------------------
 
 import numpy as np
-
 from nautilus_trader.core.stats import fast_mean
 from nautilus_trader.core.stats import fast_std
 

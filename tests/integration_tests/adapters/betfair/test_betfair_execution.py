@@ -28,25 +28,14 @@ from betfair_parser.spec.streaming import OCM
 from betfair_parser.spec.streaming import MatchedOrder
 from betfair_parser.spec.streaming import Order as BFOrder
 from betfair_parser.spec.streaming import stream_decode
-
-from nautilus_trader.adapters.betfair.client import BetfairHttpClient
-from nautilus_trader.adapters.betfair.constants import BETFAIR_PRICE_PRECISION
-from nautilus_trader.adapters.betfair.constants import BETFAIR_QUANTITY_PRECISION
-from nautilus_trader.adapters.betfair.data import BetfairDataClient
-from nautilus_trader.adapters.betfair.execution import BetfairExecutionClient
 from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_price
 from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_quantity
-from nautilus_trader.adapters.betfair.parsing.common import betfair_instrument_id
 from nautilus_trader.core.rust.model import OrderSide
 from nautilus_trader.core.rust.model import OrderStatus
 from nautilus_trader.core.rust.model import TimeInForce
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.messages import GenerateFillReports
 from nautilus_trader.execution.messages import GenerateOrderStatusReport
 from nautilus_trader.execution.messages import GenerateOrderStatusReports
-from nautilus_trader.execution.reports import OrderStatusReport
-from nautilus_trader.model.currencies import GBP
-from nautilus_trader.model.enums import LiquiditySide
 from nautilus_trader.model.events.order import OrderAccepted
 from nautilus_trader.model.events.order import OrderCanceled
 from nautilus_trader.model.events.order import OrderFilled
@@ -59,12 +48,23 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import StrategyId
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.instruments import BettingInstrument
 from nautilus_trader.model.instruments.betting import null_handicap
 from nautilus_trader.model.objects import Currency
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.adapters.betfair.client import BetfairHttpClient
+from nautilus_trader.adapters.betfair.constants import BETFAIR_PRICE_PRECISION
+from nautilus_trader.adapters.betfair.constants import BETFAIR_QUANTITY_PRECISION
+from nautilus_trader.adapters.betfair.data import BetfairDataClient
+from nautilus_trader.adapters.betfair.execution import BetfairExecutionClient
+from nautilus_trader.adapters.betfair.parsing.common import betfair_instrument_id
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.execution.reports import OrderStatusReport
+from nautilus_trader.model.currencies import GBP
+from nautilus_trader.model.enums import LiquiditySide
+from nautilus_trader.model.instruments import BettingInstrument
 from nautilus_trader.test_kit.stubs.commands import TestCommandStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 from tests.integration_tests.adapters.betfair.test_kit import BetfairResponses

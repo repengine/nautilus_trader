@@ -18,6 +18,8 @@ from decimal import Decimal
 
 import pandas as pd
 import pytest
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.identifiers import InstrumentId
 
 # fmt: off
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
@@ -42,8 +44,6 @@ from nautilus_trader.adapters.interactive_brokers.parsing.instruments import exp
 from nautilus_trader.adapters.interactive_brokers.parsing.instruments import ib_contract_to_instrument_id
 from nautilus_trader.adapters.interactive_brokers.parsing.instruments import instrument_id_to_ib_contract
 from nautilus_trader.adapters.interactive_brokers.parsing.instruments import parse_instrument
-from nautilus_trader.model.data import BarSpecification
-from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.instruments import OptionContract
 from tests.integration_tests.adapters.interactive_brokers.test_kit import IBTestContractStubs
 

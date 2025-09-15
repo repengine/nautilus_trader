@@ -16,11 +16,11 @@
 import os
 
 import pytest
+from nautilus_trader.model.data import capsule_to_list
 
 from nautilus_trader import PACKAGE_ROOT
 from nautilus_trader.core.nautilus_pyo3 import DataBackendSession
 from nautilus_trader.core.nautilus_pyo3 import NautilusDataType
-from nautilus_trader.model.data import capsule_to_list
 from nautilus_trader.test_kit.mocks.data import load_catalog_with_stub_quote_ticks_audusd
 from nautilus_trader.test_kit.mocks.data import load_catalog_with_stub_trade_ticks_ethusdt
 from nautilus_trader.test_kit.mocks.data import setup_catalog

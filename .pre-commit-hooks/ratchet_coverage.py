@@ -16,6 +16,7 @@ This pattern ensures:
 - Each commit has an opportunity to raise the bar by 1 percentage point.
 
 Notes
+-----
 - This hook intentionally exits non-zero when it writes/updates the baseline
   file, so that pre-commit stops and the developer can `git add` the updated
   file and re-run the commit.
@@ -79,7 +80,7 @@ def run_pytest_with_coverage(packages: list[str]) -> Path:
         return subprocess.run(cmd, text=True, capture_output=True, env=env)
 
     # Erase any prior data (best effort)
-    run(["uv", "run", "--active", "--no-sync", "coverage", "erase"])  # noqa: F841
+    run(["uv", "run", "--active", "--no-sync", "coverage", "erase"])
 
     # Run tests under coverage
     cmd_run = [

@@ -16,6 +16,13 @@
 import pkgutil
 
 import msgspec
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import TradeId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 
 from nautilus_trader.adapters.bybit.common.enums import BybitExecType
 from nautilus_trader.adapters.bybit.common.enums import BybitKlineInterval
@@ -51,15 +58,8 @@ from nautilus_trader.adapters.bybit.schemas.ws import BybitWsTickerSpot
 from nautilus_trader.adapters.bybit.schemas.ws import BybitWsTickerSpotMsg
 from nautilus_trader.adapters.bybit.schemas.ws import BybitWsTrade
 from nautilus_trader.adapters.bybit.schemas.ws import BybitWsTradeMsg
-from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import RecordFlag
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 
 
 class TestBybitWsDecoders:

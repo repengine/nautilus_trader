@@ -16,11 +16,17 @@
 import asyncio
 
 import pytest
-
 from nautilus_trader.backtest.exchange import SimulatedExchange
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
 from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.identifiers import ClientOrderId
+from nautilus_trader.model.identifiers import StrategyId
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.identifiers import VenueOrderId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.orders.list import OrderList
+
 from nautilus_trader.model.events import OrderAccepted
 from nautilus_trader.model.events import OrderCanceled
 from nautilus_trader.model.events import OrderFilled
@@ -28,12 +34,6 @@ from nautilus_trader.model.events import OrderPendingCancel
 from nautilus_trader.model.events import OrderPendingUpdate
 from nautilus_trader.model.events import OrderSubmitted
 from nautilus_trader.model.events import OrderUpdated
-from nautilus_trader.model.identifiers import ClientOrderId
-from nautilus_trader.model.identifiers import StrategyId
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.orders.list import OrderList
 from nautilus_trader.test_kit.stubs.commands import TestCommandStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 

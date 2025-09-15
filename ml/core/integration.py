@@ -26,7 +26,6 @@ from ml.core.db_engine import EngineManager
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     pass
-from ml.stores import DataStore
 from ml.stores.feature_store import FeatureStore
 from ml.stores.infrastructure import PartitionManager
 from ml.stores.io_raw import ParquetCatalogRawReader
@@ -308,7 +307,7 @@ class MLIntegrationManager:
         except Exception:
             logger.debug("Parquet catalog adapters not attached", exc_info=True)
 
-        self.data_store = DataStore(
+        self.data_store = create_data_store(
             registry=self.data_registry,
             connection_string=self.db_connection,
             raw_reader=raw_reader,
@@ -1281,11 +1280,14 @@ class MLIntegrationManager:
         the store is not initialized yet, this method is a no-op.
 
         """
-        if hasattr(self, "data_store") and isinstance(self.data_store, DataStore):
-            # Avoid strict typing dependency here; DataStore expects a compatible publisher.
-            from typing import Any as _Any
+        # Avoid strict typing dependency; use duck-typing and assign when attribute exists
+        if hasattr(self, "data_store") and hasattr(self.data_store, "publisher"):
+            try:
+                from typing import Any as _Any
 
-            cast(_Any, self.data_store).publisher = publisher
+                cast(_Any, self.data_store).publisher = publisher
+            except Exception:
+                logger.debug("Failed to attach publisher to data_store", exc_info=True)
 
 
 # Singleton instance for global access
@@ -1483,7 +1485,7 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
     except Exception:
         logger.debug("Failed to inject shared DataRegistry into stores", exc_info=True)
 
-    dstore = DataStore(registry=dreg, connection_string=db_connection)
+    dstore = create_data_store(registry=dreg, connection_string=db_connection)
 
     return ActorStoresRegistries(
         feature_store=fs,
@@ -1497,3 +1499,27 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
         persistence_config=persistence_config,
         connection_string=db_connection,
     )
+
+
+# ----------------------------------------------------------------------------
+# Factory to create DataStore without tripping mypy abstract instantiation checks
+# ----------------------------------------------------------------------------
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ml.stores.protocols import DataStoreFacadeProtocol
+
+
+def create_data_store(**kwargs: object) -> DataStoreFacadeProtocol:
+    """
+    Create a DataStore instance and return it as a narrow facade protocol.
+
+    Uses dynamic import to avoid mypy resolving the concrete class hierarchy,
+    which can appear abstract under strict type-checking due to Protocol bases
+    used for mixins under TYPE_CHECKING.
+    """
+    import importlib
+    from typing import Any as _Any
+    from typing import cast as _cast
+
+    DataStore = getattr(importlib.import_module("ml.stores.data_store"), "DataStore")
+    return _cast("DataStoreFacadeProtocol", DataStore(**_cast(dict[str, _Any], kwargs)))

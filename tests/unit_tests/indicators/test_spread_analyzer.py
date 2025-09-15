@@ -14,11 +14,11 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.indicators.spread_analyzer import SpreadAnalyzer
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 

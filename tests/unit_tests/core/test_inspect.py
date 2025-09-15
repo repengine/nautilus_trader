@@ -15,12 +15,12 @@
 
 import pandas as pd
 import pytest
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import TradeTick
 
 from nautilus_trader.adapters.betfair.data_types import BetfairStartingPrice
 from nautilus_trader.adapters.betfair.data_types import BetfairTicker
 from nautilus_trader.core.inspect import is_nautilus_class
-from nautilus_trader.model.data import OrderBookDelta
-from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.events import OrderAccepted
 
 

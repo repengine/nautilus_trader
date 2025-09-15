@@ -15,16 +15,16 @@
 
 import pandas as pd
 import pytest
+from nautilus_trader.model.objects import FIXED_SCALAR
+from nautilus_trader.persistence.wranglers import OrderBookDeltaDataWrangler
+from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
+from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
 
 from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.adapters.binance.loaders import BinanceOrderBookDeltaDataLoader
 from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import RecordFlag
-from nautilus_trader.model.objects import FIXED_SCALAR
-from nautilus_trader.persistence.wranglers import OrderBookDeltaDataWrangler
-from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
-from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 

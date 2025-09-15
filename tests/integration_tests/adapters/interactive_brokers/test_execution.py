@@ -18,6 +18,9 @@ from functools import partial
 
 import pytest
 from ibapi.order_state import OrderState as IBOrderState
+from nautilus_trader.model.identifiers import PositionId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 
 # fmt: off
 from nautilus_trader.adapters.interactive_brokers.common import IBOrderTags
@@ -25,9 +28,6 @@ from nautilus_trader.adapters.interactive_brokers.factories import InteractiveBr
 from nautilus_trader.adapters.interactive_brokers.parsing.instruments import instrument_id_to_ib_contract
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import OrderStatus
-from nautilus_trader.model.identifiers import PositionId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.stubs.commands import TestCommandStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs

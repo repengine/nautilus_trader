@@ -23,11 +23,18 @@ import pandas as pd
 import pyarrow.dataset as ds
 import pytest
 from click.testing import CliRunner
+from nautilus_trader.backtest.modules import FXRolloverInterestConfig
+from nautilus_trader.backtest.modules import FXRolloverInterestModule
+from nautilus_trader.model.data import InstrumentStatus
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import ClientId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Venue
 
 # Our code
 from nautilus_trader.backtest.config import parse_filters_expr
-from nautilus_trader.backtest.modules import FXRolloverInterestConfig
-from nautilus_trader.backtest.modules import FXRolloverInterestModule
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.config import BacktestDataConfig
 from nautilus_trader.config import BacktestEngineConfig
@@ -37,13 +44,6 @@ from nautilus_trader.config import ImportableActorConfig
 from nautilus_trader.config import NautilusConfig
 from nautilus_trader.config import msgspec_encoding_hook
 from nautilus_trader.config import tokenize_config
-from nautilus_trader.model.data import InstrumentStatus
-from nautilus_trader.model.data import OrderBookDelta
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.identifiers import ClientId
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.test_kit.mocks.data import NewsEventData
 from nautilus_trader.test_kit.mocks.data import load_catalog_with_stub_quote_ticks_audusd
 from nautilus_trader.test_kit.mocks.data import setup_catalog

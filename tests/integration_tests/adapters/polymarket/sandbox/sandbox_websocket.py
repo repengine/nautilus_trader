@@ -15,8 +15,9 @@
 
 import asyncio
 
-from nautilus_trader.adapters.polymarket.websocket.client import PolymarketWebSocketClient
 from nautilus_trader.common.component import LiveClock
+
+from nautilus_trader.adapters.polymarket.websocket.client import PolymarketWebSocketClient
 
 
 async def run_polymarket_websocket():

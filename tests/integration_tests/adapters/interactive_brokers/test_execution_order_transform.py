@@ -14,9 +14,9 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
+from nautilus_trader.model.identifiers import Venue
 
 from nautilus_trader.model.enums import TimeInForce
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.test_kit.stubs.data import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 

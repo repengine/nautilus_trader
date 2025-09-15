@@ -15,7 +15,6 @@
 
 import numpy as np
 import pytest
-
 from nautilus_trader.core.math import quadratic_interpolation
 
 

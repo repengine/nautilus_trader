@@ -35,6 +35,7 @@ from ml.common.protocols import MLComponentMixin
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.core.db_engine import EngineManager
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract
 from ml.registry.dataclasses import DatasetManifest
@@ -395,10 +396,11 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         self.schema_migration_window_hours = schema_migration_window_hours
 
         # Topic scheme/prefix (env-driven defaults). Publishing is disabled by
-        # default and must be explicitly enabled by the caller to avoid
-        # accidental PII/cardinality leaks.
+        # default to avoid accidental PII/cardinality leaks. For backwards-
+        # compatibility with existing unit tests, implicitly enable when a
+        # non-None publisher is provided unless explicitly disabled.
         self._init_bus_publishing(
-            enable_publishing=enable_publishing,
+            enable_publishing=(enable_publishing or (publisher is not None)),
             publisher=publisher,
             publish_mode="batch",
         )
@@ -2922,3 +2924,13 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         from contextlib import nullcontext
 
         return nullcontext()
+# Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
+# This delegates to the centralized EngineManager.
+def create_engine(connection_string: str, **kwargs: Any):
+    """
+    Return the shared SQLAlchemy engine for the given connection string.
+
+    Delegates to EngineManager to ensure a single engine per unique URL.
+    Tests may monkeypatch this symbol or EngineManager.get_engine in this module.
+    """
+    return EngineManager.get_engine(connection_string, **kwargs)

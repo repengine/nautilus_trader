@@ -13,17 +13,18 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+from nautilus_trader.common.component import TestClock
+from nautilus_trader.common.factories import OrderFactory
+from nautilus_trader.model.objects import Money
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+
 from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.backtest.models import FixedFeeModel
 from nautilus_trader.backtest.models import LatencyModel
 from nautilus_trader.backtest.models import PerContractFeeModel
-from nautilus_trader.common.component import TestClock
-from nautilus_trader.common.factories import OrderFactory
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.objects import Money
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 

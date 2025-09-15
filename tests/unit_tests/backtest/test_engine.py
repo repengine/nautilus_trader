@@ -19,12 +19,31 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
-from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
-from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.common.actor import Actor
+from nautilus_trader.execution.algorithm import ExecAlgorithm
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import BookOrder
+from nautilus_trader.model.data import CustomData
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.data import InstrumentStatus
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.identifiers import ClientId
+from nautilus_trader.model.identifiers import StrategyId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.objects import Money
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+from nautilus_trader.persistence.wranglers import BarDataWrangler
+from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
+from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
+from nautilus_trader.trading.strategy import Strategy
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.config import ImportableControllerConfig
 from nautilus_trader.config import InvalidConfiguration
 from nautilus_trader.config import LoggingConfig
@@ -34,17 +53,8 @@ from nautilus_trader.examples.strategies.ema_cross import EMACross
 from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
 from nautilus_trader.examples.strategies.signal_strategy import SignalStrategy
 from nautilus_trader.examples.strategies.signal_strategy import SignalStrategyConfig
-from nautilus_trader.execution.algorithm import ExecAlgorithm
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.currencies import USDT
-from nautilus_trader.model.data import BarSpecification
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.data import BookOrder
-from nautilus_trader.model.data import CustomData
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.data import InstrumentStatus
-from nautilus_trader.model.data import OrderBookDelta
-from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import AggregationSource
 from nautilus_trader.model.enums import BarAggregation
@@ -54,17 +64,8 @@ from nautilus_trader.model.enums import MarketStatusAction
 from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import PriceType
-from nautilus_trader.model.identifiers import ClientId
-from nautilus_trader.model.identifiers import StrategyId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Money
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence import wranglers_v2
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-from nautilus_trader.persistence.wranglers import BarDataWrangler
-from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
-from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
@@ -72,7 +73,6 @@ from nautilus_trader.test_kit.stubs.config import TestConfigStubs
 from nautilus_trader.test_kit.stubs.data import MyData
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from nautilus_trader.trading.messages import RemoveStrategy
-from nautilus_trader.trading.strategy import Strategy
 
 
 ETHUSDT_BINANCE = TestInstrumentProvider.ethusdt_binance()

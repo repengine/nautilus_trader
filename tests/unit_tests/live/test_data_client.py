@@ -17,13 +17,14 @@ import asyncio
 
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
+from nautilus_trader.model.identifiers import ClientId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.portfolio.portfolio import Portfolio
+
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.live.data_client import LiveDataClient
 from nautilus_trader.live.data_client import LiveMarketDataClient
 from nautilus_trader.live.data_engine import LiveDataEngine
-from nautilus_trader.model.identifiers import ClientId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs

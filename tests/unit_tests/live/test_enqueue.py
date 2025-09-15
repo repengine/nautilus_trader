@@ -17,9 +17,9 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
-
 from nautilus_trader.common.component import Logger
 from nautilus_trader.common.component import TestClock
+
 from nautilus_trader.live.enqueue import ThrottledEnqueuer
 
 

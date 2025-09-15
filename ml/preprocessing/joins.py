@@ -18,6 +18,7 @@ from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pd as pd_runtime
 from ml._imports import pl as pl_runtime
+from ml.common.dataframe_utils import has_columns as _has_cols
 from ml.ml_types import DataFrameLike
 
 
@@ -88,6 +89,33 @@ def asof_join(
     ... )
 
     """
+    # Validate required columns exist on both sides
+    req_on = [on] if isinstance(on, str) else list(on)
+    ok_left, missing_left = _has_cols(left, set(req_on))
+    ok_right, missing_right = _has_cols(right, set(req_on))
+    if not ok_left or not ok_right:
+        missing_desc = []
+        if missing_left:
+            missing_desc.append(f"left missing: {sorted(missing_left)}")
+        if missing_right:
+            missing_desc.append(f"right missing: {sorted(missing_right)}")
+        raise ValueError(
+            "asof_join requires 'on' columns in both dataframes: " + ", ".join(missing_desc)
+        )
+    if by is not None:
+        req_by = [by] if isinstance(by, str) else list(by)
+        ok_left_by, miss_left_by = _has_cols(left, set(req_by))
+        ok_right_by, miss_right_by = _has_cols(right, set(req_by))
+        if not ok_left_by or not ok_right_by:
+            missing_desc = []
+            if miss_left_by:
+                missing_desc.append(f"left missing: {sorted(miss_left_by)}")
+            if miss_right_by:
+                missing_desc.append(f"right missing: {sorted(miss_right_by)}")
+            raise ValueError(
+                "asof_join requires 'by' columns in both dataframes: " + ", ".join(missing_desc)
+            )
+
     # Check dependencies
     if pl_runtime is not None and isinstance(left, pl_runtime.DataFrame):
         if not HAS_POLARS:

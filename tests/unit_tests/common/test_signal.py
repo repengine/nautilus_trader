@@ -14,13 +14,13 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
-from nautilus_trader.common.signal import generate_signal_class
 from nautilus_trader.core.data import Data
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.identifiers import TraderId
+
+from nautilus_trader.common.signal import generate_signal_class
+from nautilus_trader.core.uuid import UUID4
 
 
 class TestSignalSerialization:

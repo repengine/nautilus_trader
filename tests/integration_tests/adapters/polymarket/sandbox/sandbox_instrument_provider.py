@@ -15,9 +15,10 @@
 
 import asyncio
 
+from nautilus_trader.common.component import LiveClock
+
 from nautilus_trader.adapters.polymarket.factories import get_polymarket_http_client
 from nautilus_trader.adapters.polymarket.providers import PolymarketInstrumentProvider
-from nautilus_trader.common.component import LiveClock
 
 
 async def test_polymarket_instrument_provider():

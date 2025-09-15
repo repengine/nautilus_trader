@@ -19,6 +19,10 @@ Unit tests for the dYdX factories.
 import asyncio
 
 import pytest
+from nautilus_trader.cache.cache import Cache
+from nautilus_trader.common.component import LiveClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.model.identifiers import TraderId
 
 from nautilus_trader.adapters.dydx.common.urls import get_grpc_base_url
 from nautilus_trader.adapters.dydx.common.urls import get_http_base_url
@@ -26,10 +30,6 @@ from nautilus_trader.adapters.dydx.common.urls import get_ws_base_url
 from nautilus_trader.adapters.dydx.config import DYDXDataClientConfig
 from nautilus_trader.adapters.dydx.data import DYDXDataClient
 from nautilus_trader.adapters.dydx.factories import DYDXLiveDataClientFactory
-from nautilus_trader.cache.cache import Cache
-from nautilus_trader.common.component import LiveClock
-from nautilus_trader.common.component import MessageBus
-from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
 
 

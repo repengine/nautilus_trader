@@ -18,6 +18,7 @@ import unittest.mock
 
 import msgspec
 import pytest
+from nautilus_trader.model.identifiers import StrategyId
 
 from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
 from nautilus_trader.adapters.binance.config import BinanceExecClientConfig
@@ -27,7 +28,6 @@ from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
-from nautilus_trader.model.identifiers import StrategyId
 from nautilus_trader.test_kit.functions import ensure_all_tasks_completed
 
 

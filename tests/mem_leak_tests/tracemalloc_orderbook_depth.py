@@ -14,8 +14,9 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.data import OrderBookDepth10
+
+from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from tests.mem_leak_tests.conftest import snapshot_memory
 

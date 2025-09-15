@@ -19,6 +19,17 @@ import pkgutil
 import aiohttp
 import msgspec
 import pytest
+from nautilus_trader.common.component import LiveClock
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.data.engine import DataEngine
+from nautilus_trader.execution.engine import ExecutionEngine
+from nautilus_trader.execution.messages import SubmitOrder
+from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+from nautilus_trader.portfolio.portfolio import Portfolio
+from nautilus_trader.risk.engine import RiskEngine
+from nautilus_trader.trading.strategy import Strategy
 
 from nautilus_trader.adapters.binance.common.constants import BINANCE_VENUE
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
@@ -26,25 +37,14 @@ from nautilus_trader.adapters.binance.config import BinanceExecClientConfig
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.execution import BinanceSpotExecutionClient
 from nautilus_trader.adapters.binance.spot.providers import BinanceSpotInstrumentProvider
-from nautilus_trader.common.component import LiveClock
-from nautilus_trader.common.component import MessageBus
 from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.data.engine import DataEngine
-from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.execution.messages import SubmitOrder
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
-from nautilus_trader.portfolio.portfolio import Portfolio
-from nautilus_trader.risk.engine import RiskEngine
 from nautilus_trader.test_kit.functions import eventually
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
-from nautilus_trader.trading.strategy import Strategy
 
 
 ETHUSDT_BINANCE = TestInstrumentProvider.ethusdt_binance()

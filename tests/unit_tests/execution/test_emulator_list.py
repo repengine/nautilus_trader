@@ -17,32 +17,14 @@ from decimal import Decimal
 
 import pandas as pd
 import pytest
-
 from nautilus_trader.backtest.exchange import SimulatedExchange
 from nautilus_trader.backtest.execution_client import BacktestExecClient
-from nautilus_trader.backtest.models import FillModel
-from nautilus_trader.backtest.models import MakerTakerFeeModel
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
-from nautilus_trader.config import DataEngineConfig
-from nautilus_trader.config import ExecEngineConfig
-from nautilus_trader.config import OrderEmulatorConfig
-from nautilus_trader.config import RiskEngineConfig
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.data.engine import DataEngine
 from nautilus_trader.execution.emulator import OrderEmulator
 from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.model.currencies import ETH
-from nautilus_trader.model.currencies import USDT
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import ContingencyType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderStatus
-from nautilus_trader.model.enums import OrderType
-from nautilus_trader.model.enums import TimeInForce
-from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import OrderListId
 from nautilus_trader.model.identifiers import PositionId
@@ -53,12 +35,30 @@ from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.orders.list import OrderList
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.risk.engine import RiskEngine
+from nautilus_trader.trading.strategy import Strategy
+
+from nautilus_trader.backtest.models import FillModel
+from nautilus_trader.backtest.models import MakerTakerFeeModel
+from nautilus_trader.config import DataEngineConfig
+from nautilus_trader.config import ExecEngineConfig
+from nautilus_trader.config import OrderEmulatorConfig
+from nautilus_trader.config import RiskEngineConfig
+from nautilus_trader.config import StrategyConfig
+from nautilus_trader.model.currencies import ETH
+from nautilus_trader.model.currencies import USDT
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import ContingencyType
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderStatus
+from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.enums import TimeInForce
+from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
-from nautilus_trader.trading.strategy import Strategy
 
 
 ETHUSDT_PERP_BINANCE = TestInstrumentProvider.ethusdt_perp_binance()

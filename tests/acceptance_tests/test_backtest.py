@@ -18,17 +18,30 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 from fsspec.implementations.local import LocalFileSystem
-
-from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.accounting.accounts.margin import MarginAccount
-from nautilus_trader.adapters.databento.data_utils import databento_data
-from nautilus_trader.adapters.databento.data_utils import load_catalog
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.backtest.engine import ExecEngineConfig
 from nautilus_trader.backtest.engine import RiskEngineConfig
 from nautilus_trader.backtest.modules import FXRolloverInterestConfig
 from nautilus_trader.backtest.modules import FXRolloverInterestModule
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import DataType
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import OrderBookDeltas
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.instruments.betting import BettingInstrument
+from nautilus_trader.model.objects import Money
+from nautilus_trader.persistence.wranglers import BarDataWrangler
+from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
+from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.adapters.databento.data_utils import databento_data
+from nautilus_trader.adapters.databento.data_utils import load_catalog
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import BacktestDataConfig
@@ -60,12 +73,6 @@ from nautilus_trader.model.currencies import BTC
 from nautilus_trader.model.currencies import GBP
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.currencies import USDT
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.data import DataType
-from nautilus_trader.model.data import OrderBookDelta
-from nautilus_trader.model.data import OrderBookDeltas
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.enums import OmsType
@@ -74,16 +81,9 @@ from nautilus_trader.model.events import PositionClosed
 from nautilus_trader.model.events import PositionEvent
 from nautilus_trader.model.events import PositionOpened
 from nautilus_trader.model.greeks_data import GreeksData
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.instruments import Instrument
-from nautilus_trader.model.instruments.betting import BettingInstrument
-from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.config import DataCatalogConfig
-from nautilus_trader.persistence.wranglers import BarDataWrangler
-from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
-from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
 from nautilus_trader.test_kit.mocks.data import setup_catalog
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider

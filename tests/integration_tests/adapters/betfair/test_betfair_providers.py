@@ -21,6 +21,7 @@ import pytest
 from betfair_parser.spec.betting import MarketCatalogue
 from betfair_parser.spec.streaming import MCM
 from betfair_parser.spec.streaming import MarketChange
+from nautilus_trader.common.component import LiveClock
 
 from nautilus_trader.adapters.betfair.parsing.core import BetfairParser
 from nautilus_trader.adapters.betfair.providers import BetfairInstrumentProvider
@@ -29,7 +30,6 @@ from nautilus_trader.adapters.betfair.providers import load_markets
 from nautilus_trader.adapters.betfair.providers import load_markets_metadata
 from nautilus_trader.adapters.betfair.providers import make_instruments
 from nautilus_trader.adapters.betfair.providers import parse_market_catalog
-from nautilus_trader.common.component import LiveClock
 from nautilus_trader.model.enums import MarketStatusAction
 from tests.integration_tests.adapters.betfair.test_kit import BetfairResponses
 from tests.integration_tests.adapters.betfair.test_kit import BetfairStreaming

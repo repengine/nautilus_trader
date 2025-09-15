@@ -14,15 +14,19 @@
 # -------------------------------------------------------------------------------------------------
 
 import pandas as pd
-
 from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.config import BacktestEngineConfig
-from nautilus_trader.config import LoggingConfig
 from nautilus_trader.core.message import Event
 from nautilus_trader.core.rust.common import LogColor
 from nautilus_trader.core.rust.model import TimeInForce
 from nautilus_trader.core.rust.model import TriggerType
 from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence
+from nautilus_trader.model.objects import Money
+from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
+from nautilus_trader.trading.strategy import Strategy
+from nautilus_trader.trading.strategy import StrategyConfig
+
+from nautilus_trader.config import BacktestEngineConfig
+from nautilus_trader.config import LoggingConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.model import Position
 from nautilus_trader.model import TradeTick
@@ -43,12 +47,8 @@ from nautilus_trader.model.events import OrderSubmitted
 from nautilus_trader.model.events import PositionChanged
 from nautilus_trader.model.events import PositionClosed
 from nautilus_trader.model.events import PositionOpened
-from nautilus_trader.model.objects import Money
-from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
-from nautilus_trader.trading.strategy import Strategy
-from nautilus_trader.trading.strategy import StrategyConfig
 
 
 _BINANCE_VENUE = Venue("BINANCE")

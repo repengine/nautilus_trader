@@ -15,8 +15,8 @@
 
 
 import pytest
-
 from nautilus_trader.backtest.engine import BacktestDataIterator
+
 from nautilus_trader.test_kit.stubs.data import MyData
 
 

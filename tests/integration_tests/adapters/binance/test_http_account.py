@@ -14,6 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
+from nautilus_trader.common.component import LiveClock
 
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderSide
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderType
@@ -23,7 +24,6 @@ from nautilus_trader.adapters.binance.futures.http.account import BinanceFutures
 from nautilus_trader.adapters.binance.http.account import BinanceOrderHttp
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.http.account import BinanceSpotAccountHttpAPI
-from nautilus_trader.common.component import LiveClock
 
 
 @pytest.mark.skip(reason="WIP")

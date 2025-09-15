@@ -16,23 +16,23 @@
 from decimal import Decimal
 
 import pytest
+from nautilus_trader.core.rust.model import AggregationSource
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import MarkPriceUpdate
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 
 from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.core.rust.model import AggregationSource
 from nautilus_trader.model.currencies import AUD
 from nautilus_trader.model.currencies import EUR
 from nautilus_trader.model.currencies import GBP
 from nautilus_trader.model.currencies import JPY
 from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.data import MarkPriceUpdate
-from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.enums import PriceType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.data import TestDataStubs

@@ -16,6 +16,7 @@
 from decimal import Decimal
 
 from nautilus_trader.model.data import FundingRateUpdate
+
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 

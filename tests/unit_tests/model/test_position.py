@@ -16,19 +16,8 @@
 from decimal import Decimal
 
 import pytest
-
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
-from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.model.currencies import BTC
-from nautilus_trader.model.currencies import ETH
-from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.currencies import USDT
-from nautilus_trader.model.enums import LiquiditySide
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderType
-from nautilus_trader.model.enums import PositionSide
-from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import StrategyId
@@ -39,6 +28,17 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.position import Position
+
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import BTC
+from nautilus_trader.model.currencies import ETH
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.currencies import USDT
+from nautilus_trader.model.enums import LiquiditySide
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.enums import PositionSide
+from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs

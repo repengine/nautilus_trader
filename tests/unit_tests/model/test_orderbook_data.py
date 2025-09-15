@@ -16,20 +16,20 @@
 import pickle
 
 import pytest
-
-from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.model import convert_to_raw_int
 from nautilus_trader.model.data import NULL_ORDER
 from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import OrderBookDepth10
 from nautilus_trader.model.data import capsule_to_data
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.model import convert_to_raw_int
 from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import RecordFlag
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.rust.data_pyo3 import TestDataProviderPyo3
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs

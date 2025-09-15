@@ -16,10 +16,10 @@
 import pkgutil
 
 import msgspec
-
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceDepth
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.adapters.binance.common.schemas.market import BinanceDepth
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 

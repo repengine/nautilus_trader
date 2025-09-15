@@ -17,30 +17,30 @@ import asyncio
 from typing import Any
 
 import pytest
-from pytest_mock import MockerFixture
-
 from nautilus_trader.accounting.factory import AccountFactory
-from nautilus_trader.common import Environment
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.message import Event
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.engine import DataEngine
 from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.live.execution_engine import LiveExecutionEngine
-from nautilus_trader.model.events import AccountState
-from nautilus_trader.model.events import OrderCanceled
-from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.risk.engine import RiskEngine
+from nautilus_trader.trading.strategy import Strategy
+from nautilus_trader.trading.strategy import StrategyConfig
+from pytest_mock import MockerFixture
+
+from nautilus_trader.common import Environment
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.live.execution_engine import LiveExecutionEngine
+from nautilus_trader.model.events import AccountState
+from nautilus_trader.model.events import OrderCanceled
+from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.test_kit.functions import ensure_all_tasks_completed
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
-from nautilus_trader.trading.strategy import Strategy
-from nautilus_trader.trading.strategy import StrategyConfig
 from nautilus_trader.trading.trader import Trader
 
 

@@ -15,10 +15,10 @@
 
 import pandas as pd
 import pytest
-
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
+
 from nautilus_trader.persistence.funcs import class_to_filename
 from nautilus_trader.persistence.funcs import filename_to_class
 

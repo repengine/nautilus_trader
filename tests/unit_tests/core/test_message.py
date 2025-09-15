@@ -19,6 +19,7 @@ from nautilus_trader.core.message import Command
 from nautilus_trader.core.message import Document
 from nautilus_trader.core.message import Request
 from nautilus_trader.core.message import Response
+
 from nautilus_trader.core.uuid import UUID4
 
 

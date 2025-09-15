@@ -14,9 +14,9 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
+from nautilus_trader.model.identifiers import Venue
 
 from nautilus_trader.model.events import AccountState
-from nautilus_trader.model.identifiers import Venue
 
 
 @pytest.fixture()

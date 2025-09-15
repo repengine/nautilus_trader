@@ -19,16 +19,12 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
-from nautilus_trader.config import LiveDataEngineConfig
 from nautilus_trader.core.data import Data
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.messages import DataResponse
 from nautilus_trader.data.messages import RequestQuoteTicks
 from nautilus_trader.data.messages import SubscribeData
-from nautilus_trader.live.data_engine import LiveDataEngine
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.identifiers import ClientId
@@ -36,6 +32,10 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.portfolio.portfolio import Portfolio
+
+from nautilus_trader.config import LiveDataEngineConfig
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.live.data_engine import LiveDataEngine
 from nautilus_trader.test_kit.functions import ensure_all_tasks_completed
 from nautilus_trader.test_kit.functions import eventually
 from nautilus_trader.test_kit.providers import TestInstrumentProvider

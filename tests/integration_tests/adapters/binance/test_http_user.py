@@ -15,11 +15,11 @@
 
 
 import pytest
+from nautilus_trader.common.component import LiveClock
 
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.http.user import BinanceSpotUserDataHttpAPI
-from nautilus_trader.common.component import LiveClock
 
 
 @pytest.mark.skip(reason="WIP")

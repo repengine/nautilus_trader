@@ -14,17 +14,17 @@
 # -------------------------------------------------------------------------------------------------
 
 import msgspec
-
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.messages import SubmitOrder
-from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import StrategyId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.serialization.serializer import MsgSpecSerializer
+
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 
 

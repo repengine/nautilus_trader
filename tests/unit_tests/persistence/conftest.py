@@ -14,12 +14,12 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
+from nautilus_trader.model.objects import Money
 
 from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.adapters.betfair.parsing.core import betting_instruments_from_file
 from nautilus_trader.adapters.betfair.parsing.core import parse_betfair_file
 from nautilus_trader.model.currencies import GBP
-from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.mocks.data import setup_catalog
 

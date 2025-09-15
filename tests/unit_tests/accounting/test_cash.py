@@ -16,26 +16,11 @@
 from decimal import Decimal
 
 import pytest
-
 from nautilus_trader.accounting.accounts.cash import CashAccount
 from nautilus_trader.accounting.manager import AccountsManager
 from nautilus_trader.common.component import Logger
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
-from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.model.currencies import ADA
-from nautilus_trader.model.currencies import AUD
-from nautilus_trader.model.currencies import BTC
-from nautilus_trader.model.currencies import ETH
-from nautilus_trader.model.currencies import JPY
-from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.currencies import USDT
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import LiquiditySide
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderType
-from nautilus_trader.model.events import AccountState
-from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
@@ -50,6 +35,21 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.position import Position
+
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import ADA
+from nautilus_trader.model.currencies import AUD
+from nautilus_trader.model.currencies import BTC
+from nautilus_trader.model.currencies import ETH
+from nautilus_trader.model.currencies import JPY
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.currencies import USDT
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import LiquiditySide
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.events import AccountState
+from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.events import TestEventStubs

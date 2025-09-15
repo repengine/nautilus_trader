@@ -17,9 +17,9 @@ from datetime import timedelta
 
 import pandas as pd
 import pytest
-
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import TestClock
+
 from nautilus_trader.common.events import TimeEvent
 
 

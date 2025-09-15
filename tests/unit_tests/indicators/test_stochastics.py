@@ -14,6 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 from nautilus_trader.indicators.stochastics import Stochastics
+
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 

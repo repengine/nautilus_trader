@@ -16,16 +16,16 @@
 from decimal import Decimal
 
 import pytest
+from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_price
+from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_quantity
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 
 from nautilus_trader.adapters.betfair.common import BETFAIR_TICK_SCHEME
 from nautilus_trader.adapters.betfair.common import MAX_BET_PRICE
 from nautilus_trader.adapters.betfair.common import MIN_BET_PRICE
-from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_price
-from nautilus_trader.adapters.betfair.orderbook import betfair_float_to_quantity
 from nautilus_trader.adapters.betfair.parsing.core import create_sequence_completed
 from nautilus_trader.model.instruments import BettingInstrument
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from tests.integration_tests.adapters.betfair.test_kit import betting_instrument
 
 

@@ -17,13 +17,13 @@ Create fixtures for commonly used objects.
 """
 
 import pytest
+from nautilus_trader.common.component import LiveClock
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Venue
 
 from nautilus_trader.adapters.dydx.common.constants import DYDX_VENUE
 from nautilus_trader.adapters.dydx.common.symbol import DYDXSymbol
 from nautilus_trader.adapters.dydx.http.client import DYDXHttpClient
-from nautilus_trader.common.component import LiveClock
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Venue
 
 
 @pytest.fixture

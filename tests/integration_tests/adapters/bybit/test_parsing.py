@@ -14,11 +14,11 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
+from nautilus_trader.model.data import BarType
 
 from nautilus_trader.adapters.bybit.common.enums import BybitEnumParser
 from nautilus_trader.adapters.bybit.common.enums import BybitOrderSide
 from nautilus_trader.adapters.bybit.common.enums import BybitTriggerDirection
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import OrderType
 from nautilus_trader.test_kit.providers import TestInstrumentProvider

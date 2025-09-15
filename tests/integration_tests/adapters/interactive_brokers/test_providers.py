@@ -18,15 +18,15 @@ from unittest.mock import AsyncMock
 import msgspec
 import pytest
 from ibapi.contract import ContractDetails
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.objects import Price
 
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
 from nautilus_trader.model.enums import AssetClass
 from nautilus_trader.model.enums import InstrumentClass
 from nautilus_trader.model.enums import OptionKind
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Price
 from tests.integration_tests.adapters.interactive_brokers.test_kit import IBTestContractStubs
 
 

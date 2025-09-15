@@ -13,8 +13,8 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 import pytest
-
 from nautilus_trader.accounting.accounts.cash import CashAccount
+
 from nautilus_trader.core.nautilus_pyo3 import AccountId
 from nautilus_trader.core.nautilus_pyo3 import Currency
 from nautilus_trader.core.nautilus_pyo3 import LiquiditySide

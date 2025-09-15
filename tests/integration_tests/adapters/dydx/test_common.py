@@ -16,8 +16,9 @@
 Unit tests for the common module.
 """
 
-from nautilus_trader.adapters.dydx.common.common import DYDXOrderTags
 from nautilus_trader.model.objects import Price
+
+from nautilus_trader.adapters.dydx.common.common import DYDXOrderTags
 
 
 def test_serialize_tags() -> None:

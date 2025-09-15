@@ -18,11 +18,11 @@ import pickle
 from decimal import Decimal
 
 import pytest
+from nautilus_trader.model.objects import FIXED_PRECISION
+from nautilus_trader.model.objects import QUANTITY_MAX
 
 from nautilus_trader.core.nautilus_pyo3 import Quantity
 from nautilus_trader.model import convert_to_raw_int
-from nautilus_trader.model.objects import FIXED_PRECISION
-from nautilus_trader.model.objects import QUANTITY_MAX
 
 
 class TestQuantity:

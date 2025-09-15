@@ -20,25 +20,35 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 import pytz
-
 from nautilus_trader.backtest.data_client import BacktestMarketDataClient
 from nautilus_trader.backtest.exchange import SimulatedExchange
 from nautilus_trader.backtest.execution_client import BacktestExecClient
+from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.component import TestClock
+from nautilus_trader.data.engine import DataEngine
+from nautilus_trader.execution.engine import ExecutionEngine
+from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.identifiers import ClientId
+from nautilus_trader.model.identifiers import StrategyId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.identifiers import VenueOrderId
+from nautilus_trader.model.objects import Money
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+from nautilus_trader.portfolio.portfolio import Portfolio
+from nautilus_trader.risk.engine import RiskEngine
+from nautilus_trader.trading.strategy import Strategy
+
 from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.backtest.models import LatencyModel
 from nautilus_trader.backtest.models import MakerTakerFeeModel
-from nautilus_trader.common.component import MessageBus
-from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.enums import ComponentState
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.core.uuid import UUID4
-from nautilus_trader.data.engine import DataEngine
-from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.data import Bar
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import ContingencyType
 from nautilus_trader.model.enums import OmsType
@@ -48,17 +58,8 @@ from nautilus_trader.model.enums import OrderType
 from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import TriggerType
-from nautilus_trader.model.identifiers import ClientId
-from nautilus_trader.model.identifiers import StrategyId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.objects import Money
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.orders import OrderList
-from nautilus_trader.portfolio.portfolio import Portfolio
-from nautilus_trader.risk.engine import RiskEngine
 from nautilus_trader.test_kit.mocks.strategies import KaboomStrategy
 from nautilus_trader.test_kit.mocks.strategies import MockStrategy
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
@@ -67,7 +68,6 @@ from nautilus_trader.test_kit.stubs.data import UNIX_EPOCH
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
-from nautilus_trader.trading.strategy import Strategy
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")

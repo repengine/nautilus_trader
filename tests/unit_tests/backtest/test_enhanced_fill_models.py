@@ -16,17 +16,18 @@
 Tests for the enhanced FillModel functionality with order book simulation.
 """
 
-from nautilus_trader.backtest.models import BestPriceFillModel
-from nautilus_trader.backtest.models import FillModel
-from nautilus_trader.backtest.models import OneTickSlippageFillModel
-from nautilus_trader.backtest.models import SizeAwareFillModel
-from nautilus_trader.backtest.models import TwoTierFillModel
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.rust.model import BookType
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.backtest.models import BestPriceFillModel
+from nautilus_trader.backtest.models import FillModel
+from nautilus_trader.backtest.models import OneTickSlippageFillModel
+from nautilus_trader.backtest.models import SizeAwareFillModel
+from nautilus_trader.backtest.models import TwoTierFillModel
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 

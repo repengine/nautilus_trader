@@ -15,9 +15,10 @@
 
 import asyncio
 
+from nautilus_trader.common.component import init_logging
+
 from nautilus_trader.adapters.coinbase_intx.factories import get_coinbase_intx_http_client
 from nautilus_trader.adapters.env import get_env_key
-from nautilus_trader.common.component import init_logging
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.uuid import UUID4

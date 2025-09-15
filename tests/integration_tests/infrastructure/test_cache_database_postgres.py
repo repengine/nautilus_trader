@@ -18,14 +18,8 @@ import os
 import sys
 
 import pytest
-
-from nautilus_trader.cache.adapter import CachePostgresAdapter
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
-from nautilus_trader.common.signal import generate_signal_class
-from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.core.nautilus_pyo3 import AggressorSide
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarAggregation
 from nautilus_trader.model.data import BarSpecification
@@ -34,14 +28,9 @@ from nautilus_trader.model.data import CustomData
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import CurrencyType
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import PriceType
-from nautilus_trader.model.events import AccountState
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import StrategyId
 from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.model.objects import AccountBalance
 from nautilus_trader.model.objects import Currency
 from nautilus_trader.model.objects import Money
@@ -49,6 +38,18 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.position import Position
 from nautilus_trader.portfolio.portfolio import Portfolio
+from nautilus_trader.trading.strategy import Strategy
+
+from nautilus_trader.cache.adapter import CachePostgresAdapter
+from nautilus_trader.common.signal import generate_signal_class
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.nautilus_pyo3 import AggressorSide
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.enums import CurrencyType
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import PriceType
+from nautilus_trader.model.events import AccountState
+from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.test_kit.functions import eventually
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
@@ -58,7 +59,6 @@ from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 from nautilus_trader.trading.filters import NewsEvent
 from nautilus_trader.trading.filters import NewsImpact
-from nautilus_trader.trading.strategy import Strategy
 
 
 _TEST_TIMEOUT = 5.0

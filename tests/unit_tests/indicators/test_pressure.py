@@ -14,9 +14,9 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.indicators.average.moving_average import MovingAverageType
 from nautilus_trader.indicators.pressure import Pressure
+
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 

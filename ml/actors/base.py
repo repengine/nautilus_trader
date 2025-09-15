@@ -66,11 +66,8 @@ else:
 if TYPE_CHECKING:
     # Protocols for type safety without enforcing concrete implementations
     from ml.stores.protocols import DataStoreFacadeProtocol
-    from ml.stores.protocols import FeatureStoreProtocol
     from ml.stores.protocols import FeatureStoreStrictProtocol
-    from ml.stores.protocols import ModelStoreProtocol
     from ml.stores.protocols import ModelStoreStrictProtocol
-    from ml.stores.protocols import StrategyStoreProtocol
     from ml.stores.protocols import StrategyStoreStrictProtocol
 
 
@@ -737,9 +734,9 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
     """
 
     # Store attributes are initialized in _init_stores_and_registries
-    _feature_store: FeatureStoreProtocol  # Protocol-typed; DummyStore conforms at runtime
-    _model_store: ModelStoreProtocol
-    _strategy_store: StrategyStoreProtocol
+    _feature_store: FeatureStoreStrictProtocol  # Strict adapters wrap underlying stores
+    _model_store: ModelStoreStrictProtocol
+    _strategy_store: StrategyStoreStrictProtocol
     _data_store: DataStoreFacadeProtocol  # Narrow facade used in actors
     _feature_registry: Any
     _model_registry: Any
@@ -852,27 +849,21 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         """
         Get the feature store instance.
         """
-        from typing import cast as _cast
-
-        return _cast(FeatureStoreStrictProtocol, self._feature_store)
+        return self._feature_store
 
     @property
     def model_store(self) -> ModelStoreStrictProtocol:
         """
         Get the model store instance.
         """
-        from typing import cast as _cast
-
-        return _cast(ModelStoreStrictProtocol, self._model_store)
+        return self._model_store
 
     @property
     def strategy_store(self) -> StrategyStoreStrictProtocol:
         """
         Get the strategy store instance.
         """
-        from typing import cast as _cast
-
-        return _cast(StrategyStoreStrictProtocol, self._strategy_store)
+        return self._strategy_store
 
     @property
     def data_store(self) -> DataStoreFacadeProtocol:

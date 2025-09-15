@@ -343,6 +343,8 @@ When to use
 - New public APIs (actors, services, CLI entrypoints) should accept/return the strict protocols.
 - Existing surfaces can migrate incrementally via thin adapters or targeted refactors.
 
+Note: During migration, use thin adapters (FeatureStoreStrictAdapter, ModelStoreStrictAdapter, StrategyStoreStrictAdapter) to satisfy strict protocols without widening public APIs. Adapters should delegate and avoid allocations on hot paths.
+
 Example: actor surfaces using strict protocols
 
 ```python

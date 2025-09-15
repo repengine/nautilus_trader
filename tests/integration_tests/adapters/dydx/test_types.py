@@ -18,8 +18,9 @@ Unit tests for the dYdX types.
 
 from decimal import Decimal
 
-from nautilus_trader.adapters.dydx.common.types import DYDXOraclePrice
 from nautilus_trader.model.identifiers import InstrumentId
+
+from nautilus_trader.adapters.dydx.common.types import DYDXOraclePrice
 
 
 def test_dydx_oracle_price(instrument_id: InstrumentId) -> None:

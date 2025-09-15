@@ -20,26 +20,13 @@ from decimal import Decimal
 
 import msgspec
 import pytest
-
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.cache.database import CacheDatabaseAdapter
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
-from nautilus_trader.config import CacheConfig
-from nautilus_trader.config import DatabaseConfig
-from nautilus_trader.config import LoggingConfig
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.engine import DataEngine
-from nautilus_trader.examples.strategies.ema_cross import EMACross
-from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
 from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.model.currencies import USD
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import CurrencyType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderType
 from nautilus_trader.model.identifiers import ExecAlgorithmId
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import TradeId
@@ -48,13 +35,27 @@ from nautilus_trader.model.objects import Currency
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
-from nautilus_trader.model.orders import LimitOrder
-from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.position import Position
 from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.risk.engine import RiskEngine
 from nautilus_trader.serialization.serializer import MsgSpecSerializer
+from nautilus_trader.trading.strategy import Strategy
+
+from nautilus_trader.config import CacheConfig
+from nautilus_trader.config import DatabaseConfig
+from nautilus_trader.config import LoggingConfig
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.examples.strategies.ema_cross import EMACross
+from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import CurrencyType
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.orders import LimitOrder
+from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.test_kit.functions import eventually
 from nautilus_trader.test_kit.mocks.actors import MockActor
 from nautilus_trader.test_kit.mocks.strategies import MockStrategy
@@ -65,7 +66,6 @@ from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
-from nautilus_trader.trading.strategy import Strategy
 
 
 _AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")

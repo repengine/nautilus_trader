@@ -13,10 +13,11 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+from nautilus_trader.model.identifiers import Venue
+
 from nautilus_trader.core.nautilus_pyo3 import tardis_exchange_from_venue_str
 from nautilus_trader.core.nautilus_pyo3 import tardis_exchange_to_venue_str
 from nautilus_trader.core.nautilus_pyo3 import tardis_exchanges
-from nautilus_trader.model.identifiers import Venue
 
 
 _EXPECTED_VENUE_MAPPINGS = {

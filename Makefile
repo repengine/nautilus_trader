@@ -538,12 +538,15 @@ pytest-ml-fast:  #-- Quick ML test run (smoke + unit + core + actors + features)
 
 .PHONY: pytest-ml-coverage
 pytest-ml-coverage:  #-- Run ML tests with coverage (exclude perf), then guardrails baseline
-	# Coverage run (exclude performance/prototype to keep stable and fast)
+	# Coverage run (exclude performance/prototype to keep stable and fast); continue to guardrails
+	@status=0; \
 	uv run --active --no-sync pytest -n logical --dist=loadgroup \
 		--cov=ml --cov=nautilus_trader --cov-report=term-missing \
-		-m "not performance and not prototype" -k "not tft" -v ml/tests || exit $$?
-	# Performance guardrails (no coverage; produce baseline report)
-	ML_REPORT_FILE=ml/tests/validation_reports/performance-guardrails.json $(MAKE) pytest-ml-guardrails || exit $$?
+		-m "not performance and not prototype and not slow" -k "not tft" -v ml/tests || status=$$?; \
+	echo "Coverage run exit status: $$status"; \
+	ML_REPORT_FILE=ml/tests/validation_reports/performance-guardrails.json $(MAKE) pytest-ml-guardrails || status=$$?; \
+	echo "Guardrails run exit status: $$status"; \
+	exit $$status
 
 #== Python Testing
 
@@ -761,14 +764,14 @@ pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real A
 
 .PHONY: pytest-ml-perf
 pytest-ml-perf:  #-- Run ML performance tests with optional relax factor (ML_BENCH_RELAX)
-	$(info $(M) Running ML performance tests...) \
-	&& echo "Relax factor: $${ML_BENCH_RELAX:-1.0}"
+	$(info $(M) Running ML performance tests...)
+	@echo "Relax factor: $${ML_BENCH_RELAX:-1.0}"
 	ML_BENCH_RELAX=$${ML_BENCH_RELAX:-1.0} uv run --active --no-sync pytest ml/tests/performance -q
 
 .PHONY: pytest-ml-guardrails
 pytest-ml-guardrails:  #-- Run ML performance guardrails (FAILS CI if regressions detected)
-	$(info $(M) Running ML performance guardrails...) \
-	&& echo "Guardrails mode: strict=$${ML_GUARDRAILS_STRICT:-false}"
+	$(info $(M) Running ML performance guardrails...)
+	@echo "Guardrails mode: strict=$${ML_GUARDRAILS_STRICT:-false}"
 	uv run --active --no-sync python ml/tests/performance/ci_performance_guardrails.py \
 		$(if $(ML_GUARDRAILS_STRICT),--strict) \
 		$(if $(ML_REPORT_FILE),--report-file $(ML_REPORT_FILE))

@@ -14,10 +14,11 @@
 # -------------------------------------------------------------------------------------------------
 
 from nautilus_trader.core.data import Data
-from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import CustomData
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.data import QuoteTick
+
+from nautilus_trader.model.currencies import USD
 from nautilus_trader.trading.filters import NewsEvent
 from nautilus_trader.trading.filters import NewsImpact
 

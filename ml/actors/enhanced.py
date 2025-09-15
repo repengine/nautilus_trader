@@ -20,6 +20,9 @@ from ml.config.base import MLActorConfig
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
+from ml.stores.adapters import FeatureStoreStrictAdapter
+from ml.stores.adapters import ModelStoreStrictAdapter
+from ml.stores.adapters import StrategyStoreStrictAdapter
 from ml.stores.base import DummyStore
 
 
@@ -106,9 +109,9 @@ class EnhancedMLInferenceActor(BaseMLInferenceActor):
         # Use shared DummyStore to satisfy protocols without external dependencies
         # DummyStore implements permissive no-op methods used by tests
         dummy = DummyStore()
-        # Casts not required at runtime; protocols are structural
-        self._feature_store = dummy
-        self._model_store = dummy
-        self._strategy_store = dummy
+        # Wrap DummyStore in strict adapters to satisfy strict protocols
+        self._feature_store = FeatureStoreStrictAdapter(dummy)
+        self._model_store = ModelStoreStrictAdapter(dummy)
+        self._strategy_store = StrategyStoreStrictAdapter(dummy)
         # Registries are not used in this minimal actor; leave base attributes as-is when possible
         return None

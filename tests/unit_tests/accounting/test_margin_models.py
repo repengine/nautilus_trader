@@ -15,12 +15,13 @@
 
 from decimal import Decimal
 
-from nautilus_trader.backtest.models import LeveragedMarginModel
-from nautilus_trader.backtest.models import StandardMarginModel
 from nautilus_trader.core.rust.model import PositionSide
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.backtest.models import LeveragedMarginModel
+from nautilus_trader.backtest.models import StandardMarginModel
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 

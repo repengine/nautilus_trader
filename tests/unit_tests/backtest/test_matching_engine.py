@@ -16,12 +16,13 @@
 from typing import Any
 
 import pytest
-
 from nautilus_trader.backtest.matching_engine import OrderMatchingEngine
-from nautilus_trader.backtest.models import FillModel
-from nautilus_trader.backtest.models import MakerTakerFeeModel
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
+from nautilus_trader.model.objects import Price
+
+from nautilus_trader.backtest.models import FillModel
+from nautilus_trader.backtest.models import MakerTakerFeeModel
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BookType
@@ -31,7 +32,6 @@ from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.events import OrderFilled
-from nautilus_trader.model.objects import Price
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs

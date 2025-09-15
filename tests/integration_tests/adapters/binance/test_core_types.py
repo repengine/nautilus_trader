@@ -17,13 +17,13 @@ import pickle
 from decimal import Decimal
 
 import pytest
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 
 from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
 from nautilus_trader.adapters.binance.futures.types import BinanceFuturesMarkPriceUpdate
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.mocks.data import setup_catalog
 from nautilus_trader.test_kit.stubs.data import TestDataStubs

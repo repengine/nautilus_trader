@@ -20,8 +20,8 @@ from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
 import pytest
-
 from nautilus_trader.common.component import Logger
+
 from nautilus_trader.live.retry import RetryManager
 from nautilus_trader.live.retry import RetryManagerPool
 from nautilus_trader.live.retry import get_exponential_backoff

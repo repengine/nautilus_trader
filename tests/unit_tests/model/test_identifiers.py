@@ -16,7 +16,6 @@
 import pickle
 
 import pytest
-
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import ExecAlgorithmId
 from nautilus_trader.model.identifiers import InstrumentId

@@ -13,11 +13,15 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-from nautilus_trader.adapters.betfair.constants import BETFAIR_VENUE
-from nautilus_trader.adapters.betfair.parsing.core import BetfairParser
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.backtest.engine import Decimal
+from nautilus_trader.model.identifiers import ClientId
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.objects import Money
+
+from nautilus_trader.adapters.betfair.constants import BETFAIR_VENUE
+from nautilus_trader.adapters.betfair.parsing.core import BetfairParser
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.examples.strategies.orderbook_imbalance import OrderBookImbalance
 from nautilus_trader.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
@@ -25,9 +29,6 @@ from nautilus_trader.model.currencies import GBP
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import ClientId
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.objects import Money
 from tests.integration_tests.adapters.betfair.test_kit import BetfairDataProvider
 from tests.integration_tests.adapters.betfair.test_kit import betting_instrument
 

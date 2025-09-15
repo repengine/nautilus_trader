@@ -14,8 +14,8 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.indicators.kvo import KlingerVolumeOscillator
+
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 
 

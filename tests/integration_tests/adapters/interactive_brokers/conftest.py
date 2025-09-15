@@ -17,6 +17,8 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.identifiers import Venue
 
 # fmt: off
 from nautilus_trader.adapters.interactive_brokers.client import InteractiveBrokersClient
@@ -29,8 +31,6 @@ from nautilus_trader.adapters.interactive_brokers.factories import InteractiveBr
 from nautilus_trader.adapters.interactive_brokers.factories import InteractiveBrokersLiveExecClientFactory
 from nautilus_trader.adapters.interactive_brokers.providers import InteractiveBrokersInstrumentProvider
 from nautilus_trader.model.events import AccountState
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from tests.integration_tests.adapters.interactive_brokers.mock_client import MockInteractiveBrokersClient
 from tests.integration_tests.adapters.interactive_brokers.test_kit import IBTestContractStubs

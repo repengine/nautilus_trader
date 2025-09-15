@@ -18,6 +18,7 @@ import random
 from nautilus_trader.common.component import Logger
 from nautilus_trader.common.component import init_logging
 from nautilus_trader.common.component import is_logging_initialized
+
 from nautilus_trader.common.enums import LogLevel
 
 

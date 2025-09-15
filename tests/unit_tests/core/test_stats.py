@@ -14,7 +14,6 @@
 # -------------------------------------------------------------------------------------------------
 
 import numpy as np
-
 from nautilus_trader.core.stats import basis_points_as_percentage
 from nautilus_trader.core.stats import fast_mad
 from nautilus_trader.core.stats import fast_mad_with_mean

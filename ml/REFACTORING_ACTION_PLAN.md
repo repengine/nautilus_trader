@@ -148,6 +148,9 @@ Current progress:
 
 - [x] Create `ml/common/dataframe_utils.py` with `total_nulls` and `column_nulls`.
 - [x] Adopt in `ml/stores/data_store.py` for nullability/quality checks (three call sites).
+- [x] Add `has_columns` and `is_monotonic_non_decreasing` validators to `ml/common/dataframe_utils.py`.
+- [x] Adopt `has_columns` in `ml/preprocessing.joins.asof_join` for early validation of `on`/`by` columns
+      across pandas and polars dataframes (cold path only).
 
 ### Priority 2b: Shared Stats Helpers (Model/Strategy)
 

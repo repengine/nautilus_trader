@@ -17,9 +17,9 @@ import datetime
 
 import pandas as pd
 import pytest
+from nautilus_trader.accounting.calculators import RolloverInterestCalculator
 
 from nautilus_trader import TEST_DATA_DIR
-from nautilus_trader.accounting.calculators import RolloverInterestCalculator
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.currencies import AUD
 from nautilus_trader.model.currencies import BTC

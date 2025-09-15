@@ -16,9 +16,9 @@
 import asyncio
 
 import pandas as pd
+from nautilus_trader.common.component import init_logging
 
 from nautilus_trader.adapters.tardis.factories import get_tardis_http_client
-from nautilus_trader.common.component import init_logging
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.instruments import CryptoPerpetual

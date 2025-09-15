@@ -14,8 +14,8 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.accounting.accounts.margin import MarginAccount
+
 from nautilus_trader.core.nautilus_pyo3 import AccountId
 from nautilus_trader.core.nautilus_pyo3 import Currency
 from nautilus_trader.core.nautilus_pyo3 import Money

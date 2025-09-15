@@ -15,7 +15,6 @@
 
 import pandas as pd
 import pytest
-
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import Throttler
 

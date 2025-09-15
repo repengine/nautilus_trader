@@ -17,11 +17,11 @@ import pkgutil
 
 import pytest
 from aiohttp import ClientResponse
+from nautilus_trader.common.component import LiveClock
 
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.http.wallet import BinanceSpotWalletHttpAPI
 from nautilus_trader.adapters.binance.spot.schemas.wallet import BinanceSpotTradeFee
-from nautilus_trader.common.component import LiveClock
 
 
 @pytest.mark.skip(reason="WIP")

@@ -19,13 +19,13 @@ Unit tests for core functions.
 import os
 
 import pytest
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
 
 from nautilus_trader.adapters.dydx.common.constants import DYDX_VENUE
 from nautilus_trader.adapters.dydx.common.credentials import get_mnemonic
 from nautilus_trader.adapters.dydx.common.credentials import get_wallet_address
 from nautilus_trader.adapters.dydx.common.symbol import DYDXSymbol
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
 
 
 def test_format_symbol() -> None:

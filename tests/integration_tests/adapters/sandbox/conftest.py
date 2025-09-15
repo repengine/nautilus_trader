@@ -15,12 +15,12 @@
 
 
 import pytest
+from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.identifiers import Venue
 
 from nautilus_trader.adapters.sandbox.config import SandboxExecutionClientConfig
 from nautilus_trader.adapters.sandbox.execution import SandboxExecutionClient
 from nautilus_trader.model.events import AccountState
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 

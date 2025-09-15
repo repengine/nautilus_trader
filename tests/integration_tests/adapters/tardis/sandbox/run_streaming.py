@@ -17,10 +17,11 @@ import os
 from pathlib import Path
 
 import requests
-
-from nautilus_trader.adapters.tardis.loaders import TardisCSVDataLoader
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.common.component import init_logging
+from nautilus_trader.model.objects import Money
+
+from nautilus_trader.adapters.tardis.loaders import TardisCSVDataLoader
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.currencies import BTC
@@ -28,7 +29,6 @@ from nautilus_trader.model.currencies import USDT
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.objects import Money
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 

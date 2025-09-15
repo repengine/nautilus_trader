@@ -16,11 +16,11 @@
 import asyncio
 
 import pytest
-
-from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_VENUE
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import Logger
 from nautilus_trader.model.identifiers import Venue
+
+from nautilus_trader.adapters.polymarket.common.constants import POLYMARKET_VENUE
 
 
 @pytest.fixture(scope="session")

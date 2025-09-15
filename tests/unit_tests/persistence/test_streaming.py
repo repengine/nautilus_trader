@@ -16,6 +16,14 @@
 import copy
 from collections import Counter
 
+from nautilus_trader.core.data import Data
+from nautilus_trader.core.rust.model import BookType
+from nautilus_trader.model.book import OrderBook
+from nautilus_trader.model.data import InstrumentStatus
+from nautilus_trader.model.data import OrderBookDelta
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import InstrumentId
+
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.results import BacktestResult
 from nautilus_trader.common.signal import generate_signal_class
@@ -24,13 +32,6 @@ from nautilus_trader.config import BacktestEngineConfig
 from nautilus_trader.config import BacktestRunConfig
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.config import NautilusKernelConfig
-from nautilus_trader.core.data import Data
-from nautilus_trader.core.rust.model import BookType
-from nautilus_trader.model.book import OrderBook
-from nautilus_trader.model.data import InstrumentStatus
-from nautilus_trader.model.data import OrderBookDelta
-from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.test_kit.mocks.data import NewsEventData
 from nautilus_trader.test_kit.stubs.persistence import TestPersistenceStubs

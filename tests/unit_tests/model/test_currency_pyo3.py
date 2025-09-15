@@ -16,10 +16,10 @@
 import pickle
 
 import pytest
+from nautilus_trader.model.objects import FIXED_PRECISION
 
 from nautilus_trader.core.nautilus_pyo3 import Currency
 from nautilus_trader.core.nautilus_pyo3 import CurrencyType
-from nautilus_trader.model.objects import FIXED_PRECISION
 
 
 AUD = Currency.from_str("AUD")

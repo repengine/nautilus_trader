@@ -14,11 +14,6 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
-from nautilus_trader import TEST_DATA_DIR
-from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
-from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import InstrumentStatus
@@ -26,6 +21,16 @@ from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDepth10
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import Symbol
+from nautilus_trader.model.identifiers import TradeId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
+from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import AssetClass
 from nautilus_trader.model.enums import BookAction
@@ -33,14 +38,9 @@ from nautilus_trader.model.enums import InstrumentClass
 from nautilus_trader.model.enums import MarketStatusAction
 from nautilus_trader.model.enums import OptionKind
 from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import Symbol
-from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.instruments import Equity
 from nautilus_trader.model.instruments import FuturesContract
 from nautilus_trader.model.instruments import OptionContract
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 
 
 DATABENTO_TEST_DATA_DIR = TEST_DATA_DIR / "databento"

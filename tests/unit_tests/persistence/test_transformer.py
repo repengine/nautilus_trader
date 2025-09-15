@@ -18,9 +18,6 @@ from io import BytesIO
 import pandas as pd
 import pyarrow as pa
 import pytest
-
-from nautilus_trader import TEST_DATA_DIR
-from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import IndexPriceUpdate
 from nautilus_trader.model.data import MarkPriceUpdate
@@ -29,6 +26,9 @@ from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.objects import FIXED_PRECISION_BYTES
 from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
+
+from nautilus_trader import TEST_DATA_DIR
+from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.persistence.wranglers_v2 import QuoteTickDataWranglerV2
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider

@@ -14,6 +14,9 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import PositionId
 
 from nautilus_trader.adapters.binance.common.enums import BinanceFuturesPositionSide
 from nautilus_trader.adapters.binance.common.enums import BinanceKlineInterval
@@ -23,13 +26,10 @@ from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesEnumPar
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesBalanceInfo
 from nautilus_trader.adapters.binance.spot.enums import BinanceSpotEnumParser
 from nautilus_trader.core.datetime import millis_to_nanos
-from nautilus_trader.model.data import BarSpecification
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AggregationSource
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import OrderType
 from nautilus_trader.model.enums import PriceType
-from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 

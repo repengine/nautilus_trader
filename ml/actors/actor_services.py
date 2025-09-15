@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
-    from ml.stores.protocols import FeatureStoreProtocol as _FeatureStoreT
-    from ml.stores.protocols import ModelStoreProtocol as _ModelStoreT
-    from ml.stores.protocols import StrategyStoreProtocol as _StrategyStoreT
+    from ml.stores.protocols import FeatureStoreStrictProtocol as _FeatureStoreT
+    from ml.stores.protocols import ModelStoreStrictProtocol as _ModelStoreT
+    from ml.stores.protocols import StrategyStoreStrictProtocol as _StrategyStoreT
 else:  # pragma: no cover - runtime-only typing shims
     from typing import Any as _FeatureStoreT  # type: ignore[no-redef]
     from typing import Any as _ModelStoreT  # type: ignore[no-redef]
@@ -48,10 +48,20 @@ def init_actor_services(config: Any) -> ActorServices:
     from ml.core.integration import init_actor_stores_and_registries
 
     result = init_actor_stores_and_registries(config)
+
+    # Wrap legacy stores with strict adapters for protocol‑typed actor surfaces
+    from ml.stores.adapters import FeatureStoreStrictAdapter
+    from ml.stores.adapters import ModelStoreStrictAdapter
+    from ml.stores.adapters import StrategyStoreStrictAdapter
+
+    wrapped_feature = FeatureStoreStrictAdapter(result.feature_store)
+    wrapped_model = ModelStoreStrictAdapter(result.model_store)
+    wrapped_strategy = StrategyStoreStrictAdapter(result.strategy_store)
+
     return ActorServices(
-        feature_store=cast(_FeatureStoreT, result.feature_store),
-        model_store=cast(_ModelStoreT, result.model_store),
-        strategy_store=cast(_StrategyStoreT, result.strategy_store),
+        feature_store=cast(_FeatureStoreT, wrapped_feature),
+        model_store=cast(_ModelStoreT, wrapped_model),
+        strategy_store=cast(_StrategyStoreT, wrapped_strategy),
         data_store=result.data_store,
         feature_registry=result.feature_registry,
         model_registry=result.model_registry,

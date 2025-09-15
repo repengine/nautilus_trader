@@ -16,14 +16,17 @@
 import time
 
 import pandas as pd
+from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.backtest.engine import BacktestEngineConfig
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.objects import Money
 
 from nautilus_trader.adapters.tardis.common import infer_tardis_exchange_str
 from nautilus_trader.adapters.tardis.download import download_file
 from nautilus_trader.adapters.tardis.factories import get_tardis_http_client
 from nautilus_trader.adapters.tardis.factories import get_tardis_instrument_provider
 from nautilus_trader.adapters.tardis.loaders import TardisCSVDataLoader
-from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.common.config import LoggingConfig
 from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.core import nautilus_pyo3
@@ -33,10 +36,7 @@ from nautilus_trader.model.currencies import USDT
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.instruments import Instrument
-from nautilus_trader.model.objects import Money
 from nautilus_trader.test_kit.strategies.tester_data import DataTester
 from nautilus_trader.test_kit.strategies.tester_data import DataTesterConfig
 

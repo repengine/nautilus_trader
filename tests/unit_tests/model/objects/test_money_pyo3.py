@@ -18,12 +18,12 @@ import pickle
 from typing import Any
 
 import pytest
+from nautilus_trader.model.objects import MONEY_MAX
+from nautilus_trader.model.objects import MONEY_MIN
 
 from nautilus_trader.core.nautilus_pyo3 import Currency
 from nautilus_trader.core.nautilus_pyo3 import Money
 from nautilus_trader.model import convert_to_raw_int
-from nautilus_trader.model.objects import MONEY_MAX
-from nautilus_trader.model.objects import MONEY_MIN
 
 
 AUD = Currency.from_str("AUD")

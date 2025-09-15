@@ -14,13 +14,13 @@
 # -------------------------------------------------------------------------------------------------
 
 import pytest
-
 from nautilus_trader.common.component import ComponentFSMFactory
+from nautilus_trader.core.fsm import FiniteStateMachine
+from nautilus_trader.core.fsm import InvalidStateTrigger
+
 from nautilus_trader.common.enums import ComponentState
 from nautilus_trader.common.enums import ComponentTrigger
 from nautilus_trader.common.enums import component_state_to_str
-from nautilus_trader.core.fsm import FiniteStateMachine
-from nautilus_trader.core.fsm import InvalidStateTrigger
 
 
 class TestFiniteStateMachine:

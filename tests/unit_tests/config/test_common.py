@@ -18,6 +18,12 @@ from decimal import Decimal
 import msgspec
 import pandas as pd
 import pytest
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import ComponentId
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Quantity
 
 from nautilus_trader.backtest.config import BacktestRunConfig
 from nautilus_trader.common import Environment
@@ -36,12 +42,6 @@ from nautilus_trader.config import register_config_encoding
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
 from nautilus_trader.live.config import TradingNodeConfig
-from nautilus_trader.model.data import BarSpecification
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import ComponentId
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.trading.config import StrategyConfig
 

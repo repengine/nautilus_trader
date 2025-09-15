@@ -16,26 +16,14 @@
 from decimal import Decimal
 
 import pytest
-
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
-from nautilus_trader.config import LoggingConfig
-from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.engine import DataEngine
-from nautilus_trader.examples.strategies.ema_cross import EMACross
-from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
 from nautilus_trader.execution.engine import ExecutionEngine
-from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import BarType
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import CurrencyType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import PositionSide
-from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import ExecAlgorithmId
 from nautilus_trader.model.identifiers import OrderListId
@@ -52,13 +40,25 @@ from nautilus_trader.model.position import Position
 from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
 from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.risk.engine import RiskEngine
+from nautilus_trader.trading.strategy import Strategy
+
+from nautilus_trader.config import LoggingConfig
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.examples.strategies.ema_cross import EMACross
+from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
+from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.enums import AccountType
+from nautilus_trader.model.enums import CurrencyType
+from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import PositionSide
+from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.test_kit.mocks.actors import MockActor
 from nautilus_trader.test_kit.providers import TestDataProvider
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.execution import TestExecStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
-from nautilus_trader.trading.strategy import Strategy
 
 
 AUDUSD_SIM = TestInstrumentProvider.default_fx_ccy("AUD/USD")
@@ -1614,8 +1614,9 @@ class TestCache:
         self.cache.add_account(account)
 
         # Add multiple account state events with different timestamps
-        from nautilus_trader.model.events import AccountState
         from nautilus_trader.model.objects import AccountBalance
+
+        from nautilus_trader.model.events import AccountState
 
         event1 = AccountState(
             account_id=account.id,

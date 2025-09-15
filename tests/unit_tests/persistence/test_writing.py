@@ -16,9 +16,9 @@
 from io import BytesIO
 
 import pyarrow as pa
+from nautilus_trader.model.data import OrderBookDelta
 
 from nautilus_trader.core import nautilus_pyo3
-from nautilus_trader.model.data import OrderBookDelta
 
 
 def test_legacy_deltas_to_record_batch_reader() -> None:

@@ -74,6 +74,8 @@ See ml/docs/architecture/universal_patterns_guide.md for complete documentation.
 # Base Classes and Data Structures
 # =============================================================================
 # Abstract base store and data structures
+from ml.stores import data_store as data_store  # re-export module for test patch paths
+from ml.stores import feature_store as feature_store  # re-export module for test patch paths
 from ml.stores.base import BaseStore
 
 # Pattern 4: Fallback store for testing/unavailable PostgreSQL
@@ -89,6 +91,11 @@ from ml.stores.base import StrategySignal
 from ml.stores.data_processor import DataProcessor
 from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
+
+
+# Lower-case aliases to match some test patch paths that derive module names
+datastore = data_store
+featurestore = feature_store
 
 # Infrastructure utilities
 from ml.stores.infrastructure import PartitionManager
@@ -197,6 +204,10 @@ __all__ = [
     "StrategyStoreStrictProtocol",
     "WriteRecords",
     "check_db_prereqs",
+    "data_store",
+    "datastore",  # alias for tests using lower-cased class name
+    "feature_store",
+    "featurestore",  # alias for tests using lower-cased class name
     "publish_batch_and_rows",
     "run_partition_maintenance",
     "sanitize_and_dedup",

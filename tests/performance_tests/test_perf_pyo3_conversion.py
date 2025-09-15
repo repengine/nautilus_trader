@@ -17,6 +17,7 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
+
 from nautilus_trader.test_kit.rust.data_pyo3 import TestDataProviderPyo3
 
 

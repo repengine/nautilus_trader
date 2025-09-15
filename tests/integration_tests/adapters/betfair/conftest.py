@@ -19,6 +19,9 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from nautilus_trader.model.events.account import AccountState
+from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.identifiers import Venue
 
 from nautilus_trader.adapters.betfair.config import BetfairDataClientConfig
 from nautilus_trader.adapters.betfair.config import BetfairExecClientConfig
@@ -29,9 +32,6 @@ from nautilus_trader.adapters.betfair.factories import BetfairLiveDataClientFact
 from nautilus_trader.adapters.betfair.factories import BetfairLiveExecClientFactory
 from nautilus_trader.adapters.betfair.parsing.core import BetfairParser
 from nautilus_trader.adapters.betfair.providers import BetfairInstrumentProviderConfig
-from nautilus_trader.model.events.account import AccountState
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.test_kit.mocks.data import setup_catalog
 from nautilus_trader.test_kit.stubs.events import TestEventStubs

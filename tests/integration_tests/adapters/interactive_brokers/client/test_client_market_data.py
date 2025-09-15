@@ -28,19 +28,19 @@ from ibapi.common import BarData
 from ibapi.common import HistoricalTickLast
 from ibapi.common import TickAttribBidAsk
 from ibapi.common import TickAttribLast
-
-from nautilus_trader.adapters.interactive_brokers.client.common import Request
-from nautilus_trader.adapters.interactive_brokers.client.common import Subscription
-from nautilus_trader.adapters.interactive_brokers.parsing.data import what_to_show
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.adapters.interactive_brokers.client.common import Request
+from nautilus_trader.adapters.interactive_brokers.client.common import Subscription
+from nautilus_trader.adapters.interactive_brokers.parsing.data import what_to_show
+from nautilus_trader.model.enums import AggressorSide
 from tests.integration_tests.adapters.interactive_brokers.test_kit import IBTestContractStubs
 
 
