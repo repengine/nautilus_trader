@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -22,26 +21,25 @@ from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import text
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 from typing_extensions import override
 
-from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.config.events import EventStatus
-from ml.config.events import Source
-from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
-from ml.stores._buffered_store import BufferedStoreMixin
-from ml.stores._engine_mixin import EngineInitMixin
-from ml.stores._health_mixin import HealthMixin
-from ml.stores._init_mixin import StoreInitMixin
-from ml.stores._read_helpers import ReadQueryMixin
-from ml.stores._registry_mixin import DataRegistryMixin
-from ml.stores._upsert_mixin import SQLUpsertMixin
 from ml.stores.base import BaseStore
 from ml.stores.base import StrategySignal
+from ml.stores.mixins import BufferedStoreMixin
+from ml.stores.mixins import DataRegistryMixin
+from ml.stores.mixins import EngineInitMixin
+from ml.stores.mixins import HealthMixin
+from ml.stores.mixins import ReadQueryMixin
+from ml.stores.mixins import SQLUpsertMixin
+from ml.stores.mixins import StoreInitMixin
+from ml.stores.services.strategy_services import StrategySignalEventService
+from ml.stores.services.strategy_services import StrategySignalQueryService
+from ml.stores.services.strategy_services import StrategySignalStatsService
+from ml.stores.services.strategy_services import StrategySignalWriteService
 
 
 if TYPE_CHECKING:
@@ -164,6 +162,11 @@ class StrategyStore(
         # DataRegistry for event emission (lazy initialization)
         self._data_registry: RegistryProtocol | None = None
         # Engine + tables already initialized by _init_store_common
+        # Extracted services (internal composition; public API unchanged)
+        self._write_service = StrategySignalWriteService(self, logger)
+        self._query_service = StrategySignalQueryService(self)
+        self._stats_service = StrategySignalStatsService(self)
+        self._event_service = StrategySignalEventService(self, logger)
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         # Delegate to shared mixin
@@ -301,6 +304,9 @@ class StrategyStore(
         """
         Write batch of strategy signals.
 
+        Preserves the historical patch point by delegating through
+        `self._execute_write(values)` so tests can monkeypatch it.
+
         Parameters
         ----------
         data : list[StrategySignal]
@@ -310,7 +316,10 @@ class StrategyStore(
         if not data:
             return
 
-        # Prepare values mapping
+        # Track stage boundary for observability (cold path only)
+        import time
+        ts_stage_start = time.time_ns()
+
         values: list[dict[str, Any]] = []
         for item in data:
             values.append(
@@ -325,56 +334,79 @@ class StrategyStore(
                     "risk_metrics": item.risk_metrics if item.risk_metrics else None,
                     "execution_params": item.execution_params if item.execution_params else None,
                     "is_live": getattr(item, "is_live", False),
-                },
+                }
             )
-
         self._execute_write(values)
 
-    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
-        """
-        Upsert signals and publish via shared helper (patchable in tests).
-        """
-        if not values:
-            return
-        # Optional audit logging (sampled)
-        try:
-            import os
-            import random
-
-            sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:
-                logger.info(
-                    "AUDIT StrategyStore._execute_write: n=%d keys=%s",
-                    len(values),
-                    list(values[0].keys()) if values else [],
-                )
-        except Exception as e:
-            logger.debug("Audit logging skipped due to error: %s", e)
-
-        self._execute_upsert_and_publish(
-            values=values,
-            ts_event_field="ts_event",
-            ts_init_field="ts_init",
-            context="StrategyStore._execute_write",
-            key_fields=("strategy_id", "instrument_id", "ts_event"),
-            table=self.strategy_signals_table,
-            conflict_cols=["strategy_id", "instrument_id", "ts_event"],
-            update_cols=[
-                "signal_type",
-                "strength",
-                "model_predictions",
-                "risk_metrics",
-                "execution_params",
-            ],
-            dataset_id="signals",
-            stage=Stage.SIGNAL_EMITTED,
-            instrument_key="instrument_id",
-            ts_field="ts_event",
-            run_id_batch="strategy_store_write",
-            run_id_row="strategy_store_row",
-            source="strategy",
-            logger=logger,
+        # Record observability data (off hot path - background processing only)
+        ts_stage_end = time.time_ns()
+        # Use the first item's instrument_id as representative
+        instrument_id = data[0].instrument_id if data else "unknown"
+        self._record_observability_stage_boundary(
+            stage="strategy_signal_storage",
+            instrument_id=instrument_id,
+            ts_stage_start=ts_stage_start,
+            ts_stage_end=ts_stage_end,
+            row_count=len(data),
         )
+
+    def _record_observability_stage_boundary(
+        self,
+        *,
+        stage: str,
+        instrument_id: str,
+        ts_stage_start: int,
+        ts_stage_end: int,
+        row_count: int = 1,
+    ) -> None:
+        """
+        Record observability data for stage boundaries (cold path only).
+
+        This method should only be called from background/cold path operations,
+        never from hot path real-time processing.
+        """
+        try:
+            # Try to access observability service
+            import os
+
+            # Only proceed if observability is explicitly enabled
+            if os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() not in {"1", "true", "yes"}:
+                return
+
+            # Try to get observability service from instance attribute
+            obs_service = getattr(self, "_observability_service", None)
+            if obs_service is None:
+                return
+
+            # Generate correlation ID for this operation
+            correlation_id = f"strategy_store_{hash((instrument_id, ts_stage_start)) % 1000000}"
+
+            # Record latency stage
+            obs_service.add_latency_stage(
+                correlation_id=correlation_id,
+                instrument_id=instrument_id,
+                pipeline_stage=stage,
+                ts_stage_start=ts_stage_start,
+                ts_stage_end=ts_stage_end,
+            )
+
+            # Record metric
+            latency_ms = (ts_stage_end - ts_stage_start) / 1_000_000
+            obs_service.add_metric(
+                metric_name="strategy_store_latency_ms",
+                metric_type="histogram",
+                value=latency_ms,
+                timestamp=ts_stage_end,
+                labels={"stage": stage, "instrument_id": instrument_id, "row_count": str(row_count)},
+            )
+
+        except Exception:
+            # Silently ignore observability errors to avoid impacting core functionality
+            pass
+
+    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
+        """Patch point preserved; delegates to write service."""
+        self._write_service.execute_write(values)
 
     # Backwards-compatible alias used in some tests
     def write_signals(self, data: list[StrategySignal]) -> None:
@@ -407,47 +439,18 @@ class StrategyStore(
             Signals within range
 
         """
-        from sqlalchemy import text as _text
-
-        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
-        # nosec B608: table name validated via _safe_table allowlist
-        sql = _text(
-            f"""
-                SELECT ts_event, signal_type, strength, model_predictions, risk_metrics, execution_params
-                FROM {table_name}
-                WHERE strategy_id = :strategy_id
-                  AND instrument_id = :instrument_id
-                  AND ts_event >= :start_ns
-                  AND ts_event < :end_ns
-                ORDER BY ts_event
-                """,
-        )
-        from collections.abc import Mapping as _Mapping
-        from typing import cast as _cast
-        _params = _cast(
-            _Mapping[str, Any],
-            {
-                "strategy_id": strategy_id,
-                "instrument_id": instrument_id,
-                "start_ns": int(start_ns),
-                "end_ns": int(end_ns),
-            },
-        )
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            _params,
-            columns=[
-                "ts_event",
-                "signal_type",
-                "strength",
-                "model_predictions",
-                "risk_metrics",
-                "execution_params",
-            ],
-        ))
+        return _cast(
+            pd.DataFrame,
+            self._query_service.read_signals(
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            ),
+        )
 
     @override
     def read_range(
@@ -474,39 +477,17 @@ class StrategyStore(
             Signals within range
 
         """
-        from sqlalchemy import text as _text
-
-        params: dict[str, Any] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
-        where_parts = ["ts_event >= :start_ns", "ts_event < :end_ns"]
-        if instrument_id is not None:
-            where_parts.append("instrument_id = :instrument_id")
-            params["instrument_id"] = instrument_id
-        # nosec B608: table name validated via _safe_table allowlist
-        sql = _text(
-            f"""
-            SELECT strategy_id, instrument_id, ts_event, signal_type, strength,
-                   model_predictions, risk_metrics
-            FROM {self._safe_table('ml_strategy_signals', {'ml_strategy_signals'})}
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event
-            """,
-        )
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            params,
-            columns=[
-                "strategy_id",
-                "instrument_id",
-                "ts_event",
-                "signal_type",
-                "strength",
-                "model_predictions",
-                "risk_metrics",
-            ],
-        ))
+        return _cast(
+            pd.DataFrame,
+            self._query_service.read_range(
+                start_ns=start_ns,
+                end_ns=end_ns,
+                instrument_id=instrument_id,
+            ),
+        )
 
     @override
     def get_latest(
@@ -530,37 +511,13 @@ class StrategyStore(
             Latest signals
 
         """
-        from sqlalchemy import text as _text
-
-        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
-        # nosec B608: table name validated via _safe_table allowlist
-        sql = _text(
-            f"""
-                SELECT strategy_id, ts_event, signal_type, strength, risk_metrics
-                FROM {table_name}
-                WHERE instrument_id = :instrument_id
-                ORDER BY ts_event DESC
-                LIMIT :limit
-                """,
-        )
-        from collections.abc import Mapping as _Mapping
-        from typing import Any as _Any
-        from typing import cast as _cast
-        _params = _cast(_Mapping[str, _Any], {"instrument_id": instrument_id, "limit": int(limit)})
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            _params,
-            columns=[
-                "strategy_id",
-                "ts_event",
-                "signal_type",
-                "strength",
-                "risk_metrics",
-            ],
-        ))
+        return _cast(
+            pd.DataFrame,
+            self._query_service.get_latest(instrument_id=instrument_id, limit=limit),
+        )
 
     @override
     def get_statistics(
@@ -584,137 +541,22 @@ class StrategyStore(
             Statistics dictionary
 
         """
-        # Get statistics with optional filters
-        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
-        # nosec B608: table name validated via _safe_table allowlist
-        query = text(  # nosec B608: table name validated via _safe_table allowlist
-            f"""
-                SELECT
-                    COUNT(*) as total_signals,
-                    COUNT(DISTINCT strategy_id) as unique_strategies,
-                    COUNT(DISTINCT instrument_id) as unique_instruments,
-                    SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_signals,
-                    SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_signals,
-                    SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_signals,
-                    AVG(strength) as avg_strength,
-                    MIN(ts_event) as min_ts,
-                    MAX(ts_event) as max_ts
-                FROM {table_name}
-                WHERE (:start_ns IS NULL OR ts_event >= :start_ns)
-                  AND (:end_ns IS NULL OR ts_event < :end_ns)
-                """,
-        )
-
-        params2 = {
-            "start_ns": int(start_ns) if start_ns is not None else None,
-            "end_ns": int(end_ns) if end_ns is not None else None,
-        }
-        result = self._fetch_one(query, params2)
-
-        if result:
-            return {
-                "total_signals": result[0] or 0,
-                "unique_strategies": result[1] or 0,
-                "unique_instruments": result[2] or 0,
-                "buy_signals": result[3] or 0,
-                "sell_signals": result[4] or 0,
-                "hold_signals": result[5] or 0,
-                "avg_strength": float(result[6]) if result[6] else 0.0,
-                "min_timestamp_ns": result[7] or 0,
-                "max_timestamp_ns": result[8] or 0,
-            }
-
-        return {
-            "total_signals": 0,
-            "unique_strategies": 0,
-            "unique_instruments": 0,
-            "buy_signals": 0,
-            "sell_signals": 0,
-            "hold_signals": 0,
-            "avg_strength": 0.0,
-            "min_timestamp_ns": 0,
-            "max_timestamp_ns": 0,
-        }
+        return self._stats_service.get_statistics(start_ns=start_ns, end_ns=end_ns)
 
     def flush(self) -> None:
         """
         Delegate to shared buffered flush behavior.
         """
-        from ml.stores._buffered_store import BufferedStoreMixin as _BSM
+        from ml.stores.mixins import BufferedStoreMixin as _BSM
 
         _BSM.flush(self)
 
     def _emit_signal_events(self, signals: list[StrategySignal]) -> None:
-        """
-        Emit SIGNAL_EMITTED events for the flushed signals.
-
-        Parameters
-        ----------
-        signals : list[StrategySignal]
-            List of signals that were successfully written
-
-        """
+        """Delegate to event service (non-blocking)."""
         try:
-            registry = self._get_data_registry()
-            if registry is None:
-                return
-
-            # Group signals by strategy_id and instrument_id for efficient event emission
-            from collections import defaultdict
-
-            grouped: dict[tuple[str, str], list[StrategySignal]] = defaultdict(list)
-
-            for signal in signals:
-                key = (signal.strategy_id, signal.instrument_id)
-                grouped[key].append(signal)
-
-            # Emit events for each group
-            for (strategy_id, instrument_id), group_signals in grouped.items():
-                if not group_signals:
-                    continue
-
-                # Generate unique run ID for this batch
-                run_id = f"signal_{strategy_id}_{uuid.uuid4().hex[:8]}_{int(time.time())}"
-
-                # Get timestamp range from the group
-                ts_values = [s.ts_event for s in group_signals]
-                ts_min = min(ts_values)
-                ts_max = max(ts_values)
-
-                # Map to canonical Source enum
-                src_enum = Source.LIVE if getattr(group_signals[0], "is_live", False) else Source.HISTORICAL
-
-                # Unified event + watermark + metrics emission
-                emit_dataset_event_and_watermark(
-                    registry,
-                    dataset_id="signals",
-                    instrument_id=instrument_id,
-                    stage=Stage.SIGNAL_EMITTED,
-                    source=src_enum,
-                    run_id=run_id,
-                    ts_min=ts_min,
-                    ts_max=ts_max,
-                    count=len(group_signals),
-                    status=EventStatus.SUCCESS,
-                    dataset_type="signals",
-                    component=strategy_id,
-                )
-
-                logger.debug(
-                    "Emitted SIGNAL_EMITTED event: dataset=%s, instrument=%s, "
-                    "strategy=%s, count=%d, ts_range=[%d, %d], source=%s",
-                    "signals",
-                    instrument_id,
-                    strategy_id,
-                    len(group_signals),
-                    ts_min,
-                    ts_max,
-                    src_enum.value,
-                )
-
-        except Exception as e:
-            # Non-blocking: log but don't fail the signal storage
-            logger.warning(f"Failed to emit signal event: {e}")
+            self._event_service.emit_signal_events(signals)
+        except Exception:
+            logger.debug("Signal event emission failed", exc_info=True)
 
     # Time-based flush decision provided by BufferedStoreMixin
 
@@ -852,29 +694,9 @@ class StrategyStore(
             Signal type counts
 
         """
-        table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
-        query = text(  # nosec B608: table name validated via _safe_table allowlist
-            f"""
-            SELECT signal_type, COUNT(*) as count
-            FROM {table_name}
-            WHERE (:strategy_id IS NULL OR strategy_id = :strategy_id)
-              AND (:start_ns IS NULL OR ts_event >= :start_ns)
-              AND (:end_ns IS NULL OR ts_event < :end_ns)
-            GROUP BY signal_type
-            """,
+        return self._stats_service.get_signal_distribution(
+            strategy_id=strategy_id, start_ns=start_ns, end_ns=end_ns
         )
-
-        params2 = {
-            "strategy_id": strategy_id,
-            "start_ns": int(start_ns) if start_ns is not None else None,
-            "end_ns": int(end_ns) if end_ns is not None else None,
-        }
-        rows = self._fetch_all(query, params2)
-        distribution: dict[str, int] = {}
-        for signal_type, count in rows:
-            distribution[str(signal_type)] = int(count)
-
-        return distribution
 
     def update_performance_metrics(
         self,
@@ -895,67 +717,13 @@ class StrategyStore(
             Period end timestamp in nanoseconds
 
         """
-        with self.engine.begin() as conn:
-            # Calculate metrics for period
-            table_name = self._safe_table("ml_strategy_signals", {"ml_strategy_signals"})
-            # nosec B608: table name validated via _safe_table allowlist
-            query = text(
-                f"""
-                SELECT
-                    COUNT(*) as signal_count,
-                    SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
-                    SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_count,
-                    SUM(CASE WHEN signal_type = 'HOLD' THEN 1 ELSE 0 END) as hold_count,
-                    AVG(strength) as avg_strength,
-                    AVG((risk_metrics->>'risk_score')::float) as avg_risk_score
-                FROM {table_name}
-                WHERE strategy_id = :strategy_id
-                AND ts_event >= :period_start
-                AND ts_event < :period_end
-            """,
-            )
-
-            result = conn.execute(
-                query,
-                {
-                    "strategy_id": strategy_id,
-                    "period_start": period_start,
-                    "period_end": period_end,
-                },
-            ).fetchone()
-
-            if result and result[0] > 0:  # Has signals
-                # Upsert performance record
-                stmt = insert(self.strategy_performance_table)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["strategy_id", "period_start"],
-                    set_={
-                        "period_end": period_end,
-                        "signal_count": result[0],
-                        "buy_count": result[1],
-                        "sell_count": result[2],
-                        "hold_count": result[3],
-                        "avg_strength": result[4],
-                        "avg_risk_score": result[5],
-                        # created_at omitted: DB default
-                    },
-                )
-
-                conn.execute(
-                    stmt,
-                    {
-                        "strategy_id": strategy_id,
-                        "period_start": period_start,
-                        "period_end": period_end,
-                        "signal_count": result[0],
-                        "buy_count": result[1],
-                        "sell_count": result[2],
-                        "hold_count": result[3],
-                        "avg_strength": result[4],
-                        "avg_risk_score": result[5],
-                        # created_at omitted: DB default
-                    },
-                )
+        self._stats_service.update_performance_metrics(
+            strategy_id=strategy_id,
+            period_start=period_start,
+            period_end=period_end,
+            engine=self.engine,
+            performance_table=self.strategy_performance_table,
+        )
 
     def _get_connection(self) -> object:  # pragma: no cover (test hook for patching)
         """
@@ -999,8 +767,23 @@ class StrategyStore(
 
         from sqlalchemy import text as _text
 
-        now_ns: int = int(_time.time() * 1e9)
-        start_ns: int = int(now_ns - hours_back * 3600 * 1e9)
+        # Normalize current time and window start using centralized sanitizer
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
+        now_ns_raw: int = (
+            self.clock.timestamp_ns() if getattr(self, "clock", None) else _time.time_ns()
+        )
+        now_ns: int = _sanitize(
+            int(now_ns_raw),
+            logger=logger,
+            context="StrategyStore.read_active_signals:now",
+        )
+        start_delta_ns: int = int(hours_back) * 3600 * 1_000_000_000
+        start_ns: int = _sanitize(
+            int(now_ns - start_delta_ns),
+            logger=logger,
+            context="StrategyStore.read_active_signals:start",
+        )
 
         where_parts: list[str] = ["ts_event >= :start_ns"]
         params: dict[str, Any] = {"start_ns": start_ns, "limit": int(limit)}

@@ -38,13 +38,7 @@ from ml.tests.fixtures.common import (
     test_timestamps,
 )
 
-# Import builder classes
-from ml.tests.builders import (
-    DataBuilder,
-    MLConfigBuilder,
-    MockBuilder,
-    RegistryBuilder,
-)
+# Builder classes are imported lazily to avoid circular imports during test discovery
 
 
 __all__ = [
@@ -80,3 +74,11 @@ __all__ = [
     "test_component_id",
     "test_timestamps",
 ]
+
+
+def __getattr__(name: str):  # pragma: no cover - utility for import-time behavior
+    if name in {"DataBuilder", "MLConfigBuilder", "MockBuilder", "RegistryBuilder"}:
+        from ml.tests import builders as _builders
+
+        return getattr(_builders, name)
+    raise AttributeError(name)

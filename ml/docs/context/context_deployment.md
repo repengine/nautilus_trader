@@ -132,7 +132,7 @@ Example wiring in `entrypoint_pipeline.py`:
 from pathlib import Path
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor, IngestState
-from ml.stores.coverage_sql import SqlCoverageProvider, SqlMarketDataWriter
+from ml.stores.providers import SqlCoverageProvider, SqlMarketDataWriter
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import PersistenceConfig, BackendType
 
@@ -344,7 +344,7 @@ uv run --no-sync python -m ml.scripts.apply_migrations --db-url postgresql://...
 pg_isready -U postgres
 
 # Application-level preflight
-python -c "from ml.stores.db_preflight import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5433/nautilus'))"
+python -c "from ml.stores.infrastructure import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5433/nautilus'))"
 ```
 
 #### 4. Redis Message Bus (`redis`)
@@ -680,7 +680,7 @@ The system supports three deployment approaches with automatic environment detec
 1. **Pre-flight Checks**: DATABENTO_API_KEY validation, Docker/Compose availability
 2. **Infrastructure Bootstrap**: PostgreSQL startup with health checks (5s intervals)
 3. **Schema Initialization**: Auto-apply canonical migrations via init volumes
-4. **Database Preflight**: Verify functions/partitions via `ml.stores.db_preflight`
+4. **Database Preflight**: Verify functions/partitions via `ml.stores.infrastructure`
 5. **Service Launch**: ML containers with dependency chains (postgres → actor → strategy)
 6. **Monitoring Stack**: Prometheus/Grafana with pre-configured dashboards
 7. **Health Validation**: End-to-end health checks with /health endpoints

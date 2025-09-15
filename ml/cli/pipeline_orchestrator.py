@@ -13,12 +13,12 @@ from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 from ml.orchestration.pipeline_orchestrator import OrchestratorConfig
 from ml.orchestration.pipeline_orchestrator import TeacherTrainConfig
 from ml.orchestration.pipeline_orchestrator import _CliMain as _CliMain
-from ml.stores.coverage_catalog import CatalogCoverageProvider
-from ml.stores.coverage_sql import SqlCoverageProvider
-from ml.stores.market_data_writer import DataStoreMarketDataWriter
-from ml.stores.market_data_writer import ParquetCatalogMarketDataWriter
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
+from ml.stores.providers import CatalogCoverageProvider
+from ml.stores.providers import SqlCoverageProvider
+from ml.stores.writers import DataStoreMarketDataWriter
+from ml.stores.writers import ParquetCatalogMarketDataWriter
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -130,14 +130,14 @@ def main(argv: list[str] | None = None) -> int:
             ingestor = DatabentoIngestor(client=client)
 
     # Build CLI mains
-    from ml.scripts.build_tft_dataset import main as build_main
+    from ml.cli.build_tft_dataset import main as build_main
     from ml.training.teacher.tft_cli import main as teacher_main
 
     # CLI entrypoint type alias: def main(argv: list[str] | None = None) -> int
     _CliMain = Callable[[list[str] | None], int]
     hpo_main_cli: _CliMain | None
     try:
-        from ml.scripts.hpo_tft import main as _hpo_main
+        from ml.cli.hpo_tft import main as _hpo_main
 
         hpo_main_cli = _hpo_main
     except Exception:
@@ -300,7 +300,9 @@ def main(argv: list[str] | None = None) -> int:
             reg = mgr4.data_registry
             import time as _time
 
-            now_ns = _time.time_ns()
+            from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
+            now_ns = _sanitize(int(_time.time_ns()), context="cli.pipeline_orchestrator:refresh_features.now")
             emit_dataset_event(
                 cast(RegistryProtocol, reg),
                 dataset_id="features",

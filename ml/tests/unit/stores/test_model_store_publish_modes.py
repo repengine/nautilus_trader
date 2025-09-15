@@ -29,7 +29,7 @@ def test_model_store_publishing_modes(mode: str, expected_extra: int, monkeypatc
     store = ModelStore(connection_string=None, enable_publishing=True, publisher=cap, publish_mode=mode)
 
     # Monkeypatch the upsert to avoid DB usage and only exercise publishing logic
-    from ml.stores._batch_utils import publish_batch_and_rows
+    from ml.stores.mixins import publish_batch_and_rows
 
     def _stub_execute_upsert_and_publish(**kwargs: Any) -> None:  # type: ignore[no-redef]
         publish_batch_and_rows(
@@ -83,4 +83,3 @@ def test_model_store_publishing_modes(mode: str, expected_extra: int, monkeypatc
     for _, payload in cap.calls:
         assert payload.get("dataset_id") == "predictions"
         assert "stage" in payload
-

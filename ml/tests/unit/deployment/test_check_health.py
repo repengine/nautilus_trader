@@ -26,8 +26,6 @@ from ml.deployment.check_health import check_service_health
 from ml.deployment.check_health import main
 
 
-@pytest.mark.database
-@pytest.mark.serial
 @pytest.mark.redis
 @pytest.mark.docker
 @pytest.mark.slow
@@ -49,8 +47,6 @@ class TestServiceHealthChecks:
         assert result is True
         assert message == "OK"
 
-    @pytest.mark.database
-    @pytest.mark.serial
     def test_check_service_health_failure(self):
         """
         Test check_service_health with failed check.
@@ -63,8 +59,6 @@ class TestServiceHealthChecks:
         assert result is False
         assert message == "UNHEALTHY"
 
-    @pytest.mark.database
-    @pytest.mark.serial
     def test_check_service_health_exception(self):
         """
         Test check_service_health with exception.
@@ -77,8 +71,6 @@ class TestServiceHealthChecks:
         assert result is False
         assert "ERROR: Connection failed" in message
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_postgres_healthy(self, mock_run):
         """
@@ -97,8 +89,6 @@ class TestServiceHealthChecks:
             text=True,
         )
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_postgres_unhealthy(self, mock_run):
         """
@@ -112,8 +102,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_redis_healthy(self, mock_run):
         """
@@ -133,8 +121,6 @@ class TestServiceHealthChecks:
             text=True,
         )
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_redis_unhealthy(self, mock_run):
         """
@@ -149,8 +135,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_ml_pipeline_healthy(self, mock_get):
         """
@@ -165,8 +149,6 @@ class TestServiceHealthChecks:
         assert result is True
         mock_get.assert_called_once_with("http://localhost:8080/health", timeout=5)
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_ml_pipeline_unhealthy(self, mock_get):
         """
@@ -180,8 +162,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_ml_pipeline_connection_error(self, mock_get):
         """
@@ -193,8 +173,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_ml_pipeline_timeout(self, mock_get):
         """
@@ -206,8 +184,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_prometheus_healthy(self, mock_get):
         """
@@ -222,8 +198,6 @@ class TestServiceHealthChecks:
         assert result is True
         mock_get.assert_called_once_with("http://localhost:9090/-/healthy", timeout=5)
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_prometheus_unhealthy(self, mock_get):
         """
@@ -237,8 +211,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_grafana_healthy(self, mock_get):
         """
@@ -253,8 +225,6 @@ class TestServiceHealthChecks:
         assert result is True
         mock_get.assert_called_once_with("http://localhost:3000/api/health", timeout=5)
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("requests.get")
     def test_check_grafana_unhealthy(self, mock_get):
         """
@@ -268,8 +238,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_docker_compose_all_running(self, mock_run):
         """
@@ -297,8 +265,6 @@ class TestServiceHealthChecks:
             text=True,
         )
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_docker_compose_missing_service(self, mock_run):
         """
@@ -321,8 +287,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_docker_compose_service_not_running(self, mock_run):
         """
@@ -345,8 +309,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_docker_compose_command_error(self, mock_run):
         """
@@ -360,8 +322,6 @@ class TestServiceHealthChecks:
 
         assert result is False
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("subprocess.run")
     def test_check_docker_compose_invalid_json(self, mock_run):
         """
@@ -377,15 +337,11 @@ class TestServiceHealthChecks:
         assert result is False
 
 
-@pytest.mark.database
-@pytest.mark.serial
 class TestMainFunction:
     """
     Test the main health check function.
     """
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("ml.deployment.check_health.check_docker_compose", return_value=True)
     @patch("ml.deployment.check_health.check_postgres", return_value=True)
     @patch("ml.deployment.check_health.check_redis", return_value=True)
@@ -416,8 +372,6 @@ class TestMainFunction:
         assert "[✓]" in captured.out
         assert "[✗]" not in captured.out
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("ml.deployment.check_health.check_docker_compose", return_value=True)
     @patch("ml.deployment.check_health.check_postgres", return_value=False)
     @patch("ml.deployment.check_health.check_redis", return_value=True)
@@ -449,8 +403,6 @@ class TestMainFunction:
         assert "[✗]" in captured.out  # Some unhealthy
         assert "make logs SERVICE=<service_name>" in captured.out
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch("ml.deployment.check_health.check_docker_compose", return_value=False)
     @patch("ml.deployment.check_health.check_postgres", return_value=False)
     @patch("ml.deployment.check_health.check_redis", return_value=False)
@@ -480,8 +432,6 @@ class TestMainFunction:
         assert "[✗]" in captured.out
         assert "[✓]" not in captured.out  # None healthy
 
-    @pytest.mark.database
-    @pytest.mark.serial
     @patch(
         "ml.deployment.check_health.check_docker_compose",
         side_effect=Exception("Unexpected error"),
@@ -513,8 +463,6 @@ class TestMainFunction:
         assert "[✗]" in captured.out  # Docker Compose check failed
         assert "ERROR:" in captured.out
 
-    @pytest.mark.database
-    @pytest.mark.serial
     def test_main_output_formatting(self, capsys):
         """
         Test main function output formatting.

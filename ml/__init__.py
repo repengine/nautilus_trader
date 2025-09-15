@@ -30,4 +30,21 @@ Hot Path (Inference):
 
 """
 
+from ml._imports import HAS_LIGHTGBM
+from ml._imports import HAS_ONNX
+from ml._imports import HAS_OPTUNA
+from ml._imports import HAS_POLARS
+from ml._imports import HAS_XGBOOST
+from ml._imports import check_ml_dependencies
+
+
 __version__ = "0.1.0"
+
+__all__ = [
+    "HAS_LIGHTGBM",
+    "HAS_ONNX",
+    "HAS_OPTUNA",
+    "HAS_POLARS",
+    "HAS_XGBOOST",
+    "check_ml_dependencies",
+]

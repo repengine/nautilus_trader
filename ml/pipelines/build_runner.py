@@ -76,7 +76,7 @@ class BuildConfig:
     data_dir: Path
     out_dir: Path
     symbols: list[str]
-    window: BuildWindow = BuildWindow()
+    window: BuildWindow = field(default_factory=BuildWindow)
     include_macro: bool = True
     macro_lag_days: int = 1
     include_micro: bool = False
@@ -86,6 +86,8 @@ class BuildConfig:
     lookback_periods: int = 60
     workers: int = 1
     use_subprocess: bool = False
+    # Prefer calling the public datasets API instead of the CLI main
+    prefer_api: bool = False
     # Additional build CLI options
     chunk_days: int = 0
     register_features: bool = True
@@ -230,9 +232,51 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
         )
         return int(proc.returncode)
     else:
-        # Import here to avoid import-time overhead for consumers
-        from ml.scripts.build_tft_dataset import main as build_main
+        # If requested, prefer the public API path (fewer moving parts, easier to test)
+        if cfg.prefer_api:
+            try:
+                from ml.data import DatasetBuildConfig as APICfg
+                from ml.data import build_tft_dataset as api_build
 
+                # Derive start/end datetime from window if provided
+                start_dt = None
+                end_dt = None
+                if cfg.window.days_back is not None:
+                    today = datetime.now(tz=UTC)
+                    s_dt = today - timedelta(days=int(cfg.window.days_back))
+                    start_dt = datetime.fromisoformat(s_dt.strftime("%Y-%m-%d"))
+                    end_dt = datetime.fromisoformat(today.strftime("%Y-%m-%d"))
+                else:
+                    start_dt = (
+                        datetime.fromisoformat(cfg.window.start) if cfg.window.start else None
+                    )
+                    end_dt = datetime.fromisoformat(cfg.window.end) if cfg.window.end else None
+
+                api_cfg = APICfg(
+                    data_dir=cfg.data_dir,
+                    out_dir=symbol_out,
+                    symbols=[task.symbol],
+                    include_macro=cfg.include_macro,
+                    macro_lag_days=cfg.macro_lag_days,
+                    include_micro=cfg.include_micro,
+                    include_l2=cfg.include_l2,
+                    horizon_minutes=cfg.horizon_minutes,
+                    threshold=cfg.threshold,
+                    lookback_periods=cfg.lookback_periods,
+                    start=start_dt,
+                    end=end_dt,
+                    chunk_days=cfg.chunk_days,
+                    register_features=cfg.register_features,
+                    feature_registry_dir=cfg.feature_registry_dir,
+                )
+                api_build(api_cfg)
+                return 0
+            except Exception:
+                # On any failure, fall back to CLI path for compatibility
+                pass
+
+        # Default: import and call the CLI main (tests monkeypatch this call)
+        from ml.cli.build_tft_dataset import main as build_main
         return int(build_main(args))
 
 

@@ -467,8 +467,18 @@ def main(argv: list[str] | None = None) -> int:
 
             X = np.asarray(df_sorted[feature_names].to_numpy(), dtype=np.float64)
             y = np.asarray(df_sorted[args.target_col].to_numpy(), dtype=int)
-            X_train, X_val_arr = X[:cutoff], X[cutoff:]
-            y_train = y[:cutoff]
+            # Derive cutoff from previously prepared splits when available; else 80/20
+            try:
+                # _df_train is defined earlier in this scope; use its length when available
+                cut_idx = len(_df_train) if _df_train is not None else None
+            except Exception:
+                cut_idx = None
+            if not cut_idx:
+                n_total = int(X.shape[0])
+                min_val_len = 5000
+                cut_idx = max(int(n_total * 0.8), n_total - min_val_len)
+            X_train, X_val_arr = X[:cut_idx], X[cut_idx:]
+            y_train = y[:cut_idx]
             # Impute NaNs with training column means for logistic regression fallback
             if np.isnan(X_train).any() or np.isnan(X_val_arr).any():
                 col_means = np.nanmean(X_train, axis=0)

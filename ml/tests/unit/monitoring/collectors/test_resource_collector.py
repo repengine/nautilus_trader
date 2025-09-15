@@ -14,8 +14,6 @@ from ml.monitoring._config import MonitoringConfig
 from ml.monitoring.collectors.resources import ResourceUtilizationCollector
 
 
-@pytest.mark.database
-@pytest.mark.serial
 class TestResourceUtilizationCollector:
     """
     Test suite for ResourceUtilizationCollector functionality.

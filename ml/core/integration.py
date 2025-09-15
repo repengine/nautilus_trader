@@ -30,10 +30,10 @@ from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.stores import DataStore
 from ml.stores.feature_store import FeatureStore
+from ml.stores.infrastructure import PartitionManager
+from ml.stores.io_raw import ParquetCatalogRawReader
+from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.model_store import ModelStore
-from ml.stores.partition_manager import PartitionManager
-from ml.stores.raw_io_parquet import ParquetCatalogRawReader
-from ml.stores.raw_io_parquet import ParquetCatalogRawWriter
 from ml.stores.strategy_store import StrategyStore
 
 
@@ -449,7 +449,7 @@ class MLIntegrationManager:
 
         # Use the same splitter as the CLI migration runner to respect dollar-quoted bodies
         try:
-            from ml.scripts.apply_migrations import _split_statements as _splitter
+            from ml.cli.apply_migrations import _split_statements as _splitter
         except Exception:
 
             def _splitter(sql: str) -> Iterable[str]:
@@ -1042,6 +1042,9 @@ class MLIntegrationManager:
         # Ensure service exists
         self.initialize_observability_pipeline()
 
+        # Inject observability service into stores for stage boundary tracking
+        self._inject_observability_service_into_stores()
+
         if interval_seconds is None or interval_seconds <= 0:
             return self.flush_observability_to_path(base_path=base_path, file_format=file_format)
 
@@ -1083,6 +1086,37 @@ class MLIntegrationManager:
             except Exception as exc:
                 logger.debug("Join on observability thread failed: %s", exc)
 
+    def _inject_observability_service_into_stores(self) -> None:
+        """
+        Inject the observability service into all stores for stage boundary tracking.
+
+        This enables stores to record latency and metrics for cold path operations
+        when observability is enabled via ML_OBSERVABILITY_ENABLED environment variable.
+        """
+        try:
+            obs_service = getattr(self, "observability_service", None)
+            if obs_service is None:
+                return
+
+            # Inject observability service into all stores
+            stores = [
+                getattr(self, "feature_store", None),
+                getattr(self, "model_store", None),
+                getattr(self, "strategy_store", None),
+                getattr(self, "data_store", None),
+            ]
+
+            for store in stores:
+                if store is not None:
+                    # Set the observability service as a private attribute
+                    setattr(store, "_observability_service", obs_service)
+
+            logger.debug("Injected observability service into %d stores", len([s for s in stores if s]))
+
+        except Exception:
+            # Silently ignore injection errors to avoid impacting core functionality
+            pass
+
     def start_observability_from_config(self, cfg: object) -> None:
         """
         Start observability flushing based on an ObservabilityConfig.
@@ -1120,6 +1154,9 @@ class MLIntegrationManager:
                 )
                 # Start background task
                 self._obs_async_worker.start()
+
+                # Inject observability service into stores for stage boundary tracking
+                self._inject_observability_service_into_stores()
             except Exception:  # pragma: no cover - defensive
                 return None
         else:
@@ -1332,6 +1369,18 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
         except Exception:
             backend = BackendType.JSON
             db_connection = ""
+            try:
+                # Emit fallback activation metric (no-op if metrics backend missing)
+                from ml.common.metrics_bootstrap import get_counter
+
+                get_counter(
+                    "ml_fallback_activations_total",
+                    "Fallback activations",
+                    labelnames=("component", "level"),
+                ).labels(component="actor_stores", level="dummy").inc()
+            except Exception:
+                # Metrics must not affect control flow
+                pass
 
     # If provided, probe reachability
     if db_connection and backend == BackendType.POSTGRES:
@@ -1342,6 +1391,16 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
         except Exception:
             if getattr(config, "allow_dummy_fallback", True):
                 backend = BackendType.JSON
+                try:
+                    from ml.common.metrics_bootstrap import get_counter
+
+                    get_counter(
+                        "ml_fallback_activations_total",
+                        "Fallback activations",
+                        labelnames=("component", "level"),
+                    ).labels(component="actor_stores", level="dummy").inc()
+                except Exception:
+                    pass
             else:
                 raise
 

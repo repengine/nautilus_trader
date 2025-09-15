@@ -201,6 +201,33 @@ def base_signal_config(
     )
 
 
+# ============================================================================
+# Message bus publisher (in-memory) for unit tests
+# ============================================================================
+
+
+class InMemoryPublisher:
+    """Simple in-memory message publisher for unit tests.
+
+    Stores published (topic, payload) tuples in-memory for later assertions.
+    """
+
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, dict[str, Any]]] = []
+
+    def publish(self, topic: str, payload: dict[str, Any]) -> None:  # noqa: D401 - simple interface
+        self.messages.append((topic, payload))
+
+    def clear(self) -> None:
+        self.messages.clear()
+
+
+@pytest.fixture
+def in_memory_publisher() -> InMemoryPublisher:
+    """Fixture providing a fresh in-memory publisher per test."""
+    return InMemoryPublisher()
+
+
 @pytest.fixture
 def model_registry_config() -> ModelRegistryConfig:
     """

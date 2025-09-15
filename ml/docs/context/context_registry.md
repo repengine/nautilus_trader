@@ -24,7 +24,7 @@ The registry relies on PostgreSQL-side functions for event emission and watermar
 You can validate presence via the DB preflight utility:
 
 ```python
-from ml.stores.db_preflight import check_db_prereqs
+from ml.stores.infrastructure import check_db_prereqs
 print(check_db_prereqs("$DB_CONNECTION"))  # ok=True indicates functions/partitions are present
 ```
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ml.stores.market_data_writer import ParquetCatalogMarketDataWriter
+from ml.stores.writers import ParquetCatalogMarketDataWriter
 
 
 class _FakeCatalog:

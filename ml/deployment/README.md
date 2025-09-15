@@ -30,7 +30,7 @@ psql nautilus -f ../stores/migrations/005a_feature_values_dedupe.sql
 psql nautilus -f ../stores/migrations/006_disable_partition_triggers.sql
 
 # (Optional) Run DB preflight to verify functions/partitions
-python -c "from ml.stores.db_preflight import check_db_prereqs; import os; print(check_db_prereqs(os.getenv('DB_CONNECTION','postgresql://postgres:postgres@localhost:5432/nautilus')))"
+python -c "from ml.stores.infrastructure import check_db_prereqs; import os; print(check_db_prereqs(os.getenv('DB_CONNECTION','postgresql://postgres:postgres@localhost:5432/nautilus')))"
 
 # 4. Run the system
 python run_local_dry_run.py
@@ -303,7 +303,7 @@ psql nautilus -f ../stores/migrations/005a_feature_values_dedupe.sql
 psql nautilus -f ../stores/migrations/006_disable_partition_triggers.sql
 
 # Optional: verify
-python -c "from ml.stores.db_preflight import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5432/nautilus'))"
+python -c "from ml.stores.infrastructure import check_db_prereqs; print(check_db_prereqs('postgresql://postgres:postgres@localhost:5432/nautilus'))"
 ```
 
 ## Support

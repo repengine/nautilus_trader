@@ -501,7 +501,6 @@ omit = [
     "nautilus_trader/examples/*",
     "nautilus_trader/test_kit/*",
     "ml/tests/*",
-    "ml/scripts/*",
     "ml/examples/*",
     "ml/docs/*",
 ]

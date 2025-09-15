@@ -29,9 +29,9 @@ DATABASE_INDICATORS = {
         "ml.registry.postgres_backend",
         "ml.core.db_engine",
         "ml.core.integration",
-        "ml.stores.partition_manager",
+        "ml.stores.infrastructure",
         "ml.stores.data_processor",
-        "ml.stores.live_data_recorder",
+        "ml.stores.writers",
     },
     "fixtures": {
         "test_database",

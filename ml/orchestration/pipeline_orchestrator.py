@@ -104,6 +104,31 @@ class MLPipelineOrchestrator:
         )
 
     def build_dataset(self, cfg: DatasetBuildConfig) -> int:
+        # Prefer the public API when CLI main is not provided (keeps tests stubbing CLI intact)
+        if self.build_main is None:
+            try:
+                from ml.data import DatasetBuildConfig as APICfg
+                from ml.data import build_tft_dataset as api_build
+
+                symbols_list = [s.strip().upper() for s in cfg.symbols.split(",") if s.strip()]
+                api_cfg = APICfg(
+                    data_dir=Path(cfg.data_dir),
+                    out_dir=Path(cfg.out_dir),
+                    symbols=symbols_list,
+                    include_macro=cfg.include_macro,
+                    macro_lag_days=cfg.macro_lag_days,
+                    include_micro=cfg.include_micro,
+                    include_l2=cfg.include_l2,
+                    horizon_minutes=cfg.horizon_minutes,
+                    threshold=cfg.threshold,
+                    lookback_periods=cfg.lookback_periods,
+                )
+                api_build(api_cfg)
+                return 0
+            except Exception:  # pragma: no cover - defensive fallback to CLI path
+                pass
+
+        # Fallback to invoking the CLI main with assembled args
         args: list[str] = [
             "--data_dir",
             cfg.data_dir,

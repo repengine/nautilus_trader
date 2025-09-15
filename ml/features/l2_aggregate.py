@@ -162,10 +162,20 @@ class L2Aggregator:
             if start is not None or end is not None:
                 cond = pl.lit(True)
                 if start is not None:
-                    start_ns = int(start.timestamp() * 1_000_000_000)
+                    from ml.common.timestamps import sanitize_timestamp_ns
+
+                    start_ns = sanitize_timestamp_ns(
+                        int(start.timestamp() * 1_000_000_000),
+                        context="l2_aggregate.scan.start",
+                    )
                     cond = cond & (pl.col("ts_event").cast(pl.Int64) >= start_ns)
                 if end is not None:
-                    end_ns = int(end.timestamp() * 1_000_000_000)
+                    from ml.common.timestamps import sanitize_timestamp_ns
+
+                    end_ns = sanitize_timestamp_ns(
+                        int(end.timestamp() * 1_000_000_000),
+                        context="l2_aggregate.scan.end",
+                    )
                     cond = cond & (pl.col("ts_event").cast(pl.Int64) < end_ns)
                 lf = lf.filter(cond)
             # Materialize only filtered rows
@@ -195,10 +205,20 @@ class L2Aggregator:
                     )
                 cond = pl.lit(True)
                 if start is not None:
-                    start_ns = int(start.timestamp() * 1_000_000_000)
+                    from ml.common.timestamps import sanitize_timestamp_ns
+
+                    start_ns = sanitize_timestamp_ns(
+                        int(start.timestamp() * 1_000_000_000),
+                        context="l2_aggregate.eager.start",
+                    )
                     cond = cond & (pl.col("ts_event").cast(pl.Int64) >= start_ns)
                 if end is not None:
-                    end_ns = int(end.timestamp() * 1_000_000_000)
+                    from ml.common.timestamps import sanitize_timestamp_ns
+
+                    end_ns = sanitize_timestamp_ns(
+                        int(end.timestamp() * 1_000_000_000),
+                        context="l2_aggregate.eager.end",
+                    )
                     cond = cond & (pl.col("ts_event").cast(pl.Int64) < end_ns)
                 df_fallback = df_fallback.filter(cond)
             df_final = df_fallback

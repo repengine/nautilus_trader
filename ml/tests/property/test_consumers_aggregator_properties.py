@@ -8,6 +8,7 @@ from hypothesis import given, strategies as st
 
 from ml.consumers.aggregator import AggregatingConsumer
 from ml.consumers.protocols import Envelope
+from ml.config.events import Stage
 
 
 def _make_envelope(idx: int, ts: int, inst: str = "EURUSD.SIM") -> Envelope:
@@ -16,7 +17,7 @@ def _make_envelope(idx: int, ts: int, inst: str = "EURUSD.SIM") -> Envelope:
         "parent_id": None,
         "instrument_id": inst,
         "ts_event": ts,
-        "stage": "FEATURE_COMPUTED",
+        "stage": Stage.FEATURE_COMPUTED.value,
         "correlation_id": "c1",
         "payload": {"x": idx},
     }

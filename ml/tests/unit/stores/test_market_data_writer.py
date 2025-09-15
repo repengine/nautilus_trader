@@ -13,8 +13,8 @@ import pytest
 from ml.config.events import Source
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, QualityFlag, StorageKind, ValidationRule, ValidationRuleType
 from ml.stores.data_store import DataStore
-from ml.stores.market_data_writer import DataStoreMarketDataWriter
-from ml.stores.raw_io import RawIngestionWriterProtocol
+from ml.stores.writers import DataStoreMarketDataWriter
+from ml.stores.io_raw import RawIngestionWriterProtocol
 
 
 class _StubRegistry:
@@ -126,7 +126,7 @@ def test_market_data_writer_uses_datastore_and_emits_success(
     # Setup DataStore with stub registry and mock stores, plus a fake raw writer
     reg = _StubRegistry(_manifest("bars_ds"), _contract("bars_ds"))
     ds = DataStore(
-        connection_string="postgresql://postgres@localhost/nautilus",
+        connection_string="sqlite:///:memory:",
         registry=reg,
         feature_store=mock_feature_store,
         model_store=mock_model_store,
@@ -159,4 +159,3 @@ def test_market_data_writer_uses_datastore_and_emits_success(
     # SUCCESS event should appear
     assert any(status == "success" for _ds, status in reg.events)
     assert len(reg.watermarks) == 1
-

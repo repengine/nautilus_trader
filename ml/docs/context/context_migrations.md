@@ -170,7 +170,7 @@ Ensure this migration is applied in any environment where the orchestrator backf
 ### Internal Dependencies
 
 - `ml.core.db_engine.EngineManager`: Database connection management
-- `ml.stores.partition_manager.PartitionManager`: Runtime partition management
+- `ml.stores.infrastructure.PartitionManager`: Runtime partition management
 - `nautilus_trader.model.identifiers.*`: Domain types for instrument identification
 - `nautilus_trader.core.data.*`: Data model compliance
 

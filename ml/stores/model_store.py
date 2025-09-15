@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import BIGINT
@@ -21,28 +20,27 @@ from sqlalchemy import Float
 from sqlalchemy import Index
 from sqlalchemy import String
 from sqlalchemy import Table
-from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from typing_extensions import override
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
-from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.config.events import EventStatus
-from ml.config.events import Source
-from ml.config.events import Stage
 from ml.core.db_engine import EngineManager
-from ml.stores._buffered_store import BufferedStoreMixin
-from ml.stores._engine_mixin import EngineInitMixin
-from ml.stores._health_mixin import HealthMixin
-from ml.stores._init_mixin import StoreInitMixin
-from ml.stores._read_helpers import ReadQueryMixin
-from ml.stores._registry_mixin import DataRegistryMixin
-from ml.stores._upsert_mixin import SQLUpsertMixin
 from ml.stores.base import BaseStore
 from ml.stores.base import ModelPrediction
+from ml.stores.mixins import BufferedStoreMixin
+from ml.stores.mixins import DataRegistryMixin
+from ml.stores.mixins import EngineInitMixin
+from ml.stores.mixins import HealthMixin
+from ml.stores.mixins import ReadQueryMixin
+from ml.stores.mixins import SQLUpsertMixin
+from ml.stores.mixins import StoreInitMixin
+from ml.stores.services.model_services import ModelEventService
+from ml.stores.services.model_services import ModelQueryService
+from ml.stores.services.model_services import ModelStatsService
+from ml.stores.services.model_services import ModelWriteService
 
 
 if TYPE_CHECKING:
@@ -158,6 +156,11 @@ class ModelStore(
         self._data_registry: RegistryProtocol | None = None
 
         # Engine + tables already initialized by _init_store_common
+        # Extracted services (internal composition; public API unchanged)
+        self._write_service = ModelWriteService(self, logger)
+        self._query_service = ModelQueryService(self)
+        self._stats_service = ModelStatsService(self)
+        self._event_service = ModelEventService(self, logger)
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         # Delegate to shared mixin
@@ -277,6 +280,9 @@ class ModelStore(
         """
         Write batch of model predictions.
 
+        Preserves the historical patch point by delegating through
+        `self._execute_write(values)` so tests can monkeypatch it.
+
         Parameters
         ----------
         data : list[ModelPrediction]
@@ -288,7 +294,10 @@ class ModelStore(
         if not data:
             return
 
-        # Prepare values mapping
+        # Track stage boundary for observability (cold path only)
+        ts_stage_start = time.time_ns()
+
+        # Build value dicts to preserve patch hook semantics
         values: list[dict[str, Any]] = []
         for item in data:
             values.append(
@@ -302,63 +311,83 @@ class ModelStore(
                     "features_used": item.features_used if item.features_used else None,
                     "inference_time_ms": item.inference_time_ms,
                     "is_live": getattr(item, "is_live", False),
-                },
+                }
             )
-
-        # Allow tests to patch and short-circuit DB writes
         self._execute_write(values)
 
         # Emit events after successful write if this is a direct call (not from flush)
         if emit_events:
             self._emit_prediction_events(data)
 
-    def _execute_write(
-        self,
-        values: list[dict[str, Any]],
-    ) -> None:  # pragma: no cover
-        """
-        Upsert predictions and publish via shared helper (patchable in tests).
-        """
-        if not values:
-            return
-        # Optional audit logging (sampled)
-        try:
-            import os
-            import random
-
-            sample = int(os.getenv("ML_AUDIT", "0"))
-            if sample > 0 and random.randint(1, sample) == 1:
-                logger.info(
-                    "AUDIT ModelStore._execute_write: n=%d keys=%s",
-                    len(values),
-                    list(values[0].keys()) if values else [],
-                )
-        except Exception as e:
-            logger.debug("Audit logging skipped due to error: %s", e)
-
-        self._execute_upsert_and_publish(
-            values=values,
-            ts_event_field="ts_event",
-            ts_init_field="ts_init",
-            context="ModelStore._execute_write",
-            key_fields=("model_id", "instrument_id", "ts_event"),
-            table=self.model_predictions_table,
-            conflict_cols=["model_id", "instrument_id", "ts_event"],
-            update_cols=[
-                "prediction",
-                "confidence",
-                "features_used",
-                "inference_time_ms",
-            ],
-            dataset_id="predictions",
-            stage=Stage.PREDICTION_EMITTED,
-            instrument_key="instrument_id",
-            ts_field="ts_event",
-            run_id_batch="model_store_write",
-            run_id_row="model_store_row",
-            source="inference",
-            logger=logger,
+        # Record observability data (off hot path - background processing only)
+        ts_stage_end = time.time_ns()
+        # Use the first item's instrument_id as representative
+        instrument_id = data[0].instrument_id if data else "unknown"
+        self._record_observability_stage_boundary(
+            stage="model_prediction_storage",
+            instrument_id=instrument_id,
+            ts_stage_start=ts_stage_start,
+            ts_stage_end=ts_stage_end,
+            row_count=len(data),
         )
+
+    def _record_observability_stage_boundary(
+        self,
+        *,
+        stage: str,
+        instrument_id: str,
+        ts_stage_start: int,
+        ts_stage_end: int,
+        row_count: int = 1,
+    ) -> None:
+        """
+        Record observability data for stage boundaries (cold path only).
+
+        This method should only be called from background/cold path operations,
+        never from hot path real-time processing.
+        """
+        try:
+            # Try to access observability service
+            import os
+
+            # Only proceed if observability is explicitly enabled
+            if os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() not in {"1", "true", "yes"}:
+                return
+
+            # Try to get observability service from instance attribute
+            obs_service = getattr(self, "_observability_service", None)
+            if obs_service is None:
+                return
+
+            # Generate correlation ID for this operation
+            correlation_id = f"model_store_{hash((instrument_id, ts_stage_start)) % 1000000}"
+
+            # Record latency stage
+            obs_service.add_latency_stage(
+                correlation_id=correlation_id,
+                instrument_id=instrument_id,
+                pipeline_stage=stage,
+                ts_stage_start=ts_stage_start,
+                ts_stage_end=ts_stage_end,
+            )
+
+            # Record metric
+            latency_ms = (ts_stage_end - ts_stage_start) / 1_000_000
+            obs_service.add_metric(
+                metric_name="model_store_latency_ms",
+                metric_type="histogram",
+                value=latency_ms,
+                timestamp=ts_stage_end,
+                labels={"stage": stage, "instrument_id": instrument_id, "row_count": str(row_count)},
+            )
+
+        except Exception:
+            # Silently ignore observability errors to avoid impacting core functionality
+            pass
+
+    def _execute_write(self, values: list[dict[str, Any]]) -> None:  # pragma: no cover
+        """Patch point preserved; delegates to write service."""
+        self._write_service.execute_write(values)
 
     # Backwards-compatible alias used in some tests
     def write_predictions(self, data: list[ModelPrediction]) -> None:
@@ -391,40 +420,18 @@ class ModelStore(
             Predictions within range
 
         """
-        from sqlalchemy import text as _text
-
-        table_name = self._qualified_table("ml_model_predictions")
-        sql = _text(
-            f"""
-            SELECT ts_event, prediction, confidence, features_used, inference_time_ms
-            FROM {table_name}
-            WHERE model_id = :model_id
-              AND instrument_id = :instrument_id
-              AND ts_event >= :start_ns
-              AND ts_event < :end_ns
-            ORDER BY ts_event
-            """,
-        )
-        from collections.abc import Mapping as _Mapping
         from typing import cast as _cast
-        params: dict[str, int | str] = {
-            "model_id": model_id,
-            "instrument_id": instrument_id,
-            "start_ns": int(start_ns),
-            "end_ns": int(end_ns),
-        }
+
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            _cast(_Mapping[str, int | str], params),
-            columns=[
-                "ts_event",
-                "prediction",
-                "confidence",
-                "features_used",
-                "inference_time_ms",
-            ],
-        ))
+        return _cast(
+            pd.DataFrame,
+            self._query_service.read_predictions(
+                model_id=model_id,
+                instrument_id=instrument_id,
+                start_ns=start_ns,
+                end_ns=end_ns,
+            ),
+        )
 
     # -------------------------------------------------------------------------------------
     # Compatibility reads and aliases
@@ -455,50 +462,15 @@ class ModelStore(
             inference_time_ms, is_live, ts_event, ts_init.
 
         """
-        from sqlalchemy import text as _text
-
-        table_name = self._qualified_table("ml_model_predictions")
-
-        where_parts: list[str] = ["model_id = :model_id"]
-        params: dict[str, Any] = {"model_id": model_id, "limit": int(limit)}
-        if instrument_id is not None:
-            where_parts.append("instrument_id = :instrument_id")
-            params["instrument_id"] = instrument_id
-
-        sql = _text(
-            f"""
-            SELECT model_id,
-                   instrument_id,
-                   prediction,
-                   confidence,
-                   inference_time_ms,
-                   is_live,
-                   ts_event,
-                   ts_init
-            FROM {table_name}
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """,
-        )
-
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            params,
-            columns=[
-                "model_id",
-                "instrument_id",
-                "prediction",
-                "confidence",
-                "inference_time_ms",
-                "is_live",
-                "ts_event",
-                "ts_init",
-            ],
-        ))
+        return _cast(
+            pd.DataFrame,
+            self._query_service.read_latest_predictions(
+                model_id=model_id, instrument_id=instrument_id, limit=limit
+            ),
+        )
 
     def read_range(
         self,
@@ -524,49 +496,15 @@ class ModelStore(
             Predictions within range
 
         """
-        from sqlalchemy import text as _text
-
-        if instrument_id is None:
-            sql = _text(
-                f"""
-                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM {self._qualified_table('ml_model_predictions')}
-                WHERE ts_event >= :start_ns AND ts_event < :end_ns
-                ORDER BY ts_event
-                """,
-            )
-            params: dict[str, int | str] = {"start_ns": int(start_ns), "end_ns": int(end_ns)}
-        else:
-            sql = _text(
-                f"""
-                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM {self._qualified_table('ml_model_predictions')}
-                WHERE ts_event >= :start_ns AND ts_event < :end_ns
-                  AND instrument_id = :instrument_id
-                ORDER BY ts_event
-                """,
-            )
-            params = {
-                "start_ns": int(start_ns),
-                "end_ns": int(end_ns),
-                "instrument_id": instrument_id,
-            }
-
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            params,
-            columns=[
-                "model_id",
-                "instrument_id",
-                "ts_event",
-                "prediction",
-                "confidence",
-                "inference_time_ms",
-            ],
-        ))
+        return _cast(
+            pd.DataFrame,
+            self._query_service.read_range(
+                start_ns=start_ns, end_ns=end_ns, instrument_id=instrument_id
+            ),
+        )
 
     # Backwards-compatible public API used in some tests
     def get_predictions(
@@ -596,44 +534,18 @@ class ModelStore(
             context="ModelStore.get_predictions:end",
         )
 
-        if instrument_id is None:
-            # Return across instruments by unioning results
-            sql = text(
-                f"""
-                SELECT model_id, instrument_id, ts_event, prediction, confidence, inference_time_ms
-                FROM {self._qualified_table('ml_model_predictions')}
-                WHERE model_id = :model_id
-                  AND ts_event >= :start_ns AND ts_event < :end_ns
-                ORDER BY instrument_id, ts_event
-                """,
-            )
-            params2: dict[str, int | str] = {
-                "model_id": model_id,
-                "start_ns": int(start_ns),
-                "end_ns": int(end_ns),
-            }
-            from typing import cast as _cast
+        from typing import cast as _cast
 
-            import pandas as pd
-            return _cast(pd.DataFrame, self._execute_read(
-                sql,
-                params2,
-                columns=[
-                    "model_id",
-                    "instrument_id",
-                    "ts_event",
-                    "prediction",
-                    "confidence",
-                    "inference_time_ms",
-                ],
-            ))
-        else:
-            return self.read_predictions(
+        import pandas as pd
+        return _cast(
+            pd.DataFrame,
+            self._query_service.get_predictions(
                 model_id=model_id,
-                instrument_id=instrument_id,
                 start_ns=start_ns,
                 end_ns=end_ns,
-            )
+                instrument_id=instrument_id,
+            ),
+        )
 
     @override
     def get_latest(
@@ -657,33 +569,15 @@ class ModelStore(
             Latest predictions
 
         """
-        from sqlalchemy import text as _text
-
-        sql = _text(
-            f"""
-            SELECT model_id, ts_event, prediction, confidence, inference_time_ms
-            FROM {self._qualified_table('ml_model_predictions')}
-            WHERE instrument_id = :instrument_id
-            ORDER BY ts_event DESC
-            LIMIT :limit
-            """,
-        )
-
-        params2: dict[str, int | str] = {"instrument_id": instrument_id, "limit": int(limit)}
         from typing import cast as _cast
 
         import pandas as pd
-        return _cast(pd.DataFrame, self._execute_read(
-            sql,
-            params2,
-            columns=[
-                "model_id",
-                "ts_event",
-                "prediction",
-                "confidence",
-                "inference_time_ms",
-            ],
-        ))
+        return _cast(
+            pd.DataFrame,
+            self._query_service.get_latest_by_instrument(
+                instrument_id=instrument_id, limit=limit
+            ),
+        )
 
     @override
     def get_statistics(
@@ -707,59 +601,14 @@ class ModelStore(
             Statistics dictionary
 
         """
-        # Build WHERE clause with parameters
-        conditions: list[str] = []
-        params: dict[str, Any] = {}
-        if start_ns is not None:
-            conditions.append("ts_event >= :start_ns")
-            params["start_ns"] = int(start_ns)
-        if end_ns is not None:
-            conditions.append("ts_event < :end_ns")
-            params["end_ns"] = int(end_ns)
-
-        table = self._qualified_table("ml_model_predictions")
-        base_sql = (
-            "SELECT COUNT(*) as total_predictions, "
-            "COUNT(DISTINCT model_id) as unique_models, "
-            "COUNT(DISTINCT instrument_id) as unique_instruments, "
-            "AVG(inference_time_ms) as avg_inference_ms, "
-            "MAX(inference_time_ms) as max_inference_ms, "
-            "MIN(ts_event) as min_ts, "
-            "MAX(ts_event) as max_ts "
-            f"FROM {table} "
-        )
-        if conditions:
-            base_sql += "WHERE " + " AND ".join(conditions)
-
-        result = self._fetch_one(text(base_sql), params)
-
-        if result:
-            return {
-                "total_predictions": result[0] or 0,
-                "unique_models": result[1] or 0,
-                "unique_instruments": result[2] or 0,
-                "avg_inference_ms": float(result[3]) if result[3] else 0.0,
-                "max_inference_ms": float(result[4]) if result[4] else 0.0,
-                "min_timestamp_ns": result[5] or 0,
-                "max_timestamp_ns": result[6] or 0,
-            }
-
-        return {
-            "total_predictions": 0,
-            "unique_models": 0,
-            "unique_instruments": 0,
-            "avg_inference_ms": 0.0,
-            "max_inference_ms": 0.0,
-            "min_timestamp_ns": 0,
-            "max_timestamp_ns": 0,
-        }
+        return self._stats_service.get_statistics(start_ns=start_ns, end_ns=end_ns)
 
     def flush(self) -> None:
         """
         Delegate to shared buffered flush behavior.
         """
         # Use mixin implementation to avoid duplication across stores
-        from ml.stores._buffered_store import BufferedStoreMixin as _BSM
+        from ml.stores.mixins import BufferedStoreMixin as _BSM
 
         _BSM.flush(self)
 
@@ -768,76 +617,11 @@ class ModelStore(
         self._emit_prediction_events(predictions)
 
     def _emit_prediction_events(self, predictions: list[ModelPrediction]) -> None:
-        """
-        Emit PREDICTION_EMITTED events for the flushed predictions.
-
-        Parameters
-        ----------
-        predictions : list[ModelPrediction]
-            List of predictions that were successfully written
-
-        """
+        """Delegate to event service (non-blocking)."""
         try:
-            registry = self._get_data_registry()
-            if registry is None:
-                return
-
-            # Group predictions by model_id and instrument_id for efficient event emission
-            from collections import defaultdict
-
-            grouped: dict[tuple[str, str], list[ModelPrediction]] = defaultdict(list)
-
-            for pred in predictions:
-                key = (pred.model_id, pred.instrument_id)
-                grouped[key].append(pred)
-
-            # Emit events for each group
-            for (model_id, instrument_id), group_preds in grouped.items():
-                if not group_preds:
-                    continue
-
-                # Generate unique run ID for this batch
-                run_id = f"prediction_{model_id}_{uuid.uuid4().hex[:8]}_{int(time.time())}"
-
-                # Get timestamp range from the group
-                ts_values = [p.ts_event for p in group_preds]
-                ts_min = min(ts_values)
-                ts_max = max(ts_values)
-
-                # Determine source based on is_live flag (if available)
-                src_enum = Source.LIVE if getattr(group_preds[0], "is_live", False) else Source.HISTORICAL
-
-                # Unified event + watermark + metrics emission
-                emit_dataset_event_and_watermark(
-                    registry,
-                    dataset_id="predictions",
-                    instrument_id=instrument_id,
-                    stage=Stage.PREDICTION_EMITTED,
-                    source=src_enum,
-                    run_id=run_id,
-                    ts_min=ts_min,
-                    ts_max=ts_max,
-                    count=len(group_preds),
-                    status=EventStatus.SUCCESS,
-                    dataset_type="predictions",
-                    component=model_id,
-                )
-
-                logger.debug(
-                    "Emitted PREDICTION_EMITTED event: dataset=%s, instrument=%s, "
-                    "model=%s, count=%d, ts_range=[%d, %d], source=%s",
-                    "predictions",
-                    instrument_id,
-                    model_id,
-                    len(group_preds),
-                    ts_min,
-                    ts_max,
-                    src_enum.value,
-                )
-
-        except Exception as e:
-            # Non-blocking: log but don't fail the prediction storage
-            logger.warning(f"Failed to emit prediction event: {e}")
+            self._event_service.emit_prediction_events(predictions)
+        except Exception:
+            logger.debug("Prediction event emission failed", exc_info=True)
 
     def clear_predictions(
         self,
@@ -896,57 +680,9 @@ class ModelStore(
             Performance metrics
 
         """
-        # Convert hours_back to concrete window when provided
-        if hours_back is not None:
-            import time as _time
-
-            end_ns = int(_time.time() * 1e9)
-            start_ns = int(end_ns - hours_back * 3600 * 1e9)
-
-        conditions: list[str] = ["model_id = :model_id"]
-        params: dict[str, Any] = {"model_id": model_id}
-        if start_ns is not None:
-            conditions.append("ts_event >= :start_ns")
-            params["start_ns"] = int(start_ns)
-        if end_ns is not None:
-            conditions.append("ts_event < :end_ns")
-            params["end_ns"] = int(end_ns)
-
-        table = self._qualified_table("ml_model_predictions")
-        sql = (
-            "SELECT COUNT(*) as prediction_count, "
-            "AVG(confidence) as avg_confidence, "
-            "STDDEV(confidence) as std_confidence, "
-            "AVG(inference_time_ms) as avg_latency_ms, "
-            "PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY inference_time_ms) as p50_latency_ms, "
-            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY inference_time_ms) as p95_latency_ms, "
-            "PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY inference_time_ms) as p99_latency_ms "
-            f"FROM {table} WHERE " + " AND ".join(conditions)
+        return self._stats_service.get_model_performance(
+            model_id=model_id, start_ns=start_ns, end_ns=end_ns, hours_back=hours_back
         )
-
-        query = text(sql)
-        result = self._fetch_one(query, params)
-
-        if result:
-            return {
-                "prediction_count": result[0] or 0,
-                "avg_confidence": float(result[1]) if result[1] else 0.0,
-                "std_confidence": float(result[2]) if result[2] else 0.0,
-                "avg_latency_ms": float(result[3]) if result[3] else 0.0,
-                "p50_latency_ms": float(result[4]) if result[4] else 0.0,
-                "p95_latency_ms": float(result[5]) if result[5] else 0.0,
-                "p99_latency_ms": float(result[6]) if result[6] else 0.0,
-            }
-
-        return {
-            "prediction_count": 0,
-            "avg_confidence": 0.0,
-            "std_confidence": 0.0,
-            "avg_latency_ms": 0.0,
-            "p50_latency_ms": 0.0,
-            "p95_latency_ms": 0.0,
-            "p99_latency_ms": 0.0,
-        }
 
     def store_prediction(self, *args: Any, **kwargs: Any) -> None:
         """

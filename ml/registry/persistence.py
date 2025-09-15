@@ -92,6 +92,8 @@ class ModelTable(Base):
     feature_set_id = Column(Text)
     pipeline_signature = Column(Text)
     pipeline_version = Column(Text)
+    # Artifact integrity field for security
+    artifact_sha256_digest = Column(String(64))  # SHA-256 hash is 64 hex characters
 
 
 class FeatureTable(Base):

@@ -123,6 +123,8 @@ class ModelManifest:
     decision_policy: str | None = None
     # Free-form config for the adapter
     decision_config: dict[str, Any] = field(default_factory=dict)
+    # SHA-256 digest of the model artifact for integrity verification
+    artifact_sha256_digest: str | None = None
 
 
 @dataclass

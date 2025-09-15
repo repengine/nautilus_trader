@@ -23,6 +23,7 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 - **[architecture/ml_integration_guide.md](architecture/ml_integration_guide.md)** - Nautilus Trader ML integration patterns
 - **[architecture/teacher_student_architecture.md](architecture/teacher_student_architecture.md)** - Teacher-student distillation framework
 - **[architecture/registry_architecture.md](architecture/registry_architecture.md)** - Unified model and feature registry system
+- Public API Facades (entrypoints are domain packages' `__init__.py`): small, typed domain facades consumed by CLIs and orchestrators. See the section below.
 
 ### 💻 Development Standards
 
@@ -63,6 +64,7 @@ Historical documents preserved for reference:
 ## Quick Start
 
 1. **New to the ML system?** Start with [context/context_core.md](context/context_core.md) for the 5 Universal ML Architecture Patterns
+2. **Using public APIs?** Import from domain packages (e.g., `from ml.data import build_tft_dataset`). Orchestrators and CLIs should call these facades, which delegate to focused implementation modules.
 2. **Alpha production deployment?** See [context/context_deployment.md](context/context_deployment.md) for Docker stack setup
 3. **Implementing ML actors?** Review [context/context_actors.md](context/context_actors.md) and the mandatory BaseMLInferenceActor pattern
 4. **Training models?** See [context/context_training.md](context/context_training.md) for teacher-student distillation
@@ -198,6 +200,47 @@ All documentation follows these principles:
 - **Single Source of Truth**: Each concept documented in one authoritative location with cross-references
 - **Production Focus**: Emphasis on alpha production deployment capabilities and operational patterns
 - **5 Universal Patterns**: All documentation aligned with core ML architecture patterns
+
+## Public API Facades (Cold Path)
+
+The ML package exposes a small, typed public API per domain via each domain package's `__init__.py`. These facades are the canonical entrypoints for orchestrators and CLIs; they delegate to focused implementation modules and keep hot paths clean.
+
+- Domains (current status):
+  - `ml/data/__init__.py` — dataset build and related utilities (implemented)
+  - `ml/features/__init__.py` — feature registry operations (public surface; expansion planned)
+  - `ml/models/__init__.py` — training/evaluation/promotion (planned)
+  - `ml/evaluation/__init__.py` — evaluation/report DTOs (planned)
+  - `ml/monitoring/__init__.py` — metrics bootstrap + snapshots (planned)
+  - `ml/deployment/__init__.py` — pipeline run/plan + validators (planned)
+  - `ml/stores/__init__.py` — store health/partitions/migrations (planned)
+  - `ml/strategies/__init__.py` — strategy summaries (planned)
+  - `ml/actors/__init__.py` — actor integration validations (planned)
+  - `ml/preprocessing/__init__.py` — preprocessing helpers (planned)
+  - `ml/observability/__init__.py` — observability aggregation/flush (planned)
+  - `ml/registry/__init__.py` — registry listings (planned)
+  - `ml/consumers/__init__.py` — consumer planning/running (planned)
+
+Layering and Usage
+
+- CLI → domain facade → services/stores
+- Orchestrator/Scheduler → domain facade → services/stores
+- Hot path code must not import domain facades.
+
+Example:
+
+```python
+from ml.data import DatasetBuildConfig, build_tft_dataset
+
+cfg = DatasetBuildConfig(
+    data_dir=Path("catalog"),
+    out_dir=Path("ml_out/datasets/spy"),
+    symbols=["SPY"],
+)
+result = build_tft_dataset(cfg)
+print(result.dataset_parquet)
+```
+
+For full design rationale and rules, see [architecture/universal_patterns_guide.md](architecture/universal_patterns_guide.md) → “Public API Facades”.
 - **Code Examples**: Practical implementation examples with production configurations
 - **Current State Accuracy**: Real-time reflection of implemented functionality and completion status
 

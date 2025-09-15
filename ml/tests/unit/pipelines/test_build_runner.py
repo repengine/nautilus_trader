@@ -43,7 +43,7 @@ def test_execute_monkeypatched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         (out_dir / "dataset.parquet").write_bytes(b"")
         return 0
 
-    import ml.scripts.build_tft_dataset as build_cli
+    import ml.cli.build_tft_dataset as build_cli
 
     monkeypatch.setattr(build_cli, "main", _fake_build_main)
 

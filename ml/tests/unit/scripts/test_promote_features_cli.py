@@ -8,7 +8,7 @@ from ml.registry.feature_registry import FeatureManifest
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.feature_registry import FeatureRole
 from ml.registry.feature_registry import FeatureStage
-from ml.scripts.promote_features import main as promote_main
+from ml.cli.promote_features import main as promote_main
 
 
 def test_promote_features_cli_promotes_on_gates(tmp_path: Path) -> None:

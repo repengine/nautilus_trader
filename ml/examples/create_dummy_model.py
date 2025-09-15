@@ -6,13 +6,28 @@ requiring actual training.
 
 """
 
-import pickle
 from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 from numpy.random import default_rng
+
+from ml._imports import HAS_SKLEARN, check_ml_dependencies
+if not HAS_SKLEARN:
+    check_ml_dependencies(["scikit-learn"])
+
+from sklearn.ensemble import RandomForestClassifier  # type: ignore[import-untyped]
+from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
+from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
+
+try:
+    import onnx  # type: ignore[import-untyped]
+    from skl2onnx import convert_sklearn  # type: ignore[import-untyped]
+    from skl2onnx.common.data_types import FloatTensorType  # type: ignore[import-untyped]
+    HAS_ONNX_EXPORT = True
+except ImportError:
+    HAS_ONNX_EXPORT = False
 
 
 class DummyModel:
@@ -71,47 +86,136 @@ class DummyModel:
         return cast(npt.NDArray[np.float64], np.column_stack([1 - preds, preds]))
 
 
+def create_dummy_sklearn_model(random_state: int = 42, class_weight: dict[int, float] | None = None) -> Pipeline:
+    """
+    Create a dummy sklearn model for ONNX export.
+
+    Parameters
+    ----------
+    random_state : int, default 42
+        Random state for reproducibility.
+    class_weight : dict[int, float] | None
+        Class weights for bias control.
+
+    Returns
+    -------
+    Pipeline
+        Trained sklearn pipeline.
+    """
+    # Create a simple pipeline
+    model = Pipeline([
+        ('scaler', StandardScaler()),
+        ('classifier', RandomForestClassifier(
+            n_estimators=10,
+            max_depth=3,
+            random_state=random_state,
+            class_weight=class_weight
+        ))
+    ])
+
+    # Generate dummy training data
+    rng = default_rng(random_state)
+    X = rng.standard_normal((1000, 10)).astype(np.float32)
+    # Create slightly biased targets based on class_weight
+    if class_weight and 1 in class_weight:
+        # Bias toward positive class if weight > 1
+        bias = (class_weight[1] - 1.0) * 0.2
+        y_prob = 1 / (1 + np.exp(-(X.sum(axis=1) * 0.1 + bias)))
+        y = (y_prob > 0.5).astype(int)
+    else:
+        y = (rng.random(1000) > 0.5).astype(int)
+
+    # Fit the model
+    model.fit(X, y)
+    return model
+
+
+def export_to_onnx(model: Pipeline, output_path: Path, feature_names: list[str]) -> None:
+    """
+    Export sklearn model to ONNX format.
+
+    Parameters
+    ----------
+    model : Pipeline
+        Trained sklearn pipeline.
+    output_path : Path
+        Output path for ONNX model.
+    feature_names : list[str]
+        Names of input features.
+    """
+    if not HAS_ONNX_EXPORT:
+        raise ImportError(
+            "ONNX export dependencies not available. "
+            "Install with: pip install onnx skl2onnx"
+        )
+
+    # Define input schema
+    initial_type = [('float_input', FloatTensorType([None, len(feature_names)]))]
+
+    # Convert to ONNX
+    onnx_model = convert_sklearn(model, initial_types=initial_type)
+
+    # Save ONNX model
+    with open(output_path, 'wb') as f:
+        f.write(onnx_model.SerializeToString())
+
+
 def create_dummy_models() -> Path:
     """
-    Create several dummy models for testing different scenarios.
+    Create several dummy ONNX models for secure testing.
+
+    Security Note: This function creates ONNX models instead of pickle files
+    to maintain production security standards.
     """
     models_dir = Path("ml/models")
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create a trend-following model (bullish bias)
-    bullish_model = DummyModel(n_features=10)
-    bullish_model.bias = 0.6  # Slight bullish bias
+    feature_names = [f"feature_{i}" for i in range(10)]
 
-    with open(models_dir / "dummy_bullish_model.pkl", "wb") as f:
-        pickle.dump(bullish_model, f)
-    print(f"Created: {models_dir}/dummy_bullish_model.pkl")
+    # Create a trend-following model (bullish bias)
+    print("Creating bullish model...")
+    bullish_model = create_dummy_sklearn_model(
+        random_state=42,
+        class_weight={0: 0.8, 1: 1.2}  # Bias toward positive class
+    )
+    export_to_onnx(bullish_model, models_dir / "dummy_bullish_model.onnx", feature_names)
+    print(f"Created: {models_dir}/dummy_bullish_model.onnx")
 
     # Create a mean-reversion model (bearish bias)
-    bearish_model = DummyModel(n_features=10)
-    bearish_model.bias = 0.4  # Slight bearish bias
-
-    with open(models_dir / "dummy_bearish_model.pkl", "wb") as f:
-        pickle.dump(bearish_model, f)
-    print(f"Created: {models_dir}/dummy_bearish_model.pkl")
+    print("Creating bearish model...")
+    bearish_model = create_dummy_sklearn_model(
+        random_state=43,
+        class_weight={0: 1.2, 1: 0.8}  # Bias toward negative class
+    )
+    export_to_onnx(bearish_model, models_dir / "dummy_bearish_model.onnx", feature_names)
+    print(f"Created: {models_dir}/dummy_bearish_model.onnx")
 
     # Create a neutral model
-    neutral_model = DummyModel(n_features=10)
-    neutral_model.bias = 0.5  # Neutral
-
-    with open(models_dir / "dummy_neutral_model.pkl", "wb") as f:
-        pickle.dump(neutral_model, f)
-    print(f"Created: {models_dir}/dummy_neutral_model.pkl")
+    print("Creating neutral model...")
+    neutral_model = create_dummy_sklearn_model(
+        random_state=44,
+        class_weight=None  # Balanced
+    )
+    export_to_onnx(neutral_model, models_dir / "dummy_neutral_model.onnx", feature_names)
+    print(f"Created: {models_dir}/dummy_neutral_model.onnx")
 
     print("\nModel feature names (all models use the same):")
-    print(neutral_model.feature_names)
+    print(feature_names)
 
     return models_dir
 
 
 if __name__ == "__main__":
-    models_dir = create_dummy_models()
-    print(f"\nDummy models created in: {models_dir}")
-    print("\nYou can now use these models for dry run testing:")
-    print("- dummy_bullish_model.pkl (tends to generate BUY signals)")
-    print("- dummy_bearish_model.pkl (tends to generate SELL signals)")
-    print("- dummy_neutral_model.pkl (balanced signals)")
+    try:
+        models_dir = create_dummy_models()
+        print(f"\nSecure ONNX dummy models created in: {models_dir}")
+        print("\nYou can now use these models for dry run testing:")
+        print("- dummy_bullish_model.onnx (tends to generate BUY signals)")
+        print("- dummy_bearish_model.onnx (tends to generate SELL signals)")
+        print("- dummy_neutral_model.onnx (balanced signals)")
+        print("\nSecurity Note: These models use ONNX format for production safety.")
+        print("Legacy pickle models are no longer supported.")
+    except ImportError as e:
+        print(f"Error: {e}")
+        print("\nTo create ONNX models, install required dependencies:")
+        print("pip install scikit-learn onnx skl2onnx")

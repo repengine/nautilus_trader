@@ -190,6 +190,8 @@ def create_standard_contracts() -> dict[str, DataContract]:
         )
 
     # Bars contract - lenient mode for market data
+    from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
     bars_contract = DataContract(
         contract_id="bars_contract_v1",
         dataset_id="bars",
@@ -205,8 +207,8 @@ def create_standard_contracts() -> dict[str, DataContract]:
             "null_rate": 0.01,
             "duplicate_rate": 0.001,
         },
-        created_at=time.time_ns(),
-        last_modified=time.time_ns(),
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:bars.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:bars.modified"),
     )
     contracts["bars"] = bars_contract
 
@@ -226,8 +228,8 @@ def create_standard_contracts() -> dict[str, DataContract]:
             "null_rate": 0.0,
             "duplicate_rate": 0.0,
         },
-        created_at=time.time_ns(),
-        last_modified=time.time_ns(),
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:features.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:features.modified"),
     )
     contracts["features"] = features_contract
 
@@ -247,8 +249,8 @@ def create_standard_contracts() -> dict[str, DataContract]:
             "null_rate": 0.0,
             "duplicate_rate": 0.0,
         },
-        created_at=time.time_ns(),
-        last_modified=time.time_ns(),
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:predictions.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:predictions.modified"),
     )
     contracts["predictions"] = predictions_contract
 
@@ -266,8 +268,8 @@ def create_standard_contracts() -> dict[str, DataContract]:
             "null_rate": 0.05,
             "duplicate_rate": 0.01,
         },
-        created_at=time.time_ns(),
-        last_modified=time.time_ns(),
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:signals.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:signals.modified"),
     )
     contracts["signals"] = signals_contract
 

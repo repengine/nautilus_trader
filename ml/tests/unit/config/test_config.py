@@ -21,10 +21,6 @@ from typing import Any
 import pytest
 
 
-@pytest.mark.database
-@pytest.mark.serial
-@pytest.mark.redis
-@pytest.mark.unit
 class TestEnvironment(Enum):
     """
     Test environment types.
@@ -203,8 +199,6 @@ class MockDataConfig:
             )
 
 
-@pytest.mark.database
-@pytest.mark.serial
 class TestConfig:
     """
     Central test configuration manager.

@@ -11,7 +11,22 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any
 
-from ml.common.metrics_bootstrap import HAS_METRICS_BACKEND as HAS_PROMETHEUS
+
+# Detect Prometheus backend without importing ml.common (avoid cycles)
+try:  # pragma: no cover - optional dependency
+    import importlib as _importlib
+
+    _importlib.import_module("prometheus_client")
+    HAS_PROMETHEUS = True
+except Exception:
+    HAS_PROMETHEUS = False
+
+
+# Early placeholders to avoid attribute errors during partial initialization
+pl = None  # type: ignore[assignment]
+pd = None  # type: ignore[assignment]
+ort = None  # type: ignore[assignment]
+HAS_PANDAS = False
 
 
 PROMETHEUS_IMPORT_ERROR: Exception | None = None
@@ -223,6 +238,22 @@ except ImportError as e:
     mcal = None  # type: ignore[assignment,unused-ignore]
 
 
+# OpenTelemetry (distributed tracing - optional, off by default)
+try:
+    from opentelemetry import context as otel_context
+    from opentelemetry import propagate as otel_propagate
+    from opentelemetry import trace as otel_trace
+
+    HAS_OPENTELEMETRY = True
+    OPENTELEMETRY_IMPORT_ERROR = None
+except ImportError as e:
+    HAS_OPENTELEMETRY = False
+    OPENTELEMETRY_IMPORT_ERROR = e
+    otel_trace = None  # type: ignore[assignment,unused-ignore]
+    otel_context = None  # type: ignore[assignment,unused-ignore]
+    otel_propagate = None  # type: ignore[assignment,unused-ignore]
+
+
 """Prometheus wrappers: avoid direct prometheus_client imports here.
 
 We expose light adapters that delegate to the centralized metrics bootstrap to
@@ -348,6 +379,10 @@ def check_ml_dependencies(required: list[str]) -> None:
             HAS_PANDAS_MARKET_CALENDARS,
             f"pandas_market_calendars required. Original error: {PANDAS_MARKET_CALENDARS_IMPORT_ERROR}",
         ),
+        "opentelemetry": (
+            HAS_OPENTELEMETRY,
+            f"OpenTelemetry required. Original error: {OPENTELEMETRY_IMPORT_ERROR}",
+        ),
     }
 
     errors: list[str] = []
@@ -376,18 +411,21 @@ __all__ = [
     "HAS_ONNX",
     "HAS_ONNX_CORE",
     "HAS_ONNX_EXPORT",
+    "HAS_OPENTELEMETRY",
     "HAS_OPTUNA",
     "HAS_PANDAS",
     "HAS_PANDAS_MARKET_CALENDARS",
     "HAS_POLARS",
     "HAS_PROMETHEUS",
     "HAS_SKLEARN",
+    "HAS_TORCH",
     "HAS_XGBOOST",
     "LIGHTGBM_IMPORT_ERROR",
     "MLFLOW_IMPORT_ERROR",
     "ONNX_CORE_IMPORT_ERROR",
     "ONNX_EXPORT_IMPORT_ERROR",
     "ONNX_IMPORT_ERROR",
+    "OPENTELEMETRY_IMPORT_ERROR",
     "OPTUNA_IMPORT_ERROR",
     "PANDAS_IMPORT_ERROR",
     "PANDAS_MARKET_CALENDARS_IMPORT_ERROR",
@@ -412,6 +450,9 @@ __all__ = [
     "onnxmltools",
     "optuna",
     "ort",
+    "otel_context",
+    "otel_propagate",
+    "otel_trace",
     "pd",
     "pl",
     "skl2onnx",

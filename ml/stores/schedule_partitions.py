@@ -34,7 +34,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from ml.stores.partition_manager import PartitionManager
+from ml.stores.infrastructure import PartitionManager
 
 
 def setup_logging(verbose: bool = False) -> logging.Logger:

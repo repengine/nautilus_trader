@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Stub heavy CLIs to make smoke fast and deterministic
     try:
-        import ml.scripts.build_tft_dataset as _build
+        import ml.cli.build_tft_dataset as _build
 
         def _stub_build(argv: list[str] | None = None) -> int:
             if argv and "--out_dir" in argv:

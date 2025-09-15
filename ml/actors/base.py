@@ -25,7 +25,6 @@ import numpy.typing as npt
 # Import ML dependencies and check availability
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
-from ml._imports import ort
 from ml.common.metrics_manager import MetricsManager
 from ml.common.protocols import MLComponentMixin
 from ml.config.base import CircuitBreakerConfig
@@ -460,16 +459,33 @@ class ProductionModelLoader(ModelLoader):
                 return data, {"type": "json", "format": "json"}
 
         elif path.endswith((".pkl", ".pickle")):
-            # Pickle models are disallowed for security; require safe formats
-            raise ValueError(
-                "Pickle model formats (.pkl, .pickle) are not supported. "
-                "Export models to ONNX, joblib, or native framework formats.",
-            )
+            # Pickle models are completely forbidden for security
+            import os
+            onnx_only_mode = os.environ.get("ML_ONNX_ONLY", "").lower() in {"1", "true", "yes"}
+            if onnx_only_mode:
+                raise ValueError(
+                    "Pickle model formats are forbidden in ONNX-only mode. "
+                    "Use ONNX models for secure production deployment."
+                )
+            else:
+                raise ValueError(
+                    "Pickle model formats (.pkl, .pickle) are not supported for security reasons. "
+                    "Export models to ONNX for production or joblib for testing. "
+                    "Set ML_ONNX_ONLY=1 for maximum security (ONNX-only mode).",
+                )
 
         elif path.endswith(".joblib"):
-            # Allow joblib models only in explicit testing contexts for safety
+            # Production security: Fail-closed approach for joblib models
             import os
 
+            # Check for strict ONNX-only mode (highest security)
+            if os.environ.get("ML_ONNX_ONLY", "").lower() in {"1", "true", "yes"}:
+                raise ValueError(
+                    "Joblib models are disabled in ONNX-only mode. "
+                    "Use ONNX models for production deployment."
+                )
+
+            # Standard test-only guards
             allow_joblib = (
                 os.environ.get("ML_ALLOW_JOBLIB", "").lower() in {"1", "true", "yes"}
                 or bool(os.environ.get("PYTEST_CURRENT_TEST"))
@@ -479,7 +495,8 @@ class ProductionModelLoader(ModelLoader):
                 # Disallow joblib in production paths for security and reproducibility
                 raise ValueError(
                     "Joblib model format (.joblib) is not supported in production. "
-                    "Enable with ML_ALLOW_JOBLIB=1 in test runs or export models to ONNX.",
+                    "Enable with ML_ALLOW_JOBLIB=1 in test runs or export models to ONNX. "
+                    "For maximum security, set ML_ONNX_ONLY=1 to disable all unsafe formats.",
                 )
 
             from ml._imports import joblib as _joblib
@@ -496,15 +513,16 @@ class ProductionModelLoader(ModelLoader):
             return model, metadata
 
         elif path.endswith(".onnx"):
-            # ONNX model
-            from ml._imports import HAS_ONNX
-            from ml._imports import check_ml_dependencies
-            from ml._imports import ort
+            # ONNX model with integrity verification
+            from ml.common.security import secure_onnx_load
 
-            if not HAS_ONNX:
-                check_ml_dependencies(["onnx"])
-
-            session = ort.InferenceSession(path)
+            # Note: Expected digest not available in direct path loading
+            # Security verification is handled at the registry level
+            session = secure_onnx_load(
+                file_path=model_path,
+                expected_digest=None,  # No digest available for direct path loading
+                strict_integrity=False  # Don't fail on missing digest for backward compatibility
+            )
             metadata = {
                 "type": "onnx",
                 "format": "onnx",
@@ -539,9 +557,20 @@ class ONNXModelLoader(ModelLoader):
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {path}")
 
-        # Create optimized ONNX Runtime session
+        # Create optimized ONNX Runtime session with integrity verification
         session_options, providers = to_session_options(self._runtime_config)
-        session = ort.InferenceSession(str(model_path), session_options, providers=providers)
+
+        from ml.common.security import secure_onnx_load
+
+        # Note: Expected digest not available in direct ONNX loader
+        # Security verification is handled at the registry level
+        session = secure_onnx_load(
+            file_path=model_path,
+            expected_digest=None,  # No digest available for direct path loading
+            session_options=session_options,
+            providers=providers,
+            strict_integrity=False  # Don't fail on missing digest for backward compatibility
+        )
 
         # Generate metadata
         metadata = {
@@ -1361,6 +1390,7 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
                 "deployment_constraints": manifest.deployment_constraints,
                 "decision_policy": getattr(manifest, "decision_policy", None),
                 "decision_config": getattr(manifest, "decision_config", {}),
+                "artifact_sha256_digest": getattr(manifest, "artifact_sha256_digest", None),
             }
             # Stash manifest feature names/dtypes and hash
             try:

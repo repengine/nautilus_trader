@@ -15,10 +15,12 @@ from dataclasses import field
 from typing import Final
 
 from ml.common.message_bus import MessagePublisherProtocol
+from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics import aggregator_buffer_size
 from ml.common.metrics import aggregator_duplicates_total
 from ml.common.metrics import aggregator_flushed_total
 from ml.common.metrics import aggregator_watermark_lag_seconds
+from ml.config.events import Stage
 from ml.consumers.protocols import Envelope
 
 
@@ -36,12 +38,18 @@ class AggregatingConsumer:
         Optional publisher to forward flushed messages to.
     topic_mapper : Callable[[str], str]
         Function mapping input topics to downstream topics. Defaults to
-        prefixing with "aggregated.".
+        using canonical builders with "aggregated." prefix.
+    scheme : str
+        Topic scheme to use for canonical building ("domain_op" or "stage_first").
+    prefix : str
+        Topic prefix for canonical building.
 
     """
 
     downstream: MessagePublisherProtocol | None = None
     topic_mapper: TopicMapper | None = None
+    scheme: str = "domain_op"
+    prefix: str = "aggregated.ml"
 
     _buffer: dict[str, list[Envelope]] = field(default_factory=dict)
     _last_emitted_ts: dict[str, int] = field(default_factory=dict)
@@ -107,9 +115,34 @@ class AggregatingConsumer:
 
         # Forward to downstream if configured
         if self.downstream is not None and flushed:
-            mapper = self.topic_mapper or (lambda t: f"{self._DEFAULT_PREFIX}{t}")
             for ev in flushed:
-                out_topic = mapper(ev["stage"]) if ev.get("stage") else mapper("events")
+                # Use canonical topic builders or custom mapper
+                if self.topic_mapper:
+                    out_topic = self.topic_mapper(ev.get("stage", "events"))
+                else:
+                    # Use canonical builders with proper Stage enum handling
+                    stage_str = ev.get("stage", "")
+                    instrument_id = ev["instrument_id"]
+
+                    # Try to parse stage string to Stage enum
+                    try:
+                        stage = Stage(stage_str) if stage_str else None
+                    except ValueError:
+                        # Fallback for invalid stage strings
+                        stage = None
+
+                    if stage:
+                        out_topic = build_topic_for_stage(
+                            stage=stage,
+                            instrument_id=instrument_id,
+                            scheme=self.scheme,
+                            prefix=self.prefix,
+                        )
+                    else:
+                        # Fallback for events without valid stage
+                        from ml.common.message_topics import build_topic
+                        out_topic = build_topic("events", "updated", instrument_id)
+
                 # Publish original payload wrapped with envelope metadata
                 payload = {
                     "id": ev["id"],

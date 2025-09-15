@@ -8,7 +8,6 @@ Trader's Cython components.
 
 from __future__ import annotations
 
-import pickle
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +64,10 @@ class SimpleMLActor(BaseMLInferenceActor):
 
     def _load_model(self) -> None:
         """
-        Load the ML model.
+        Load the ML model using safe formats only.
+
+        Security Note: This method only supports safe formats (ONNX, joblib with test guard).
+        Pickle formats are explicitly forbidden for security reasons.
         """
         model_path = Path(self._config.model_path)
         if not model_path.exists():
@@ -73,9 +75,14 @@ class SimpleMLActor(BaseMLInferenceActor):
             self.log.warning(f"Model file not found at {model_path}, using dummy model")
             self._model = DummyModel()
         else:
-            with open(model_path, "rb") as f:
-                self._model = pickle.load(f)
-            self.log.info(f"Loaded model from {model_path}")
+            # Use the secure model loader from base class
+            try:
+                self._model, metadata = self._load_model_secure(str(model_path))
+                self.log.info(f"Loaded {metadata.get('format', 'unknown')} model from {model_path}")
+            except ValueError as e:
+                self.log.error(f"Failed to load model: {e}")
+                self.log.warning("Using dummy model instead")
+                self._model = DummyModel()
 
     def _compute_features(self, bar: Bar) -> npt.NDArray[np.float32] | None:
         """

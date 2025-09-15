@@ -393,6 +393,11 @@ class TestModelFactory:
             Path to the saved model file
 
         """
+        # Security: Only import joblib in test environments
+        import os
+        if not (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("ML_TESTING") or os.getenv("ML_ALLOW_JOBLIB")):
+            raise RuntimeError("JobLib usage only allowed in test environments")
+
         import joblib
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.ensemble import RandomForestRegressor
@@ -539,6 +544,14 @@ class TestModelFactory:
 
         elif suffix == ".joblib":
             try:
+                # Security: Only import joblib in test environments
+                import os
+                if not (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("ML_TESTING") or os.getenv("ML_ALLOW_JOBLIB")):
+                    cast(list[str], results["issues"]).append(
+                        "JobLib usage only allowed in test environments"
+                    )
+                    return results
+
                 import joblib
 
                 model = joblib.load(model_path)

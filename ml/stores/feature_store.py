@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -39,8 +39,6 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Engine
 
-from ml._imports import HAS_PROMETHEUS
-from ml._imports import Counter
 from ml.common.event_emitter import emit_dataset_event_and_watermark
 from ml.common.message_bus import BusPublisherMixin
 from ml.common.message_bus import MessagePublisherProtocol
@@ -55,8 +53,8 @@ from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
-from ml.stores._health_mixin import HealthMixin
-from ml.stores._registry_mixin import DataRegistryMixin
+from ml.stores.mixins import DataRegistryMixin
+from ml.stores.mixins import HealthMixin
 
 
 if TYPE_CHECKING:
@@ -92,15 +90,29 @@ except Exception:  # pragma: no cover
     PersistenceManager = _StubPM
 
 
-# Prometheus metrics for feature computation events (centralized)
-data_events_total: Counter | None = None
-if HAS_PROMETHEUS:
-    try:
-        from ml.common.metrics import data_events_total as _central_data_events_total
+class _CounterLike(Protocol):
+    def labels(self, **kwargs: object) -> _CounterLike: ...
 
-        data_events_total = _central_data_events_total
-    except Exception:
-        data_events_total = None
+    def inc(self, *args: object, **kwargs: object) -> None: ...
+
+
+_data_events_total: _CounterLike | None = None
+
+
+def _get_data_events_total() -> _CounterLike | None:
+    global _data_events_total
+    if _data_events_total is None:
+        try:
+            from ml.common.metrics_bootstrap import get_counter
+
+            _data_events_total = get_counter(
+                name="nautilus_ml_data_events_total",
+                documentation="Total data events processed by stage",
+                labelnames=["dataset_type", "component", "stage", "source", "status"],
+            )
+        except Exception:
+            _data_events_total = None
+    return _data_events_total
 
 
 class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
@@ -757,8 +769,10 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         # Currently training data loading returns feature arrays only; bars can be joined
         # by caller if required. Consume flag to avoid unused parameter warnings.
         _ = include_bars
-        start_ns = int(start.timestamp() * 1e9)
-        end_ns = int(end.timestamp() * 1e9)
+        from ml.common.timestamps import sanitize_timestamp_ns
+
+        start_ns = sanitize_timestamp_ns(int(start.timestamp() * 1e9), context="feature_store.compute_and_store_historical.start")
+        end_ns = sanitize_timestamp_ns(int(end.timestamp() * 1e9), context="feature_store.compute_and_store_historical.end")
 
         # Query features for feature_set_id and time range
         feature_set_id = self._get_feature_set_id()
@@ -828,9 +842,10 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         from sqlalchemy import text as _text
 
         from ml._imports import pl
+        from ml.common.timestamps import sanitize_timestamp_ns
 
-        start_ns = int(start.timestamp() * 1e9)
-        end_ns = int(end.timestamp() * 1e9)
+        start_ns = sanitize_timestamp_ns(int(start.timestamp() * 1e9), context="feature_store._load_bars_from_nautilus.start")
+        end_ns = sanitize_timestamp_ns(int(end.timestamp() * 1e9), context="feature_store._load_bars_from_nautilus.end")
         sql = _text(
             """
             SELECT ts_event, open, high, low, close, volume
@@ -866,8 +881,10 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         """
         Check if features already exist for the given range.
         """
-        start_ns = int(start.timestamp() * 1e9)
-        end_ns = int(end.timestamp() * 1e9)
+        from ml.common.timestamps import sanitize_timestamp_ns
+
+        start_ns = sanitize_timestamp_ns(int(start.timestamp() * 1e9), context="feature_store._load_quotes_from_nautilus.start")
+        end_ns = sanitize_timestamp_ns(int(end.timestamp() * 1e9), context="feature_store._load_quotes_from_nautilus.end")
 
         feature_set_id = self._get_feature_set_id()
         query = (
@@ -1111,6 +1128,62 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             except Exception:
                 logger.debug("FeatureStore publish failed", exc_info=True)
 
+    def _record_observability_stage_boundary(
+        self,
+        *,
+        stage: str,
+        instrument_id: str,
+        ts_stage_start: int,
+        ts_stage_end: int,
+        row_count: int = 1,
+    ) -> None:
+        """
+        Record observability data for stage boundaries (cold path only).
+
+        This method should only be called from background/cold path operations,
+        never from hot path real-time processing.
+        """
+        try:
+            # Try to access observability service from integration manager
+            # This is safe to fail silently if observability is not configured
+            import os
+
+            # Only proceed if observability is explicitly enabled
+            if os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() not in {"1", "true", "yes"}:
+                return
+
+            # Try to get observability service from a global registry or similar
+            # This is a minimal hook that doesn't create hard dependencies
+            obs_service = getattr(self, "_observability_service", None)
+            if obs_service is None:
+                return
+
+            # Generate correlation ID for this operation
+            correlation_id = f"feature_store_{hash((instrument_id, ts_stage_start)) % 1000000}"
+
+            # Record latency stage
+            obs_service.add_latency_stage(
+                correlation_id=correlation_id,
+                instrument_id=instrument_id,
+                pipeline_stage=stage,
+                ts_stage_start=ts_stage_start,
+                ts_stage_end=ts_stage_end,
+            )
+
+            # Record metric
+            latency_ms = (ts_stage_end - ts_stage_start) / 1_000_000
+            obs_service.add_metric(
+                metric_name="feature_store_latency_ms",
+                metric_type="histogram",
+                value=latency_ms,
+                timestamp=ts_stage_end,
+                labels={"stage": stage, "instrument_id": instrument_id},
+            )
+
+        except Exception:
+            # Silently ignore observability errors to avoid impacting core functionality
+            pass
+
     def _execute_write(
         self,
         row: dict[str, Any],
@@ -1118,6 +1191,9 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         """
         Upsert a single feature row (patchable in tests).
         """
+        # Track stage boundary for observability (cold path only)
+        ts_stage_start = time.time_ns()
+
         # Optional audit logging (sampled)
         try:
             import os
@@ -1186,6 +1262,16 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 self.publisher.publish(topic, payload)
             except Exception:
                 logger.debug("FeatureStore per-row publish failed", exc_info=True)
+
+        # Record observability data (off hot path - background processing only)
+        ts_stage_end = time.time_ns()
+        self._record_observability_stage_boundary(
+            stage="feature_storage",
+            instrument_id=str(row.get("instrument_id", "unknown")),
+            ts_stage_start=ts_stage_start,
+            ts_stage_end=ts_stage_end,
+            row_count=1,
+        )
 
     def _execute_query(self, sql: str) -> list[Any]:  # pragma: no cover (test hook)
         """

@@ -567,7 +567,8 @@ class DataRegistry(MLComponentMixin):
                 # Create new manifest with updates
                 manifest_dict = self._manifest_to_dict(manifest)
                 manifest_dict.update(changes)
-                manifest_dict["last_modified"] = time.time_ns()
+                from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+                manifest_dict["last_modified"] = _sanitize(int(time.time_ns()), context="registry.update_manifest:json.last_modified")
 
                 # Convert back to manifest object
                 updated_manifest = self._dict_to_manifest(manifest_dict)
@@ -644,7 +645,8 @@ class DataRegistry(MLComponentMixin):
                     if dataset_id in self._manifests:
                         manifest_dict = self._manifest_to_dict(self._manifests[dataset_id])
                         manifest_dict.update(changes)
-                        manifest_dict["last_modified"] = time.time_ns()
+                        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize2
+                        manifest_dict["last_modified"] = _sanitize2(int(time.time_ns()), context="registry.update_manifest:pg.cache.last_modified")
                         self._manifests[dataset_id] = self._dict_to_manifest(manifest_dict)
 
                 except Exception as e:
@@ -709,9 +711,10 @@ class DataRegistry(MLComponentMixin):
 
         """
         with self._lock:
+            from ml.common.timestamps import sanitize_timestamp_ns as _sanitize3
             self.update_manifest(
                 dataset_id,
-                {"metadata": {"deprecated": True, "deprecated_at": time.time_ns()}},
+                {"metadata": {"deprecated": True, "deprecated_at": _sanitize3(int(time.time_ns()), context="registry.deprecate:deprecated_at")}},
             )
 
             # Emit ops event (deprecated) with correlation id

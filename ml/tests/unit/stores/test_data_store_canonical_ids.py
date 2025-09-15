@@ -28,8 +28,6 @@ class _MockRegistry:
         self.watermarks.append(kwargs)
 
 
-@pytest.mark.database
-@pytest.mark.serial
 @pytest.mark.unit
 def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
     registry = _MockRegistry()
@@ -43,11 +41,8 @@ def test_data_store_canonical_ids_for_events(monkeypatch: Any) -> None:
     model_store = _Dummy()
     strategy_store = _Dummy()
 
-    # Use DATABASE_URL from environment or fall back to test database
-    connection_string = os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/nautilus",
-    )
+    # Use an in-memory SQLite engine to keep this unit test DB-free
+    connection_string = "sqlite:///:memory:"
 
     store = DataStore(
         registry=registry,  # type: ignore[arg-type]

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ml.common.message_bus import MessagePublisherProtocol
-from ml.stores._batch_utils import publish_batch_and_rows, sanitize_and_dedup
+from ml.stores.mixins import publish_batch_and_rows, sanitize_and_dedup
 from ml.config.events import Stage
 
 
@@ -76,4 +76,3 @@ def test_publish_batch_and_rows_stage_first_scheme() -> None:
     assert len(cap.calls) == 3
     topics = [t for t, _ in cap.calls]
     assert all(t.startswith("events.ml.PREDICTION_EMITTED.EUR.USD") for t in topics)
-

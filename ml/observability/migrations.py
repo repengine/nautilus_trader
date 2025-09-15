@@ -144,12 +144,22 @@ def ensure_monthly_partitions(engine: Engine, table: str, ts_col: str) -> None:
         ):
             start, end = _month_bounds(dt)
             part_name = f"{table}_{start.strftime('%Y_%m')}"
+            from ml.common.timestamps import sanitize_timestamp_ns
+
+            start_ns = sanitize_timestamp_ns(
+                int(start.timestamp() * 1_000_000_000),
+                context=f"obs.ensure_monthly_partitions.{table}.start",
+            )
+            end_ns = sanitize_timestamp_ns(
+                int(end.timestamp() * 1_000_000_000),
+                context=f"obs.ensure_monthly_partitions.{table}.end",
+            )
             conn.execute(
                 text(
                     "CREATE TABLE IF NOT EXISTS "
                     f"{part_name} PARTITION OF {table} FOR VALUES FROM (:start) TO (:end)",
                 ),
-                {"start": int(start.timestamp() * 1e9), "end": int(end.timestamp() * 1e9)},
+                {"start": start_ns, "end": end_ns},
             )
             # BRIN index on partition child
             conn.execute(

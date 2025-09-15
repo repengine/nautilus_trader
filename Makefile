@@ -735,14 +735,14 @@ ml-coverage:  #-- Generate ML module coverage report with property tests
 	@echo "Coverage report generated in htmlcov/ml/index.html"
 sanity:
 	@echo "Running ML codebase sanity sweep (advisory)..."
-	@python ml/scripts/sanity_check.py || true
+	@python ml/cli/sanity_check.py || true
 
 .PHONY: pytest-ml
 
 pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API), then serial integration (no real API)
 	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api), then serial integration (excl. real_api) ...)
-	uv run --active --no-sync pytest ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
-	uv run --active --no-sync pytest ml -m "integration and not real_api" -q -n 1 || exit $$?
+	uv run --active --no-sync pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
+	uv run --active --no-sync pytest -c ml/pytest.ini ml -m "integration and not real_api" -q -n 1 || exit $$?
 	@echo "$(GREEN)ML tests completed$(RESET)"
 
 .PHONY: pytest-ml-perf
@@ -750,3 +750,46 @@ pytest-ml-perf:  #-- Run ML performance tests with optional relax factor (ML_BEN
 	$(info $(M) Running ML performance tests...) \
 	&& echo "Relax factor: $${ML_BENCH_RELAX:-1.0}"
 	ML_BENCH_RELAX=$${ML_BENCH_RELAX:-1.0} uv run --active --no-sync pytest ml/tests/performance -q
+
+.PHONY: pytest-ml-guardrails
+pytest-ml-guardrails:  #-- Run ML performance guardrails (FAILS CI if regressions detected)
+	$(info $(M) Running ML performance guardrails...) \
+	&& echo "Guardrails mode: strict=$${ML_GUARDRAILS_STRICT:-false}"
+	uv run --active --no-sync python ml/tests/performance/ci_performance_guardrails.py \
+		$(if $(ML_GUARDRAILS_STRICT),--strict) \
+		$(if $(ML_REPORT_FILE),--report-file $(ML_REPORT_FILE))
+
+.PHONY: pytest-ml-guardrails-strict
+pytest-ml-guardrails-strict:  #-- Run ML performance guardrails in strict mode
+	$(info $(M) Running ML performance guardrails in STRICT mode...)
+	ML_GUARDRAILS_STRICT=true $(MAKE) pytest-ml-guardrails
+
+.PHONY: pytest-ml-zero-allocation
+pytest-ml-zero-allocation:  #-- Run zero-allocation validation tests only
+	$(info $(M) Running ML zero-allocation validation...)
+	uv run --active --no-sync python ml/tests/performance/ci_performance_guardrails.py --zero-allocation-only
+
+# ML test profiles (fast/stores/integration)
+.PHONY: test-fast
+test-fast:  #-- Fast dev profile: unit + property + contracts (parallel; no integration/performance)
+	$(info $(M) Running ML fast profile: unit + property + contracts...)
+	HYPOTHESIS_PROFILE=ci ML_DISABLE_METRICS_SERVER=1 TEST_DB_SKIP_TRUNCATE=1 \
+		uv run --active --no-sync pytest -c ml/pytest.ini -q -n auto --dist=loadscope \
+		-m "not integration and not performance and not prototype" \
+		ml/tests/unit ml/tests/property ml/tests/contracts \
+		--junitxml=ml/tests/validation_reports/junit-dev-fast.xml \
+		--cov=ml --cov-report=xml:ml/tests/validation_reports/coverage-dev-fast.xml
+
+.PHONY: test-stores
+test-stores:  #-- Stores-focused subset (all store tests excluding performance)
+	$(info $(M) Running ML store-focused tests...)
+	uv run --active --no-sync pytest -c ml/pytest.ini -q -n auto --dist=loadscope \
+		-k "stores and not performance" ml/tests \
+		--junitxml=ml/tests/validation_reports/junit-stores.xml
+
+.PHONY: test-integration
+test-integration:  #-- Integration tests only (real Postgres; serial where needed)
+	$(info $(M) Running ML integration tests...)
+	uv run --active --no-sync pytest -c ml/pytest.ini -q -m integration -n 1 \
+		ml/tests/integration \
+		--junitxml=ml/tests/validation_reports/junit-integration.xml

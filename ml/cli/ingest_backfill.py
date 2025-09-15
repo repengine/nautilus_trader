@@ -19,9 +19,9 @@ from ml.data.ingest.state import save_state
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
-from ml.stores.coverage_catalog import CatalogCoverageProvider
-from ml.stores.coverage_sql import SqlCoverageProvider
-from ml.stores.coverage_sql import SqlMarketDataWriter
+from ml.stores.providers import CatalogCoverageProvider
+from ml.stores.providers import SqlCoverageProvider
+from ml.stores.providers import SqlMarketDataWriter
 
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -72,11 +72,12 @@ class _CatalogIngestClient:
         s_val: int | str | float
         e_val: int | str | float
         if isinstance(start, datetime):
-            s_val = int(start.timestamp() * 1e9)
+            from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+            s_val = _sanitize(int(start.timestamp() * 1e9), context="cli.ingest_backfill:start")
         else:
             s_val = start
         if isinstance(end, datetime):
-            e_val = int(end.timestamp() * 1e9)
+            e_val = _sanitize(int(end.timestamp() * 1e9), context="cli.ingest_backfill:end")
         else:
             e_val = end
         data = self._catalog.query(

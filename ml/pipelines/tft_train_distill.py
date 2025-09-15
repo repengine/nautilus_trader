@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Build dataset
+    # Import via scripts shim so tests can monkeypatch easily
     from ml.scripts.build_tft_dataset import main as build_main
 
     build_args = [

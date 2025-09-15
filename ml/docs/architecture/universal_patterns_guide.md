@@ -2,7 +2,104 @@
 
 ## Overview
 
-This guide provides detailed implementation instructions for the five Universal ML Architecture Patterns that ALL ML components in Nautilus Trader MUST follow. These patterns ensure consistency, reliability, and performance across the entire ML pipeline.
+This guide provides detailed implementation instructions for the Universal ML Architecture Patterns that ALL ML components in Nautilus Trader MUST follow. These patterns ensure consistency, reliability, and performance across the entire ML pipeline.
+
+## Fundamental Principle: Public API via `__init__.py`
+
+### The `__init__.py` Contract
+
+**CRITICAL**: Every ML module's public API is defined exclusively through its `__init__.py` file. This is the single source of truth for what a module exports.
+
+#### Core Rules
+
+1. **Start with `__init__.py`**: Before implementing any feature, first update the module's `__init__.py` to define the public API
+2. **End with `__init__.py`**: After implementation, verify the `__init__.py` accurately reflects what was built
+3. **Only Export via `__all__`**: The `__all__` list is the authoritative API contract
+4. **Alphabetical Order**: All `__all__` lists MUST be alphabetically sorted
+5. **No Direct Imports**: Consumers should import from the module, not from internal files
+
+#### Implementation Workflow
+
+```python
+# STEP 1: Define the API in __init__.py
+# ml/features/__init__.py
+__all__ = [
+    "FeatureConfig",          # Configuration class
+    "FeatureEngineer",        # Main computation engine
+    "validate_feature_parity", # Validation function
+]
+
+# STEP 2: Implement in internal modules
+# ml/features/engineering.py (internal, not imported directly)
+class FeatureConfig:
+    ...
+
+class FeatureEngineer:
+    ...
+
+# ml/features/validation.py (internal, not imported directly)
+def validate_feature_parity():
+    ...
+
+# STEP 3: Import in __init__.py
+from ml.features.engineering import FeatureConfig, FeatureEngineer
+from ml.features.validation import validate_feature_parity
+
+# STEP 4: Consumer usage (ONLY through public API)
+# ✅ CORRECT
+from ml.features import FeatureConfig, FeatureEngineer
+
+# ❌ INCORRECT - Never import from internal modules
+from ml.features.engineering import FeatureConfig  # WRONG!
+```
+
+#### API Design Principles
+
+1. **Minimal Surface**: Export only what's necessary for external use
+2. **Hide Implementation**: Internal classes/functions should not be in `__all__`
+3. **Stable Contracts**: Changes to `__all__` are breaking changes
+4. **Clear Documentation**: Module docstring explains the API's purpose
+5. **Lazy Imports**: Use `__getattr__` for circular dependency resolution when needed
+
+#### Example: Complete `__init__.py` Structure
+
+```python
+"""
+ML Feature Engineering Module.
+
+This module provides feature computation with guaranteed hot/cold path parity.
+The public API focuses on configuration, computation, and validation.
+"""
+
+# ============================================================================
+# IMPORTS (Organized by category)
+# ============================================================================
+from ml.features.engineering import FeatureConfig
+from ml.features.engineering import FeatureEngineer
+from ml.features.validation import FeatureParityError
+from ml.features.validation import validate_feature_parity
+
+# ============================================================================
+# PUBLIC API (Alphabetically sorted)
+# ============================================================================
+__all__ = [
+    "FeatureConfig",
+    "FeatureEngineer",
+    "FeatureParityError",
+    "validate_feature_parity",
+]
+```
+
+#### Validation Checklist
+
+Before any PR, verify:
+- [ ] `__init__.py` updated BEFORE implementation
+- [ ] `__all__` list is alphabetically sorted
+- [ ] Only intended public APIs are exported
+- [ ] Internal implementation details are hidden
+- [ ] Module docstring describes the API
+- [ ] No direct imports from internal modules in tests/examples
+- [ ] `__init__.py` updated AFTER implementation to match reality
 
 ## Pattern 1: Mandatory 4-Store + 4-Registry Integration
 
@@ -367,6 +464,44 @@ class ColdPathAnalyzer:
             features = self._compute_batch_features(chunk)
             self._save_features_batch(features)
 ```
+
+## Pattern 5: Timestamp Normalization
+
+### Pattern Description
+All persisted timestamps, time-window bounds, and event times are nanoseconds (ns). Any
+external or ambiguous inputs must be normalized before persistence, event emission, or
+bus publish to prevent unit drift and subtle bugs.
+
+### Implementation Requirements
+
+- Always normalize via `ml.common.timestamps.sanitize_timestamp_ns`.
+- Prefer `self.clock.timestamp_ns()` for “now” in components that have a clock, falling
+  back to `time.time_ns()` in non-hot paths.
+- Provide a contextual `context` string and optional `logger` when normalizing.
+- Keep imports lazy inside functions; never perform normalization at import time.
+
+#### Example
+
+```python
+from typing import Optional
+from ml.common.timestamps import sanitize_timestamp_ns
+
+def compute_bounds(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> tuple[int, int]:
+    """Return normalized [start_ns, end_ns) for queries."""
+    start_ns = sanitize_timestamp_ns(
+        int(start_dt.timestamp() * 1e9),
+        context="feature_store.query:start",
+        logger=logger,
+    ) if start_dt else 0
+    end_ns = sanitize_timestamp_ns(
+        int(end_dt.timestamp() * 1e9),
+        context="feature_store.query:end",
+        logger=logger,
+    ) if end_dt else start_ns
+    return start_ns, end_ns
+```
+
+See `ml/docs/development/TIMESTAMP_GUIDE.md` for details and validation commands.
 
 #### Performance Monitoring
 
@@ -872,6 +1007,76 @@ temperature_celsius = get_gauge("ml_gpu_temperature_celsius", "GPU temperature")
 # bad_histogram = get_histogram("latency", "latency")  # No units
 # bad_gauge = get_gauge("acc", "acc")  # Abbreviations, no units
 ```
+
+## Pattern 6: Events, Topics, and Watermarks
+
+### Core Rules
+- Always use enums: `ml.config.events.{Stage, Source, EventStatus}` (no raw strings).
+- Build topics with `ml.common.message_topics.build_topic_for_stage` and honor scheme/prefix from config.
+- Emit events and update registry watermarks via the façade helper (monotonic watermarks):
+  `ml.common.events_util.emit_dataset_event_and_watermark`.
+- Publishing is best‑effort; wrap message bus calls in `try/except` and keep them off hot paths.
+
+#### Minimal Example
+```python
+from ml.common.message_topics import build_topic_for_stage
+from ml.common.events_util import emit_dataset_event_and_watermark
+from ml.config.events import Stage, Source, EventStatus
+
+# Emit event + watermark (registry)
+emit_dataset_event_and_watermark(
+    registry,
+    dataset_id="features",
+    instrument_id="EUR/USD",
+    stage=Stage.FEATURE_COMPUTED,
+    source=Source.HISTORICAL,
+    run_id=run_id,
+    ts_min=start_ns,
+    ts_max=end_ns,
+    count=len(rows),
+    status=EventStatus.SUCCESS,
+    dataset_type="features",
+    component="feature_store",
+)
+
+# Publish (optional, best‑effort)
+try:
+    topic = build_topic_for_stage(Stage.FEATURE_COMPUTED, "EUR/USD", scheme=scheme, prefix=prefix)
+    publisher.publish(topic, {"dataset_id": "features", "run_id": run_id})
+except Exception:
+    logger.debug("bus publish failed", exc_info=True)
+```
+
+## Pattern 7: Observability (Cold Path Only)
+
+### Core Rules
+- Use DTO builders + service; never instantiate Prometheus collectors directly.
+- Persist metrics/logs off the hot path; use `MLIntegrationManager` helpers to schedule flushes.
+- Emit fallback/degradation metrics with labels (e.g., `ml_fallback_activations_total`).
+
+#### Minimal Example
+```python
+from ml.common.metrics_manager import MetricsManager
+
+mm = MetricsManager.default()  # no server in unit tests
+mm.inc(
+    "ml_fallback_activations_total",
+    "Fallback activations",
+    labels={"store_type": "feature"},
+    labelnames=("store_type",),
+)
+```
+
+---
+
+## Core Conventions (Quick Reference)
+- Hot path: P99 < 5ms; no DataFrame/file I/O/network/training; avoid allocations; push publish/metrics to cold paths.
+- Protocol‑first: type against `Protocol`; avoid concrete coupling; prefer adapters.
+- DB engines: only via `EngineManager.get_engine(...)`; safe SQL; partition helpers centralized.
+- Security: no `pickle`/`joblib` for model artifacts; prefer ONNX + validation; never hardcode secrets.
+- Config/flags: environment‑gated toggles for gradual rollout; keep rollbacks easy.
+- Tests: property/contract/metamorphic/pairwise; deterministic profiles; mark serial integration.
+- Timestamps: nanoseconds only; normalize via `sanitize_timestamp_ns` with context.
 
 ## Pattern Compliance Validation
 
@@ -1423,3 +1628,84 @@ class TestUniversalPatternCompliance:
 ```
 
 This comprehensive implementation guide ensures that all ML components in Nautilus Trader follow the Universal ML Architecture Patterns consistently, providing reliability, performance, and maintainability across the entire system.
+
+## Public API Facades (Cold Path)
+
+### The Sacred Contract of `__init__.py`
+
+**FUNDAMENTAL RULE**: All work in the ML module begins and ends with `__init__.py` files. They are the sacred contracts that define what each module provides to the world.
+
+#### Development Workflow
+
+1. **START**: Read the module's `__init__.py` to understand its public API
+2. **PLAN**: Update `__init__.py` with new exports BEFORE implementation
+3. **IMPLEMENT**: Build the functionality in internal modules
+4. **VERIFY**: Ensure `__init__.py` accurately reflects the implementation
+5. **END**: Confirm all consumers use ONLY the public API from `__init__.py`
+
+### Overview
+
+- Provide a small, typed, domain-focused facade via each domain package's `__init__.py`.
+- Orchestrators and CLIs import these domain packages; they delegate to focused implementation modules.
+- Actors and other hot-path code must not import domain facades.
+
+### Design Rules
+
+- Facade per domain with stable, minimal entrypoints (≤ 5–7 functions):
+  - `ml/data/__init__.py` — dataset building and related utilities
+  - `ml/features/__init__.py` — feature registration, listing, export
+  - `ml/models/__init__.py` — training, evaluation, promotion
+  - `ml/evaluation/__init__.py` — dataset/prediction evaluation reports
+  - `ml/monitoring/__init__.py` — metrics bootstrap + snapshots
+  - `ml/deployment/__init__.py` — pipeline run/plan + validators
+  - `ml/stores/__init__.py` — store health/partitions/migrations
+  - `ml/strategies/__init__.py` — read-side strategy summaries
+  - `ml/actors/__init__.py` — actor integration helpers
+  - `ml/preprocessing/__init__.py` — dataset preprocessing helpers
+  - `ml/observability/__init__.py` — observability aggregation/flush
+  - `ml/registry/__init__.py` — listings of datasets/models/features/watermarks
+  - `ml/consumers/__init__.py` — cold-path consumer planning/running
+- Facades are cold-path only. No DataFrame creation, heavy I/O, or training in hot paths.
+- Facades rely on: `ml.config.events` enums, `ml.common.message_topics`, and `ml.common.metrics_bootstrap`.
+- CLIs remain thin wrappers: parse args → build config → call facade → print/save.
+
+Layering
+
+- CLI → `ml.<domain>` → domain services/stores/registries
+- Orchestrators/Schedulers → `ml.<domain>` → domain services/stores/registries
+- Hot path (actors/on_*) → pre-initialized stores; must not depend on facades
+
+Import Examples
+
+```python
+from ml.data import DatasetBuildConfig, build_tft_dataset
+
+cfg = DatasetBuildConfig(
+    data_dir=Path("catalog"),
+    out_dir=Path("ml_out/datasets/spy"),
+    symbols=["SPY"],
+)
+result = build_tft_dataset(cfg)
+print(result.dataset_parquet)
+```
+
+Contracts & TDD
+
+- Each facade has a comment-only stub describing Definition of Done (DoD).
+- Agents implement functions using TDD: write contract/property tests, then add thin wrappers.
+- Keep strict typing (`mypy --strict`) and ruff clean on changed files.
+
+### Enforcement
+
+#### `__init__.py` Rules
+- **MANDATORY**: All `__all__` lists must be alphabetically sorted
+- **MANDATORY**: Work starts by reading `__init__.py` to understand the API
+- **MANDATORY**: Work ends by verifying `__init__.py` reflects the implementation
+- **FORBIDDEN**: Direct imports from internal modules (e.g., `from ml.features.engineering import X`)
+- **REQUIRED**: All public APIs must be exported through `__all__`
+
+#### Automated Checks
+- Import-linter rule: `ml/*` may import `ml/api/*`, but domain code must not import `ml/cli/*`.
+- Validators: `make validate-metrics`, `make validate-events`, and the advisory `make validate-nautilus-patterns`.
+- Pre-commit hooks verify `__all__` lists are alphabetically sorted
+- MyPy strict mode ensures proper typing of all exports

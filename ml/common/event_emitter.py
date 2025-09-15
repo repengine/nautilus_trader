@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ml.common.correlation import make_correlation_id
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -33,25 +34,53 @@ def emit_dataset_event_and_watermark(
     status: EventStatus,
     dataset_type: str | None = None,
     component: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> None:
     """
     Emit a dataset event and update its watermark atomically, with optional metrics.
 
-    This helper enforces consistent enum usage and label application across stores.
+    This helper enforces consistent enum usage, correlation_id attachment,
+    and label application across stores.
 
     """
-    # Emit the event via registry
-    registry.emit_event(
+    # Ensure deterministic correlation_id is attached
+    event_metadata = _ensure_correlation_id(
+        metadata=metadata,
+        run_id=run_id,
         dataset_id=dataset_id,
         instrument_id=instrument_id,
-        stage=stage,
-        source=source,
-        run_id=run_id,
         ts_min=ts_min,
         ts_max=ts_max,
         count=count,
-        status=status,
     )
+
+    # Emit the event via registry
+    try:
+        registry.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status,
+            metadata=event_metadata,
+        )
+    except TypeError:
+        # Backwards-compatible registries may not accept metadata
+        registry.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status,
+        )
 
     # Update watermark to reflect progress
     registry.update_watermark(
@@ -105,22 +134,48 @@ def emit_dataset_event(
     """
     Emit a dataset event only (no watermark), with optional metrics.
 
-    Centralizes enum-safe emission and consistent metric labeling.
+    Centralizes enum-safe emission, correlation_id attachment,
+    and consistent metric labeling.
 
     """
-    registry.emit_event(
+    # Ensure deterministic correlation_id is attached
+    event_metadata = _ensure_correlation_id(
+        metadata=metadata,
+        run_id=run_id,
         dataset_id=dataset_id,
         instrument_id=instrument_id,
-        stage=stage,
-        source=source,
-        run_id=run_id,
         ts_min=ts_min,
         ts_max=ts_max,
         count=count,
-        status=status,
-        error=error,
-        metadata=metadata,
     )
+
+    try:
+        registry.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status,
+            error=error,
+            metadata=event_metadata,
+        )
+    except TypeError:
+        registry.emit_event(
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            stage=stage,
+            source=source,
+            run_id=run_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+            status=status,
+            error=error,
+        )
 
     # Optional metrics: best-effort, no hard dependency
     try:  # pragma: no cover - metrics optional
@@ -142,6 +197,57 @@ def emit_dataset_event(
     except Exception:
         # Metrics are best-effort; ignore in hot paths
         pass
+
+
+def _ensure_correlation_id(
+    *,
+    metadata: dict[str, object] | None,
+    run_id: str,
+    dataset_id: str,
+    instrument_id: str,
+    ts_min: int,
+    ts_max: int,
+    count: int,
+) -> dict[str, object]:
+    """
+    Ensure a deterministic correlation_id and optional trace context are attached.
+
+    If metadata already contains correlation_id, it is preserved.
+    Otherwise, a new one is generated using make_correlation_id.
+
+    Automatically injects W3C trace context when distributed tracing is enabled.
+
+    """
+    event_metadata: dict[str, object] = {}
+    if metadata:
+        event_metadata.update(metadata)
+
+    # Only generate correlation_id if not already provided
+    if "correlation_id" not in event_metadata:
+        correlation_id = make_correlation_id(
+            run_id=run_id,
+            dataset_id=dataset_id,
+            instrument_id=instrument_id,
+            ts_min=ts_min,
+            ts_max=ts_max,
+            count=count,
+        )
+        event_metadata["correlation_id"] = correlation_id
+
+    # Inject trace context if tracing enabled and not already present
+    if "trace_context" not in event_metadata:
+        try:
+            # Lazy import to avoid circular dependencies
+            from ml.observability.tracing import inject_trace_context
+            event_metadata = inject_trace_context(event_metadata)
+        except ImportError:
+            # Graceful fallback when tracing not available
+            pass
+        except Exception:
+            # Graceful fallback on any tracing error
+            pass
+
+    return event_metadata
 
 
 __all__ = ["emit_dataset_event", "emit_dataset_event_and_watermark"]

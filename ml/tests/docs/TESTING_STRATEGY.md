@@ -193,6 +193,70 @@ pytest ml/tests/combinatorial -x
 pytest ml/tests/property ml/tests/contracts ml/tests/metamorphic ml/tests/combinatorial -x
 ```
 
+### Profiles & Runners (recommended)
+
+Use focused profiles to keep local feedback loops under a few minutes:
+
+```bash
+# dev-fast: unit + property + contracts (parallel, no integration/serial)
+TEST_DB_SKIP_TRUNCATE=1 \
+ML_DISABLE_METRICS_SERVER=1 \
+HYPOTHESIS_PROFILE=ci \
+pytest -q -m "not integration and not serial" -n auto --dist=loadscope \
+  ml/tests/unit ml/tests/property ml/tests/contracts
+
+# dev-medium: add integration (real Postgres), still parallel where safe
+pytest -q -m integration ml/tests/integration  # prefer module/class scoped cleanup
+
+# area-focused: stores only, exit on first failure
+pytest -q -k "stores and not performance" --maxfail=1 ml/tests
+```
+
+Tip: prefer `uv run --active --no-sync` as a faster runner when available.
+
+### Environment Controls & Isolation
+
+- `TEST_DB_SKIP_TRUNCATE=1` — skip per-test TRUNCATE; rely on class/module-scoped cleanup.
+- `ML_DISABLE_METRICS_SERVER=1` — do not start the Prometheus HTTP server in unit tests.
+- `HYPOTHESIS_PROFILE=ci` — deterministic, bounded property tests.
+- `PYTHONHASHSEED` — pin for reproducible dict ordering when needed.
+
+### Database Strategy
+
+- Unit/Contract: use JSON-backed registry/fakes; no DB.
+- Integration: real Postgres via EngineManager or Testcontainers; mark `@pytest.mark.integration`.
+- Cleanup: prefer transaction rollback; otherwise TRUNCATE only ML tables (allowlist) with a short `statement_timeout` (e.g., 2s). Keep per-test cleanup disabled by default (see `TEST_DB_SKIP_TRUNCATE`).
+
+### Observability & Metrics
+
+- Unit/Contract: disable server (`ML_DISABLE_METRICS_SERVER=1`); use DTO builders + no-op collectors.
+- Integration: collectors allowed; keep server timeouts small to ensure fast teardown.
+
+### CI Pipeline (suggested stages)
+
+1. Lint + Types: ruff, `mypy ml --strict`, import-linter.
+2. Unit/Contract/Property: parallel, deterministic profiles; produce coverage + JUnit.
+3. Integration: spin up Postgres, run `@integration` (serial only where marked).
+4. Extended: metamorphic, validators (`make validate-metrics`, `make validate-events`), duplication/security scans.
+
+### pytest.ini (example)
+
+```ini
+[pytest]
+addopts = -ra --strict-markers --tb=short --durations=10
+markers =
+    integration: tests requiring real services (e.g., Postgres)
+    serial: tests that must not run in parallel
+env =
+    HYPOTHESIS_PROFILE = ci
+    ML_DISABLE_METRICS_SERVER = 1
+    TEST_DB_SKIP_TRUNCATE = 1
+```
+
+### Legacy Imports & Shims
+
+Where older tests expect legacy module paths (e.g., `ml.scripts.build_tft_dataset`), provide thin shims that delegate to modern CLI modules. This reduces churn when refactoring package layout.
+
 ## New Paper-Trading Critical Tests
 
 - Data routing (DB‑free) ensures the `DataStore` facade dispatches correctly:

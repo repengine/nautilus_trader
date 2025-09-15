@@ -3,9 +3,10 @@ from __future__ import annotations
 from ml.common.in_memory_bus import InMemoryPublisher
 from ml.consumers.retry import RetriableConsumer, RetryPolicy
 from ml.consumers.protocols import Envelope
+from ml.config.events import Stage
 
 
-def _mk(env_id: str = "e1", stage: str = "PREDICTION_EMITTED") -> Envelope:
+def _mk(env_id: str = "e1", stage: str = Stage.PREDICTION_EMITTED.value) -> Envelope:
     return {
         "id": env_id,
         "parent_id": None,
@@ -46,7 +47,7 @@ def test_retriable_consumer_to_dlq_on_exhausted_attempts() -> None:
     dlq.subscribe("dlq.#", lambda t, p: got_dlq.append((t, p)))
 
     rc = RetriableConsumer(handler=always_fail, dlq=dlq, policy=RetryPolicy(max_attempts=2))
-    rc.handle("events.ml.SIGNAL_EMITTED", _mk(stage="SIGNAL_EMITTED"))
+    rc.handle("events.ml.SIGNAL_EMITTED", _mk(stage=Stage.SIGNAL_EMITTED.value))
 
     assert len(got_dlq) == 1
     topic, payload = got_dlq[0]

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from ml._imports import HAS_POLARS, pl
 from ml.registry.dataclasses import DatasetType
-from ml.stores.raw_io_parquet import ParquetCatalogRawReader
+from ml.stores.io_raw import ParquetCatalogRawReader
 
 
 @dataclass
@@ -130,4 +130,3 @@ def test_parquet_reader_returns_dataframe_for_quotes_and_trades() -> None:
     else:
         assert isinstance(qdf, list)
         assert isinstance(tdf, list)
-

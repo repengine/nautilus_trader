@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from ml.stores._read_helpers import ReadQueryMixin
+from ml.stores.mixins import ReadQueryMixin
 
 
 class _Helper(ReadQueryMixin):

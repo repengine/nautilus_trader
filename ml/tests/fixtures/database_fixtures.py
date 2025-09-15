@@ -182,7 +182,7 @@ class TestDatabase:
 
                     # Execute SQL statements, respecting dollar-quoted function bodies
                     try:
-                        from ml.scripts.apply_migrations import _split_statements  # type: ignore
+                        from ml.cli.apply_migrations import _split_statements  # type: ignore
                     except Exception:
                         # Fallback simple splitter if import fails
                         def _split_statements(x: str) -> list[str]:
@@ -251,8 +251,8 @@ $$ LANGUAGE plpgsql;
 
         # Apply canonical baseline via migration runner (idempotent, best-effort)
         try:
-            from ml.scripts.apply_migrations import apply_files as _apply_files  # type: ignore
-            from ml.scripts.apply_migrations import build_plan as _build_plan  # type: ignore
+            from ml.cli.apply_migrations import apply_files as _apply_files  # type: ignore
+            from ml.cli.apply_migrations import build_plan as _build_plan  # type: ignore
 
             plan = _build_plan(full=True, schema="both")
             _apply_files(self.engine, plan, dry_run=False)

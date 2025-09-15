@@ -174,9 +174,17 @@ class ObservabilityDBPersistor:
 
         from sqlalchemy import text as _text
 
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+
         # Compute cutoff in nanoseconds
-        now_ns = time.time_ns()
-        cutoff_ns = now_ns - int(retention_days * 24 * 60 * 60 * 1e9)
+        now_ns = _sanitize(
+            int(time.time_ns()),
+            context="observability.apply_retention:now",
+        )
+        cutoff_ns = _sanitize(
+            int(now_ns - int(retention_days) * 24 * 60 * 60 * 1_000_000_000),
+            context="observability.apply_retention:cutoff",
+        )
 
         delete_specs: list[tuple[str, str]] = [
             ("obs_latency_watermarks", "ts_stage_end"),

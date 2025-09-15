@@ -1,24 +1,215 @@
 """
-ML Stores module for persisting features, predictions, and signals.
+ML Stores: Pattern 1 Compliant Store Architecture
+================================================
+
+This module provides the 4 mandatory stores required by Universal ML Architecture Pattern 1:
+- FeatureStore: Feature computation and storage for ML pipeline
+- ModelStore: Model predictions with performance tracking
+- StrategyStore: Strategy signals and decisions
+- DataStore: Unified facade with contract validation and event emission
+
+All ML actors MUST use these 4 stores via BaseMLInferenceActor inheritance to ensure:
+- Consistent data lifecycle management
+- Automatic component initialization
+- Progressive fallback to DummyStore when PostgreSQL unavailable
+- Health monitoring across all components
+
+Pattern 1 Integration Example:
+-----------------------------
+```python
+from ml.actors.base import BaseMLInferenceActor
+
+class YourCustomActor(BaseMLInferenceActor):
+    def __init__(self, config: YourConfig):
+        # REQUIRED: Call super().__init__ first
+        super().__init__(config)
+
+        # Stores are now automatically available:
+        # - self.feature_store
+        # - self.model_store
+        # - self.strategy_store
+        # - self.data_store
+
+        # Your custom initialization here
+        self.custom_logic = self._initialize_custom_logic()
+
+    def on_bar(self, bar: Bar) -> None:
+        # ✅ CORRECT: Use pre-initialized stores
+        features = self.feature_store.compute_realtime(bar)
+        prediction = self.model.predict(features)
+
+        self.model_store.write_prediction(
+            model_id=self.config.model_id,
+            prediction=prediction,
+            confidence=0.95,
+            features=dict(zip(self.feature_names, features)),
+            inference_time_ms=1.2,
+            ts_event=bar.ts_event,
+            instrument_id=str(bar.instrument_id)
+        )
+```
+
+Pattern 2 Protocol-First Design:
+-------------------------------
+All stores implement strict protocols for structural typing:
+- FeatureStoreProtocol / FeatureStoreStrictProtocol
+- ModelStoreProtocol / ModelStoreStrictProtocol
+- StrategyStoreProtocol / StrategyStoreStrictProtocol
+- DataStoreFacadeProtocol
+
+Pattern 4 Progressive Fallback:
+------------------------------
+Stores automatically fallback when PostgreSQL unavailable:
+PostgreSQL → DummyStore (no persistence, warnings logged)
+
+See ml/docs/architecture/universal_patterns_guide.md for complete documentation.
 """
 
+# =============================================================================
+# Pattern 1: The 4 Mandatory Stores
+# =============================================================================
+
+# Core store implementations (Pattern 1 requirement)
+# =============================================================================
+# Base Classes and Data Structures
+# =============================================================================
+# Abstract base store and data structures
 from ml.stores.base import BaseStore
+
+# Pattern 4: Fallback store for testing/unavailable PostgreSQL
+from ml.stores.base import DummyStore
 from ml.stores.base import FeatureData
 from ml.stores.base import ModelPrediction
 from ml.stores.base import StrategySignal
+
+# =============================================================================
+# Data Processing and Infrastructure
+# =============================================================================
+# Data processing pipeline
+from ml.stores.data_processor import DataProcessor
 from ml.stores.data_store import DataStore
 from ml.stores.feature_store import FeatureStore
+
+# Infrastructure utilities
+from ml.stores.infrastructure import PartitionManager
+from ml.stores.infrastructure import check_db_prereqs
+from ml.stores.infrastructure import run_partition_maintenance
+from ml.stores.io_raw import ParquetCatalogRawReader
+from ml.stores.io_raw import ParquetCatalogRawWriter
+
+# Raw I/O protocols and implementations
+from ml.stores.io_raw import RawIngestionWriterProtocol
+from ml.stores.io_raw import RawReaderProtocol
+
+# =============================================================================
+# Mixins and Utilities (Internal - Advanced Use Only)
+# =============================================================================
+# Store composition mixins for custom store implementations
+from ml.stores.mixins import BufferedStoreMixin
+from ml.stores.mixins import DataRegistryMixin
+from ml.stores.mixins import EngineInitMixin
+from ml.stores.mixins import HealthMixin
+from ml.stores.mixins import ReadQueryMixin
+from ml.stores.mixins import SQLUpsertMixin
+from ml.stores.mixins import StoreInitMixin
+
+# Batch processing utilities
+from ml.stores.mixins import publish_batch_and_rows
+from ml.stores.mixins import sanitize_and_dedup
 from ml.stores.model_store import ModelStore
+
+# =============================================================================
+# Pattern 2: Protocol-First Interface Design
+# =============================================================================
+# Store protocols for structural typing
+from ml.stores.protocols import BaseStoreProtocol
+
+# Coverage and writer protocols for data pipeline integration
+from ml.stores.protocols import CoverageProviderProtocol
+from ml.stores.protocols import DataStoreFacadeProtocol
+from ml.stores.protocols import FeatureStoreProtocol
+from ml.stores.protocols import FeatureStoreStrictProtocol
+from ml.stores.protocols import MarketDataWriterProtocol
+from ml.stores.protocols import ModelStoreProtocol
+from ml.stores.protocols import ModelStoreStrictProtocol
+
+# Type aliases for read/write flexibility
+from ml.stores.protocols import ReadFrame
+from ml.stores.protocols import StrategyStoreProtocol
+from ml.stores.protocols import StrategyStoreStrictProtocol
+from ml.stores.protocols import WriteRecords
+
+# Coverage providers and market data writers
+from ml.stores.providers import CatalogCoverageProvider
+from ml.stores.providers import SqlCoverageProvider
+from ml.stores.providers import SqlMarketDataWriter
 from ml.stores.strategy_store import StrategyStore
 
+# Market data writers and live recording
+from ml.stores.writers import DataStoreMarketDataWriter
+from ml.stores.writers import LiveDataRecorder
+from ml.stores.writers import ParquetCatalogMarketDataWriter
+
+
+# =============================================================================
+# Public API Definition
+# =============================================================================
 
 __all__ = [
     "BaseStore",
+    "BaseStoreProtocol",
+    "BufferedStoreMixin",
+    "CatalogCoverageProvider",
+    "CoverageProviderProtocol",
+    "DataProcessor",
+    "DataRegistryMixin",
     "DataStore",
+    "DataStoreFacadeProtocol",
+    "DataStoreMarketDataWriter",
+    "DummyStore",
+    "EngineInitMixin",
     "FeatureData",
     "FeatureStore",
+    "FeatureStoreProtocol",
+    "FeatureStoreStrictProtocol",
+    "HealthMixin",
+    "LiveDataRecorder",
+    "MarketDataWriterProtocol",
     "ModelPrediction",
     "ModelStore",
+    "ModelStoreProtocol",
+    "ModelStoreStrictProtocol",
+    "ParquetCatalogMarketDataWriter",
+    "ParquetCatalogRawReader",
+    "ParquetCatalogRawWriter",
+    "PartitionManager",
+    "RawIngestionWriterProtocol",
+    "RawReaderProtocol",
+    "ReadFrame",
+    "ReadQueryMixin",
+    "SQLUpsertMixin",
+    "SqlCoverageProvider",
+    "SqlMarketDataWriter",
+    "StoreInitMixin",
     "StrategySignal",
     "StrategyStore",
+    "StrategyStoreProtocol",
+    "StrategyStoreStrictProtocol",
+    "WriteRecords",
+    "check_db_prereqs",
+    "publish_batch_and_rows",
+    "run_partition_maintenance",
+    "sanitize_and_dedup",
 ]
+
+# =============================================================================
+# Pattern Compliance Notes
+# =============================================================================
+
+# Pattern 1: All 4 stores are exposed and MUST be used via BaseMLInferenceActor
+# Pattern 2: All major interfaces use typing.Protocol for structural typing
+# Pattern 3: Stores separate hot path (real-time inference) from cold path (training)
+# Pattern 4: DummyStore provides progressive fallback when PostgreSQL unavailable
+# Pattern 5: All stores use ml.common.metrics_bootstrap (never direct prometheus_client)
+
+# See ml/docs/architecture/universal_patterns_guide.md for complete implementation guide

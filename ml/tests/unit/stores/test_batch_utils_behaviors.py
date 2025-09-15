@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from ml.config.events import Stage
-from ml.stores._batch_utils import publish_batch_and_rows, sanitize_and_dedup
+from ml.stores.mixins import publish_batch_and_rows, sanitize_and_dedup
 
 
 def test_sanitize_and_dedup_mixed_units_and_duplicates() -> None:
@@ -108,4 +108,3 @@ def test_publish_batch_and_rows_stage_first_prefix() -> None:
     assert len(cap.calls) == 3
     topics = [t for t, _ in cap.calls]
     assert all(t.startswith("events.ml.FEATURE_COMPUTED.AAPL.XNAS") for t in topics)
-

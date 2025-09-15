@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from ml.scripts.dataset_report import main as report_main
+from ml.cli.dataset_report import main as report_main
 
 
 def _make_df() -> pl.DataFrame:

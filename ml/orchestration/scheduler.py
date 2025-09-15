@@ -275,7 +275,8 @@ def run_forever(
 
             # Emit event (status only; no watermark updates in scheduler)
             try:
-                now_ns = time.time_ns()
+                from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+                now_ns = _sanitize(int(time.time_ns()), context="orchestration.scheduler:emit_event.now")
                 metadata = {"phase": "pipeline", "run_id": run_id, "duration": duration}
                 if error:
                     metadata["error"] = error

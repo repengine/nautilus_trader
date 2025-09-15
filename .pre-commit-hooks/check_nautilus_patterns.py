@@ -100,7 +100,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
                 self.errors.append(
                     f"Line {node.lineno}: Direct prometheus_client import detected - use ml.common.metrics_bootstrap"
                 )
-            
+
             for alias in node.names:
                 full_name = f"{node.module}.{alias.name}"
                 self.imports[alias.name] = alias.asname or alias.name
@@ -132,7 +132,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
         """
         self.current_class = node.name
         self.has_on_start = False
-        
+
         # Track methods for protocol compliance
         self.class_methods[node.name] = []
         for item in node.body:
@@ -144,7 +144,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
                     "returns": self._get_return_annotation(item),
                     "has_docstring": ast.get_docstring(item) is not None
                 }
-        
+
         # Check for Protocol implementations
         for base in node.bases:
             if isinstance(base, ast.Name):
@@ -216,7 +216,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
         self.in_init = old_in_init
         self.in_event_handler = old_in_event_handler
         self.current_function = old_current_function
-    
+
     def visit_Try(self, node):
         """
         Track try/except blocks for fallback validation.
@@ -547,7 +547,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
                         self.errors.append(
                             f"Line {child.lineno}: Blocking operation in event handler '{node.name}'",
                         )
-    
+
     def _validate_protocol_compliance(self, node):
         """
         Validate Protocol-First Interface Design (Pattern 2) with deep AST analysis.
@@ -565,15 +565,15 @@ class NautilusPatternValidator(ast.NodeVisitor):
                     if child.attr in ["feature_store", "model_store", "strategy_store", "data_store"]:
                         uses_stores = True
                         break
-        
+
         # If using stores, validate MLComponentProtocol compliance
         if uses_stores or self.inherits_from_base_actor:
             self.uses_stores = True
-            
+
             # Check for required MLComponentProtocol methods
             required_methods = ["get_health_status", "get_performance_metrics", "validate_configuration"]
             methods_in_class = self.class_methods.get(node.name, [])
-            
+
             for method in required_methods:
                 if method not in methods_in_class:
                     self.errors.append(
@@ -584,7 +584,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
                     sig_key = f"{node.name}.{method}"
                     if sig_key in self.method_signatures:
                         sig = self.method_signatures[sig_key]
-                        
+
                         # Check return type annotations
                         if method == "get_health_status":
                             if sig["returns"] and "dict" not in str(sig["returns"]):
@@ -601,7 +601,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
                                 self.warnings.append(
                                     f"Line {node.lineno}: {method} should return list[str]"
                                 )
-        
+
         # Check for BaseMLInferenceActor inheritance for ML actors
         if "ML" in node.name and ("Actor" in node.name or "Signal" in node.name):
             if not self.inherits_from_base_actor:
@@ -615,23 +615,23 @@ class NautilusPatternValidator(ast.NodeVisitor):
                     self.errors.append(
                         f"Line {node.lineno}: ML Actor '{node.name}' must inherit from BaseMLInferenceActor, not Actor directly"
                     )
-        
+
         # Check for fallback handling in critical methods
         critical_methods = ["__init__", "_init_stores", "on_start"]
         for method_name in critical_methods:
             if method_name in methods_in_class:
                 # Check if method has error handling
                 method_has_handling = any(
-                    block["method"] == method_name 
+                    block["method"] == method_name
                     for block in self.try_except_blocks
                 )
-                
+
                 if not method_has_handling and method_name in ["__init__", "_init_stores"]:
                     if self.uses_stores:
                         self.warnings.append(
                             f"Line {node.lineno}: {method_name} should have error handling for store initialization fallback"
                         )
-    
+
     def _get_return_annotation(self, node):
         """
         Extract return type annotation from function.
@@ -648,7 +648,7 @@ class NautilusPatternValidator(ast.NodeVisitor):
         """
         if node.returns:
             # Try to convert AST node to string representation
-            if hasattr(ast, 'unparse'):  # Python 3.9+
+            if hasattr(ast, "unparse"):  # Python 3.9+
                 return ast.unparse(node.returns)
             else:
                 # Fallback for older Python versions

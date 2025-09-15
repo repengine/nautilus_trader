@@ -41,7 +41,7 @@ This directory contains the Docker Compose configuration for deploying the Nauti
    ```bash
    # Note: deployment maps Postgres to localhost:5433 by default.
    # If you need 5432 instead, set POSTGRES_HOST_PORT=5432 in your environment before `make up`.
-   python -c "import os; from ml.stores.db_preflight import check_db_prereqs; \
+   python -c "import os; from ml.stores.infrastructure import check_db_prereqs; \
 
 print(check_db_prereqs('postgresql://postgres:postgres@localhost:' + os.environ.get('POSTGRES_HOST_PORT','5433') + '/nautilus'))"
 

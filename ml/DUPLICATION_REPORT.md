@@ -2,11 +2,23 @@
 
 ## Executive Summary
 
-Analysis of the ML codebase reveals significant duplication patterns across multiple dimensions:
+Comprehensive analysis of the ML codebase (563 Python files) reveals significant duplication patterns across multiple dimensions:
+
+**Quantitative Analysis:**
+- **145 files** contain timestamp conversion logic (highest impact)
+- **92 files** have dependency check patterns
+- **49 files** duplicate DataFrame transformation patterns
+- **36 files** contain manual sleep/delay logic
+- **26 files** implement retry/backoff mechanisms
+- **25+ files** each for config validation and data validation
 - **275+ duplicate code blocks** identified by the shingle-based detector
+
+**Previous Findings:**
 - **Configuration duplication** between Makefiles and conftest.py files
 - **Store module patterns** repeated across feature, model, and strategy stores
 - **Test fixture redundancy** before recent refactoring efforts
+
+**Estimated Impact:** ~2,500+ lines of duplicated code could be eliminated through consolidation.
 
 ## Current Duplication Detection Coverage
 
@@ -263,3 +275,198 @@ The codebase exhibits significant duplication that impacts maintainability and i
 4. **Enhance code quality** metrics and developer productivity
 
 Priority should be given to store module consolidation due to its critical role in data persistence and the high risk of inconsistency bugs.
+
+---
+
+# Comprehensive Pattern-Based Duplication Analysis
+
+## Top 10 Most Duplicated Functional Patterns
+
+### 1. Timestamp Conversion Logic (145 files, ~435 LOC impact)
+**Pattern:** Converting between different timestamp formats (seconds, milliseconds, nanoseconds)
+```python
+# Scattered across files:
+ts_event_ns = int(timestamp * 1_000_000_000)
+ts_event = pd.to_datetime(ts_event_ns, unit="ns")
+ts_event.cast(pl.Datetime("ns", "UTC"))
+```
+
+**Files affected:** All data processing, features, stores, CLI scripts
+**Consolidation target:** `ml.common.time_utils`
+
+### 2. Dependency Check Patterns (92 files, ~276 LOC impact)
+**Pattern:** Checking ML library availability and lazy imports
+```python
+# Repeated pattern:
+from ml._imports import HAS_POLARS, check_ml_dependencies
+if not HAS_POLARS:
+    check_ml_dependencies(["polars"])
+```
+
+**Files affected:** Features, training, stores, CLI modules
+**Consolidation target:** Enhanced `ml._imports` with decorators
+
+### 3. DataFrame Transformation Patterns (49 files, ~392 LOC impact)
+**Pattern:** Common Polars/Pandas operations for data manipulation
+```python
+# Repeated operations:
+df.with_columns(pl.col("ts_event").cast(pl.Datetime("ns", "UTC")))
+df.select(feature_names).sort("timestamp")
+df.filter(cond).drop_nulls()
+```
+
+**Files affected:** Features engineering, preprocessing, L2 aggregation
+**Consolidation target:** `ml.common.dataframe_utils`
+
+### 4. Manual Sleep/Delay Logic (36 files, ~108 LOC impact)
+**Pattern:** Ad-hoc rate limiting and delays
+```python
+# Various implementations:
+time.sleep(min_interval - elapsed)
+await asyncio.sleep(60 / rate_limit_per_min)
+time.sleep(min(60, 2**retry_count))
+```
+
+**Files affected:** CLI scripts, API clients, orchestration
+**Consolidation target:** Use existing `ml.common.throttler` + new async version
+
+### 5. Retry/Backoff Logic (26 files, ~390 LOC impact)
+**Pattern:** Exponential backoff and retry mechanisms
+```python
+# Duplicated across files:
+attempts = 3
+delay_secs = 2.0
+for attempt in range(1, attempts + 1):
+    try:
+        # operation
+    except Exception:
+        time.sleep(min(60, 2**retry_count))
+```
+
+**Files affected:** CLI scripts, data ingestion, API clients
+**Consolidation target:** `ml.common.retry_utils`
+
+### 6. Configuration Validation (25 files, ~200 LOC impact)
+**Pattern:** `__post_init__` validation with similar patterns
+```python
+# Similar validation logic:
+def __post_init__(self) -> None:
+    if self.value <= 0:
+        raise ValidationError("value must be positive")
+    if self.percentage > 100.0:
+        raise ValidationError("percentage must be <= 100")
+```
+
+**Files affected:** All config modules
+**Consolidation target:** `ml.config.validators` module
+
+### 7. Data Validation Logic (25 files, ~300 LOC impact)
+**Pattern:** Schema validation, timestamp checks, data integrity
+```python
+# Repeated validation patterns:
+if "ts_event" not in df.columns:
+    raise ValueError("ts_event required")
+if "instrument_id" not in df.columns:
+    raise ValueError("instrument_id required")
+violations = (diffs.drop_nulls() <= 0).sum()
+```
+
+**Files affected:** Stores, features, data processors
+**Consolidation target:** `ml.common.validation_utils`
+
+### 8. Rate Limiting Implementations (23 files, ~184 LOC impact)
+**Pattern:** API rate limiting with various approaches
+```python
+# Multiple implementations:
+min_interval = 60.0 / max(1, int(rate_limit))
+rl = RateLimiter(per_minute=max(1, int(api_rate_limit * 60)))
+rate_limit_per_min: int = 100
+```
+
+**Files affected:** CLI scripts, data ingestion
+**Consolidation target:** Standardize on `ml.common.throttler`
+
+### 9. Progress Tracking (15+ files, ~90 LOC impact)
+**Pattern:** JSON-based progress persistence
+```python
+# Repeated pattern:
+progress = load_progress_json(path)
+# ... process data ...
+save_progress_json(path, updated_progress)
+```
+
+**Files affected:** CLI scripts, data ingestion
+**Consolidation target:** `ml.common.progress_tracker`
+
+### 10. DataFrame Null Handling (8 files, ~32 LOC impact)
+**Pattern:** Consistent null value handling strategies
+```python
+# Various approaches:
+df.fill_null(strategy="forward")
+df.fillna(0)
+df.drop_nulls()
+diffs.dropna()
+```
+
+**Files affected:** Features, preprocessing, validation
+**Consolidation target:** `ml.common.dataframe_utils`
+
+## Enhanced Consolidation Strategy
+
+### Phase 1: High-Impact Utilities (Priority 1)
+**Target:** `ml/common/` module expansion
+
+1. **Create `ml/common/time_utils.py`**
+   - `to_nanoseconds(timestamp, unit="s") -> int`
+   - `from_nanoseconds(ts_ns, unit="s") -> float`
+   - `normalize_timestamp_column(df, col_name) -> DataFrame`
+   - **Impact:** 145 files, ~435 LOC reduction
+
+2. **Create `ml/common/dataframe_utils.py`**
+   - `normalize_timestamps(df, cols) -> DataFrame`
+   - `safe_select_columns(df, columns) -> DataFrame`
+   - `apply_null_strategy(df, strategy="forward") -> DataFrame`
+   - `validate_required_columns(df, required) -> None`
+   - **Impact:** 49 files, ~392 LOC reduction
+
+3. **Create `ml/common/retry_utils.py`**
+   - `@retry(max_attempts=3, backoff_strategy="exponential")`
+   - `RetryConfig` dataclass
+   - `async_retry` decorator
+   - **Impact:** 26 files, ~390 LOC reduction
+
+### Phase 2: API and Infrastructure (Priority 2)
+
+4. **Enhance `ml/common/throttler.py`**
+   - Add async throttling support
+   - Unify CLI rate limiting patterns
+   - **Impact:** 36 files, ~292 LOC reduction
+
+5. **Create `ml/common/validation_utils.py`**
+   - `validate_nautilus_schema(df) -> ValidationResult`
+   - `check_timestamp_monotonicity(df) -> bool`
+   - `validate_instrument_ids(df) -> List[str]`
+   - **Impact:** 25 files, ~300 LOC reduction
+
+6. **Create `ml/config/validators.py`**
+   - Common validation decorators
+   - `@validate_positive`, `@validate_percentage`, `@validate_range`
+   - **Impact:** 25 files, ~200 LOC reduction
+
+## Combined Impact Assessment
+
+**Total Estimated LOC Reduction:** ~5,700+ lines
+- Pattern-based duplication: ~2,500 LOC
+- Store module duplication: ~3,200 LOC
+
+**Risk Mitigation:**
+- **Gradual rollout** with feature flags
+- **Comprehensive testing** with dual-run validation
+- **Performance monitoring** during migration
+- **Rollback plans** for each phase
+
+**Business Benefits:**
+- **20-25% reduction** in duplicated code
+- **Faster development** with centralized utilities
+- **Consistent behavior** across ML components
+- **Reduced bug surface area** through single source of truth

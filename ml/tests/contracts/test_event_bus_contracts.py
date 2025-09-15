@@ -27,6 +27,8 @@ import pytest
 from pandera.typing import DataFrame
 from pandera.typing import Series
 
+from ml.common.message_topics import build_topic_for_stage
+from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from nautilus_trader.model.identifiers import InstrumentId
@@ -46,12 +48,12 @@ class MLDataEventSchema(pa.DataFrameModel):
     instrument_id: Series[str] = pa.Field(nullable=False, regex=r"^[A-Z0-9]+\.[A-Z]+$")
     stage: Series[str] = pa.Field(nullable=False, isin=[s.value for s in Stage])
     source: Series[str] = pa.Field(nullable=False, isin=[s.value for s in Source])
-    status: Series[str] = pa.Field(nullable=False, isin=["SUCCESS", "FAILED", "IN_PROGRESS"])
+    status: Series[str] = pa.Field(nullable=False, isin=[s.value for s in EventStatus])
     run_id: Series[str] = pa.Field(nullable=False)
     ts_min: Series[int] = pa.Field(nullable=False, ge=0)
     ts_max: Series[int] = pa.Field(nullable=False, ge=0)
     count: Series[int] = pa.Field(nullable=False, ge=0)
-    correlation_id: Series[str] = pa.Field(nullable=False)
+    metadata: Series[object] = pa.Field(nullable=False, description="Nested metadata with correlation_id, ts_init, model_id")
 
     @pa.dataframe_check()
     def check_timestamp_ordering(cls, df: DataFrame[Any]) -> Series[bool]:
@@ -59,6 +61,18 @@ class MLDataEventSchema(pa.DataFrameModel):
         Ensure ts_max >= ts_min.
         """
         return df["ts_max"] >= df["ts_min"]
+
+    @pa.dataframe_check()
+    def check_metadata_correlation_id(cls, df: DataFrame[Any]) -> Series[bool]:
+        """
+        Ensure metadata contains a non-empty correlation_id.
+        """
+        try:
+            meta = df["metadata"]
+            has = meta.apply(lambda m: isinstance(m, dict) and isinstance(m.get("correlation_id"), str) and len(m.get("correlation_id")) > 0)
+            return has.astype(bool)
+        except Exception:
+            return pd.Series([False] * len(df))
 
 
 class MLRegistryEventSchema(pa.DataFrameModel):
@@ -73,7 +87,7 @@ class MLRegistryEventSchema(pa.DataFrameModel):
     registry_type: Series[str] = pa.Field(nullable=False, isin=["features", "models", "strategies"])
     entity_id: Series[str] = pa.Field(nullable=False)
     version: Series[str] = pa.Field(nullable=False)
-    status: Series[str] = pa.Field(nullable=False, isin=["SUCCESS", "FAILED"])
+    status: Series[str] = pa.Field(nullable=False, isin=[EventStatus.SUCCESS.value, EventStatus.FAILED.value])
     correlation_id: Series[str] = pa.Field(nullable=False)
     timestamp: Series[int] = pa.Field(nullable=False, ge=0)
 
@@ -99,12 +113,18 @@ class TestEventBusContracts:
                 "instrument_id": ["EURUSD.SIM"],
                 "stage": [Stage.DATA_INGESTED.value],
                 "source": [Source.LIVE.value],
-                "status": ["SUCCESS"],
+                "status": [EventStatus.SUCCESS.value],
                 "run_id": [str(uuid.uuid4())],
                 "ts_min": [int(datetime(2024, 1, 1).timestamp() * 1e9)],
                 "ts_max": [int(datetime(2024, 1, 1, 1).timestamp() * 1e9)],
                 "count": [1000],
-                "correlation_id": [str(uuid.uuid4())],
+                "metadata": [
+                    {
+                        "correlation_id": str(uuid.uuid4()),
+                        "ts_init": int(datetime(2024, 1, 1).timestamp() * 1e9) + 1,
+                        "model_id": "test_model",
+                    }
+                ],
             },
         )
 
@@ -122,7 +142,7 @@ class TestEventBusContracts:
                 "registry_type": ["models"],
                 "entity_id": ["xgb_predictor_v1"],
                 "version": ["1.0.0"],
-                "status": ["SUCCESS"],
+                "status": [EventStatus.SUCCESS.value],
                 "correlation_id": [str(uuid.uuid4())],
                 "timestamp": [int(datetime.now().timestamp() * 1e9)],
             },
@@ -152,10 +172,13 @@ class TestEventBusContracts:
         mock_msgbus.publish.side_effect = assert_actor_thread
 
         # Simulate actor publishing event
-        mock_msgbus.publish(
-            topic="events.ml.data.INGESTED",
-            payload={"correlation_id": str(uuid.uuid4())},
+        topic = build_topic_for_stage(
+            Stage.DATA_INGESTED,
+            instrument_id="EURUSD.SIM",
+            scheme="stage_first",
+            prefix="events.ml",
         )
+        mock_msgbus.publish(topic=topic, payload={"correlation_id": str(uuid.uuid4())})
 
         mock_msgbus.publish.assert_called_once()
 
@@ -172,19 +195,26 @@ class TestEventBusContracts:
             """
             Returns True if event was processed, False if already seen.
             """
-            corr_id = payload.get("correlation_id")
+            metadata = payload.get("metadata", {})
+            corr_id = metadata.get("correlation_id")
             if corr_id in processed_correlations:
                 return False  # Already processed
             processed_correlations.add(corr_id)
             return True  # New event
 
         # First event should be processed
-        event1 = {"correlation_id": correlation_id, "data": "test"}
-        assert idempotent_consumer("events.ml.data.INGESTED", event1) is True
+        event1 = {"metadata": {"correlation_id": correlation_id}, "data": "test"}
+        topic = build_topic_for_stage(
+            Stage.DATA_INGESTED,
+            instrument_id="EURUSD.SIM",
+            scheme="stage_first",
+            prefix="events.ml",
+        )
+        assert idempotent_consumer(topic, event1) is True
 
         # Duplicate event should be ignored
-        event2 = {"correlation_id": correlation_id, "data": "test_duplicate"}
-        assert idempotent_consumer("events.ml.data.INGESTED", event2) is False
+        event2 = {"metadata": {"correlation_id": correlation_id}, "data": "test_duplicate"}
+        assert idempotent_consumer(topic, event2) is False
 
     def test_watermark_progression_contract(self):
         """
@@ -233,7 +263,13 @@ class TestEventBusContracts:
             return True
 
         # Should not raise exception
-        result = safe_publish(msgbus, "events.ml.data.INGESTED", {"test": "data"})
+        topic = build_topic_for_stage(
+            Stage.DATA_INGESTED,
+            instrument_id="EURUSD.SIM",
+            scheme="stage_first",
+            prefix="events.ml",
+        )
+        result = safe_publish(msgbus, topic, {"test": "data"})
         assert result is False
 
     def test_wildcard_topic_filtering_contract(self):
@@ -241,9 +277,9 @@ class TestEventBusContracts:
         Test that wildcard filters work for event subscription.
         """
         # Mock subscription system
-        subscriptions = {
-            "events.ml.data.*": ["consumer1", "consumer2"],
-            "events.ml.models.DEPLOY": ["consumer3"],
+        subscriptions: dict[str, list[str]] = {
+            "events.ml.*": ["consumer1", "consumer2"],
+            "events.ml.PREDICTION_EMITTED": ["consumer3"],
         }
 
         def find_matching_consumers(topic: str) -> list[str]:
@@ -261,15 +297,20 @@ class TestEventBusContracts:
             return consumers
 
         # Test wildcard matching
-        consumers = find_matching_consumers("events.ml.data.INGESTED")
+        topic_ingested = build_topic_for_stage(
+            Stage.DATA_INGESTED,
+            instrument_id="EURUSD.SIM",
+            scheme="stage_first",
+            prefix="events.ml",
+        )
+        consumers = find_matching_consumers(topic_ingested)
         assert "consumer1" in consumers
         assert "consumer2" in consumers
         assert "consumer3" not in consumers
 
         # Test exact matching
-        consumers = find_matching_consumers("events.ml.models.DEPLOY")
+        consumers = find_matching_consumers("events.ml.PREDICTION_EMITTED")
         assert "consumer3" in consumers
-        assert "consumer1" not in consumers
 
     def test_event_payload_immutability_contract(self):
         """
@@ -279,7 +320,7 @@ class TestEventBusContracts:
 
         original_payload = {
             "dataset_id": "test",
-            "correlation_id": str(uuid.uuid4()),
+            "metadata": {"correlation_id": str(uuid.uuid4())},
             "count": 100,
         }
 

@@ -14,7 +14,7 @@ from ml.config.events import EventStatus, Source, Stage
 from ml.ml_types import DataFrameLike
 from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind, ValidationRule, ValidationRuleType, QualityFlag
 from ml.stores.data_store import DataStore
-from ml.stores.raw_io import RawIngestionWriterProtocol, RawReaderProtocol
+from ml.stores.io_raw import RawIngestionWriterProtocol, RawReaderProtocol
 
 
 @dataclass
@@ -198,7 +198,7 @@ def test_raw_write_without_writer_emits_partial_and_no_watermark(
     reg = _TestRegistry(manifest, contract)
 
     store = DataStore(
-        connection_string="postgresql://postgres@localhost/nautilus",
+        connection_string="sqlite:///:memory:",
         registry=reg,  # use stub
         feature_store=mock_feature_store,
         model_store=mock_model_store,
@@ -234,7 +234,7 @@ def test_raw_write_with_writer_emits_success_and_watermark(
 
     writer = _FakeRawWriter()
     store = DataStore(
-        connection_string="postgresql://postgres@localhost/nautilus",
+        connection_string="sqlite:///:memory:",
         registry=reg,
         raw_writer=writer,
         feature_store=mock_feature_store,
@@ -268,7 +268,7 @@ def test_raw_read_with_reader_respects_range(
     reg = _TestRegistry(manifest, contract)
     reader = _FakeRawReader()
     store = DataStore(
-        connection_string="postgresql://postgres@localhost/nautilus",
+        connection_string="sqlite:///:memory:",
         registry=reg,
         raw_reader=reader,
         feature_store=mock_feature_store,

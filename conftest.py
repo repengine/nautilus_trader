@@ -9,7 +9,7 @@ test semantics and keeps behavior aligned with ml/pytest.ini.
 from __future__ import annotations
 
 import os
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]

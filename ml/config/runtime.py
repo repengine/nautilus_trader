@@ -8,7 +8,6 @@ from typing import Literal
 
 import msgspec
 
-from ml._imports import ort
 from ml.config.constants import Providers
 from nautilus_trader.common.config import NautilusConfig
 
@@ -29,10 +28,13 @@ class OnnxRuntimeConfig(NautilusConfig, kw_only=True, frozen=True):
     inter_threads: int | None = None
 
 
-def to_session_options(cfg: OnnxRuntimeConfig) -> tuple[ort.SessionOptions, list[str]]:
+def to_session_options(cfg: OnnxRuntimeConfig) -> tuple[object, list[str]]:
     """
     Convert OnnxRuntimeConfig into ORT SessionOptions and provider list.
     """
+    # Lazy import to avoid import-time cycles
+    from ml._imports import ort  # type: ignore
+
     session_options = ort.SessionOptions()
     level_map = {
         "disable": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,

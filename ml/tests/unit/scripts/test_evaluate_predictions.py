@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ml.scripts.evaluate_predictions import main as eval_main
+from ml.cli.evaluate_predictions import main as eval_main
 
 
 def test_evaluate_predictions_from_probs(tmp_path: Path) -> None:

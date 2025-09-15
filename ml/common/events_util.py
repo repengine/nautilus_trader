@@ -66,15 +66,64 @@ def build_bus_payload(
     count: int,
     status: EventStatus | str,
     metadata: Mapping[str, object] | None = None,
+    inject_trace_context: bool = True,
 ) -> dict[str, object]:
     """
     Build a canonical message bus payload from event attributes.
 
     Converts enums to their persisted string values where appropriate.
+    Optionally injects distributed tracing context for cross-component correlation.
+
+    Parameters
+    ----------
+    dataset_id : str
+        Dataset identifier
+    instrument_id : str
+        Instrument identifier
+    stage : Stage | str
+        Processing stage
+    source : Source | str
+        Data source
+    run_id : str
+        Run identifier
+    ts_min : int
+        Minimum timestamp
+    ts_max : int
+        Maximum timestamp
+    count : int
+        Record count
+    status : EventStatus | str
+        Event status
+    metadata : Mapping[str, object] | None, optional
+        Additional metadata
+    inject_trace_context : bool, default True
+        Whether to inject W3C trace context when tracing enabled
+
+    Returns
+    -------
+    dict[str, object]
+        Bus payload with optional trace context
     """
     stage_val = stage.value if isinstance(stage, Stage) else str(stage)
     source_val = to_source_str(source)
     status_val = status.value if isinstance(status, EventStatus) else str(status)
+
+    # Start with base metadata
+    final_metadata = dict(metadata or {})
+
+    # Inject trace context if enabled and available
+    if inject_trace_context:
+        try:
+            # Lazy import to avoid circular dependencies
+            from ml.observability.tracing import inject_trace_context as _inject
+            final_metadata = _inject(final_metadata)
+        except ImportError:
+            # Graceful fallback when tracing not available
+            pass
+        except Exception:
+            # Graceful fallback on any tracing error
+            pass
+
     payload: dict[str, object] = {
         "dataset_id": dataset_id,
         "instrument_id": instrument_id,
@@ -85,7 +134,7 @@ def build_bus_payload(
         "ts_max": int(ts_max),
         "count": int(count),
         "status": status_val,
-        "metadata": dict(metadata or {}),
+        "metadata": final_metadata,
     }
     return payload
 

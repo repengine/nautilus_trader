@@ -27,7 +27,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -45,6 +44,9 @@ from sqlalchemy import text
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
+from ml.data.ingest.common import RateLimiter
+from ml.data.ingest.common import load_progress_json
+from ml.data.ingest.common import save_progress_json
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetType
 from ml.registry.persistence import BackendType
@@ -329,8 +331,15 @@ class CoverageReporter:
 
         # Process events
         coverage_by_date: dict[tuple[str, str], dict[str, Any]] = {}
-        start_ns = int(start_date.timestamp() * 1e9)
-        end_ns = int((end_date + timedelta(days=1)).timestamp() * 1e9)
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
+        start_ns = _sanitize(
+            int(start_date.timestamp() * 1e9),
+            context="cli.coverage:range.start",
+        )
+        end_ns = _sanitize(
+            int((end_date + timedelta(days=1)).timestamp() * 1e9),
+            context="cli.coverage:range.end",
+        )
 
         for event in events:
             # Filter by dataset type and date range
@@ -365,7 +374,11 @@ class CoverageReporter:
                 coverage_by_date[key][stage_key] += event.get("count", 0)
 
         # Add watermark data
-        current_time_ns = datetime.now().timestamp() * 1e9
+        from ml.common.timestamps import sanitize_timestamp_ns as _sanitize2
+        current_time_ns = _sanitize2(
+            int(datetime.now().timestamp() * 1e9),
+            context="cli.coverage:now",
+        )
         for watermark_key, watermark in watermarks.items():
             parts = watermark_key.split(":")
             if len(parts) != 3:
@@ -734,8 +747,15 @@ def plan_backfill(
     checked_instruments = 0
 
     # Convert date to nanosecond timestamps for the day
-    start_ns = int(target_date.timestamp() * 1e9)
-    end_ns = int((target_date + timedelta(days=1)).timestamp() * 1e9)
+    from ml.common.timestamps import sanitize_timestamp_ns as _sanitize3
+    start_ns = _sanitize3(
+        int(target_date.timestamp() * 1e9),
+        context="cli.coverage:target.start",
+    )
+    end_ns = _sanitize3(
+        int((target_date + timedelta(days=1)).timestamp() * 1e9),
+        context="cli.coverage:target.end",
+    )
 
     if persistence_config.backend == BackendType.POSTGRES:
         # Query PostgreSQL for gaps
@@ -926,8 +946,7 @@ def plan_backfill(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = Path(f"backfill_jobs_{timestamp}.json")
 
-    with open(output_file, "w") as f:
-        json.dump(job_spec, f, indent=2)
+    save_progress_json(output_file, job_spec)
 
     # Print summary
     print("\n" + "=" * 80)
@@ -1007,11 +1026,9 @@ def apply_backfill(
         logger.error(f"Job file not found: {job_file}")
         sys.exit(1)
 
-    try:
-        with open(job_file) as f:
-            job_spec = json.load(f)
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in job file: {e}")
+    job_spec = load_progress_json(job_file)
+    if not job_spec:
+        logger.error("Invalid or empty JSON in job file")
         sys.exit(1)
 
     # Validate job specification
@@ -1099,8 +1116,8 @@ def apply_backfill(
     total_bytes_stored = 0
     start_time = time.time()
 
-    # Calculate rate limiting delay
-    api_delay = 1.0 / api_rate_limit  # Seconds between API calls
+    # Initialize rate limiter (convert per-second to per-minute)
+    rl = RateLimiter(per_minute=max(1, int(api_rate_limit * 60)))
 
     # Check for Databento API key (not needed for dry-run)
     api_key = os.getenv("DATABENTO_API_KEY")
@@ -1203,9 +1220,8 @@ def apply_backfill(
                     }
                     schema = schema_map.get(source_dataset, "ohlcv-1m")
 
-                    # Throttle API calls
-                    if api_calls_made > 0:
-                        time.sleep(api_delay)
+                    # Throttle API calls (client-side pacing)
+                    rl.wait()
 
                     # Fetch data from Databento
                     try:
@@ -1312,8 +1328,7 @@ def apply_backfill(
     }
 
     # Save updated job specification
-    with open(job_file, "w") as f:
-        json.dump(job_spec, f, indent=2)
+    save_progress_json(job_file, job_spec)
 
     # Print execution summary
     print(f"\n{'=' * 80}")
@@ -1340,7 +1355,7 @@ def apply_backfill(
     registry.persistence.close()
 
 
-def main() -> None:
+def main() -> int:
     """
     Execute the coverage CLI main entry point.
     """
@@ -1624,6 +1639,8 @@ Environment Variables:
             logger.error(f"Failed to apply backfill: {e}")
             sys.exit(1)
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

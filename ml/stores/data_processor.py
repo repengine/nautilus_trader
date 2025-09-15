@@ -764,7 +764,12 @@ class DataProcessor:
                     ),
                     {
                         "instrument_id": instrument_id,
-                        "cutoff": int((time.time() - 86400) * 1e9),  # Last 24 hours
+                        # Use ns clock and sanitizer for cutoff (last 24 hours)
+                        "cutoff": sanitize_timestamp_ns(
+                            int(time.time_ns() - 86_400 * 1_000_000_000),
+                            context="DataProcessor._get_price_statistics:cutoff",
+                            logger=logger,
+                        ),
                     },
                 )
 

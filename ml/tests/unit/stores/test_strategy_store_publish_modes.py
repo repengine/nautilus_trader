@@ -31,7 +31,7 @@ def test_strategy_store_publishing_modes(mode: str, expected_extra: int, monkeyp
     store = StrategyStore(connection_string=None, enable_publishing=True, publisher=cap, publish_mode=mode)
 
     # Monkeypatch the mixin upsert to only publish
-    from ml.stores._batch_utils import publish_batch_and_rows
+    from ml.stores.mixins import publish_batch_and_rows
 
     def _stub_execute_write(values: list[dict[str, Any]]) -> None:  # type: ignore[no-redef]
         publish_batch_and_rows(

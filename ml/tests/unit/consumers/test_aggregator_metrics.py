@@ -5,6 +5,7 @@ from prometheus_client import CollectorRegistry
 from ml.consumers.aggregator import AggregatingConsumer
 from ml.consumers.protocols import Envelope
 from ml.common import metrics as m
+from ml.config.events import Stage
 
 
 def _has_sample(metric, name: str) -> bool:  # type: ignore[no-untyped-def]
@@ -23,7 +24,7 @@ def test_aggregator_emits_metrics_on_duplicate_and_flush() -> None:
         "parent_id": None,
         "instrument_id": "EURUSD.SIM",
         "ts_event": 10,
-        "stage": "FEATURE_COMPUTED",
+        "stage": Stage.FEATURE_COMPUTED.value,
         "correlation_id": "c1",
         "payload": {},
     }

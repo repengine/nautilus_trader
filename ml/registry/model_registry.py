@@ -10,6 +10,7 @@ persistence, making it suitable for both development and production environments
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -278,6 +279,7 @@ class ModelRegistry(AbstractRegistry):
             "pipeline_version": getattr(model_info.manifest, "pipeline_version", None),
             "decision_policy": getattr(model_info.manifest, "decision_policy", None),
             "decision_config": getattr(model_info.manifest, "decision_config", {}),
+            "artifact_sha256_digest": getattr(model_info.manifest, "artifact_sha256_digest", None),
         }
 
         return {
@@ -318,6 +320,7 @@ class ModelRegistry(AbstractRegistry):
                 pipeline_version=manifest_data.get("pipeline_version"),
                 decision_policy=manifest_data.get("decision_policy"),
                 decision_config=manifest_data.get("decision_config", {}),
+                artifact_sha256_digest=manifest_data.get("artifact_sha256_digest"),
             )
         else:
             # Legacy format - convert to manifest
@@ -374,6 +377,12 @@ class ModelRegistry(AbstractRegistry):
             last_modified=(
                 db_model.last_modified.timestamp() if db_model.last_modified else time.time()
             ),
+            serveable=db_model.serveable == "true" if db_model.serveable else True,
+            artifact_format=cast(str, db_model.artifact_format) if db_model.artifact_format else "onnx",
+            feature_set_id=db_model.feature_set_id,
+            pipeline_signature=db_model.pipeline_signature,
+            pipeline_version=db_model.pipeline_version,
+            artifact_sha256_digest=db_model.artifact_sha256_digest,
         )
 
         return ModelInfo(
@@ -426,6 +435,12 @@ class ModelRegistry(AbstractRegistry):
                 existing.extra_metadata = model_info.metadata
                 existing.model_path = str(model_info.model_path)
                 existing.performance_history = model_info.performance_history
+                existing.serveable = "true" if model_info.manifest.serveable else "false"
+                existing.artifact_format = model_info.manifest.artifact_format
+                existing.feature_set_id = model_info.manifest.feature_set_id
+                existing.pipeline_signature = model_info.manifest.pipeline_signature
+                existing.pipeline_version = model_info.manifest.pipeline_version
+                existing.artifact_sha256_digest = model_info.manifest.artifact_sha256_digest
             else:
                 # Create new model
                 new_model = ModelTable(
@@ -446,6 +461,12 @@ class ModelRegistry(AbstractRegistry):
                     extra_metadata=model_info.metadata,
                     model_path=str(model_info.model_path),
                     performance_history=model_info.performance_history,
+                    serveable="true" if model_info.manifest.serveable else "false",
+                    artifact_format=model_info.manifest.artifact_format,
+                    feature_set_id=model_info.manifest.feature_set_id,
+                    pipeline_signature=model_info.manifest.pipeline_signature,
+                    pipeline_version=model_info.manifest.pipeline_version,
+                    artifact_sha256_digest=model_info.manifest.artifact_sha256_digest,
                 )
                 session.add(new_model)
 
@@ -463,6 +484,97 @@ class ModelRegistry(AbstractRegistry):
         """
         timestamp = int(time.time() * 1000000)  # Microsecond precision
         return f"model_{timestamp}"
+
+    def _calculate_file_sha256(self, file_path: Path) -> str:
+        """
+        Calculate SHA-256 digest of a file for integrity verification.
+
+        Parameters
+        ----------
+        file_path : Path
+            Path to the file
+
+        Returns
+        -------
+        str
+            Hexadecimal SHA-256 digest of the file
+
+        Raises
+        ------
+        FileNotFoundError
+            If the file doesn't exist
+        IOError
+            If the file cannot be read
+
+        """
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(file_path, "rb") as f:
+                # Read file in chunks to handle large models efficiently
+                for chunk in iter(lambda: f.read(8192), b""):
+                    sha256_hash.update(chunk)
+        except OSError as e:
+            raise OSError(f"Failed to read file {file_path}: {e}") from e
+
+        return sha256_hash.hexdigest()
+
+    def _verify_artifact_integrity(self, file_path: Path, expected_digest: str | None) -> None:
+        """
+        Verify artifact integrity using SHA-256 digest.
+
+        Parameters
+        ----------
+        file_path : Path
+            Path to the artifact file
+        expected_digest : str | None
+            Expected SHA-256 digest. If None, skip verification.
+
+        Raises
+        ------
+        ValueError
+            If digest verification fails or artifact is tampered
+        FileNotFoundError
+            If the file doesn't exist
+        IOError
+            If the file cannot be read
+
+        """
+        if expected_digest is None:
+            logger.warning(
+                f"No SHA-256 digest available for {file_path.name}, skipping integrity verification"
+            )
+            return
+
+        if not expected_digest:
+            logger.warning(
+                f"Empty SHA-256 digest for {file_path.name}, skipping integrity verification"
+            )
+            return
+
+        try:
+            actual_digest = self._calculate_file_sha256(file_path)
+        except (OSError, FileNotFoundError) as e:
+            raise ValueError(f"Cannot verify artifact integrity: {e}") from e
+
+        if actual_digest != expected_digest:
+            # Security: Log the verification failure for auditing
+            logger.error(
+                f"SECURITY ALERT: Artifact integrity verification failed for {file_path}\n"
+                f"Expected SHA-256: {expected_digest}\n"
+                f"Actual SHA-256:   {actual_digest}\n"
+                f"This indicates the model artifact may have been tampered with!"
+            )
+            raise ValueError(
+                f"Artifact integrity verification failed for {file_path.name}. "
+                f"Expected digest: {expected_digest[:16]}..., "
+                f"but got: {actual_digest[:16]}... "
+                f"The model artifact may have been tampered with and is rejected for security."
+            )
+
+        logger.debug(f"Artifact integrity verified for {file_path.name}: {actual_digest[:16]}...")
 
     def register_model(
         self,
@@ -497,6 +609,19 @@ class ModelRegistry(AbstractRegistry):
         with self._lock:
             # Validate inputs and parity/security constraints
             self._validate_registration_inputs(model_path, manifest)
+
+            # Calculate and set artifact SHA-256 digest for integrity verification
+            # Only calculate for ONNX files (serveable models) to harden the supply chain
+            if model_path.suffix == SUFFIX_ONNX:
+                try:
+                    artifact_digest = self._calculate_file_sha256(model_path)
+                    manifest.artifact_sha256_digest = artifact_digest
+                    logger.info(
+                        f"Calculated SHA-256 digest for model artifact: {artifact_digest[:16]}..."
+                    )
+                except (OSError, FileNotFoundError) as e:
+                    logger.error(f"Failed to calculate artifact digest: {e}")
+                    raise ValueError(f"Cannot calculate SHA-256 digest for model artifact: {e}") from e
 
             # Use manifest's model_id or generate new one
             if not manifest.model_id:
@@ -994,6 +1119,10 @@ class ModelRegistry(AbstractRegistry):
             # Only support ONNX format for security
             try:
                 if model_path.suffix == SUFFIX_ONNX:
+                    # Verify artifact integrity before loading for security
+                    expected_digest = model_info.manifest.artifact_sha256_digest
+                    self._verify_artifact_integrity(model_path, expected_digest)
+
                     # Load ONNX model following signal actor pattern
                     from ml._imports import HAS_ONNX
                     from ml._imports import check_ml_dependencies

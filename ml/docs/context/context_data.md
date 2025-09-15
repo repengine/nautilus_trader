@@ -457,7 +457,7 @@ The orchestrator (`ml.data.ingest.orchestrator.IngestionOrchestrator`) wires the
 from pathlib import Path
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor, IngestState
-from ml.stores.coverage_sql import SqlCoverageProvider, SqlMarketDataWriter
+from ml.stores.providers import SqlCoverageProvider, SqlMarketDataWriter
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import PersistenceConfig, BackendType
 
@@ -489,7 +489,7 @@ Tests:
 - Retry/resume: `ml/tests/unit/ingest/test_resume_backoff.py`
 - DST window planning: `ml/tests/property/test_window_planner_dst.py`
 
-SQL implementations for Postgres are provided in `ml/stores/coverage_sql.py` and use the canonical `market_data` table created by migration `ml/stores/migrations/003_market_data.sql`. If your raw layer is a Nautilus `ParquetDataCatalog`, you can use `ml/stores/coverage_catalog.py` (`CatalogCoverageProvider`) to derive gap coverage from catalog file intervals.
+SQL implementations for Postgres are provided via `ml.stores.providers` and use the canonical `market_data` table created by migration `ml/stores/migrations/003_market_data.sql`. If your raw layer is a Nautilus `ParquetDataCatalog`, you can use `ml.stores.providers.CatalogCoverageProvider` to derive gap coverage from catalog file intervals.
 
 ### 7. FRED Economic Data Integration (`loaders/fred_loader.py`)
 
