@@ -47,20 +47,31 @@ def _manifest(dataset_id: str) -> DatasetManifest:
 
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(
-    ts_list=st.lists(st.integers(min_value=0, max_value=10**6), min_size=1, max_size=50).map(sorted),
+    ds=st.from_regex(r"[a-z_]{6,12}", fullmatch=True),
+    ts_list=st.lists(st.integers(min_value=0, max_value=10**6), min_size=1, max_size=50).map(
+        sorted,
+    ),
     count_list=st.lists(st.integers(min_value=0, max_value=10**3), min_size=1, max_size=50),
 )
-def test_watermark_monotonic(json_registry: DataRegistry, ts_list: list[int], count_list: list[int]) -> None:
-    ds = "signals"
+def test_watermark_monotonic(
+    json_registry: DataRegistry,
+    ds: str,
+    ts_list: list[int],
+    count_list: list[int],
+) -> None:
     inst = "EUR/USD"
     src = Source.HISTORICAL
-    # Ensure dataset exists for JSON backend (not strictly required but realistic)
-    json_registry.register_dataset(_manifest(ds))
-
     # Update in non-decreasing order; watermark should never go backwards
     last = -1
     for i, t in enumerate(ts_list):
-        json_registry.update_watermark(ds, inst, src, last_success_ns=t, count=count_list[i % len(count_list)], completeness_pct=100.0)
+        json_registry.update_watermark(
+            ds,
+            inst,
+            src,
+            last_success_ns=t,
+            count=count_list[i % len(count_list)],
+            completeness_pct=100.0,
+        )
         w = json_registry.get_watermark(ds, inst, src)
         assert w is not None
         assert w.last_success_ns >= last

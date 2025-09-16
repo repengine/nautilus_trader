@@ -11,9 +11,11 @@ from __future__ import annotations
 import logging
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
+from typing import Any
 
 from numpy.random import default_rng
 
@@ -110,6 +112,86 @@ class EventSource(ABC):
     Abstract base class for event sources.
     """
 
+    def __init__(self) -> None:
+        """
+        Initialize common event source state.
+
+        This base provides a lightweight, non-blocking publish/subscribe API used by
+        unit tests. It avoids any I/O and keeps latency low to satisfy hot-path
+        constraints.
+
+        """
+        # Subscriber registry (id -> handler)
+        self._subscribers: dict[int, Callable[[Any], None]] = {}
+        self._next_subscriber_id: int = 1
+        # Monotonic watermark in nanoseconds (or None if unset)
+        self._watermark: int | None = None
+        # Simple counter for emitted events (used in tests)
+        self._event_count: int = 0
+
+    # ---------------------------------------------------------------------
+    # Lightweight streaming interface used in tests
+    # ---------------------------------------------------------------------
+    def subscribe(self, handler: Callable[[Any], None]) -> int:
+        """
+        Subscribe a synchronous handler to receive emitted events.
+
+        Returns a subscription id which can be used to unsubscribe.
+
+        """
+        sub_id = self._next_subscriber_id
+        self._next_subscriber_id += 1
+        self._subscribers[sub_id] = handler
+        return sub_id
+
+    def unsubscribe(self, subscription_id: int) -> None:
+        """
+        Remove a previously registered subscriber.
+        """
+        self._subscribers.pop(subscription_id, None)
+
+    def emit_event(self, event: Any) -> None:
+        """
+        Emit an event to all current subscribers.
+
+        Exceptions thrown by individual handlers are isolated and do not affect delivery
+        to other handlers.
+
+        """
+        self._event_count += 1
+        # Iterate over a snapshot to allow unsubscribe during iteration.
+        for handler in list(self._subscribers.values()):
+            try:
+                handler(event)
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("Subscriber handler raised; continuing", exc_info=True)
+
+    def get_watermark(self) -> int | None:
+        """
+        Get the current watermark in nanoseconds, if set.
+        """
+        return self._watermark
+
+    def update_watermark(self, ts: Any) -> int:
+        """
+        Update the watermark monotonically and return its value in nanoseconds.
+
+        Accepts a `datetime` or an integer nanosecond timestamp.
+
+        """
+        if isinstance(ts, datetime):
+            # Convert to POSIX nanoseconds from UTC-naive timestamp
+            ts_ns = int(ts.timestamp() * 1e9)
+        else:
+            ts_ns = int(ts)
+
+        if self._watermark is None:
+            self._watermark = ts_ns
+        else:
+            # Ensure monotonic progression
+            self._watermark = max(self._watermark, ts_ns)
+        return self._watermark
+
     @abstractmethod
     def get_economic_events(
         self,
@@ -180,8 +262,118 @@ class MockEventSource(EventSource):
             Random seed for reproducibility
 
         """
+        super().__init__()
         self.seed = seed
         self._rng = default_rng(seed)
+        # Lightweight pub/sub state for unit tests (non-async, hot-path safe)
+        self._subscribers: dict[int, Callable[[object], None]] = {}
+        self._next_sub_id: int = 1
+        # Watermark is stored as nanoseconds from epoch (int) or None if uninitialized
+        self._watermark: int | None = None
+        # Event counter for recovery tests
+        self._event_count: int = 0
+
+    # ------------------------------------------------------------------
+    # Minimal pub/sub API expected by tests
+    # ------------------------------------------------------------------
+    def subscribe(self, handler: Callable[[object], None]) -> int:
+        """
+        Subscribe a synchronous event handler.
+
+        Parameters
+        ----------
+        handler : Callable[[object], None]
+            A function taking a single event argument.
+
+        Returns
+        -------
+        int
+            Subscription id which can be passed to `unsubscribe`.
+
+        """
+        sub_id = self._next_sub_id
+        self._next_sub_id += 1
+        self._subscribers[sub_id] = handler
+        return sub_id
+
+    def unsubscribe(self, subscription_id: int) -> None:
+        """
+        Unsubscribe a previously registered handler.
+
+        Best-effort; missing ids are ignored.
+
+        """
+        try:
+            self._subscribers.pop(subscription_id, None)
+        except Exception:
+            # Defensive: ignore unexpected errors in tests
+            self._subscribers.pop(subscription_id, None)
+
+    def emit_event(self, event: object) -> None:
+        """
+        Emit a single event to all subscribers.
+
+        - Calls handlers synchronously in registration order.
+        - Isolates handler exceptions so one faulty handler doesn't block others.
+        - Advances the internal watermark using the event timestamp when available.
+
+        """
+        # Update watermark if event carries a datetime timestamp attribute
+        try:
+            ts = getattr(event, "timestamp", None)
+            if isinstance(ts, datetime):
+                self.update_watermark(ts)
+        except Exception:
+            # Ignore malformed events
+            pass
+
+        # Dispatch to subscribers, protecting isolation
+        for _, handler in list(self._subscribers.items()):
+            try:
+                handler(event)
+            except Exception:
+                # Tests expect faulty handlers not to affect others
+                logger.debug("Event handler raised; continuing", exc_info=True)
+
+        # Increment simple event counter for recovery tests
+        try:
+            self._event_count += 1
+        except Exception:
+            self._event_count = getattr(self, "_event_count", 0) + 1
+
+    # ------------------------------------------------------------------
+    # Watermark helpers expected by tests
+    # ------------------------------------------------------------------
+    def get_watermark(self) -> int | None:
+        """
+        Return current watermark in nanoseconds, or None if uninitialized.
+        """
+        return self._watermark
+
+    def update_watermark(self, ts: datetime) -> int:
+        """
+        Update watermark with a datetime, keeping it monotonic.
+
+        Parameters
+        ----------
+        ts : datetime
+            New candidate timestamp.
+
+        Returns
+        -------
+        int
+            The resulting watermark value in nanoseconds.
+
+        """
+        try:
+            new_wm = int(ts.timestamp() * 1e9)
+        except Exception:
+            # Fallback: leave watermark unchanged on conversion failure
+            return self._watermark if self._watermark is not None else 0
+
+        if self._watermark is None or new_wm > self._watermark:
+            self._watermark = new_wm
+        return int(self._watermark)
 
     def get_economic_events(
         self,
@@ -214,12 +406,13 @@ class MockEventSource(EventSource):
             if days_to_wed == 0:
                 days_to_wed = 7
             fed_date = current + timedelta(days=days_to_wed)
+            fed_dt = fed_date.replace(hour=14, minute=0)
 
-            if fed_date <= end:
+            if start <= fed_dt <= end:
                 events.append(
                     EconomicEvent(
                         event_id=f"FED_{fed_date.strftime('%Y%m%d')}",
-                        timestamp=fed_date.replace(hour=14, minute=0),
+                        timestamp=fed_dt,
                         name="Federal Funds Rate Decision",
                         country="US",
                         importance="HIGH",
@@ -291,29 +484,31 @@ class MockEventSource(EventSource):
         # Add some medium importance events
         for _ in range(int(self._rng.integers(5, 10))):
             days_offset = int(self._rng.integers(0, (end - start).days + 1))
-            event_date = start + timedelta(days=days_offset)
+            base_date = start + timedelta(days=days_offset)
+            event_dt = base_date.replace(hour=10, minute=0)
 
-            events.append(
-                EconomicEvent(
-                    event_id=f"OTHER_{event_date.strftime('%Y%m%d')}_{int(self._rng.integers(1, 100))}",
-                    timestamp=event_date.replace(hour=10, minute=0),
-                    name=str(
-                        self._rng.choice(
-                            [
-                                "Retail Sales",
-                                "Industrial Production",
-                                "Housing Starts",
-                                "Consumer Confidence",
-                            ],
+            if start <= event_dt <= end:
+                events.append(
+                    EconomicEvent(
+                        event_id=f"OTHER_{base_date.strftime('%Y%m%d')}_{int(self._rng.integers(1, 100))}",
+                        timestamp=event_dt,
+                        name=str(
+                            self._rng.choice(
+                                [
+                                    "Retail Sales",
+                                    "Industrial Production",
+                                    "Housing Starts",
+                                    "Consumer Confidence",
+                                ],
+                            ),
                         ),
+                        country="US",
+                        importance="MEDIUM",
+                        forecast=float(self._rng.uniform(-2.0, 5.0)),
+                        previous=float(self._rng.uniform(-2.0, 5.0)),
+                        actual=None,
                     ),
-                    country="US",
-                    importance="MEDIUM",
-                    forecast=float(self._rng.uniform(-2.0, 5.0)),
-                    previous=float(self._rng.uniform(-2.0, 5.0)),
-                    actual=None,
-                ),
-            )
+                )
 
         return sorted(events, key=lambda e: e.timestamp)
 

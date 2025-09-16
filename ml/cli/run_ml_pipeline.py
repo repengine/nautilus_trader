@@ -26,12 +26,6 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-
-try:
-    import yaml  # type: ignore[import-untyped]
-except ImportError:
-    yaml = None
-
 from ml._imports import HAS_DATABENTO
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
@@ -463,11 +457,25 @@ def load_config(config_path: str | None) -> dict[str, Any]:
 
         with open(config_file) as f:
             if config_file.suffix in [".yaml", ".yml"]:
-                if yaml is None:
+                # Import PyYAML lazily to keep optional dependency off the hot path
+                try:
+                    import importlib as _importlib
+
+                    _mod = _importlib.import_module("yaml")
+                except Exception as exc:  # pragma: no cover - optional dependency
                     raise ImportError(
                         "PyYAML is required for YAML config files. Install with: pip install PyYAML",
-                    )
-                config = yaml.safe_load(f)
+                    ) from exc
+
+                # Narrow to the attribute we need for type-checking
+                from typing import Protocol
+                from typing import cast as _cast
+
+                class _HasSafeLoad(Protocol):
+                    def safe_load(self, stream: Any) -> Any: ...
+
+                yaml_mod = _cast(_HasSafeLoad, _mod)
+                config = yaml_mod.safe_load(f)
             elif config_file.suffix == ".json":
                 config = json.load(f)
             else:

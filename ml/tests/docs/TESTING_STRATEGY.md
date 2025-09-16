@@ -1,4 +1,4 @@
-can # ML Testing Strategy
+# ML Testing Strategy
 
 ## Overview
 

@@ -1,12 +1,13 @@
-from __future__ import annotations
-
 """
 Deterministic Databento-like fixtures (TBBO, MBP-10, Trades) with manifests.
 
-These generators produce small, reproducible DataFrames suitable for unit and
-property tests without external dependencies. They are not intended for model
-training, only for adapter/contract validation and ingestion tests.
+These generators produce small, reproducible DataFrames suitable for unit and property
+tests without external dependencies. They are not intended for model training, only for
+adapter/contract validation and ingestion tests.
+
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Final, Literal

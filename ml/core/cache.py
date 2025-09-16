@@ -606,3 +606,130 @@ class PreAllocatedFeatureCache:
         self._feature_history.fill(0.0)
         self._history_index = 0
         self._history_count = 0
+
+
+class MultiChannelRingBuffer:
+    """
+    Lock-free multi-channel ring buffer for high-frequency metrics.
+
+    Stores multiple channels in a fixed-capacity circular buffer with O(1) append and
+    no allocations on the hot path. Cold-path methods can materialize chronological
+    arrays for statistics.
+
+    Parameters
+    ----------
+    size : int
+        Number of rows (ring capacity).
+    channels : int
+        Number of parallel channels (columns) to store.
+    dtype : np.dtype, default np.float32
+        NumPy dtype for stored values.
+
+    """
+
+    def __init__(
+        self,
+        size: int,
+        channels: int,
+        dtype: type[np.floating[Any]] = np.float32,
+    ) -> None:
+        if size <= 0:
+            raise ValueError(f"Buffer size must be positive, got {size}")
+        if channels <= 0:
+            raise ValueError(f"Channels must be positive, got {channels}")
+
+        self._cap = int(size)
+        self._channels = int(channels)
+        self._dtype = dtype
+        self._buf = np.zeros((self._cap, self._channels), dtype=dtype)
+        self._idx = 0
+        self._count = 0
+
+    @property
+    def capacity(self) -> int:
+        """
+        Return ring capacity (rows).
+        """
+        return self._cap
+
+    @property
+    def channels(self) -> int:
+        """
+        Return number of channels.
+        """
+        return self._channels
+
+    @property
+    def index(self) -> int:
+        """
+        Return the next write index (0..capacity-1).
+        """
+        return self._idx
+
+    @property
+    def count(self) -> int:
+        """
+        Return number of valid rows (<= capacity).
+        """
+        return self._count
+
+    def append(self, values: Sequence[float]) -> None:
+        """
+        Append one row of channel values in-place (no allocations).
+        """
+        if len(values) != self._channels:
+            raise ValueError(f"expected {self._channels} values, got {len(values)}")
+
+        i = self._idx
+        self._buf[i, :] = values
+        i += 1
+        if i >= self._cap:
+            i = 0
+        self._idx = i
+        if self._count < self._cap:
+            self._count += 1
+
+    def get_last_row(self) -> npt.NDArray[np.float32]:
+        """
+        Return a view of the most recently written row, or empty array if none.
+        """
+        if self._count == 0:
+            return np.array([], dtype=self._dtype)
+        last = (self._idx - 1) % self._cap
+        return self._buf[last, :]
+
+    def get_channel_view(self, channel: int) -> npt.NDArray[np.float32]:
+        """
+        Return direct view of a channel in ring order (interpret with index/count).
+        """
+        if channel < 0 or channel >= self._channels:
+            raise IndexError(f"channel out of range: {channel}")
+        return self._buf[:, channel]
+
+    def get_channel_chronological(self, channel: int) -> npt.NDArray[np.float32]:
+        """
+        Return channel data in chronological order (allocates on wrap-around).
+        """
+        if self._count == 0:
+            return np.array([], dtype=self._dtype)
+        if channel < 0 or channel >= self._channels:
+            raise IndexError(f"channel out of range: {channel}")
+
+        n = self._count
+        if n < self._cap:
+            return self._buf[:n, channel]
+
+        start = self._idx
+        if start == 0:
+            return self._buf[:, channel]
+
+        first_part = self._buf[start:, channel]
+        second_part = self._buf[:start, channel]
+        return np.concatenate([first_part, second_part])
+
+    def reset(self) -> None:
+        """
+        Reset ring to empty state.
+        """
+        self._idx = 0
+        self._count = 0

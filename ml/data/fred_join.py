@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import ml._imports as _ml_imports
+from ml.ml_types import DataFrameLike, PolarsDF
 
 pd = _ml_imports.pd
 pl = _ml_imports.pl
 check_ml_dependencies = _ml_imports.check_ml_dependencies
-from ml.ml_types import PolarsDF, DataFrameLike
 
 
 def _load_fred_ml_pl(fred_path: str | Path | None = None) -> PolarsDF:

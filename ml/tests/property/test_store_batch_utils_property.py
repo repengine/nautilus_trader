@@ -34,7 +34,10 @@ def _ts_any_units() -> st.SearchStrategy[int]:
         st.integers(min_value=1_000_000_000, max_value=10_000_000_000),  # seconds
         st.integers(min_value=1_000_000_000_000, max_value=10_000_000_000_000),  # ms
         st.integers(min_value=1_000_000_000_000_000, max_value=10_000_000_000_000_000),  # us
-        st.integers(min_value=1_000_000_000_000_000_000, max_value=10_000_000_000_000_000_000),  # ns
+        st.integers(
+            min_value=1_000_000_000_000_000_000,
+            max_value=10_000_000_000_000_000_000,
+        ),  # ns
     )
 
 
@@ -49,7 +52,9 @@ def _ts_any_units() -> st.SearchStrategy[int]:
         ),
         min_size=1,
         max_size=50,
-    ).map(lambda lst: lst + lst[: len(lst) // 3]),  # inject duplicates
+    ).map(
+        lambda lst: lst + lst[: len(lst) // 3],
+    ),  # inject duplicates
 )
 def test_sanitize_and_dedup_properties(rows: list[_Row]) -> None:
     # Convert to dicts and shuffle via Hypothesis
@@ -74,4 +79,3 @@ def test_sanitize_and_dedup_properties(rows: list[_Row]) -> None:
     for v in out:
         assert int(v["ts_event"]) >= 1_000_000_000_000_000_000
         assert int(v["ts_init"]) >= 1_000_000_000_000_000_000
-

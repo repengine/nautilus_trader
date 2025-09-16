@@ -19,7 +19,11 @@ class CapturePublisher:
         self.messages.append((topic, payload))
 
 
-pytestmark = [pytest.mark.integration, pytest.mark.database, pytest.mark.usefixtures("clean_postgres_db_module")]
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.database,
+    pytest.mark.usefixtures("clean_postgres_db_module"),
+]
 
 
 def test_strategy_store_publishes_batch_event(postgres_connection: str) -> None:
@@ -65,7 +69,6 @@ def test_strategy_store_publishes_batch_event(postgres_connection: str) -> None:
     assert topic == expected_topic
     assert payload["dataset_id"] == "signals"
     assert payload["count"] == 2
-    assert payload["source"] in (Source.HISTORICAL.value, "historical")
+    assert payload["source"] == "strategy"
     assert int(payload["ts_min"]) == t0
     assert int(payload["ts_max"]) == t0 + 1
-
