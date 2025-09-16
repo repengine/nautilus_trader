@@ -39,7 +39,12 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-def test_actor_side_domain_event_bridge_publishes(monkeypatch, tmp_path, default_instrument_id, default_bar_type) -> None:
+def test_actor_side_domain_event_bridge_publishes(
+    monkeypatch,
+    tmp_path,
+    default_instrument_id,
+    default_bar_type,
+) -> None:
     # Arrange: env enables actor-side bridge with stage-first scheme
     pub = CapturePublisher()
 

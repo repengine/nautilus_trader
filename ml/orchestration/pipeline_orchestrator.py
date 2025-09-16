@@ -3,10 +3,11 @@
 """
 High-level ML pipeline orchestrator (cold path only).
 
-Composes existing ingestion, dataset build, HPO, and training CLIs into a
-typed, testable interface suitable for a single long-running service or a
-nightly batch job. All heavy work (DataFrames, file I/O, GPU training) remains
-strictly off the actor hot paths.
+Composes existing ingestion, dataset build, HPO, and training CLIs into a typed,
+testable interface suitable for a single long-running service or a nightly batch job.
+All heavy work (DataFrames, file I/O, GPU training) remains strictly off the actor hot
+paths.
+
 """
 
 from __future__ import annotations
@@ -89,7 +90,14 @@ class MLPipelineOrchestrator:
     hpo_main: _CliMain | None
     teacher_main: _CliMain
 
-    def backfill(self, *, dataset_id: str, schema: str, instrument_id: str, lookback_days: int) -> list[tuple[int, int]]:
+    def backfill(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        lookback_days: int,
+    ) -> list[tuple[int, int]]:
         orchestrator = IngestionOrchestrator(
             coverage=self.coverage,
             writer=self.writer,
@@ -127,6 +135,7 @@ class MLPipelineOrchestrator:
                 return 0
             except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "API-based dataset build failed; falling back to CLI: %s",
                     exc,

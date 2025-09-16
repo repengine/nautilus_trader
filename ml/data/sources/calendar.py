@@ -23,8 +23,7 @@ from ml._imports import pd as pd_runtime
 
 
 if TYPE_CHECKING:
-    import pandas as pd
-    import pandas_market_calendars as mcal
+    pass
 
 # Local runtime aliases to avoid Optional[Module] union typing at use sites
 PD: Any = cast(Any, pd_runtime)

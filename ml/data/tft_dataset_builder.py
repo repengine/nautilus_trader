@@ -28,9 +28,10 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 if TYPE_CHECKING:
-    from ml.stores.feature_store import FeatureStore
-    import polars as _pl
     import pandas as _pd
+    import polars as _pl
+
+    from ml.stores.feature_store import FeatureStore
 
 # Local runtime aliases to avoid Optional[Module] union typing
 PL: Any = cast(Any, pl_runtime)
@@ -104,7 +105,7 @@ class TFTDatasetBuilder:
         end: datetime | None = None,
         horizon_minutes: int = 15,
         min_return_threshold: float = 0.001,
-    ) -> "_pl.DataFrame":
+    ) -> _pl.DataFrame:
         """
         Prepare training data using features from FeatureStore.
 
@@ -156,7 +157,7 @@ class TFTDatasetBuilder:
         logger.info(f"Loading features from FeatureStore for {len(instrument_ids)} instruments")
 
         # Collect all feature data
-        all_data: list["_pl.DataFrame"] = []
+        all_data: list[_pl.DataFrame] = []
 
         for instrument_id in instrument_ids:
             logger.info(f"Processing {instrument_id} from FeatureStore...")
@@ -176,12 +177,16 @@ class TFTDatasetBuilder:
 
                 # Convert to Polars DataFrame
                 from typing import cast as _cast
-                feature_df = _cast("_pl.DataFrame", pl.DataFrame(
-                    {
-                        "ts_event": timestamps,
-                        **{name: features[:, i] for i, name in enumerate(feature_names)},
-                    },
-                ))
+
+                feature_df = _cast(
+                    "_pl.DataFrame",
+                    pl.DataFrame(
+                        {
+                            "ts_event": timestamps,
+                            **{name: features[:, i] for i, name in enumerate(feature_names)},
+                        },
+                    ),
+                )
 
                 # Load corresponding bars for target generation and additional features
                 bars_df = bars_to_dataframe(
@@ -257,6 +262,7 @@ class TFTDatasetBuilder:
             f"Loaded {len(final_df)} rows from FeatureStore with {len(final_df.columns)} columns",
         )
         from typing import cast as _cast
+
         return _cast("_pl.DataFrame", final_df)
 
     def prepare_training_data(
@@ -268,7 +274,7 @@ class TFTDatasetBuilder:
         min_return_threshold: float = 0.001,
         lookback_periods: int = 30,
         use_polars: bool = True,
-    ) -> "_pd.DataFrame" | "_pl.DataFrame":
+    ) -> _pd.DataFrame | _pl.DataFrame:
         """
         Prepare TFT training data with automatic source selection.
 
@@ -367,6 +373,7 @@ class TFTDatasetBuilder:
                 if macro_cols:
                     # Fill macro nulls with 0 and add availability mask
                     from typing import Any as _Any
+
                     fills: list[_Any] = []
                     exprs: list[_Any] = []
                     for c in macro_cols:
@@ -379,6 +386,7 @@ class TFTDatasetBuilder:
                     if fills:
                         # Narrow type for polars operations
                         from typing import cast as _cast
+
                         direct_df_pl = _cast("_pl.DataFrame", direct_df)
                         direct_df_pl = direct_df_pl.with_columns(fills)
                         direct_df = direct_df_pl
@@ -387,6 +395,7 @@ class TFTDatasetBuilder:
                         for ex in exprs[1:]:
                             any_macro = any_macro | ex
                         from typing import cast as _cast
+
                         direct_df_pl2 = _cast("_pl.DataFrame", direct_df)
                         direct_df_pl2 = direct_df_pl2.with_columns(
                             [
@@ -434,7 +443,7 @@ class TFTDatasetBuilder:
         use_polars: bool = True,
         start: datetime | None = None,
         end: datetime | None = None,
-    ) -> "_pd.DataFrame" | "_pl.DataFrame":
+    ) -> _pd.DataFrame | _pl.DataFrame:
         """
         Build complete TFT training dataset.
 
@@ -467,9 +476,7 @@ class TFTDatasetBuilder:
         # Backwards-compat for tests: support threshold_bps alias
         if threshold_bps is not None:
             # Convert basis points to decimal if seems large; else use as-is
-            min_return_threshold = (
-                threshold_bps / 10_000.0 if threshold_bps > 1 else threshold_bps
-            )
+            min_return_threshold = threshold_bps / 10_000.0 if threshold_bps > 1 else threshold_bps
 
         if self.feature_store:
             logger.info("Using FeatureStore for training data preparation (ensures parity)")
@@ -512,7 +519,7 @@ class TFTDatasetBuilder:
         use_polars: bool = True,
         start: datetime | None = None,
         end: datetime | None = None,
-    ) -> "_pd.DataFrame" | "_pl.DataFrame":
+    ) -> _pd.DataFrame | _pl.DataFrame:
         """
         Build training dataset using direct feature computation.
 
@@ -536,8 +543,8 @@ class TFTDatasetBuilder:
 
         """
         # Collect results separately to keep typing precise
-        all_data_pl: list["_pl.DataFrame"] = []
-        all_data_pd: list["_pd.DataFrame"] = []
+        all_data_pl: list[_pl.DataFrame] = []
+        all_data_pd: list[_pd.DataFrame] = []
 
         # Candidate venues to try per symbol (ETFs frequently ARCA/ARCX)
         candidate_venues = [
@@ -555,6 +562,7 @@ class TFTDatasetBuilder:
             # Load data using catalog
             try:
                 from typing import cast as _cast
+
                 df = _cast("_pl.DataFrame", pl.DataFrame())
                 last_err: Exception | None = None
                 for venue in candidate_venues:
@@ -693,7 +701,7 @@ class TFTDatasetBuilder:
                 continue
 
             # Process with Polars or Pandas
-            processed: "_pl.DataFrame" | "_pd.DataFrame" | None = None
+            processed: _pl.DataFrame | _pd.DataFrame | None = None
             if use_polars:
                 if not isinstance(df, pl.DataFrame):
                     logger.warning(f"Expected Polars DataFrame for {symbol}, skipping")
@@ -759,12 +767,13 @@ class TFTDatasetBuilder:
         if (use_polars and not all_data_pl) or (not use_polars and not all_data_pd):
             logger.error("No data processed for any symbol")
             from typing import cast as _cast
+
             if not use_polars:
                 return _cast("_pd.DataFrame", pd.DataFrame())
             return _cast("_pl.DataFrame", pl.DataFrame())
 
         # Combine all symbols with proper typing
-        final_df: "_pl.DataFrame" | "_pd.DataFrame"
+        final_df: _pl.DataFrame | _pd.DataFrame
         if use_polars:
             # all_data_pl contains Polars DataFrames
             final_df = pl.concat(all_data_pl, how="vertical")
@@ -778,14 +787,14 @@ class TFTDatasetBuilder:
 
     def _process_symbol_polars(
         self,
-        df: "_pl.DataFrame",
+        df: _pl.DataFrame,
         symbol: str,
         horizon_minutes: int,
         threshold: float,
         lookback_periods: int,
         start: datetime | None = None,
         end: datetime | None = None,
-    ) -> "_pl.DataFrame" | None:
+    ) -> _pl.DataFrame | None:
         """
         Process single symbol with Polars.
         """
@@ -1005,12 +1014,12 @@ class TFTDatasetBuilder:
 
     def _process_symbol_pandas(
         self,
-        df: "_pd.DataFrame",
+        df: _pd.DataFrame,
         symbol: str,
         horizon_minutes: int,
         threshold: float,
         lookback_periods: int,
-    ) -> "_pd.DataFrame" | None:
+    ) -> _pd.DataFrame | None:
         """
         Process single symbol with Pandas.
         """
@@ -1106,7 +1115,7 @@ class TFTDatasetBuilder:
 
         return dataset
 
-    def _compute_features_polars(self, df: "_pl.DataFrame") -> "_pl.DataFrame":
+    def _compute_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """
         Compute technical features using Polars.
         """
@@ -1138,7 +1147,7 @@ class TFTDatasetBuilder:
         ).fill_null(0)
         return features
 
-    def _compute_features_pandas(self, df: "_pd.DataFrame") -> "_pd.DataFrame":
+    def _compute_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
         """
         Compute technical features using Pandas.
         """
@@ -1168,14 +1177,15 @@ class TFTDatasetBuilder:
         features = features.fillna(0)
 
         from typing import cast as _cast
+
         return _cast("_pd.DataFrame", features)
 
     def _generate_targets_polars(
         self,
-        df: "_pl.DataFrame",
+        df: _pl.DataFrame,
         horizon_minutes: int,
         threshold: float,
-    ) -> "_pl.DataFrame":
+    ) -> _pl.DataFrame:
         """
         Generate binary targets using Polars.
         """
@@ -1198,10 +1208,10 @@ class TFTDatasetBuilder:
 
     def _generate_targets_pandas(
         self,
-        df: "_pd.DataFrame",
+        df: _pd.DataFrame,
         horizon_minutes: int,
         threshold: float,
-    ) -> "_pd.DataFrame":
+    ) -> _pd.DataFrame:
         """
         Generate binary targets using Pandas.
         """
@@ -1221,9 +1231,10 @@ class TFTDatasetBuilder:
         targets = targets.fillna(0)
 
         from typing import cast as _cast
+
         return _cast("_pd.DataFrame", targets)
 
-    def _add_static_features_polars(self, df: "_pl.DataFrame") -> "_pl.DataFrame":
+    def _add_static_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """
         Add static instrument features using Polars.
         """
@@ -1277,7 +1288,7 @@ class TFTDatasetBuilder:
 
         return df
 
-    def _add_static_features_pandas(self, df: "_pd.DataFrame") -> "_pd.DataFrame":
+    def _add_static_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
         """
         Add static instrument features using Pandas.
         """
@@ -1309,7 +1320,7 @@ class TFTDatasetBuilder:
 
         return df
 
-    def _add_known_future_features_polars(self, df: "_pl.DataFrame") -> "_pl.DataFrame":
+    def _add_known_future_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """
         Add known-future time features using Polars.
         """
@@ -1362,7 +1373,7 @@ class TFTDatasetBuilder:
 
         return df
 
-    def _add_known_future_features_pandas(self, df: "_pd.DataFrame") -> "_pd.DataFrame":
+    def _add_known_future_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
         """
         Add known-future time features using Pandas.
         """

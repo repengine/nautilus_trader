@@ -14,6 +14,7 @@ import numpy.typing as npt
 from numpy.random import default_rng
 
 from ml._imports import HAS_SKLEARN, check_ml_dependencies
+
 if not HAS_SKLEARN:
     check_ml_dependencies(["scikit-learn"])
 
@@ -25,6 +26,7 @@ try:
     import onnx
     from skl2onnx import convert_sklearn
     from skl2onnx.common.data_types import FloatTensorType
+
     HAS_ONNX_EXPORT = True
 except ImportError:
     HAS_ONNX_EXPORT = False
@@ -86,7 +88,10 @@ class DummyModel:
         return cast(npt.NDArray[np.float64], np.column_stack([1 - preds, preds]))
 
 
-def create_dummy_sklearn_model(random_state: int = 42, class_weight: dict[int, float] | None = None) -> Pipeline:
+def create_dummy_sklearn_model(
+    random_state: int = 42,
+    class_weight: dict[int, float] | None = None,
+) -> Pipeline:
     """
     Create a dummy sklearn model for ONNX export.
 
@@ -101,17 +106,23 @@ def create_dummy_sklearn_model(random_state: int = 42, class_weight: dict[int, f
     -------
     Pipeline
         Trained sklearn pipeline.
+
     """
     # Create a simple pipeline
-    model = Pipeline([
-        ('scaler', StandardScaler()),
-        ('classifier', RandomForestClassifier(
-            n_estimators=10,
-            max_depth=3,
-            random_state=random_state,
-            class_weight=class_weight
-        ))
-    ])
+    model = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "classifier",
+                RandomForestClassifier(
+                    n_estimators=10,
+                    max_depth=3,
+                    random_state=random_state,
+                    class_weight=class_weight,
+                ),
+            ),
+        ],
+    )
 
     # Generate dummy training data
     rng = default_rng(random_state)
@@ -142,21 +153,21 @@ def export_to_onnx(model: Pipeline, output_path: Path, feature_names: list[str])
         Output path for ONNX model.
     feature_names : list[str]
         Names of input features.
+
     """
     if not HAS_ONNX_EXPORT:
         raise ImportError(
-            "ONNX export dependencies not available. "
-            "Install with: pip install onnx skl2onnx"
+            "ONNX export dependencies not available. " "Install with: pip install onnx skl2onnx",
         )
 
     # Define input schema
-    initial_type = [('float_input', FloatTensorType([None, len(feature_names)]))]
+    initial_type = [("float_input", FloatTensorType([None, len(feature_names)]))]
 
     # Convert to ONNX
     onnx_model = convert_sklearn(model, initial_types=initial_type)
 
     # Save ONNX model
-    with open(output_path, 'wb') as f:
+    with open(output_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
 
 
@@ -166,6 +177,7 @@ def create_dummy_models() -> Path:
 
     Security Note: This function creates ONNX models instead of pickle files
     to maintain production security standards.
+
     """
     models_dir = Path("ml/models")
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -176,7 +188,7 @@ def create_dummy_models() -> Path:
     print("Creating bullish model...")
     bullish_model = create_dummy_sklearn_model(
         random_state=42,
-        class_weight={0: 0.8, 1: 1.2}  # Bias toward positive class
+        class_weight={0: 0.8, 1: 1.2},  # Bias toward positive class
     )
     export_to_onnx(bullish_model, models_dir / "dummy_bullish_model.onnx", feature_names)
     print(f"Created: {models_dir}/dummy_bullish_model.onnx")
@@ -185,7 +197,7 @@ def create_dummy_models() -> Path:
     print("Creating bearish model...")
     bearish_model = create_dummy_sklearn_model(
         random_state=43,
-        class_weight={0: 1.2, 1: 0.8}  # Bias toward negative class
+        class_weight={0: 1.2, 1: 0.8},  # Bias toward negative class
     )
     export_to_onnx(bearish_model, models_dir / "dummy_bearish_model.onnx", feature_names)
     print(f"Created: {models_dir}/dummy_bearish_model.onnx")
@@ -194,7 +206,7 @@ def create_dummy_models() -> Path:
     print("Creating neutral model...")
     neutral_model = create_dummy_sklearn_model(
         random_state=44,
-        class_weight=None  # Balanced
+        class_weight=None,  # Balanced
     )
     export_to_onnx(neutral_model, models_dir / "dummy_neutral_model.onnx", feature_names)
     print(f"Created: {models_dir}/dummy_neutral_model.onnx")

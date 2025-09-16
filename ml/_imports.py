@@ -265,6 +265,7 @@ create collectors. This satisfies the "no direct prometheus_client" policy and k
 existing imports working in modules/tests which patch these names.
 """
 
+
 class Counter:
     def __init__(self, name: str, description: str, labels: list[str] | None = None) -> None:
         from ml.common.metrics_bootstrap import get_counter as _get
@@ -280,8 +281,11 @@ class Counter:
             self._collector.inc(*args, **kwargs)
         except Exception as exc:
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
-                "Prometheus Counter.inc failed (ignored): %s", exc, exc_info=True
+                "Prometheus Counter.inc failed (ignored): %s",
+                exc,
+                exc_info=True,
             )
 
 
@@ -299,8 +303,11 @@ class Gauge:
             self._collector.set(float(value))
         except Exception as exc:
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
-                "Prometheus Gauge.set failed (ignored): %s", exc, exc_info=True
+                "Prometheus Gauge.set failed (ignored): %s",
+                exc,
+                exc_info=True,
             )
 
 
@@ -325,16 +332,22 @@ class Histogram:
             self._collector.observe(float(value))
         except Exception as exc:
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
-                "Prometheus Histogram.observe failed (ignored): %s", exc, exc_info=True
+                "Prometheus Histogram.observe failed (ignored): %s",
+                exc,
+                exc_info=True,
             )
 
+
 _PROM_REGISTRY = object()  # placeholder for compatibility
+
 
 def _generate_latest_dummy(registry: object | None = None) -> bytes:
     from ml.common.metrics_export import generate_latest as _gen
 
     return _gen()
+
 
 _GENERATE_LATEST = _generate_latest_dummy
 

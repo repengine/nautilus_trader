@@ -16,7 +16,7 @@ pytestmark = [
 @pytest.mark.skip(
     reason=(
         "Flaky on some hosts due to pandas read_sql connection reuse; covered by publish-mode and flush-timer tests"
-    )
+    ),
 )
 def test_model_store_write_and_read(
     clean_postgres_db,
@@ -25,7 +25,11 @@ def test_model_store_write_and_read(
     test_timestamps: tuple[int, int],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:  # type: ignore[override]
-    store = ModelStore(connection_string=postgres_connection, batch_size=2, flush_interval_seconds=0.01)
+    store = ModelStore(
+        connection_string=postgres_connection,
+        batch_size=2,
+        flush_interval_seconds=0.01,
+    )
     # Avoid DataRegistry emissions in this unit test
     monkeypatch.setattr(store, "_emit_events", lambda predictions: None)
 

@@ -1,8 +1,9 @@
 """
 DB tests for SQL upsert dedup/update behavior in ModelStore and StrategyStore.
 
-These ensure that within-batch duplicates deduplicate to last occurrence and that
-cross-batch upserts update existing rows as expected.
+These ensure that within-batch duplicates deduplicate to last occurrence and that cross-
+batch upserts update existing rows as expected.
+
 """
 
 from __future__ import annotations
@@ -68,6 +69,7 @@ def test_model_store_dedup_and_update(test_database) -> None:
 
     # Read back via direct SQL to avoid pandas connection quirks
     from sqlalchemy import text
+
     with store.engine.connect() as conn:
         row = conn.execute(
             text(
@@ -134,6 +136,7 @@ def test_strategy_store_dedup_and_update(test_database) -> None:
 
     # Read back via direct SQL
     from sqlalchemy import text
+
     with store.engine.connect() as conn:
         row = conn.execute(
             text(
@@ -148,4 +151,3 @@ def test_strategy_store_dedup_and_update(test_database) -> None:
         assert row is not None
         assert str(row[0]) == "HOLD"
         assert pytest.approx(float(row[1])) == 0.5
-

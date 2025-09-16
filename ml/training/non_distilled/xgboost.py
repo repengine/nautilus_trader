@@ -431,7 +431,6 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
                 with open(path, "wb") as f:
                     f.write(onnx_model.SerializeToString())
 
-
         except ImportError:
             self._log_warning(
                 "onnxmltools not installed. Install with: pip install onnxmltools",
@@ -446,6 +445,7 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
                     tmp_path.unlink()
                 except FileNotFoundError as _exc:
                     import logging as _logging
+
                     _logging.getLogger(__name__).debug(
                         "Temporary ONNX export file already removed: %s",
                         _exc,

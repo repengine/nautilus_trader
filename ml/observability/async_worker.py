@@ -422,7 +422,8 @@ class ObservabilityAsyncWorker:
                     self._ERRORS.labels(component=self.component_label, kind="process").inc()
                 except Exception:
                     self._LOGGER.debug(
-                        "Observability error counter emit failed", exc_info=True
+                        "Observability error counter emit failed",
+                        exc_info=True,
                     )
                 self._LOGGER.debug(
                     "Observability async worker encountered an error: %s",

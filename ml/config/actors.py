@@ -68,7 +68,9 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     ) = "threshold"
     # Alias for clarity in configs: signal_policy == signal_strategy (built-ins)
     signal_policy: (
-        Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] | _SignalStrategy | None
+        Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"]
+        | _SignalStrategy
+        | None
     ) = None
     adaptive_window: PositiveInt = 20
     min_signal_separation_bars: PositiveInt = 3

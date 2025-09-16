@@ -109,4 +109,3 @@ def test_strategy_store_adapter_protocol_and_delegation() -> None:
     assert any(call[0] == "write_signal" for call in base.calls)
     assert ("write_batch", {"data_len": 1}) in base.calls
     assert any(call[0] == "flush" for call in base.calls)
-

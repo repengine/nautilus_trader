@@ -1,8 +1,9 @@
 """
 Integration test for ML performance guardrails.
 
-This test validates that the guardrail system works correctly and can detect
-performance regressions as intended.
+This test validates that the guardrail system works correctly and can detect performance
+regressions as intended.
+
 """
 
 import tempfile
@@ -22,10 +23,14 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 
 class TestGuardrailsIntegration:
-    """Integration tests for performance guardrails system."""
+    """
+    Integration tests for performance guardrails system.
+    """
 
     def test_feature_parity_smoke_check_configuration(self):
-        """Test that feature parity smoke-check fields exist in config."""
+        """
+        Test that feature parity smoke-check fields exist in config.
+        """
         # Test that the config fields exist and have proper defaults
         # (without instantiating the actual config to avoid actor initialization)
 
@@ -37,8 +42,12 @@ class TestGuardrailsIntegration:
         params = sig.parameters
 
         # Check that our parity fields exist
-        assert "enable_parity_smoke_check" in params, "Should have enable_parity_smoke_check parameter"
-        assert "parity_smoke_check_window_bars" in params, "Should have parity_smoke_check_window_bars parameter"
+        assert (
+            "enable_parity_smoke_check" in params
+        ), "Should have enable_parity_smoke_check parameter"
+        assert (
+            "parity_smoke_check_window_bars" in params
+        ), "Should have parity_smoke_check_window_bars parameter"
         assert "parity_tolerance" in params, "Should have parity_tolerance parameter"
 
         # Check default values
@@ -47,7 +56,9 @@ class TestGuardrailsIntegration:
         assert params["parity_tolerance"].default == 1e-6, "Should default to 1e-6 tolerance"
 
     def test_optimization_levels_configuration(self):
-        """Test that optimization levels are properly configured."""
+        """
+        Test that optimization levels are properly configured.
+        """
         # Test that optimization levels exist
         assert hasattr(OptimizationLevel, "STANDARD"), "Should have STANDARD optimization level"
         assert hasattr(OptimizationLevel, "OPTIMIZED"), "Should have OPTIMIZED optimization level"
@@ -64,14 +75,16 @@ class TestGuardrailsIntegration:
         assert config.enable_profiling
 
     def test_performance_measurement_utilities(self):
-        """Test that performance measurement utilities work correctly."""
+        """
+        Test that performance measurement utilities work correctly.
+        """
         # Import the utilities from the guardrails module
         import sys
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
             "guardrails",
-            Path(__file__).parent / "test_parity_buffer_guardrails.py"
+            Path(__file__).parent / "test_parity_buffer_guardrails.py",
         )
         if spec and spec.loader:
             guardrails = importlib.util.module_from_spec(spec)
@@ -97,7 +110,9 @@ class TestGuardrailsIntegration:
             assert slow_latency > fast_latency, "Slow function should be slower than fast function"
 
     def test_ci_runner_script_exists_and_executable(self):
-        """Test that the CI runner script exists and is properly structured."""
+        """
+        Test that the CI runner script exists and is properly structured.
+        """
         script_path = Path(__file__).parent / "ci_performance_guardrails.py"
 
         assert script_path.exists(), "CI performance guardrails script should exist"
@@ -112,7 +127,9 @@ class TestGuardrailsIntegration:
         assert "sys.exit" in content, "Should have proper exit handling"
 
     def test_makefile_targets_integration(self):
-        """Test that Makefile targets are properly defined."""
+        """
+        Test that Makefile targets are properly defined.
+        """
         makefile_path = Path(__file__).parent.parent.parent.parent / "Makefile"
 
         with open(makefile_path) as f:
@@ -120,14 +137,20 @@ class TestGuardrailsIntegration:
 
         # Check that our new targets are present
         assert "pytest-ml-guardrails:" in makefile_content, "Should have guardrails target"
-        assert "pytest-ml-guardrails-strict:" in makefile_content, "Should have strict guardrails target"
-        assert "pytest-ml-zero-allocation:" in makefile_content, "Should have zero-allocation target"
+        assert (
+            "pytest-ml-guardrails-strict:" in makefile_content
+        ), "Should have strict guardrails target"
+        assert (
+            "pytest-ml-zero-allocation:" in makefile_content
+        ), "Should have zero-allocation target"
 
         # Check that targets reference our scripts
         assert "ci_performance_guardrails.py" in makefile_content, "Should reference our CI script"
 
     def test_documentation_exists(self):
-        """Test that documentation is properly created."""
+        """
+        Test that documentation is properly created.
+        """
         readme_path = Path(__file__).parent / "README_GUARDRAILS.md"
 
         assert readme_path.exists(), "Guardrails README should exist"
@@ -142,22 +165,30 @@ class TestGuardrailsIntegration:
         assert "make pytest-ml-guardrails" in content, "Should document usage"
 
     def test_feature_config_optimization_defaults(self):
-        """Test that feature configuration defaults are suitable for performance."""
+        """
+        Test that feature configuration defaults are suitable for performance.
+        """
         config = FeatureConfig(
             return_periods=[1, 5, 10],  # Reasonable number of periods
-            momentum_periods=[5, 10],   # Not too many momentum calculations
+            momentum_periods=[5, 10],  # Not too many momentum calculations
             include_microstructure=False,  # Disabled for better performance
-            include_trade_flow=False,       # Disabled for better performance
+            include_trade_flow=False,  # Disabled for better performance
         )
 
         # Verify performance-friendly defaults
         assert len(config.return_periods) <= 3, "Should use limited return periods for performance"
-        assert len(config.momentum_periods) <= 2, "Should use limited momentum periods for performance"
-        assert not config.include_microstructure, "Microstructure should be disabled for base performance"
+        assert (
+            len(config.momentum_periods) <= 2
+        ), "Should use limited momentum periods for performance"
+        assert (
+            not config.include_microstructure
+        ), "Microstructure should be disabled for base performance"
         assert not config.include_trade_flow, "Trade flow should be disabled for base performance"
 
     def test_metrics_integration_points(self):
-        """Test that metrics integration points are properly set up."""
+        """
+        Test that metrics integration points are properly set up.
+        """
         # Import signal module to check metrics initialization
         from ml.actors import signal
 
@@ -166,7 +197,9 @@ class TestGuardrailsIntegration:
         assert hasattr(signal, "_feature_parity_drift"), "Should have parity drift gauge"
 
         # Check that metrics are initialized
-        assert signal._feature_parity_checks_total is not None, "Parity checks counter should be initialized"
+        assert (
+            signal._feature_parity_checks_total is not None
+        ), "Parity checks counter should be initialized"
         assert signal._feature_parity_drift is not None, "Parity drift gauge should be initialized"
 
 

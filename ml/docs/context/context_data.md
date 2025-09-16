@@ -100,6 +100,7 @@ Caches avoid recomputing expensive aggregates and live strictly off the hot path
   - Micro: `data/features/micro_minute/<SYMBOL>/year=YYYY/month=MM/day=DD.parquet`
 - Usage
   - L2 cache
+
     ```python
     from pathlib import Path
     from datetime import datetime, timezone
@@ -110,12 +111,15 @@ Caches avoid recomputing expensive aggregates and live strictly off the hot path
     end = datetime(2025, 8, 18, tzinfo=timezone.utc)
     df = cache.get_range("SPY", start, end, raw_base_dir=Path("data/tier1"))
     ```
+
   - Micro cache (mirrors L2)
+
     ```python
     from ml.data import MicroMinuteCache
     cache = MicroMinuteCache(Path("data/features/micro_minute"))
     df = cache.get_range("SPY", start, end, raw_base_dir=Path("data/tier1"))
     ```
+
 - Semantics
   - Timestamp filter is half‑open `[start, end)`; results are sorted and cast to `Datetime[ns, UTC]`.
   - Missing partitions compute on demand and persist before returning.
@@ -763,8 +767,8 @@ feature_set_id = export_feature_manifest(
 
 ## Implementation Review Addendum
 
-**Review Date**: 2025-09-12  
-**Reviewer**: Claude Code Analysis  
+**Review Date**: 2025-09-12
+**Reviewer**: Claude Code Analysis
 **Scope**: Comprehensive code validation vs documentation claims
 
 ### Executive Summary
@@ -774,27 +778,32 @@ After analyzing all code files in `/home/nate/projects/nautilus_trader/ml/data/`
 ### Universal ML Architecture Pattern Compliance Analysis
 
 **Pattern 1: Mandatory 4-Store + 4-Registry Integration**
+
 - ❌ **MAJOR VIOLATION**: The ml/data module components do NOT inherit from `BaseMLInferenceActor`
 - ❌ No evidence of mandatory 4-store integration in data layer components
 - ❌ DataScheduler and TFTDatasetBuilder are standalone classes, not ML actors
 - ✅ Some store integration exists (FeatureStore in TFTDatasetBuilder, DataStore in FRED loader)
 
-**Pattern 2: Protocol-First Interface Design**  
+**Pattern 2: Protocol-First Interface Design**
+
 - ⚠️ **PARTIAL**: Basic Protocol usage found in `/ml/data/providers/base.py` and scheduler
 - ❌ No MLComponentProtocol implementation found in data layer
 - ❌ No runtime protocol compliance checking implemented
 
 **Pattern 3: Hot/Cold Path Separation**
+
 - ⚠️ **UNCLEAR**: Data layer is primarily cold path operations (collection, processing)
 - ❌ No evidence of <5ms P99 latency requirements or zero-allocation patterns
 - ❌ No pre-allocated arrays or hot path optimization found
 
 **Pattern 4: Progressive Fallback Chains**
+
 - ⚠️ **PARTIAL**: Some fallback logic exists (DataRegistry: PostgreSQL → JSON)
 - ❌ No comprehensive circuit breaker implementation found
 - ❌ No systematic 4-tier fallback architecture
 
 **Pattern 5: Centralized Metrics Bootstrap**
+
 - ✅ **COMPLIANT**: Uses `ml.common.metrics_bootstrap` in scheduler and FRED loader
 - ❌ Direct prometheus imports avoided (good)
 - ⚠️ Mixed metrics patterns (some components use metrics_manager instead)
@@ -822,23 +831,27 @@ After analyzing all code files in `/home/nate/projects/nautilus_trader/ml/data/`
 #### Specific Implementation Gaps
 
 **DataCollector (`collector.py`):**
+
 - ❌ Storage limits documented as 1TB but coded as 500GB (line 59)
 - ❌ No intelligent multi-tier strategy found - simple sequential collection
 - ❌ Hardcoded priority symbols list (lines 117-143) vs "dynamic liquidity-based"
 - ⚠️ Basic rate limiting with fixed delays, not API-compliant backoff
 
 **DataScheduler (`scheduler.py`):**
+
 - ⚠️ Limited to 15 Prometheus metrics, not comprehensive enterprise monitoring
 - ❌ No actual scheduling implementation - placeholder comments (lines 1187-1205)
 - ❌ DataRegistry integration exists but is basic, not "comprehensive"
 - ❌ No actual retention cleanup implementation (lines 1154-1170)
 
 **TFTDatasetBuilder (`tft_dataset_builder.py`):**
+
 - ⚠️ Dual-source architecture present but limited documentation of fallback logic
 - ❌ No venue fallback implementation visible in first 100 lines reviewed
 - ⚠️ Basic error handling, not "comprehensive error recovery"
 
 **Build Pipeline (`pipelines/build_runner.py`):**
+
 - ✅ Parallel execution capability confirmed
 - ❌ Uses MetricsManager instead of metrics_bootstrap (pattern violation)
 - ⚠️ Basic progress tracking, not "comprehensive"
@@ -867,12 +880,14 @@ After analyzing all code files in `/home/nate/projects/nautilus_trader/ml/data/`
 ### Architectural Assessment
 
 **Strengths:**
+
 - Clean separation of concerns between collection, processing, and caching
 - Good use of Nautilus native components (ParquetDataCatalog)
 - Polars-based efficient data processing
 - Comprehensive public API surface
 
 **Major Gaps:**
+
 - Not integrated with Universal ML Architecture Patterns
 - Missing comprehensive production monitoring
 - Limited enterprise-grade resilience features
@@ -888,9 +903,9 @@ After analyzing all code files in `/home/nate/projects/nautilus_trader/ml/data/`
 
 ### Summary Score
 
-**Documentation Accuracy**: 60/100  
-**Pattern Compliance**: 30/100  
-**Implementation Quality**: 70/100  
+**Documentation Accuracy**: 60/100
+**Pattern Compliance**: 30/100
+**Implementation Quality**: 70/100
 **Production Readiness**: 50/100
 
 The ml/data module contains solid core functionality but significantly oversells its production readiness and completeness in the documentation. Many claims are aspirational rather than factual.

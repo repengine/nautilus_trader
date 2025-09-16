@@ -68,6 +68,7 @@ class SimpleMLActor(BaseMLInferenceActor):
 
         Security Note: This method only supports safe formats (ONNX, joblib with test guard).
         Pickle formats are explicitly forbidden for security reasons.
+
         """
         model_path = Path(self._config.model_path)
         if not model_path.exists():

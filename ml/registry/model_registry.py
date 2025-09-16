@@ -59,6 +59,7 @@ try:  # Lightweight import; symbols are stubs when onnxruntime is unavailable
 except Exception:  # pragma: no cover - fallback when security module unavailable
     HAS_ONNX = False
     ort = None
+
     def check_ml_dependencies(_deps: list[str]) -> None:
         raise RuntimeError("Dependency check unavailable")
 
@@ -267,6 +268,7 @@ class ModelRegistry(AbstractRegistry):
                 except FileNotFoundError as exc:
                     # Directory may have been deleted during cleanup
                     import logging as _logging
+
                     _logging.getLogger(__name__).debug(
                         "Batch save flush: registry path missing (ignored): %s",
                         exc,
@@ -569,13 +571,13 @@ class ModelRegistry(AbstractRegistry):
         """
         if expected_digest is None:
             logger.warning(
-                f"No SHA-256 digest available for {file_path.name}, skipping integrity verification"
+                f"No SHA-256 digest available for {file_path.name}, skipping integrity verification",
             )
             return
 
         if not expected_digest:
             logger.warning(
-                f"Empty SHA-256 digest for {file_path.name}, skipping integrity verification"
+                f"Empty SHA-256 digest for {file_path.name}, skipping integrity verification",
             )
             return
 
@@ -590,13 +592,13 @@ class ModelRegistry(AbstractRegistry):
                 f"SECURITY ALERT: Artifact integrity verification failed for {file_path}\n"
                 f"Expected SHA-256: {expected_digest}\n"
                 f"Actual SHA-256:   {actual_digest}\n"
-                f"This indicates the model artifact may have been tampered with!"
+                f"This indicates the model artifact may have been tampered with!",
             )
             raise ValueError(
                 f"Artifact integrity verification failed for {file_path.name}. "
                 f"Expected digest: {expected_digest[:16]}..., "
                 f"but got: {actual_digest[:16]}... "
-                f"The model artifact may have been tampered with and is rejected for security."
+                f"The model artifact may have been tampered with and is rejected for security.",
             )
 
         logger.debug(f"Artifact integrity verified for {file_path.name}: {actual_digest[:16]}...")
@@ -642,11 +644,13 @@ class ModelRegistry(AbstractRegistry):
                     artifact_digest = self._calculate_file_sha256(model_path)
                     manifest.artifact_sha256_digest = artifact_digest
                     logger.info(
-                        f"Calculated SHA-256 digest for model artifact: {artifact_digest[:16]}..."
+                        f"Calculated SHA-256 digest for model artifact: {artifact_digest[:16]}...",
                     )
                 except (OSError, FileNotFoundError) as e:
                     logger.error(f"Failed to calculate artifact digest: {e}")
-                    raise ValueError(f"Cannot calculate SHA-256 digest for model artifact: {e}") from e
+                    raise ValueError(
+                        f"Cannot calculate SHA-256 digest for model artifact: {e}",
+                    ) from e
 
             # Use manifest's model_id or generate new one
             if not manifest.model_id:

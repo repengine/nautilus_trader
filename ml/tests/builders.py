@@ -3,8 +3,8 @@
 """
 Builder classes for ML test fixtures.
 
-This module provides builder patterns for creating test objects with
-sensible defaults that can be easily customized.
+This module provides builder patterns for creating test objects with sensible defaults
+that can be easily customized.
 
 """
 
@@ -60,6 +60,7 @@ class MLConfigBuilder:
         -------
         MLActorConfig
             Configured ML actor config
+
         """
         # Create temporary model if not provided
         if "model_path" not in overrides:
@@ -95,6 +96,7 @@ class MLConfigBuilder:
         -------
         MLSignalActorConfig
             Configured signal actor config
+
         """
         # Create temporary model if not provided
         if "model_path" not in overrides:
@@ -140,6 +142,7 @@ class MLConfigBuilder:
         -------
         MLStrategyConfig
             Configured trading strategy config
+
         """
         defaults = {
             "strategy_id": "test_strategy",
@@ -211,6 +214,7 @@ class MockBuilder:
         -------
         MagicMock
             Configured mock registry
+
         """
         mock_registry = MagicMock()
 
@@ -223,7 +227,10 @@ class MockBuilder:
             "role": kwargs.get("role", ModelRole.INFERENCE),
             "data_requirements": kwargs.get("data_requirements", DataRequirements.L1_ONLY),
             "architecture": architecture,
-            "feature_schema": kwargs.get("feature_schema", {"feature_1": "float", "feature_2": "float"}),
+            "feature_schema": kwargs.get(
+                "feature_schema",
+                {"feature_1": "float", "feature_2": "float"},
+            ),
             "feature_schema_hash": kwargs.get("feature_schema_hash", "abc123"),
             "version": version,
             "created_at": kwargs.get("created_at", time.time()),
@@ -353,6 +360,7 @@ class MockBuilder:
         -------
         dict[str, MagicMock]
             Dictionary with all four registry mocks
+
         """
         return {
             "model_registry": MockBuilder.model_registry(),
@@ -380,6 +388,7 @@ class MockBuilder:
         -------
         MagicMock
             Configured mock store
+
         """
         mock_store = MagicMock()
 
@@ -448,6 +457,7 @@ class DataBuilder:
         -------
         np.ndarray or pd.DataFrame
             Generated feature data
+
         """
         rng = np.random.default_rng(42)
         data = rng.standard_normal((n_samples, n_features)).astype(np.float32)
@@ -481,6 +491,7 @@ class DataBuilder:
         -------
         np.ndarray
             Generated predictions
+
         """
         rng = np.random.default_rng(42)
 
@@ -514,6 +525,7 @@ class DataBuilder:
         -------
         np.ndarray
             Array of timestamps
+
         """
         if start_time is None:
             start_time = int(time.time() * 1e9)
@@ -545,6 +557,7 @@ class DataBuilder:
         -------
         pd.DataFrame or dict
             Generated OHLCV data
+
         """
         rng = np.random.default_rng(42)
 
@@ -554,9 +567,9 @@ class DataBuilder:
 
         # Generate OHLCV
         data = {
-            "open": prices * (1 + rng.normal(0, volatility/10, n_bars)),
-            "high": prices * (1 + np.abs(rng.normal(0, volatility/5, n_bars))),
-            "low": prices * (1 - np.abs(rng.normal(0, volatility/5, n_bars))),
+            "open": prices * (1 + rng.normal(0, volatility / 10, n_bars)),
+            "high": prices * (1 + np.abs(rng.normal(0, volatility / 5, n_bars))),
+            "low": prices * (1 - np.abs(rng.normal(0, volatility / 5, n_bars))),
             "close": prices,
             "volume": rng.uniform(1000, 10000, n_bars),
         }
@@ -592,6 +605,7 @@ class DataBuilder:
         -------
         list[dict]
             List of signal dictionaries
+
         """
         if start_time is None:
             start_time = int(time.time() * 1e9)

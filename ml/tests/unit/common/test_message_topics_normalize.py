@@ -13,7 +13,11 @@ def test_build_topic_for_stage_schemes_unit() -> None:
     d, op = map_stage_to_topic_segments(Stage.PREDICTION_EMITTED)
     assert d == "models" and op == "created"
     t1 = build_topic_for_stage(Stage.SIGNAL_EMITTED, "EUR/USD", scheme="domain_op")
-    t2 = build_topic_for_stage(Stage.SIGNAL_EMITTED, "EUR/USD", scheme="stage_first", prefix="events.ml")
+    t2 = build_topic_for_stage(
+        Stage.SIGNAL_EMITTED,
+        "EUR/USD",
+        scheme="stage_first",
+        prefix="events.ml",
+    )
     assert ".strategies.created." in t1
     assert t2.startswith("events.ml.SIGNAL_EMITTED")
-

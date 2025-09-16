@@ -3,8 +3,8 @@
 """
 Common test fixtures for ML module.
 
-This module provides reusable fixtures for ML tests to reduce duplication
-and improve maintainability.
+This module provides reusable fixtures for ML tests to reduce duplication and improve
+maintainability.
 
 """
 
@@ -54,6 +54,7 @@ def default_instrument_id(default_venue: Venue) -> InstrumentId:
     Standard instrument ID for testing.
 
     Returns 'EUR/USD.SIM' which is used in most test cases.
+
     """
     return InstrumentId.from_str("EUR/USD.SIM")
 
@@ -64,6 +65,7 @@ def default_bar_type(default_instrument_id: InstrumentId) -> BarType:
     Standard bar type for testing.
 
     Returns 'EUR/USD.SIM-1-MINUTE-MID-INTERNAL' which is the most common test pattern.
+
     """
     return BarType.from_str("EUR/USD.SIM-1-MINUTE-MID-INTERNAL")
 
@@ -119,6 +121,7 @@ def dummy_onnx_model() -> Path:
     Create a minimal ONNX model for testing.
 
     Returns path to a valid ONNX model file that will be cleaned up after test.
+
     """
     model_path = TestModelFactory.create_onnx_model(
         n_features=10,
@@ -139,6 +142,7 @@ def dummy_xgboost_model() -> Path:
     Create a minimal XGBoost model for testing.
 
     Returns path to a valid XGBoost JSON model file.
+
     """
     model_path = TestModelFactory.create_minimal_xgboost_model(
         n_features=10,
@@ -162,8 +166,9 @@ def base_ml_config(
     """
     Base ML actor configuration with all required fields.
 
-    This fixture provides a complete, valid configuration that can be used
-    directly or modified for specific test needs.
+    This fixture provides a complete, valid configuration that can be used directly or
+    modified for specific test needs.
+
     """
     return MLActorConfig(
         model_id="test_model",
@@ -207,9 +212,11 @@ def base_signal_config(
 
 
 class InMemoryPublisher:
-    """Simple in-memory message publisher for unit tests.
+    """
+    Simple in-memory message publisher for unit tests.
 
     Stores published (topic, payload) tuples in-memory for later assertions.
+
     """
 
     def __init__(self) -> None:
@@ -224,7 +231,9 @@ class InMemoryPublisher:
 
 @pytest.fixture
 def in_memory_publisher() -> InMemoryPublisher:
-    """Fixture providing a fresh in-memory publisher per test."""
+    """
+    Fixture providing a fresh in-memory publisher per test.
+    """
     return InMemoryPublisher()
 
 
@@ -253,6 +262,7 @@ def mock_model_registry() -> MagicMock:
     Fully configured mock model registry.
 
     Provides a registry mock with common model metadata pre-configured.
+
     """
     mock_registry = MagicMock()
 
@@ -335,6 +345,7 @@ def mock_data_store() -> MagicMock:
     Fully configured mock data store.
 
     Provides a DataStore mock with common operations pre-configured.
+
     """
     mock_store = MagicMock()
 
@@ -364,6 +375,7 @@ def mock_stores_bundle(
     Bundle of all store mocks for convenience.
 
     Returns a dictionary with all configured store mocks.
+
     """
     return {
         "feature_store": mock_feature_store,
@@ -415,6 +427,7 @@ def test_timestamps() -> tuple[int, int]:
     Standard test timestamps (ts_event, ts_init) in nanoseconds.
     """
     import time
+
     current_ns = int(time.time() * 1e9)
     return (current_ns, current_ns + 1000)
 

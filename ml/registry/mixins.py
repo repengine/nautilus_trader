@@ -3,8 +3,9 @@
 """
 Optional mixins for registry concerns.
 
-These helpers are advisory and can be adopted incrementally by concrete
-registries. They are intentionally minimal and safe.
+These helpers are advisory and can be adopted incrementally by concrete registries. They
+are intentionally minimal and safe.
+
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ class StageLifecycleMixin:
     Provides a single utility to update ``stage`` and ``last_modified`` fields
     on a manifest-like object. Subclasses should hold external locks as needed
     around mutations.
+
     """
 
     @staticmethod
@@ -33,7 +35,9 @@ class StageLifecycleMixin:
             except Exception as exc:
                 # Best effort; keep mutation safe
                 logging.getLogger(__name__).debug(
-                    "Setting last_modified failed: %s", exc, exc_info=True
+                    "Setting last_modified failed: %s",
+                    exc,
+                    exc_info=True,
                 )
 
 
@@ -56,6 +60,7 @@ class CacheMixin:
     Simple LRU cache helper keyed by ``str``.
 
     Intended for use in ModelRegistry to cache loaded ONNX sessions.
+
     """
 
     def __init__(self, cache_size: int = 10) -> None:

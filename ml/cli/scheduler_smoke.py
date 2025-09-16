@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 """
 One-shot scheduler smoke runner (CI-friendly).
 
@@ -61,8 +60,10 @@ def main(argv: list[str] | None = None) -> int:
         _integ.MLIntegrationManager.__init__ = _init  # type: ignore[method-assign]
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "MLIntegrationManager monkeypatch failed (ignored): %s", exc
+            "MLIntegrationManager monkeypatch failed (ignored): %s",
+            exc,
         )
 
     # Stub heavy CLIs to make smoke fast and deterministic
@@ -78,16 +79,20 @@ def main(argv: list[str] | None = None) -> int:
                         f.write("id,time_index\n1,1\n")
                 except Exception as io_exc:
                     import logging as _logging
+
                     _logging.getLogger(__name__).debug(
-                        "Writing stub dataset failed (ignored): %s", io_exc
+                        "Writing stub dataset failed (ignored): %s",
+                        io_exc,
                     )
             return 0
 
         _build.main = _stub_build
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "Stub build_tft_dataset patch failed (ignored): %s", exc
+            "Stub build_tft_dataset patch failed (ignored): %s",
+            exc,
         )
 
     try:
@@ -96,8 +101,10 @@ def main(argv: list[str] | None = None) -> int:
         _tft.main = lambda argv=None: 0
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "Stub tft_cli patch failed (ignored): %s", exc
+            "Stub tft_cli patch failed (ignored): %s",
+            exc,
         )
 
     rc = int(_orch_main(orch_args))

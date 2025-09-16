@@ -28,7 +28,9 @@ class _ModelRegStub:
         return manifest.model_id
 
     def track_performance(self, model_id: str, metrics: dict[str, Any]) -> None:  # type: ignore[override]
-        self.calls.setdefault("track_performance", []).append({"model_id": model_id, "metrics": metrics})
+        self.calls.setdefault("track_performance", []).append(
+            {"model_id": model_id, "metrics": metrics},
+        )
 
     def deploy_model(self, model_id: str, target: str, config: dict[str, Any] | None = None) -> bool:  # type: ignore[override]
         self.calls.setdefault("deploy_model", []).append({"model_id": model_id, "target": target})
@@ -90,4 +92,3 @@ def test_register_or_refresh_features(tmp_path: Path) -> None:
     assert fid == "fs1"
     assert "fs1" in freg.features
     assert freg.features["fs1"].get("updated")
-

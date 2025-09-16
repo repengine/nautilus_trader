@@ -23,9 +23,9 @@ from ml._imports import Counter
 from ml.common.metrics_bootstrap import get_counter
 from ml.common.metrics_bootstrap import get_gauge
 from ml.common.metrics_bootstrap import get_histogram
+from ml.config.events import EventStatus as _status
 from ml.config.events import Source as _source
 from ml.config.events import Stage as _stage
-from ml.config.events import EventStatus as _status
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector

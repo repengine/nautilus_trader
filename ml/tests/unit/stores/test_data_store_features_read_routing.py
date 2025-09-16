@@ -55,4 +55,3 @@ def test_read_range_features_routes_to_feature_store_with_datetimes() -> None:
     assert isinstance(kwargs["end"], datetime)
     assert kwargs["start"] == datetime.fromtimestamp(start_ns / 1e9)
     assert kwargs["end"] == datetime.fromtimestamp(end_ns / 1e9)
-

@@ -9,6 +9,7 @@ Conversions are intentionally minimized. Where the underlying store accepts a
 `dict` but the protocol uses `Mapping`, we forward the mapping directly to avoid
 allocations on the hot path. Python call sites accept any mapping for JSON
 serialization and persistence.
+
 """
 
 from __future__ import annotations
@@ -28,7 +29,9 @@ class FeatureStoreStrictAdapter(FeatureStoreStrictProtocol):
 
     @property
     def connection_string(self) -> str | None:
-        """Expose underlying store connection string when available."""
+        """
+        Expose underlying store connection string when available.
+        """
         return getattr(self._store, "connection_string", None)
 
     def __getattr__(self, name: str) -> Any:  # pragma: no cover - passthrough

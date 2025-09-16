@@ -23,6 +23,7 @@ Options:
 Notes:
 - Designed for dev/test DBs. For production, schedule a maintenance window.
 - If tables already partitioned, script skips them.
+
 """
 
 from __future__ import annotations
@@ -307,7 +308,11 @@ def main(argv: list[str] | None = None) -> int:
 
     import os
 
-    db_url = args.db_url or os.getenv("DATABASE_URL") or "postgresql://postgres:postgres@localhost:5432/nautilus"
+    db_url = (
+        args.db_url
+        or os.getenv("DATABASE_URL")
+        or "postgresql://postgres:postgres@localhost:5432/nautilus"
+    )
     engine = EngineManager.get_engine(db_url)
 
     specs: dict[str, TableSpec] = {s.name: s for s in (FEATURES, PREDICTIONS, SIGNALS)}

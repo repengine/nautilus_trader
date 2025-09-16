@@ -380,6 +380,7 @@ class TestUnifiedRegistry:
 
         import hashlib
         import json
+
         schema_json = json.dumps(feature_schema, sort_keys=True)
         schema_hash = hashlib.sha256(schema_json.encode()).hexdigest()
 

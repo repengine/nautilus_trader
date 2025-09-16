@@ -56,19 +56,33 @@ def _signal_dict(draw: st.DrawFn) -> dict[str, Any]:  # type: ignore[name-define
     inst = draw(st.from_regex(r"[A-Z]{3,6}/[A-Z]{3,6}\.SIM", fullmatch=True))
     stype = draw(st.sampled_from(["BUY", "SELL", "HOLD"]))
     if stype == "BUY":
-        strength = draw(st.floats(min_value=0.0, max_value=1.0, allow_infinity=False, allow_nan=False))
+        strength = draw(
+            st.floats(min_value=0.0, max_value=1.0, allow_infinity=False, allow_nan=False),
+        )
     elif stype == "SELL":
-        strength = draw(st.floats(min_value=-1.0, max_value=0.0, allow_infinity=False, allow_nan=False))
+        strength = draw(
+            st.floats(min_value=-1.0, max_value=0.0, allow_infinity=False, allow_nan=False),
+        )
     else:
-        strength = draw(st.floats(min_value=-1.0, max_value=1.0, allow_infinity=False, allow_nan=False))
-    return {"strategy_id": sid, "instrument_id": inst, "signal_type": stype, "strength": float(strength)}
+        strength = draw(
+            st.floats(min_value=-1.0, max_value=1.0, allow_infinity=False, allow_nan=False),
+        )
+    return {
+        "strategy_id": sid,
+        "instrument_id": inst,
+        "signal_type": stype,
+        "strength": float(strength),
+    }
 
 
 @given(
     signals=st.lists(_signal_dict(), min_size=1, max_size=20),
     base_ts=st.integers(min_value=0, max_value=1_000_000_000),
 )
-def test_strategy_store_write_batch_invariants(signals: list[dict[str, Any]], base_ts: int) -> None:  # noqa: ANN201
+def test_strategy_store_write_batch_invariants(
+    signals: list[dict[str, Any]],
+    base_ts: int,
+) -> None:  # noqa: ANN201
     sink: list[dict[str, Any]] = []
     # Build monotonic timestamps and create data objects
     data: list[StrategySignal] = []

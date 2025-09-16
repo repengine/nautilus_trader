@@ -14,7 +14,13 @@ from ml.consumers.idempotent import IdempotentConsumer
 from ml.config.events import Source
 
 
-def _payload(dataset_id: str, instrument_id: str, source: str, ts_max: int, cid: str) -> dict[str, Any]:
+def _payload(
+    dataset_id: str,
+    instrument_id: str,
+    source: str,
+    ts_max: int,
+    cid: str,
+) -> dict[str, Any]:
     return {
         "dataset_id": dataset_id,
         "instrument_id": instrument_id,
@@ -30,7 +36,12 @@ def _payload(dataset_id: str, instrument_id: str, source: str, ts_max: int, cid:
     source=st.sampled_from([s.value for s in Source]),
     ts_values=st.lists(st.integers(min_value=0, max_value=10_000), min_size=3, max_size=20),
 )
-def test_idempotent_consumer_property(dataset_id: str, instrument_id: str, source: str, ts_values: list[int]) -> None:
+def test_idempotent_consumer_property(
+    dataset_id: str,
+    instrument_id: str,
+    source: str,
+    ts_values: list[int],
+) -> None:
     c = IdempotentConsumer()
     # Build a sequence of events with controlled duplicates and regressions
     seen: set[str] = set()
@@ -47,4 +58,3 @@ def test_idempotent_consumer_property(dataset_id: str, instrument_id: str, sourc
             assert accepted is True
             seen.add(cid)
             watermark = max(watermark, ts)
-

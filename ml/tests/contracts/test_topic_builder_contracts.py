@@ -54,10 +54,12 @@ def test_build_topic_for_stage_honors_env_defaults(monkeypatch: pytest.MonkeyPat
 @pytest.mark.contracts
 def test_stage_to_domain_op_mapping_contract() -> None:
     """
-    Contract test verifying the canonical mapping from Stage enum to (domain, operation) pairs.
+    Contract test verifying the canonical mapping from Stage enum to (domain, operation)
+    pairs.
 
-    This ensures that routing logic is consistent across the ML pipeline and that
-    stage-first schemes can be correctly mapped to domain_op schemes.
+    This ensures that routing logic is consistent across the ML pipeline and that stage-
+    first schemes can be correctly mapped to domain_op schemes.
+
     """
     # Define the expected canonical mappings
     expected_mappings = {
@@ -77,34 +79,38 @@ def test_stage_to_domain_op_mapping_contract() -> None:
             f"expected '{expected_domain}', got '{actual_domain}'"
         )
         assert actual_op == expected_op, (
-            f"Operation mismatch for {stage.value}: "
-            f"expected '{expected_op}', got '{actual_op}'"
+            f"Operation mismatch for {stage.value}: " f"expected '{expected_op}', got '{actual_op}'"
         )
 
 
 @pytest.mark.contracts
 def test_stage_first_vs_domain_op_equivalence() -> None:
     """
-    Contract test verifying that stage-first and domain_op schemes produce equivalent routing
-    for the same logical events, just with different topic structures.
+    Contract test verifying that stage-first and domain_op schemes produce equivalent
+    routing for the same logical events, just with different topic structures.
     """
     test_instrument = "EUR/USD.SIM"
 
-    for stage in [Stage.DATA_INGESTED, Stage.CATALOG_WRITTEN, Stage.FEATURE_COMPUTED,
-                  Stage.PREDICTION_EMITTED, Stage.SIGNAL_EMITTED]:
+    for stage in [
+        Stage.DATA_INGESTED,
+        Stage.CATALOG_WRITTEN,
+        Stage.FEATURE_COMPUTED,
+        Stage.PREDICTION_EMITTED,
+        Stage.SIGNAL_EMITTED,
+    ]:
 
         # Generate topics using both schemes
         domain_op_topic = build_topic_for_stage(
             stage=stage,
             instrument_id=test_instrument,
-            scheme="domain_op"
+            scheme="domain_op",
         )
 
         stage_first_topic = build_topic_for_stage(
             stage=stage,
             instrument_id=test_instrument,
             scheme="stage_first",
-            prefix="events.ml"
+            prefix="events.ml",
         )
 
         # Verify both contain normalized instrument
@@ -138,11 +144,11 @@ def test_wildcard_instrument_normalization_contract() -> None:
     # Test instruments with various special characters that need normalization
     problematic_instruments = [
         "EUR/USD*",  # Wildcard
-        "BTC#USD",   # MQTT topic wildcard
+        "BTC#USD",  # MQTT topic wildcard
         "GOLD+SILVER",  # Plus
         "OIL$FUTURES",  # Dollar sign
-        "GBP//JPY",     # Double slash
-        "SPY.NYSE*#",   # Multiple special chars
+        "GBP//JPY",  # Double slash
+        "SPY.NYSE*#",  # Multiple special chars
     ]
 
     for instrument in problematic_instruments:
@@ -150,39 +156,42 @@ def test_wildcard_instrument_normalization_contract() -> None:
         domain_op_topic = build_topic_for_stage(
             Stage.FEATURE_COMPUTED,
             instrument,
-            scheme="domain_op"
+            scheme="domain_op",
         )
 
         stage_first_topic = build_topic_for_stage(
             Stage.FEATURE_COMPUTED,
             instrument,
             scheme="stage_first",
-            prefix="events.ml"
+            prefix="events.ml",
         )
 
         # Verify no reserved characters remain in either topic
         for reserved_char in ["*", "#", "+", "$", "/"]:
-            assert reserved_char not in domain_op_topic, (
-                f"Reserved char '{reserved_char}' found in domain_op topic: {domain_op_topic}"
-            )
-            assert reserved_char not in stage_first_topic, (
-                f"Reserved char '{reserved_char}' found in stage_first topic: {stage_first_topic}"
-            )
+            assert (
+                reserved_char not in domain_op_topic
+            ), f"Reserved char '{reserved_char}' found in domain_op topic: {domain_op_topic}"
+            assert (
+                reserved_char not in stage_first_topic
+            ), f"Reserved char '{reserved_char}' found in stage_first topic: {stage_first_topic}"
 
         # Both should contain only allowed characters: A-Za-z0-9_.-
         import re
+
         allowed_pattern = re.compile(r"^[A-Za-z0-9_.-]+$")
 
         # Extract instrument segment from each topic
         domain_op_instrument = domain_op_topic.split(".")[-1] if "." in domain_op_topic else ""
-        stage_first_instrument = stage_first_topic.split(".")[-1] if "." in stage_first_topic else ""
+        stage_first_instrument = (
+            stage_first_topic.split(".")[-1] if "." in stage_first_topic else ""
+        )
 
         if domain_op_instrument:
-            assert allowed_pattern.match(domain_op_instrument), (
-                f"Invalid chars in domain_op instrument segment: '{domain_op_instrument}'"
-            )
+            assert allowed_pattern.match(
+                domain_op_instrument,
+            ), f"Invalid chars in domain_op instrument segment: '{domain_op_instrument}'"
 
         if stage_first_instrument:
-            assert allowed_pattern.match(stage_first_instrument), (
-                f"Invalid chars in stage_first instrument segment: '{stage_first_instrument}'"
-            )
+            assert allowed_pattern.match(
+                stage_first_instrument,
+            ), f"Invalid chars in stage_first instrument segment: '{stage_first_instrument}'"

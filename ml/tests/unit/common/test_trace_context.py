@@ -45,4 +45,3 @@ def test_extract_and_link_from_event_graceful_when_tracing_missing(monkeypatch):
 
     # Should not raise
     extract_and_link_from_event({"trace_context": {}})
-

@@ -12,7 +12,15 @@ import pytest
 from ml._imports import HAS_POLARS, pl
 from ml.config.events import EventStatus, Source, Stage
 from ml.ml_types import DataFrameLike
-from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, StorageKind, ValidationRule, ValidationRuleType, QualityFlag
+from ml.registry.dataclasses import (
+    DataContract,
+    DatasetManifest,
+    DatasetType,
+    StorageKind,
+    ValidationRule,
+    ValidationRuleType,
+    QualityFlag,
+)
 from ml.stores.data_store import DataStore
 from ml.stores.io_raw import RawIngestionWriterProtocol, RawReaderProtocol
 
@@ -28,7 +36,9 @@ class _RecordedEvent:
 
 
 class _TestRegistry:
-    """Lightweight stub for RegistryProtocol used in unit tests."""
+    """
+    Lightweight stub for RegistryProtocol used in unit tests.
+    """
 
     def __init__(self, manifest: DatasetManifest, contract: DataContract) -> None:
         self._manifest = manifest
@@ -179,7 +189,12 @@ def _make_contract(dataset_id: str) -> DataContract:
 
 def _make_df(instrument: str, n: int = 3) -> DataFrameLike:
     rows = [
-        {"instrument_id": instrument, "ts_event": 1_000 + i, "ts_init": 2_000 + i, "value": float(i)}
+        {
+            "instrument_id": instrument,
+            "ts_event": 1_000 + i,
+            "ts_init": 2_000 + i,
+            "value": float(i),
+        }
         for i in range(n)
     ]
     if not HAS_POLARS:
@@ -286,6 +301,8 @@ def test_raw_read_with_reader_respects_range(
 
     # Verify returned structure contains required fields
     if HAS_POLARS:
-        assert hasattr(df_any, "columns") and set(["instrument_id", "ts_event"]).issubset(set(df_any.columns))
+        assert hasattr(df_any, "columns") and set(["instrument_id", "ts_event"]).issubset(
+            set(df_any.columns),
+        )
     else:
         assert isinstance(df_any, list) and df_any and "instrument_id" in df_any[0]

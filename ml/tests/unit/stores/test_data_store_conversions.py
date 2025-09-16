@@ -2,6 +2,7 @@
 Unit tests for DataStore conversion helpers (_df_to_predictions/_df_to_signals).
 
 Ensures correct mapping from dict/pandas (and polars when available) to dataclasses.
+
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ def test_df_to_predictions_from_dicts() -> None:
             "ts_event": 123,
             "ts_init": 123,
             "features_used": {"f": 1.0},
-        }
+        },
     ]
     preds = ds._df_to_predictions(rows)
     assert len(preds) == 1
@@ -63,8 +64,8 @@ def test_df_to_predictions_from_pandas() -> None:
                 "confidence": 0.9,
                 "ts_event": 456,
                 "ts_init": 456,
-            }
-        ]
+            },
+        ],
     )
     preds = ds._df_to_predictions(df)
     assert len(preds) == 1
@@ -83,7 +84,7 @@ def test_df_to_signals_from_dicts() -> None:
             "ts_event": 789,
             "ts_init": 789,
             "risk_metrics": {"r": 1},
-        }
+        },
     ]
     sigs = ds._df_to_signals(rows)
     assert len(sigs) == 1
@@ -94,7 +95,10 @@ def test_df_to_signals_from_dicts() -> None:
     assert s.signal_type == "BUY"
 
 
-@pytest.mark.skipif(pytest.importorskip("polars", reason="polars not installed") is None, reason="polars missing")
+@pytest.mark.skipif(
+    pytest.importorskip("polars", reason="polars not installed") is None,
+    reason="polars missing",
+)
 def test_df_to_predictions_from_polars() -> None:
     import polars as pl
 
@@ -107,10 +111,9 @@ def test_df_to_predictions_from_polars() -> None:
             "confidence": [0.6],
             "ts_event": [999],
             "ts_init": [999],
-        }
+        },
     )
     preds = ds._df_to_predictions(pdf)
     assert len(preds) == 1
     assert preds[0].model_id == "mP"
     assert preds[0].instrument_id == "AAPL"
-

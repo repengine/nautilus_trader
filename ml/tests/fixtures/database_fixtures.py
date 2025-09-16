@@ -182,13 +182,18 @@ class TestDatabase:
 
                     # Execute SQL statements, respecting dollar-quoted function bodies
                     from typing import Callable, Iterable, cast as _cast
+
                     try:
-                        from ml.cli.apply_migrations import _split_statements as _split  # noqa: WPS433
+                        from ml.cli.apply_migrations import (
+                            _split_statements as _split,
+                        )  # noqa: WPS433
+
                         splitter: Callable[[str], Iterable[str]] = _split
                     except Exception:
                         # Fallback simple splitter if import fails
                         def _fallback_splitter(x: str) -> list[str]:
                             return [s for s in x.split(";") if s.strip()]
+
                         splitter = _fallback_splitter
 
                     for statement in splitter(sql):

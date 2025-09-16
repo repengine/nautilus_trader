@@ -138,6 +138,7 @@ Optional dependencies are handled gracefully:
 - FRED API: Economic data integration (optional)
 
 See ml/_imports.py for dependency management patterns.
+
 """
 
 # Enable postponed evaluation of annotations to avoid importing optional deps for types
@@ -191,7 +192,7 @@ from ml.data.sources.metadata import NautilusMetadataSource
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 
 
-__all__ = [  # noqa: RUF022
+__all__ = [
     # Core data conversion utilities
     "BackoffPolicy",
     "BuildResult",
@@ -278,21 +279,31 @@ class BuildResult:
 
 
 def _infer_feature_columns(df: Any) -> list[str]:
-    """Infer numeric feature columns, excluding label/index/meta fields."""
+    """
+    Infer numeric feature columns, excluding label/index/meta fields.
+    """
     exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
-    from ml._imports import HAS_PANDAS, pl, pd
+    from ml._imports import HAS_PANDAS
+    from ml._imports import pd
+    from ml._imports import pl
+
     if pl is not None and isinstance(df, pl.DataFrame):
         return [c for c in df.columns if df[c].dtype.is_numeric() and c not in exclude]
-    if HAS_PANDAS and pd is not None and isinstance(df, pd.DataFrame):  # pragma: no cover - alt path
+    if (
+        HAS_PANDAS and pd is not None and isinstance(df, pd.DataFrame)
+    ):  # pragma: no cover - alt path
         numeric = df.select_dtypes(include=[np.number]).columns.tolist()
         return [c for c in numeric if c not in exclude]
     return []
 
 
 def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
-    """Build a TFT dataset and persist artifacts under `cfg.out_dir`."""
+    """
+    Build a TFT dataset and persist artifacts under `cfg.out_dir`.
+    """
     from ml._imports import check_ml_dependencies
     from ml._imports import pl
+
     if pl is None:
         check_ml_dependencies(["polars"])  # Guard for cold-path environment
 
@@ -315,12 +326,15 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     )
 
     # Optional chunked build (date slices)
-    from ml._imports import HAS_POLARS, pl
+    from ml._imports import HAS_POLARS
+    from ml._imports import pl
     from ml.ml_types import PolarsDF
+
     assert HAS_POLARS and pl is not None
     df: PolarsDF
     if cfg.chunk_days > 0 and cfg.start and cfg.end:
         from ml.ml_types import PolarsDF
+
         dfs: list[PolarsDF] = []
         cursor = cfg.start
         while cursor < cfg.end:
@@ -350,7 +364,9 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         if isinstance(df_any, pl.DataFrame):
             df = df_any
         else:  # pragma: no cover - fallback path
-            from ml._imports import HAS_PANDAS, pd
+            from ml._imports import HAS_PANDAS
+            from ml._imports import pd
+
             if not HAS_PANDAS:
                 check_ml_dependencies(["pandas"])  # pragma: no cover
             assert pd is not None
@@ -363,7 +379,9 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     df.write_csv(str(dataset_csv))
 
     # Build feature matrix artifacts
-    from ml._imports import HAS_PANDAS, pd
+    from ml._imports import HAS_PANDAS
+    from ml._imports import pd
+
     if not HAS_PANDAS:
         check_ml_dependencies(["pandas"])  # pragma: no cover
     assert pd is not None
@@ -380,7 +398,12 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
     X_train = X[:cutoff]
     X_val = X[cutoff:]
     features_npz = cfg.out_dir / "features_npz.npz"
-    np.savez_compressed(features_npz, X_train=X_train, X_val=X_val, feature_names=np.array(feature_names))
+    np.savez_compressed(
+        features_npz,
+        X_train=X_train,
+        X_val=X_val,
+        feature_names=np.array(feature_names),
+    )
 
     # Optional feature registration
     feature_set_id: str | None = None
@@ -430,8 +453,9 @@ def __getattr__(name: str) -> object:
     """
     Lazy import heavy or cycle-prone symbols.
 
-    This avoids importing FRED loader modules at ml.data import time,
-    preventing cycles when stores import ml.data.
+    This avoids importing FRED loader modules at ml.data import time, preventing cycles
+    when stores import ml.data.
+
     """
     if name in {"FREDConfig", "FREDDataLoader", "FREDIndicator"}:
         from ml.data.loaders import fred_loader as _fred

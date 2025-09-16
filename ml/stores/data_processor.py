@@ -208,6 +208,7 @@ class DataProcessor:
         # free variable `metrics` without binding it locally.
         try:
             import builtins as _b
+
             _b.metrics = metrics  # type: ignore[attr-defined]
         except Exception as exc:
             logger.debug("Exposing metrics via builtins failed (ignored): %s", exc)
@@ -316,12 +317,16 @@ class DataProcessor:
 
         try:
             import builtins as _b
+
             _b.metrics = metrics  # type: ignore[attr-defined]
         except Exception as exc:
             try:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
-                    "Exposing builtins.metrics (features) failed: %s", exc, exc_info=True
+                    "Exposing builtins.metrics (features) failed: %s",
+                    exc,
+                    exc_info=True,
                 )
             except Exception:
                 ...
@@ -560,12 +565,16 @@ class DataProcessor:
 
         try:
             import builtins as _b
+
             _b.metrics = metrics  # type: ignore[attr-defined]
         except Exception as exc:
             try:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
-                    "Exposing builtins.metrics (signals) failed: %s", exc, exc_info=True
+                    "Exposing builtins.metrics (signals) failed: %s",
+                    exc,
+                    exc_info=True,
                 )
             except Exception:
                 ...
@@ -781,6 +790,7 @@ class DataProcessor:
         try:
             with self.engine.connect() as conn:
                 from ml.stores.services.common_stats import select_avg_std as _avgstd
+
                 expr = "(bid + ask) / 2"
                 frag = _avgstd(expr, avg_alias="mean", std_alias="std")
                 result = conn.execute(
@@ -979,6 +989,7 @@ class DataProcessor:
 
         try:
             import builtins as _b
+
             _b.metrics = total_metrics  # type: ignore[attr-defined]
         except Exception as exc:
             logger.debug("Exposing aggregated metrics via builtins failed: %s", exc)

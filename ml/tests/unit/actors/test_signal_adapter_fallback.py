@@ -10,7 +10,11 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 
 
-def test_invalid_policy_falls_back_to_threshold(tmp_path: Any, default_instrument_id, default_bar_type) -> None:
+def test_invalid_policy_falls_back_to_threshold(
+    tmp_path: Any,
+    default_instrument_id,
+    default_bar_type,
+) -> None:
     cfg = MLConfigBuilder.signal_config(
         model_path=str(tmp_path / "model.onnx"),
         model_id="demo",

@@ -179,6 +179,7 @@ When upgrading from older ML strategy implementations:
 - `ml.config.base`: Configuration classes and validation
 - `ml.stores`: Data persistence and retrieval
 - `ml.common.protocols`: Component interfaces and protocols
+
 """
 
 from ml.strategies.base import BaseMLStrategy

@@ -141,6 +141,7 @@ class MarketDataWriterProtocol(Protocol):
 
 # Optional stricter protocols for new components (adopt incrementally)
 
+
 class FeatureStoreStrictProtocol(Protocol):
     def write_features(
         self,
@@ -191,6 +192,7 @@ class DataStoreFacadeProtocol(Protocol):
     Minimal facade for actor-attached data store.
 
     Only the methods exercised by actors are included to keep the protocol narrow.
+
     """
 
     def flush(self) -> None: ...

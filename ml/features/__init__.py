@@ -181,60 +181,80 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    """Lazy import implementation to avoid circular imports."""
+    """
+    Lazy import implementation to avoid circular imports.
+    """
     if name == "FeatureConfig":
         from ml.features.engineering import FeatureConfig
+
         return FeatureConfig
     elif name == "FeatureEngineer":
         from ml.features.engineering import FeatureEngineer
+
         return FeatureEngineer
     elif name == "IndicatorManager":
         from ml.features.engineering import IndicatorManager
+
         return IndicatorManager
     elif name == "FeatureTransform":
         from ml.features.pipeline import FeatureTransform
+
         return FeatureTransform
     elif name == "PipelineSpec":
         from ml.features.pipeline import PipelineSpec
+
         return PipelineSpec
     elif name == "PipelineRunner":
         from ml.features.pipeline import PipelineRunner
+
         return PipelineRunner
     elif name == "TransformSpec":
         from ml.features.pipeline import TransformSpec
+
         return TransformSpec
     elif name == "register_transform":
         from ml.features.pipeline import register_transform
+
         return register_transform
     elif name == "FeatureParityValidator":
         from ml.features.validation import FeatureParityValidator
+
         return FeatureParityValidator
     elif name == "FeatureParityError":
         from ml.features.validation import FeatureParityError
+
         return FeatureParityError
     elif name == "validate_feature_parity":
         from ml.features.validation import validate_feature_parity
+
         return validate_feature_parity
     elif name == "L2MicrostructureFeatures":
         from ml.features.microstructure import L2MicrostructureFeatures
+
         return L2MicrostructureFeatures
     elif name == "L3TradeFlowFeatures":
         from ml.features.microstructure import L3TradeFlowFeatures
+
         return L3TradeFlowFeatures
     elif name == "L2Aggregator":
         from ml.features.l2_aggregate import L2Aggregator
+
         return L2Aggregator
     elif name == "aggregate_l2_minute_pl":
         from ml.features.l2_aggregate import aggregate_l2_minute_pl
+
         return aggregate_l2_minute_pl
     elif name == "MicrostructureAggregator":
         from ml.features.micro_aggregate import MicrostructureAggregator
+
         return MicrostructureAggregator
     elif name == "aggregate_microstructure_minute_pl":
         from ml.features.micro_aggregate import aggregate_microstructure_minute_pl
+
         return aggregate_microstructure_minute_pl
     elif name == "register_feature_set_from_engineer":
         from ml.features.feature_export import register_feature_set_from_engineer
+
         return register_feature_set_from_engineer
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

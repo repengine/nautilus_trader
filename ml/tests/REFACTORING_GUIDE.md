@@ -7,6 +7,7 @@ This guide explains how to use the new test fixture system to eliminate duplicat
 ## Available Fixtures
 
 ### Core Type Fixtures
+
 ```python
 # Import from conftest or use as pytest fixtures
 default_venue          # Venue("SIM")
@@ -16,6 +17,7 @@ test_component_id     # ComponentId("TEST-001")
 ```
 
 ### Configuration Fixtures
+
 ```python
 base_ml_config        # MLActorConfig with all required fields
 base_signal_config    # MLSignalActorConfig with signal-specific fields
@@ -24,12 +26,14 @@ model_registry_config # ModelRegistryConfig for registry testing
 ```
 
 ### Model Fixtures
+
 ```python
 dummy_onnx_model     # Path to valid ONNX model file
 dummy_xgboost_model  # Path to valid XGBoost model file
 ```
 
 ### Mock Fixtures
+
 ```python
 mock_model_registry   # Fully configured model registry mock
 mock_feature_registry # Fully configured feature registry mock
@@ -38,6 +42,7 @@ mock_stores_bundle   # Dictionary with all store mocks
 ```
 
 ### Data Fixtures
+
 ```python
 sample_features       # Dictionary of feature values
 sample_predictions    # NumPy array of predictions
@@ -49,6 +54,7 @@ sample_feature_manifest # FeatureManifest instance
 ## Builder Classes
 
 ### MLConfigBuilder
+
 ```python
 from ml.tests.builders import MLConfigBuilder
 
@@ -59,6 +65,7 @@ strategy_config = MLConfigBuilder.strategy_config(max_positions=5)
 ```
 
 ### MockBuilder
+
 ```python
 from ml.tests.builders import MockBuilder
 
@@ -69,6 +76,7 @@ all_registries = MockBuilder.all_registries()  # Get all 4 registries
 ```
 
 ### DataBuilder
+
 ```python
 from ml.tests.builders import DataBuilder
 
@@ -80,6 +88,7 @@ signals = DataBuilder.signal_data(n_signals=10)
 ```
 
 ### RegistryBuilder
+
 ```python
 from ml.tests.builders import RegistryBuilder
 
@@ -91,13 +100,14 @@ strategy_manifest = RegistryBuilder.strategy_manifest(strategy_id="test_strategy
 
 ## Refactoring Examples
 
-### Before (with duplication):
+### Before (with duplication)
+
 ```python
 def test_something():
     # 20+ lines of setup
     bar_type = BarType.from_str("EUR/USD.SIM-1-MINUTE-MID-INTERNAL")
     instrument_id = InstrumentId.from_str("EUR/USD.SIM")
-    
+
     config = MLActorConfig(
         model_id="test_model",
         model_path="/tmp/model.onnx",
@@ -107,22 +117,24 @@ def test_something():
         warm_up_period=10,
         # ... many more fields
     )
-    
+
     mock_registry = MagicMock()
     mock_model_info = MagicMock()
     # ... lots of mock setup
-    
+
     # Actual test logic (5 lines)
 ```
 
-### After (using fixtures):
+### After (using fixtures)
+
 ```python
 def test_something(base_ml_config, mock_model_registry):
     # Actual test logic (5 lines)
     assert base_ml_config.model_id == "test_model"
 ```
 
-### Using Builders for Custom Configs:
+### Using Builders for Custom Configs
+
 ```python
 def test_custom_config():
     # Create config with specific overrides
@@ -130,7 +142,7 @@ def test_custom_config():
         model_id="custom_model",
         prediction_threshold=0.7
     )
-    
+
     # All other fields have sensible defaults
     assert config.use_dummy_stores is True  # Safe default for testing
 ```
@@ -138,6 +150,7 @@ def test_custom_config():
 ## Common Patterns to Replace
 
 ### 1. Replace String Parsing
+
 ```python
 # OLD
 bar_type = BarType.from_str("EUR/USD.SIM-1-MINUTE-MID-INTERNAL")
@@ -149,6 +162,7 @@ def test_foo(default_bar_type, default_instrument_id):
 ```
 
 ### 2. Replace Config Creation
+
 ```python
 # OLD - 20+ lines of config
 config = MLActorConfig(...)
@@ -156,12 +170,13 @@ config = MLActorConfig(...)
 # NEW - Use fixture or builder
 def test_foo(base_ml_config):
     # Use directly
-    
+
 # OR for custom config
 config = MLConfigBuilder.actor_config(model_id="custom")
 ```
 
 ### 3. Replace Mock Setup
+
 ```python
 # OLD - 30+ lines of mock setup
 mock_registry = MagicMock()

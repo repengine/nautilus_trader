@@ -5,7 +5,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402  # Allow module docstring preceding imports per project style
 
-
 """
 Promotion helpers for the pipeline orchestrator (cold path).
 
@@ -37,8 +36,11 @@ def _ensure_parent_dir(path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "Creating parent directory failed (ignored): %s", exc, exc_info=True
+            "Creating parent directory failed (ignored): %s",
+            exc,
+            exc_info=True,
         )
 
 
@@ -72,6 +74,7 @@ def register_and_promote_model(
         If True and gates pass, deploy to ``deploy_target`` when provided.
     deploy_target : str | None
         Target identifier for deployment.
+
     """
     # Load metrics and resolve model/artifacts
     metrics_path = Path(model_metrics_path)
@@ -105,7 +108,9 @@ def register_and_promote_model(
     manifest = ModelManifest(
         model_id=model_id,
         role=ModelRole.TEACHER if not serveable else ModelRole.INFERENCE,
-        data_requirements=DataRequirements.HISTORICAL if not serveable else DataRequirements.L1_ONLY,
+        data_requirements=(
+            DataRequirements.HISTORICAL if not serveable else DataRequirements.L1_ONLY
+        ),
         architecture=architecture,
         feature_schema=feature_schema or {},
         feature_schema_hash=feature_schema_hash,
@@ -135,16 +140,24 @@ def register_and_promote_model(
             registry.deploy_model(model_id_out, deploy_target)
         except Exception as exc:
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
-                "Model deploy failed (continuing to emit event): %s", exc, exc_info=True
+                "Model deploy failed (continuing to emit event): %s",
+                exc,
+                exc_info=True,
             )
 
     # Emit SUCCESS event for registration/promotion (best-effort)
     try:
         from ml.core.integration import MLIntegrationManager
 
-        mgr = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+        mgr = MLIntegrationManager(
+            auto_start_postgres=False,
+            auto_migrate=False,
+            ensure_healthy=False,
+        )
         from typing import Any, cast
+
         data_registry = mgr.data_registry
         emit_dataset_event(
             cast(Any, data_registry),
@@ -167,8 +180,11 @@ def register_and_promote_model(
         )
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "Emit model registration event failed: %s", exc, exc_info=True
+            "Emit model registration event failed: %s",
+            exc,
+            exc_info=True,
         )
 
     return str(model_id_out)
@@ -184,6 +200,7 @@ def register_or_refresh_features(
 
     The metrics JSON must contain at least ``feature_set_id`` and can include
     a mapping of numeric metrics which are persisted into ``perf_digest``.
+
     """
     data = _load_json(Path(feature_metrics_path))
     feature_set_id = str(data.get("feature_set_id", "")).strip()
@@ -220,8 +237,13 @@ def register_or_refresh_features(
     try:
         from ml.core.integration import MLIntegrationManager
 
-        mgr = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+        mgr = MLIntegrationManager(
+            auto_start_postgres=False,
+            auto_migrate=False,
+            ensure_healthy=False,
+        )
         from typing import Any, cast
+
         data_registry = mgr.data_registry
         emit_dataset_event(
             cast(Any, data_registry),
@@ -240,8 +262,11 @@ def register_or_refresh_features(
         )
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "Emit feature registration event failed: %s", exc, exc_info=True
+            "Emit feature registration event failed: %s",
+            exc,
+            exc_info=True,
         )
 
     return feature_set_id

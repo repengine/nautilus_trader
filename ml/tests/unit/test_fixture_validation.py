@@ -15,7 +15,9 @@ from ml.tests.builders import MLConfigBuilder, MockBuilder, DataBuilder
 
 
 def test_default_fixtures(default_bar_type, default_instrument_id):
-    """Test that default fixtures work."""
+    """
+    Test that default fixtures work.
+    """
     assert isinstance(default_bar_type, BarType)
     assert str(default_bar_type) == "EUR/USD.SIM-1-MINUTE-MID-INTERNAL"
 
@@ -24,7 +26,9 @@ def test_default_fixtures(default_bar_type, default_instrument_id):
 
 
 def test_ml_config_fixtures(base_ml_config, base_signal_config):
-    """Test ML configuration fixtures."""
+    """
+    Test ML configuration fixtures.
+    """
     assert isinstance(base_ml_config, MLActorConfig)
     assert base_ml_config.model_id == "test_model"
     assert base_ml_config.warm_up_period == 10
@@ -37,7 +41,9 @@ def test_ml_config_fixtures(base_ml_config, base_signal_config):
 
 
 def test_model_fixtures(dummy_onnx_model, dummy_xgboost_model):
-    """Test model file fixtures."""
+    """
+    Test model file fixtures.
+    """
     assert isinstance(dummy_onnx_model, Path)
     assert dummy_onnx_model.exists()
     assert dummy_onnx_model.suffix == ".onnx"
@@ -48,7 +54,9 @@ def test_model_fixtures(dummy_onnx_model, dummy_xgboost_model):
 
 
 def test_mock_fixtures(mock_model_registry, mock_feature_registry, mock_data_store):
-    """Test mock fixtures."""
+    """
+    Test mock fixtures.
+    """
     # Test model registry mock
     model_info = mock_model_registry.get_model("test_model")
     assert model_info.manifest.model_id == "test_model_v1"
@@ -65,7 +73,9 @@ def test_mock_fixtures(mock_model_registry, mock_feature_registry, mock_data_sto
 
 
 def test_config_builder():
-    """Test MLConfigBuilder."""
+    """
+    Test MLConfigBuilder.
+    """
     # Test actor config builder
     config = MLConfigBuilder.actor_config(model_id="custom_model")
     assert config.model_id == "custom_model"
@@ -83,7 +93,9 @@ def test_config_builder():
 
 
 def test_mock_builder():
-    """Test MockBuilder."""
+    """
+    Test MockBuilder.
+    """
     # Test model registry builder
     registry = MockBuilder.model_registry(model_id="custom_model", version="2.0.0")
     model_info = registry.get_model("custom_model")
@@ -103,7 +115,9 @@ def test_mock_builder():
 
 
 def test_data_builder():
-    """Test DataBuilder."""
+    """
+    Test DataBuilder.
+    """
     # Test feature data generation
     features = DataBuilder.feature_data(n_samples=50, n_features=5)
     assert features.shape == (50, 5)
@@ -127,7 +141,9 @@ def test_data_builder():
 
 
 def test_sample_data_fixtures(sample_features, sample_predictions, test_timestamps):
-    """Test sample data fixtures."""
+    """
+    Test sample data fixtures.
+    """
     assert isinstance(sample_features, dict)
     assert "sma_20" in sample_features
     assert "rsi" in sample_features

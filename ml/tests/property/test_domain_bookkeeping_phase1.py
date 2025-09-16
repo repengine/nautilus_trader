@@ -30,9 +30,12 @@ from nautilus_trader.model.identifiers import InstrumentId
 # Strategies that can optionally use DataBuilder
 @st.composite
 def ml_timestamps(draw, use_builder=False):
-    """Generate ML pipeline timestamps, optionally using DataBuilder."""
+    """
+    Generate ML pipeline timestamps, optionally using DataBuilder.
+    """
     if use_builder:
         from ml.tests.builders import DataBuilder
+
         timestamps = DataBuilder.time_series(n_points=1)
         return int(timestamps[0])
     return draw(st.integers(min_value=0, max_value=2**63 - 1))
@@ -40,7 +43,9 @@ def ml_timestamps(draw, use_builder=False):
 
 @st.composite
 def instrument_ids_strategy(draw, use_builder=False):
-    """Generate instrument IDs, optionally using DataBuilder."""
+    """
+    Generate instrument IDs, optionally using DataBuilder.
+    """
     if use_builder:
         # Use default instrument ID pattern from fixtures
         return "EUR/USD.SIM"

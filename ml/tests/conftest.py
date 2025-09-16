@@ -176,6 +176,7 @@ def database_engine() -> Generator[Engine, None, None]:
     """
     # Use conservative pooling for tests (prevents exhaustion)
     from ml.core.db_engine import EngineManager as _EM
+
     engine = _EM.get_engine(
         DATABASE_URL,
         pool_size=2,  # Small pool for tests
@@ -345,6 +346,7 @@ def clean_postgres_db() -> Generator[None, None, None]:
         return
 
     from ml.core.db_engine import EngineManager as _EM
+
     engine = _EM.get_engine(
         DATABASE_URL,
         pool_size=2,
@@ -431,6 +433,7 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
 
     """
     from ml.core.db_engine import EngineManager as _EM
+
     engine = _EM.get_engine(
         DATABASE_URL,
         pool_size=2,
@@ -467,8 +470,15 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
         except Exception as exc:
             print(f"clean_postgres_db_class cleanup skipped: {exc}")
 
-    # Clean before class; disable per-test TRUNCATE while this fixture is active
+    # Clean before class under interprocess DB lock; disable per-test TRUNCATE while active
     import os as _os
+
+    fh = _acquire_db_lock("db")
+    try:
+        if fh is None:
+            print("clean_postgres_db_class: DB lock not acquired; proceeding without lock")
+    except Exception:
+        fh = None
 
     _prev = _os.getenv("TEST_DB_SKIP_TRUNCATE")
     _os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
@@ -482,6 +492,10 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
         _os.environ.pop("TEST_DB_SKIP_TRUNCATE", None)
     else:
         _os.environ["TEST_DB_SKIP_TRUNCATE"] = _prev
+
+    # Release lock
+    if fh is not None:
+        _release_db_lock(fh)
 
 
 @pytest.fixture(scope="module")
@@ -499,6 +513,7 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
 
     """
     from ml.core.db_engine import EngineManager as _EM
+
     engine = _EM.get_engine(
         DATABASE_URL,
         pool_size=2,
@@ -537,6 +552,14 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
 
     import os as _os
 
+    # Acquire interprocess DB lock during module-scope cleanup to avoid cross-worker races
+    fh = _acquire_db_lock("db")
+    try:
+        if fh is None:
+            print("clean_postgres_db_module: DB lock not acquired; proceeding without lock")
+    except Exception:
+        fh = None
+
     _prev = _os.getenv("TEST_DB_SKIP_TRUNCATE")
     _os.environ["TEST_DB_SKIP_TRUNCATE"] = "1"
     _truncate_all()
@@ -546,6 +569,9 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
         _os.environ.pop("TEST_DB_SKIP_TRUNCATE", None)
     else:
         _os.environ["TEST_DB_SKIP_TRUNCATE"] = _prev
+
+    if fh is not None:
+        _release_db_lock(fh)
 
 
 # ============================================================================
@@ -566,6 +592,7 @@ def test_database() -> Generator[TestDatabase, None, None]:
         pytest.skip(f"PostgreSQL not reachable at {DATABASE_URL}")
 
     from ml.core.db_engine import EngineManager as _EM
+
     engine = _EM.get_engine(
         DATABASE_URL,
         pool_size=2,
@@ -955,10 +982,12 @@ _DB_LOCK_FH: dict[str, Any] = {}
 
 def _acquire_db_lock(name: str = "db") -> Any:
     """
-    Acquire an interprocess file lock to serialize DB/serial-marked tests across workers.
+    Acquire an interprocess file lock to serialize DB/serial-marked tests across
+    workers.
 
-    This complements xdist grouping and is effective regardless of the distribution
-    mode in use. On POSIX systems, uses fcntl.flock for advisory locking.
+    This complements xdist grouping and is effective regardless of the distribution mode
+    in use. On POSIX systems, uses fcntl.flock for advisory locking.
+
     """
     from pathlib import Path as _Path
 
@@ -1021,11 +1050,14 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     if "database" in item.keywords or "serial" in item.keywords:
         # Allow disabling the interprocess DB lock for local runs
         import os as _os
+
         if _os.getenv("ML_TEST_DISABLE_DB_LOCK") in {"1", "true", "True"}:
             return
         fh = _acquire_db_lock("db")
         if fh is None:
-            item.add_marker(pytest.mark.skip(reason="DB lock contention timeout; skipping to avoid hang"))
+            item.add_marker(
+                pytest.mark.skip(reason="DB lock contention timeout; skipping to avoid hang"),
+            )
             return
         _DB_LOCK_FH[item.nodeid] = fh
 
@@ -1132,6 +1164,7 @@ def pytest_sessionfinish(session, exitstatus):
     """
     # Final cleanup of all database connections
     from ml.core.db_engine import EngineManager as _EM
+
     _EM.dispose_all()
 
     # Log session summary

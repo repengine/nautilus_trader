@@ -42,6 +42,7 @@ This validates config parsing and orchestrator argument flow without requiring a
 The scheduler invokes the orchestrator: `python -m ml.cli.pipeline_orchestrator`.
 
 Key flags:
+
 - Ingestion/backfill (optional): `--ingest`, `--dataset_id`, `--schema`, `--instruments`, `--lookback_days`
 - Coverage/Writer: `--coverage_mode catalog|sql`, `--catalog_path`, `--db`, `--write_mode parquet|datastore`
 - Dataset: `--data_dir`, `--symbols`, `--out_dir`, `--include_macro`, `--include_micro`, `--include_l2`, `--horizon_minutes`, `--threshold`, `--lookback_periods`

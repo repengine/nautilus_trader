@@ -242,6 +242,7 @@ print(result.dataset_parquet)
 ```
 
 For full design rationale and rules, see [architecture/universal_patterns_guide.md](architecture/universal_patterns_guide.md) → “Public API Facades”.
+
 - **Code Examples**: Practical implementation examples with production configurations
 - **Current State Accuracy**: Real-time reflection of implemented functionality and completion status
 

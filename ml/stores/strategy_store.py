@@ -44,10 +44,10 @@ from ml.stores.services.strategy_services import StrategySignalWriteService
 
 if TYPE_CHECKING:
     import pandas as pd
-    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -366,7 +366,9 @@ class StrategyStore(
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """Record observability data via centralized helper (cold path only)."""
+        """
+        Record observability data via centralized helper (cold path only).
+        """
         from ml.common.observability_utils import record_stage_boundary as _rec
 
         obs_service = getattr(self, "_observability_service", None)
@@ -677,6 +679,7 @@ class StrategyStore(
         Returns a DataFrame with columns:
         strategy_id, instrument_id, signal_type, strength, model_predictions,
         risk_metrics, execution_params, ts_event, ts_init.
+
         """
         from typing import cast as _cast
 

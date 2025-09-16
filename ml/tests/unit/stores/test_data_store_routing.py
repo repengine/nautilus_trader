@@ -1,8 +1,9 @@
 """
 DataStore routing tests (DB-free) for predictions and signals datasets.
 
-Verifies that write_ingestion routes to the correct underlying store method
-based on the dataset manifest type.
+Verifies that write_ingestion routes to the correct underlying store method based on the
+dataset manifest type.
+
 """
 
 from __future__ import annotations
@@ -211,7 +212,10 @@ def test_read_routing_predictions_to_model_store(
     )
     assert out is sentinel
     mock_model_store.read_predictions.assert_called_once_with(
-        model_id="modelX", instrument_id="EUR/USD", start_ns=111, end_ns=222
+        model_id="modelX",
+        instrument_id="EUR/USD",
+        start_ns=111,
+        end_ns=222,
     )
     mock_strategy_store.read_signals.assert_not_called()
 
@@ -244,6 +248,9 @@ def test_read_routing_signals_to_strategy_store(
     )
     assert out is sentinel
     mock_strategy_store.read_signals.assert_called_once_with(
-        strategy_id="stratB", instrument_id="EUR/USD", start_ns=333, end_ns=444
+        strategy_id="stratB",
+        instrument_id="EUR/USD",
+        start_ns=333,
+        end_ns=444,
     )
     mock_model_store.read_predictions.assert_not_called()

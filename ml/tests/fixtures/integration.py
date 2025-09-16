@@ -1,9 +1,10 @@
 """
 Integration test fixtures consolidated for reuse.
 
-These fixtures were moved from ml/tests/integration/conftest.py to centralize
-fixture discovery. Tests can continue to rely on pytest fixture resolution; no
-direct imports are required.
+These fixtures were moved from ml/tests/integration/conftest.py to centralize fixture
+discovery. Tests can continue to rely on pytest fixture resolution; no direct imports
+are required.
+
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ def test_instrument() -> CurrencyPair:
     -------
     CurrencyPair
         Test EURUSD instrument
+
     """
 
     return TestInstrumentProvider.default_fx_ccy("EURUSD", venue=TEST_VENUE)
@@ -63,6 +65,7 @@ def test_bar_type() -> BarType:
     -------
     BarType
         Test bar type for 1-minute EURUSD bars
+
     """
 
     return BarType.from_str("EURUSD.SIM-1-MINUTE-LAST-EXTERNAL")
@@ -84,6 +87,7 @@ def generate_test_bars(test_bar_type: BarType, test_instrument: CurrencyPair) ->
     -------
     list[Bar]
         List of test bars with realistic price movement
+
     """
 
     bars: list[Bar] = []

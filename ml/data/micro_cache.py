@@ -28,7 +28,6 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast as _cast
 from datetime import UTC
 from datetime import date
 from datetime import datetime
@@ -36,13 +35,12 @@ from datetime import timedelta
 from pathlib import Path
 
 from ml._imports import pl
-from ml.ml_types import PolarsDF
-from ml.features.micro_aggregate import MicrostructureAggregator
 from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
 from ml.data.cache_common import filter_df_by_ns_range
 from ml.data.cache_common import iter_days
-
+from ml.features.micro_aggregate import MicrostructureAggregator
+from ml.ml_types import PolarsDF
 
 
 @dataclass(slots=True)
@@ -106,10 +104,12 @@ class MicroMinuteCache:
                 parts.append(_pl.read_parquet(str(p)))
         if not parts:
             from typing import cast as _cast
+
             return _cast(PolarsDF, _pl.DataFrame({"timestamp": []}))
         df = _pl.concat(parts, how="vertical")
         if df.is_empty():
             from typing import cast as _cast
+
             return _cast(PolarsDF, df)
         # Filter to exact [start, end) and sort
         return filter_df_by_ns_range(df, start=start, end=end)

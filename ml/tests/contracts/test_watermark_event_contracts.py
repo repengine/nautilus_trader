@@ -17,8 +17,9 @@ class MLWatermarkProgressSchema(pa.DataFrameModel):
     """
     Schema for event-driven watermark progression at the dataset boundary.
 
-    Validates non-decreasing watermark_ts per (dataset_id, instrument_id, source)
-    in update_ts order.
+    Validates non-decreasing watermark_ts per (dataset_id, instrument_id, source) in
+    update_ts order.
+
     """
 
     dataset_id: Series[str] = pa.Field(nullable=False)
@@ -32,7 +33,10 @@ class MLWatermarkProgressSchema(pa.DataFrameModel):
         return cast(Series[bool], s.str.match(r"^[A-Z0-9]+\.[A-Z]+$"))
 
     @pa.dataframe_check()
-    def check_monotonic_by_key(cls, df: DataFrame[Any]) -> Series[bool]:  # noqa: N805 - pandera signature
+    def check_monotonic_by_key(
+        cls,
+        df: DataFrame[Any],
+    ) -> Series[bool]:  # noqa: N805 - pandera signature
         try:
             for key, group in df.groupby(["dataset_id", "instrument_id", "source"]):
                 ordered = group.sort_values("update_ts")
@@ -67,7 +71,10 @@ def test_watermark_progression_regression_fails() -> None:
             "instrument_id": ["EURUSD.SIM", "EURUSD.SIM"],
             "source": [Source.HISTORICAL.value, Source.HISTORICAL.value],
             "watermark_ts": [200, 150],  # regression
-            "update_ts": [int(datetime(2024, 1, 1).timestamp() * 1e9), int(datetime(2024, 1, 1, 1).timestamp() * 1e9)],
+            "update_ts": [
+                int(datetime(2024, 1, 1).timestamp() * 1e9),
+                int(datetime(2024, 1, 1, 1).timestamp() * 1e9),
+            ],
         },
     )
     with pytest.raises(pa.errors.SchemaError):

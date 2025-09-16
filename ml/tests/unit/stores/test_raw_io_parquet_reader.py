@@ -54,10 +54,20 @@ class _FakeCatalog:
     def bars(self, instrument_ids: list[str], start: int | None, end: int | None) -> list[_FakeBar]:
         return self._bars
 
-    def quote_ticks(self, instrument_ids: list[str], start: int | None, end: int | None) -> list[_FakeQuote]:
+    def quote_ticks(
+        self,
+        instrument_ids: list[str],
+        start: int | None,
+        end: int | None,
+    ) -> list[_FakeQuote]:
         return self._quotes
 
-    def trade_ticks(self, instrument_ids: list[str], start: int | None, end: int | None) -> list[_FakeTrade]:
+    def trade_ticks(
+        self,
+        instrument_ids: list[str],
+        start: int | None,
+        end: int | None,
+    ) -> list[_FakeTrade]:
         return self._trades
 
 

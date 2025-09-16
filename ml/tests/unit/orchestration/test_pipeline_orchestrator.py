@@ -21,7 +21,13 @@ from ml.orchestration.pipeline_orchestrator import (
 @dataclass
 class _Coverage:
     def read_bucket_coverage(
-        self, *, dataset_id: str, schema: str, instrument_id: str, start_ns: int, end_ns: int
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
     ) -> set[int]:
         return set()
 
@@ -90,7 +96,10 @@ def test_pipeline_orchestrator_runs_all_phases(tmp_path: Path) -> None:
 
     cfg = OrchestratorConfig(
         dataset=DatasetBuildConfig(
-            data_dir=str(tmp_path), symbols="SPY.NYSE", out_dir=str(tmp_path / "out"), include_micro=True
+            data_dir=str(tmp_path),
+            symbols="SPY.NYSE",
+            out_dir=str(tmp_path / "out"),
+            include_micro=True,
         ),
         hpo=HPOConfig(enabled=True, epochs=1, batch_size=8, tail_rows=100, limit_groups=10),
         teacher=TeacherTrainConfig(enabled=True, model_id="teacher_X", max_epochs=1),
@@ -98,4 +107,3 @@ def test_pipeline_orchestrator_runs_all_phases(tmp_path: Path) -> None:
     rc = orch.run(cfg)
     assert rc == 0
     assert called == {"build": 1, "hpo": 1, "train": 1}
-

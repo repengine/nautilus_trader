@@ -11,6 +11,7 @@ Rationale
 - Coverage tracing perturbs latency and allocations, invalidating guardrails.
 - xdist parallelism can oversubscribe BLAS/onnxruntime/XGBoost and crash
   workers. We run guardrails separately (see Makefile targets).
+
 """
 
 from __future__ import annotations
@@ -39,7 +40,9 @@ def _under_coverage() -> bool:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Confine marks/skips to tests under this performance package only."""
+    """
+    Confine marks/skips to tests under this performance package only.
+    """
     perf_root = Path(__file__).parent.resolve()
     is_unstable_env = _under_xdist() or _under_coverage()
 
@@ -59,8 +62,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 item.add_marker(
                     pytest.mark.skip(
                         reason=(
-                            "Skip performance tests under coverage or xdist "
-                            "(invalid/unstable)"
-                        )
-                    )
+                            "Skip performance tests under coverage or xdist " "(invalid/unstable)"
+                        ),
+                    ),
                 )

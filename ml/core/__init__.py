@@ -124,8 +124,14 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    """Lazy import integration symbols to avoid import-time cycles."""
-    if name in {"ActorStoresRegistries", "MLIntegrationManager", "init_actor_stores_and_registries"}:
+    """
+    Lazy import integration symbols to avoid import-time cycles.
+    """
+    if name in {
+        "ActorStoresRegistries",
+        "MLIntegrationManager",
+        "init_actor_stores_and_registries",
+    }:
         from ml.core import integration as _integration
 
         return getattr(_integration, name)

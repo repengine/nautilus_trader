@@ -39,8 +39,8 @@ def emit_dataset_event_and_watermark(
     """
     Emit a dataset event and update its watermark atomically, with optional metrics.
 
-    This helper enforces consistent enum usage, correlation_id attachment,
-    and label application across stores.
+    This helper enforces consistent enum usage, correlation_id attachment, and label
+    application across stores.
 
     """
     # Ensure deterministic correlation_id is attached
@@ -114,7 +114,9 @@ def emit_dataset_event_and_watermark(
         import logging as _logging
 
         _logging.getLogger(__name__).debug(
-            "Data event metric emit failed (event+watermark): %s", exc, exc_info=True
+            "Data event metric emit failed (event+watermark): %s",
+            exc,
+            exc_info=True,
         )
 
 
@@ -138,8 +140,8 @@ def emit_dataset_event(
     """
     Emit a dataset event only (no watermark), with optional metrics.
 
-    Centralizes enum-safe emission, correlation_id attachment,
-    and consistent metric labeling.
+    Centralizes enum-safe emission, correlation_id attachment, and consistent metric
+    labeling.
 
     """
     # Ensure deterministic correlation_id is attached
@@ -202,7 +204,9 @@ def emit_dataset_event(
         import logging as _logging
 
         _logging.getLogger(__name__).debug(
-            "Data event metric emit failed: %s", exc, exc_info=True
+            "Data event metric emit failed: %s",
+            exc,
+            exc_info=True,
         )
 
 
@@ -219,8 +223,8 @@ def _ensure_correlation_id(
     """
     Ensure a deterministic correlation_id and optional trace context are attached.
 
-    If metadata already contains correlation_id, it is preserved.
-    Otherwise, a new one is generated using make_correlation_id.
+    If metadata already contains correlation_id, it is preserved. Otherwise, a new one
+    is generated using make_correlation_id.
 
     Automatically injects W3C trace context when distributed tracing is enabled.
 
@@ -246,6 +250,7 @@ def _ensure_correlation_id(
         try:
             # Lazy import to avoid circular dependencies
             from ml.observability.tracing import inject_trace_context
+
             event_metadata = inject_trace_context(event_metadata)
         except ImportError:
             # Graceful fallback when tracing not available
@@ -255,7 +260,9 @@ def _ensure_correlation_id(
             import logging as _logging
 
             _logging.getLogger(__name__).debug(
-                "Trace context injection failed: %s", exc, exc_info=True
+                "Trace context injection failed: %s",
+                exc,
+                exc_info=True,
             )
 
     return event_metadata

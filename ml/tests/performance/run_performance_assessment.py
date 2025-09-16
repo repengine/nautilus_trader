@@ -21,6 +21,7 @@ def run_quick_test() -> int:
     print("Running quick ML performance test...")
     try:
         from quick_performance_test import main as quick_main
+
         quick = cast(Callable[[], int], quick_main)
         return quick()
     except Exception as e:

@@ -15,6 +15,7 @@ Performance Requirements:
 - P99 end-to-end signal: <5ms
 - Zero allocations in hot path after warmup
 - Feature parity drift: <1e-6 tolerance
+
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ if UNDER_XDIST:
 # Performance Measurement Utilities
 # =============================================================================
 
+
 def measure_p99_latency_ns(func: Callable[[], object], iterations: int = 1000) -> int:
     """
     Measure P99 latency in nanoseconds with warmup.
@@ -73,6 +75,7 @@ def measure_p99_latency_ns(func: Callable[[], object], iterations: int = 1000) -
     -------
     int
         P99 latency in nanoseconds
+
     """
     # Warmup to eliminate JIT effects
     for _ in range(min(100, iterations // 10)):
@@ -101,6 +104,7 @@ def assert_p99_budget(actual_ns: int, budget_ns: int, component: str) -> None:
         Budget P99 latency in nanoseconds
     component : str
         Component name for error message
+
     """
     adjusted_budget = int(budget_ns * RELAX_FACTOR)
     actual_ms = actual_ns / 1_000_000
@@ -125,6 +129,7 @@ def assert_zero_allocations(func: Callable[[], object], iterations: int, compone
         Number of iterations to run
     component : str
         Component name for error message
+
     """
     # Warmup
     for _ in range(min(100, iterations // 10)):
@@ -181,9 +186,12 @@ def assert_zero_allocations(func: Callable[[], object], iterations: int, compone
 # Test Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def feature_config() -> FeatureConfig:
-    """Create optimized feature configuration."""
+    """
+    Create optimized feature configuration.
+    """
     return FeatureConfig(
         return_periods=[1, 5, 10],  # Reduced for performance
         momentum_periods=[5, 10],
@@ -202,13 +210,17 @@ def feature_config() -> FeatureConfig:
 
 @pytest.fixture
 def instrument_id() -> InstrumentId:
-    """Create test instrument ID."""
+    """
+    Create test instrument ID.
+    """
     return InstrumentId(Symbol("EUR"), Venue("USD"))
 
 
 @pytest.fixture
 def bar_type(instrument_id: InstrumentId) -> BarType:
-    """Create test bar type."""
+    """
+    Create test bar type.
+    """
     return BarType(
         instrument_id=instrument_id,
         bar_spec=BarSpecification(
@@ -222,7 +234,9 @@ def bar_type(instrument_id: InstrumentId) -> BarType:
 
 @pytest.fixture
 def test_bars(bar_type: BarType) -> list[Bar]:
-    """Generate test bars for performance testing."""
+    """
+    Generate test bars for performance testing.
+    """
     bars = []
     base_price = 1.1000  # EUR/USD
     base_volume = 1_000_000.0
@@ -250,7 +264,9 @@ def test_bars(bar_type: BarType) -> list[Bar]:
 
 @pytest.fixture
 def mock_model() -> Mock:
-    """Create mock model for testing."""
+    """
+    Create mock model for testing.
+    """
     model = Mock()
     model.predict_proba.return_value = np.array([[0.3, 0.7]])  # Binary classification
     return model
@@ -260,19 +276,23 @@ def mock_model() -> Mock:
 # Feature Computation Guardrails
 # =============================================================================
 
+
 @pytest.mark.performance
 class TestFeatureComputationGuardrails:
-    """Performance guardrails for feature computation."""
+    """
+    Performance guardrails for feature computation.
+    """
 
     def test_feature_computation_p99_budget(
         self,
         feature_config: FeatureConfig,
-        test_bars: list[Bar]
+        test_bars: list[Bar],
     ) -> None:
         """
         Ensure feature computation meets P99 latency budget (<500μs).
 
         This test FAILS CI if the P99 latency budget is exceeded.
+
         """
         if UNDER_XDIST:
             pytest.skip("Skip latency microbench under xdist for stability")
@@ -320,12 +340,13 @@ class TestFeatureComputationGuardrails:
     def test_feature_computation_zero_allocations(
         self,
         feature_config: FeatureConfig,
-        test_bars: list[Bar]
+        test_bars: list[Bar],
     ) -> None:
         """
         Ensure feature computation has zero allocations in hot path.
 
         This test FAILS CI if allocations are detected after warmup.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -377,9 +398,12 @@ class TestFeatureComputationGuardrails:
 # Feature Parity Guardrails
 # =============================================================================
 
+
 @pytest.mark.performance
 class TestFeatureParityGuardrails:
-    """Performance guardrails for feature parity verification."""
+    """
+    Performance guardrails for feature parity verification.
+    """
 
     def test_feature_parity_smoke_check(
         self,
@@ -387,13 +411,14 @@ class TestFeatureParityGuardrails:
         test_bars: list[Bar],
         instrument_id: InstrumentId,
         bar_type: BarType,
-        mock_model: Mock
+        mock_model: Mock,
     ) -> None:
         """
         Ensure feature parity smoke-check works correctly and reports metrics.
 
         This test validates that online and offline feature computation produce
         identical results within tolerance.
+
         """
         # Create actor with parity smoke-check enabled
         config = MLSignalActorConfig(
@@ -451,13 +476,14 @@ class TestFeatureParityGuardrails:
     def test_feature_parity_drift_detection(
         self,
         feature_config: FeatureConfig,
-        test_bars: list[Bar]
+        test_bars: list[Bar],
     ) -> None:
         """
         Test that feature parity drift detection works correctly.
 
-        This test validates that the drift metric accurately detects differences
-        between online and offline feature computation.
+        This test validates that the drift metric accurately detects differences between
+        online and offline feature computation.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -511,9 +537,12 @@ class TestFeatureParityGuardrails:
 # Model Inference Guardrails
 # =============================================================================
 
+
 @pytest.mark.performance
 class TestModelInferenceGuardrails:
-    """Performance guardrails for model inference."""
+    """
+    Performance guardrails for model inference.
+    """
 
     @pytest.mark.skipif(not HAS_ONNX, reason="ONNX not available")
     def test_onnx_inference_p99_budget(self, tmp_path: Path) -> None:
@@ -521,6 +550,7 @@ class TestModelInferenceGuardrails:
         Ensure ONNX model inference meets P99 latency budget (<2ms).
 
         This test FAILS CI if the P99 latency budget is exceeded.
+
         """
         if UNDER_XDIST:
             pytest.skip("Skip latency microbench under xdist for stability")
@@ -573,6 +603,7 @@ class TestModelInferenceGuardrails:
         Ensure model inference has zero allocations in hot path.
 
         This test FAILS CI if allocations are detected after warmup.
+
         """
         # Prepare input
         features = np.random.randn(50).astype(np.float32)
@@ -589,9 +620,12 @@ class TestModelInferenceGuardrails:
 # End-to-End Signal Generation Guardrails
 # =============================================================================
 
+
 @pytest.mark.performance
 class TestEndToEndGuardrails:
-    """Performance guardrails for complete signal generation pipeline."""
+    """
+    Performance guardrails for complete signal generation pipeline.
+    """
 
     def test_e2e_signal_generation_p99_budget(
         self,
@@ -599,12 +633,13 @@ class TestEndToEndGuardrails:
         test_bars: list[Bar],
         instrument_id: InstrumentId,
         bar_type: BarType,
-        mock_model: Mock
+        mock_model: Mock,
     ) -> None:
         """
         Ensure end-to-end signal generation meets P99 budget (<5ms).
 
         This test FAILS CI if the P99 latency budget is exceeded.
+
         """
         if UNDER_XDIST:
             pytest.skip("Skip latency microbench under xdist for stability")
@@ -655,12 +690,13 @@ class TestEndToEndGuardrails:
         test_bars: list[Bar],
         instrument_id: InstrumentId,
         bar_type: BarType,
-        mock_model: Mock
+        mock_model: Mock,
     ) -> None:
         """
         Ensure end-to-end signal generation has zero allocations in hot path.
 
         This test FAILS CI if allocations are detected after warmup.
+
         """
         # Create actor configuration
         config = MLSignalActorConfig(
@@ -704,20 +740,24 @@ class TestEndToEndGuardrails:
 # Buffer Reuse Guardrails
 # =============================================================================
 
+
 @pytest.mark.performance
 class TestBufferReuseGuardrails:
-    """Performance guardrails for buffer reuse patterns."""
+    """
+    Performance guardrails for buffer reuse patterns.
+    """
 
     def test_feature_buffer_reuse(
         self,
         feature_config: FeatureConfig,
-        test_bars: list[Bar]
+        test_bars: list[Bar],
     ) -> None:
         """
         Ensure feature buffers are reused correctly.
 
-        This test validates that feature computation reuses pre-allocated
-        buffers rather than creating new arrays.
+        This test validates that feature computation reuses pre-allocated buffers rather
+        than creating new arrays.
+
         """
         engineer = FeatureEngineer(feature_config)
         indicator_mgr = IndicatorManager(feature_config)
@@ -762,10 +802,14 @@ class TestBufferReuseGuardrails:
         )
 
         # Should be views of the same buffer
-        assert np.shares_memory(features1, engineer.feature_buffer), \
-            "Features should be a view of the pre-allocated buffer"
-        assert np.shares_memory(features2, engineer.feature_buffer), \
-            "Features should be a view of the pre-allocated buffer"
+        assert np.shares_memory(
+            features1,
+            engineer.feature_buffer,
+        ), "Features should be a view of the pre-allocated buffer"
+        assert np.shares_memory(
+            features2,
+            engineer.feature_buffer,
+        ), "Features should be a view of the pre-allocated buffer"
 
         print("✅ Feature buffer reuse verified")
 
@@ -775,13 +819,14 @@ class TestBufferReuseGuardrails:
         test_bars: list[Bar],
         instrument_id: InstrumentId,
         bar_type: BarType,
-        mock_model: Mock
+        mock_model: Mock,
     ) -> None:
         """
         Test memory stability over extended operation (24h simulation).
 
-        This test validates that memory usage remains stable over long periods,
-        ensuring no memory leaks in production.
+        This test validates that memory usage remains stable over long periods, ensuring
+        no memory leaks in production.
+
         """
         # Create actor with optimizations
         config = MLSignalActorConfig(
@@ -811,6 +856,7 @@ class TestBufferReuseGuardrails:
 
         try:
             import psutil
+
             process = psutil.Process()
             initial_memory = process.memory_info().rss
         except ImportError:
@@ -838,26 +884,32 @@ class TestBufferReuseGuardrails:
             f"after {simulation_bars} operations (max allowed: {max_allowed_mb}MB)"
         )
 
-        print(f"✅ Memory stability verified: {memory_increase_mb:.1f}MB increase over {simulation_bars} operations")
+        print(
+            f"✅ Memory stability verified: {memory_increase_mb:.1f}MB increase over {simulation_bars} operations",
+        )
 
 
 # =============================================================================
 # Performance Regression Detection
 # =============================================================================
 
+
 @pytest.mark.performance
 class TestPerformanceRegressionGuardrails:
-    """Performance regression detection guardrails."""
+    """
+    Performance regression detection guardrails.
+    """
 
     def test_performance_regression_detection(
         self,
         feature_config: FeatureConfig,
-        test_bars: list[Bar]
+        test_bars: list[Bar],
     ) -> None:
         """
         Detect performance regressions against established baselines.
 
         This test FAILS CI if performance degrades beyond acceptable thresholds.
+
         """
         if UNDER_XDIST:
             pytest.skip("Skip regression microbench under xdist for stability")
@@ -936,10 +988,14 @@ class TestPerformanceRegressionGuardrails:
 # CI Integration
 # =============================================================================
 
+
 def pytest_configure(config: Any) -> None:
-    """Configure pytest markers for performance tests."""
+    """
+    Configure pytest markers for performance tests.
+    """
     config.addinivalue_line(
-        "markers", "performance: mark test as performance/guardrail test"
+        "markers",
+        "performance: mark test as performance/guardrail test",
     )
 
 
@@ -957,10 +1013,19 @@ if __name__ == "__main__":
     print()
 
     # Run tests
-    result = subprocess.run([
-        sys.executable, "-m", "pytest", __file__, "-v", "-x",
-        "--tb=short", "-m", "performance"
-    ])
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            __file__,
+            "-v",
+            "-x",
+            "--tb=short",
+            "-m",
+            "performance",
+        ],
+    )
 
     if result.returncode == 0:
         print()

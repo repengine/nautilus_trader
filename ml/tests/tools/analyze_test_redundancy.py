@@ -111,7 +111,10 @@ class TestAnalyzer(ast.NodeVisitor):
         return None
 
 
-def find_similar_tests(tests: list[dict[str, Any]], threshold: float = 0.8) -> list[list[dict[str, Any]]]:
+def find_similar_tests(
+    tests: list[dict[str, Any]],
+    threshold: float = 0.8,
+) -> list[list[dict[str, Any]]]:
     """
     Find tests with similar names that might be duplicates.
     """
@@ -165,7 +168,9 @@ def find_overlapping_coverage(analyzer: TestAnalyzer) -> dict[str, list[str]]:
     return overlapping
 
 
-def identify_redundant_patterns(analyzer: TestAnalyzer) -> dict[str, list[dict[str, Any]] | list[tuple[str, ...]]]:
+def identify_redundant_patterns(
+    analyzer: TestAnalyzer,
+) -> dict[str, list[dict[str, Any]] | list[tuple[str, ...]]]:
     """
     Identify common redundancy patterns.
     """
@@ -288,6 +293,7 @@ def generate_report(analyzer: TestAnalyzer, test_files: list[Path]) -> str:
         report.append("\n## Example Tests with Property Test Coverage\n")
         report.append("These example tests might be redundant with property tests:\n")
         from typing import cast
+
         examples = cast(list[dict[str, Any]], patterns["example_with_property"])
         for item in examples:
             report.append(
@@ -384,6 +390,7 @@ def main(test_dir: str, output: str | None, verbose: bool) -> None:
 
     if patterns["could_be_parameterized"]:
         from typing import cast
+
         param_items = cast(list[dict[str, Any]], patterns["could_be_parameterized"])
         total_param = sum(len(cast(list[str], item["tests"])) for item in param_items)
         print(f"Tests that could be parameterized: {total_param}")

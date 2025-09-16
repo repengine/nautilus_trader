@@ -21,7 +21,7 @@ Completed
 - Macro: enabled by default, joined as‑of with lag; no leakage.
 - Known‑future time features and static covariates included.
 - Action: add `is_l2_available` and `is_macro_available` masks; keep depth columns with 0‑fill so the model learns availability explicitly.
- - L2 derived features (minimal, additive): `pressure_accel_top{1,3,5,10}` (Δ depth imbalance),
+- L2 derived features (minimal, additive): `pressure_accel_top{1,3,5,10}` (Δ depth imbalance),
    `liquidity_gradient_top{1,3,5,10}` (ask−bid slope), and `session_rel_spread` (spread normalized by daily median).
 
 ## 3) Current Results (15‑min horizon)
@@ -202,20 +202,24 @@ Online monitoring (post‑deploy)
 ## 11) Update — 2025-09-14: 7y L0 + FRED Integration and Next Steps
 
 Context
+
 - Added FRED macro indicators to the 7y L0 pilot dataset using an as‑of join with a 1‑day publication lag.
 - Rebuilt and registered a new Feature Set for the macro‑augmented schema.
 
 Artifacts
+
 - Dataset (macro‑augmented): `/tmp/tft_universe_7y_l0_pilot/merged_macro_fullfred/dataset.parquet`
 - Feature Set ID (FID): `feature_set_1757890539197189`
 - Registry path: `~/.nautilus/ml/features/feature_registry.json`
 - Coverage: 23 FRED series; `is_macro_available=1` across the entire dataset
 
 How FRED Was Included
+
 - Source: Local cache and ML‑format Parquet under `data/fred/` (rebuilt from `/tmp/fred_cache`).
 - Join: Backward as‑of merge at 1‑day lag onto the L0 dataset timestamp; filled macro nulls with 0; added `is_macro_available`.
 
 Planned Work
+
 - HPO (7y L0 + FRED): sweep over Phase‑A grid with slightly longer training and smaller batches for better optimization
   - Out dir: `/tmp/tft_universe_7y_l0_pilot/hpo_l0_macro`
   - Rank by PRx → AUC with ECE ≤ 0.02; sanity check LogLoss, Brier
@@ -223,6 +227,7 @@ Planned Work
 - Validation: run `make validate-metrics` and `make validate-events`; check stability across weeks/instruments
 
 Commands
+
 - Launch HPO (GPU, precision 32):
   - `PYTHONPATH=. .venv/bin/python -m ml.cli.hpo_tft \
     --dataset_parquet /tmp/tft_universe_7y_l0_pilot/merged_macro_fullfred/dataset.parquet \
@@ -247,11 +252,13 @@ Commands
     --max_encoder_length 60`
 
 Monitoring
+
 - Orchestrator PID: `$(cat /tmp/tft_universe_7y_l0_pilot/hpo_l0_macro/pid.txt)`
 - Log: `tail -n 200 $(ls -1t /tmp/tft_universe_7y_l0_pilot/hpo_l0_macro/run_*.log | head -n1)`
 - Progress: `rg -N "\"model_id\"" /tmp/tft_universe_7y_l0_pilot/hpo_l0_macro/hpo_summary.json`
 
 Notes
+
 - Keep precision 32 for stability on this machine.
 - If VRAM constrained, reduce `--batch_size` to 192.
 - If underfitting, consider `--epochs 5`.

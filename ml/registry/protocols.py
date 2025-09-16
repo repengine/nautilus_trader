@@ -58,13 +58,18 @@ class TypedRegistryProtocol(Protocol, Generic[TManifest, TKey]):
     This protocol uses enums for stage/source/status and generic types for
     manifests and keys. Implementations should persist enum ``.value`` where
     strings are required by storage schemas.
+
     """
 
     # Core lifecycle
     def get(self, key: TKey) -> TManifest: ...
     def save(self, manifest: TManifest) -> TKey: ...
     def delete(self, key: TKey) -> bool: ...
-    def list_manifests(self, prefix: str | None = None, limit: int | None = None) -> list[TManifest]: ...
+    def list_manifests(
+        self,
+        prefix: str | None = None,
+        limit: int | None = None,
+    ) -> list[TManifest]: ...
     def batch_save(self, manifests: list[TManifest]) -> list[TKey]: ...
 
     # Events and watermarks (enum-typed)

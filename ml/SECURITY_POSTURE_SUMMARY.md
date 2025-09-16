@@ -117,6 +117,7 @@ ML_ONNX_ONLY=1 python ml/validate_security_posture.py
 ## Deployment Recommendations
 
 ### For Development
+
 ```bash
 # Allow joblib for testing
 export ML_ALLOW_JOBLIB=1
@@ -124,6 +125,7 @@ export ML_TESTING=1
 ```
 
 ### For Production
+
 ```bash
 # Maximum security (recommended)
 export ML_ONNX_ONLY=1
@@ -134,6 +136,7 @@ unset ML_TESTING
 ```
 
 ### For CI/CD Pipelines
+
 ```bash
 # Add to deployment pipeline
 python ml/validate_security_posture.py
@@ -165,18 +168,21 @@ fi
 ### For Existing Models
 
 1. **Convert pickle models to ONNX**:
+
    ```python
    # Use ml/examples/create_dummy_model.py as template
    from skl2onnx import convert_sklearn
    ```
 
 2. **Update model loading code**:
+
    ```python
    # Replace direct pickle/joblib loading
    model, metadata = self._load_model_secure(model_path)
    ```
 
 3. **Set production environment**:
+
    ```bash
    export ML_ONNX_ONLY=1  # For maximum security
    ```

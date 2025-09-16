@@ -13,6 +13,7 @@ Exit codes:
     0: All guardrails passed
     1: Performance regressions detected (fails CI)
     2: Test execution failed
+
 """
 
 import argparse
@@ -40,6 +41,7 @@ class PerformanceGuardrailRunner:
             If True, use stricter performance requirements
         report_file : Path, optional
             Path to write performance report JSON
+
         """
         self.strict = strict
         self.report_file = report_file
@@ -51,7 +53,9 @@ class PerformanceGuardrailRunner:
         }
 
     def _get_environment_info(self) -> dict[str, Any]:
-        """Get CI environment information."""
+        """
+        Get CI environment information.
+        """
         return {
             "python_version": sys.version,
             "platform": sys.platform,
@@ -70,6 +74,7 @@ class PerformanceGuardrailRunner:
         -------
         bool
             True if all tests passed, False if any failed
+
         """
         print("🚀 Running ML Performance Guardrails...")
         print(f"Environment: {self.results['environment']}")
@@ -136,20 +141,26 @@ class PerformanceGuardrailRunner:
 
             # Run pytest for this category
             cmd: list[str] = [
-                sys.executable, "-m", "pytest",
+                sys.executable,
+                "-m",
+                "pytest",
                 str(test_dir / category["pattern"]),
-                "-v", "--tb=short",
-                "-m", "performance",
+                "-v",
+                "--tb=short",
+                "-m",
+                "performance",
                 "--maxfail=1",  # Stop on first failure for critical tests
                 "--disable-warnings",
             ]
 
             # Add additional flags for CI stability
             if os.getenv("CI"):
-                cmd.extend([
-                    "--timeout=300",  # 5 minute timeout per test
-                    "--timeout-method=thread",
-                ])
+                cmd.extend(
+                    [
+                        "--timeout=300",  # 5 minute timeout per test
+                        "--timeout-method=thread",
+                    ],
+                )
 
             start_time = time.time()
             result = subprocess.run(cmd, env=env, capture_output=True, text=True)
@@ -192,13 +203,14 @@ class PerformanceGuardrailRunner:
         return all_passed
 
     def _generate_summary(self) -> None:
-        """Generate test execution summary."""
+        """
+        Generate test execution summary.
+        """
         total_tests = len(self.results["tests"])
         passed_tests = sum(1 for t in self.results["tests"] if t["passed"])
         failed_tests = total_tests - passed_tests
         critical_failures = sum(
-            1 for t in self.results["tests"]
-            if not t["passed"] and t["critical"]
+            1 for t in self.results["tests"] if not t["passed"] and t["critical"]
         )
 
         total_duration = sum(t["duration"] for t in self.results["tests"])
@@ -232,7 +244,9 @@ class PerformanceGuardrailRunner:
             print("❌ Production reliability requirements NOT met")
 
     def _write_report(self) -> None:
-        """Write performance report to file."""
+        """
+        Write performance report to file.
+        """
         if not self.report_file:
             return
 
@@ -252,20 +266,27 @@ class PerformanceGuardrailRunner:
         -------
         bool
             True if validation passed
+
         """
         print("\n🔍 Running Zero-Allocation Validation...")
         print("-" * 60)
 
         test_dir = Path(__file__).parent
         cmd = [
-            sys.executable, "-m", "pytest",
+            sys.executable,
+            "-m",
+            "pytest",
             str(test_dir / "test_zero_allocation.py"),
-            "-v", "--tb=short",
-            "-k", "allocation",
+            "-v",
+            "--tb=short",
+            "-k",
+            "allocation",
         ]
 
         # Ensure noisy warnings are silenced in this subprocess as well
-        env = os.environ.copy() | {"PYTHONWARNINGS": "ignore:pkg_resources is deprecated as an API.*:UserWarning"}
+        env = os.environ.copy() | {
+            "PYTHONWARNINGS": "ignore:pkg_resources is deprecated as an API.*:UserWarning",
+        }
         result = subprocess.run(cmd, capture_output=True, text=True, env=env)
 
         if result.returncode == 0:
@@ -285,24 +306,25 @@ def main() -> int:
     -------
     int
         Exit code (0=success, 1=performance failure, 2=execution error)
+
     """
     parser = argparse.ArgumentParser(
-        description="Run ML performance guardrail tests for CI"
+        description="Run ML performance guardrail tests for CI",
     )
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Use stricter performance requirements"
+        help="Use stricter performance requirements",
     )
     parser.add_argument(
         "--report-file",
         type=Path,
-        help="Path to write performance report JSON"
+        help="Path to write performance report JSON",
     )
     parser.add_argument(
         "--zero-allocation-only",
         action="store_true",
-        help="Run only zero-allocation validation tests"
+        help="Run only zero-allocation validation tests",
     )
 
     args = parser.parse_args()
@@ -310,7 +332,7 @@ def main() -> int:
     try:
         runner = PerformanceGuardrailRunner(
             strict=args.strict,
-            report_file=args.report_file
+            report_file=args.report_file,
         )
 
         if args.zero_allocation_only:
@@ -330,6 +352,7 @@ def main() -> int:
     except Exception as e:
         print(f"\n💥 Execution error: {e}")
         import traceback
+
         traceback.print_exc()
         return 2
 

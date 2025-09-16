@@ -35,7 +35,12 @@ class CapturePublisher(MessagePublisherProtocol):
 
 
 @pytest.mark.contracts
-def test_actor_bus_disables_store_publishers(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, default_instrument_id, default_bar_type) -> None:  # noqa: ANN001 - fixture types
+def test_actor_bus_disables_store_publishers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+    default_instrument_id,
+    default_bar_type,
+) -> None:  # noqa: ANN001 - fixture types
     pub = CapturePublisher()
 
     def _fake_factory(_cfg: Any) -> MessagePublisherProtocol:  # noqa: ANN001

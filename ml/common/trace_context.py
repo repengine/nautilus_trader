@@ -1,8 +1,9 @@
 """
 Trace context utilities for event consumers.
 
-Provides helper functions for event consumers to extract and link trace context
-from event metadata, enabling parent-child span relationships across components.
+Provides helper functions for event consumers to extract and link trace context from
+event metadata, enabling parent-child span relationships across components.
+
 """
 
 from __future__ import annotations
@@ -30,18 +31,23 @@ def extract_and_link_from_event(event_metadata: dict[str, Any]) -> None:
     >>> with trace_cold_path("process_features") as span:
     ...     # This span will be linked to the original feature computation trace
     ...     features = process_features(event.data)
+
     """
     try:
         # Lazy import to avoid circular dependencies
         from ml.observability.tracing import extract_and_link_trace_context
+
         extract_and_link_trace_context(event_metadata)
     except ImportError:
         # Graceful fallback when tracing not available
         ...
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "extract_and_link_from_event failed: %s", exc, exc_info=True
+            "extract_and_link_from_event failed: %s",
+            exc,
+            exc_info=True,
         )
 
 
@@ -91,10 +97,12 @@ def get_correlation_and_trace_context(
     ...     count=1000
     ... )
     >>> emit_dataset_event(..., metadata=metadata)
+
     """
     # Generate correlation_id
     try:
         from ml.common.correlation import make_correlation_id
+
         correlation_id = make_correlation_id(
             run_id=run_id,
             dataset_id=dataset_id,
@@ -112,12 +120,14 @@ def get_correlation_and_trace_context(
     # Inject trace context if available
     try:
         from ml.observability.tracing import inject_trace_context
+
         metadata = inject_trace_context(metadata)
     except ImportError:
         # Graceful fallback when tracing not available
         ...
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
             "inject_trace_context failed in get_correlation_and_trace_context: %s",
             exc,

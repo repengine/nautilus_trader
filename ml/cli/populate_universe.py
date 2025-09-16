@@ -443,7 +443,11 @@ class UniversePopulator:
                 try:
                     total_cost += float(cast(dict[str, Any], est).get("cost_usd", 0.0))
                 except Exception as exc:
-                    logger.debug("Ignoring invalid estimate entry during sum: %s", exc, exc_info=True)
+                    logger.debug(
+                        "Ignoring invalid estimate entry during sum: %s",
+                        exc,
+                        exc_info=True,
+                    )
         estimates["total_cost_usd"] = total_cost
         estimates["total_symbols"] = len(self.symbols)
 

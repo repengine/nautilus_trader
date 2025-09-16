@@ -18,6 +18,7 @@ All configuration classes are designed to be:
 - Type-safe with complete annotations
 - Environment-aware with validation
 - Compatible with msgspec serialization
+
 """
 
 from __future__ import annotations
@@ -109,6 +110,7 @@ from ml.config.xgboost import XGBoostTrainingConfig
 # CONFIGURATION VALIDATION UTILITIES
 # =============================================================================
 
+
 def validate_ml_config(config: MLActorConfig | MLInferenceConfig) -> list[str]:
     """
     Validate ML configuration for compliance with Universal Patterns.
@@ -122,6 +124,7 @@ def validate_ml_config(config: MLActorConfig | MLInferenceConfig) -> list[str]:
     -------
     list[str]
         List of validation issues. Empty list indicates valid configuration.
+
     """
     issues = []
 
@@ -135,11 +138,15 @@ def validate_ml_config(config: MLActorConfig | MLInferenceConfig) -> list[str]:
     # Pattern 3: Validate hot path constraints
     if hasattr(config, "max_inference_latency_ms"):
         if config.max_inference_latency_ms > 5.0:
-            issues.append(f"max_inference_latency_ms ({config.max_inference_latency_ms}) exceeds 5ms SLA")
+            issues.append(
+                f"max_inference_latency_ms ({config.max_inference_latency_ms}) exceeds 5ms SLA",
+            )
 
     if hasattr(config, "max_feature_latency_ms"):
         if config.max_feature_latency_ms > 0.5:
-            issues.append(f"max_feature_latency_ms ({config.max_feature_latency_ms}) exceeds 0.5ms SLA")
+            issues.append(
+                f"max_feature_latency_ms ({config.max_feature_latency_ms}) exceeds 0.5ms SLA",
+            )
 
     # Pattern 4: Validate fallback configuration
     if hasattr(config, "use_dummy_stores") and hasattr(config, "db_connection"):
@@ -157,6 +164,7 @@ def get_config_defaults() -> dict[str, object]:
     -------
     dict[str, object]
         Dictionary of default configuration instances.
+
     """
     return {
         "ml_feature": MLFeatureConfig(),

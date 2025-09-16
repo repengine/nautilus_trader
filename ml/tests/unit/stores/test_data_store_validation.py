@@ -52,25 +52,35 @@ if HAS_POLARS:
 # Test Fixtures
 # ========================================================================
 
+
 # Add missing fixtures that are not in conftest but are needed
 @pytest.fixture
 def mock_feature_store() -> MagicMock:
-    """Mock feature store."""
+    """
+    Mock feature store.
+    """
     from ml.tests.builders import MockBuilder
+
     return MockBuilder.store_with_data(store_type="feature")
 
 
 @pytest.fixture
 def mock_model_store() -> MagicMock:
-    """Mock model store."""
+    """
+    Mock model store.
+    """
     from ml.tests.builders import MockBuilder
+
     return MockBuilder.store_with_data(store_type="model")
 
 
 @pytest.fixture
 def mock_strategy_store() -> MagicMock:
-    """Mock strategy store."""
+    """
+    Mock strategy store.
+    """
     from ml.tests.builders import MockBuilder
+
     return MockBuilder.store_with_data(store_type="strategy")
 
 
@@ -80,8 +90,11 @@ def mock_stores_bundle(
     mock_model_store: MagicMock,
     mock_strategy_store: MagicMock,
 ) -> dict[str, MagicMock]:
-    """Bundle of all store mocks."""
+    """
+    Bundle of all store mocks.
+    """
     from ml.tests.builders import MockBuilder
+
     return {
         "feature_store": mock_feature_store,
         "model_store": mock_model_store,
@@ -192,6 +205,7 @@ def data_store(mock_registry: MagicMock, mock_stores_bundle) -> DataStore:
     """
     Create a DataStore instance with proper PostgreSQL connection.
     """
+
     class _UnitRawWriter:
         def write(self, *, dataset_type, data):  # type: ignore[no-untyped-def]
             return len(data) if hasattr(data, "__len__") else 0
@@ -968,15 +982,15 @@ class TestSchemaMigration:
         assert store._is_in_migration_window("test_bars") is True
 
         # Test within window - near end
-        store._schema_migration_state["test_bars"]["start_time"] = (
-            current_time - (119 * 60 * 1e9)  # 119 minutes ago (< 2 hours)
-        )
+        store._schema_migration_state["test_bars"]["start_time"] = current_time - (
+            119 * 60 * 1e9
+        )  # 119 minutes ago (< 2 hours)
         assert store._is_in_migration_window("test_bars") is True
 
         # Test just outside window
-        store._schema_migration_state["test_bars"]["start_time"] = (
-            current_time - (121 * 60 * 1e9)  # 121 minutes ago (> 2 hours)
-        )
+        store._schema_migration_state["test_bars"]["start_time"] = current_time - (
+            121 * 60 * 1e9
+        )  # 121 minutes ago (> 2 hours)
         assert store._is_in_migration_window("test_bars") is False
 
     def test_schema_migration_prevents_accidental_writes(
@@ -986,7 +1000,9 @@ class TestSchemaMigration:
     ) -> None:
         """
         Test that migration window prevents accidental writes under mismatched schema.
+
         This is a contract test verifying the core safety mechanism.
+
         """
         store = DataStore(
             registry=mock_registry,
@@ -1029,7 +1045,8 @@ class TestSchemaMigration:
         valid_bar_data: list[dict[str, Any]],
     ) -> None:
         """
-        Test that migration window allows controlled dual writes during schema transition.
+        Test that migration window allows controlled dual writes during schema
+        transition.
         """
         store = DataStore(
             registry=mock_registry,
@@ -1478,7 +1495,7 @@ class TestPropertyBased:
         extra_field_name=st.text(
             alphabet=st.characters(whitelist_categories=("Lu", "Ll")),
             min_size=1,
-            max_size=10
+            max_size=10,
         ).filter(lambda x: x not in ["instrument_id", "ts_event", "ts_init", "close", "volume"]),
         field_type=st.sampled_from(["str", "int64", "float64"]),
     )
@@ -1495,6 +1512,7 @@ class TestPropertyBased:
         1. Schema hash changes are consistently detected
         2. Migration windows behave correctly across different schema changes
         3. Validation behavior is consistent regardless of the type of schema change
+
         """
         # Create mock registry
         mock_registry = MagicMock()
@@ -1594,7 +1612,9 @@ class TestPropertyBased:
 
         # Should fail without migration window due to extra column in strict mode
         assert success_no_migration is False
-        assert "Unexpected columns" in error_no_migration or "extra_columns" in str(details_no_migration)
+        assert "Unexpected columns" in error_no_migration or "extra_columns" in str(
+            details_no_migration,
+        )
 
         # Property 2: Schema hash computation should be deterministic
         hash1 = store_no_migration._compute_schema_hash(df, base_manifest)
@@ -1615,8 +1635,10 @@ class TestPropertyBased:
 class TestSchemaMigrationContracts:
     """
     Contract tests that verify core safety mechanisms for schema migration.
-    These tests ensure the migration window prevents accidental writes
-    under mismatched schemas and validates the complete safety contract.
+
+    These tests ensure the migration window prevents accidental writes under mismatched
+    schemas and validates the complete safety contract.
+
     """
 
     def test_contract_schema_mismatch_write_prevention(
@@ -1756,12 +1778,14 @@ class TestSchemaMigrationContracts:
 
         # Create different types of schema violations
         violation_scenarios = [
-            ("hash_mismatch", lambda data: [
-                {**row, "extra_field": "violation"} for row in data
-            ]),
-            ("type_mismatch", lambda data: [
-                {**row, "close": "not_a_number"} for row in data
-            ]),
+            (
+                "hash_mismatch",
+                lambda data: [{**row, "extra_field": "violation"} for row in data],
+            ),
+            (
+                "type_mismatch",
+                lambda data: [{**row, "close": "not_a_number"} for row in data],
+            ),
         ]
 
         for violation_type, data_modifier in violation_scenarios:
@@ -1921,16 +1945,18 @@ class TestNegativeEdgeCases:
 
         # Empty DataFrame
         if HAS_POLARS:
-            empty_df = pl.DataFrame({
-                "instrument_id": [],
-                "ts_event": [],
-                "ts_init": [],
-                "close": [],
-                "volume": [],
-                "open": [],
-                "high": [],
-                "low": [],
-            })
+            empty_df = pl.DataFrame(
+                {
+                    "instrument_id": [],
+                    "ts_event": [],
+                    "ts_init": [],
+                    "close": [],
+                    "volume": [],
+                    "open": [],
+                    "high": [],
+                    "low": [],
+                },
+            )
             success, _error, _details = store.preflight_check("test_bars", empty_df, strict=True)
             # Should succeed for empty but correctly structured data
             assert success is True
@@ -2029,9 +2055,9 @@ class TestNegativeEdgeCases:
         # Simulate rapid concurrent cleanups
         base_time = time.time_ns()
         for i in range(10):
-            store._schema_migration_state[f"dataset_{i}"]["start_time"] = (
-                base_time - (2 * 3600 * 1e9)  # All expired
-            )
+            store._schema_migration_state[f"dataset_{i}"]["start_time"] = base_time - (
+                2 * 3600 * 1e9
+            )  # All expired
 
         # All should clean up properly
         for i in range(10):
@@ -2222,7 +2248,10 @@ class TestIntegration:
         # Create large dataset using DataBuilder
         num_records = 10000
         ohlcv_data = DataBuilder.ohlcv_data(n_bars=num_records, as_dataframe=False)
-        timestamps = DataBuilder.time_series(n_points=num_records, interval_ns=1_000_000_000)  # 1 second intervals
+        timestamps = DataBuilder.time_series(
+            n_points=num_records,
+            interval_ns=1_000_000_000,
+        )  # 1 second intervals
 
         data = []
         for i in range(num_records):

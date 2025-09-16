@@ -18,7 +18,11 @@ def test_strategy_store_write_and_read(
     default_instrument_id: InstrumentId,
     test_timestamps: tuple[int, int],
 ) -> None:  # type: ignore[override]
-    store = StrategyStore(connection_string=postgres_connection, batch_size=2, flush_interval_seconds=0.01)
+    store = StrategyStore(
+        connection_string=postgres_connection,
+        batch_size=2,
+        flush_interval_seconds=0.01,
+    )
 
     ts_event, _ts_init = test_timestamps
     instrument_id_str = str(default_instrument_id).split(".")[0]  # Get "EUR/USD" from "EUR/USD.SIM"

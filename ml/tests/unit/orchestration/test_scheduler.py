@@ -30,7 +30,10 @@ class _OnceSleeper:
     def __init__(self) -> None:
         self.calls: list[float] = []
 
-    def __call__(self, seconds: float) -> None:  # pragma: no cover - behavior verified via side effects
+    def __call__(
+        self,
+        seconds: float,
+    ) -> None:  # pragma: no cover - behavior verified via side effects
         self.calls.append(seconds)
         if len(self.calls) > 1:
             raise RuntimeError("stop")
@@ -118,7 +121,20 @@ def test_event_emission_success_and_failed(tmp_path: Path) -> None:
         dataset_type: str | None = None,
         component: str | None = None,
     ) -> None:
-        _ = (dataset_id, instrument_id, stage, source, run_id, ts_min, ts_max, count, error, metadata, dataset_type, component)
+        _ = (
+            dataset_id,
+            instrument_id,
+            stage,
+            source,
+            run_id,
+            ts_min,
+            ts_max,
+            count,
+            error,
+            metadata,
+            dataset_type,
+            component,
+        )
         statuses.append(status.value)
 
     # Success case

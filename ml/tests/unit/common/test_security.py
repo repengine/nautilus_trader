@@ -3,8 +3,9 @@
 """
 Tests for ML model artifact security and integrity verification.
 
-These tests ensure that the SHA-256 integrity verification system correctly
-detects tampered model artifacts and prevents loading of compromised models.
+These tests ensure that the SHA-256 integrity verification system correctly detects
+tampered model artifacts and prevents loading of compromised models.
+
 """
 
 import hashlib
@@ -21,10 +22,14 @@ from ml.common.security import verify_artifact_integrity
 
 
 class TestCalculateFileSha256:
-    """Test SHA-256 calculation for files."""
+    """
+    Test SHA-256 calculation for files.
+    """
 
     def test_calculate_file_sha256_valid_file(self, tmp_path: Path) -> None:
-        """Test SHA-256 calculation for a valid file."""
+        """
+        Test SHA-256 calculation for a valid file.
+        """
         # Create a test file with known content
         test_file = tmp_path / "test.bin"
         test_content = b"This is test content for SHA-256 calculation"
@@ -40,7 +45,9 @@ class TestCalculateFileSha256:
         assert len(actual_digest) == 64  # SHA-256 hex string length
 
     def test_calculate_file_sha256_large_file(self, tmp_path: Path) -> None:
-        """Test SHA-256 calculation for a large file (tests chunked reading)."""
+        """
+        Test SHA-256 calculation for a large file (tests chunked reading).
+        """
         # Create a large test file (>8KB to test chunked reading)
         test_file = tmp_path / "large_test.bin"
         test_content = b"A" * 10000  # 10KB of 'A' characters
@@ -55,7 +62,9 @@ class TestCalculateFileSha256:
         assert actual_digest == expected_digest
 
     def test_calculate_file_sha256_empty_file(self, tmp_path: Path) -> None:
-        """Test SHA-256 calculation for an empty file."""
+        """
+        Test SHA-256 calculation for an empty file.
+        """
         # Create an empty test file
         test_file = tmp_path / "empty.bin"
         test_file.touch()
@@ -69,14 +78,18 @@ class TestCalculateFileSha256:
         assert actual_digest == expected_digest
 
     def test_calculate_file_sha256_nonexistent_file(self, tmp_path: Path) -> None:
-        """Test SHA-256 calculation raises error for nonexistent file."""
+        """
+        Test SHA-256 calculation raises error for nonexistent file.
+        """
         nonexistent_file = tmp_path / "nonexistent.bin"
 
         with pytest.raises(FileNotFoundError, match="File not found"):
             calculate_file_sha256(nonexistent_file)
 
     def test_calculate_file_sha256_permission_error(self, tmp_path: Path) -> None:
-        """Test SHA-256 calculation handles permission errors."""
+        """
+        Test SHA-256 calculation handles permission errors.
+        """
         test_file = tmp_path / "test.bin"
         test_file.write_bytes(b"test content")
 
@@ -87,10 +100,14 @@ class TestCalculateFileSha256:
 
 
 class TestVerifyArtifactIntegrity:
-    """Test artifact integrity verification."""
+    """
+    Test artifact integrity verification.
+    """
 
     def test_verify_artifact_integrity_valid(self, tmp_path: Path) -> None:
-        """Test integrity verification passes for valid artifact."""
+        """
+        Test integrity verification passes for valid artifact.
+        """
         # Create test file and calculate digest
         test_file = tmp_path / "model.onnx"
         test_content = b"Valid ONNX model content"
@@ -106,7 +123,9 @@ class TestVerifyArtifactIntegrity:
         assert result is True
 
     def test_verify_artifact_integrity_tampered_strict(self, tmp_path: Path) -> None:
-        """Test integrity verification fails for tampered artifact in strict mode."""
+        """
+        Test integrity verification fails for tampered artifact in strict mode.
+        """
         # Create test file
         test_file = tmp_path / "model.onnx"
         original_content = b"Original ONNX model content"
@@ -128,7 +147,10 @@ class TestVerifyArtifactIntegrity:
         assert error.actual_digest == hashlib.sha256(tampered_content).hexdigest()
 
     def test_verify_artifact_integrity_tampered_non_strict(self, tmp_path: Path) -> None:
-        """Test integrity verification fails gracefully for tampered artifact in non-strict mode."""
+        """
+        Test integrity verification fails gracefully for tampered artifact in non-strict
+        mode.
+        """
         # Create test file
         test_file = tmp_path / "model.onnx"
         original_content = b"Original ONNX model content"
@@ -144,7 +166,9 @@ class TestVerifyArtifactIntegrity:
         assert result is False
 
     def test_verify_artifact_integrity_no_digest_strict(self, tmp_path: Path) -> None:
-        """Test integrity verification with no digest in strict mode."""
+        """
+        Test integrity verification with no digest in strict mode.
+        """
         test_file = tmp_path / "model.onnx"
         test_file.write_bytes(b"Some content")
 
@@ -157,7 +181,9 @@ class TestVerifyArtifactIntegrity:
         assert result is True
 
     def test_verify_artifact_integrity_no_digest_non_strict(self, tmp_path: Path) -> None:
-        """Test integrity verification with no digest in non-strict mode."""
+        """
+        Test integrity verification with no digest in non-strict mode.
+        """
         test_file = tmp_path / "model.onnx"
         test_file.write_bytes(b"Some content")
 
@@ -170,7 +196,9 @@ class TestVerifyArtifactIntegrity:
         assert result is True
 
     def test_verify_artifact_integrity_file_not_found(self, tmp_path: Path) -> None:
-        """Test integrity verification with nonexistent file."""
+        """
+        Test integrity verification with nonexistent file.
+        """
         nonexistent_file = tmp_path / "nonexistent.onnx"
         digest = "abc123"
 
@@ -182,10 +210,14 @@ class TestVerifyArtifactIntegrity:
 
 
 class TestSecureOnnxLoad:
-    """Test secure ONNX model loading with integrity verification."""
+    """
+    Test secure ONNX model loading with integrity verification.
+    """
 
     def test_secure_onnx_load_valid_model(self, tmp_path: Path) -> None:
-        """Test secure loading of valid ONNX model."""
+        """
+        Test secure loading of valid ONNX model.
+        """
         # Create a minimal ONNX file (not a real model, just for testing the security layer)
         test_file = tmp_path / "model.onnx"
         test_content = b"fake onnx model content"
@@ -193,8 +225,10 @@ class TestSecureOnnxLoad:
         expected_digest = hashlib.sha256(test_content).hexdigest()
 
         # Mock ONNX imports and InferenceSession
-        with patch("ml.common.security.HAS_ONNX", True), \
-             patch("ml.common.security.ort") as mock_ort:
+        with (
+            patch("ml.common.security.HAS_ONNX", True),
+            patch("ml.common.security.ort") as mock_ort,
+        ):
 
             mock_session = mock_ort.InferenceSession.return_value
 
@@ -202,14 +236,16 @@ class TestSecureOnnxLoad:
             result = secure_onnx_load(
                 file_path=test_file,
                 expected_digest=expected_digest,
-                strict_integrity=True
+                strict_integrity=True,
             )
 
             assert result == mock_session
             mock_ort.InferenceSession.assert_called_once_with(str(test_file))
 
     def test_secure_onnx_load_tampered_model_strict(self, tmp_path: Path) -> None:
-        """Test secure loading rejects tampered ONNX model in strict mode."""
+        """
+        Test secure loading rejects tampered ONNX model in strict mode.
+        """
         # Create test file
         test_file = tmp_path / "model.onnx"
         original_content = b"original onnx model content"
@@ -225,11 +261,13 @@ class TestSecureOnnxLoad:
             secure_onnx_load(
                 file_path=test_file,
                 expected_digest=expected_digest,
-                strict_integrity=True
+                strict_integrity=True,
             )
 
     def test_secure_onnx_load_tampered_model_non_strict(self, tmp_path: Path) -> None:
-        """Test secure loading handles tampered ONNX model in non-strict mode."""
+        """
+        Test secure loading handles tampered ONNX model in non-strict mode.
+        """
         # Create test file
         test_file = tmp_path / "model.onnx"
         original_content = b"original onnx model content"
@@ -241,8 +279,10 @@ class TestSecureOnnxLoad:
         test_file.write_bytes(tampered_content)
 
         # Mock ONNX imports
-        with patch("ml.common.security.HAS_ONNX", True), \
-             patch("ml.common.security.ort") as mock_ort:
+        with (
+            patch("ml.common.security.HAS_ONNX", True),
+            patch("ml.common.security.ort") as mock_ort,
+        ):
 
             mock_session = mock_ort.InferenceSession.return_value
 
@@ -250,20 +290,24 @@ class TestSecureOnnxLoad:
             result = secure_onnx_load(
                 file_path=test_file,
                 expected_digest=expected_digest,
-                strict_integrity=False
+                strict_integrity=False,
             )
 
             # Should still load the model despite integrity failure in non-strict mode
             assert result == mock_session
 
     def test_secure_onnx_load_no_digest(self, tmp_path: Path) -> None:
-        """Test secure loading with no digest provided."""
+        """
+        Test secure loading with no digest provided.
+        """
         test_file = tmp_path / "model.onnx"
         test_file.write_bytes(b"onnx model content")
 
         # Mock ONNX imports
-        with patch("ml.common.security.HAS_ONNX", True), \
-             patch("ml.common.security.ort") as mock_ort:
+        with (
+            patch("ml.common.security.HAS_ONNX", True),
+            patch("ml.common.security.ort") as mock_ort,
+        ):
 
             mock_session = mock_ort.InferenceSession.return_value
 
@@ -271,21 +315,25 @@ class TestSecureOnnxLoad:
             result = secure_onnx_load(
                 file_path=test_file,
                 expected_digest=None,
-                strict_integrity=True
+                strict_integrity=True,
             )
 
             assert result == mock_session
 
     def test_secure_onnx_load_with_session_options(self, tmp_path: Path) -> None:
-        """Test secure loading with custom session options."""
+        """
+        Test secure loading with custom session options.
+        """
         test_file = tmp_path / "model.onnx"
         test_content = b"onnx model content"
         test_file.write_bytes(test_content)
         expected_digest = hashlib.sha256(test_content).hexdigest()
 
         # Mock ONNX imports and session options
-        with patch("ml.common.security.HAS_ONNX", True), \
-             patch("ml.common.security.ort") as mock_ort:
+        with (
+            patch("ml.common.security.HAS_ONNX", True),
+            patch("ml.common.security.ort") as mock_ort,
+        ):
 
             mock_session = mock_ort.InferenceSession.return_value
             mock_session_options = "mock_session_options"
@@ -297,24 +345,28 @@ class TestSecureOnnxLoad:
                 expected_digest=expected_digest,
                 session_options=mock_session_options,
                 providers=mock_providers,
-                strict_integrity=True
+                strict_integrity=True,
             )
 
             assert result == mock_session
             mock_ort.InferenceSession.assert_called_once_with(
                 str(test_file),
                 sess_options=mock_session_options,
-                providers=mock_providers
+                providers=mock_providers,
             )
 
     def test_secure_onnx_load_onnx_not_available(self, tmp_path: Path) -> None:
-        """Test secure loading when ONNX is not available."""
+        """
+        Test secure loading when ONNX is not available.
+        """
         test_file = tmp_path / "model.onnx"
         test_file.write_bytes(b"onnx model content")
 
         # Mock ONNX not available
-        with patch("ml.common.security.HAS_ONNX", False), \
-             patch("ml.common.security.check_ml_dependencies") as mock_check:
+        with (
+            patch("ml.common.security.HAS_ONNX", False),
+            patch("ml.common.security.check_ml_dependencies") as mock_check,
+        ):
 
             mock_check.side_effect = ImportError("ONNX not available")
 
@@ -322,19 +374,23 @@ class TestSecureOnnxLoad:
                 secure_onnx_load(
                     file_path=test_file,
                     expected_digest=None,
-                    strict_integrity=False
+                    strict_integrity=False,
                 )
 
     def test_secure_onnx_load_model_loading_error(self, tmp_path: Path) -> None:
-        """Test secure loading when ONNX model loading fails."""
+        """
+        Test secure loading when ONNX model loading fails.
+        """
         test_file = tmp_path / "model.onnx"
         test_content = b"invalid onnx content"
         test_file.write_bytes(test_content)
         expected_digest = hashlib.sha256(test_content).hexdigest()
 
         # Mock ONNX imports but make InferenceSession fail
-        with patch("ml.common.security.HAS_ONNX", True), \
-             patch("ml.common.security.ort") as mock_ort:
+        with (
+            patch("ml.common.security.HAS_ONNX", True),
+            patch("ml.common.security.ort") as mock_ort,
+        ):
 
             mock_ort.InferenceSession.side_effect = RuntimeError("Invalid ONNX model")
 
@@ -342,28 +398,34 @@ class TestSecureOnnxLoad:
                 secure_onnx_load(
                     file_path=test_file,
                     expected_digest=expected_digest,
-                    strict_integrity=True
+                    strict_integrity=True,
                 )
 
 
 class TestArtifactIntegrityError:
-    """Test custom exception for artifact integrity failures."""
+    """
+    Test custom exception for artifact integrity failures.
+    """
 
     def test_artifact_integrity_error_basic(self) -> None:
-        """Test basic ArtifactIntegrityError creation."""
+        """
+        Test basic ArtifactIntegrityError creation.
+        """
         error = ArtifactIntegrityError("Test error message")
         assert str(error) == "Test error message"
         assert error.expected_digest is None
         assert error.actual_digest is None
 
     def test_artifact_integrity_error_with_digests(self) -> None:
-        """Test ArtifactIntegrityError with digest information."""
+        """
+        Test ArtifactIntegrityError with digest information.
+        """
         expected = "abc123"
         actual = "def456"
         error = ArtifactIntegrityError(
             "Integrity check failed",
             expected_digest=expected,
-            actual_digest=actual
+            actual_digest=actual,
         )
 
         assert str(error) == "Integrity check failed"
@@ -372,10 +434,14 @@ class TestArtifactIntegrityError:
 
 
 class TestIntegrationScenarios:
-    """Integration tests for realistic security scenarios."""
+    """
+    Integration tests for realistic security scenarios.
+    """
 
     def test_model_tampering_detection_scenario(self, tmp_path: Path) -> None:
-        """Test end-to-end scenario of detecting model tampering."""
+        """
+        Test end-to-end scenario of detecting model tampering.
+        """
         # Step 1: Create a "legitimate" model file
         model_file = tmp_path / "production_model.onnx"
         legitimate_content = b"legitimate model weights and structure"
@@ -400,7 +466,9 @@ class TestIntegrationScenarios:
         assert "tampered" in str(error).lower()
 
     def test_legitimate_model_loading_scenario(self, tmp_path: Path) -> None:
-        """Test end-to-end scenario of loading a legitimate model."""
+        """
+        Test end-to-end scenario of loading a legitimate model.
+        """
         # Step 1: Create a legitimate model file
         model_file = tmp_path / "production_model.onnx"
         legitimate_content = b"legitimate model weights and structure"
@@ -414,21 +482,25 @@ class TestIntegrationScenarios:
         assert result is True
 
         # Step 4: Verify that secure loading would work
-        with patch("ml.common.security.HAS_ONNX", True), \
-             patch("ml.common.security.ort") as mock_ort:
+        with (
+            patch("ml.common.security.HAS_ONNX", True),
+            patch("ml.common.security.ort") as mock_ort,
+        ):
 
             mock_session = mock_ort.InferenceSession.return_value
 
             loaded_model = secure_onnx_load(
                 file_path=model_file,
                 expected_digest=legitimate_digest,
-                strict_integrity=True
+                strict_integrity=True,
             )
 
             assert loaded_model == mock_session
 
     def test_multiple_file_tampering_detection(self, tmp_path: Path) -> None:
-        """Test detection of tampering across multiple model files."""
+        """
+        Test detection of tampering across multiple model files.
+        """
         # Create multiple model files
         models = {}
         digests = {}

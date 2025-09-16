@@ -222,4 +222,3 @@ def test_strategy_store_no_events_when_registry_unavailable(test_database):
 
         # Buffer should be cleared
         assert len(store._write_buffer) == 0
-

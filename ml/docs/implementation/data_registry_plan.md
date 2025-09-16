@@ -393,6 +393,7 @@ exing.
     - Add chaos engineering tests for resilience
     - Implement synthetic data generation for testing
     - Create regression test suite with historical scenarios
+
 - Implementation Notes (actual design choices)
 
   - Event emission is centralized with enum‑safe helpers and deterministic correlation IDs. If the extended SQL function `emit_data_event_ext` (with metadata) is available it is used; otherwise the implementation falls back to `emit_data_event` or a direct insert. This increases robustness across environments without sacrificing observability.

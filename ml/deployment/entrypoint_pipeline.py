@@ -206,6 +206,7 @@ class PipelineRunner:
         if ctor_any is None:
             # Lazy import to avoid heavy dependency at module import time
             from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC
+
             _ParquetDataCatalogRT = _PDC
             ctor_any = _ParquetDataCatalogRT
         ctor = _cast(type["_PDC_T"], ctor_any)
@@ -305,7 +306,7 @@ class PipelineRunner:
                     wait_time = min(60, 2 ** (attempt + 1))
                     logger.warning(
                         f"Realtime update attempt {attempt + 1} failed: {exc}. "
-                        f"Retrying in {wait_time}s..."
+                        f"Retrying in {wait_time}s...",
                     )
 
                 scheduler = self.scheduler

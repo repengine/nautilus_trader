@@ -43,7 +43,11 @@ def test_strategy_performance_update_and_read(test_database) -> None:  # noqa: A
     store.flush()
 
     # Aggregate and check
-    store.update_performance_metrics(strategy_id=strategy_id, period_start=base, period_end=base + 10)
+    store.update_performance_metrics(
+        strategy_id=strategy_id,
+        period_start=base,
+        period_end=base + 10,
+    )
     perf = store.get_strategy_performance(strategy_id=strategy_id, start_ns=base, end_ns=base + 10)
 
     assert perf["signal_count"] == 3
@@ -52,4 +56,3 @@ def test_strategy_performance_update_and_read(test_database) -> None:  # noqa: A
     assert perf["hold_count"] == 1
     assert 0.0 <= perf["avg_strength"] <= 1.0
     assert 0.0 <= perf["std_strength"]
-

@@ -229,7 +229,10 @@ def create_standard_contracts() -> dict[str, DataContract]:
             "duplicate_rate": 0.0,
         },
         created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:features.created"),
-        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:features.modified"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:features.modified",
+        ),
     )
     contracts["features"] = features_contract
 
@@ -250,7 +253,10 @@ def create_standard_contracts() -> dict[str, DataContract]:
             "duplicate_rate": 0.0,
         },
         created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:predictions.created"),
-        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:predictions.modified"),
+        last_modified=_sanitize(
+            int(time.time_ns()),
+            context="registry.bootstrap:predictions.modified",
+        ),
     )
     contracts["predictions"] = predictions_contract
 

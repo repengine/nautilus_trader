@@ -28,12 +28,16 @@ def test_actor_bus_scheme_and_prefix(monkeypatch: Any) -> None:
             self.publisher = None
             self._enable_publishing = False
 
-    actor = type("_A", (), {
-        "_feature_store": _S(),
-        "_model_store": _S(),
-        "_strategy_store": _S(),
-        "_data_store": _S(),
-    })()
+    actor = type(
+        "_A",
+        (),
+        {
+            "_feature_store": _S(),
+            "_model_store": _S(),
+            "_strategy_store": _S(),
+            "_data_store": _S(),
+        },
+    )()
 
     with patch("ml.actors.ml_domain_events.publisher_from_config", return_value=NoopPublisher()):
         bridge, scheme, prefix = init_actor_bus_bridge(actor)

@@ -66,6 +66,7 @@ Notes:
 - The trading ``StrategyRegistry`` is unrelated to actor decision policies and is not
   used to select the actor’s ``SignalGenerationStrategy``. Decision policies are a
   model/actor concern and are resolved via adapters or the built‑in mapping above.
+
 """
 
 from __future__ import annotations
@@ -82,7 +83,6 @@ from typing import TYPE_CHECKING, Any, cast
 import msgspec
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import Bar
 
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
@@ -117,6 +117,7 @@ from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.utils import assert_features_compatible
+from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
@@ -315,6 +316,7 @@ class SignalGenerationStrategy(ABC):
         Generate a signal based on the strategy logic.
         """
         ...
+
 
 # Public alias to avoid confusion with trading strategies.
 # A SignalPolicy is a decision policy that maps prediction context to an MLSignal.
@@ -989,6 +991,7 @@ class SignalPolicySwapper:
     Mirrors the ``ModelSwapper`` pattern but for ``SignalGenerationStrategy``
     (aka ``SignalPolicy``) instances. All swap preparation happens off the hot path;
     reading the current policy on the hot path remains a single attribute dereference.
+
     """
 
     def __init__(self) -> None:
@@ -1001,31 +1004,49 @@ class SignalPolicySwapper:
 
     @property
     def current_strategy(self) -> SignalGenerationStrategy | None:
-        """Return the current strategy instance, or None if unset."""
+        """
+        Return the current strategy instance, or None if unset.
+        """
         return self._current_strategy
 
     @property
     def current_metadata(self) -> dict[str, Any] | None:
-        """Return metadata associated with the current strategy, if any."""
+        """
+        Return metadata associated with the current strategy, if any.
+        """
         return self._current_metadata
 
     @property
     def swap_pending(self) -> bool:
-        """True if a new strategy has been prepared and not yet applied."""
+        """
+        True if a new strategy has been prepared and not yet applied.
+        """
         return self._swap_pending
 
     @property
     def load_error(self) -> Exception | None:
-        """Any error encountered while preparing a swap (if applicable)."""
+        """
+        Any error encountered while preparing a swap (if applicable).
+        """
         return self._load_error
 
-    def set_current(self, strategy: SignalGenerationStrategy, metadata: dict[str, Any] | None = None) -> None:
-        """Set the current strategy and clear any previous error state."""
+    def set_current(
+        self,
+        strategy: SignalGenerationStrategy,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Set the current strategy and clear any previous error state.
+        """
         self._current_strategy = strategy
         self._current_metadata = metadata or {}
         self._load_error = None
 
-    def prepare_swap(self, strategy: SignalGenerationStrategy, metadata: dict[str, Any] | None = None) -> None:
+    def prepare_swap(
+        self,
+        strategy: SignalGenerationStrategy,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """
         Prepare a swap by staging the next strategy instance and metadata.
         """
@@ -1049,6 +1070,7 @@ class SignalPolicySwapper:
         -------
         bool
             True if a swap was applied; False otherwise.
+
         """
         if not self._swap_pending:
             return False
@@ -1061,6 +1083,7 @@ class SignalPolicySwapper:
         self._swap_pending = False
         del old
         return True
+
 
 # Public alias for naming clarity (prefer this name going forward).
 StrategySwapper = SignalPolicySwapper
@@ -1148,7 +1171,9 @@ class MLSignalActor(BaseMLInferenceActor):
 
         # Enforce hot-path rule in optimized mode: do not persist features on actor thread
         try:
-            is_optimized = getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
+            is_optimized = (
+                getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
+            )
         except Exception:
             is_optimized = False
         if is_optimized:
@@ -1482,6 +1507,7 @@ class MLSignalActor(BaseMLInferenceActor):
         -------
         SignalGenerationStrategy
             The constructed strategy instance.
+
         """
         # Use custom strategy if provided
         if self._signal_config.custom_strategy is not None:
@@ -1502,6 +1528,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 self.log.debug(f"Decision policy adapter load failed: {exc}")
             except Exception as log_exc:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Logging decision policy adapter failure also failed: %s",
                     log_exc,
@@ -1641,6 +1668,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 self.log.debug(f"Decision policy application failed: {exc}")
             except Exception as log_exc:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Logging decision policy application failure also failed: %s",
                     log_exc,
@@ -1651,8 +1679,9 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         Apply a prepared strategy swap, if any (cold-path check).
 
-        This method executes in O(1) and only mutates the current strategy
-        pointer when a swap is pending.
+        This method executes in O(1) and only mutates the current strategy pointer when
+        a swap is pending.
+
         """
         swapper = getattr(self, "_signal_policy_swapper", None)
         if swapper is None:
@@ -1999,6 +2028,7 @@ class MLSignalActor(BaseMLInferenceActor):
                         self.log.debug(f"Ring metadata attach failed: {exc}")
                     except Exception as log_exc:
                         import logging as _logging
+
                         _logging.getLogger(__name__).debug(
                             "Logging ring metadata attach failure also failed: %s",
                             log_exc,
@@ -2028,6 +2058,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 self.log.debug("Strategy swap apply failed: %s", exc)
             except Exception as log_exc:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Logging strategy swap failure also failed: %s",
                     log_exc,
@@ -2060,6 +2091,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 self.log.debug("Attach ring metadata failed: %s", exc)
             except Exception as log_exc:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
                     "Logging ring metadata attach failure also failed: %s",
                     log_exc,
@@ -2315,7 +2347,9 @@ class MLSignalActor(BaseMLInferenceActor):
 
         # Add to history lists (cold path only) to avoid hot-path allocations in optimized mode
         try:
-            is_optimized = getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
+            is_optimized = (
+                getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
+            )
         except Exception:
             is_optimized = False
         if not is_optimized:

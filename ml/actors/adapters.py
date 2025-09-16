@@ -8,6 +8,7 @@ configured decision policy (aka "signal policy") without modifying the actor its
 The term "signal policy" is used to avoid confusion with trading strategies under
 `ml/strategies/*`. In code, `SignalGenerationStrategy` remains the base type for
 policies for backward compatibility; the public alias is `SignalPolicy`.
+
 """
 
 from __future__ import annotations

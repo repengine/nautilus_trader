@@ -122,6 +122,7 @@ def join_fred_asof(
         if "ts_effective" in joined.columns:
             joined = joined.drop("ts_effective")
         from typing import cast as _cast
+
         return _cast(DataFrameLike, joined)
 
     # Pandas path

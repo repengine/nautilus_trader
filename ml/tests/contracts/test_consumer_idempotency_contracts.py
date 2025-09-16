@@ -75,7 +75,7 @@ def test_idempotent_consumer_drops_duplicates_and_enforces_watermark() -> None:
     assert c.process(p1) is True
     assert c.process(p2) is False  # watermark regression
     assert c.process(p3) is False  # duplicate correlation
-    assert c.process(p4) is True   # new correlation, higher watermark
+    assert c.process(p4) is True  # new correlation, higher watermark
 
 
 @pytest.mark.contracts
@@ -105,9 +105,18 @@ def test_idempotent_consumer_keys_are_isolated() -> None:
 @pytest.mark.contracts
 def test_topics_built_for_stage_produce_valid_subjects() -> None:
     # Not asserting bus side-effects here; only that stage/scheme map consistently
-    topic1 = build_topic_for_stage(Stage.DATA_INGESTED, instrument_id="EUR/USD", scheme="domain_op", prefix="events.ml")
-    topic2 = build_topic_for_stage(Stage.SIGNAL_EMITTED, instrument_id="SPY.NYSE", scheme="stage_first", prefix="events.ml")
+    topic1 = build_topic_for_stage(
+        Stage.DATA_INGESTED,
+        instrument_id="EUR/USD",
+        scheme="domain_op",
+        prefix="events.ml",
+    )
+    topic2 = build_topic_for_stage(
+        Stage.SIGNAL_EMITTED,
+        instrument_id="SPY.NYSE",
+        scheme="stage_first",
+        prefix="events.ml",
+    )
 
     assert topic1.startswith("ml.data.")  # domain_op -> ml.{domain}.operation
     assert topic2.startswith("events.ml.SIGNAL_EMITTED.")
-

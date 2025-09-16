@@ -3,6 +3,7 @@ Safe wrappers around PyTorch serialization.
 
 Provides a hardened loader for state dicts with optional checksum validation and
 weights-only deserialization to reduce pickle attack surface.
+
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ def safe_torch_load(
     - Restricts loading to CPU via map_location="cpu".
     - Attempts weights_only=True when supported (PyTorch>=2.0) to avoid arbitrary code exec.
     - Optionally validates the file's SHA-256 checksum.
+
     """
     import torch
 

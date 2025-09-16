@@ -19,12 +19,19 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-@pytest.mark.parametrize("mode,expected_extra", [
-    ("batch", 1),
-    ("row", 2),
-    ("both", 3),
-])
-def test_strategy_store_publishing_modes(mode: str, expected_extra: int, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "mode,expected_extra",
+    [
+        ("batch", 1),
+        ("row", 2),
+        ("both", 3),
+    ],
+)
+def test_strategy_store_publishing_modes(
+    mode: str,
+    expected_extra: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Avoid DB init
     monkeypatch.setattr(StrategyStore, "_init_engine_and_tables", lambda self: None)
     cap = CapturePublisher()
@@ -45,7 +52,10 @@ def test_strategy_store_publishing_modes(mode: str, expected_extra: int, monkeyp
             publish_mode=getattr(store, "_publish_mode", "batch"),
             topic_scheme=getattr(store, "_topic_scheme", "domain_op"),
             topic_prefix=getattr(store, "_topic_prefix", "events.ml"),
-            stage=__import__("ml.config.events", fromlist=["Stage"]).Stage.SIGNAL_EMITTED,  # avoid import at module level
+            stage=__import__(
+                "ml.config.events",
+                fromlist=["Stage"],
+            ).Stage.SIGNAL_EMITTED,  # avoid import at module level
             dataset_id="signals",
             instrument_key="instrument_id",
             ts_field="ts_event",

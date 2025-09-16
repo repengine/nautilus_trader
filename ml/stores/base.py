@@ -80,6 +80,7 @@ class FeatureData(NautilusData):
         - `values` or `features`
         - `_ts_event`/`_ts_init` or `ts_event`/`ts_init`
         - `feature_set_id` optional (defaults to "default")
+
         """
         self.feature_set_id = feature_set_id or "default"
         self.instrument_id = instrument_id

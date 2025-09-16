@@ -18,24 +18,23 @@ import pandas as pd
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.backtest.engine import BacktestEngineConfig
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.identifiers import Venue
-from nautilus_trader.model.objects import Money
-
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLStrategyConfig
 from ml.strategies.ml_strategy import MLTradingStrategy
 from nautilus_trader.adapters.databento import DatabentoDataLoader
+from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.backtest.engine import BacktestEngineConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.model.currencies import USD
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import OmsType
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
+from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.objects import Money
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 
@@ -146,12 +145,12 @@ def run_backtest_dry_run() -> None:
         print(f"Attempting to load data from {start_date.date()} to {end_date.date()}")
 
         # Generate synthetic bars for testing
-        from nautilus_trader.model.data import Bar
-        from nautilus_trader.model.objects import Price
-        from nautilus_trader.model.objects import Quantity
         from numpy.random import default_rng
 
         from nautilus_trader.core.datetime import dt_to_unix_nanos
+        from nautilus_trader.model.data import Bar
+        from nautilus_trader.model.objects import Price
+        from nautilus_trader.model.objects import Quantity
 
         bars = []
         base_price = 400.0

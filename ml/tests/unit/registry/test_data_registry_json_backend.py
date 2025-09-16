@@ -79,4 +79,3 @@ def test_json_backend_register_emit_watermark_roundtrip(tmp_path: Path) -> None:
     assert c2.dataset_id == "features_eurusd"
     w = reg2.get_watermark("features_eurusd", "EUR/USD", Source.HISTORICAL)
     assert w is not None and w.last_success_ns == 200
-

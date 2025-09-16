@@ -113,7 +113,10 @@ class MLRegistryEventSchema(pa.DataFrameModel):
     registry_type: Series[str] = pa.Field(nullable=False, isin=["features", "models", "strategies"])
     entity_id: Series[str] = pa.Field(nullable=False)
     version: Series[str] = pa.Field(nullable=False)
-    status: Series[str] = pa.Field(nullable=False, isin=[EventStatus.SUCCESS.value, EventStatus.FAILED.value])
+    status: Series[str] = pa.Field(
+        nullable=False,
+        isin=[EventStatus.SUCCESS.value, EventStatus.FAILED.value],
+    )
     correlation_id: Series[str] = pa.Field(nullable=False)
     timestamp: Series[int] = pa.Field(nullable=False, ge=0)
 
@@ -149,7 +152,7 @@ class TestEventBusContracts:
                         "correlation_id": str(uuid.uuid4()),
                         "ts_init": int(datetime(2024, 1, 1).timestamp() * 1e9) + 1,
                         "model_id": "test_model",
-                    }
+                    },
                 ],
             },
         )

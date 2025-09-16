@@ -149,6 +149,7 @@ def _last_bar_timestamp(base: Path, symbol: str) -> datetime | None:
     ts = dfc.select(PL.col("timestamp").max())[0, 0]
     if hasattr(ts, "to_pydatetime"):
         from typing import cast as _cast
+
         return _cast(datetime, ts.to_pydatetime())
     return datetime.fromtimestamp(np.datetime64(ts, "ns").astype("int64") / 1e9)
 

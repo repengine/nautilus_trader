@@ -991,6 +991,7 @@ class FeatureEngineer:
             if col in features_df.columns:
                 features_df[col] = features_df[col].astype("float32")
         from typing import cast as _cast
+
         return _cast(PandasDF, features_df)
 
     def _create_features_dataframe(
@@ -1017,20 +1018,24 @@ class FeatureEngineer:
             if "timestamp" in df.columns and "timestamp" not in features_df.columns:
                 features_df = cast(
                     DataFrameLike,
-                    cast(Any, features_df).with_columns([
-                        cast(Any, df)["timestamp"].alias("timestamp")
-                    ]),
+                    cast(Any, features_df).with_columns(
+                        [
+                            cast(Any, df)["timestamp"].alias("timestamp"),
+                        ],
+                    ),
                 )
             # Ensure column order matches config
             features_df = cast(DataFrameLike, cast(Any, features_df).select(feature_names))
             # Cast to float32 to match online path dtype exactly
             features_df = cast(
                 DataFrameLike,
-                cast(Any, features_df).with_columns([
-                    _pl.col(name).cast(_pl.Float32)
-                    for name in feature_names
-                    if name in cast(Any, features_df).columns
-                ]),
+                cast(Any, features_df).with_columns(
+                    [
+                        _pl.col(name).cast(_pl.Float32)
+                        for name in feature_names
+                        if name in cast(Any, features_df).columns
+                    ],
+                ),
             )
         else:
             features_df = self._create_pandas_features_dataframe(
@@ -1113,6 +1118,7 @@ class FeatureEngineer:
         # Expose scaled matrix for legacy tests expecting a global `X` name
         try:  # pragma: no cover - test-only convenience
             import builtins as _b
+
             if hasattr(features_scaled, "to_numpy"):
                 _b.X = features_scaled.to_numpy()  # type: ignore[attr-defined]
         except Exception as exc:
@@ -1308,7 +1314,9 @@ class FeatureEngineer:
         feature_rows: list[dict[str, float]] = []
 
         # Extract price arrays
-        _open_prices, high_prices, low_prices, close_prices, volumes = self._extract_price_arrays(df)
+        _open_prices, high_prices, low_prices, close_prices, volumes = self._extract_price_arrays(
+            df,
+        )
 
         # Process sequentially using the same code paths as online
         feature_names = self.config.get_feature_names()
@@ -1385,6 +1393,7 @@ class FeatureEngineer:
         # convenience in batch (cold) paths only.
         try:  # pragma: no cover - test-only convenience
             import builtins as _b
+
             if hasattr(features_df, "to_numpy"):
                 _b.X = features_df.to_numpy()  # type: ignore[attr-defined]
         except Exception as exc:

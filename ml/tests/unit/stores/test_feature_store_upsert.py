@@ -38,13 +38,17 @@ def test_upsert_uses_bracket_style_for_values() -> None:
     )
 
     from typing import cast
-    stmt = cast(Any, stmt.on_conflict_do_update(
-        index_elements=["feature_set_id", "instrument_id", "ts_event"],
-        set_={
-            "values": stmt.excluded["values"],
-            "ts_init": stmt.excluded.ts_init,
-        },
-    ))
+
+    stmt = cast(
+        Any,
+        stmt.on_conflict_do_update(
+            index_elements=["feature_set_id", "instrument_id", "ts_event"],
+            set_={
+                "values": stmt.excluded["values"],
+                "ts_init": stmt.excluded.ts_init,
+            },
+        ),
+    )
 
     # Compilation to PostgreSQL dialect should not raise
     compiled: Any = stmt.compile(dialect=postgresql.dialect())

@@ -685,6 +685,7 @@ def register_model_with_registry(
         import logging as _logging
 
         _logging.getLogger(__name__).warning(
-            "ModelRegistry flush failed (non-blocking): %s", exc,
+            "ModelRegistry flush failed (non-blocking): %s",
+            exc,
         )
     return model_id

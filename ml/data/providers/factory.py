@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeAlias, cast
+from typing import TYPE_CHECKING, TypeAlias
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
-from ml.ml_types import PolarsDF, PolarsSeries
 from ml.data.providers.base import BaseStaticProvider
 from ml.data.providers.base import BaseTimeSeriesProvider
 from ml.data.providers.calendar import MarketCalendarProvider
@@ -24,6 +23,8 @@ from ml.data.sources.calendar import MockCalendarSource
 from ml.data.sources.calendar import PandasCalendarSource
 from ml.data.sources.events import MockEventSource
 from ml.data.sources.metadata import MockMetadataSource
+from ml.ml_types import PolarsDF
+from ml.ml_types import PolarsSeries
 
 
 if TYPE_CHECKING:
@@ -376,6 +377,7 @@ class TransformProviderAdapter:
             # Return empty DataFrame for unknown transforms
             logger.debug(f"No provider for transform {transform.name}, returning empty DataFrame")
             from typing import cast as _cast
+
             return _cast(PolarsDF, pl.DataFrame())
 
         # Load data based on provider type
@@ -401,6 +403,7 @@ class TransformProviderAdapter:
             _pl = pl
             assert _pl is not None
             from typing import cast as _cast
+
             return _cast(PolarsDF, _pl.DataFrame())
 
     def _load_timeseries_data(
@@ -418,12 +421,14 @@ class TransformProviderAdapter:
             _pl = pl
             assert _pl is not None
             from typing import cast as _cast
+
             return _cast(PolarsDF, _pl.DataFrame())
         if timestamps.is_empty():
             logger.warning(f"Empty timestamps for time series transform {transform.name}")
             _pl = pl
             assert _pl is not None
             from typing import cast as _cast
+
             return _cast(PolarsDF, _pl.DataFrame())
 
         if not hasattr(provider, "compute_features"):
@@ -431,6 +436,7 @@ class TransformProviderAdapter:
                 f"Time series provider {type(provider).__name__} doesn't have compute method",
             )
             from typing import cast as _cast
+
             _pl = pl
             assert _pl is not None
             return _cast(PolarsDF, _pl.DataFrame())
@@ -438,9 +444,11 @@ class TransformProviderAdapter:
         # Different providers have different methods
         if transform.name == "calendar":
             from typing import cast as _cast
+
             return _cast(PolarsDF, provider.compute_features(timestamps))
         elif transform.name == "event_schedule":
             from typing import cast as _cast
+
             return _cast(PolarsDF, provider.compute_features(timestamps, instruments=instruments))
         else:
             return provider.load_timeseries(instruments, timestamps)
@@ -456,6 +464,7 @@ class TransformProviderAdapter:
         """
         if hasattr(provider, "compute_features"):
             from typing import cast as _cast
+
             return _cast(PolarsDF, provider.compute_features(timestamps, instruments=instruments))
         elif hasattr(provider, "load_timeseries"):
             if timestamps is None:
@@ -465,8 +474,10 @@ class TransformProviderAdapter:
                 _pl = pl
                 assert _pl is not None
                 from typing import cast as _cast
+
                 return _cast(PolarsDF, _pl.DataFrame())
             from typing import cast as _cast
+
             return _cast(PolarsDF, provider.load_timeseries(instruments, timestamps))
         elif hasattr(provider, "load_metadata"):
             return provider.load_metadata(instruments)
@@ -475,4 +486,5 @@ class TransformProviderAdapter:
             _pl = pl
             assert _pl is not None
             from typing import cast as _cast
+
             return _cast(PolarsDF, _pl.DataFrame())

@@ -2,6 +2,7 @@
 ReadQueryMixin tests for table qualification behavior.
 
 Ensures that for sqlite dialect, _qualified_table returns the base name.
+
 """
 
 from __future__ import annotations

@@ -95,7 +95,9 @@ class ObservabilityFlusher:
                         from ml.common.metrics_manager import MetricsManager as _MM
 
                         _logging.getLogger(__name__).debug(
-                            "Observability flusher tick failed: %s", exc, exc_info=True
+                            "Observability flusher tick failed: %s",
+                            exc,
+                            exc_info=True,
                         )
                         _MM.default().inc(
                             "nautilus_ml_observability_errors_total",

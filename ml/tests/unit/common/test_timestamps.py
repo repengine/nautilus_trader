@@ -23,7 +23,10 @@ def test_normalize_timestamp_ns_variants() -> None:
     assert not changed and v == 1_600_000_000_000_000_000
 
 
-def test_sanitize_modes_warn_and_reject(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_sanitize_modes_warn_and_reject(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     # warn mode with logger logs a warning
     logger = logging.getLogger("ml.tests.timestamps")
     with caplog.at_level(logging.WARNING):
@@ -38,4 +41,3 @@ def test_sanitize_modes_warn_and_reject(monkeypatch: pytest.MonkeyPatch, caplog:
     # reject mode raises
     with pytest.raises(ValueError):
         sanitize_timestamp_ns(1_600_000_000, mode="reject", logger=logger, context="ctx")
-

@@ -6,6 +6,7 @@ This test module verifies that:
 2. Topic building uses MessageBusConfig.from_env() scheme/prefix everywhere
 3. Hot-path budget is preserved with non-blocking best-effort publishing
 4. Environment and config changes properly toggle store emit/no-emit behavior
+
 """
 
 import os
@@ -18,46 +19,60 @@ from ml.stores.base import FeatureData
 
 
 class TestBusPublishingStandardization:
-    """Test standardized bus publishing behavior across all stores."""
+    """
+    Test standardized bus publishing behavior across all stores.
+    """
 
     def test_bus_publisher_mixin_respects_env_config(self):
-        """Test that BusPublisherMixin initializes from MessageBusConfig.from_env()."""
-        with patch.dict(os.environ, {
-            "ML_BUS_SCHEME": "stage_first",
-            "ML_BUS_TOPIC_PREFIX": "test.ml.events",
-        }):
+        """
+        Test that BusPublisherMixin initializes from MessageBusConfig.from_env().
+        """
+        with patch.dict(
+            os.environ,
+            {
+                "ML_BUS_SCHEME": "stage_first",
+                "ML_BUS_TOPIC_PREFIX": "test.ml.events",
+            },
+        ):
             mixin = BusPublisherMixin()
             mixin._init_bus_publishing(
                 enable_publishing=True,
                 publisher=Mock(),
-                publish_mode="batch"
+                publish_mode="batch",
             )
 
             assert mixin._topic_scheme == "stage_first"
             assert mixin._topic_prefix == "test.ml.events"
 
     def test_bus_publisher_mixin_uses_defaults_on_env_failure(self):
-        """Test fallback to sensible defaults when env parsing fails."""
+        """
+        Test fallback to sensible defaults when env parsing fails.
+        """
         with patch("ml.config.bus.MessageBusConfig.from_env", side_effect=Exception("Env failure")):
             mixin = BusPublisherMixin()
             mixin._init_bus_publishing(
                 enable_publishing=True,
                 publisher=Mock(),
-                publish_mode="batch"
+                publish_mode="batch",
             )
 
             # Should fall back to documented defaults
             assert mixin._topic_scheme == "domain_op"
             assert mixin._topic_prefix == "events.ml"
 
-    @pytest.mark.parametrize("enable_flag,publisher_exists,should_publish", [
-        (True, True, True),    # Both enabled and publisher exists -> publish
-        (True, False, False),  # Enabled but no publisher -> no publish
-        (False, True, False),  # Publisher exists but disabled -> no publish
-        (False, False, False), # Neither enabled nor publisher -> no publish
-    ])
+    @pytest.mark.parametrize(
+        "enable_flag,publisher_exists,should_publish",
+        [
+            (True, True, True),  # Both enabled and publisher exists -> publish
+            (True, False, False),  # Enabled but no publisher -> no publish
+            (False, True, False),  # Publisher exists but disabled -> no publish
+            (False, False, False),  # Neither enabled nor publisher -> no publish
+        ],
+    )
     def test_data_store_publishing_gating(self, enable_flag, publisher_exists, should_publish):
-        """Test DataStore respects both _enable_publishing flag and publisher existence."""
+        """
+        Test DataStore respects both _enable_publishing flag and publisher existence.
+        """
         mock_publisher = Mock() if publisher_exists else None
 
         # Create minimal DataStore instance for testing
@@ -79,7 +94,7 @@ class TestBusPublishingStandardization:
                 ts_min=1000,
                 ts_max=2000,
                 count=100,
-                status="success"
+                status="success",
             )
 
             if should_publish:
@@ -90,14 +105,19 @@ class TestBusPublishingStandardization:
                 if mock_publisher:
                     mock_publisher.publish.assert_not_called()
 
-    @pytest.mark.parametrize("enable_flag,publisher_exists,should_publish", [
-        (True, True, True),    # Both enabled and publisher exists -> publish
-        (True, False, False),  # Enabled but no publisher -> no publish
-        (False, True, False),  # Publisher exists but disabled -> no publish
-        (False, False, False), # Neither enabled nor publisher -> no publish
-    ])
+    @pytest.mark.parametrize(
+        "enable_flag,publisher_exists,should_publish",
+        [
+            (True, True, True),  # Both enabled and publisher exists -> publish
+            (True, False, False),  # Enabled but no publisher -> no publish
+            (False, True, False),  # Publisher exists but disabled -> no publish
+            (False, False, False),  # Neither enabled nor publisher -> no publish
+        ],
+    )
     def test_feature_store_publishing_gating(self, enable_flag, publisher_exists, should_publish):
-        """Test FeatureStore respects both _enable_publishing flag and publisher existence."""
+        """
+        Test FeatureStore respects both _enable_publishing flag and publisher existence.
+        """
         mock_publisher = Mock() if publisher_exists else None
 
         # Create minimal FeatureStore instance for testing
@@ -105,7 +125,7 @@ class TestBusPublishingStandardization:
             store = FeatureStore(
                 connection_string="postgresql://test",
                 enable_publishing=enable_flag,
-                publisher=mock_publisher
+                publisher=mock_publisher,
             )
 
             # Test batch publishing
@@ -114,8 +134,8 @@ class TestBusPublishingStandardization:
                     instrument_id="EUR/USD",
                     ts_event=1000,
                     ts_init=1000,
-                    features={"rsi": 0.5}
-                )
+                    features={"rsi": 0.5},
+                ),
             ]
 
             with patch.object(store, "_execute_write") as mock_write:
@@ -132,7 +152,9 @@ class TestBusPublishingStandardization:
                         mock_publisher.publish.assert_not_called()
 
     def test_publishing_error_handling_non_blocking(self):
-        """Test that publishing errors don't block store operations."""
+        """
+        Test that publishing errors don't block store operations.
+        """
         mock_publisher = Mock()
         mock_publisher.publish.side_effect = Exception("Publishing failed")
 
@@ -172,7 +194,9 @@ class TestBusPublishingStandardization:
         assert mock_publisher.publish.called
 
     def test_environment_toggle_affects_config(self):
-        """Test that changing environment variables affects publishing behavior."""
+        """
+        Test that changing environment variables affects publishing behavior.
+        """
         # Test with publishing disabled via env
         with patch.dict(os.environ, {"ML_BUS_ENABLE": "false"}):
             config = MessageBusConfig.from_env()
@@ -184,24 +208,29 @@ class TestBusPublishingStandardization:
             assert config.enabled is True
 
     def test_topic_scheme_consistency(self):
-        """Test that all stores use consistent topic scheme/prefix from MessageBusConfig."""
+        """
+        Test that all stores use consistent topic scheme/prefix from MessageBusConfig.
+        """
         test_cases = [
             ("domain_op", "events.ml"),
             ("stage_first", "custom.prefix"),
         ]
 
         for scheme, prefix in test_cases:
-            with patch.dict(os.environ, {
-                "ML_BUS_SCHEME": scheme,
-                "ML_BUS_TOPIC_PREFIX": prefix,
-            }):
+            with patch.dict(
+                os.environ,
+                {
+                    "ML_BUS_SCHEME": scheme,
+                    "ML_BUS_TOPIC_PREFIX": prefix,
+                },
+            ):
                 # Test DataStore
                 with patch("ml.stores.data_store.EngineManager.get_engine"):
                     data_store = DataStore(connection_string="postgresql://test")
                     data_store._init_bus_publishing(
                         enable_publishing=True,
                         publisher=Mock(),
-                        publish_mode="batch"
+                        publish_mode="batch",
                     )
                     assert data_store._topic_scheme == scheme
                     assert data_store._topic_prefix == prefix
@@ -211,13 +240,15 @@ class TestBusPublishingStandardization:
                     feature_store = FeatureStore(
                         connection_string="postgresql://test",
                         enable_publishing=True,
-                        publisher=Mock()
+                        publisher=Mock(),
                     )
                     assert feature_store._topic_scheme == scheme
                     assert feature_store._topic_prefix == prefix
 
     def test_hot_path_performance_preservation(self):
-        """Test that publishing doesn't significantly impact hot-path performance."""
+        """
+        Test that publishing doesn't significantly impact hot-path performance.
+        """
         # This is a smoke test to ensure we don't add heavy operations
         mock_publisher = Mock()
 
@@ -228,6 +259,7 @@ class TestBusPublishingStandardization:
 
         # Time a simple operation - should complete quickly even with publishing
         import time
+
         start = time.perf_counter()
 
         store.emit_dataset_event(
@@ -239,7 +271,7 @@ class TestBusPublishingStandardization:
             ts_min=1000,
             ts_max=2000,
             count=1,
-            status="success"
+            status="success",
         )
 
         elapsed = time.perf_counter() - start
@@ -248,7 +280,9 @@ class TestBusPublishingStandardization:
         assert elapsed < 0.01, f"Publishing took {elapsed:.4f}s, exceeds hot-path budget"
 
     def test_noop_publisher_safe_default(self):
-        """Test that NoopPublisher provides safe default behavior."""
+        """
+        Test that NoopPublisher provides safe default behavior.
+        """
         noop = NoopPublisher()
 
         # Should not raise exceptions
@@ -258,7 +292,10 @@ class TestBusPublishingStandardization:
         assert result is False
 
     def test_consistent_error_logging_levels(self):
-        """Test that all stores use consistent error logging levels for publishing failures."""
+        """
+        Test that all stores use consistent error logging levels for publishing
+        failures.
+        """
         test_stores = []
 
         # DataStore
@@ -274,7 +311,7 @@ class TestBusPublishingStandardization:
             feature_store = FeatureStore(
                 connection_string="postgresql://test",
                 enable_publishing=True,
-                publisher=Mock()
+                publisher=Mock(),
             )
             feature_store.publisher.publish.side_effect = Exception("Test error")
             test_stores.append(("FeatureStore", feature_store))
@@ -291,7 +328,7 @@ class TestBusPublishingStandardization:
                         ts_min=1000,
                         ts_max=2000,
                         count=100,
-                        status="success"
+                        status="success",
                     )
                     # Should use exception-level logging for consistency
                     assert mock_logger.exception.called or mock_logger.debug.called

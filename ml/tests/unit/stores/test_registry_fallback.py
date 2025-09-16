@@ -1,8 +1,9 @@
 """
 DataRegistry progressive fallback tests for stores.
 
-Ensures that when PostgreSQL initialization fails, the store falls back to a
-JSON-backed DataRegistry instead of raising.
+Ensures that when PostgreSQL initialization fails, the store falls back to a JSON-backed
+DataRegistry instead of raising.
+
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     # Isolate registry under a temp HOME to avoid existing malformed files
     import pathlib as _pl
+
     monkeypatch.setattr(_pl.Path, "home", lambda: tmp_path)
 
     # Provide mock stores to avoid DB initialization
@@ -48,6 +50,7 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
     # Ensure DataProcessor does not establish a real DB connection in unit tests
     import ml.stores.data_processor as _dp
     from ml.core.db_engine import EngineManager as _EM
+
     def _fake_create_engine(*a: object, **k: object) -> object:
         return _EM.get_engine("sqlite:///:memory:")
 

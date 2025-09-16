@@ -1,9 +1,10 @@
 """
 End-to-end integration tests for observability stage boundary tracking.
 
-This module tests that observability hooks in stores properly record latency
-and metrics data when enabled, and that the data can be materialized into
-the 4 expected DataFrames and persisted to DB/file.
+This module tests that observability hooks in stores properly record latency and metrics
+data when enabled, and that the data can be materialized into the 4 expected DataFrames
+and persisted to DB/file.
+
 """
 
 from __future__ import annotations
@@ -22,14 +23,18 @@ from ml.stores.base import FeatureData, ModelPrediction, StrategySignal
 
 @pytest.fixture
 def temp_observability_dir():
-    """Create temporary directory for observability outputs."""
+    """
+    Create temporary directory for observability outputs.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
 @pytest.fixture
 def integration_manager_with_observability():
-    """Create MLIntegrationManager with observability enabled."""
+    """
+    Create MLIntegrationManager with observability enabled.
+    """
     # Enable observability for this test
     original_value = os.environ.get("ML_OBSERVABILITY_ENABLED")
     os.environ["ML_OBSERVABILITY_ENABLED"] = "1"
@@ -55,10 +60,14 @@ def integration_manager_with_observability():
 
 
 class TestObservabilityE2EIntegration:
-    """Test end-to-end observability integration with stores."""
+    """
+    Test end-to-end observability integration with stores.
+    """
 
     def test_feature_store_observability_hook(self, integration_manager_with_observability):
-        """Test that feature store write operations record observability data."""
+        """
+        Test that feature store write operations record observability data.
+        """
         mgr = integration_manager_with_observability
 
         # Verify observability service is available
@@ -76,7 +85,7 @@ class TestObservabilityE2EIntegration:
             instrument_id="EUR/USD.SIM",
             _ts_event=time.time_ns(),
             _ts_init=time.time_ns(),
-            values={"rsi_14": 65.0, "ema_20": 1.0850}
+            values={"rsi_14": 65.0, "ema_20": 1.0850},
         )
 
         # Write feature data (this should trigger observability hooks)
@@ -122,7 +131,9 @@ class TestObservabilityE2EIntegration:
         assert "feature_store_latency_ms" in metric_names
 
     def test_model_store_observability_hook(self, integration_manager_with_observability):
-        """Test that model store write operations record observability data."""
+        """
+        Test that model store write operations record observability data.
+        """
         mgr = integration_manager_with_observability
 
         # Verify model store has observability service injected
@@ -138,7 +149,7 @@ class TestObservabilityE2EIntegration:
             prediction=0.75,
             confidence=0.85,
             features_used={"rsi_14": 65.0},
-            inference_time_ms=2.5
+            inference_time_ms=2.5,
         )
 
         # Write prediction data (this should trigger observability hooks)
@@ -161,7 +172,9 @@ class TestObservabilityE2EIntegration:
         assert "model_prediction_storage" in stages
 
     def test_strategy_store_observability_hook(self, integration_manager_with_observability):
-        """Test that strategy store write operations record observability data."""
+        """
+        Test that strategy store write operations record observability data.
+        """
         mgr = integration_manager_with_observability
 
         # Verify strategy store has observability service injected
@@ -178,7 +191,7 @@ class TestObservabilityE2EIntegration:
             strength=0.8,
             model_predictions={"test_model": 0.75},
             risk_metrics={"var": 0.02},
-            execution_params={"stop_loss": 0.02, "take_profit": 0.05}
+            execution_params={"stop_loss": 0.02, "take_profit": 0.05},
         )
 
         # Write signal data (this should trigger observability hooks)
@@ -201,7 +214,9 @@ class TestObservabilityE2EIntegration:
         assert "strategy_signal_storage" in stages
 
     def test_data_store_observability_hook(self, integration_manager_with_observability):
-        """Test that data store write operations record observability data."""
+        """
+        Test that data store write operations record observability data.
+        """
         mgr = integration_manager_with_observability
 
         # Skip if data store is not available (dummy mode)
@@ -219,8 +234,8 @@ class TestObservabilityE2EIntegration:
                 "_ts_event": time.time_ns(),
                 "_ts_init": time.time_ns(),
                 "close": 1.0850,
-                "volume": 1000
-            }
+                "volume": 1000,
+            },
         ]
 
         try:
@@ -229,7 +244,7 @@ class TestObservabilityE2EIntegration:
                 dataset_id="test_bars",
                 records=test_records,
                 source="test",
-                run_id="test_run_001"
+                run_id="test_run_001",
             )
 
             # Collect observability data
@@ -253,8 +268,14 @@ class TestObservabilityE2EIntegration:
             # This is acceptable as we're testing the observability hooks, not the data store itself
             pytest.skip("Data store operation failed in test environment")
 
-    def test_observability_file_persistence(self, integration_manager_with_observability, temp_observability_dir):
-        """Test that observability data can be persisted to files."""
+    def test_observability_file_persistence(
+        self,
+        integration_manager_with_observability,
+        temp_observability_dir,
+    ):
+        """
+        Test that observability data can be persisted to files.
+        """
         mgr = integration_manager_with_observability
 
         # Generate some observability data
@@ -263,14 +284,14 @@ class TestObservabilityE2EIntegration:
             instrument_id="EUR/USD.SIM",
             _ts_event=time.time_ns(),
             _ts_init=time.time_ns(),
-            values={"test_feature": 42.0}
+            values={"test_feature": 42.0},
         )
         mgr.feature_store.write_features(data=[feature_data])
 
         # Flush observability data to files
         result = mgr.flush_observability_to_path(
             base_path=temp_observability_dir,
-            file_format="jsonl"
+            file_format="jsonl",
         )
 
         # Verify files were created
@@ -292,7 +313,9 @@ class TestObservabilityE2EIntegration:
 
     @pytest.mark.serial  # Run this test serially to avoid conflicts
     def test_observability_db_persistence(self, integration_manager_with_observability):
-        """Test that observability data can be persisted to database."""
+        """
+        Test that observability data can be persisted to database.
+        """
         mgr = integration_manager_with_observability
 
         # Skip if no database connection available
@@ -305,14 +328,14 @@ class TestObservabilityE2EIntegration:
             instrument_id="EUR/USD.SIM",
             _ts_event=time.time_ns(),
             _ts_init=time.time_ns(),
-            values={"test_feature": 42.0}
+            values={"test_feature": 42.0},
         )
         mgr.feature_store.write_features(data=[feature_data])
 
         try:
             # Flush observability data to database
             result = mgr.flush_observability_to_db(
-                connection_string=mgr.db_connection
+                connection_string=mgr.db_connection,
             )
 
             # Verify some rows were written
@@ -325,7 +348,9 @@ class TestObservabilityE2EIntegration:
             pytest.skip(f"Database persistence failed: {e}")
 
     def test_observability_disabled_by_default(self):
-        """Test that observability hooks are no-ops when disabled."""
+        """
+        Test that observability hooks are no-ops when disabled.
+        """
         # Ensure observability is disabled
         original_value = os.environ.get("ML_OBSERVABILITY_ENABLED")
         os.environ.pop("ML_OBSERVABILITY_ENABLED", None)
@@ -348,7 +373,7 @@ class TestObservabilityE2EIntegration:
                 instrument_id="EUR/USD.SIM",
                 _ts_event=time.time_ns(),
                 _ts_init=time.time_ns(),
-                values={"test_feature": 42.0}
+                values={"test_feature": 42.0},
             )
 
             mgr.feature_store.write_features(data=[feature_data])

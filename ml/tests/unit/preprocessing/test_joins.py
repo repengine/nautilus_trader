@@ -18,13 +18,37 @@ def test_asof_join_basic(use_polars: bool) -> None:
     if use_polars:
         import polars as pl
 
-        left = pl.DataFrame({"timestamp": [100, 200, 300], "instrument_id": ["SPY", "SPY", "SPY"], "price": [400.0, 401.0, 402.0]})
-        right = pl.DataFrame({"timestamp": [150, 250], "instrument_id": ["SPY", "SPY"], "event": ["earnings", "fed"]})
+        left = pl.DataFrame(
+            {
+                "timestamp": [100, 200, 300],
+                "instrument_id": ["SPY", "SPY", "SPY"],
+                "price": [400.0, 401.0, 402.0],
+            },
+        )
+        right = pl.DataFrame(
+            {
+                "timestamp": [150, 250],
+                "instrument_id": ["SPY", "SPY"],
+                "event": ["earnings", "fed"],
+            },
+        )
     else:
         import pandas as pd
 
-        left = pd.DataFrame({"timestamp": [100, 200, 300], "instrument_id": ["SPY", "SPY", "SPY"], "price": [400.0, 401.0, 402.0]})
-        right = pd.DataFrame({"timestamp": [150, 250], "instrument_id": ["SPY", "SPY"], "event": ["earnings", "fed"]})
+        left = pd.DataFrame(
+            {
+                "timestamp": [100, 200, 300],
+                "instrument_id": ["SPY", "SPY", "SPY"],
+                "price": [400.0, 401.0, 402.0],
+            },
+        )
+        right = pd.DataFrame(
+            {
+                "timestamp": [150, 250],
+                "instrument_id": ["SPY", "SPY"],
+                "event": ["earnings", "fed"],
+            },
+        )
 
     from ml.preprocessing.joins import asof_join
 
@@ -44,7 +68,12 @@ def test_embargo_window_polars_or_pandas() -> None:
         df = pl.DataFrame({"ts_event": [100, 200, 300, 400], "price": [1.0, 2.0, 3.0, 4.0]})
         from ml.preprocessing.joins import embargo_window
 
-        out = embargo_window(df, event_timestamps=[250], embargo_before_ns=100, embargo_after_ns=100)
+        out = embargo_window(
+            df,
+            event_timestamps=[250],
+            embargo_before_ns=100,
+            embargo_after_ns=100,
+        )
         out_any: Any = out
         assert out_any.select(pl.col("embargo").sum()).item() == 2
     elif HAS_PANDAS:
@@ -53,7 +82,12 @@ def test_embargo_window_polars_or_pandas() -> None:
         df = pd.DataFrame({"ts_event": [100, 200, 300, 400], "price": [1.0, 2.0, 3.0, 4.0]})
         from ml.preprocessing.joins import embargo_window
 
-        out = embargo_window(df, event_timestamps=[250], embargo_before_ns=100, embargo_after_ns=100)
+        out = embargo_window(
+            df,
+            event_timestamps=[250],
+            embargo_before_ns=100,
+            embargo_after_ns=100,
+        )
         assert int(out["embargo"].sum()) == 2
     else:
         pytest.skip("no dataframe backend available")

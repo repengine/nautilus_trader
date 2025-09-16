@@ -242,7 +242,7 @@ Verification:
 
 - [x] Ruff clean.
 - [x] mypy --strict (follow-imports=skip) on `retry_utils.py` and touched CLI file: clean.
- - [x] mypy --strict on `ml/cli/coverage.py` — resolved in current toolchain; strict run clean.
+- [x] mypy --strict on `ml/cli/coverage.py` — resolved in current toolchain; strict run clean.
 - [x] Focused stores tests: green (unchanged behavior for stores).
 
 ## Phase 3: Implement Gradual Migration (Week 3-4)

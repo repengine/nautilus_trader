@@ -78,7 +78,11 @@ def test_throttled_duplicates_publish_once(metrics_patch: FakeMM) -> None:
     # Only one publish should be processed
     assert len(cap.calls) == 1
     # And throttled drops recorded
-    assert any(labels.get("reason") == "throttled" for name, labels in metrics_patch.incs if name == "nautilus_ml_backpressure_drops_total")
+    assert any(
+        labels.get("reason") == "throttled"
+        for name, labels in metrics_patch.incs
+        if name == "nautilus_ml_backpressure_drops_total"
+    )
 
 
 def test_bounded_queue_backpressure_and_drain(metrics_patch: FakeMM) -> None:
@@ -105,4 +109,8 @@ def test_bounded_queue_backpressure_and_drain(metrics_patch: FakeMM) -> None:
     # At least the first succeeded and was processed
     assert len(cap.calls) >= 1
     # And queue_full drop counter recorded
-    assert any(labels.get("reason") == "queue_full" for name, labels in metrics_patch.incs if name == "nautilus_ml_backpressure_drops_total")
+    assert any(
+        labels.get("reason") == "queue_full"
+        for name, labels in metrics_patch.incs
+        if name == "nautilus_ml_backpressure_drops_total"
+    )

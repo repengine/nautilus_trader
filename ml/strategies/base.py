@@ -232,6 +232,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         -------
         OrderSide
             BUY if prediction > threshold, else SELL.
+
         """
         return OrderSide.BUY if float(prediction) > float(threshold) else OrderSide.SELL
 
@@ -243,10 +244,11 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         -------
         bool
             True if reversing is required.
+
         """
         return bool(
             (current_position.side.name == "LONG" and target_side == OrderSide.SELL)
-            or (current_position.side.name == "SHORT" and target_side == OrderSide.BUY)
+            or (current_position.side.name == "SHORT" and target_side == OrderSide.BUY),
         )
 
     def on_start(self) -> None:

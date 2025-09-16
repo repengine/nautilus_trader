@@ -42,6 +42,7 @@ from typing import Protocol
 # We dynamically import the real implementation at runtime when available.
 HAS_TABULATE = False
 
+
 def _tabulate_fallback(
     data: list[list[Any]],
     headers: list[str],
@@ -73,6 +74,7 @@ def _tabulate_fallback(
 
     return "\n".join(lines)
 
+
 class TabulateFn(Protocol):
     def __call__(
         self,
@@ -80,6 +82,7 @@ class TabulateFn(Protocol):
         headers: list[str],
         tablefmt: str = "simple",
     ) -> str: ...
+
 
 tabulate: TabulateFn = _tabulate_fallback
 
@@ -435,7 +438,11 @@ class PipelineHealthChecker:
         stale_count = 0
 
         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
-        now_ns = _sanitize(int(datetime.now().timestamp() * 1e9), context="cli.check_pipeline_health:now")
+
+        now_ns = _sanitize(
+            int(datetime.now().timestamp() * 1e9),
+            context="cli.check_pipeline_health:now",
+        )
         for row in rows:
             last_ns = int(row.get("last_update_ns", 0))
             if last_ns <= 0:

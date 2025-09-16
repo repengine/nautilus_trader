@@ -30,18 +30,33 @@ class _FakeReadDeps:
         self.safe_table_calls.append((base, allowed))
         return base
 
-    def _execute_read(self, sql: Any, params: dict[str, Any], *, columns: list[str]) -> Any:  # noqa: D401
+    def _execute_read(
+        self,
+        sql: Any,
+        params: dict[str, Any],
+        *,
+        columns: list[str],
+    ) -> Any:  # noqa: D401
         self.last_execute = {"sql": str(sql), "params": params, "columns": columns}
+
         # Return a sentinel object that mimics a DataFrame in tests as needed
         class _DF:  # minimal duck-typed stand-in
             pass
 
         return _DF()
 
-    def _fetch_one(self, sql: Any, params: dict[str, Any]) -> tuple[Any, ...] | None:  # pragma: no cover
+    def _fetch_one(
+        self,
+        sql: Any,
+        params: dict[str, Any],
+    ) -> tuple[Any, ...] | None:  # pragma: no cover
         return None
 
-    def _fetch_all(self, sql: Any, params: dict[str, Any]) -> list[tuple[Any, ...]]:  # pragma: no cover
+    def _fetch_all(
+        self,
+        sql: Any,
+        params: dict[str, Any],
+    ) -> list[tuple[Any, ...]]:  # pragma: no cover
         return []
 
 

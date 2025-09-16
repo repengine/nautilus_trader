@@ -11,7 +11,15 @@ import pandas as pd
 import pytest
 
 from ml.config.events import Source
-from ml.registry.dataclasses import DataContract, DatasetManifest, DatasetType, QualityFlag, StorageKind, ValidationRule, ValidationRuleType
+from ml.registry.dataclasses import (
+    DataContract,
+    DatasetManifest,
+    DatasetType,
+    QualityFlag,
+    StorageKind,
+    ValidationRule,
+    ValidationRuleType,
+)
 from ml.stores.data_store import DataStore
 from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol

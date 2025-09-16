@@ -446,8 +446,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         """
         Initialize message bus publishing behavior.
 
-        Delegates to BusPublisherMixin at runtime. Present here to satisfy
-        Protocol-based type checking when TYPE_CHECKING is true.
+        Delegates to BusPublisherMixin at runtime. Present here to satisfy Protocol-
+        based type checking when TYPE_CHECKING is true.
+
         """
         # Delegate explicitly to the runtime mixin implementation
         from typing import cast as _cast
@@ -466,6 +467,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         Return a DataRegistry instance with progressive fallback.
 
         Delegates to DataRegistryMixin at runtime.
+
         """
         from typing import cast as _cast
 
@@ -651,6 +653,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         Alias for emit_event with a reduced parameter set used by unit tests.
 
         Parameters mirror `emit_event` but omit optional error/metadata.
+
         """
         # Lightweight path for tests: avoid registry round-trip and focus on bus publish
         stage_enum = stage if isinstance(stage, Stage) else Stage(str(stage).upper())
@@ -908,7 +911,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """Record observability data via centralized helper (cold path only)."""
+        """
+        Record observability data via centralized helper (cold path only).
+        """
         from ml.common.observability_utils import record_stage_boundary as _rec
 
         obs_service = getattr(self, "_observability_service", None)
@@ -3082,13 +3087,16 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         from contextlib import nullcontext
 
         return nullcontext()
+
+
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
 # This delegates to the centralized EngineManager.
 def create_engine(connection_string: str, **kwargs: Any) -> Engine:
     """
     Return the shared SQLAlchemy engine for the given connection string.
 
-    Delegates to EngineManager to ensure a single engine per unique URL.
-    Tests may monkeypatch this symbol or EngineManager.get_engine in this module.
+    Delegates to EngineManager to ensure a single engine per unique URL. Tests may
+    monkeypatch this symbol or EngineManager.get_engine in this module.
+
     """
     return EngineManager.get_engine(connection_string, **kwargs)

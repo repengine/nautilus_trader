@@ -66,8 +66,15 @@ def feature_values(draw, n_features=None, use_builder=False):
     """
     if use_builder:
         from ml.tests.builders import DataBuilder
-        n_features = draw(st.integers(min_value=1, max_value=20)) if n_features is None else n_features
-        feature_data = DataBuilder.feature_data(n_samples=1, n_features=n_features, as_dataframe=True)
+
+        n_features = (
+            draw(st.integers(min_value=1, max_value=20)) if n_features is None else n_features
+        )
+        feature_data = DataBuilder.feature_data(
+            n_samples=1,
+            n_features=n_features,
+            as_dataframe=True,
+        )
         return feature_data.iloc[0].to_dict()
 
     if n_features is None:

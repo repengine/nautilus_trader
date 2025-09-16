@@ -8,6 +8,7 @@ This script validates that the ML codebase maintains secure production practices
 3. Proper test-only guards for unsafe formats
 
 Run this script to ensure production security compliance.
+
 """
 
 import ast
@@ -18,7 +19,9 @@ from typing import NamedTuple
 
 
 class SecurityViolation(NamedTuple):
-    """Security violation details."""
+    """
+    Security violation details.
+    """
 
     file_path: str
     line_number: int
@@ -28,7 +31,9 @@ class SecurityViolation(NamedTuple):
 
 
 class SecurityAuditor(ast.NodeVisitor):
-    """AST visitor for security compliance analysis."""
+    """
+    AST visitor for security compliance analysis.
+    """
 
     def __init__(self, file_path: str):
         self.file_path = file_path
@@ -42,7 +47,9 @@ class SecurityAuditor(ast.NodeVisitor):
         self.in_test_guard = False
 
     def _is_test_file(self, file_path: str) -> bool:
-        """Check if file is a test file."""
+        """
+        Check if file is a test file.
+        """
         return (
             "/tests/" in file_path
             or "/test_" in file_path
@@ -51,7 +58,9 @@ class SecurityAuditor(ast.NodeVisitor):
         )
 
     def _is_example_file(self, file_path: str) -> bool:
-        """Check if file is an example file."""
+        """
+        Check if file is an example file.
+        """
         return (
             "/examples/" in file_path
             or "/example_" in file_path
@@ -59,7 +68,9 @@ class SecurityAuditor(ast.NodeVisitor):
         )
 
     def visit_Import(self, node: ast.Import) -> None:
-        """Track dangerous imports."""
+        """
+        Track dangerous imports.
+        """
         for alias in node.names:
             if alias.name == "pickle":
                 self.pickle_imports.append(node.lineno)
@@ -70,7 +81,9 @@ class SecurityAuditor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        """Track dangerous from imports."""
+        """
+        Track dangerous from imports.
+        """
         if node.module == "pickle":
             for alias in node.names:
                 self.pickle_imports.append(node.lineno)
@@ -82,41 +95,55 @@ class SecurityAuditor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        """Check for dangerous function calls."""
+        """
+        Check for dangerous function calls.
+        """
         # Check for pickle.load/dump calls
         if isinstance(node.func, ast.Attribute):
-            if (isinstance(node.func.value, ast.Name) and
-                node.func.value.id == "pickle" and
-                node.func.attr in ["load", "dump"]):
+            if (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "pickle"
+                and node.func.attr in ["load", "dump"]
+            ):
                 self._check_pickle_usage(node.lineno, f"pickle.{node.func.attr}()")
-            elif (isinstance(node.func.value, ast.Name) and
-                  node.func.value.id == "joblib" and
-                  node.func.attr in ["load", "dump"]):
+            elif (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "joblib"
+                and node.func.attr in ["load", "dump"]
+            ):
                 self._check_joblib_usage(node.lineno, f"joblib.{node.func.attr}()")
 
         # Check for np.load with allow_pickle=True
-        if (isinstance(node.func, ast.Attribute) and
-            isinstance(node.func.value, ast.Name) and
-            node.func.value.id == "np" and
-            node.func.attr == "load"):
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "np"
+            and node.func.attr == "load"
+        ):
             for keyword in node.keywords:
-                if (keyword.arg == "allow_pickle" and
-                    isinstance(keyword.value, ast.Constant) and
-                    keyword.value.value is True):
+                if (
+                    keyword.arg == "allow_pickle"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                ):
                     # This is acceptable in training/CLI paths
                     if not self._is_training_or_cli_path():
-                        self.violations.append(SecurityViolation(
-                            file_path=self.file_path,
-                            line_number=node.lineno,
-                            violation_type="numpy_pickle",
-                            description="np.load with allow_pickle=True in non-training path",
-                            severity="medium"
-                        ))
+                        self.violations.append(
+                            SecurityViolation(
+                                file_path=self.file_path,
+                                line_number=node.lineno,
+                                violation_type="numpy_pickle",
+                                description="np.load with allow_pickle=True in non-training path",
+                                severity="medium",
+                            ),
+                        )
 
         self.generic_visit(node)
 
     def visit_If(self, node: ast.If) -> None:
-        """Track test guard contexts."""
+        """
+        Track test guard contexts.
+        """
         # Check for test environment guards
         if self._is_test_guard(node):
             self.has_test_guards = True
@@ -128,7 +155,9 @@ class SecurityAuditor(ast.NodeVisitor):
             self.generic_visit(node)
 
     def _is_test_guard(self, node: ast.If) -> bool:
-        """Check if this is a test environment guard."""
+        """
+        Check if this is a test environment guard.
+        """
         test_patterns = [
             "PYTEST_CURRENT_TEST",
             "ML_ALLOW_JOBLIB",
@@ -149,7 +178,9 @@ class SecurityAuditor(ast.NodeVisitor):
             return False
 
     def _is_training_or_cli_path(self) -> bool:
-        """Check if file is in training or CLI path."""
+        """
+        Check if file is in training or CLI path.
+        """
         training_paths = [
             "/training/",
             "/cli/",
@@ -163,66 +194,82 @@ class SecurityAuditor(ast.NodeVisitor):
         return any(path in self.file_path for path in training_paths)
 
     def _is_controlled_import_module(self) -> bool:
-        """Check if this is a controlled import module like _imports.py."""
+        """
+        Check if this is a controlled import module like _imports.py.
+        """
         return (
-            self.file_path.endswith("/_imports.py") or
-            self.file_path.endswith("\\_imports.py") or
-            "import" in Path(self.file_path).name.lower()
+            self.file_path.endswith("/_imports.py")
+            or self.file_path.endswith("\\_imports.py")
+            or "import" in Path(self.file_path).name.lower()
         )
 
     def _check_pickle_usage(self, line_number: int, usage: str) -> None:
-        """Check pickle usage compliance."""
+        """
+        Check pickle usage compliance.
+        """
         if self.is_test_file or self.is_example_file:
             # Examples and tests should not use pickle at all
             if not self.in_test_guard:
-                self.violations.append(SecurityViolation(
-                    file_path=self.file_path,
-                    line_number=line_number,
-                    violation_type="pickle_in_test",
-                    description=f"Pickle usage in test/example without proper guards: {usage}",
-                    severity="high"
-                ))
+                self.violations.append(
+                    SecurityViolation(
+                        file_path=self.file_path,
+                        line_number=line_number,
+                        violation_type="pickle_in_test",
+                        description=f"Pickle usage in test/example without proper guards: {usage}",
+                        severity="high",
+                    ),
+                )
         else:
             # Production paths should never use pickle
-            self.violations.append(SecurityViolation(
-                file_path=self.file_path,
-                line_number=line_number,
-                violation_type="pickle_in_production",
-                description=f"Pickle usage in production path: {usage}",
-                severity="critical"
-            ))
+            self.violations.append(
+                SecurityViolation(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    violation_type="pickle_in_production",
+                    description=f"Pickle usage in production path: {usage}",
+                    severity="critical",
+                ),
+            )
 
     def _check_joblib_usage(self, line_number: int, usage: str) -> None:
-        """Check joblib usage compliance."""
+        """
+        Check joblib usage compliance.
+        """
         if self._is_controlled_import_module():
             # Controlled import modules like _imports.py are allowed to import joblib
             pass  # This is expected and safe
         elif self.is_test_file:
             # Test files can use joblib with proper guards
             if not self.in_test_guard and not self.has_test_guards:
-                self.violations.append(SecurityViolation(
-                    file_path=self.file_path,
-                    line_number=line_number,
-                    violation_type="joblib_without_guards",
-                    description=f"Joblib usage in test without environment guards: {usage}",
-                    severity="medium"
-                ))
+                self.violations.append(
+                    SecurityViolation(
+                        file_path=self.file_path,
+                        line_number=line_number,
+                        violation_type="joblib_without_guards",
+                        description=f"Joblib usage in test without environment guards: {usage}",
+                        severity="medium",
+                    ),
+                )
         elif self._is_training_or_cli_path():
             # Training/CLI paths can use joblib but should have guards
             pass  # Allow for now but could add warnings
         else:
             # Production paths should not use joblib
-            self.violations.append(SecurityViolation(
-                file_path=self.file_path,
-                line_number=line_number,
-                violation_type="joblib_in_production",
-                description=f"Joblib usage in production path: {usage}",
-                severity="high"
-            ))
+            self.violations.append(
+                SecurityViolation(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    violation_type="joblib_in_production",
+                    description=f"Joblib usage in production path: {usage}",
+                    severity="high",
+                ),
+            )
 
 
 def analyze_file(file_path: Path) -> list[SecurityViolation]:
-    """Analyze a single Python file for security violations."""
+    """
+    Analyze a single Python file for security violations.
+    """
     try:
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
@@ -233,17 +280,21 @@ def analyze_file(file_path: Path) -> list[SecurityViolation]:
         return auditor.violations
     except Exception as e:
         # Return a violation for files that can't be parsed
-        return [SecurityViolation(
-            file_path=str(file_path),
-            line_number=1,
-            violation_type="parse_error",
-            description=f"Failed to parse file: {e}",
-            severity="low"
-        )]
+        return [
+            SecurityViolation(
+                file_path=str(file_path),
+                line_number=1,
+                violation_type="parse_error",
+                description=f"Failed to parse file: {e}",
+                severity="low",
+            ),
+        ]
 
 
 def scan_ml_directory() -> list[SecurityViolation]:
-    """Scan the ML directory for security violations."""
+    """
+    Scan the ML directory for security violations.
+    """
     ml_dir = Path("ml")
     if not ml_dir.exists():
         # Try relative to script location
@@ -269,7 +320,9 @@ def scan_ml_directory() -> list[SecurityViolation]:
 
 
 def check_model_loader_compliance() -> list[SecurityViolation]:
-    """Check that model loaders properly reject unsafe formats."""
+    """
+    Check that model loaders properly reject unsafe formats.
+    """
     violations = []
 
     # Check base actor loader
@@ -281,66 +334,80 @@ def check_model_loader_compliance() -> list[SecurityViolation]:
 
             # Check for proper pickle rejection
             if "pickle" in content and "not supported" not in content:
-                violations.append(SecurityViolation(
-                    file_path=str(base_actor_path),
-                    line_number=1,
-                    violation_type="missing_pickle_rejection",
-                    description="Model loader may not properly reject pickle formats",
-                    severity="high"
-                ))
+                violations.append(
+                    SecurityViolation(
+                        file_path=str(base_actor_path),
+                        line_number=1,
+                        violation_type="missing_pickle_rejection",
+                        description="Model loader may not properly reject pickle formats",
+                        severity="high",
+                    ),
+                )
 
             # Check for proper joblib guards
             if "joblib" in content and "ML_ALLOW_JOBLIB" not in content:
-                violations.append(SecurityViolation(
-                    file_path=str(base_actor_path),
-                    line_number=1,
-                    violation_type="missing_joblib_guards",
-                    description="Model loader missing joblib environment guards",
-                    severity="medium"
-                ))
+                violations.append(
+                    SecurityViolation(
+                        file_path=str(base_actor_path),
+                        line_number=1,
+                        violation_type="missing_joblib_guards",
+                        description="Model loader missing joblib environment guards",
+                        severity="medium",
+                    ),
+                )
 
         except Exception as e:
-            violations.append(SecurityViolation(
-                file_path=str(base_actor_path),
-                line_number=1,
-                violation_type="check_error",
-                description=f"Failed to check model loader: {e}",
-                severity="low"
-            ))
+            violations.append(
+                SecurityViolation(
+                    file_path=str(base_actor_path),
+                    line_number=1,
+                    violation_type="check_error",
+                    description=f"Failed to check model loader: {e}",
+                    severity="low",
+                ),
+            )
 
     return violations
 
 
 def check_environment_variables() -> list[SecurityViolation]:
-    """Check for insecure environment variable settings."""
+    """
+    Check for insecure environment variable settings.
+    """
     violations = []
 
     # Check if joblib is accidentally enabled
     if os.getenv("ML_ALLOW_JOBLIB", "").lower() in {"1", "true", "yes"}:
         if not (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("ML_TESTING")):
-            violations.append(SecurityViolation(
-                file_path="environment",
-                line_number=1,
-                violation_type="joblib_enabled_production",
-                description="ML_ALLOW_JOBLIB is enabled outside test environment",
-                severity="critical"
-            ))
+            violations.append(
+                SecurityViolation(
+                    file_path="environment",
+                    line_number=1,
+                    violation_type="joblib_enabled_production",
+                    description="ML_ALLOW_JOBLIB is enabled outside test environment",
+                    severity="critical",
+                ),
+            )
 
     # Recommend ONNX-only mode for production
     if not os.getenv("ML_ONNX_ONLY"):
-        violations.append(SecurityViolation(
-            file_path="environment",
-            line_number=1,
-            violation_type="onnx_only_not_set",
-            description="ML_ONNX_ONLY not set - recommend enabling for maximum security",
-            severity="low"
-        ))
+        violations.append(
+            SecurityViolation(
+                file_path="environment",
+                line_number=1,
+                violation_type="onnx_only_not_set",
+                description="ML_ONNX_ONLY not set - recommend enabling for maximum security",
+                severity="low",
+            ),
+        )
 
     return violations
 
 
 def main() -> int:
-    """Main validator function."""
+    """
+    Main validator function.
+    """
     print("🔒 ML Security Posture Validator")
     print("=" * 50)
 

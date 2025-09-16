@@ -102,7 +102,11 @@ class PartitionManager:
                             context="infrastructure.create_future_partitions.start",
                         )
                         if last_date.month == 12:
-                            end_date_d: date = last_date.replace(year=last_date.year + 1, month=1, day=1)
+                            end_date_d: date = last_date.replace(
+                                year=last_date.year + 1,
+                                month=1,
+                                day=1,
+                            )
                         else:
                             end_date_d = last_date.replace(month=last_date.month + 1, day=1)
                         end_dt = datetime.combine(end_date_d, time.min)
@@ -241,7 +245,9 @@ class PartitionManager:
             for table_name in self.tables:
                 current_year = start_year
                 current_month = start_month
-                while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+                while (current_year < end_year) or (
+                    current_year == end_year and current_month <= end_month
+                ):
                     partition_name = f"{table_name}_{current_year:04d}_{current_month:02d}"
                     exists_result = conn.execute(
                         text(
@@ -285,7 +291,9 @@ class PartitionManager:
                             created_count += 1
                         except Exception as e:
                             if "already exists" not in str(e) and "overlap" not in str(e):
-                                self.logger.warning(f"Failed to create partition {partition_name}: {e}")
+                                self.logger.warning(
+                                    f"Failed to create partition {partition_name}: {e}",
+                                )
                     if current_month == 12:
                         current_month = 1
                         current_year += 1

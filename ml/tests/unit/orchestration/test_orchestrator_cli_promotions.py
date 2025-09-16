@@ -14,11 +14,15 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
     setattr(prom, "calls", {"model": [], "features": []})
 
     def _reg_and_promote(**kwargs: object) -> str:
-        cast(dict[str, list[dict[str, object]]], getattr(prom, "calls"))["model"].append(dict(kwargs))
+        cast(dict[str, list[dict[str, object]]], getattr(prom, "calls"))["model"].append(
+            dict(kwargs),
+        )
         return "mid123"
 
     def _reg_or_refresh(**kwargs: object) -> str | None:
-        cast(dict[str, list[dict[str, object]]], getattr(prom, "calls"))["features"].append(dict(kwargs))
+        cast(dict[str, list[dict[str, object]]], getattr(prom, "calls"))["features"].append(
+            dict(kwargs),
+        )
         return "fid123"
 
     setattr(prom, "register_and_promote_model", _reg_and_promote)
@@ -67,6 +71,7 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
 
     cast(Any, orch_cli_mod).MLIntegrationManager = _StubMgr
     import ml.core.integration as core_integ
+
     cast(Any, core_integ).MLIntegrationManager = _StubMgr
 
     out_dir = tmp_path / "out"

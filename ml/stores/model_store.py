@@ -46,10 +46,10 @@ from ml.stores.services.model_services import ModelWriteService
 
 if TYPE_CHECKING:
     import pandas as pd
-    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)
@@ -347,7 +347,9 @@ class ModelStore(
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """Record observability data via centralized helper (cold path only)."""
+        """
+        Record observability data via centralized helper (cold path only).
+        """
         from ml.common.observability_utils import record_stage_boundary as _rec
 
         obs_service = getattr(self, "_observability_service", None)

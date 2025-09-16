@@ -1,8 +1,9 @@
 """
 Teacher models and CLIs for training pipelines.
 
-Public API exposes the CLI module for tests and orchestrators via a
-lazy attribute to avoid import-time overhead.
+Public API exposes the CLI module for tests and orchestrators via a lazy attribute to
+avoid import-time overhead.
+
 """
 
 from __future__ import annotations

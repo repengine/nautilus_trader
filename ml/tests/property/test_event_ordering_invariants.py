@@ -49,6 +49,7 @@ def event_timestamps(draw, min_year=2020, max_year=2025, use_builder=False):
     """
     if use_builder:
         from ml.tests.builders import DataBuilder
+
         # Generate a single timestamp using DataBuilder
         timestamps = DataBuilder.time_series(n_points=1)
         return int(timestamps[0])

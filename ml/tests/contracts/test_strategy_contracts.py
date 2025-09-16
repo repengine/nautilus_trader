@@ -41,7 +41,9 @@ class TestStrategyContracts:
         time_offset_ns: int = 0,
         **kwargs: Any,
     ) -> MLSignal:
-        """Helper to create MLSignal with defaults."""
+        """
+        Helper to create MLSignal with defaults.
+        """
         ts_event, ts_init = test_timestamps
         return MLSignal(
             instrument_id=default_instrument_id,

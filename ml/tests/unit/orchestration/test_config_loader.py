@@ -36,7 +36,9 @@ def test_load_json_and_to_args(tmp_path: Path) -> None:
     assert "--include_macro" in args
     assert "--include_l2" in args
     assert "--hpo" in args
-    assert ["--teacher_model_id", "teacher_X"] == args[args.index("--teacher_model_id") : args.index("--teacher_model_id") + 2]
+    assert ["--teacher_model_id", "teacher_X"] == args[
+        args.index("--teacher_model_id") : args.index("--teacher_model_id") + 2
+    ]
 
 
 def test_load_toml(tmp_path: Path) -> None:

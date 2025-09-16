@@ -16,16 +16,19 @@ Contents
 To prevent accidental API requests outside your subscription coverage, this repo enables guardrails by default when you activate the venv. They enforce dataset/schema allowlists, clamp time ranges, and cap symbols.
 
 Defaults (can be overridden via env):
+
 - Dataset: `EQUS.MINI`
 - Schemas: `ohlcv-1m,tbbo,bbo,trades,mbp-1,mbp-10,mbo,imbalance`
 - Max days by schema: `ohlcv-1m:36500,tbbo:365,bbo:365,trades:365,mbp-1:365,mbp-10:31,mbo:31,imbalance:31`
 - Max symbols: `120`; Strict mode: `1`
 
 Usage:
+
 - Activate: `source .venv/bin/activate` (auto-loads `env/databento_standard.sh`) or `source scripts/activate_ml.sh`.
 - Adjust: edit `env/databento_standard.sh` or export overrides before running CLIs.
 
 CLIs with built-in guard enforcement:
+
 - `ml/cli/backfill_ohlcv_recent.py` (minute bars)
 - `ml/data/collector.py` (L2 MBP-1, L1 trades/TBBO, minute bars)
 - `ml/data/ingest/databento_adapter.py` (core adapter)

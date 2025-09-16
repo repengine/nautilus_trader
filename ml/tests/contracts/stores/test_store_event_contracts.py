@@ -69,7 +69,12 @@ class FakeRegistry:
 
 def _patch_db_init_and_write(monkeypatch: pytest.MonkeyPatch, store: Any) -> None:
     # Avoid DB setup and upserts in unit tests
-    monkeypatch.setattr(store.__class__, "_init_engine_and_tables", lambda self: None, raising=False)
+    monkeypatch.setattr(
+        store.__class__,
+        "_init_engine_and_tables",
+        lambda self: None,
+        raising=False,
+    )
     monkeypatch.setattr(store, "_execute_write", lambda values: None, raising=False)
 
 
@@ -266,4 +271,3 @@ def test_model_store_registry_event_contracts(monkeypatch: pytest.MonkeyPatch) -
     assert wm_qqq["source"] is Source.LIVE
     assert wm_qqq["last_success_ns"] == now + 3
     assert wm_qqq["count"] == 2
-

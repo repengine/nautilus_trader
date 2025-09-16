@@ -14,9 +14,6 @@ import signal
 import sys
 from typing import Any, cast
 
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
-
 from ml.config.base import MLStrategyConfig
 from ml.core.integration import MLIntegrationManager
 from ml.observability.bootstrap import auto_start_if_configured
@@ -24,6 +21,8 @@ from ml.strategies.ml_strategy import MLTradingStrategy
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
 
 
 class MLStrategyNode:

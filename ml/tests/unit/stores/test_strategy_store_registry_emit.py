@@ -107,4 +107,3 @@ def test_strategy_store_emits_registry_events_on_flush(monkeypatch: pytest.Monke
     assert evt["count"] == 2
     # Watermark updated once
     assert len(fake.watermarks) == 1
-

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # ruff: noqa: RUF022
-
 """
 Test fixtures for ML testing.
 

@@ -19,12 +19,19 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-@pytest.mark.parametrize("mode,expected_extra", [
-    ("batch", 1),
-    ("row", 2),
-    ("both", 3),
-])
-def test_model_store_publishing_modes(mode: str, expected_extra: int, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "mode,expected_extra",
+    [
+        ("batch", 1),
+        ("row", 2),
+        ("both", 3),
+    ],
+)
+def test_model_store_publishing_modes(
+    mode: str,
+    expected_extra: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cap = CapturePublisher()
     store = ModelStore(
         connection_string=None,

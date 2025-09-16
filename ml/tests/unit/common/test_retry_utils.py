@@ -107,4 +107,3 @@ def test_on_exception_callback_is_guarded(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert result == 7
     assert len(called) == 1
-

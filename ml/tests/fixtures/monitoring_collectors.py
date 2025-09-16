@@ -1,8 +1,9 @@
 """
 Monitoring collectors test fixtures consolidated for reuse.
 
-Extracted from ml/tests/unit/monitoring/collectors/conftest.py to reduce
-fixture scattering and make discovery easier for contributors and tools.
+Extracted from ml/tests/unit/monitoring/collectors/conftest.py to reduce fixture
+scattering and make discovery easier for contributors and tools.
+
 """
 
 from __future__ import annotations
@@ -19,27 +20,35 @@ from ml.monitoring._config import MonitoringConfig
 
 
 class MetricNameManager:
-    """Manages unique metric names for test isolation."""
+    """
+    Manages unique metric names for test isolation.
+    """
 
     def __init__(self) -> None:
         self._prefix = f"test_{uuid.uuid4().hex[:8]}_"
 
     def get_unique_name(self, base_name: str) -> str:
-        """Get a unique metric name for testing."""
+        """
+        Get a unique metric name for testing.
+        """
 
         return f"{self._prefix}{base_name}"
 
 
 @pytest.fixture
 def metric_name_manager() -> MetricNameManager:
-    """Provide a metric name manager for unique metric names."""
+    """
+    Provide a metric name manager for unique metric names.
+    """
 
     return MetricNameManager()
 
 
 @pytest.fixture
 def monitoring_config(metric_name_manager: MetricNameManager) -> MonitoringConfig:
-    """Provide a basic monitoring configuration with unique metrics prefix."""
+    """
+    Provide a basic monitoring configuration with unique metrics prefix.
+    """
 
     return MonitoringConfig(
         enabled=True,
@@ -50,14 +59,18 @@ def monitoring_config(metric_name_manager: MetricNameManager) -> MonitoringConfi
 
 @pytest.fixture
 def disabled_monitoring_config() -> MonitoringConfig:
-    """Provide a disabled monitoring configuration."""
+    """
+    Provide a disabled monitoring configuration.
+    """
 
     return MonitoringConfig(enabled=False)
 
 
 @pytest.fixture(autouse=True)
 def mock_prometheus_when_unavailable() -> Any:
-    """Mock Prometheus imports when not available to prevent import errors."""
+    """
+    Mock Prometheus imports when not available to prevent import errors.
+    """
 
     if not HAS_PROMETHEUS:
         with patch("ml._imports.HAS_PROMETHEUS", True):
@@ -81,7 +94,9 @@ def mock_prometheus_when_unavailable() -> Any:
 
 @pytest.fixture(autouse=True)
 def prometheus_registry_cleanup() -> Any:
-    """Clean up Prometheus registry after each test to prevent conflicts."""
+    """
+    Clean up Prometheus registry after each test to prevent conflicts.
+    """
 
     names_before: set[str] = set()
 
@@ -114,7 +129,9 @@ def prometheus_registry_cleanup() -> Any:
 
 @pytest.fixture
 def mock_data_catalog() -> MagicMock:
-    """Provide a mock data catalog for testing."""
+    """
+    Provide a mock data catalog for testing.
+    """
 
     catalog = MagicMock()
     catalog.instruments.return_value = ["EURUSD.SIM", "GBPUSD.SIM"]
@@ -130,4 +147,3 @@ __all__ = [
     "monitoring_config",
     "prometheus_registry_cleanup",
 ]
-

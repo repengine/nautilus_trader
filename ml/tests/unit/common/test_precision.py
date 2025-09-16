@@ -13,4 +13,3 @@ def test_clamp_price_basic_and_max() -> None:
 
 def test_clamp_zero_decimals() -> None:
     assert clamp_price_str(123.9, decimals=0) == "124"
-

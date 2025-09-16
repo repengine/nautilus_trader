@@ -6,7 +6,7 @@ Running group '1000' on 1000 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 1000
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -17,7 +17,7 @@ Running group '1000' on 1000 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '24' on 24 ...
@@ -28,7 +28,7 @@ Running group '24' on 24 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 24
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -39,7 +39,7 @@ Running group '24' on 24 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '27' on 27 ...
@@ -50,7 +50,7 @@ Running group '27' on 27 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 27
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -61,7 +61,7 @@ Running group '27' on 27 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.08s =============================
 
 Running group '30' on 30 ...
@@ -72,7 +72,7 @@ Running group '30' on 30 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 30
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -83,7 +83,7 @@ Running group '30' on 30 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '46' on 46 ...
@@ -94,7 +94,7 @@ Running group '46' on 46 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 46
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -105,7 +105,7 @@ Running group '46' on 46 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '100' on 100 ...
@@ -116,7 +116,7 @@ Running group '100' on 100 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 100
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -127,7 +127,7 @@ Running group '100' on 100 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.08s =============================
 
 Running group '105' on 105 ...
@@ -138,7 +138,7 @@ Running group '105' on 105 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 105
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -149,7 +149,7 @@ Running group '105' on 105 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '125' on 125 ...
@@ -160,7 +160,7 @@ Running group '125' on 125 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 125
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -171,7 +171,7 @@ Running group '125' on 125 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '986' on 986 ...
@@ -182,7 +182,7 @@ Running group '986' on 986 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 986
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -193,7 +193,7 @@ Running group '986' on 986 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '995' on 995 ...
@@ -204,7 +204,7 @@ Running group '995' on 995 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 995
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -215,7 +215,7 @@ Running group '995' on 995 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 
 Running group '4' on 4 ...
@@ -226,7 +226,7 @@ Running group '4' on 4 ...
   /home/nate/projects/nautilus_trader/.venv/lib/python3.12/site-packages/fs/__init__.py:4: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
     __import__("pkg_resources").declare_namespace(__name__)  # type: ignore
   ERROR: file or directory not found: 4
-  
+
   ============================= test session starts ==============================
   platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
   codspeed: 3.2.0 (disabled, mode: walltime, timer_resolution: 1.0ns)
@@ -237,6 +237,6 @@ Running group '4' on 4 ...
   plugins: mock-3.15.0, cov-4.1.0, anyio-4.10.0, hypothesis-6.138.15, timeout-2.4.0, benchmark-5.1.0, fugue-0.9.1, typeguard-4.4.4, xdist-3.8.0, codspeed-3.2.0, asyncio-0.21.1, aiohttp-1.1.0, Faker-37.6.0
   asyncio: mode=Mode.STRICT
   collected 0 items
-  
+
   ============================ no tests ran in 0.09s =============================
 

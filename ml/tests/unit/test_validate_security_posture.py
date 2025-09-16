@@ -12,4 +12,3 @@ def test_analyze_file_flags_pickle_import() -> None:
         p.write_text("import pickle\n", encoding="utf-8")
         violations = analyze_file(p)
         assert any(v.violation_type.startswith("pickle_") for v in violations)
-

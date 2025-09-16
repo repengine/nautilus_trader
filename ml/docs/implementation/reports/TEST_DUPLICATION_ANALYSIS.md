@@ -26,6 +26,7 @@ Significant test setup duplication exists across the ML test suite, with **275+ 
 ### 1. Repeated Configuration Setup
 
 **Current Pattern (appears in 20+ files):**
+
 ```python
 # Every test file does this:
 bar_type = BarType.from_str("EUR/USD.SIM-1-MINUTE-MID-INTERNAL")
@@ -43,6 +44,7 @@ config = MLActorConfig(
 ### 2. Mock Setup Duplication
 
 **Current Pattern (appears in 30+ files):**
+
 ```python
 # Repeated mock setup:
 mock_registry = MagicMock()
@@ -56,12 +58,13 @@ mock_model_info.manifest.architecture = "xgboost"
 ### 3. Test Actor Creation
 
 **Current Pattern (appears in 10+ files):**
+
 ```python
 class TestMLActor(Actor):
     def __init__(self, config):
         super().__init__(config)
         # ... custom implementation
-    
+
     def on_bar(self, bar):
         # ... test-specific logic
 ```
@@ -69,6 +72,7 @@ class TestMLActor(Actor):
 ### 4. Model File Handling
 
 **Current Pattern (appears in 12+ files):**
+
 ```python
 with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as tmp:
     model_path = tmp.name
@@ -81,12 +85,14 @@ finally:
 ## Existing Fixtures vs. Usage
 
 ### Available in conftest.py
+
 - ✅ `mock_feature_store` - Used in some tests
-- ✅ `mock_model_store` - Used in some tests  
+- ✅ `mock_model_store` - Used in some tests
 - ✅ `mock_strategy_store` - Used in some tests
 - ✅ `test_database` - Used for integration tests
 
 ### Missing Common Fixtures
+
 - ❌ `default_bar_type` - Would eliminate 32 string parsings
 - ❌ `default_instrument_id` - Would eliminate 31 string parsings
 - ❌ `base_ml_config` - Would eliminate 45+ config creations
@@ -123,6 +129,7 @@ finally:
 ### 1. Create Common Test Fixtures
 
 **File: `ml/tests/fixtures/common.py`**
+
 ```python
 import pytest
 from nautilus_trader.model.data import BarType
@@ -159,10 +166,11 @@ def mock_model_registry():
 ### 2. Create Test Builders
 
 **File: `ml/tests/builders.py`**
+
 ```python
 class MLConfigBuilder:
     """Builder for test configurations."""
-    
+
     @staticmethod
     def actor_config(**overrides):
         """Create MLActorConfig with defaults and overrides."""
@@ -176,7 +184,7 @@ class MLConfigBuilder:
 
 class MockBuilder:
     """Builder for common mocks."""
-    
+
     @staticmethod
     def model_registry(model_id="test_model", version="1.0.0"):
         """Create configured mock registry."""
@@ -186,6 +194,7 @@ class MockBuilder:
 ### 3. Refactor Existing Tests
 
 **Before:**
+
 ```python
 def test_something():
     bar_type = BarType.from_str("EUR/USD.SIM-1-MINUTE-MID-INTERNAL")
@@ -201,6 +210,7 @@ def test_something():
 ```
 
 **After:**
+
 ```python
 def test_something(base_ml_config):
     # 5 lines of actual test
@@ -233,21 +243,25 @@ def test_something(base_ml_config):
 ## Implementation Plan
 
 ### Phase 1: Create Core Fixtures (Week 1)
+
 1. Create `ml/tests/fixtures/common.py`
 2. Add basic fixtures (bar_type, instrument_id, configs)
 3. Create builder classes
 
 ### Phase 2: Refactor High-Impact Tests (Week 2)
+
 1. Start with most duplicated files (20+ duplications)
 2. Update actor contract tests
 3. Update integration tests
 
 ### Phase 3: Complete Migration (Week 3)
+
 1. Refactor remaining test files
 2. Remove redundant code
 3. Update test documentation
 
 ### Phase 4: Measure Impact (Week 4)
+
 1. Measure coverage improvement
 2. Benchmark test performance
 3. Document new patterns

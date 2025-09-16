@@ -3,8 +3,9 @@
 """
 Security utilities for ML model integrity verification.
 
-This module provides functions for verifying the integrity of ML model artifacts
-to prevent tampering and ensure secure model deployment.
+This module provides functions for verifying the integrity of ML model artifacts to
+prevent tampering and ensure secure model deployment.
+
 """
 
 from __future__ import annotations
@@ -48,11 +49,17 @@ class ArtifactIntegrityError(Exception):
     """
     Exception raised when artifact integrity verification fails.
 
-    This indicates that a model artifact may have been tampered with
-    and should be rejected for security reasons.
+    This indicates that a model artifact may have been tampered with and should be
+    rejected for security reasons.
+
     """
 
-    def __init__(self, message: str, expected_digest: str | None = None, actual_digest: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        expected_digest: str | None = None,
+        actual_digest: str | None = None,
+    ):
         """
         Initialize artifact integrity error.
 
@@ -64,6 +71,7 @@ class ArtifactIntegrityError(Exception):
             Expected SHA-256 digest
         actual_digest : str | None
             Actual SHA-256 digest
+
         """
         super().__init__(message)
         self.expected_digest = expected_digest
@@ -110,7 +118,7 @@ def calculate_file_sha256(file_path: Path) -> str:
 def verify_artifact_integrity(
     file_path: Path,
     expected_digest: str | None,
-    strict: bool = True
+    strict: bool = True,
 ) -> bool:
     """
     Verify artifact integrity using SHA-256 digest.
@@ -182,7 +190,7 @@ def verify_artifact_integrity(
             raise ArtifactIntegrityError(
                 user_msg,
                 expected_digest=expected_digest,
-                actual_digest=actual_digest
+                actual_digest=actual_digest,
             )
         else:
             return False
@@ -196,7 +204,7 @@ def secure_onnx_load(
     expected_digest: str | None = None,
     session_options: Any = None,
     providers: list[str] | None = None,
-    strict_integrity: bool = True
+    strict_integrity: bool = True,
 ) -> Any:
     """
     Securely load an ONNX model with integrity verification.

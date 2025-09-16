@@ -13,6 +13,7 @@ from ml.core.integration import MLIntegrationManager
 
 logger = logging.getLogger(__name__)
 
+
 def _seed_sample(mgr: MLIntegrationManager) -> None:
     MLIntegrationManager.initialize_observability_pipeline(mgr)
     svc = getattr(mgr, "observability_service", None)

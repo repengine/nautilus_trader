@@ -10,6 +10,7 @@ Migrated from:
 - raw_io_parquet.py
 
 Existing modules re-export these symbols with deprecation warnings.
+
 """
 
 from __future__ import annotations
@@ -26,7 +27,9 @@ from ml.registry.dataclasses import DatasetType
 
 @runtime_checkable
 class RawIngestionWriterProtocol(Protocol):
-    """Protocol for writing raw datasets (bars/quotes/trades/mbp1/tbbo)."""
+    """
+    Protocol for writing raw datasets (bars/quotes/trades/mbp1/tbbo).
+    """
 
     def write(
         self,
@@ -38,7 +41,9 @@ class RawIngestionWriterProtocol(Protocol):
 
 @runtime_checkable
 class RawReaderProtocol(Protocol):
-    """Protocol for reading raw datasets over a time range."""
+    """
+    Protocol for reading raw datasets over a time range.
+    """
 
     def read_range(
         self,
@@ -51,7 +56,9 @@ class RawReaderProtocol(Protocol):
 
 
 class ParquetCatalogRawReader(RawReaderProtocol):
-    """Raw reader backed by Nautilus ParquetDataCatalog."""
+    """
+    Raw reader backed by Nautilus ParquetDataCatalog.
+    """
 
     def __init__(self, catalog: Any) -> None:
         self._catalog = catalog
@@ -67,11 +74,20 @@ class ParquetCatalogRawReader(RawReaderProtocol):
         start: Any = start_ns
         end: Any = end_ns
         if dataset_type == DatasetType.BARS:
-            return cast(DataFrameLike, bars_to_dataframe(self._catalog, [instrument_id], start, end))
+            return cast(
+                DataFrameLike,
+                bars_to_dataframe(self._catalog, [instrument_id], start, end),
+            )
         if dataset_type in (DatasetType.QUOTES, DatasetType.TBBO):
-            return cast(DataFrameLike, quotes_to_dataframe(self._catalog, [instrument_id], start, end))
+            return cast(
+                DataFrameLike,
+                quotes_to_dataframe(self._catalog, [instrument_id], start, end),
+            )
         if dataset_type == DatasetType.TRADES:
-            return cast(DataFrameLike, trades_to_dataframe(self._catalog, [instrument_id], start, end))
+            return cast(
+                DataFrameLike,
+                trades_to_dataframe(self._catalog, [instrument_id], start, end),
+            )
         try:
             from ml._imports import HAS_POLARS
             from ml._imports import pl as _pl

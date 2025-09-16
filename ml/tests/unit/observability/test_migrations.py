@@ -10,4 +10,3 @@ def test_month_bounds_returns_start_end_month() -> None:
     start, end = _month_bounds(dt)
     assert start == datetime(2025, 3, 1, tzinfo=UTC)
     assert end == datetime(2025, 4, 1, tzinfo=UTC)
-

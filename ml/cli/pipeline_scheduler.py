@@ -15,10 +15,28 @@ from ml.orchestration.scheduler import run_forever as _run_forever
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Run the ML pipeline orchestrator on a schedule")
     group = ap.add_mutually_exclusive_group(required=False)
-    group.add_argument("--schedule-time", dest="schedule_time", help="Daily UTC time HH:MMZ (e.g., 02:30Z)")
-    group.add_argument("--interval-min", dest="interval_min", type=int, help="Interval in minutes (e.g., 1440)")
-    ap.add_argument("--config", dest="config_path", help="Path to orchestrator JSON/TOML config", default=None)
-    ap.add_argument("--dry-run", action="store_true", help="Log actions without invoking orchestrator")
+    group.add_argument(
+        "--schedule-time",
+        dest="schedule_time",
+        help="Daily UTC time HH:MMZ (e.g., 02:30Z)",
+    )
+    group.add_argument(
+        "--interval-min",
+        dest="interval_min",
+        type=int,
+        help="Interval in minutes (e.g., 1440)",
+    )
+    ap.add_argument(
+        "--config",
+        dest="config_path",
+        help="Path to orchestrator JSON/TOML config",
+        default=None,
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Log actions without invoking orchestrator",
+    )
     ap.add_argument("--force", action="store_true", help="Ignore existing outputs and run anyway")
     return ap.parse_args(argv)
 

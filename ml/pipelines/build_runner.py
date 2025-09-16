@@ -304,6 +304,7 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
 
         # Default: import and call the CLI main (tests monkeypatch this call)
         from ml.cli.build_tft_dataset import main as build_main
+
         return int(build_main(args))
 
 

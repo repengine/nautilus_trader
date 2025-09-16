@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 """
 Centralized symbol universes for ML workflows.
 

@@ -11,7 +11,8 @@ from __future__ import annotations
 import calendar
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast as _cast
+from typing import TYPE_CHECKING, Any
+from typing import cast as _cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl as pl_runtime
@@ -20,8 +21,9 @@ from ml.data.providers.utils import cyclic_encode
 
 
 if TYPE_CHECKING:
-    from ml.data.sources.calendar import CalendarSource
     import polars as _pl
+
+    from ml.data.sources.calendar import CalendarSource
 
 # Local runtime alias
 PL = _cast(Any, pl_runtime)
@@ -61,9 +63,9 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
 
     def compute_features(
         self,
-        timestamps: "_pl.Series",
+        timestamps: _pl.Series,
         exchange: str = "NYSE",
-    ) -> "_pl.DataFrame":
+    ) -> _pl.DataFrame:
         """
         Compute calendar features for timestamps.
 
@@ -153,6 +155,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
                 features.append(self._default_features(ts, dt))
 
         from typing import cast as __cast
+
         return __cast("_pl.DataFrame", PL.DataFrame(features))
 
     def _to_datetime(self, timestamp_ns: int) -> datetime:
@@ -231,8 +234,8 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
     def load_timeseries(
         self,
         instruments: list[str],
-        timestamps: "_pl.Series",
-    ) -> "_pl.DataFrame":
+        timestamps: _pl.Series,
+    ) -> _pl.DataFrame:
         """
         Load time series calendar features.
 
@@ -262,7 +265,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
         # If multiple instruments, replicate features
         if len(instruments) > 1:
             # Create instrument column
-            instrument_dfs: list["_pl.DataFrame"] = []
+            instrument_dfs: list[_pl.DataFrame] = []
             for instrument in instruments:
                 inst_df = calendar_df.with_columns(
                     PL.lit(instrument).alias("instrument_id"),
@@ -270,6 +273,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
                 instrument_dfs.append(inst_df)
 
             from typing import cast as __cast
+
             return __cast("_pl.DataFrame", PL.concat(instrument_dfs))
         elif len(instruments) == 1:
             # Single instrument
@@ -283,8 +287,8 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
     def _load_timeseries_impl(
         self,
         instruments: list[str],
-        timestamps: "_pl.Series",
-    ) -> "_pl.DataFrame":
+        timestamps: _pl.Series,
+    ) -> _pl.DataFrame:
         """
         Implement time series loading.
 

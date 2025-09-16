@@ -354,7 +354,8 @@ repos:
     rev: v1.17.1
     hooks:
       - id: mypy
-        files: '^(ml/(config|core|strategies)/|ml/actors/signal\.py)$'
+        # Block on mypy for all ML code except tests
+        files: '^ml/(?!tests/).+\.py$'
         exclude: ^python/nautilus_trader/.*__init__\.py$
         args: [
           "--config", "pyproject.toml",

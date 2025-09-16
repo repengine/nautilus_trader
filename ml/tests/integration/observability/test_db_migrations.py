@@ -32,13 +32,14 @@ pytestmark = [
 
 from typing import Any
 
+
 @pytest.mark.skipif(
     not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
     reason="PostgreSQL not reachable",
 )
-
-
-def test_apply_observability_indices_creates_brin_and_composites(default_instrument_id: Any) -> None:
+def test_apply_observability_indices_creates_brin_and_composites(
+    default_instrument_id: Any,
+) -> None:
     url = os.getenv("DATABASE_URL", _DEFAULT_URL)
     eng = create_engine(url)
 
@@ -106,7 +107,9 @@ def test_apply_observability_indices_creates_brin_and_composites(default_instrum
 
     # Check representative indexes exist (names are deterministic)
     idx_names = {
-        n for n in (i.get("name") for i in inspector.get_indexes("obs_event_correlation")) if isinstance(n, str)
+        n
+        for n in (i.get("name") for i in inspector.get_indexes("obs_event_correlation"))
+        if isinstance(n, str)
     }
     assert "obs_event_correlation_ts_event_brin" in idx_names or any(
         n.endswith("ts_event_brin") for n in idx_names
@@ -114,7 +117,9 @@ def test_apply_observability_indices_creates_brin_and_composites(default_instrum
     assert "obs_event_correlation_instrument_ts_idx" in idx_names
 
     idx_names_metrics = {
-        n for n in (i.get("name") for i in inspector.get_indexes("obs_metrics")) if isinstance(n, str)
+        n
+        for n in (i.get("name") for i in inspector.get_indexes("obs_metrics"))
+        if isinstance(n, str)
     }
     assert "obs_metrics_timestamp_brin" in idx_names_metrics or any(
         n.endswith("timestamp_brin") for n in idx_names_metrics

@@ -346,21 +346,25 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Universal ML Architecture Patterns Compliance
 
 **Pattern 1: Mandatory 4-Store + 4-Registry Integration** - ❌ **NOT APPLICABLE**
+
 - **Status**: The migrations domain does not contain actor implementations
 - **Finding**: Migrations are pure SQL schema management, no BaseMLInferenceActor inheritance required
 - **Compliance**: N/A - Domain provides schema for stores/registries used by actors
 
 **Pattern 2: Protocol-First Interface Design** - ❌ **NOT APPLICABLE**
+
 - **Status**: Migrations provide SQL DDL, not Python protocol implementations
 - **Finding**: Migration files are PostgreSQL SQL, no typing.Protocol usage expected
 - **Compliance**: N/A - Schema definitions enable protocol implementations in other domains
 
 **Pattern 3: Hot/Cold Path Separation** - ✅ **COMPLIANT**
+
 - **Status**: Migrations are cold-path operations by design
 - **Finding**: All migration operations are properly categorized as cold-path (schema changes, maintenance)
 - **Compliance**: PASS - No hot-path operations in migration files
 
 **Pattern 4: Progressive Fallback Chains** - ⚠️ **PARTIALLY IMPLEMENTED**
+
 - **Status**: Basic fallback exists but limited
 - **Finding**: MLIntegrationManager implements basic error tolerance but no sophisticated fallback chains
 - **File**: `/home/nate/projects/nautilus_trader/ml/core/integration.py:450-459`
@@ -368,6 +372,7 @@ The ml/migrations domain implementation has been analyzed against documentation 
 - **Missing**: No circuit breaker, retry logic, or degraded operation modes
 
 **Pattern 5: Centralized Metrics Bootstrap** - ❌ **NOT APPLICABLE**
+
 - **Status**: SQL migrations don't use metrics
 - **Finding**: No prometheus_client imports expected in SQL DDL files
 - **Compliance**: N/A - Metrics are application-layer concern
@@ -375,16 +380,19 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Coding Standards Compliance
 
 **Type Annotations** - ✅ **COMPLIANT**
+
 - **Status**: Python migration utilities are properly typed
 - **Files Reviewed**: `ml/scripts/apply_migrations.py`, `ml/deployment/migrations.py`, `ml/observability/migrations.py`
 - **Finding**: All functions have complete type annotations with proper return types
 
 **Error Handling** - ✅ **COMPLIANT**
+
 - **Status**: Appropriate exception handling with specific error types
 - **Implementation**: Migration runners catch and categorize SQL errors appropriately
 - **File**: `ml/scripts/apply_migrations.py:155-164` - Differentiates idempotent conflicts from real errors
 
 **Database Usage** - ✅ **COMPLIANT**
+
 - **Status**: Proper use of EngineManager for database connections
 - **Finding**: All migration utilities use `EngineManager.get_engine()` as required
 - **Files**: `ml/core/integration.py:428`, `ml/scripts/apply_migrations.py:228`
@@ -394,6 +402,7 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Structural Claims vs Reality
 
 **Migration Organization Structure** - ✅ **ACCURATE**
+
 - **Documented**: 3-directory structure (ml/migrations/, ml/registry/migrations/, ml/stores/migrations/)
 - **Reality**: Structure exists exactly as documented
 - **Files Found**:
@@ -402,11 +411,13 @@ The ml/migrations domain implementation has been analyzed against documentation 
   - `ml/stores/migrations/` (10 files: comprehensive store schema)
 
 **Migration Execution Flow** - ✅ **ACCURATE**
+
 - **Documented**: `MLIntegrationManager._run_migrations()` with ordered execution
 - **Reality**: Implementation matches documentation exactly
 - **File**: `ml/core/integration.py:419-426` - Migration list matches documentation
 
 **CLI Migration Runner** - ✅ **ACCURATE**
+
 - **Documented**: CLI runner with --full, --dry-run, --schema options
 - **Reality**: `ml/scripts/apply_migrations.py` implements all documented features
 - **Finding**: Command examples in documentation are accurate
@@ -414,6 +425,7 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Claimed Completion Status Review
 
 **"Critical fixes and immediate patches"** - ⚠️ **MISCHARACTERIZED**
+
 - **Reality**: Only 1 file in `ml/migrations/999_fix_partitions_immediate.sql`
 - **Documentation implies**: Multiple critical fixes
 - **Actual scope**: Single emergency partition fix for test environment
@@ -421,16 +433,19 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Performance and Safety Claims
 
 **"Idempotent Design"** - ✅ **VALIDATED**
+
 - **Claim**: "All migrations use IF NOT EXISTS clauses"
 - **Reality**: Confirmed in migration files (001_initial_schema.sql uses IF NOT EXISTS throughout)
 - **File**: `ml/registry/migrations/001_initial_schema.sql:6, 12, 36, 44`
 
 **"Transaction Safety"** - ✅ **VALIDATED**
+
 - **Claim**: "Each migration file runs in separate transaction"
 - **Reality**: Confirmed in implementation
 - **File**: `ml/core/integration.py:446` - Uses `with engine.begin() as conn:`
 
 **"Error Handling"** - ⚠️ **PARTIALLY ACCURATE**
+
 - **Claim**: "Non-critical errors logged as warnings, not failures"
 - **Reality**: Basic error categorization exists but could be more sophisticated
 - **Implementation**: Distinguishes "already exists" from other errors but categorization is simplistic
@@ -476,6 +491,7 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### SQL Injection Protection
 
 **Status**: ✅ **SECURE**
+
 - **Finding**: All SQL execution uses parameterized queries or sqlalchemy.text()
 - **Files**: `ml/scripts/apply_migrations.py:154`, `ml/core/integration.py:449`
 - **Implementation**: Proper use of text() with parameter binding
@@ -483,6 +499,7 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Dollar-Quoted Function Safety
 
 **Status**: ✅ **SECURE**
+
 - **Finding**: Sophisticated SQL statement splitter respects dollar-quoted blocks
 - **File**: `ml/scripts/apply_migrations.py:69-135` - Handles $tag$...$tag$ safely
 - **Validation**: Prevents SQL injection through function body manipulation
@@ -490,6 +507,7 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Migration File Integrity
 
 **Status**: ⚠️ **BASIC VALIDATION**
+
 - **Finding**: No checksum or signature validation of migration files
 - **Impact**: MEDIUM - Malicious modification of migration files possible
 - **Recommendation**: Add file integrity checking for production deployments
@@ -499,15 +517,18 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Migration Execution Performance
 
 **SQL Statement Splitting**: ✅ **OPTIMIZED**
+
 - **Implementation**: Custom splitter respects PostgreSQL-specific constructs
 - **File**: `ml/scripts/apply_migrations.py:69-135`
 - **Benefit**: Avoids naive semicolon splitting that breaks on function definitions
 
 **Database Connection Management**: ✅ **OPTIMIZED**
+
 - **Implementation**: Uses EngineManager singleton pattern
 - **Benefit**: Prevents connection pool exhaustion during migrations
 
 **Transaction Boundaries**: ✅ **APPROPRIATE**
+
 - **Implementation**: Each migration file runs in separate transaction
 - **Benefit**: Atomic migration application with rollback on failure
 
@@ -516,11 +537,13 @@ The ml/migrations domain implementation has been analyzed against documentation 
 #### Unit Test Coverage
 
 **Migration Utilities**: ✅ **COVERED**
+
 - **File**: `ml/tests/unit/deployment/test_migrations.py`
 - **Scope**: Tests file discovery and command building
 - **Gap**: No tests for actual SQL execution
 
 **Observability Migrations**: ✅ **COVERED**
+
 - **File**: `ml/tests/unit/observability/test_db_migrations_postgres.py`
 - **Scope**: Tests index creation and validation
 - **Strength**: Includes actual PostgreSQL integration
@@ -584,7 +607,8 @@ The ml/migrations domain provides a solid foundation for database schema managem
 The domain demonstrates strong adherence to coding standards and appropriate cold-path categorization within the Universal ML Architecture Patterns. The main areas for improvement are enhanced error handling, rollback capabilities, and more comprehensive testing coverage.
 
 **Overall Assessment**: ✅ **FUNCTIONAL** with ⚠️ **IMPROVEMENT OPPORTUNITIES**
+
 - Core migration functionality: COMPLETE
-- Safety and error handling: GOOD  
+- Safety and error handling: GOOD
 - Documentation accuracy: MOSTLY ACCURATE with minor discrepancies
 - Production readiness: REQUIRES rollback implementation for full production deployment

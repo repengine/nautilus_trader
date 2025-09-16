@@ -475,8 +475,8 @@ class FREDDataLoader:
         self._rate_limit_window = 60.0  # 1 minute window
 
         # Cache management
-        from typing import Tuple
-        self._cache: dict[str, Tuple[PolarsDF, float]] = {}
+
+        self._cache: dict[str, tuple[PolarsDF, float]] = {}
 
         logger.info(
             f"Initialized FRED loader with {len(self.indicators)} indicators, "
@@ -581,6 +581,7 @@ class FREDDataLoader:
             logger.debug(f"Loaded {series_id} from cache")
 
             from typing import cast as _cast
+
             return _cast(PolarsDF, df)
 
         except Exception as e:
@@ -733,6 +734,7 @@ class FREDDataLoader:
             self._save_to_cache(series_id, df)
 
         from typing import cast as _cast
+
         return _cast(PolarsDF, df)
 
     def fetch_all_indicators(
@@ -797,31 +799,39 @@ class FREDDataLoader:
         assert _pl is not None
         if not data:
             from typing import cast as _cast
+
             return _cast(PolarsDF, _pl.DataFrame())
 
         # Start with first indicator
         combined: PolarsDF | None = None
 
         from typing import cast as _cast
+
         for series_id, df in data.items():
             # Pivot to wide format
-            wide_df = _cast(PolarsDF, df.select(
-                [
-                    "timestamp",
-                    _pl.col("value").alias(series_id),
-                ],
-            ))
+            wide_df = _cast(
+                PolarsDF,
+                df.select(
+                    [
+                        "timestamp",
+                        _pl.col("value").alias(series_id),
+                    ],
+                ),
+            )
 
             if combined is None:
                 combined = wide_df
             else:
                 # Join on timestamp using 'full' instead of deprecated 'outer'
-                combined = _cast(PolarsDF, combined.join(
-                    wide_df,
-                    on="timestamp",
-                    how="full",
-                    coalesce=True,  # Coalesce duplicate columns
-                ))
+                combined = _cast(
+                    PolarsDF,
+                    combined.join(
+                        wide_df,
+                        on="timestamp",
+                        how="full",
+                        coalesce=True,  # Coalesce duplicate columns
+                    ),
+                )
 
         # Sort by timestamp and filter out null timestamps
         if combined is not None:
@@ -832,7 +842,9 @@ class FREDDataLoader:
             combined = combined.sort("timestamp")
 
             # Add timestamp_ns column
-            combined = combined.with_columns(_pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"))
+            combined = combined.with_columns(
+                _pl.col("timestamp").dt.timestamp("ns").alias("timestamp_ns"),
+            )
 
         if combined is not None:
             return combined

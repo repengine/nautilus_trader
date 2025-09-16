@@ -352,7 +352,11 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_signal_generation_from_features(self, temp_data_dir: Path, default_instrument_id: _Any) -> None:
+    def test_signal_generation_from_features(
+        self,
+        temp_data_dir: Path,
+        default_instrument_id: _Any,
+    ) -> None:
         """
         Test ML signal generation from computed features.
         """
@@ -369,6 +373,7 @@ class TestEndToEndPipeline:
         df = bars_to_dataframe(catalog, [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))])
         config = FeatureConfig(rsi_period=14)
         from ml.stores.protocols import FeatureStoreStrictProtocol
+
         engineer = FeatureEngineer(config, feature_store=None)
         features_df, _scaler = engineer.calculate_features(df, mode="batch", fit_scaler=True)
 
@@ -471,7 +476,11 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_pipeline_error_recovery(self, temp_data_dir: Path, default_instrument_id: _Any) -> None:
+    def test_pipeline_error_recovery(
+        self,
+        temp_data_dir: Path,
+        default_instrument_id: _Any,
+    ) -> None:
         """
         Test pipeline error handling and recovery.
         """
@@ -580,7 +589,11 @@ class TestEndToEndPipeline:
 
         # Verify dataset structure
         assert dataset is not None
-        assert not _cast(_Any, dataset).is_empty() if hasattr(dataset, "is_empty") else len(dataset) > 0
+        assert (
+            not _cast(_Any, dataset).is_empty()
+            if hasattr(dataset, "is_empty")
+            else len(dataset) > 0
+        )
 
         # Check for TFT-specific columns
         expected_columns = [

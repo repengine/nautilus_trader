@@ -5,7 +5,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402  # Allow module docstring preceding imports per project style
 
-
 """
 Minimal pipeline scheduler (cold path).
 
@@ -34,6 +33,7 @@ from ml.config.events import Stage
 
 
 logger = logging.getLogger(__name__)
+
 
 class _ConfigLoaderProtocol(Protocol):
     def load_orchestrator_config(self, path: str | None) -> Any: ...
@@ -93,6 +93,7 @@ def compute_next_run(
 
     Precedence: schedule_time > interval_min. Raises ValueError if neither
     is provided or inputs are invalid.
+
     """
     if schedule_time:
         st = schedule_time.strip().upper()
@@ -180,6 +181,7 @@ def run_forever(
     - ORCH_FORCE=1 (ignore existing outputs)
     - ORCH_LOCK_PATH=custom lock file path
     - ORCH_LOCK_TTL_HOURS=12 (stale lock threshold)
+
     """
     import os
     import time
@@ -205,6 +207,7 @@ def run_forever(
         default_lock = (out_dir / ".orch.lock") if out_dir else Path("/tmp/ml_orch.lock")
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug("Deriving default lock path failed: %s", exc)
         default_lock = Path("/tmp/ml_orch.lock")
 
@@ -214,10 +217,15 @@ def run_forever(
     try:
         from ml.core.integration import MLIntegrationManager
 
-        mgr = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+        mgr = MLIntegrationManager(
+            auto_start_postgres=False,
+            auto_migrate=False,
+            ensure_healthy=False,
+        )
         registry = mgr.data_registry
     except Exception as exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug("MLIntegrationManager not available: %s", exc)
         registry = object()
 
@@ -230,8 +238,10 @@ def run_forever(
         except Exception as exc:
             # If schedule invalid, wait a minute and retry
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
-                "Invalid scheduler config; retrying in 60s: %s", exc
+                "Invalid scheduler config; retrying in 60s: %s",
+                exc,
             )
             sleep_fn(60.0)
             continue
@@ -263,8 +273,10 @@ def run_forever(
                         continue
                 except Exception as exc:
                     import logging as _logging
+
                     _logging.getLogger(__name__).debug(
-                        "Output precheck failed (ignored): %s", exc
+                        "Output precheck failed (ignored): %s",
+                        exc,
                     )
 
             # Execute orchestrator
@@ -286,14 +298,20 @@ def run_forever(
                 m.runs_total.labels(status=status.value).inc()
             except Exception as exc:
                 import logging as _logging
+
                 _logging.getLogger(__name__).debug(
-                    "Emit orchestrator event failed (ignored): %s", exc
+                    "Emit orchestrator event failed (ignored): %s",
+                    exc,
                 )
 
             # Emit event (status only; no watermark updates in scheduler)
             try:
                 from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
-                now_ns = _sanitize(int(time.time_ns()), context="orchestration.scheduler:emit_event.now")
+
+                now_ns = _sanitize(
+                    int(time.time_ns()),
+                    context="orchestration.scheduler:emit_event.now",
+                )
                 metadata = {"phase": "pipeline", "run_id": run_id, "duration": duration}
                 if error:
                     metadata["error"] = error

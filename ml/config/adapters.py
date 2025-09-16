@@ -10,11 +10,10 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import InstrumentId
-
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.common.config import NautilusConfig
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 def create_actor_config(ml_config: NautilusConfig) -> ActorConfig:

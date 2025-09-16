@@ -141,6 +141,7 @@ class AggregatingConsumer:
                     else:
                         # Fallback for events without valid stage
                         from ml.common.message_topics import build_topic
+
                         out_topic = build_topic("events", "updated", instrument_id)
 
                 # Publish original payload wrapped with envelope metadata
@@ -161,7 +162,10 @@ class AggregatingConsumer:
                         import logging as _logging
 
                         _logging.getLogger(__name__).debug(
-                            "Downstream publish failed for %s: %s", out_topic, exc, exc_info=True
+                            "Downstream publish failed for %s: %s",
+                            out_topic,
+                            exc,
+                            exc_info=True,
                         )
                     except Exception:
                         ...

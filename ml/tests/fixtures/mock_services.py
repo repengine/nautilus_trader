@@ -193,6 +193,7 @@ class MockDatabentoClient:
             # Generate random trades
             n_trades = np.random.randint(100, 500)
             from typing import cast as _cast
+
             timestamps = pd.to_datetime(
                 _cast(Any, np.random.uniform(start_ts.value, end_ts.value, n_trades)),
                 unit="ns",

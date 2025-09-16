@@ -49,6 +49,7 @@ Non-Goals (Cold Path Only):
 Dependencies:
 - numpy: Core numerical operations
 - typing: Type annotations and protocols
+
 """
 
 # ============================================================================

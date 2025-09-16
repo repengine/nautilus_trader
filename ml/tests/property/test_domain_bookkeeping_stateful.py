@@ -33,7 +33,9 @@ from nautilus_trader.core.uuid import UUID4
 # Strategies that can optionally use DataBuilder
 @st.composite
 def instrument_ids_strategy(draw, use_builder=False):
-    """Generate instrument IDs, optionally using DataBuilder."""
+    """
+    Generate instrument IDs, optionally using DataBuilder.
+    """
     if use_builder:
         # Use default instrument ID pattern from fixtures
         return "EUR/USD.SIM"

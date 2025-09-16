@@ -58,4 +58,3 @@ def test_fallback_activation_emits_metric(monkeypatch: pytest.MonkeyPatch) -> No
     lab = counter.labels_obj.calls[-1]
     assert lab.get("component") == "actor_stores"
     assert lab.get("level") == "dummy"
-

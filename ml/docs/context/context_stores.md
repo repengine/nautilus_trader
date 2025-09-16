@@ -1395,31 +1395,36 @@ After comprehensive review of all 25+ files in `/home/nate/projects/nautilus_tra
 ### Universal ML Architecture Pattern Compliance
 
 **❌ Pattern 1: Mandatory 4-Store + 4-Registry Integration - PARTIAL COMPLIANCE**
+
 - **CLAIM**: "All ML actors MUST use all 4 stores and 4 registries via BaseMLInferenceActor inheritance"
 - **REALITY**: No `BaseMLInferenceActor` found in stores domain. DataStore class implements 3/4 stores integration:
   - ✅ FeatureStore: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:364`
-  - ✅ ModelStore: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:365`  
+  - ✅ ModelStore: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:365`
   - ✅ StrategyStore: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:366`
   - ❌ DataStore: Self-referential (DataStore creates itself)
 - **Registry Integration**: Only DataRegistry via `DataRegistryMixin`: `/home/nate/projects/nautilus_trader/ml/stores/_registry_mixin.py:23`
 - **Missing Registries**: FeatureRegistry, ModelRegistry, StrategyRegistry not integrated
 
 **✅ Pattern 2: Protocol-First Interface Design - COMPLIANT**
+
 - **Implementation**: `/home/nate/projects/nautilus_trader/ml/stores/protocols.py` defines comprehensive protocols
 - **Store protocols**: FeatureStoreProtocol (line 24), ModelStoreProtocol (line 45), StrategyStoreProtocol (line 66)
 - **All concrete stores implement their respective protocols correctly**
 
 **❌ Pattern 3: Hot/Cold Path Separation - VIOLATIONS FOUND**
+
 - **VIOLATION**: DataStore validation logic in hot path: `/home/nate/projects/nautilus_trader/ml/stores/data_store.py:798` (validate_batch calls during write_ingestion)
 - **VIOLATION**: Heavy DataFrame operations in write paths: lines 777-798 with polars/pandas conversions
 - **POSITIVE**: DataProcessor attempts separation: `/home/nate/projects/nautilus_trader/ml/stores/data_processor.py:230-310`
 
 **❌ Pattern 4: Progressive Fallback Chains - INCOMPLETE**
+
 - **PostgreSQL → JSON Fallback**: Implemented in `_registry_mixin.py:52-86`
 - **Missing**: No DummyStore implementations for testing/degraded mode
 - **Missing**: Connection failure graceful degradation in stores
 
 **❌ Pattern 5: Centralized Metrics Bootstrap - VIOLATIONS**
+
 - **VIOLATION**: Direct prometheus_client usage in `data_store.py:90-111` (metric variables declared directly)
 - **INCONSISTENT**: Some files use MetricsManager (`_health_mixin.py:37-47`), others use direct imports
 - **VIOLATION**: Manual metric instantiation instead of bootstrap pattern
@@ -1427,15 +1432,18 @@ After comprehensive review of all 25+ files in `/home/nate/projects/nautilus_tra
 ### Documentation Accuracy Issues
 
 **Store Count Claims**
+
 - **CLAIM**: "4 required stores" (FeatureStore, ModelStore, StrategyStore, DataStore)
 - **REALITY**: DataStore is a facade over the other 3, not a separate store. True count is 3 stores + 1 facade.
 
 **Completion Percentages**
-- **CLAIM**: "95% complete validation pipeline" 
+
+- **CLAIM**: "95% complete validation pipeline"
 - **REALITY**: DataProcessor has placeholder methods: lines 793-863 return empty dicts or hardcoded values
 - **EVIDENCE**: `_get_feature_statistics` returns `{}` (line 794), `_get_calibration_params` returns `{}` (line 807)
 
 **Protocol Implementation Claims**
+
 - **CLAIM**: "Full protocol conformance"
 - **REALITY**: Missing required methods in some implementations:
   - ModelStore missing `read_predictions_batch` method referenced in protocol
@@ -1444,27 +1452,32 @@ After comprehensive review of all 25+ files in `/home/nate/projects/nautilus_tra
 ### Coding Standards Violations
 
 **Type Annotation Issues**
+
 - **VIOLATION**: Mixed use of `Any` in critical paths: `data_store.py:24` imports Any but uses throughout hot paths
 - **VIOLATION**: Untyped mixin attributes: `_upsert_mixin.py:26-27` explicitly declares untyped attributes
 
-**Import Management**  
+**Import Management**
+
 - **VIOLATION**: Direct third-party imports in hot paths: `data_store.py:14-53` mixes system and ML imports
 - **POSITIVE**: Proper ML import pattern in `data_processor.py:18` using text imports
 
 **Configuration Management**
+
 - **VIOLATION**: Hardcoded constants in DataProcessor: staleness_threshold_seconds=300 (line 88)
 - **POSITIVE**: Configurable parameters in store constructors
 
 ### Architectural Inconsistencies
 
 **Event Emission Patterns**
+
 - **INCONSISTENT**: Multiple event emission patterns:
   - `emit_dataset_event_and_watermark` in some places
-  - `emit_dataset_event` in others  
+  - `emit_dataset_event` in others
   - Direct registry calls in others
 - **FILE**: `data_store.py` uses 3 different emission patterns
 
 **Health Check Implementation**
+
 - **INCONSISTENT**: Multiple health check patterns:
   - HealthMixin with comprehensive probes (`_health_mixin.py:49-86`)
   - BufferedStoreMixin with basic connectivity (`_buffered_store.py:91-104`)
@@ -1481,7 +1494,7 @@ After comprehensive review of all 25+ files in `/home/nate/projects/nautilus_tra
 ### Recommendations
 
 1. **Implement Missing Registries**: Add FeatureRegistry, ModelRegistry, StrategyRegistry integration
-2. **Create DummyStore Classes**: For progressive fallback compliance  
+2. **Create DummyStore Classes**: For progressive fallback compliance
 3. **Refactor Hot Paths**: Move validation to cold path, pre-allocate data structures
 4. **Standardize Metrics**: Enforce MetricsManager usage across all stores
 5. **Complete DataProcessor**: Replace placeholder methods with actual implementations

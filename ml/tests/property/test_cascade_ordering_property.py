@@ -9,7 +9,9 @@ from ml.common.cascade import emit_cascade, EventDict
 
 @st.composite
 def instrument_ids_strategy(draw: Any, use_builder: bool = False) -> str:
-    """Generate instrument IDs, optionally using DataBuilder."""
+    """
+    Generate instrument IDs, optionally using DataBuilder.
+    """
     if use_builder:
         # Use default instrument ID pattern from fixtures
         return "EUR/USD.SIM"
@@ -25,15 +27,18 @@ def test_cascade_with_non_negative_delays_is_monotonic(base_ts: int, delays: lis
     Property: Applying emit_cascade repeatedly with non-negative delays yields a non-decreasing
     sequence of ts_event values.
     """
-    ev: EventDict = cast(EventDict, {
-        "domain": "data",
-        "event_type": "INGESTED",
-        "correlation_id": "CID-TEST",
-        "instrument_id": "EUR/USD.SIM",
-        "ts_event": base_ts,
-        "event_id": "E0",
-        "payload": {},
-    })
+    ev: EventDict = cast(
+        EventDict,
+        {
+            "domain": "data",
+            "event_type": "INGESTED",
+            "correlation_id": "CID-TEST",
+            "instrument_id": "EUR/USD.SIM",
+            "ts_event": base_ts,
+            "event_id": "E0",
+            "payload": {},
+        },
+    )
     ts_vals: list[int] = [ev["ts_event"]]
     current = ev
     for i, d in enumerate(delays):

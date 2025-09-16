@@ -7,16 +7,19 @@ This document summarizes the standardization work completed for bus publishing g
 ### 1. Inconsistent Publishing Gating
 
 **Problem**: Different stores had inconsistent gating logic for bus publishing:
+
 - **FeatureStore**: Checked both `_enable_publishing AND publisher is not None`
 - **DataStore**: Only checked `publisher is not None`
 
 **Solution**: Standardized all stores to use consistent gating pattern:
+
 ```python
 if self._enable_publishing and self.publisher is not None:
     # Publish to message bus
 ```
 
 **Files Modified**:
+
 - `/home/nate/projects/nautilus_trader/ml/stores/data_store.py`
 
 ### 2. Topic Building Consistency
@@ -30,6 +33,7 @@ if self._enable_publishing and self.publisher is not None:
   - `self._topic_prefix` (default: "events.ml")
 
 - **All stores** use these attributes consistently when building topics:
+
   ```python
   topic = build_topic_for_stage(
       stage,
@@ -50,6 +54,7 @@ if self._enable_publishing and self.publisher is not None:
 - **Best-effort**: Publishing failures don't impact store operations
 
 Example from FeatureStore:
+
 ```python
 try:
     self.publisher.publish(topic, payload)
@@ -58,6 +63,7 @@ except Exception:
 ```
 
 Example from DataStore:
+
 ```python
 try:
     self.publisher.publish(topic, payload)
@@ -66,6 +72,7 @@ except Exception:
 ```
 
 Example from mixins (batch operations):
+
 ```python
 try:
     publisher.publish(topic, payload)
@@ -83,6 +90,7 @@ except Exception:
 ### Gating Logic (Now Standardized)
 
 All stores follow this pattern:
+
 ```python
 if self._enable_publishing and self.publisher is not None:
     try:

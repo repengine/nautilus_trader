@@ -1532,9 +1532,10 @@ def create_data_store(**kwargs: object) -> DataStoreFacadeProtocol:
     """
     Create a DataStore instance and return it as a narrow facade protocol.
 
-    Uses dynamic import to avoid mypy resolving the concrete class hierarchy,
-    which can appear abstract under strict type-checking due to Protocol bases
-    used for mixins under TYPE_CHECKING.
+    Uses dynamic import to avoid mypy resolving the concrete class hierarchy, which can
+    appear abstract under strict type-checking due to Protocol bases used for mixins
+    under TYPE_CHECKING.
+
     """
     import importlib
     from typing import Any as _Any

@@ -11,10 +11,30 @@ from ml.stores.mixins import publish_batch_and_rows, sanitize_and_dedup
 def test_sanitize_and_dedup_mixed_units_and_duplicates() -> None:
     # Two keys, with duplicates and mixed timestamp units
     values = [
-        {"model_id": "m1", "instrument_id": "EUR/USD", "ts_event": 1_700_000_000, "ts_init": 1_700_000_000},  # seconds
-        {"model_id": "m1", "instrument_id": "EUR/USD", "ts_event": 1_700_000_000, "ts_init": 1_700_000_000},  # dup
-        {"model_id": "m2", "instrument_id": "EUR/USD", "ts_event": 1_700_000_000_000, "ts_init": 1_700_000_000_000},  # ms
-        {"model_id": "m2", "instrument_id": "EUR/USD", "ts_event": 1_700_000_000_000, "ts_init": 1_700_000_000_000 + 1},  # dup with different init
+        {
+            "model_id": "m1",
+            "instrument_id": "EUR/USD",
+            "ts_event": 1_700_000_000,
+            "ts_init": 1_700_000_000,
+        },  # seconds
+        {
+            "model_id": "m1",
+            "instrument_id": "EUR/USD",
+            "ts_event": 1_700_000_000,
+            "ts_init": 1_700_000_000,
+        },  # dup
+        {
+            "model_id": "m2",
+            "instrument_id": "EUR/USD",
+            "ts_event": 1_700_000_000_000,
+            "ts_init": 1_700_000_000_000,
+        },  # ms
+        {
+            "model_id": "m2",
+            "instrument_id": "EUR/USD",
+            "ts_event": 1_700_000_000_000,
+            "ts_init": 1_700_000_000_000 + 1,
+        },  # dup with different init
     ]
 
     out = sanitize_and_dedup(

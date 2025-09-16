@@ -81,7 +81,12 @@ def test_file_exists(file_path: str, description: str) -> tuple[bool, str]:
         return False, f"✗ {description}: File not found"
 
 
-def test_function_call(module_name: str, func_name: str, args: list[Any], description: str) -> tuple[bool, str]:
+def test_function_call(
+    module_name: str,
+    func_name: str,
+    args: list[Any],
+    description: str,
+) -> tuple[bool, str]:
     """
     Test if a function can be called.
     """

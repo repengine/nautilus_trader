@@ -43,7 +43,11 @@ def test_tft_builder_macro_and_micro(monkeypatch, tmp_path) -> None:
         def compute_for_symbol(self, symbol: str) -> pl.DataFrame:
             base2 = datetime(2025, 1, 1, 9, 30, tzinfo=UTC)
             base2_ns = int(base2.timestamp() * 1e9)
-            ts2_ns = DataBuilder.time_series(n_points=5, start_time=base2_ns, interval_ns=60_000_000_000)
+            ts2_ns = DataBuilder.time_series(
+                n_points=5,
+                start_time=base2_ns,
+                interval_ns=60_000_000_000,
+            )
             ts2 = [datetime.fromtimestamp(t / 1e9, tz=UTC) for t in ts2_ns]
             return pl.DataFrame(
                 {"timestamp": ts2, "midprice": [100.05, 100.1, 100.2, 100.3, 100.4]},

@@ -40,17 +40,20 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
+from typing import Any as _Any
+from typing import cast as _cast
 
-from typing import Any as _Any, cast as _cast
 from ml._imports import pl as pl_runtime
+
+
 PL = _cast(_Any, pl_runtime)
 if TYPE_CHECKING:
     import polars as _pl
-from ml.features.l2_aggregate import L2Aggregator
 from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
 from ml.data.cache_common import filter_df_by_ns_range
 from ml.data.cache_common import iter_days
+from ml.features.l2_aggregate import L2Aggregator
 
 
 def _utc_day_bounds(dt: datetime) -> tuple[datetime, datetime]:
@@ -66,8 +69,6 @@ def _utc_day_bounds(dt: datetime) -> tuple[datetime, datetime]:
     """
     day = datetime(dt.year, dt.month, dt.day, tzinfo=UTC)
     return day, day + timedelta(days=1)
-
-    
 
 
 @dataclass(slots=True)
@@ -142,7 +143,7 @@ class L2MinuteCache:
         start: datetime,
         end: datetime,
         raw_base_dir: Path,
-    ) -> "_pl.DataFrame":
+    ) -> _pl.DataFrame:
         """
         Get cached per-minute L2 features for ``symbol`` in [start, end).
 
@@ -160,18 +161,21 @@ class L2MinuteCache:
 
         """
         ensure_polars()
-        parts: list["_pl.DataFrame"] = []
+        parts: list[_pl.DataFrame] = []
         for day in iter_days(start, end):
             p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
             if p.exists():
                 from typing import cast as __cast
+
                 parts.append(__cast("_pl.DataFrame", PL.read_parquet(str(p))))
         if not parts:
             from typing import cast as __cast
+
             return __cast("_pl.DataFrame", PL.DataFrame({"timestamp": []}))
         df = PL.concat(parts, how="vertical")
         if df.is_empty():
             from typing import cast as __cast
+
             return __cast("_pl.DataFrame", df)
         # Filter to exact [start, end) and sort
         return filter_df_by_ns_range(df, start=start, end=end)

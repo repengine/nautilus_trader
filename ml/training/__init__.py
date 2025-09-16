@@ -203,6 +203,7 @@ Dependencies:
 Warning:
     Never import training modules in hot path code (actors, strategies).
     Training is cold path only - use lazy imports via __getattr__ when needed.
+
 """
 
 from typing import Any
@@ -236,85 +237,106 @@ def __getattr__(name: str) -> Any:  # pragma: no cover - import side-effect util
     Lazy loading of training components to avoid heavy dependencies at import time.
 
     This follows the Universal ML Architecture Pattern of progressive fallback -
-    components are only loaded when needed and fail gracefully if dependencies
-    are missing.
+    components are only loaded when needed and fail gracefully if dependencies are
+    missing.
+
     """
     # Base classes - always available
     if name == "BaseMLTrainer":
         from .base import BaseMLTrainer
+
         return BaseMLTrainer
 
     # Export utilities and contracts
     elif name == "ModelExportMixin":
         from .export import ModelExportMixin
+
         return ModelExportMixin
     elif name == "TrainingActorContract":
         from .export import TrainingActorContract
+
         return TrainingActorContract
     elif name == "convert_to_onnx":
         from .export import convert_to_onnx
+
         return convert_to_onnx
     elif name == "convert_to_torchscript":
         from .export import convert_to_torchscript
+
         return convert_to_torchscript
     elif name == "save_model_with_metadata":
         from .export import save_model_with_metadata
+
         return save_model_with_metadata
     elif name == "ModelType":
         from .export import ModelType
+
         return ModelType
     elif name == "detect_model_type":
         from .export import detect_model_type
+
         return detect_model_type
 
     # Specific trainers - loaded on demand
     elif name == "XGBoostTrainer":
         from .non_distilled.xgboost import XGBoostTrainer
+
         return XGBoostTrainer
     elif name == "LightGBMTrainer":
         from .non_distilled.lightgbm import LightGBMTrainer
+
         return LightGBMTrainer
 
     # Teacher models - loaded on demand
     elif name == "BaseTeacher":
         from .teacher.base import BaseTeacher
+
         return BaseTeacher
     elif name == "TFTTeacher":
         from .teacher.tft_teacher import TFTTeacher
+
         return TFTTeacher
     elif name == "TFTTeacherConfig":
         from .teacher.tft_teacher import TFTTeacherConfig
+
         return TFTTeacherConfig
 
     # Distillation framework - loaded on demand
     elif name == "LightGBMStudentDistiller":
         from .student.lightgbm import LightGBMStudentDistiller
+
         return LightGBMStudentDistiller
 
     # Optimization utilities - loaded on demand
     elif name == "XGBoostOptunaOptimizer":
         from .optuna_optimizer import XGBoostOptunaOptimizer
+
         return XGBoostOptunaOptimizer
 
     # Safe loading utilities - loaded on demand
     elif name == "safe_torch_load":
         from .safe_torch import safe_torch_load
+
         return safe_torch_load
 
     # TorchScript utilities - loaded on demand
     elif name == "export_tft_to_torchscript_from_batch":
         from .teacher.tft_torchscript import export_tft_to_torchscript_from_batch
+
         return export_tft_to_torchscript_from_batch
     elif name == "TFTScriptAdapter":
         from .teacher.tft_torchscript import TFTScriptAdapter
+
         return TFTScriptAdapter
 
     # Backward compatibility - legacy names
     elif name == "UnifiedXGBoostTrainer":
         from .non_distilled.xgboost import XGBoostTrainer
+
         return XGBoostTrainer
     elif name == "UnifiedLightGBMTrainer":
         from .non_distilled.lightgbm import LightGBMTrainer
+
         return LightGBMTrainer
 
     # Unknown attribute

@@ -11,6 +11,7 @@ Usage
 <Source.LIVE: 'live'>
 >>> to_source_str(Source.HISTORICAL)
 'historical'
+
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ def to_source_enum(x: Source | str) -> Source:
     Convert a persisted source string or Source enum to Source.
 
     Raises ValueError if the string is not one of the allowed values.
+
     """
     if isinstance(x, Source):
         return x
@@ -45,13 +47,13 @@ def to_source_str(x: Source | str) -> SourceStr:
     Convert a Source enum or persisted string to the canonical persisted string.
 
     Ensures the returned value matches DB constraints and JSON persistence.
+
     """
     v = x.value if isinstance(x, Source) else str(x).lower()
     if v not in _ALLOWED:
         # Match Source.__members__ for consistent error message behavior
         raise ValueError(f"Invalid source '{v}', must be one of {_ALLOWED}")
     return cast(SourceStr, v)
-
 
 
 def build_bus_payload(
@@ -103,6 +105,7 @@ def build_bus_payload(
     -------
     dict[str, object]
         Bus payload with optional trace context
+
     """
     stage_val = stage.value if isinstance(stage, Stage) else str(stage)
     source_val = to_source_str(source)
@@ -116,14 +119,18 @@ def build_bus_payload(
         try:
             # Lazy import to avoid circular dependencies
             from ml.observability.tracing import inject_trace_context as _inject
+
             final_metadata = _inject(final_metadata)
         except ImportError:
             # Graceful fallback when tracing not available
             ...
         except Exception as exc:
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
-                "Trace inject failed in build_bus_payload: %s", exc, exc_info=True
+                "Trace inject failed in build_bus_payload: %s",
+                exc,
+                exc_info=True,
             )
 
     payload: dict[str, object] = {

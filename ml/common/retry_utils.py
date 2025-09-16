@@ -91,6 +91,7 @@ def retry_with_backoff(
                 except Exception as log_exc:
                     # Observability must not affect control flow
                     import logging as _logging
+
                     _logging.getLogger(__name__).debug(
                         "on_exception callback raised: %s",
                         log_exc,

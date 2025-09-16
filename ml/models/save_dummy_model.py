@@ -4,6 +4,7 @@ Create and save secure dummy models for testing.
 
 Security Note: This script creates ONNX models instead of pickle files
 to maintain production security standards and prevent arbitrary code execution.
+
 """
 
 from collections.abc import Sequence
@@ -28,6 +29,7 @@ from sklearn.preprocessing import StandardScaler
 try:
     from skl2onnx import convert_sklearn
     from skl2onnx.common.data_types import FloatTensorType
+
     HAS_ONNX_EXPORT = True
 except ImportError:
     HAS_ONNX_EXPORT = False
@@ -37,8 +39,9 @@ class DummyModel:
     """
     Legacy dummy model for reference (not saved).
 
-    This class shows the interface that the old pickle models had,
-    but is not used for actual model saving anymore.
+    This class shows the interface that the old pickle models had, but is not used for
+    actual model saving anymore.
+
     """
 
     def __init__(self, n_features: int = 10) -> None:
@@ -82,7 +85,7 @@ class DummyModel:
 
 def create_secure_sklearn_model(
     random_state: int = 42,
-    class_weight: dict[int, float] | None = None
+    class_weight: dict[int, float] | None = None,
 ) -> Pipeline:
     """
     Create a secure sklearn model for ONNX export.
@@ -98,17 +101,23 @@ def create_secure_sklearn_model(
     -------
     Pipeline
         Trained sklearn pipeline.
+
     """
     # Create a simple pipeline
-    model = Pipeline([
-        ("scaler", StandardScaler()),
-        ("classifier", RandomForestClassifier(
-            n_estimators=10,
-            max_depth=3,
-            random_state=random_state,
-            class_weight=class_weight
-        ))
-    ])
+    model = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "classifier",
+                RandomForestClassifier(
+                    n_estimators=10,
+                    max_depth=3,
+                    random_state=random_state,
+                    class_weight=class_weight,
+                ),
+            ),
+        ],
+    )
 
     # Generate dummy training data
     rng = default_rng(random_state)
@@ -138,11 +147,11 @@ def export_to_onnx(model: Pipeline, output_path: Path) -> None:
         Trained sklearn pipeline.
     output_path : Path
         Output path for ONNX model.
+
     """
     if not HAS_ONNX_EXPORT:
         raise ImportError(
-            "ONNX export dependencies not available. "
-            "Install with: pip install onnx skl2onnx"
+            "ONNX export dependencies not available. " "Install with: pip install onnx skl2onnx",
         )
 
     # Define input schema for 10 features
@@ -169,7 +178,7 @@ def main() -> None:
     print("Creating bullish model...")
     bullish_model = create_secure_sklearn_model(
         random_state=42,
-        class_weight={0: 0.8, 1: 1.2}  # Bias toward positive class
+        class_weight={0: 0.8, 1: 1.2},  # Bias toward positive class
     )
     export_to_onnx(bullish_model, Path("dummy_bullish_model.onnx"))
     print("Saved dummy_bullish_model.onnx")
@@ -178,7 +187,7 @@ def main() -> None:
     print("Creating bearish model...")
     bearish_model = create_secure_sklearn_model(
         random_state=43,
-        class_weight={0: 1.2, 1: 0.8}  # Bias toward negative class
+        class_weight={0: 1.2, 1: 0.8},  # Bias toward negative class
     )
     export_to_onnx(bearish_model, Path("dummy_bearish_model.onnx"))
     print("Saved dummy_bearish_model.onnx")
@@ -187,7 +196,7 @@ def main() -> None:
     print("Creating neutral model...")
     neutral_model = create_secure_sklearn_model(
         random_state=44,
-        class_weight=None  # Balanced
+        class_weight=None,  # Balanced
     )
     export_to_onnx(neutral_model, Path("dummy_neutral_model.onnx"))
     print("Saved dummy_neutral_model.onnx")

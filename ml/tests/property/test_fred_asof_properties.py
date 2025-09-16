@@ -38,7 +38,10 @@ def test_fred_lag_increases_nulls(n_releases: int, n_rows: int, step: int) -> No
     )
     left_ts = _timeseries(base_ns, n_rows, step)
     left = pl.DataFrame(
-        {"timestamp": _cast(_Any, pl).Series(left_ts).cast(pl.Datetime("ns")), "x": list(range(n_rows))},
+        {
+            "timestamp": _cast(_Any, pl).Series(left_ts).cast(pl.Datetime("ns")),
+            "x": list(range(n_rows)),
+        },
     )
 
     out0 = join_fred_asof(left, timestamp_col="timestamp", lag_days=0)
@@ -46,8 +49,12 @@ def test_fred_lag_increases_nulls(n_releases: int, n_rows: int, step: int) -> No
     s0: _Any = out0.get_column("S") if "S" in out0.columns else [None] * n_rows
     s1: _Any = out1.get_column("S") if "S" in out1.columns else [None] * n_rows
     # Nulls should not decrease with added lag
-    nulls0 = int(s0.null_count()) if hasattr(s0, "null_count") else int(sum(1 for x in s0 if x is None))
-    nulls1 = int(s1.null_count()) if hasattr(s1, "null_count") else int(sum(1 for x in s1 if x is None))
+    nulls0 = (
+        int(s0.null_count()) if hasattr(s0, "null_count") else int(sum(1 for x in s0 if x is None))
+    )
+    nulls1 = (
+        int(s1.null_count()) if hasattr(s1, "null_count") else int(sum(1 for x in s1 if x is None))
+    )
     assert nulls1 >= nulls0
     # Where both present, values should match
     for i in range(n_rows):

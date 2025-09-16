@@ -39,4 +39,3 @@ def test_domain_import_smoke(domain: str) -> None:
             pytest.skip(f"optional dependency missing for ml.{domain}: {exc}")
         # Unexpected errors should fail the test
         raise
-

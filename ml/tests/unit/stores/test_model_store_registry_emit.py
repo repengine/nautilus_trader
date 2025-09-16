@@ -109,4 +109,3 @@ def test_model_store_emits_registry_events_on_flush(monkeypatch: pytest.MonkeyPa
     assert evt["instrument_id"] == "SPY"
     assert evt["count"] == 2
     assert len(fake.watermarks) == 1
-

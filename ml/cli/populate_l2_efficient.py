@@ -646,7 +646,12 @@ def main() -> int:
                 try:
                     final_file.unlink()
                 except OSError as exc:
-                    logger.debug("Failed to unlink existing final file %s: %s", final_file, exc, exc_info=True)
+                    logger.debug(
+                        "Failed to unlink existing final file %s: %s",
+                        final_file,
+                        exc,
+                        exc_info=True,
+                    )
         elif args.check_gaps:
             # Prefer progress-based gap detection to avoid loading large files
             done_dates = set(progress.get(symbol, []))

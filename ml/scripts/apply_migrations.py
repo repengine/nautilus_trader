@@ -3,6 +3,7 @@ Compatibility shim for `python -m ml.scripts.apply_migrations`.
 
 Delegates to `ml.cli.apply_migrations` to preserve documented and Makefile
 entry points.
+
 """
 
 from __future__ import annotations
@@ -16,4 +17,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover - thin shim
     raise SystemExit(main())
-

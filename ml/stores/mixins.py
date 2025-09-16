@@ -333,10 +333,9 @@ class HealthMixin:
 # =============================================================================
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from nautilus_trader.common.clock import Clock
-
     from ml.common.message_bus import MessagePublisherProtocol
     from ml.registry.persistence import PersistenceConfig
+    from nautilus_trader.common.clock import Clock
 
 
 class StoreInitMixin:

@@ -95,6 +95,7 @@ Notes
 - W3C trace context format for interoperability
 - Sampling configured to minimize performance impact
 - All spans include correlation_id as standard attribute
+
 """
 
 from __future__ import annotations
@@ -113,10 +114,15 @@ from ml._imports import check_ml_dependencies
 # Type variables for decorator preservation
 F = TypeVar("F", bound=Callable[..., Any])
 
+
 # Global tracing state
 def _enabled() -> bool:
-    """Return whether tracing is enabled from environment at call time."""
+    """
+    Return whether tracing is enabled from environment at call time.
+    """
     return os.getenv("ML_TRACING_ENABLED", "false").lower() == "true"
+
+
 _SERVICE_NAME = os.getenv("ML_TRACING_SERVICE_NAME", "nautilus-ml")
 _OTLP_ENDPOINT = os.getenv("ML_TRACING_ENDPOINT")
 _SAMPLE_RATE = float(os.getenv("ML_TRACING_SAMPLE_RATE", "0.1"))
@@ -135,6 +141,7 @@ def _ensure_tracing_backend() -> bool:
     -------
     bool
         True if tracing backend is ready, False otherwise
+
     """
     global _tracer, _context, _propagate
 
@@ -160,10 +167,12 @@ def _ensure_tracing_backend() -> bool:
         from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
 
         # Configure resource
-        resource = Resource.create({
-            "service.name": _SERVICE_NAME,
-            "service.version": "1.0.0",
-        })
+        resource = Resource.create(
+            {
+                "service.name": _SERVICE_NAME,
+                "service.version": "1.0.0",
+            },
+        )
 
         # Configure tracer with sampling
         sampler = TraceIdRatioBased(_SAMPLE_RATE)
@@ -198,6 +207,7 @@ def is_tracing_enabled() -> bool:
     -------
     bool
         True if tracing is enabled and backend available
+
     """
     return _enabled() and _ensure_tracing_backend()
 
@@ -235,6 +245,7 @@ def trace_cold_path(
     ...     if span:
     ...         span.set_attribute("instrument_id", "EUR/USD")
     ...     features = compute_features(data)
+
     """
     if not is_tracing_enabled():
         # No-op when disabled
@@ -288,7 +299,9 @@ def trace_cold_path_decorator(
     >>> @trace_cold_path_decorator("feature_computation", correlation_id_param="corr_id")
     ... def compute_features(data: pd.DataFrame, corr_id: str) -> pd.DataFrame:
     ...     return features
+
     """
+
     def decorator(func: F) -> F:
         if not _enabled():
             # Return function unchanged when tracing disabled
@@ -314,6 +327,7 @@ def trace_cold_path_decorator(
                 return func(*args, **kwargs)
 
         return wrapper  # type: ignore[return-value]
+
     return decorator
 
 
@@ -340,7 +354,9 @@ def trace_inference(operation_name: str) -> Callable[[F], F]:
     ...     @trace_inference("signal_generation")
     ...     def on_bar(self, bar: Bar) -> None:
     ...         prediction = self.model.predict(features)
+
     """
+
     def decorator(func: F) -> F:
         if not _enabled():
             return func
@@ -364,6 +380,7 @@ def trace_inference(operation_name: str) -> Callable[[F], F]:
                 return func(*args, **kwargs)
 
         return wrapper  # type: ignore[return-value]
+
     return decorator
 
 
@@ -387,6 +404,7 @@ def get_trace_context() -> dict[str, str]:
     ...     "trace_context": trace_context,
     ... }
     >>> emit_dataset_event(..., metadata=metadata)
+
     """
     # Allow test scenarios to inject _propagate directly without requiring env flags
     if _propagate is None and not is_tracing_enabled():
@@ -425,6 +443,7 @@ def inject_trace_context(metadata: dict[str, Any]) -> dict[str, Any]:
     >>> metadata = {"correlation_id": "abc123"}
     >>> metadata = inject_trace_context(metadata)
     >>> # metadata now contains both correlation_id and trace_context
+
     """
     # Allow patched _propagate to enable injection in tests regardless of env flags
     if _propagate is None and not is_tracing_enabled():
@@ -457,6 +476,7 @@ def extract_and_link_trace_context(metadata: dict[str, Any]) -> None:
     >>> with trace_cold_path("process_event") as span:
     ...     # This span will be linked to the original trace
     ...     process_event(event)
+
     """
     if not is_tracing_enabled():
         return
@@ -473,20 +493,24 @@ def extract_and_link_trace_context(metadata: dict[str, Any]) -> None:
     except Exception as exc:
         # Graceful fallback on extraction error — record debug
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "Trace context extract/link failed: %s", exc, exc_info=True
+            "Trace context extract/link failed: %s",
+            exc,
+            exc_info=True,
         )
 
 
 # Import guards for optional dependency
 if not HAS_OPENTELEMETRY and _enabled():
     import warnings
+
     warnings.warn(
         "OpenTelemetry tracing enabled but dependencies not available. "
         "Install with: pip install opentelemetry-api opentelemetry-sdk "
         "opentelemetry-exporter-otlp-proto-grpc",
         ImportWarning,
-        stacklevel=2
+        stacklevel=2,
     )
 
 

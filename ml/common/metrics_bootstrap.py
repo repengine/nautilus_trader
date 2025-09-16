@@ -17,6 +17,7 @@ from typing import Any
 
 try:  # Centralized backend import via importlib (avoid direct import for validators)
     import importlib as _importlib
+
     _prom = _importlib.import_module("prometheus_client")
     _PC_Counter = getattr(_prom, "Counter")
     _PC_Gauge = getattr(_prom, "Gauge")
@@ -88,7 +89,12 @@ def get_histogram(
         if buckets is None:
             metric = _HistogramCls(name, description, list(labelnames or ()))
         else:
-            metric = _HistogramCls(name, description, list(labelnames or ()), buckets=tuple(buckets))
+            metric = _HistogramCls(
+                name,
+                description,
+                list(labelnames or ()),
+                buckets=tuple(buckets),
+            )
         _METRICS[k] = metric
     return metric
 

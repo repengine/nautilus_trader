@@ -1,9 +1,10 @@
 """
 Observability helpers (cold-path only).
 
-Provide small, typed utilities to record stage boundaries via an injected
-observability-like service. Designed to avoid import-time heavy deps and keep
-stores thin by delegating common logic here.
+Provide small, typed utilities to record stage boundaries via an injected observability-
+like service. Designed to avoid import-time heavy deps and keep stores thin by
+delegating common logic here.
+
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ def is_observability_enabled() -> bool:
 
     Controlled by the environment variable `ML_OBSERVABILITY_ENABLED` in
     {"1","true","yes"} (case-insensitive).
+
     """
     return os.getenv("ML_OBSERVABILITY_ENABLED", "").lower() in {"1", "true", "yes"}
 
@@ -73,6 +75,7 @@ def record_stage_boundary(
         Stage end timestamp (ns).
     row_count : int
         Optional row count for labels.
+
     """
     try:
         if obs_service is None or not is_observability_enabled():
@@ -102,8 +105,11 @@ def record_stage_boundary(
     except Exception as exc:
         # Non-blocking by design
         import logging as _logging
+
         _logging.getLogger(__name__).debug(
-            "record_stage_boundary failed (ignored): %s", exc, exc_info=True
+            "record_stage_boundary failed (ignored): %s",
+            exc,
+            exc_info=True,
         )
 
 

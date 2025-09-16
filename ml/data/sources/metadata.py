@@ -20,8 +20,9 @@ from ml._imports import pl as pl_runtime
 
 
 if TYPE_CHECKING:
-    from nautilus_trader.model.instruments import Instrument
     import polars as _pl
+
+    from nautilus_trader.model.instruments import Instrument
 
 # Local runtime alias to avoid Optional[Module] union typing at use sites
 PL: Any = cast(Any, pl_runtime)
@@ -36,7 +37,7 @@ class MetadataSource(ABC):
     """
 
     @abstractmethod
-    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
+    def fetch_metadata(self, instruments: list[str]) -> _pl.DataFrame:
         """
         Fetch metadata from source.
 
@@ -76,7 +77,7 @@ class DatabentoMetadataSource(MetadataSource):
         if not self.api_key:
             logger.warning("No Databento API key found, will return defaults")
 
-    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
+    def fetch_metadata(self, instruments: list[str]) -> _pl.DataFrame:
         """
         Fetch metadata from Databento.
 
@@ -134,6 +135,7 @@ class DatabentoMetadataSource(MetadataSource):
                     metadata_list.append(self._default_metadata(symbol))
 
             from typing import cast as _cast
+
             return _cast("_pl.DataFrame", PL.DataFrame(metadata_list))
 
         except ImportError:
@@ -144,7 +146,9 @@ class DatabentoMetadataSource(MetadataSource):
             return MockMetadataSource().fetch_metadata(instruments)
 
     def _default_metadata(self, symbol: str) -> dict[str, Any]:
-        """Get default metadata for a symbol (canonical)."""
+        """
+        Get default metadata for a symbol (canonical).
+        """
         return default_metadata(symbol)
 
 
@@ -168,7 +172,7 @@ class NautilusMetadataSource(MetadataSource):
         """
         self.instruments = instruments or {}
 
-    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
+    def fetch_metadata(self, instruments: list[str]) -> _pl.DataFrame:
         """
         Fetch metadata from Nautilus instruments.
 
@@ -198,6 +202,7 @@ class NautilusMetadataSource(MetadataSource):
         if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
         from typing import cast as _cast
+
         return _cast("_pl.DataFrame", PL.DataFrame(metadata_list))
 
     def _extract_metadata(self, instrument: Instrument) -> dict[str, Any]:
@@ -261,7 +266,7 @@ class CSVMetadataSource(MetadataSource):
             self._data = PL.read_csv(self.file_path)
             logger.info(f"Loaded metadata for {len(self._data)} instruments from CSV")
 
-    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
+    def fetch_metadata(self, instruments: list[str]) -> _pl.DataFrame:
         """
         Fetch metadata from CSV.
 
@@ -319,6 +324,7 @@ class CSVMetadataSource(MetadataSource):
             filtered = PL.concat([filtered, missing_df])
 
         from typing import cast as _cast
+
         return _cast("_pl.DataFrame", filtered)
 
 
@@ -342,7 +348,7 @@ class MockMetadataSource(MetadataSource):
         """
         self.seed = seed
 
-    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
+    def fetch_metadata(self, instruments: list[str]) -> _pl.DataFrame:
         """
         Generate mock metadata.
 
@@ -408,6 +414,7 @@ class MockMetadataSource(MetadataSource):
         if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
         from typing import cast as _cast
+
         return _cast("_pl.DataFrame", PL.DataFrame(metadata_list))
 
 
@@ -415,10 +422,13 @@ class MockMetadataSource(MetadataSource):
 # Canonical default metadata (single source of truth)
 # ----------------------------------------------------------------------------
 
+
 def default_metadata(symbol: str) -> dict[str, Any]:
-    """Canonical default metadata values for instruments.
+    """
+    Canonical default metadata values for instruments.
 
     This helper prevents drift between different metadata sources/providers.
+
     """
     return {
         "instrument_id": symbol,

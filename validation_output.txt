@@ -1,14 +1,14 @@
 [34m>(B[m  Running ML validation suite...
 uv run --active --no-sync semgrep --config tools/semgrep/ml-rules.yml --error || true
-               
-               
+
+
 ┌─────────────┐
 │ Scan Status │
 └─────────────┘
   Scanning 3801 files tracked by git with 10 Code rules:
   Scanning 240 files with 10 python rules.
-                
-                
+
+
 ┌──────────────┐
 │ Scan Summary │
 └──────────────┘
@@ -18,16 +18,16 @@ Some files were skipped or only partially analyzed.
   For a full list of skipped files, run semgrep with the --verbose flag.
 
 Ran 10 rules on 240 files: 3 findings.
-                   
-                   
+
+
 ┌─────────────────┐
 │ 3 Code Findings │
 └─────────────────┘
-                     
+
     ml/actors/base.py
     ❯❱ tools.semgrep.ml-prefer-strict-store-protocol
           Prefer Strict store protocols for new public APIs (Feature/Model/StrategyStoreStrictProtocol)
-                                                                                                       
+
           813┆ def feature_store(self) -> FeatureStoreProtocol:
             ⋮┆----------------------------------------
           820┆ def model_store(self) -> ModelStoreProtocol:
@@ -615,7 +615,7 @@ Test results:
 1293	            except Exception:
 1294	                # Warm-up is a best-effort optimization; never fail startup
 1295	                pass
-1296	
+1296
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -648,7 +648,7 @@ Test results:
 214	        except Exception:
 215	            # Never impact initialization on optional convenience
 216	            pass
-217	
+217
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -659,7 +659,7 @@ Test results:
 1324	                self.log.debug(f"Decision policy adapter load failed: {exc}")
 1325	            except Exception:
 1326	                pass
-1327	
+1327
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -670,7 +670,7 @@ Test results:
 1455	                self.log.debug(f"Decision policy application failed: {exc}")
 1456	            except Exception:
 1457	                pass
-1458	
+1458
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -682,7 +682,7 @@ Test results:
 1765	                except Exception:
 1766	                    # Never impact hot path
 1767	                    pass
-1768	
+1768
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -705,7 +705,7 @@ Test results:
 83	    except Exception:
 84	        # Metrics are best-effort; ignore in hot paths
 85	        pass
-86	
+86
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -717,7 +717,7 @@ Test results:
 142	    except Exception:
 143	        # Metrics are best-effort; ignore in hot paths
 144	        pass
-145	
+145
 
 --------------------------------------------------
 >> Issue: [B105:hardcoded_password_string] Possible hardcoded password: '#'
@@ -749,7 +749,7 @@ Test results:
 125	                except Exception:
 126	                    # Forwarding is best-effort; aggregator state already updated
 127	                    pass
-128	
+128
 
 --------------------------------------------------
 >> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
@@ -781,7 +781,7 @@ Test results:
 355	            except Exception:
 356	                # Fallback silently to next candidate
 357	                continue
-358	
+358
 
 --------------------------------------------------
 >> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
@@ -816,7 +816,7 @@ Test results:
 379	                capture_output=True,
 380	                text=True,
 381	            )
-382	
+382
 
 --------------------------------------------------
 >> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
@@ -852,7 +852,7 @@ Test results:
 400	                    ],
 401	                    check=True,
 402	                )
-403	
+403
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -906,7 +906,7 @@ Test results:
 505	                del self._metadata_cache[cache_key]
 506	            except Exception:
 507	                pass
-508	
+508
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -918,7 +918,7 @@ Test results:
 544	        except Exception:
 545	            # Best-effort eviction; do not fail reads due to eviction logic
 546	            pass
-547	
+547
 
 --------------------------------------------------
 >> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
@@ -979,7 +979,7 @@ Test results:
    Location: ml/data/sources/metadata.py:390:23
 389	            is_etf = symbol.endswith("ETF") or symbol in ["SPY", "QQQ", "IWM", "VTI"]
 390	            is_penny = random.random() < 0.1  # 10% penny stocks
-391	
+391
 
 --------------------------------------------------
 >> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
@@ -989,7 +989,7 @@ Test results:
    Location: ml/data/sources/metadata.py:404:23
 403	            exchanges = ["XNAS", "XNYS", "ARCX", "BATS"]
 404	            exchange = random.choice(exchanges)
-405	
+405
 
 --------------------------------------------------
 >> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
@@ -999,7 +999,7 @@ Test results:
    Location: ml/data/sources/metadata.py:410:30
 409	            else:
 410	                asset_class = random.choice(["EQUITY", "ADR"])
-411	
+411
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -1021,7 +1021,7 @@ Test results:
 402	                        )
 403	                except Exception:
 404	                    pass
-405	
+405
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -1192,7 +1192,7 @@ Test results:
    CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b607_start_process_with_partial_path.html
    Location: ml/deployment/check_health.py:101:13
-100	
+100
 101	    result = subprocess.run(
 102	        ["docker-compose", "ps", "--format", "json"],
 103	        capture_output=True,
@@ -1206,7 +1206,7 @@ Test results:
    CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b603_subprocess_without_shell_equals_true.html
    Location: ml/deployment/check_health.py:101:13
-100	
+100
 101	    result = subprocess.run(
 102	        ["docker-compose", "ps", "--format", "json"],
 103	        capture_output=True,
@@ -1220,7 +1220,7 @@ Test results:
    CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b404-import-subprocess
    Location: ml/deployment/ci_migration_smoke.py:3:0
-2	
+2
 3	import subprocess
 4	import time
 
@@ -1232,7 +1232,7 @@ Test results:
    Location: ml/deployment/ci_migration_smoke.py:13:4
 12	    cmd = ["docker", "compose", "-f", str(COMPOSE_FILE), *args]
 13	    subprocess.run(cmd, check=True)
-14	
+14
 
 --------------------------------------------------
 >> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
@@ -1292,7 +1292,7 @@ Test results:
    Location: ml/deployment/ci_migration_smoke.py:67:4
 66	    ]
 67	    subprocess.run(cmd, check=True)
-68	
+68
 
 --------------------------------------------------
 >> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
@@ -1362,7 +1362,7 @@ Test results:
    Location: ml/deployment/migrations.py:90:8
 89	        ]
 90	        subprocess.run(cmd, input=sql, text=True, check=True)
-91	
+91
 
 --------------------------------------------------
 >> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
@@ -1370,7 +1370,7 @@ Test results:
    CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b403-import-pickle
    Location: ml/examples/create_dummy_model.py:9:0
-8	
+8
 9	import pickle
 10	from collections.abc import Sequence
 
@@ -1400,7 +1400,7 @@ Test results:
    CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b403-import-pickle
    Location: ml/examples/simple_ml_actor.py:11:0
-10	
+10
 11	import pickle
 12	from pathlib import Path
 
@@ -1470,7 +1470,7 @@ Test results:
    CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
    Location: ml/examples/test_registry_backends.py:101:8
-100	
+100
 101	        assert hasattr(FeatureTable, "feature_set_id")
 102	        assert hasattr(FeatureTable, "extra_metadata")  # Changed from metadata
 
@@ -1490,7 +1490,7 @@ Test results:
    CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
    Location: ml/examples/test_registry_backends.py:105:8
-104	
+104
 105	        assert hasattr(StrategyTable, "strategy_id")
 106	        assert hasattr(StrategyTable, "extra_metadata")  # Changed from metadata
 
@@ -1510,7 +1510,7 @@ Test results:
    CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
    Location: ml/examples/test_registry_backends.py:109:8
-108	
+108
 109	        assert hasattr(AuditLogTable, "entity_type")
 110	        print("✓ AuditLogTable defined with correct attributes")
 
@@ -1546,7 +1546,7 @@ Test results:
 798	            except Exception:
 799	                # Skip non-numeric or problematic columns gracefully
 800	                continue
-801	
+801
 
 --------------------------------------------------
 >> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
@@ -1554,7 +1554,7 @@ Test results:
    CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
    Location: ml/features/engineering.py:1068:8
-1067	
+1067
 1068	        assert self.scaler is not None
 1069	        return features_scaled, self.scaler
 
@@ -1584,7 +1584,7 @@ Test results:
    CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b101_assert_used.html
    Location: ml/features/engineering.py:1601:8
-1600	
+1600
 1601	        assert current_bar is not None  # for type checker
 1602	        assert indicator_manager is not None  # for type checker
 
@@ -1596,7 +1596,7 @@ Test results:
    Location: ml/features/engineering.py:1602:8
 1601	        assert current_bar is not None  # for type checker
 1602	        assert indicator_manager is not None  # for type checker
-1603	
+1603
 
 --------------------------------------------------
 >> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
@@ -1606,7 +1606,7 @@ Test results:
    Location: ml/features/engineering.py:2595:8
 2594	            local_pd = _pd
 2595	        assert local_pd is not None
-2596	
+2596
 
 --------------------------------------------------
 >> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
@@ -1616,7 +1616,7 @@ Test results:
    Location: ml/features/materialize_cli.py:42:4
 41	        check_ml_dependencies(["pandas"])  # pragma: no cover
 42	    assert pd is not None
-43	
+43
 
 --------------------------------------------------
 >> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
@@ -1624,7 +1624,7 @@ Test results:
    CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/blacklists/blacklist_imports.html#b403-import-pickle
    Location: ml/models/save_dummy_model.py:6:0
-5	
+5
 6	import pickle
 7	from collections.abc import Sequence
 
@@ -1636,7 +1636,7 @@ Test results:
    Location: ml/monitoring/grafana_client.py:638:16
 637	    grafana_url = "http://localhost:3000"
 638	    api_token = "your-api-token-here"
-639	
+639
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -1660,7 +1660,7 @@ Test results:
 410	            except Exception:
 411	                # Swallow and continue to keep background robust
 412	                pass
-413	
+413
 
 --------------------------------------------------
 >> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
@@ -1715,7 +1715,7 @@ Test results:
    Location: ml/pipelines/build_runner.py:214:8
 213	    if cfg.use_subprocess:
 214	        import subprocess
-215	
+215
 
 --------------------------------------------------
 >> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
@@ -1737,7 +1737,7 @@ Test results:
 95	        except Exception:
 96	            # Ignore malformed sidecar; fall through to register logic / validation
 97	            pass
-98	
+98
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -1749,7 +1749,7 @@ Test results:
 132	        except Exception:
 133	            # Leave as None; validation below will fail with a clear message
 134	            pass
-135	
+135
 
 --------------------------------------------------
 >> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
@@ -1771,7 +1771,7 @@ Test results:
    CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
    More Info: https://bandit.readthedocs.io/en/1.8.6/plugins/b105_hardcoded_password_string.html
    Location: ml/registry/dataclasses.py:124:11
-123	
+123
 124	    PASS = "pass"
 125	    WARN = "warn"
 
@@ -1926,7 +1926,7 @@ Test results:
    Location: ml/scripts/fred_integration_bridge.py:250:4
 249	    # Make executable
 250	    os.chmod(script_path, 0o755)
-251	
+251
 
 --------------------------------------------------
 >> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
@@ -1969,7 +1969,7 @@ Test results:
 77	    except Exception:
 78	        # Best effort; don't crash on progress save
 79	        pass
-80	
+80
 
 --------------------------------------------------
 >> Issue: [B110:try_except_pass] Try, Except, Pass detected.
@@ -1991,7 +1991,7 @@ Test results:
 690	        signal.signal(signal.SIGINT, _handle_sig)
 691	    except Exception:
 692	        pass
-693	
+693
 
 --------------------------------------------------
 >> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
@@ -2042,7 +2042,7 @@ Test results:
    Location: ml/scripts/validate_training_claims.py:49:4
 48	    """
 49	    import subprocess
-50	
+50
 
 --------------------------------------------------
 >> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
@@ -2096,7 +2096,7 @@ Test results:
 77	    except Exception:
 78	        # Proceed; partition checks will surface issues
 79	        pass
-80	
+80
 
 --------------------------------------------------
 >> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
@@ -2250,7 +2250,7 @@ Test results:
 903	                    )
 904	                except Exception:
 905	                    pass
-906	
+906
 
 --------------------------------------------------
 >> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
@@ -2363,7 +2363,7 @@ Test results:
 750	                    )
 751	                except Exception:
 752	                    pass
-753	
+753
 
 --------------------------------------------------
 >> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.

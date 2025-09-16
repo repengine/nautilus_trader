@@ -3,6 +3,7 @@ DB-backed read/stat tests for StrategyStore.
 
 These tests write a handful of rows via the public write APIs, flush, and then
 exercise read_signals/get_latest/get_statistics/get_signal_distribution.
+
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ pytestmark = [
 
 def test_strategy_store_reads_and_stats(test_database) -> None:
     """
-    StrategyStore read_signals/get_latest/get_statistics/distribution behave as expected.
+    StrategyStore read_signals/get_latest/get_statistics/distribution behave as
+    expected.
     """
     store = StrategyStore(connection_string=test_database.connection_string)
 
@@ -91,4 +93,3 @@ def test_strategy_store_reads_and_stats(test_database) -> None:
 
     dist_strat = store.get_signal_distribution(strategy_id=strategy_id)
     assert dist_strat == dist_all
-

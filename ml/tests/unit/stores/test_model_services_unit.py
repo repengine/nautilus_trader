@@ -25,14 +25,25 @@ class _FakeReadDeps:
         self.qualified_bases.append(base)
         return base
 
-    def _execute_read(self, sql: Any, params: dict[str, Any], *, columns: list[str]) -> Any:  # noqa: D401
+    def _execute_read(
+        self,
+        sql: Any,
+        params: dict[str, Any],
+        *,
+        columns: list[str],
+    ) -> Any:  # noqa: D401
         self.last_execute = {"sql": str(sql), "params": params, "columns": columns}
+
         class _DF:
             pass
 
         return _DF()
 
-    def _fetch_one(self, sql: Any, params: dict[str, Any]) -> tuple[Any, ...] | None:  # pragma: no cover
+    def _fetch_one(
+        self,
+        sql: Any,
+        params: dict[str, Any],
+    ) -> tuple[Any, ...] | None:  # pragma: no cover
         return None
 
 

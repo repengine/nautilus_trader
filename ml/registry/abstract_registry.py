@@ -14,6 +14,7 @@ registries to reduce duplication without changing their public APIs:
 
 DataRegistry remains separate due to distinct event/watermark/time-series
 semantics.
+
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ class AbstractRegistry(MLComponentMixin, ABC):
     Subclasses must maintain their own domain collections (e.g. ``self._features``,
     ``self._models``) and implement ``_health_snapshot`` to report entry counts and
     last-modified timestamps for health reporting.
+
     """
 
     def __init__(self, persistence: PersistenceManager) -> None:
@@ -48,13 +50,17 @@ class AbstractRegistry(MLComponentMixin, ABC):
 
     # --------------------------- JSON helper utilities ---------------------------
     def _json_load(self, filename: str) -> dict[str, Any] | None:
-        """Load JSON via PersistenceManager (JSON backend only)."""
+        """
+        Load JSON via PersistenceManager (JSON backend only).
+        """
         if self.backend != BackendType.JSON:
             return None
         return self.persistence.load_json(filename)
 
     def _json_save(self, filename: str, data: dict[str, Any]) -> None:
-        """Save JSON via PersistenceManager (JSON backend only)."""
+        """
+        Save JSON via PersistenceManager (JSON backend only).
+        """
         if self.backend != BackendType.JSON:
             return
         self.persistence.save_json(data, filename)
@@ -69,7 +75,9 @@ class AbstractRegistry(MLComponentMixin, ABC):
         changes: dict[str, Any] | None = None,
         user_id: str | None = None,
     ) -> None:
-        """Passthrough to ``PersistenceManager.log_audit`` for consistency."""
+        """
+        Passthrough to ``PersistenceManager.log_audit`` for consistency.
+        """
         self.persistence.log_audit(
             entity_type=entity_type,
             entity_id=entity_id,
@@ -87,6 +95,7 @@ class AbstractRegistry(MLComponentMixin, ABC):
         Subclasses should compute:
         - count: number of entries (manifests/rows) tracked in memory
         - last_modified: the maximum ``last_modified`` timestamp across entries, or None
+
         """
 
     def get_health_status(self) -> dict[str, Any]:

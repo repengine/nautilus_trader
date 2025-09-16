@@ -35,14 +35,18 @@ class _QueuedEvent(NamedTuple):
 
 
 class TopicThrottleConfig(NamedTuple):
-    """Configuration for per-topic rate limiting."""
+    """
+    Configuration for per-topic rate limiting.
+    """
 
     rate_per_sec: float
     burst: int
 
 
 class ThrottleStats(NamedTuple):
-    """Statistics for throttling behavior."""
+    """
+    Statistics for throttling behavior.
+    """
 
     total_events: int
     throttled_events: int
@@ -114,7 +118,7 @@ class DomainEventBridge:
             total_events=0,
             throttled_events=0,
             queue_full_drops=0,
-            last_queue_depth=0
+            last_queue_depth=0,
         )
 
     def start(self) -> None:
@@ -183,7 +187,7 @@ class DomainEventBridge:
                 config = self._topic_throttle_configs[topic]
                 self._per_topic_throttles[topic] = Throttler(
                     rate_per_sec=config.rate_per_sec,
-                    burst=config.burst
+                    burst=config.burst,
                 )
             return self._per_topic_throttles[topic]
 
@@ -193,7 +197,7 @@ class DomainEventBridge:
                 if pattern not in self._per_topic_throttles:
                     self._per_topic_throttles[pattern] = Throttler(
                         rate_per_sec=config.rate_per_sec,
-                        burst=config.burst
+                        burst=config.burst,
                     )
                 return self._per_topic_throttles[pattern]
 
@@ -220,11 +224,15 @@ class DomainEventBridge:
         except Exception as exc:
             # Never allow metrics errors to affect behavior — record debug only
             logging.getLogger(__name__).debug(
-                "Drop metric emit failed: %s", exc, exc_info=True
+                "Drop metric emit failed: %s",
+                exc,
+                exc_info=True,
             )
 
     def _record_queue_depth_metric(self) -> None:
-        """Record current queue depth metric."""
+        """
+        Record current queue depth metric.
+        """
         try:
             current_depth = self._queue.qsize()
             mm = MetricsManager.default()
@@ -264,18 +272,22 @@ class DomainEventBridge:
                 labels={
                     "component": self._component_id,
                     "topic_prefix": topic_prefix,
-                    "action": action
+                    "action": action,
                 },
                 labelnames=("component", "topic_prefix", "action"),
             )
         except Exception as exc:
             # Never allow metrics errors to affect behavior — record debug only
             logging.getLogger(__name__).debug(
-                "Topic metric emit failed: %s", exc, exc_info=True
+                "Topic metric emit failed: %s",
+                exc,
+                exc_info=True,
             )
 
     def _record_throttle_efficiency_metrics(self) -> None:
-        """Record throttling efficiency metrics periodically."""
+        """
+        Record throttling efficiency metrics periodically.
+        """
         try:
             if self._stats.total_events == 0:
                 return
@@ -300,7 +312,9 @@ class DomainEventBridge:
             )
         except Exception as exc:
             logging.getLogger(__name__).debug(
-                "Throttle efficiency metric emit failed: %s", exc, exc_info=True
+                "Throttle efficiency metric emit failed: %s",
+                exc,
+                exc_info=True,
             )
 
     def publish(self, topic: str, payload: dict[str, Any]) -> bool:
@@ -321,7 +335,11 @@ class DomainEventBridge:
 
         try:
             # Extract timestamp for throttling
-            now_ns = payload.get("ts_max") or payload.get("created_at") or int(time.time() * 1_000_000_000)
+            now_ns = (
+                payload.get("ts_max")
+                or payload.get("created_at")
+                or int(time.time() * 1_000_000_000)
+            )
             try:
                 now_ns_int = int(now_ns)
             except Exception:
@@ -330,7 +348,9 @@ class DomainEventBridge:
             # Check global throttler first
             if self._throttler is not None:
                 if not self._throttler.should_publish(topic, now_ns_int):
-                    self._stats = self._stats._replace(throttled_events=self._stats.throttled_events + 1)
+                    self._stats = self._stats._replace(
+                        throttled_events=self._stats.throttled_events + 1,
+                    )
                     self._record_drop_metric("throttled")
                     self._record_topic_metric(topic, "throttled")
                     return False
@@ -339,7 +359,9 @@ class DomainEventBridge:
             topic_throttler = self._get_throttler_for_topic(topic, now_ns_int)
             if topic_throttler is not None:
                 if not topic_throttler.should_publish(topic, now_ns_int):
-                    self._stats = self._stats._replace(throttled_events=self._stats.throttled_events + 1)
+                    self._stats = self._stats._replace(
+                        throttled_events=self._stats.throttled_events + 1,
+                    )
                     self._record_drop_metric("topic_throttled")
                     self._record_topic_metric(topic, "topic_throttled")
                     return False
@@ -387,6 +409,7 @@ def _parse_per_topic_throttles() -> dict[str, TopicThrottleConfig]:
     -------
     dict[str, TopicThrottleConfig]
         Mapping of topic patterns to their throttling configurations.
+
     """
     import os
 
@@ -412,7 +435,7 @@ def _parse_per_topic_throttles() -> dict[str, TopicThrottleConfig]:
                 if rate > 0 and burst > 0:
                     topic_throttles[topic_pattern.strip()] = TopicThrottleConfig(
                         rate_per_sec=rate,
-                        burst=burst
+                        burst=burst,
                     )
             except ValueError:
                 continue
@@ -439,7 +462,9 @@ def _parse_per_topic_throttles() -> dict[str, TopicThrottleConfig]:
                 exc_info=True,
             )
         logging.getLogger(__name__).debug(
-            "Failed to parse ML_BUS_TOPIC_THROTTLES: %s", exc, exc_info=True
+            "Failed to parse ML_BUS_TOPIC_THROTTLES: %s",
+            exc,
+            exc_info=True,
         )
 
     return topic_throttles
@@ -486,7 +511,7 @@ def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, st
             publisher,
             max_queue=4096,
             throttler=throttler,
-            per_topic_throttles=per_topic_throttles
+            per_topic_throttles=per_topic_throttles,
         )
         bridge.start()
 
@@ -519,7 +544,9 @@ def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, st
         except Exception as exc:
             # Never impact initialization on optional convenience — log debug
             logging.getLogger(__name__).debug(
-                "Actor bus mutual exclusion setup failed: %s", exc, exc_info=True
+                "Actor bus mutual exclusion setup failed: %s",
+                exc,
+                exc_info=True,
             )
 
         return bridge, topic_scheme, topic_prefix
@@ -545,6 +572,8 @@ def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, st
                 exc_info=True,
             )
         logging.getLogger(__name__).debug(
-            "init_actor_bus_bridge failed: %s", exc, exc_info=True
+            "init_actor_bus_bridge failed: %s",
+            exc,
+            exc_info=True,
         )
         return None, topic_scheme, topic_prefix

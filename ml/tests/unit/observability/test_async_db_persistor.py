@@ -9,7 +9,10 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_async_db_persistor_writes_and_validates(tmp_path: Path, default_instrument_id: Any) -> None:
+async def test_async_db_persistor_writes_and_validates(
+    tmp_path: Path,
+    default_instrument_id: Any,
+) -> None:
     """
     Persist small frames via async DB persistor using sqlite+aiosqlite backend.
 
@@ -87,7 +90,7 @@ async def test_async_db_persistor_writes_and_validates(tmp_path: Path, default_i
             "metrics": met,
             "correlation": cor,
             "health": hea,
-        }
+        },
     )
 
     assert set(written.keys()) == {"latency", "metrics", "correlation", "health"}

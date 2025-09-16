@@ -146,6 +146,10 @@ def test_publish_respects_scheme_and_prefix() -> None:
         logger=None,
     )
     t, _ = pub.calls[-1]
-    expected_prefix = build_topic_for_stage(Stage.SIGNAL_EMITTED, "EUR/USD", scheme="domain_op", prefix="events.ml").rsplit(".", 1)[0]
+    expected_prefix = build_topic_for_stage(
+        Stage.SIGNAL_EMITTED,
+        "EUR/USD",
+        scheme="domain_op",
+        prefix="events.ml",
+    ).rsplit(".", 1)[0]
     assert t.startswith(expected_prefix)
-

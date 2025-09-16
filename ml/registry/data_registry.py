@@ -568,7 +568,11 @@ class DataRegistry(MLComponentMixin):
                 manifest_dict = self._manifest_to_dict(manifest)
                 manifest_dict.update(changes)
                 from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
-                manifest_dict["last_modified"] = _sanitize(int(time.time_ns()), context="registry.update_manifest:json.last_modified")
+
+                manifest_dict["last_modified"] = _sanitize(
+                    int(time.time_ns()),
+                    context="registry.update_manifest:json.last_modified",
+                )
 
                 # Convert back to manifest object
                 updated_manifest = self._dict_to_manifest(manifest_dict)
@@ -646,7 +650,11 @@ class DataRegistry(MLComponentMixin):
                         manifest_dict = self._manifest_to_dict(self._manifests[dataset_id])
                         manifest_dict.update(changes)
                         from ml.common.timestamps import sanitize_timestamp_ns as _sanitize2
-                        manifest_dict["last_modified"] = _sanitize2(int(time.time_ns()), context="registry.update_manifest:pg.cache.last_modified")
+
+                        manifest_dict["last_modified"] = _sanitize2(
+                            int(time.time_ns()),
+                            context="registry.update_manifest:pg.cache.last_modified",
+                        )
                         self._manifests[dataset_id] = self._dict_to_manifest(manifest_dict)
 
                 except Exception as e:
@@ -712,9 +720,18 @@ class DataRegistry(MLComponentMixin):
         """
         with self._lock:
             from ml.common.timestamps import sanitize_timestamp_ns as _sanitize3
+
             self.update_manifest(
                 dataset_id,
-                {"metadata": {"deprecated": True, "deprecated_at": _sanitize3(int(time.time_ns()), context="registry.deprecate:deprecated_at")}},
+                {
+                    "metadata": {
+                        "deprecated": True,
+                        "deprecated_at": _sanitize3(
+                            int(time.time_ns()),
+                            context="registry.deprecate:deprecated_at",
+                        ),
+                    },
+                },
             )
 
             # Emit ops event (deprecated) with correlation id
@@ -1244,12 +1261,27 @@ class DataRegistry(MLComponentMixin):
             )
 
     @overload
-    def get_watermark(self, dataset_id: str, instrument_id: str, source: Source) -> Watermark | None: ...
+    def get_watermark(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        source: Source,
+    ) -> Watermark | None: ...
 
     @overload
-    def get_watermark(self, dataset_id: str, instrument_id: str, source: str) -> Watermark | None: ...
+    def get_watermark(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        source: str,
+    ) -> Watermark | None: ...
 
-    def get_watermark(self, dataset_id: str, instrument_id: str, source: Source | str) -> Watermark | None:
+    def get_watermark(
+        self,
+        dataset_id: str,
+        instrument_id: str,
+        source: Source | str,
+    ) -> Watermark | None:
         """
         Get watermark for a dataset/instrument/source combination.
 

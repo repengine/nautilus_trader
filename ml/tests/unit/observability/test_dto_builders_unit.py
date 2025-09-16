@@ -95,4 +95,3 @@ def test_metrics_bootstrap_counters_no_server_start() -> None:
     h = get_histogram("ml_test_latency_seconds", "test histogram", ["label_c"])  # noqa: F841
     # We don't assert server state; bootstrap must not start an HTTP server here.
     # Presence without exception is sufficient for unit contract.
-

@@ -1,8 +1,9 @@
 """
 Lightweight, typed DataFrame helpers used across ML components.
 
-These functions provide small, central utilities that work with either pandas or
-polars objects without introducing heavy dependencies or import-time costs.
+These functions provide small, central utilities that work with either pandas or polars
+objects without introducing heavy dependencies or import-time costs.
+
 """
 
 from __future__ import annotations
@@ -12,9 +13,11 @@ from typing import Any
 
 def total_nulls(df: Any) -> int:
     """
-    Return total null count across all columns for pandas or polars DataFrame-like objects.
+    Return total null count across all columns for pandas or polars DataFrame-like
+    objects.
 
     Falls back to 0 if the object does not provide null-counting methods.
+
     """
     try:
         if hasattr(df, "null_count"):
@@ -39,6 +42,7 @@ def column_nulls(df: Any, column: str) -> int:
     Return null count for a specific column for pandas or polars Series/Frame.
 
     Uses Series.isnull()/is_null() where available. Returns 0 if unsupported.
+
     """
     try:
         if hasattr(df, "__getitem__"):
@@ -60,6 +64,7 @@ def has_columns(df: Any, columns: set[str]) -> tuple[bool, set[str]]:
 
     Works for pandas and polars DataFrames. Treats absence of `columns` attribute
     as missing all.
+
     """
     try:
         df_cols = set(getattr(df, "columns", []) or [])
@@ -75,6 +80,7 @@ def is_monotonic_non_decreasing(series_or_df_col: Any) -> bool:
 
     Supports polars Series via `is_sorted(descending=False)` and pandas Series via
     `is_monotonic_increasing`. Falls back to a simple pairwise check.
+
     """
     try:
         # polars Series

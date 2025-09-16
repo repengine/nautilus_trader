@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 """
 Compatibility wrapper for legacy import path used by tests.
 

@@ -12,10 +12,12 @@ import logging
 from datetime import datetime
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
+from typing import Any as _Any
+from typing import cast as _cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl as pl_runtime
-from typing import TYPE_CHECKING, Any as _Any, cast as _cast
+
 
 if TYPE_CHECKING:
     import polars as _pl
@@ -66,11 +68,11 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
 
     def compute_features(
         self,
-        timestamps: "_pl.Series",
+        timestamps: _pl.Series,
         instruments: list[str] | None = None,
         lookback_days: int = 30,
         lookahead_days: int = 30,
-    ) -> "_pl.DataFrame":
+    ) -> _pl.DataFrame:
         """
         Compute event-based features for timestamps.
 
@@ -147,6 +149,7 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
             features.append(feature_dict)
 
         from typing import cast as __cast
+
         return __cast("_pl.DataFrame", PL.DataFrame(features))
 
     def _load_events(
@@ -331,8 +334,8 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
     def load_timeseries(
         self,
         instruments: list[str],
-        timestamps: "_pl.Series",
-    ) -> "_pl.DataFrame":
+        timestamps: _pl.Series,
+    ) -> _pl.DataFrame:
         """
         Load time series event features.
 
@@ -368,8 +371,8 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
     def _load_timeseries_impl(
         self,
         instruments: list[str],
-        timestamps: "_pl.Series",
-    ) -> "_pl.DataFrame":
+        timestamps: _pl.Series,
+    ) -> _pl.DataFrame:
         """
         Implement time series loading.
 

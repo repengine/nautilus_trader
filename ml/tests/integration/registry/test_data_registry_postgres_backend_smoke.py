@@ -19,9 +19,11 @@ from typing import Any
 
 
 def test_data_registry_postgres_backend_smoke(tmp_path: Path, test_database: Any) -> None:
-    """Smoke test that POSTGRES-backed DataRegistry can emit an event.
+    """
+    Smoke test that POSTGRES-backed DataRegistry can emit an event.
 
     Relies on migrations applied via TestDatabase fixture in integration suite.
+
     """
     registry = DataRegistry(
         registry_path=tmp_path / "registry",

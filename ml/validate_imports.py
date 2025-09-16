@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Validate ML module imports and identify issues."""
+"""
+Validate ML module imports and identify issues.
+"""
 
 import sys
 from pathlib import Path
@@ -10,8 +12,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+
 def probe_import(module_name: str) -> tuple[bool, str]:
-    """Test if a module can be imported."""
+    """
+    Test if a module can be imported.
+    """
     try:
         __import__(module_name)
         return True, "OK"
@@ -20,8 +25,11 @@ def probe_import(module_name: str) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Unexpected: {e}"
 
+
 def main() -> int:
-    """Test all ML submodules."""
+    """
+    Test all ML submodules.
+    """
     ml_modules = [
         "ml.actors",
         "ml.common",
@@ -70,6 +78,7 @@ def main() -> int:
             print(f"  {error}")
 
     return 0 if success_count == len(ml_modules) else 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

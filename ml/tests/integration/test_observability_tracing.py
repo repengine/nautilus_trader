@@ -7,6 +7,7 @@ Tests verify that:
 3. W3C trace context propagates through event metadata
 4. Parent-child relationships work via correlation_id mapping
 5. Graceful fallback when OpenTelemetry unavailable
+
 """
 
 import os
@@ -33,42 +34,56 @@ from ml.observability.tracing import (
 
 
 class TestTracingDefaultBehavior:
-    """Test that tracing is OFF by default with zero overhead."""
+    """
+    Test that tracing is OFF by default with zero overhead.
+    """
 
     def test_tracing_disabled_by_default(self):
-        """Verify tracing is disabled by default."""
+        """
+        Verify tracing is disabled by default.
+        """
         # Ensure no ML_TRACING_ENABLED env var
         with patch.dict(os.environ, {}, clear=True):
             assert not is_tracing_enabled()
 
     def test_trace_context_empty_when_disabled(self):
-        """Verify trace context is empty when disabled."""
+        """
+        Verify trace context is empty when disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
             context = get_trace_context()
             assert context == {}
 
     def test_inject_trace_context_noop_when_disabled(self):
-        """Verify inject_trace_context is no-op when disabled."""
+        """
+        Verify inject_trace_context is no-op when disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
             metadata = {"correlation_id": "test123"}
             result = inject_trace_context(metadata)
             assert result == metadata  # Unchanged
 
     def test_extract_and_link_noop_when_disabled(self):
-        """Verify extract_and_link is no-op when disabled."""
+        """
+        Verify extract_and_link is no-op when disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
             metadata = {"trace_context": {"traceparent": "test"}}
             # Should not raise any exceptions
             extract_and_link_trace_context(metadata)
 
     def test_trace_cold_path_noop_when_disabled(self):
-        """Verify trace_cold_path is no-op when disabled."""
+        """
+        Verify trace_cold_path is no-op when disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
             with trace_cold_path("test_operation") as span:
                 assert span is None
 
     def test_trace_decorators_passthrough_when_disabled(self):
-        """Verify decorators are pass-through when disabled."""
+        """
+        Verify decorators are pass-through when disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
 
             @trace_cold_path_decorator("test_op")  # type: ignore[misc]
@@ -84,7 +99,9 @@ class TestTracingDefaultBehavior:
             assert inference_func(5) == 6
 
     def test_zero_overhead_when_disabled(self):
-        """Verify zero overhead when tracing disabled."""
+        """
+        Verify zero overhead when tracing disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
 
             @trace_cold_path_decorator("perf_test")  # type: ignore[misc]
@@ -102,7 +119,9 @@ class TestTracingDefaultBehavior:
             assert elapsed < 0.2
 
     def test_event_metadata_unchanged_when_disabled(self):
-        """Verify event metadata unchanged when tracing disabled."""
+        """
+        Verify event metadata unchanged when tracing disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
             metadata = get_correlation_and_trace_context(
                 run_id="test_run",
@@ -119,16 +138,22 @@ class TestTracingDefaultBehavior:
 
 @pytest.mark.integration
 class TestTracingWithOpenTelemetry:
-    """Test tracing functionality when OpenTelemetry is available."""
+    """
+    Test tracing functionality when OpenTelemetry is available.
+    """
 
     @pytest.fixture(autouse=True)
     def enable_tracing(self):
-        """Enable tracing for these tests."""
+        """
+        Enable tracing for these tests.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "true"}):
             yield
 
     def test_tracing_enabled_with_env_var(self):
-        """Verify tracing can be enabled via environment variable."""
+        """
+        Verify tracing can be enabled via environment variable.
+        """
         # This test will check if OpenTelemetry is available
         # If not available, is_tracing_enabled() should still return False
         enabled = is_tracing_enabled()
@@ -137,14 +162,18 @@ class TestTracingWithOpenTelemetry:
 
     @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_context_with_mocked_otel(self):
-        """Test trace context with mocked OpenTelemetry."""
+        """
+        Test trace context with mocked OpenTelemetry.
+        """
         with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
             with patch("ml.observability.tracing._propagate") as mock_propagate:
                 mock_propagate.inject.return_value = None
 
                 # Mock carrier to return test context
                 def mock_inject(carrier):
-                    carrier["traceparent"] = "00-12345678901234567890123456789012-1234567890123456-01"
+                    carrier["traceparent"] = (
+                        "00-12345678901234567890123456789012-1234567890123456-01"
+                    )
 
                 mock_propagate.inject.side_effect = mock_inject
 
@@ -153,12 +182,16 @@ class TestTracingWithOpenTelemetry:
 
     @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_inject_trace_context_with_mocked_otel(self):
-        """Test inject_trace_context with mocked OpenTelemetry."""
+        """
+        Test inject_trace_context with mocked OpenTelemetry.
+        """
         with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
             with patch("ml.observability.tracing._propagate") as mock_propagate:
 
                 def mock_inject(carrier):
-                    carrier["traceparent"] = "00-abcdef1234567890abcdef1234567890-abcdef1234567890-01"
+                    carrier["traceparent"] = (
+                        "00-abcdef1234567890abcdef1234567890-abcdef1234567890-01"
+                    )
 
                 mock_propagate.inject.side_effect = mock_inject
 
@@ -171,7 +204,9 @@ class TestTracingWithOpenTelemetry:
 
     @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_cold_path_with_mocked_otel(self):
-        """Test trace_cold_path with mocked OpenTelemetry."""
+        """
+        Test trace_cold_path with mocked OpenTelemetry.
+        """
         mock_span = Mock()
         mock_span.set_attribute = Mock()
 
@@ -190,7 +225,9 @@ class TestTracingWithOpenTelemetry:
 
     @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_cold_path_decorator_with_mocked_otel(self):
-        """Test trace_cold_path_decorator with mocked OpenTelemetry."""
+        """
+        Test trace_cold_path_decorator with mocked OpenTelemetry.
+        """
         mock_span = Mock()
 
         with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
@@ -210,7 +247,9 @@ class TestTracingWithOpenTelemetry:
 
     @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_trace_inference_decorator_with_mocked_otel(self):
-        """Test trace_inference decorator with mocked OpenTelemetry."""
+        """
+        Test trace_inference decorator with mocked OpenTelemetry.
+        """
         mock_span = Mock()
 
         with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
@@ -238,10 +277,14 @@ class TestTracingWithOpenTelemetry:
 
 @pytest.mark.integration
 class TestEventTracingIntegration:
-    """Test tracing integration with event system."""
+    """
+    Test tracing integration with event system.
+    """
 
     def test_correlation_and_trace_context_generation(self):
-        """Test correlation_id and trace context generation."""
+        """
+        Test correlation_id and trace context generation.
+        """
         metadata = get_correlation_and_trace_context(
             run_id="test_run_123",
             dataset_id="features",
@@ -261,17 +304,23 @@ class TestEventTracingIntegration:
             assert isinstance(metadata["trace_context"], dict)
 
     def test_extract_and_link_from_event_graceful_fallback(self):
-        """Test extract_and_link_from_event graceful fallback."""
+        """
+        Test extract_and_link_from_event graceful fallback.
+        """
         # Should not raise exceptions regardless of metadata content
         extract_and_link_from_event({})
         extract_and_link_from_event({"correlation_id": "test123"})
-        extract_and_link_from_event({
-            "correlation_id": "test123",
-            "trace_context": {"traceparent": "invalid"}
-        })
+        extract_and_link_from_event(
+            {
+                "correlation_id": "test123",
+                "trace_context": {"traceparent": "invalid"},
+            },
+        )
 
     def test_event_emission_with_trace_context(self):
-        """Test event emission includes trace context when available."""
+        """
+        Test event emission includes trace context when available.
+        """
         # Mock registry to capture emitted events
         mock_registry = Mock()
         mock_registry.emit_event = Mock()
@@ -301,12 +350,16 @@ class TestEventTracingIntegration:
 
     @patch("ml.observability.tracing.HAS_OPENTELEMETRY", True)
     def test_event_trace_context_propagation_with_mocked_otel(self):
-        """Test trace context propagation through events with mocked OpenTelemetry."""
+        """
+        Test trace context propagation through events with mocked OpenTelemetry.
+        """
         with patch("ml.observability.tracing._ensure_tracing_backend", return_value=True):
             with patch("ml.observability.tracing._propagate") as mock_propagate:
 
                 def mock_inject(carrier):
-                    carrier["traceparent"] = "00-trace123456789012345678901234567890-span123456789012-01"
+                    carrier["traceparent"] = (
+                        "00-trace123456789012345678901234567890-span123456789012-01"
+                    )
 
                 mock_propagate.inject.side_effect = mock_inject
 
@@ -339,11 +392,15 @@ class TestEventTracingIntegration:
 
 @pytest.mark.integration
 class TestTracingGracefulFallback:
-    """Test graceful fallback behavior when OpenTelemetry unavailable."""
+    """
+    Test graceful fallback behavior when OpenTelemetry unavailable.
+    """
 
     @patch("ml.observability.tracing.HAS_OPENTELEMETRY", False)
     def test_graceful_fallback_when_otel_unavailable(self):
-        """Test graceful fallback when OpenTelemetry not available."""
+        """
+        Test graceful fallback when OpenTelemetry not available.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "true"}):
             # All functions should work without errors
             assert not is_tracing_enabled()
@@ -358,7 +415,9 @@ class TestTracingGracefulFallback:
                 assert span is None
 
     def test_exception_handling_in_tracing_functions(self):
-        """Test exception handling in tracing functions."""
+        """
+        Test exception handling in tracing functions.
+        """
         # Test with invalid trace context
         invalid_metadata = {"trace_context": "not_a_dict"}
 
@@ -373,10 +432,14 @@ class TestTracingGracefulFallback:
 
 @pytest.mark.integration
 class TestTracingPerformance:
-    """Test performance characteristics of tracing system."""
+    """
+    Test performance characteristics of tracing system.
+    """
 
     def test_decorator_overhead_when_disabled(self):
-        """Test decorator has minimal overhead when disabled."""
+        """
+        Test decorator has minimal overhead when disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
 
             @trace_cold_path_decorator("perf_test")
@@ -394,7 +457,9 @@ class TestTracingPerformance:
             assert elapsed < 0.2
 
     def test_context_manager_overhead_when_disabled(self):
-        """Test context manager has minimal overhead when disabled."""
+        """
+        Test context manager has minimal overhead when disabled.
+        """
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
 
             def traced_function():
@@ -412,7 +477,9 @@ class TestTracingPerformance:
             assert elapsed < 0.2
 
     def test_trace_context_generation_performance(self):
-        """Test trace context generation performance."""
+        """
+        Test trace context generation performance.
+        """
         # Should be fast regardless of tracing state
         start = time.perf_counter()
         for i in range(100):

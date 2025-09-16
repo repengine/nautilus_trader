@@ -22,4 +22,3 @@ def test_engine_cache_reuse_and_dispose() -> None:
 
     EngineManager.dispose_engine(dsn)
     assert not EngineManager.has_engine(dsn)
-

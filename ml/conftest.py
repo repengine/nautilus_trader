@@ -3,8 +3,9 @@ Pytest configuration for ML module.
 
 This file configures pytest to avoid collecting training modules as test files, which
 would cause naming conflicts with installed packages. It also provides a few shared
-fixtures used by multiple test modules and establishes some default names in the
-Python builtins to smooth over legacy test naming inconsistencies.
+fixtures used by multiple test modules and establishes some default names in the Python
+builtins to smooth over legacy test naming inconsistencies.
+
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ def pytest_ignore_collect(collection_path: Any, config: Any) -> bool:
 
     These files have the same names as installed packages (lightgbm, xgboost) which
     causes import conflicts when pytest tries to collect them.
+
     """
     path_str = str(collection_path)
     ignore_patterns = [
@@ -47,6 +49,7 @@ def pytest_ignore_collect(collection_path: Any, config: Any) -> bool:
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
+
 def pytest_sessionstart(session: Any) -> None:  # pragma: no cover - test bootstrap
     """
     Establish default names in builtins for legacy tests.
@@ -54,15 +57,19 @@ def pytest_sessionstart(session: Any) -> None:  # pragma: no cover - test bootst
     Some consolidated tests reference names like `ts_init` or `X` without defining
     them in local/global scope. Providing safe defaults in builtins prevents NameError
     while remaining harmless for correctly written tests.
+
     """
     if not hasattr(builtins, "ts_init"):
         from typing import cast as _cast
+
         _cast(Any, builtins).ts_init = 0  # int default; tests don't assert on its exact value
 
 
 @pytest.fixture
 def sample_onnx_model(tmp_path: Path) -> tuple[Path, str]:
-    """Create a sample ONNX-like model file and return (path, sha256)."""
+    """
+    Create a sample ONNX-like model file and return (path, sha256).
+    """
     import hashlib
 
     model_file = tmp_path / "test_model.onnx"
@@ -74,7 +81,9 @@ def sample_onnx_model(tmp_path: Path) -> tuple[Path, str]:
 
 @pytest.fixture
 def sample_manifest() -> ModelManifest:
-    """Provide a sample ModelManifest reused across registry tests."""
+    """
+    Provide a sample ModelManifest reused across registry tests.
+    """
     return ModelManifest(
         model_id="test_model_001",
         role=ModelRole.INFERENCE,

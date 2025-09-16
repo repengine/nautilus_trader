@@ -93,6 +93,7 @@ __all__ = [
 #### Validation Checklist
 
 Before any PR, verify:
+
 - [ ] `__init__.py` updated BEFORE implementation
 - [ ] `__all__` list is alphabetically sorted
 - [ ] Only intended public APIs are exported
@@ -335,11 +336,13 @@ To strengthen public API contracts at ML boundaries, prefer the strict variants 
 - `FeatureStoreStrictProtocol`, `ModelStoreStrictProtocol`, `StrategyStoreStrictProtocol` (see `ml/stores/protocols.py`).
 
 Why use the strict variants
+
 - Safer boundaries: required parameters and Mapping/Sequence types catch integration bugs at type-check time.
 - Better decoupling: preserves structural typing while preventing accidental widening of public APIs.
 - Stronger tests: contract/property tests work cleanly across real and dummy implementations.
 
 When to use
+
 - New public APIs (actors, services, CLI entrypoints) should accept/return the strict protocols.
 - Existing surfaces can migrate incrementally via thin adapters or targeted refactors.
 
@@ -393,10 +396,12 @@ def publish_features(store: FeatureStoreStrictProtocol, instrument_id: str) -> N
 ```
 
 Migration guidance
+
 - Prefer adapters over casts: introduce a thin adapter that implements the strict protocol and delegates to an existing store until the store is updated.
 - If a temporary cast is used at boundaries, track it and remove once the underlying implementation satisfies the strict protocol.
 
 Enforcement and tooling
+
 - Semgrep rule `ml-prefer-strict-store-protocol` (in `tools/semgrep/ml-rules.yml`) flags new public code using non‑strict protocols.
 - Type checking: run `poetry run mypy ml --strict` (or `uv run --active --no-sync mypy ml --strict`).
 - Keep hot-path safe: strict typing has no runtime overhead; avoid conversions/copies in tight loops.
@@ -1084,6 +1089,7 @@ temperature_celsius = get_gauge("ml_gpu_temperature_celsius", "GPU temperature")
 ## Pattern 6: Events, Topics, and Watermarks
 
 ### Core Rules
+
 - Always use enums: `ml.config.events.{Stage, Source, EventStatus}` (no raw strings).
 - Build topics with `ml.common.message_topics.build_topic_for_stage` and honor scheme/prefix from config.
 - Emit events and update registry watermarks via the façade helper (monotonic watermarks):
@@ -1091,6 +1097,7 @@ temperature_celsius = get_gauge("ml_gpu_temperature_celsius", "GPU temperature")
 - Publishing is best‑effort; wrap message bus calls in `try/except` and keep them off hot paths.
 
 #### Minimal Example
+
 ```python
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.events_util import emit_dataset_event_and_watermark
@@ -1123,11 +1130,13 @@ except Exception:
 ## Pattern 7: Observability (Cold Path Only)
 
 ### Core Rules
+
 - Use DTO builders + service; never instantiate Prometheus collectors directly.
 - Persist metrics/logs off the hot path; use `MLIntegrationManager` helpers to schedule flushes.
 - Emit fallback/degradation metrics with labels (e.g., `ml_fallback_activations_total`).
 
 #### Minimal Example
+
 ```python
 from ml.common.metrics_manager import MetricsManager
 
@@ -1143,6 +1152,7 @@ mm.inc(
 ---
 
 ## Core Conventions (Quick Reference)
+
 - Hot path: P99 < 5ms; no DataFrame/file I/O/network/training; avoid allocations; push publish/metrics to cold paths.
 - Protocol‑first: type against `Protocol`; avoid concrete coupling; prefer adapters.
 - DB engines: only via `EngineManager.get_engine(...)`; safe SQL; partition helpers centralized.
@@ -1164,7 +1174,7 @@ from ml.actors.base import BaseMLInferenceActor
 
 class ProtocolComplianceAnalyzer(ast.NodeVisitor):
     """AST visitor for deep protocol compliance analysis."""
-    
+
     def __init__(self):
         self.has_protocol_imports = False
         self.implemented_protocols = []
@@ -1173,7 +1183,7 @@ class ProtocolComplianceAnalyzer(ast.NodeVisitor):
         self.try_except_blocks = []
         self.hot_path_violations = []
         self.current_method = None
-        
+
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         """Track imports for validation."""
         if node.module:
@@ -1186,14 +1196,14 @@ class ProtocolComplianceAnalyzer(ast.NodeVisitor):
                 # Track direct prometheus imports (violation)
                 self.used_imports.add("VIOLATION:prometheus_client")
         self.generic_visit(node)
-    
+
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Analyze class definitions for protocol compliance."""
         # Check if class implements protocols
         for base in node.bases:
             if isinstance(base, ast.Name) and "Protocol" in base.id:
                 self.implemented_protocols.append(base.id)
-        
+
         # Analyze methods
         for item in node.body:
             if isinstance(item, ast.FunctionDef):
@@ -1203,19 +1213,19 @@ class ProtocolComplianceAnalyzer(ast.NodeVisitor):
                     "has_docstring": ast.get_docstring(item) is not None
                 }
         self.generic_visit(node)
-    
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Analyze function definitions for pattern compliance."""
         old_method = self.current_method
         self.current_method = node.name
-        
+
         # Check for hot path methods
         if node.name in ["on_bar", "on_quote", "on_trade", "on_order_book"]:
             self._check_hot_path_compliance(node)
-        
+
         self.generic_visit(node)
         self.current_method = old_method
-    
+
     def visit_Try(self, node: ast.Try) -> None:
         """Track try/except blocks for fallback validation."""
         self.try_except_blocks.append({
@@ -1224,7 +1234,7 @@ class ProtocolComplianceAnalyzer(ast.NodeVisitor):
             "has_finally": node.finalbody is not None
         })
         self.generic_visit(node)
-    
+
     def _check_hot_path_compliance(self, node: ast.FunctionDef) -> None:
         """Check hot path methods for performance violations."""
         for child in ast.walk(node):
@@ -1232,17 +1242,17 @@ class ProtocolComplianceAnalyzer(ast.NodeVisitor):
             if isinstance(child, ast.Attribute):
                 if isinstance(child.value, ast.Name) and child.value.id in ["pd", "pandas"]:
                     self.hot_path_violations.append(f"{node.name}: pandas usage in hot path")
-            
+
             # Check for file I/O
             if isinstance(child, ast.Call):
                 if isinstance(child.func, ast.Name) and child.func.id in ["open", "read", "write"]:
                     self.hot_path_violations.append(f"{node.name}: file I/O in hot path")
-                
+
                 # Check for training calls
                 if isinstance(child.func, ast.Attribute):
                     if child.func.attr in ["fit", "train", "compile"]:
                         self.hot_path_violations.append(f"{node.name}: model training in hot path")
-    
+
     def _get_return_annotation(self, node: ast.FunctionDef) -> str | None:
         """Extract return type annotation."""
         if node.returns:
@@ -1253,7 +1263,7 @@ class ProtocolComplianceAnalyzer(ast.NodeVisitor):
 class UniversalPatternValidator:
     """
     Enhanced validator for Universal ML Architecture Patterns with AST-based analysis.
-    
+
     This validator performs deep structural analysis using Abstract Syntax Tree (AST)
     parsing combined with runtime introspection to ensure comprehensive pattern compliance.
     """
@@ -1261,12 +1271,12 @@ class UniversalPatternValidator:
     def validate_actor_compliance(self, actor_class: type) -> dict[str, list[str]]:
         """
         Validate actor compliance with all Universal ML Architecture Patterns.
-        
+
         Parameters
         ----------
         actor_class : type
             The actor class to validate
-            
+
         Returns
         -------
         dict[str, list[str]]
@@ -1294,7 +1304,7 @@ class UniversalPatternValidator:
     def _validate_store_integration(self, actor_class: type) -> list[str]:
         """
         Validate Pattern 1: Mandatory 4-Store + 4-Registry Integration.
-        
+
         Ensures actor inherits from BaseMLInferenceActor and has access to all
         required stores and registries.
         """
@@ -1308,38 +1318,38 @@ class UniversalPatternValidator:
         # Check required attributes via AST
         required_stores = ["feature_store", "model_store", "strategy_store", "data_store"]
         required_registries = ["feature_registry", "model_registry", "strategy_registry", "data_registry"]
-        
+
         try:
             # Attempt runtime instantiation check
             test_config = {}  # Minimal config for testing
             instance = actor_class(test_config)
-            
+
             for store in required_stores:
                 if not hasattr(instance, store):
                     issues.append(f"Missing required store: {store}")
                 elif getattr(instance, store) is None:
                     issues.append(f"Store {store} is None - initialization may have failed")
-            
+
             for registry in required_registries:
                 if not hasattr(instance, registry):
                     issues.append(f"Missing required registry: {registry}")
                 elif getattr(instance, registry) is None:
                     issues.append(f"Registry {registry} is None - initialization may have failed")
-                    
+
         except Exception as e:
             # Fall back to static analysis if instantiation fails
             issues.append(f"Cannot instantiate for runtime check: {e}")
-            
+
             # Use AST to check for store access patterns
             module = inspect.getmodule(actor_class)
             if module:
                 source = inspect.getsource(module)
                 tree = ast.parse(source)
-                
+
                 for store in required_stores:
                     if f"self.{store}" not in source:
                         issues.append(f"No usage of required store: {store}")
-                
+
                 for registry in required_registries:
                     if f"self.{registry}" not in source:
                         issues.append(f"No usage of required registry: {registry}")
@@ -1349,7 +1359,7 @@ class UniversalPatternValidator:
     def _validate_protocol_compliance(self, actor_class: type) -> list[str]:
         """
         Validate Pattern 2: Protocol-First Interface Design with deep AST analysis.
-        
+
         This enhanced method performs:
         1. AST-based structural analysis of protocol implementations
         2. Runtime protocol compliance checking
@@ -1357,31 +1367,31 @@ class UniversalPatternValidator:
         4. Type hint verification
         """
         issues = []
-        
+
         # Get module source for AST analysis
         module = inspect.getmodule(actor_class)
         if not module:
             issues.append("Cannot access module source for analysis")
             return issues
-        
+
         try:
             source = inspect.getsource(module)
             tree = ast.parse(source)
-            
+
             # Analyze with AST visitor
             analyzer = ProtocolComplianceAnalyzer()
             analyzer.visit(tree)
-            
+
             # Check for protocol imports
             if not analyzer.has_protocol_imports:
                 issues.append("No Protocol imports from typing module detected")
-            
+
             # Validate MLComponentProtocol compliance if applicable
-            if any(store in analyzer.method_signatures for store in 
+            if any(store in analyzer.method_signatures for store in
                    ["feature_store", "model_store", "strategy_store", "data_store"]):
                 # This actor uses stores, should implement MLComponentProtocol
                 required_methods = ["get_health_status", "get_performance_metrics", "validate_configuration"]
-                
+
                 for method in required_methods:
                     if method not in analyzer.method_signatures:
                         issues.append(f"Missing MLComponentProtocol method: {method}")
@@ -1394,7 +1404,7 @@ class UniversalPatternValidator:
                             issues.append(f"{method} should return dict[str, float]")
                         elif method == "validate_configuration" and sig["returns"] != "list[str]":
                             issues.append(f"{method} should return list[str]")
-            
+
             # Runtime protocol check for instances
             try:
                 # Check if the class or its stores implement MLComponentProtocol
@@ -1405,7 +1415,7 @@ class UniversalPatternValidator:
             except Exception:
                 # Runtime instantiation not possible, rely on static analysis
                 pass
-                
+
         except Exception as e:
             issues.append(f"AST analysis failed: {e}")
 
@@ -1414,49 +1424,49 @@ class UniversalPatternValidator:
     def _validate_path_separation(self, actor_class: type) -> list[str]:
         """
         Validate Pattern 3: Hot/Cold Path Separation with AST-based analysis.
-        
+
         Ensures hot path methods avoid heavy operations and maintain <5ms P99 latency.
         """
         issues = []
-        
+
         module = inspect.getmodule(actor_class)
         if not module:
             return ["Cannot access module source for hot path analysis"]
-        
+
         try:
             source = inspect.getsource(actor_class)
             tree = ast.parse(source)
-            
+
             # Analyze with AST visitor
             analyzer = ProtocolComplianceAnalyzer()
             analyzer.visit(tree)
-            
+
             # Report hot path violations
             issues.extend(analyzer.hot_path_violations)
-            
+
             # Additional checks for hot path methods
             hot_path_methods = ["on_bar", "on_quote", "on_trade", "on_order_book"]
-            
+
             for method_name in hot_path_methods:
                 if hasattr(actor_class, method_name):
                     method = getattr(actor_class, method_name)
                     if method:
                         method_source = inspect.getsource(method)
-                        
+
                         # Check for specific anti-patterns
                         if "time.sleep" in method_source:
                             issues.append(f"{method_name}: contains blocking sleep call")
-                        
+
                         if ".to_pandas()" in method_source or "DataFrame" in method_source:
                             issues.append(f"{method_name}: uses pandas DataFrame (use numpy arrays)")
-                        
+
                         if "requests." in method_source or "urllib" in method_source:
                             issues.append(f"{method_name}: contains network I/O")
-                        
-                        if not any(pattern in method_source for pattern in 
+
+                        if not any(pattern in method_source for pattern in
                                   ["pre_allocated", "self._buffer", "np.zeros", "np.empty"]):
                             issues.append(f"{method_name}: no evidence of pre-allocated arrays")
-                            
+
         except Exception as e:
             issues.append(f"Hot path analysis failed: {e}")
 
@@ -1465,45 +1475,45 @@ class UniversalPatternValidator:
     def _validate_fallback_implementation(self, actor_class: type) -> list[str]:
         """
         Validate Pattern 4: Progressive Fallback Chains with AST analysis.
-        
+
         Ensures proper error handling and fallback strategies for external dependencies.
         """
         issues = []
-        
+
         module = inspect.getmodule(actor_class)
         if not module:
             return ["Cannot access module source for fallback analysis"]
-        
+
         try:
             source = inspect.getsource(actor_class)
             tree = ast.parse(source)
-            
+
             # Analyze with AST visitor
             analyzer = ProtocolComplianceAnalyzer()
             analyzer.visit(tree)
-            
+
             # Check for try/except blocks in critical methods
             critical_methods = ["__init__", "_init_stores", "on_start", "on_stop"]
-            
+
             for method_name in critical_methods:
                 if method_name in analyzer.method_signatures:
                     # Check if method has error handling
                     method_has_handling = any(
-                        block["method"] == method_name 
+                        block["method"] == method_name
                         for block in analyzer.try_except_blocks
                     )
-                    
+
                     if not method_has_handling and method_name in ["__init__", "_init_stores"]:
                         issues.append(f"{method_name}: missing error handling for initialization")
-            
+
             # Check for fallback patterns
             if "DummyStore" not in source and "fallback" not in source.lower():
                 issues.append("No evidence of fallback implementation (DummyStore or fallback logic)")
-            
+
             # Check for circuit breaker or retry logic
             if not any(pattern in source for pattern in ["CircuitBreaker", "retry", "exponential_backoff"]):
                 issues.append("No circuit breaker or retry logic for external dependencies")
-                
+
         except Exception as e:
             issues.append(f"Fallback analysis failed: {e}")
 
@@ -1512,32 +1522,32 @@ class UniversalPatternValidator:
     def _validate_metrics_usage(self, actor_class: type) -> list[str]:
         """
         Validate Pattern 5: Centralized Metrics Bootstrap.
-        
+
         Ensures no direct prometheus_client imports and proper use of metrics_bootstrap.
         """
         issues = []
-        
+
         module = inspect.getmodule(actor_class)
         if not module:
             return ["Cannot access module source for metrics analysis"]
-        
+
         try:
             source = inspect.getsource(module)
             tree = ast.parse(source)
-            
+
             # Analyze with AST visitor
             analyzer = ProtocolComplianceAnalyzer()
             analyzer.visit(tree)
-            
+
             # Check for prometheus_client violations
             if "VIOLATION:prometheus_client" in analyzer.used_imports:
                 issues.append("Direct prometheus_client import detected - use ml.common.metrics_bootstrap")
-            
+
             # Check for proper metrics bootstrap usage
             if "ml.common.metrics_bootstrap" not in analyzer.used_imports:
                 if any(metric in source for metric in ["counter", "histogram", "gauge", "metrics"]):
                     issues.append("Uses metrics but doesn't import from ml.common.metrics_bootstrap")
-            
+
             # Check for metrics in hot path (should use pre-initialized metrics)
             hot_path_methods = ["on_bar", "on_quote", "on_trade"]
             for method_name in hot_path_methods:
@@ -1545,7 +1555,7 @@ class UniversalPatternValidator:
                     method_source = inspect.getsource(getattr(actor_class, method_name))
                     if "get_counter(" in method_source or "get_histogram(" in method_source:
                         issues.append(f"{method_name}: creates metrics in hot path (should pre-initialize)")
-                        
+
         except Exception as e:
             issues.append(f"Metrics analysis failed: {e}")
 
@@ -1555,7 +1565,7 @@ class UniversalPatternValidator:
 def validate_with_report(actor_class: type) -> None:
     """
     Validate an actor class and generate a detailed compliance report.
-    
+
     Parameters
     ----------
     actor_class : type
@@ -1563,21 +1573,21 @@ def validate_with_report(actor_class: type) -> None:
     """
     validator = UniversalPatternValidator()
     compliance_issues = validator.validate_actor_compliance(actor_class)
-    
+
     if not compliance_issues:
         print(f"✅ {actor_class.__name__} is fully compliant with all Universal ML Architecture Patterns!")
         return
-    
+
     print(f"❌ {actor_class.__name__} has compliance issues:\n")
-    
+
     pattern_names = {
         "pattern_1": "4-Store + 4-Registry Integration",
         "pattern_2": "Protocol-First Interface Design",
-        "pattern_3": "Hot/Cold Path Separation", 
+        "pattern_3": "Hot/Cold Path Separation",
         "pattern_4": "Progressive Fallback Chains",
         "pattern_5": "Centralized Metrics Bootstrap"
     }
-    
+
     for pattern_key, issues in compliance_issues.items():
         pattern_name = pattern_names.get(pattern_key, pattern_key)
         print(f"  {pattern_name}:")
@@ -1735,6 +1745,7 @@ Orchestration (cold‑path pipeline)
         # Metrics should work
         counter1.inc()
         # Should not raise registry conflicts
+
 ```
 
 This comprehensive implementation guide ensures that all ML components in Nautilus Trader follow the Universal ML Architecture Patterns consistently, providing reliability, performance, and maintainability across the entire system.
@@ -1808,6 +1819,7 @@ Contracts & TDD
 ### Enforcement
 
 #### `__init__.py` Rules
+
 - **MANDATORY**: All `__all__` lists must be alphabetically sorted
 - **MANDATORY**: Work starts by reading `__init__.py` to understand the API
 - **MANDATORY**: Work ends by verifying `__init__.py` reflects the implementation
@@ -1815,6 +1827,7 @@ Contracts & TDD
 - **REQUIRED**: All public APIs must be exported through `__all__`
 
 #### Automated Checks
+
 - Import-linter rule: `ml/*` may import `ml/api/*`, but domain code must not import `ml/cli/*`.
 - Validators: `make validate-metrics`, `make validate-events`, and the advisory `make validate-nautilus-patterns`.
 - Pre-commit hooks verify `__all__` lists are alphabetically sorted

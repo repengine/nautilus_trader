@@ -16,7 +16,11 @@ pytestmark = [
 
 
 def test_create_test_partitions_minimal(clean_postgres_db: Any, postgres_connection: str) -> None:
-    pm = PartitionManager(connection_string=postgres_connection, tables=["ml_model_predictions"], months_ahead=0)
+    pm = PartitionManager(
+        connection_string=postgres_connection,
+        tables=["ml_model_predictions"],
+        months_ahead=0,
+    )
     # Create a tiny range (one month)
     created = pm.create_test_partitions(
         start_year=2025,

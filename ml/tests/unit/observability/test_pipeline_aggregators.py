@@ -32,5 +32,6 @@ def test_scale_health_scores_clips_and_scales() -> None:
     ]
     out = scale_health_scores(rows, factor=1.2)
     from typing import Any, cast
+
     assert float(cast(Any, out.loc[0, "health_score"])) <= 1.0
     assert float(cast(Any, out.loc[1, "health_score"])) > 0.6

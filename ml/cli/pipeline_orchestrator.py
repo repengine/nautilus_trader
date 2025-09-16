@@ -33,7 +33,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--lookback_days", type=int, default=7)
     ap.add_argument("--coverage_mode", default="catalog", choices=["catalog", "sql"])
     ap.add_argument("--catalog_path", default=os.getenv("CATALOG_PATH", ""))
-    ap.add_argument("--db", default=os.getenv("NAUTILUS_DB", "postgresql://postgres:postgres@localhost:5432/nautilus"))
+    ap.add_argument(
+        "--db",
+        default=os.getenv("NAUTILUS_DB", "postgresql://postgres:postgres@localhost:5432/nautilus"),
+    )
 
     # Writer mode for ingestion
     ap.add_argument("--write_mode", default="parquet", choices=["parquet", "datastore"])
@@ -97,7 +100,11 @@ def main(argv: list[str] | None = None) -> int:
         # Use IntegrationManager to get DataStore with adapters (CATALOG_PATH recommended)
         from ml.core.integration import MLIntegrationManager
 
-        mgr = MLIntegrationManager(db_connection=args.db, auto_start_postgres=False, auto_migrate=False)
+        mgr = MLIntegrationManager(
+            db_connection=args.db,
+            auto_start_postgres=False,
+            auto_migrate=False,
+        )
         if mgr.data_store is None:
             raise SystemExit("DataStore unavailable; use parquet write_mode or set CATALOG_PATH")
         writer = DataStoreMarketDataWriter(store=mgr.data_store)  # type: ignore[arg-type]
@@ -115,7 +122,11 @@ def main(argv: list[str] | None = None) -> int:
         # Registry for event emission (IntegrationManager provides one easily)
         from ml.core.integration import MLIntegrationManager
 
-        mgr = MLIntegrationManager(db_connection=args.db, auto_start_postgres=False, auto_migrate=False)
+        mgr = MLIntegrationManager(
+            db_connection=args.db,
+            auto_start_postgres=False,
+            auto_migrate=False,
+        )
         registry = mgr.data_registry
 
     # Ingestor stub: use Databento adapter via CLI if desired; here we use the existing ingestion orchestrator contract
@@ -158,7 +169,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.ingest:
         instruments = [s.strip() for s in str(args.instruments).split(",") if s.strip()]
         for inst in instruments:
-            orch.backfill(dataset_id=args.dataset_id, schema=args.schema, instrument_id=inst, lookback_days=int(args.lookback_days))
+            orch.backfill(
+                dataset_id=args.dataset_id,
+                schema=args.schema,
+                instrument_id=inst,
+                lookback_days=int(args.lookback_days),
+            )
 
     # Dataset build / HPO / teacher train
     ds_cfg = DatasetBuildConfig(
@@ -194,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Optional promotions/feature registration
     from typing import Any
+
     register_and_promote_model: Any
     register_or_refresh_features: Any
     try:
@@ -232,13 +249,14 @@ def main(argv: list[str] | None = None) -> int:
                             "threshold": float(g["threshold"]),
                             "comparison": str(g.get("comparison", "gte")),
                             "required": bool(g.get("required", True)),
-                        }
+                        },
                     )
             except Exception:
                 gates = []
         from typing import Any, cast
 
         from ml.registry.dataclasses import QualityGate
+
         qgates = [
             QualityGate(
                 metric_name=str(g["metric_name"]),
@@ -253,9 +271,15 @@ def main(argv: list[str] | None = None) -> int:
             # Integration for registries
             from ml.core.integration import MLIntegrationManager
 
-            mgr2 = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+            mgr2 = MLIntegrationManager(
+                auto_start_postgres=False,
+                auto_migrate=False,
+                ensure_healthy=False,
+            )
             model_id = register_and_promote_model(
-                model_metrics_path=str(metrics_path or (Path(str(args.out_dir)) / "model_metrics.json")),
+                model_metrics_path=str(
+                    metrics_path or (Path(str(args.out_dir)) / "model_metrics.json"),
+                ),
                 out_dir=str(args.out_dir),
                 registry=mgr2.model_registry,
                 feature_registry=mgr2.feature_registry,
@@ -272,11 +296,19 @@ def main(argv: list[str] | None = None) -> int:
     if register_or_refresh_features is not None and (
         bool(args.auto_register_features) or bool(args.feature_metrics_json)
     ):
-        metrics_path = str(args.feature_metrics_json) if args.feature_metrics_json else str(Path(str(args.out_dir)) / "feature_metrics.json")
+        metrics_path = (
+            str(args.feature_metrics_json)
+            if args.feature_metrics_json
+            else str(Path(str(args.out_dir)) / "feature_metrics.json")
+        )
         try:
             from ml.core.integration import MLIntegrationManager
 
-            mgr3 = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+            mgr3 = MLIntegrationManager(
+                auto_start_postgres=False,
+                auto_migrate=False,
+                ensure_healthy=False,
+            )
             register_or_refresh_features(
                 feature_metrics_path=metrics_path,
                 feature_registry=mgr3.feature_registry,
@@ -298,13 +330,20 @@ def main(argv: list[str] | None = None) -> int:
             from ml.core.integration import MLIntegrationManager
             from ml.registry.protocols import RegistryProtocol
 
-            mgr4 = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+            mgr4 = MLIntegrationManager(
+                auto_start_postgres=False,
+                auto_migrate=False,
+                ensure_healthy=False,
+            )
             reg = mgr4.data_registry
             import time as _time
 
             from ml.common.timestamps import sanitize_timestamp_ns as _sanitize
 
-            now_ns = _sanitize(int(_time.time_ns()), context="cli.pipeline_orchestrator:refresh_features.now")
+            now_ns = _sanitize(
+                int(_time.time_ns()),
+                context="cli.pipeline_orchestrator:refresh_features.now",
+            )
             emit_dataset_event(
                 cast(RegistryProtocol, reg),
                 dataset_id="features",

@@ -1,8 +1,9 @@
 """
 DB-backed read/stat/performance tests for ModelStore.
 
-Writes a few predictions, flushes, and asserts read APIs and stats populate
-expected fields and types.
+Writes a few predictions, flushes, and asserts read APIs and stats populate expected
+fields and types.
+
 """
 
 from __future__ import annotations
@@ -74,4 +75,3 @@ def test_model_store_reads_stats_and_performance(test_database) -> None:
     ]:
         assert isinstance(perf[key], float)
         assert perf[key] >= 0.0
-

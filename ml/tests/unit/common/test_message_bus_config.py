@@ -22,4 +22,3 @@ def test_publisher_from_config_redis_backend() -> None:
     pub = publisher_from_config(cfg)
     # Does not require real Redis client; constructor handles absence gracefully
     assert isinstance(pub, RedisStreamsPublisher)
-

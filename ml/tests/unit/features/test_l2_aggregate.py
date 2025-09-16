@@ -15,6 +15,7 @@ def _make_l2_df() -> pl.DataFrame:
     ts = [base + timedelta(seconds=i) for i in range(90)]  # 1.5 minutes
     # Construct synthetic book: prices increasing on ask, decreasing on bid, sizes constant
     from typing import Any
+
     data: dict[str, list[Any]] = {"ts_event": list(ts)}
     for i in range(10):
         data[f"bid_px_{i:02d}"] = [100.0 - 0.01 * i] * len(ts)

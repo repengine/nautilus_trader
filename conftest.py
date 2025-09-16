@@ -1,9 +1,10 @@
 """
 Repository-level pytest configuration helpers.
 
-This stub complements ml/pytest.ini when tests are invoked from the repo root
-by registering common markers and relaxing noisy warnings. It avoids changing
-test semantics and keeps behavior aligned with ml/pytest.ini.
+This stub complements ml/pytest.ini when tests are invoked from the repo root by
+registering common markers and relaxing noisy warnings. It avoids changing test
+semantics and keeps behavior aligned with ml/pytest.ini.
+
 """
 
 from __future__ import annotations
@@ -63,4 +64,7 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
     # Pytest fixtures usage warnings in example tests
     config.addinivalue_line("filterwarnings", "ignore::pytest.PytestReturnNotNoneWarning")
     # Pytest-benchmark plug-in noisy notices
-    config.addinivalue_line("filterwarnings", "ignore:.*Benchmark fixture was not used.*:pytest.PytestWarning")
+    config.addinivalue_line(
+        "filterwarnings",
+        "ignore:.*Benchmark fixture was not used.*:pytest.PytestWarning",
+    )

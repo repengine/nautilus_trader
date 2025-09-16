@@ -1016,8 +1016,8 @@ if is_test:
 
 ### Ground Truth Validation Summary
 
-**Review Conducted**: 2025-09-12  
-**Scope**: Complete analysis of `/home/nate/projects/nautilus_trader/ml/core/` module  
+**Review Conducted**: 2025-09-12
+**Scope**: Complete analysis of `/home/nate/projects/nautilus_trader/ml/core/` module
 **Methodology**: Documentation claims validated against actual implementation code
 
 ### Core Findings
@@ -1039,13 +1039,13 @@ if is_test:
      - Pre-allocated NumPy arrays with index wrapping ✓
      - Memory view access patterns ✓
      - Built-in statistics (mean, std, percentile) ✓
-   
+
    - **PreAllocatedFeatureCache**: All claims verified in `ml/core/cache.py:388-609`
      - Pre-allocated buffers for n_features and history_size ✓
      - ONNX-ready tensors with shape (1, n_features) ✓
      - Memory views for zero-copy access ✓
      - In-place normalization support ✓
-   
+
    - **ReservoirSampler**: All claims verified in `ml/core/cache.py:242-386`
      - Algorithm R implementation ✓
      - Bounded memory usage with fixed reservoir size ✓
@@ -1085,7 +1085,7 @@ if is_test:
 
 2. **Performance Characteristics (Cannot Validate)**
    - **Issue**: Documentation claims specific performance metrics:
-     - "Sub-5ms P99 latency" 
+     - "Sub-5ms P99 latency"
      - "Feature computation <500μs"
      - "Ring buffer operations <10μs"
      - "Zero growth over 24h continuous operation"
@@ -1105,9 +1105,11 @@ if is_test:
    - **File**: `ml/core/cache.py:521-538`
    - **Claim**: "ONNX Runtime integration with direct buffer reuse"
    - **Reality**: Method exists (`prepare_onnx_input()`) but performs **array copying**, not direct buffer reuse:
+
      ```python
      self._onnx_input_buffer[0] = source  # This is a copy operation
      ```
+
    - **Impact**: Minor performance implications, not zero-copy as claimed
 
 2. **Completion Percentage Hyperbole**
@@ -1131,6 +1133,7 @@ if is_test:
 ### Code Quality Assessment
 
 #### Strengths
+
 - **Type Safety**: Comprehensive type annotations with protocol-based interfaces
 - **Error Handling**: Robust exception handling with progressive fallback
 - **Thread Safety**: Proper locking patterns and singleton implementations
@@ -1138,6 +1141,7 @@ if is_test:
 - **Modularity**: Clean separation of concerns across modules
 
 #### Areas for Improvement
+
 - **Performance Validation**: Add benchmarks to validate performance claims
 - **Test Coverage**: Some edge cases in fallback scenarios could use more testing
 - **Observability**: Complete the observability integration or document limitations
@@ -1149,7 +1153,7 @@ if is_test:
 The `ml/core` module documentation is highly accurate with excellent implementation fidelity. The architecture is sound, the code quality is high, and the claimed functionality is largely present. Minor issues are primarily around:
 
 1. Performance claims that lack validation
-2. Overstated completion percentages 
+2. Overstated completion percentages
 3. Some features being more limited than documentation suggests
 
 **Recommendation**: This is production-ready code with solid architecture. Address performance validation and adjust completion claims for complete accuracy.

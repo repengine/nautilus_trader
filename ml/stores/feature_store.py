@@ -59,10 +59,10 @@ from ml.stores.mixins import HealthMixin
 
 if TYPE_CHECKING:
     import pandas as pd
-    from nautilus_trader.model.data import Bar
     from polars import DataFrame as PlDataFrame
 
     from ml.registry.protocols import RegistryProtocol
+    from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)
@@ -879,6 +879,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         from sqlalchemy import text as _text
 
         from ml._imports import pl
+
         pl = _cast(_Any, pl)
         from ml.common.timestamps import sanitize_timestamp_ns
 
@@ -915,6 +916,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             )
             pdf = pd.read_sql_query(sql, conn, params=_params)
         from typing import cast as _cast
+
         return _cast("PlDataFrame", pl.from_pandas(pdf))
 
     def _features_exist(
@@ -1188,7 +1190,9 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         ts_stage_end: int,
         row_count: int = 1,
     ) -> None:
-        """Record observability data via centralized helper (cold path only)."""
+        """
+        Record observability data via centralized helper (cold path only).
+        """
         from ml.common.observability_utils import record_stage_boundary as _rec
 
         obs_service = getattr(self, "_observability_service", None)

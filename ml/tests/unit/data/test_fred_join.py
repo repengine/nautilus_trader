@@ -9,10 +9,17 @@ from ml._imports import HAS_POLARS, pl
 def test_join_fred_asof_polars_smoke(monkeypatch) -> None:
     assert pl is not None
     # Left frame: daily timestamps
-    left = pl.DataFrame({
-        "timestamp": pl.datetime_range(start=pl.datetime(2024, 1, 1), end=pl.datetime(2024, 1, 3), interval="1d", eager=True),
-        "price": [1.0, 1.1, 1.2],
-    })
+    left = pl.DataFrame(
+        {
+            "timestamp": pl.datetime_range(
+                start=pl.datetime(2024, 1, 1),
+                end=pl.datetime(2024, 1, 3),
+                interval="1d",
+                eager=True,
+            ),
+            "price": [1.0, 1.1, 1.2],
+        },
+    )
 
     # Create a small FRED ML-format file substitute in-memory by monkeypatching loader if needed.
     # For smoke test, call function and ensure it returns a DataFrame with same row count.

@@ -23,11 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from nautilus_trader.core.data import Data
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.identifiers import InstrumentId
 
 from ml.common import event_emitter as _event_emitter
 from ml.config.events import EventStatus
@@ -36,6 +31,11 @@ from ml.config.events import Stage
 from ml.registry.data_registry import DataRegistry
 from ml.stores.data_store import DataStore
 from ml.stores.protocols import MarketDataWriterProtocol
+from nautilus_trader.core.data import Data
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 logger = logging.getLogger(__name__)

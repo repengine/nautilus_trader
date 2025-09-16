@@ -42,7 +42,9 @@ Base = declarative_base()
 
 
 def utcnow() -> datetime:
-    """Timezone-aware UTC now to avoid deprecation warnings."""
+    """
+    Timezone-aware UTC now to avoid deprecation warnings.
+    """
     return datetime.now(UTC)
 
 

@@ -83,4 +83,3 @@ def test_has_columns_and_missing() -> None:
 )
 def test_is_monotonic_non_decreasing(seq: list[int], expected: bool) -> None:
     assert is_monotonic_non_decreasing(seq) is expected
-

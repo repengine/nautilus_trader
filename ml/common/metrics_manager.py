@@ -68,7 +68,12 @@ class MetricsManager:
     _cache: dict[str, Any] = field(default_factory=dict)
 
     # --------- Metric acquisition ---------
-    def counter(self, name: str, description: str, labels: Iterable[str] | None = None) -> _CounterLike:
+    def counter(
+        self,
+        name: str,
+        description: str,
+        labels: Iterable[str] | None = None,
+    ) -> _CounterLike:
         k = _key(name, labels, "ctr")
         metric = self._cache.get(k)
         if metric is None:
@@ -128,7 +133,12 @@ class MetricsManager:
         labelnames: Iterable[str] | None = None,
         buckets: Iterable[float] | None = None,
     ) -> None:
-        hist = self.histogram(name, description, list(labelnames or (labels or {}).keys()), buckets=buckets)
+        hist = self.histogram(
+            name,
+            description,
+            list(labelnames or (labels or {}).keys()),
+            buckets=buckets,
+        )
         hist.labels(**(dict(labels or {}))).observe(float(value))
 
     def set_gauge(

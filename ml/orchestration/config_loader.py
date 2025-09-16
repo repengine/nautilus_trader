@@ -5,7 +5,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402  # Allow module docstring preceding imports per project style
 
-
 """
 Configuration loader for the pipeline orchestrator (cold path).
 
@@ -137,6 +136,7 @@ def load_orchestrator_config(path: str | None) -> OrchestratorConfig:
 
     The expected top-level keys are ``dataset``, ``hpo``, and ``teacher``; any
     additional keys are ignored by this loader.
+
     """
     # Provide a reasonable default if path is None (suitable for local runs/tests)
     if path is None:
@@ -161,15 +161,21 @@ def load_orchestrator_config(path: str | None) -> OrchestratorConfig:
             feature_metrics_json=p.get("feature_metrics_json"),
             refresh_features=_coerce_bool(p.get("refresh_features", False)),
         )
-    return OrchestratorConfig(dataset=dataset_cfg, hpo=hpo_cfg, teacher=teacher_cfg, promotions=promotions_cfg)
+    return OrchestratorConfig(
+        dataset=dataset_cfg,
+        hpo=hpo_cfg,
+        teacher=teacher_cfg,
+        promotions=promotions_cfg,
+    )
 
 
 def to_pipeline_args(cfg: OrchestratorConfig) -> list[str]:
     """
     Convert OrchestratorConfig to CLI arguments for ml.cli.pipeline_orchestrator.
 
-    Only includes dataset/HPO/teacher arguments. The orchestrator CLI controls
-    ingestion and writer/coverage choices independently.
+    Only includes dataset/HPO/teacher arguments. The orchestrator CLI controls ingestion
+    and writer/coverage choices independently.
+
     """
     if not is_dataclass(cfg):  # defensive typing guard
         raise TypeError("cfg must be a dataclass OrchestratorConfig")

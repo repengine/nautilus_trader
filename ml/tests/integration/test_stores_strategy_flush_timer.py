@@ -28,7 +28,12 @@ pytestmark = [
 def test_flush_by_time_trigger(clean_postgres_db, postgres_connection: str) -> None:  # type: ignore[override]
     now = time.time_ns()
     clock = FakeClock(now)
-    store = StrategyStore(connection_string=postgres_connection, batch_size=1000, flush_interval_seconds=0.01, clock=clock)
+    store = StrategyStore(
+        connection_string=postgres_connection,
+        batch_size=1000,
+        flush_interval_seconds=0.01,
+        clock=clock,
+    )
 
     # Seed a first record and flush to initialize last_flush_ns
     store.write_signal(
@@ -62,4 +67,3 @@ def test_flush_by_time_trigger(clean_postgres_db, postgres_connection: str) -> N
     # Ensure persisted by reading the range
     df = store.read_signals("S", "SPY", now - 1000, now + 10_000)
     assert len(df) >= 2
-

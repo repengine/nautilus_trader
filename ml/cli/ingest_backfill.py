@@ -26,7 +26,6 @@ from ml.stores.providers import SqlMarketDataWriter
 
 if TYPE_CHECKING:  # pragma: no cover
     from nautilus_trader.model.data import Bar as NautilusBar
-
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 else:  # pragma: no cover - avoid hard dependency for tools
     NautilusBar = object  # type: ignore[assignment]

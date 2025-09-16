@@ -31,6 +31,7 @@ class TestLatencyWatermarks:
         ]
         df = build_latency_watermarks(rows)
         from typing import Any as _Any
+
         assert (_cast(_Any, (df["ts_stage_end"] >= df["ts_stage_start"]))).all()
         assert (
             df["stage_latency_ns"] == (df["ts_stage_end"] - df["ts_stage_start"]).clip(lower=0)
@@ -59,7 +60,9 @@ class TestMetricsCollection:
         ]
         df = build_metrics_collection(rows)
         assert df["labels"].apply(lambda s: isinstance(s, str) and json.loads(s)).all()
-        assert pd.api.types.is_float_dtype(df["value"]) and pd.api.types.is_integer_dtype(df["timestamp"])
+        assert pd.api.types.is_float_dtype(df["value"]) and pd.api.types.is_integer_dtype(
+            df["timestamp"],
+        )
 
 
 class TestEventCorrelation:

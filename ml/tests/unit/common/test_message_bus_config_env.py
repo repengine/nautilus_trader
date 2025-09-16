@@ -46,4 +46,3 @@ def test_message_bus_config_from_env_overrides(monkeypatch: pytest.MonkeyPatch) 
     assert cfg.redis_url == "redis://example:6380/1"
     assert cfg.redis_stream == "custom-stream"
     assert cfg.redis_maxlen == 1000
-

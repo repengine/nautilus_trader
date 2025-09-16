@@ -37,7 +37,10 @@ class CapturePublisher(MessagePublisherProtocol):
 def test_feature_store_honors_env_topic_scheme_and_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     # Avoid real DB interactions
     monkeypatch.setattr("ml.stores.feature_store.FeatureStore._setup_tables", lambda self: None)
-    monkeypatch.setattr("ml.stores.feature_store.FeatureStore._execute_write", lambda self, row: None)
+    monkeypatch.setattr(
+        "ml.stores.feature_store.FeatureStore._execute_write",
+        lambda self, row: None,
+    )
 
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_TOPIC_PREFIX": "custom.prefix"}):
@@ -60,4 +63,3 @@ def test_feature_store_honors_env_topic_scheme_and_prefix(monkeypatch: pytest.Mo
         assert topic.startswith("custom.prefix.FEATURE_COMPUTED."), topic
         assert payload["stage"] == "FEATURE_COMPUTED"
         assert payload["status"] in {"success", "partial", "failed"}
-

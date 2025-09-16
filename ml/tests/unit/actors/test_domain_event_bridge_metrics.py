@@ -26,11 +26,27 @@ class FakeMM:
         self.gauges: list[tuple[str, dict[str, Any], float]] = []
 
     # Counter-like
-    def inc(self, name: str, desc: str, *, labels: dict[str, Any] | None = None, amount: float = 1.0, labelnames: tuple[str, ...] | None = None) -> None:
+    def inc(
+        self,
+        name: str,
+        desc: str,
+        *,
+        labels: dict[str, Any] | None = None,
+        amount: float = 1.0,
+        labelnames: tuple[str, ...] | None = None,
+    ) -> None:
         self.incs.append((name, dict(labels or {})))
 
     # Gauge-like
-    def set_gauge(self, name: str, desc: str, value: float, *, labels: dict[str, Any] | None = None, labelnames: tuple[str, ...] | None = None) -> None:
+    def set_gauge(
+        self,
+        name: str,
+        desc: str,
+        value: float,
+        *,
+        labels: dict[str, Any] | None = None,
+        labelnames: tuple[str, ...] | None = None,
+    ) -> None:
         self.gauges.append((name, dict(labels or {}), float(value)))
 
 
@@ -53,8 +69,14 @@ def test_metrics_increment_on_queue_full(metrics_patch: FakeMM) -> None:
         bridge.stop(drain=True)
 
     # Ensure at least one drop metric was recorded with reason queue_full
-    drop_reasons = [labels.get("reason") for name, labels in metrics_patch.incs if name == "nautilus_ml_backpressure_drops_total"]
-    assert "queue_full" in drop_reasons or len(drop_reasons) >= 0  # presence or benign no-op in fast drain
+    drop_reasons = [
+        labels.get("reason")
+        for name, labels in metrics_patch.incs
+        if name == "nautilus_ml_backpressure_drops_total"
+    ]
+    assert (
+        "queue_full" in drop_reasons or len(drop_reasons) >= 0
+    )  # presence or benign no-op in fast drain
 
 
 def test_metrics_increment_on_throttle(metrics_patch: FakeMM) -> None:
@@ -70,7 +92,11 @@ def test_metrics_increment_on_throttle(metrics_patch: FakeMM) -> None:
     finally:
         bridge.stop(drain=True)
 
-    drop_reasons = [labels.get("reason") for name, labels in metrics_patch.incs if name == "nautilus_ml_backpressure_drops_total"]
+    drop_reasons = [
+        labels.get("reason")
+        for name, labels in metrics_patch.incs
+        if name == "nautilus_ml_backpressure_drops_total"
+    ]
     assert "throttled" in drop_reasons
 
 

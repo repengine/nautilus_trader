@@ -8,8 +8,10 @@ replacing the need for custom loaders.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from collections.abc import Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
@@ -169,7 +171,10 @@ def _load_and_build_df(
     instrument_ids: list[str],
     start: datetime | str | None,
     end: datetime | str | None,
-    loader: Callable[[ParquetDataCatalog, list[InstrumentId], datetime | str | None, datetime | str | None], Iterable[Any]],
+    loader: Callable[
+        [ParquetDataCatalog, list[InstrumentId], datetime | str | None, datetime | str | None],
+        Iterable[Any],
+    ],
     row_builder: Callable[[Any], dict[str, Any]],
     empty_columns: list[str],
 ) -> PolarsDF:
@@ -190,9 +195,11 @@ def _load_and_build_df(
     if not items:
         # Return empty DataFrame with expected schema
         from typing import cast as _cast
+
         return _cast(PolarsDF, _pl.DataFrame({col: [] for col in empty_columns}))
 
     # Build rows
     data = [row_builder(item) for item in items]
     from typing import cast as _cast
+
     return _cast(PolarsDF, _pl.DataFrame(data))

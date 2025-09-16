@@ -9,7 +9,11 @@ from ml.observability.service import ObservabilityService
 
 
 class TestObservabilityPersistorJsonl:
-    def test_persist_writes_non_empty_tables_as_jsonl(self, tmp_path: Path, default_instrument_id) -> None:
+    def test_persist_writes_non_empty_tables_as_jsonl(
+        self,
+        tmp_path: Path,
+        default_instrument_id,
+    ) -> None:
         svc = ObservabilityService()
 
         # Add at least one row to each category
@@ -67,7 +71,11 @@ class TestObservabilityPersistorJsonl:
 
 
 class TestIntegrationFlush:
-    def test_integration_manager_flushes_observability_to_path(self, tmp_path: Path, default_instrument_id) -> None:
+    def test_integration_manager_flushes_observability_to_path(
+        self,
+        tmp_path: Path,
+        default_instrument_id,
+    ) -> None:
         mgr = object.__new__(MLIntegrationManager)  # type: ignore[misc]
 
         # Initialize service and add a couple of rows

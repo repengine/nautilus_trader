@@ -27,6 +27,7 @@ Optional:
 Notes:
 - This script uses AST (no imports) to avoid side effects.
 - Methods listed only for classes with public names (unless --include-private).
+
 """
 
 from __future__ import annotations
@@ -135,7 +136,10 @@ def _collect_symbols_from_file(
 
     class Visitor(ast.NodeVisitor):
         def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:  # module-level function
-            if isinstance(getattr(node, "parent", None), ast.Module) and _is_public(node.name, include_private):
+            if isinstance(getattr(node, "parent", None), ast.Module) and _is_public(
+                node.name,
+                include_private,
+            ):
                 doc = ast.get_docstring(node)
                 start = getattr(node, "lineno", 0)
                 end = getattr(node, "end_lineno", start)
@@ -236,7 +240,10 @@ def build_index(
     for py in _iter_py_files(root):
         items.extend(
             _collect_symbols_from_file(
-                py, repo_root=repo_root, base_url=base_url, include_private=include_private
+                py,
+                repo_root=repo_root,
+                base_url=base_url,
+                include_private=include_private,
             ),
         )
     # Sort alphabetically by qualname
@@ -250,9 +257,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     ap.add_argument(
         "--output",
         default=None,
-        help=(
-            "Output JSON file path (default: <root>/public_api_index.json). Use '-' for stdout."
-        ),
+        help=("Output JSON file path (default: <root>/public_api_index.json). Use '-' for stdout."),
     )
     ap.add_argument("--include-private", action="store_true", help="Include private symbols")
     ap.add_argument(

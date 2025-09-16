@@ -9,6 +9,7 @@ These tests validate that all dataset event emission follows consistent patterns
 3. Metrics labeling consistency
 4. Correlation ID attachment
 5. Watermark behavior
+
 """
 
 from __future__ import annotations
@@ -27,17 +28,23 @@ from ml.registry.protocols import RegistryProtocol
 
 
 class TestDatasetEventContracts:
-    """Contract tests for dataset event emission patterns."""
+    """
+    Contract tests for dataset event emission patterns.
+    """
 
     @pytest.fixture
     def mock_registry(self) -> MagicMock:
-        """Mock registry for testing event emission."""
+        """
+        Mock registry for testing event emission.
+        """
         registry = MagicMock(spec=RegistryProtocol)
         return registry
 
     @pytest.fixture
     def data_store(self, mock_registry: MagicMock) -> DataStore:
-        """Data store with mocked registry for testing."""
+        """
+        Data store with mocked registry for testing.
+        """
         return DataStore(
             connection_string="sqlite:///:memory:",
             registry=mock_registry,
@@ -45,7 +52,9 @@ class TestDatasetEventContracts:
         )
 
     def test_emit_dataset_event_required_fields(self, mock_registry: MagicMock) -> None:
-        """Test that emit_dataset_event requires all essential fields."""
+        """
+        Test that emit_dataset_event requires all essential fields.
+        """
         # Test successful call with all required fields
         emit_dataset_event(
             mock_registry,
@@ -66,14 +75,23 @@ class TestDatasetEventContracts:
 
         # Verify all required fields are present
         required_fields = {
-            "dataset_id", "instrument_id", "stage", "source",
-            "run_id", "ts_min", "ts_max", "count", "status"
+            "dataset_id",
+            "instrument_id",
+            "stage",
+            "source",
+            "run_id",
+            "ts_min",
+            "ts_max",
+            "count",
+            "status",
         }
         for field in required_fields:
             assert field in call_args.kwargs, f"Missing required field: {field}"
 
     def test_emit_dataset_event_enum_types(self, mock_registry: MagicMock) -> None:
-        """Test that emit_dataset_event properly handles enum types."""
+        """
+        Test that emit_dataset_event properly handles enum types.
+        """
         emit_dataset_event(
             mock_registry,
             dataset_id="test_dataset",
@@ -100,7 +118,9 @@ class TestDatasetEventContracts:
         assert call_args.kwargs["status"] == EventStatus.PARTIAL
 
     def test_emit_dataset_event_correlation_id_attachment(self, mock_registry: MagicMock) -> None:
-        """Test that correlation_id is deterministically attached."""
+        """
+        Test that correlation_id is deterministically attached.
+        """
         emit_dataset_event(
             mock_registry,
             dataset_id="test_dataset",
@@ -131,8 +151,13 @@ class TestDatasetEventContracts:
         )
         assert metadata["correlation_id"] == expected_correlation_id
 
-    def test_emit_dataset_event_preserves_existing_correlation_id(self, mock_registry: MagicMock) -> None:
-        """Test that existing correlation_id is preserved if provided."""
+    def test_emit_dataset_event_preserves_existing_correlation_id(
+        self,
+        mock_registry: MagicMock,
+    ) -> None:
+        """
+        Test that existing correlation_id is preserved if provided.
+        """
         custom_correlation_id = "custom_corr_id_12345"
 
         emit_dataset_event(
@@ -157,7 +182,10 @@ class TestDatasetEventContracts:
         assert metadata["other_field"] == "value"
 
     def test_emit_dataset_event_and_watermark_calls_both(self, mock_registry: MagicMock) -> None:
-        """Test that emit_dataset_event_and_watermark calls both event and watermark updates."""
+        """
+        Test that emit_dataset_event_and_watermark calls both event and watermark
+        updates.
+        """
         emit_dataset_event_and_watermark(
             mock_registry,
             dataset_id="test_dataset",
@@ -185,7 +213,9 @@ class TestDatasetEventContracts:
         assert watermark_call.kwargs["completeness_pct"] == 100.0
 
     def test_emit_dataset_event_metrics_labeling(self, mock_registry: MagicMock) -> None:
-        """Test consistent metrics labeling across event emissions."""
+        """
+        Test consistent metrics labeling across event emissions.
+        """
         test_cases = [
             {
                 "dataset_type": "bars_data",
@@ -224,7 +254,9 @@ class TestDatasetEventContracts:
         assert mock_registry.emit_event.call_count == len(test_cases)
 
     def test_data_store_emit_event_uses_centralized_helper(self, data_store: DataStore) -> None:
-        """Test that DataStore.emit_event uses centralized helper."""
+        """
+        Test that DataStore.emit_event uses centralized helper.
+        """
         data_store.emit_event(
             dataset_id="test_dataset",
             instrument_id="EUR/USD",
@@ -247,7 +279,9 @@ class TestDatasetEventContracts:
         assert "correlation_id" in metadata
 
     def test_data_store_partial_event_uses_centralized_helper(self, data_store: DataStore) -> None:
-        """Test that DataStore._emit_partial_event uses centralized helper."""
+        """
+        Test that DataStore._emit_partial_event uses centralized helper.
+        """
         data_store._emit_partial_event(
             dataset_id="test_dataset",
             instrument_id="EUR/USD",
@@ -275,7 +309,9 @@ class TestDatasetEventContracts:
         assert "correlation_id" in metadata
 
     def test_data_store_failed_event_uses_centralized_helper(self, data_store: DataStore) -> None:
-        """Test that DataStore._emit_failed_event uses centralized helper."""
+        """
+        Test that DataStore._emit_failed_event uses centralized helper.
+        """
         data_store._emit_failed_event(
             dataset_id="test_dataset",
             instrument_id="EUR/USD",
@@ -303,7 +339,9 @@ class TestDatasetEventContracts:
         assert "correlation_id" in metadata
 
     def test_event_enum_value_constraints(self, mock_registry: MagicMock) -> None:
-        """Test that event enums enforce valid values."""
+        """
+        Test that event enums enforce valid values.
+        """
         # Test valid enum values
         valid_stages = [Stage.FEATURE_COMPUTED, Stage.PREDICTION_EMITTED, Stage.CATALOG_WRITTEN]
         valid_sources = [Source.LIVE, Source.HISTORICAL, Source.BACKFILL]
@@ -330,7 +368,9 @@ class TestDatasetEventContracts:
         assert mock_registry.emit_event.call_count == expected_calls
 
     def test_event_field_types_validation(self, mock_registry: MagicMock) -> None:
-        """Test that event fields have correct types."""
+        """
+        Test that event fields have correct types.
+        """
         emit_dataset_event(
             mock_registry,
             dataset_id="type_test",
@@ -362,7 +402,9 @@ class TestDatasetEventContracts:
         assert isinstance(metadata, dict)
 
     def test_timestamp_ordering_validation(self, mock_registry: MagicMock) -> None:
-        """Test that ts_min <= ts_max constraint is documented."""
+        """
+        Test that ts_min <= ts_max constraint is documented.
+        """
         # This test documents the expected timestamp ordering
         # Implementation should validate ts_min <= ts_max
 
@@ -386,7 +428,9 @@ class TestDatasetEventContracts:
         assert call_args.kwargs["ts_min"] <= call_args.kwargs["ts_max"]
 
     def test_correlation_id_determinism(self, mock_registry: MagicMock) -> None:
-        """Test that correlation_id generation is deterministic."""
+        """
+        Test that correlation_id generation is deterministic.
+        """
         params = {
             "dataset_id": "determinism_test",
             "instrument_id": "EUR/USD",
@@ -414,7 +458,10 @@ class TestDatasetEventContracts:
         assert first_correlation_id == second_correlation_id
 
     def test_backward_compatibility_with_string_enums(self, data_store: DataStore) -> None:
-        """Test that DataStore methods accept string enum values for backward compatibility."""
+        """
+        Test that DataStore methods accept string enum values for backward
+        compatibility.
+        """
         # Test emit_event with string values (should convert to enums)
         data_store.emit_event(
             dataset_id="compat_test",
@@ -439,10 +486,14 @@ class TestDatasetEventContracts:
 
 
 class TestEventShapeContracts:
-    """Test contracts for event data shapes and structures."""
+    """
+    Test contracts for event data shapes and structures.
+    """
 
     def test_metadata_structure_contract(self) -> None:
-        """Test that metadata follows expected structure."""
+        """
+        Test that metadata follows expected structure.
+        """
         # Define expected metadata structure
         expected_metadata_fields = {
             "correlation_id": str,  # Always present, deterministic
@@ -478,13 +529,16 @@ class TestEventShapeContracts:
 
         # Verify all metadata values are JSON-serializable
         import json
+
         try:
             json.dumps(metadata)
         except (TypeError, ValueError) as e:
             pytest.fail(f"Metadata not JSON-serializable: {e}")
 
     def test_event_payload_completeness(self) -> None:
-        """Test that event payloads contain all required fields for observability."""
+        """
+        Test that event payloads contain all required fields for observability.
+        """
         mock_registry = MagicMock(spec=RegistryProtocol)
 
         emit_dataset_event_and_watermark(
@@ -508,8 +562,16 @@ class TestEventShapeContracts:
 
         # Check required fields for observability
         required_fields = [
-            "dataset_id", "instrument_id", "stage", "source",
-            "run_id", "ts_min", "ts_max", "count", "status", "metadata"
+            "dataset_id",
+            "instrument_id",
+            "stage",
+            "source",
+            "run_id",
+            "ts_min",
+            "ts_max",
+            "count",
+            "status",
+            "metadata",
         ]
 
         for field in required_fields:
@@ -520,8 +582,12 @@ class TestEventShapeContracts:
         watermark_payload = watermark_call.kwargs
 
         required_watermark_fields = [
-            "dataset_id", "instrument_id", "source",
-            "last_success_ns", "count", "completeness_pct"
+            "dataset_id",
+            "instrument_id",
+            "source",
+            "last_success_ns",
+            "count",
+            "completeness_pct",
         ]
 
         for field in required_watermark_fields:

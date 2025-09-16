@@ -14,9 +14,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from nautilus_trader.model.data import BarSpecification
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import InstrumentId
 
 # Import ML dependencies with centralized management
 from ml._imports import HAS_POLARS
@@ -25,9 +22,12 @@ from ml.config.constants import MLConstants
 from ml.features.engineering import FeatureConfig
 from ml.features.engineering import FeatureEngineer
 from ml.features.engineering import IndicatorManager
+from nautilus_trader.model.data import BarSpecification
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import PriceType
+from nautilus_trader.model.identifiers import InstrumentId
 
 
 POLARS_AVAILABLE = HAS_POLARS

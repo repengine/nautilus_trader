@@ -275,7 +275,9 @@ class TestFeatureStoreIntegration:
             # Verify custom configuration
             assert actor._feature_store is not None
             assert actor._persist_features is False
-            assert cast(Any, actor._feature_store).connection_string == test_database.connection_string
+            assert (
+                cast(Any, actor._feature_store).connection_string == test_database.connection_string
+            )
             # Access attribute via Any to satisfy protocol-typed attribute access under mypy
             assert cast(Any, actor._feature_store).feature_config == feature_config
 

@@ -56,8 +56,18 @@ def _patch_model_store_io(sink: list[dict[str, Any]]):
             {
                 "model_id": st.text(min_size=1, max_size=10),
                 "instrument_id": st.from_regex(r"[A-Z]{3,6}/[A-Z]{3,6}\.SIM", fullmatch=True),
-                "prediction": st.floats(min_value=-1.0, max_value=1.0, allow_nan=False, allow_infinity=False),
-                "confidence": st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+                "prediction": st.floats(
+                    min_value=-1.0,
+                    max_value=1.0,
+                    allow_nan=False,
+                    allow_infinity=False,
+                ),
+                "confidence": st.floats(
+                    min_value=0.0,
+                    max_value=1.0,
+                    allow_nan=False,
+                    allow_infinity=False,
+                ),
                 "inference_time_ms": st.floats(min_value=0.0, max_value=5000.0),
             },
         ),
@@ -66,7 +76,10 @@ def _patch_model_store_io(sink: list[dict[str, Any]]):
     ),
     base_ts=st.integers(min_value=0, max_value=1_000_000_000),
 )
-def test_model_store_write_batch_invariants(preds: list[dict[str, Any]], base_ts: int) -> None:  # noqa: ANN201
+def test_model_store_write_batch_invariants(
+    preds: list[dict[str, Any]],
+    base_ts: int,
+) -> None:  # noqa: ANN201
     sink: list[dict[str, Any]] = []
     # Build monotonic timestamps and create data objects
     data: list[ModelPrediction] = []

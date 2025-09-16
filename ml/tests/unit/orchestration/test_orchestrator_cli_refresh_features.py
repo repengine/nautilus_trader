@@ -53,14 +53,21 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
     from ml.cli.pipeline_orchestrator import main as orch_main
 
     out_dir = tmp_path / "out"
-    rc = orch_main([
-        "--coverage_mode", "sql",
-        "--write_mode", "datastore",
-        "--data_dir", str(tmp_path),
-        "--symbols", "SPY.NYSE",
-        "--out_dir", str(out_dir),
-        "--refresh_features",
-    ])
+    rc = orch_main(
+        [
+            "--coverage_mode",
+            "sql",
+            "--write_mode",
+            "datastore",
+            "--data_dir",
+            str(tmp_path),
+            "--symbols",
+            "SPY.NYSE",
+            "--out_dir",
+            str(out_dir),
+            "--refresh_features",
+        ],
+    )
     assert rc == 0
     # One event should be emitted with FEATURE_COMPUTED stage
     assert emitter.calls, "emit_dataset_event should have been called"

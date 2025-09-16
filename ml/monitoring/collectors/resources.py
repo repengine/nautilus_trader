@@ -494,6 +494,7 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         except ImportError as exc:
             # psutil not available - skip system monitoring
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
                 "psutil unavailable; skipping system resource metrics: %s",
                 exc,
@@ -543,6 +544,7 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
         except ImportError as exc:
             # GPU libraries not available
             import logging as _logging
+
             _logging.getLogger(__name__).debug(
                 "GPU libraries unavailable; skipping GPU metrics: %s",
                 exc,

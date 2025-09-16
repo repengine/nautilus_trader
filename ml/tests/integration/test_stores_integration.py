@@ -247,7 +247,13 @@ class TestModelStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_read_latest_predictions(self, model_store, mock_persistence_manager, default_instrument_id, sample_features):
+    def test_read_latest_predictions(
+        self,
+        model_store,
+        mock_persistence_manager,
+        default_instrument_id,
+        sample_features,
+    ):
         """
         Test reading latest predictions.
         """
@@ -286,7 +292,13 @@ class TestModelStore:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_get_model_performance(self, model_store, mock_persistence_manager, default_instrument_id, sample_features):
+    def test_get_model_performance(
+        self,
+        model_store,
+        mock_persistence_manager,
+        default_instrument_id,
+        sample_features,
+    ):
         """
         Test getting model performance metrics.
         """
@@ -367,7 +379,12 @@ class TestStrategyStore:
     @pytest.mark.serial
     @pytest.mark.integration
     @pytest.mark.usefixtures("clean_postgres_db")
-    def test_read_active_signals(self, strategy_store, mock_persistence_manager, default_instrument_id):
+    def test_read_active_signals(
+        self,
+        strategy_store,
+        mock_persistence_manager,
+        default_instrument_id,
+    ):
         """
         Test reading active signals.
         """
@@ -603,7 +620,15 @@ class TestIntegration:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_end_to_end_flow(self, feature_store, model_store, strategy_store, data_processor, default_instrument_id, sample_features):
+    def test_end_to_end_flow(
+        self,
+        feature_store,
+        model_store,
+        strategy_store,
+        data_processor,
+        default_instrument_id,
+        sample_features,
+    ):
         """
         Test complete data flow through all stores.
         """

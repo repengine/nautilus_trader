@@ -7,6 +7,7 @@ helper functions and monthly partitions exist for the ML tables used by tests.
 
 It is intentionally idempotent and safe to run when PostgreSQL is unavailable; in that
 case, it exits quietly.
+
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ from ml.core.db_engine import EngineManager
 
 
 def _ensure_functions_and_partitions(engine: Engine) -> None:
-    """Create helper functions and current-month partitions if missing."""
+    """
+    Create helper functions and current-month partitions if missing.
+    """
     with engine.begin() as conn:
         # Create helper functions used by preflight checks
         try:
@@ -44,35 +47,45 @@ def _ensure_functions_and_partitions(engine: Engine) -> None:
 
         # Ensure DEFAULT partitions exist for partitioned tables so inserts do not fail
         try:
-            conn.execute(text(
-                "CREATE TABLE IF NOT EXISTS ml_feature_values_default PARTITION OF ml_feature_values DEFAULT",
-            ))
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS ml_feature_values_default PARTITION OF ml_feature_values DEFAULT",
+                ),
+            )
         except Exception:
             pass
         try:
-            conn.execute(text(
-                "CREATE TABLE IF NOT EXISTS ml_model_predictions_default PARTITION OF ml_model_predictions DEFAULT",
-            ))
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS ml_model_predictions_default PARTITION OF ml_model_predictions DEFAULT",
+                ),
+            )
         except Exception:
             pass
         try:
-            conn.execute(text(
-                "CREATE TABLE IF NOT EXISTS ml_strategy_signals_default PARTITION OF ml_strategy_signals DEFAULT",
-            ))
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS ml_strategy_signals_default PARTITION OF ml_strategy_signals DEFAULT",
+                ),
+            )
         except Exception:
             pass
 
         # Ensure required unique index for FeatureStore upserts exists
         try:
-            conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key ON public.ml_feature_values (feature_set_id, instrument_id, ts_event)",
-            ))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key ON public.ml_feature_values (feature_set_id, instrument_id, ts_event)",
+                ),
+            )
         except Exception:
             pass
 
 
 def main() -> None:
-    """Run database remediation if DATABASE_URL is set and reachable."""
+    """
+    Run database remediation if DATABASE_URL is set and reachable.
+    """
     url = os.getenv("DATABASE_URL")
     if not url:
         return

@@ -9,7 +9,8 @@ constant over time, making them ideal for TFT static covariates.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast as _cast
+from typing import TYPE_CHECKING, Any
+from typing import cast as _cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
@@ -18,8 +19,9 @@ from ml.data.sources.metadata import default_metadata
 
 
 if TYPE_CHECKING:
-    from ml.data.sources.metadata import MetadataSource
     from polars import DataFrame as PlDataFrame
+
+    from ml.data.sources.metadata import MetadataSource
 else:  # pragma: no cover - typing only
     PlDataFrame = Any  # type: ignore[assignment]
 
@@ -89,7 +91,9 @@ class InstrumentMetadataProvider(BaseStaticProvider):
 
     # Backwards compatibility for tests expecting get_metadata
     def get_metadata(self, instruments: list[str]) -> PlDataFrame:
-        """Alias for load_metadata for backwards compatibility in tests."""
+        """
+        Alias for load_metadata for backwards compatibility in tests.
+        """
         return self.load_metadata(instruments)
 
     def validate_data(self, data: PlDataFrame) -> bool:
@@ -239,7 +243,9 @@ class InstrumentMetadataProvider(BaseStaticProvider):
             # Add missing columns to missing_df
             for col in all_columns - set(_cast(Any, missing_df).columns):
                 col_type = _cast(Any, data)[col].dtype
-                missing_df = _cast(Any, missing_df).with_columns(PL.lit(None).cast(col_type).alias(col))
+                missing_df = _cast(Any, missing_df).with_columns(
+                    PL.lit(None).cast(col_type).alias(col),
+                )
 
             # Ensure column order matches
             column_order = sorted(all_columns)
@@ -250,4 +256,7 @@ class InstrumentMetadataProvider(BaseStaticProvider):
 
         # Filter to only requested instruments
         PL = _cast(Any, pl)
-        return _cast(PlDataFrame, _cast(Any, data).filter(PL.col("instrument_id").is_in(instruments)))
+        return _cast(
+            PlDataFrame,
+            _cast(Any, data).filter(PL.col("instrument_id").is_in(instruments)),
+        )

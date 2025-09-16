@@ -1,8 +1,9 @@
 """
 MetricsManager histogram observe test.
 
-Patches the bootstrap get_histogram to return a fake with labels().observe(),
-then verifies that observe flows through with expected labels and value.
+Patches the bootstrap get_histogram to return a fake with labels().observe(), then
+verifies that observe flows through with expected labels and value.
+
 """
 
 from __future__ import annotations
@@ -28,7 +29,13 @@ def test_metrics_manager_histogram_observe(monkeypatch: pytest.MonkeyPatch) -> N
         def observe(self, amount: float) -> None:
             self.observed = float(amount)
 
-    def _fake_get_histogram(name: str, description: str, labelnames: list[str] | None = None, *, buckets: tuple[float, ...] | None = None) -> _FakeHistogram:  # noqa: E501
+    def _fake_get_histogram(
+        name: str,
+        description: str,
+        labelnames: list[str] | None = None,
+        *,
+        buckets: tuple[float, ...] | None = None,
+    ) -> _FakeHistogram:  # noqa: E501
         calls["get_hist_count"] += 1
         return _FakeHistogram()
 

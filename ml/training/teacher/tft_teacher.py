@@ -191,10 +191,12 @@ class TFTTeacher(BaseTeacher):
         # DataLoader tuning: pin memory, persistent workers, prefetch
         loader_kwargs: dict[str, Any] = {"pin_memory": True}
         if self.dataloader_workers > 0:
-            loader_kwargs.update({
-                "persistent_workers": True,
-                "prefetch_factor": 2,
-            })
+            loader_kwargs.update(
+                {
+                    "persistent_workers": True,
+                    "prefetch_factor": 2,
+                },
+            )
         try:
             train_loader = training.to_dataloader(
                 train=True,

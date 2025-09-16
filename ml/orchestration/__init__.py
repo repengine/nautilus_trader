@@ -22,6 +22,7 @@ Notes
 - Configuration is declarative via dataclasses with frozen=True for immutability
 - Components use centralized event emission and metrics collection
 - Progressive fallback strategies ensure resilience for external dependencies
+
 """
 
 from __future__ import annotations
