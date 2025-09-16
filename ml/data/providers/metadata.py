@@ -9,7 +9,7 @@ constant over time, making them ideal for TFT static covariates.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast as _cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
@@ -19,6 +19,9 @@ from ml.data.sources.metadata import default_metadata
 
 if TYPE_CHECKING:
     from ml.data.sources.metadata import MetadataSource
+    from polars import DataFrame as PlDataFrame
+else:  # pragma: no cover - typing only
+    PlDataFrame = Any  # type: ignore[assignment]
 
 
 logger = logging.getLogger(__name__)
@@ -36,7 +39,7 @@ class InstrumentMetadataProvider(BaseStaticProvider):
     ----------
     source : MetadataSource
         Data source for instrument metadata
-    _cache : dict[str, pl.DataFrame]
+    _cache : dict[str, PlDataFrame]
         Cache of loaded metadata by instrument set
 
     """
@@ -55,7 +58,7 @@ class InstrumentMetadataProvider(BaseStaticProvider):
         self.source = source
         logger.info(f"Initialized InstrumentMetadataProvider with {source.__class__.__name__}")
 
-    def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
+    def _load_metadata_impl(self, instruments: list[str]) -> PlDataFrame:
         """
         Load metadata for specified instruments (implementation for BaseStaticProvider).
 
@@ -84,7 +87,12 @@ class InstrumentMetadataProvider(BaseStaticProvider):
         data = self._ensure_all_instruments(data, instruments)
         return data
 
-    def validate_data(self, data: pl.DataFrame) -> bool:
+    # Backwards compatibility for tests expecting get_metadata
+    def get_metadata(self, instruments: list[str]) -> PlDataFrame:
+        """Alias for load_metadata for backwards compatibility in tests."""
+        return self.load_metadata(instruments)
+
+    def validate_data(self, data: PlDataFrame) -> bool:
         """
         Validate metadata DataFrame schema and content.
 
@@ -167,7 +175,7 @@ class InstrumentMetadataProvider(BaseStaticProvider):
         """
         return "_".join(sorted(instruments))
 
-    def _empty_metadata_frame(self, instruments: list[str]) -> pl.DataFrame:
+    def _empty_metadata_frame(self, instruments: list[str]) -> PlDataFrame:
         """
         Create empty metadata DataFrame with default values.
 
@@ -184,17 +192,16 @@ class InstrumentMetadataProvider(BaseStaticProvider):
         """
         if pl is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
-
         rows = [default_metadata(sym) for sym in instruments]
-        return pl.DataFrame(rows)
+        return _cast(PlDataFrame, _cast(Any, pl).DataFrame(rows))
 
     # (Removed legacy duplicate _load_metadata_impl)
 
     def _ensure_all_instruments(
         self,
-        data: pl.DataFrame,
+        data: PlDataFrame,
         instruments: list[str],
-    ) -> pl.DataFrame:
+    ) -> PlDataFrame:
         """
         Ensure all requested instruments are in the data.
 
@@ -213,7 +220,7 @@ class InstrumentMetadataProvider(BaseStaticProvider):
             Data with all requested instruments
 
         """
-        existing = set(data["instrument_id"].to_list())
+        existing = set(_cast(Any, data)["instrument_id"].to_list())
         missing = set(instruments) - existing
 
         if missing:
@@ -221,24 +228,26 @@ class InstrumentMetadataProvider(BaseStaticProvider):
             missing_df = self._empty_metadata_frame(list(missing))
 
             # Ensure schemas match before concatenation
-            all_columns = set(data.columns) | set(missing_df.columns)
+            all_columns = set(_cast(Any, data).columns) | set(_cast(Any, missing_df).columns)
 
             # Add missing columns to data
-            for col in all_columns - set(data.columns):
-                col_type = missing_df[col].dtype
-                data = data.with_columns(pl.lit(None).cast(col_type).alias(col))
+            PL = _cast(Any, pl)
+            for col in all_columns - set(_cast(Any, data).columns):
+                col_type = _cast(Any, missing_df)[col].dtype
+                data = _cast(Any, data).with_columns(PL.lit(None).cast(col_type).alias(col))
 
             # Add missing columns to missing_df
-            for col in all_columns - set(missing_df.columns):
-                col_type = data[col].dtype
-                missing_df = missing_df.with_columns(pl.lit(None).cast(col_type).alias(col))
+            for col in all_columns - set(_cast(Any, missing_df).columns):
+                col_type = _cast(Any, data)[col].dtype
+                missing_df = _cast(Any, missing_df).with_columns(PL.lit(None).cast(col_type).alias(col))
 
             # Ensure column order matches
             column_order = sorted(all_columns)
-            data = data.select(column_order)
-            missing_df = missing_df.select(column_order)
+            data = _cast(Any, data).select(column_order)
+            missing_df = _cast(Any, missing_df).select(column_order)
 
-            data = pl.concat([data, missing_df])
+            data = PL.concat([_cast(Any, data), _cast(Any, missing_df)])
 
         # Filter to only requested instruments
-        return data.filter(pl.col("instrument_id").is_in(instruments))
+        PL = _cast(Any, pl)
+        return _cast(PlDataFrame, _cast(Any, data).filter(PL.col("instrument_id").is_in(instruments)))

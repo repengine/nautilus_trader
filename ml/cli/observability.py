@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import sys
 import time
 from pathlib import Path
@@ -9,6 +10,8 @@ from pathlib import Path
 from ml.config.observability import ObservabilityConfig
 from ml.core.integration import MLIntegrationManager
 
+
+logger = logging.getLogger(__name__)
 
 def _seed_sample(mgr: MLIntegrationManager) -> None:
     MLIntegrationManager.initialize_observability_pipeline(mgr)
@@ -153,8 +156,9 @@ def main(argv: list[str] | None = None) -> int:
                     if worker is not None:
                         try:
                             await worker.stop(drain=True, timeout=1.0)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            # Best-effort: stopping async worker should not raise in CLI
+                            logger.debug("Async worker stop failed: %s", exc, exc_info=True)
                 return 0
 
             return asyncio.run(_run_async())

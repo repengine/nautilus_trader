@@ -396,7 +396,7 @@ def get_trace_context() -> dict[str, str]:
         # Extract W3C trace context from current span
         carrier: dict[str, str] = {}
         assert _propagate is not None
-        _propagate.inject(carrier)  # type: ignore[union-attr]
+        _propagate.inject(carrier)
         return carrier
     except Exception:
         # Graceful fallback on any propagation error
@@ -470,9 +470,12 @@ def extract_and_link_trace_context(metadata: dict[str, Any]) -> None:
         assert _propagate is not None and _context is not None
         ctx = _propagate.extract(trace_context)
         _context.attach(ctx)
-    except Exception:
-        # Graceful fallback on extraction error
-        pass
+    except Exception as exc:
+        # Graceful fallback on extraction error — record debug
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Trace context extract/link failed: %s", exc, exc_info=True
+        )
 
 
 # Import guards for optional dependency

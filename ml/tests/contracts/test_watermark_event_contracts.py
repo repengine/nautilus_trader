@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 import pandera as pa
 import pytest
+from typing import cast
 from pandera.typing import DataFrame
 from pandera.typing import Series
 
@@ -21,10 +22,14 @@ class MLWatermarkProgressSchema(pa.DataFrameModel):
     """
 
     dataset_id: Series[str] = pa.Field(nullable=False)
-    instrument_id: Series[str] = pa.Field(nullable=False, regex=r"^[A-Z0-9]+\.[A-Z]+$")
+    instrument_id: Series[str] = pa.Field(nullable=False)
     source: Series[str] = pa.Field(nullable=False, isin=[s.value for s in Source])
     watermark_ts: Series[int] = pa.Field(nullable=False, ge=0)
     update_ts: Series[int] = pa.Field(nullable=False, ge=0)
+
+    @pa.check("instrument_id", name="instrument_id_format")
+    def check_instrument_id_format(cls, s: Series[str]) -> Series[bool]:  # noqa: N805
+        return cast(Series[bool], s.str.match(r"^[A-Z0-9]+\.[A-Z]+$"))
 
     @pa.dataframe_check()
     def check_monotonic_by_key(cls, df: DataFrame[Any]) -> Series[bool]:  # noqa: N805 - pandera signature
@@ -33,10 +38,10 @@ class MLWatermarkProgressSchema(pa.DataFrameModel):
                 ordered = group.sort_values("update_ts")
                 values = ordered["watermark_ts"].to_numpy()
                 if any(values[i] > values[i + 1] for i in range(len(values) - 1)):
-                    return pd.Series([False] * len(df))
-            return pd.Series([True] * len(df))
+                    return cast(Series[bool], pd.Series([False] * len(df)))
+            return cast(Series[bool], pd.Series([True] * len(df)))
         except Exception:
-            return pd.Series([False] * len(df))
+            return cast(Series[bool], pd.Series([False] * len(df)))
 
 
 @pytest.mark.contracts
@@ -67,4 +72,3 @@ def test_watermark_progression_regression_fails() -> None:
     )
     with pytest.raises(pa.errors.SchemaError):
         MLWatermarkProgressSchema.validate(df)
-

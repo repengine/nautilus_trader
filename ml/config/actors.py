@@ -66,6 +66,10 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
     signal_strategy: (
         Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] | _SignalStrategy
     ) = "threshold"
+    # Alias for clarity in configs: signal_policy == signal_strategy (built-ins)
+    signal_policy: (
+        Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] | _SignalStrategy | None
+    ) = None
     adaptive_window: PositiveInt = 20
     min_signal_separation_bars: PositiveInt = 3
     feature_importance_threshold: NonNegativeFloat = 0.01
@@ -99,6 +103,16 @@ class MLSignalActorConfig(MLActorConfig, kw_only=True, frozen=True):
         """
         Map backward-compat alias fields to canonical fields while frozen.
         """
+        # Map signal_policy -> signal_strategy when provided
+        try:
+            sp = getattr(self, "signal_policy", None)
+            if sp is not None:
+                object.__setattr__(self, "signal_strategy", sp)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "signal_policy mapping skipped in __post_init__",
+                exc_info=True,
+            )
         # Map optimization -> optimization_config
         if self.optimization is not None and getattr(self, "optimization_config", None) is None:
             try:

@@ -26,6 +26,16 @@ from ml.core.db_engine import EngineManager
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pandas import DataFrame as PdDataFrame
+
+    from ml.stores.feature_store import FeatureStore
+    from ml.stores.infrastructure import PartitionManager
+    from ml.stores.io_raw import ParquetCatalogRawReader
+    from ml.stores.io_raw import ParquetCatalogRawWriter
+    from ml.stores.model_store import ModelStore
+    from ml.stores.strategy_store import StrategyStore
+
+
+# Runtime imports for store components and adapters referenced below
 from ml.stores.feature_store import FeatureStore
 from ml.stores.infrastructure import PartitionManager
 from ml.stores.io_raw import ParquetCatalogRawReader
@@ -489,15 +499,8 @@ class MLIntegrationManager:
             except Exception as exc:
                 logger.error("Migration failed for %s: %s", migration_path, exc)
 
-        # Best-effort: proactively create current/future partitions so stores operate immediately
+        # Best-effort: proactively create current/future partitions via PartitionManager
         try:
-            # Call SQL helper if present
-            with engine.begin() as conn:
-                try:
-                    conn.execute(text("SELECT auto_create_partitions()"))
-                except Exception:
-                    # Ignore if function not installed; PartitionManager handles below
-                    pass
             if self.partition_manager is None:
                 self._init_partition_manager()
             if self.partition_manager is not None:
@@ -1122,9 +1125,25 @@ class MLIntegrationManager:
                 len([s for s in stores if s]),
             )
 
-        except Exception:
-            # Silently ignore injection errors to avoid impacting core functionality
-            pass
+        except Exception as exc:
+            # Keep non-fatal; add structured debug + metric for visibility (off hot-path)
+            logger.debug("Observability injection failed: %s", exc, exc_info=True)
+            try:
+                from ml.common.metrics_manager import MetricsManager as _MM
+
+                _MM.default().inc(
+                    "ml_pipeline_errors_total",
+                    "ML pipeline errors",
+                    labels={
+                        "component": "integration",
+                        "op": "inject_observability_service",
+                        "error_type": "exception",
+                    },
+                    labelnames=("component", "op", "error_type"),
+                )
+            except Exception:
+                # Never raise from metrics
+                logger.debug("Metric emit failed for observability injection error", exc_info=True)
 
     def start_observability_from_config(self, cfg: object) -> None:
         """
@@ -1405,9 +1424,13 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
                     "Fallback activations",
                     labelnames=("component", "level"),
                 ).labels(component="actor_stores", level="dummy").inc()
-            except Exception:
-                # Metrics must not affect control flow
-                pass
+            except Exception as metric_exc:
+                # Metrics must not affect control flow — debug only
+                logger.debug(
+                    "Fallback metric emit failed (initial probe): %s",
+                    metric_exc,
+                    exc_info=True,
+                )
 
     # If provided, probe reachability
     if db_connection and backend == BackendType.POSTGRES:
@@ -1426,8 +1449,12 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
                         "Fallback activations",
                         labelnames=("component", "level"),
                     ).labels(component="actor_stores", level="dummy").inc()
-                except Exception:
-                    pass
+                except Exception as metric_exc:
+                    logger.debug(
+                        "Fallback metric emit failed (dummy backend activation): %s",
+                        metric_exc,
+                        exc_info=True,
+                    )
             else:
                 raise
 

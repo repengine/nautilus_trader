@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
@@ -12,7 +12,7 @@ from ml.tests.builders import MLConfigBuilder
 
 
 @contextmanager
-def env(vars: dict[str, str]) -> None:
+def env(vars: dict[str, str]) -> Iterator[None]:
     old = {k: os.environ.get(k) for k in vars}
     try:
         os.environ.update(vars)
@@ -66,4 +66,3 @@ def test_actor_bus_disables_store_publishers(monkeypatch: pytest.MonkeyPatch, tm
                 assert getattr(st, "publisher") is None
             if hasattr(st, "_enable_publishing"):
                 assert bool(getattr(st, "_enable_publishing")) is False
-

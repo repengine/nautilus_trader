@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import polars as pl
+from typing import Any as _Any, cast as _cast
 import pytest
 
 
@@ -30,22 +31,24 @@ def test_fred_lag_increases_nulls(n_releases: int, n_rows: int, step: int) -> No
     fred_ts = _timeseries(base_ns, n_releases, step * 5)
     fred = pl.DataFrame(
         {
-            "timestamp": pl.Series(fred_ts).cast(pl.Datetime("ns")),
+            "timestamp": _cast(_Any, pl).Series(fred_ts).cast(pl.Datetime("ns")),
             "series_id": ["S"] * n_releases,
             "value": list(range(n_releases)),
         },
     )
     left_ts = _timeseries(base_ns, n_rows, step)
     left = pl.DataFrame(
-        {"timestamp": pl.Series(left_ts).cast(pl.Datetime("ns")), "x": list(range(n_rows))},
+        {"timestamp": _cast(_Any, pl).Series(left_ts).cast(pl.Datetime("ns")), "x": list(range(n_rows))},
     )
 
     out0 = join_fred_asof(left, timestamp_col="timestamp", lag_days=0)
     out1 = join_fred_asof(left, timestamp_col="timestamp", lag_days=1)
-    s0 = out0.get_column("S") if "S" in out0.columns else pl.Series("S", [None] * n_rows)
-    s1 = out1.get_column("S") if "S" in out1.columns else pl.Series("S", [None] * n_rows)
+    s0: _Any = out0.get_column("S") if "S" in out0.columns else [None] * n_rows
+    s1: _Any = out1.get_column("S") if "S" in out1.columns else [None] * n_rows
     # Nulls should not decrease with added lag
-    assert s1.null_count() >= s0.null_count()
+    nulls0 = int(s0.null_count()) if hasattr(s0, "null_count") else int(sum(1 for x in s0 if x is None))
+    nulls1 = int(s1.null_count()) if hasattr(s1, "null_count") else int(sum(1 for x in s1 if x is None))
+    assert nulls1 >= nulls0
     # Where both present, values should match
     for i in range(n_rows):
         if s0[i] is not None and s1[i] is not None:

@@ -93,9 +93,36 @@ def main(argv: list[str] | None = None) -> int:
                 sc: dict[str, Any] = _json.load(f)
             feature_registry_dir = feature_registry_dir or sc.get("feature_registry_dir")
             feature_set_id = feature_set_id or sc.get("feature_set_id")
-        except Exception:
-            # Ignore malformed sidecar; fall through to register logic / validation
-            pass
+        except Exception as exc:
+            # Log and record metric, then fall through to register logic / validation
+            try:
+                import logging as _logging
+
+                from ml.common.metrics_manager import MetricsManager as _MM
+
+                _logging.getLogger(__name__).warning(
+                    "Malformed feature sidecar; continuing without sidecar params: %s",
+                    exc,
+                    exc_info=True,
+                )
+                _MM.default().inc(
+                    "ml_pipeline_warnings_total",
+                    "Pipeline warnings",
+                    labels={
+                        "component": "tft_train_distill",
+                        "op": "load_feature_sidecar",
+                        "error_type": "exception",
+                    },
+                    labelnames=("component", "op", "error_type"),
+                )
+            except Exception as log_exc:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Logging/metrics for feature sidecar warning failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
 
     # Optional auto-register when requested
     if (feature_registry_dir is not None) and args.register_features and feature_set_id is None:
@@ -130,9 +157,36 @@ def main(argv: list[str] | None = None) -> int:
                 stage=FeatureStage.CANDIDATE,
             )
             feature_set_id = freg.register_feature_set(manifest)
-        except Exception:
+        except Exception as exc:
             # Leave as None; validation below will fail with a clear message
-            pass
+            try:
+                import logging as _logging
+
+                from ml.common.metrics_manager import MetricsManager as _MM
+
+                _logging.getLogger(__name__).warning(
+                    "Auto-registration of features failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+                _MM.default().inc(
+                    "ml_pipeline_errors_total",
+                    "ML pipeline errors",
+                    labels={
+                        "component": "tft_train_distill",
+                        "op": "register_features",
+                        "error_type": "exception",
+                    },
+                    labelnames=("component", "op", "error_type"),
+                )
+            except Exception as log_exc:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Logging/metrics for auto-register failure also failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
 
     # Final validation now: both must be available for teacher/distill steps
     if feature_registry_dir is None or feature_set_id is None:

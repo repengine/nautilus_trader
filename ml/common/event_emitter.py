@@ -109,9 +109,13 @@ def emit_dataset_event_and_watermark(
             },
             labelnames=("dataset_type", "component", "stage", "source", "status"),
         )
-    except Exception:
-        # Metrics are best-effort; ignore in hot paths
-        pass
+    except Exception as exc:
+        # Metrics are best-effort; ignore in hot paths — debug for visibility
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "Data event metric emit failed (event+watermark): %s", exc, exc_info=True
+        )
 
 
 def emit_dataset_event(
@@ -194,9 +198,12 @@ def emit_dataset_event(
             },
             labelnames=("dataset_type", "component", "stage", "source", "status"),
         )
-    except Exception:
-        # Metrics are best-effort; ignore in hot paths
-        pass
+    except Exception as exc:
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "Data event metric emit failed: %s", exc, exc_info=True
+        )
 
 
 def _ensure_correlation_id(
@@ -242,10 +249,14 @@ def _ensure_correlation_id(
             event_metadata = inject_trace_context(event_metadata)
         except ImportError:
             # Graceful fallback when tracing not available
-            pass
-        except Exception:
-            # Graceful fallback on any tracing error
-            pass
+            ...
+        except Exception as exc:
+            # Graceful fallback on any tracing error — debug
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "Trace context injection failed: %s", exc, exc_info=True
+            )
 
     return event_metadata
 

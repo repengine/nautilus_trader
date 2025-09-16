@@ -4,7 +4,7 @@ Unit tests covering DataStore validation rules (range, uniqueness, monotonicity,
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -50,12 +50,12 @@ def _make_store_with_contract(rules: list[ValidationRule]) -> DataStore:
 
     from ml.stores.base import DummyStore
 
-    return DataStore(
+    return cast(Any, DataStore)(
         connection_string="sqlite:///:memory:",
         registry=reg,
-        feature_store=DummyStore(),
-        model_store=DummyStore(),
-        strategy_store=DummyStore(),
+        feature_store=cast(Any, DummyStore()),
+        model_store=cast(Any, DummyStore()),
+        strategy_store=cast(Any, DummyStore()),
         fail_on_validation_error=False,
     )
 
@@ -179,13 +179,14 @@ def _make_store_with_thresholds(null_rate_threshold: float) -> DataStore:
     reg.get_contract.return_value = contract
 
     from ml.stores.base import DummyStore
+    from typing import Any, cast as _cast
 
     return DataStore(
         connection_string="sqlite:///:memory:",
         registry=reg,
-        feature_store=DummyStore(),
-        model_store=DummyStore(),
-        strategy_store=DummyStore(),
+        feature_store=_cast(Any, DummyStore()),
+        model_store=_cast(Any, DummyStore()),
+        strategy_store=_cast(Any, DummyStore()),
         fail_on_validation_error=False,
     )
 

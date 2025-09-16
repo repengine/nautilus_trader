@@ -398,8 +398,8 @@ class StoreInitMixin:
         if persistence_manager is not None:
             try:
                 setattr(self, "persistence", persistence_manager)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Assigning custom persistence manager failed: %s", exc, exc_info=True)
 
         setattr(self, "_last_flush_ns", 0)
         self._init_engine_and_tables()
@@ -457,7 +457,8 @@ class ReadQueryMixin:
                 session_obj = getattr(sess, "session", None)
                 if session_obj is None and hasattr(sess, "get_session"):
                     session_obj = sess.get_session()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Resolve persistence session failed: %s", exc, exc_info=True)
             session_obj = None
 
         if session_obj is not None:
@@ -499,8 +500,8 @@ class ReadQueryMixin:
 
                     if isinstance(row2, _MM):
                         row2 = None
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Mock inspection failed for fetch_one: %s", exc, exc_info=True)
             if row2 is not None:
                 from typing import cast as _cast
 
@@ -525,7 +526,8 @@ class ReadQueryMixin:
                 session_obj = getattr(sess, "session", None)
                 if session_obj is None and hasattr(sess, "get_session"):
                     session_obj = sess.get_session()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Resolve persistence session failed: %s", exc, exc_info=True)
             session_obj = None
 
         if session_obj is not None:
@@ -539,8 +541,8 @@ class ReadQueryMixin:
 
                     if isinstance(rows2, _MM) or (rows2 and isinstance(rows2[0], _MM)):
                         rows2 = []
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Mock inspection failed for fetch_all: %s", exc, exc_info=True)
             if rows2:
                 return list(rows2)
 

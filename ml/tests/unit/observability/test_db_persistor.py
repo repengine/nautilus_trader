@@ -10,9 +10,10 @@ from ml.observability.pipeline import build_event_correlation
 from ml.observability.pipeline import build_health_scores
 from ml.observability.pipeline import build_latency_watermarks
 from ml.observability.pipeline import build_metrics_collection
+from typing import Any
 
 
-def test_db_persistor_writes_and_validates(tmp_path: Path, default_instrument_id) -> None:
+def test_db_persistor_writes_and_validates(tmp_path: Path, default_instrument_id: Any) -> None:
     # Optional dependency: skip if pandera not available (schemas rely on it)
     pytest.importorskip("pandera")
     from ml.tests.contracts.test_observability_pipeline_schemas import (

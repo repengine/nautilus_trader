@@ -15,16 +15,20 @@ from dataclasses import dataclass
 from datetime import datetime
 from datetime import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import HAS_PANDAS_MARKET_CALENDARS
-from ml._imports import mcal
-from ml._imports import pd
+from ml._imports import mcal as mcal_runtime
+from ml._imports import pd as pd_runtime
 
 
 if TYPE_CHECKING:
     import pandas as pd
     import pandas_market_calendars as mcal
+
+# Local runtime aliases to avoid Optional[Module] union typing at use sites
+PD: Any = cast(Any, pd_runtime)
+MCAL: Any = cast(Any, mcal_runtime)
 
 
 logger = logging.getLogger(__name__)
@@ -467,8 +471,8 @@ class PandasCalendarSource(CalendarSource):
 
             # Get the market schedule
             schedule = calendar.schedule(
-                start_date=pd.Timestamp(start_date),
-                end_date=pd.Timestamp(end_date),
+                start_date=PD.Timestamp(start_date),
+                end_date=PD.Timestamp(end_date),
             )
 
             # Cache the schedule
@@ -512,7 +516,7 @@ class PandasCalendarSource(CalendarSource):
                     return None
 
                 # Get calendar from pandas_market_calendars
-                self._calendars[calendar_name] = mcal.get_calendar(calendar_name)
+                self._calendars[calendar_name] = MCAL.get_calendar(calendar_name)
                 logger.debug(f"Loaded calendar: {calendar_name}")
             except Exception as e:
                 logger.error(f"Failed to load calendar {calendar_name}: {e}")
@@ -525,7 +529,7 @@ class PandasCalendarSource(CalendarSource):
                 alt_name = alternatives.get(calendar_name)
                 if alt_name:
                     logger.info(f"Trying alternative calendar name: {alt_name}")
-                    self._calendars[calendar_name] = mcal.get_calendar(alt_name)
+                    self._calendars[calendar_name] = MCAL.get_calendar(alt_name)
                 else:
                     raise ValueError(f"Unsupported calendar: {calendar_name}") from e
 
@@ -556,7 +560,7 @@ class PandasCalendarSource(CalendarSource):
 
         """
         # Check if the date is in the schedule (trading day)
-        dt_date = pd.Timestamp(dt.date())
+        dt_date = PD.Timestamp(dt.date())
         is_trading_day = False
         is_holiday = True
         market_open = datetime.combine(dt.date(), time(9, 30))
@@ -743,12 +747,12 @@ class PandasCalendarSource(CalendarSource):
 
             # Get valid days (trading days)
             valid_days = calendar.valid_days(
-                start_date=pd.Timestamp(start_date),
-                end_date=pd.Timestamp(end_date),
+                start_date=PD.Timestamp(start_date),
+                end_date=PD.Timestamp(end_date),
             )
 
             # Generate all business days in range
-            all_business_days = pd.bdate_range(
+            all_business_days = PD.bdate_range(
                 start=start_date,
                 end=end_date,
             )

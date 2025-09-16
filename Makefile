@@ -180,6 +180,13 @@ db-migrate-cli-print:  #-- Show planned migration files without executing
 db-migrate-cli-dry-run:  #-- Dry-run migrations (no execution)
 	$Q uv run --active --no-sync python -m ml.scripts.apply_migrations $(if $(DATABASE_URL),--db-url $(DATABASE_URL)) --dry-run $(if $(FULL),--full,) $(if $(SCHEMA),--schema $(SCHEMA),)
 
+.PHONY: db-convert-stores-to-partitioned
+db-convert-stores-to-partitioned:  #-- Convert non-partitioned ML store tables to partitioned parents (one-time)
+	@[ -n "$$DATABASE_URL" ] || { echo "Provide DATABASE_URL=postgresql://..."; exit 1; }
+	$(info $(M) Converting ML store tables to partitioned parents...)
+	uv run --active --no-sync python -m ml.scripts.convert_stores_to_partitioned \
+	  --db-url $(DATABASE_URL) $(if $(TABLES),--tables $(TABLES),) $(if $(AHEAD),--ahead $(AHEAD),)
+
 .PHONY: ruff
 ruff:  #-- Run ruff linter with automatic fixes (ML package only)
 	uv run --active --no-sync ruff check ml --fix

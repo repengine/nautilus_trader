@@ -39,6 +39,7 @@ import os
 import tempfile
 import time
 from collections.abc import Generator
+from typing import Any as _Any, cast as _cast
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -275,7 +276,12 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_feature_computation_and_storage(self, test_database, temp_data_dir: Path, default_instrument_id) -> None:
+    def test_feature_computation_and_storage(
+        self,
+        test_database: _Any,
+        temp_data_dir: Path,
+        default_instrument_id: _Any,
+    ) -> None:
         """
         Test feature computation and storage in FeatureStore.
         """
@@ -297,9 +303,14 @@ class TestEndToEndPipeline:
 
         # Use real PostgreSQL FeatureStore instead of mock
         from ml.stores.feature_store import FeatureStore
+        from ml.stores.protocols import FeatureStoreStrictProtocol
+        from typing import cast as _cast
 
         feature_store = FeatureStore(connection_string=test_database.connection_string)
-        engineer = FeatureEngineer(config, feature_store=feature_store)
+        engineer = FeatureEngineer(
+            config,
+            feature_store=_cast(FeatureStoreStrictProtocol, feature_store),
+        )
 
         # Compute features in batch mode
         features_df, _scaler = engineer.calculate_features(
@@ -328,7 +339,7 @@ class TestEndToEndPipeline:
             assert feature in features_df.columns, f"Missing feature: {feature}"
 
         # Store features using real PostgreSQL store
-        for i, row in enumerate(features_df.to_dicts()):
+        for i, row in enumerate(_cast(_Any, features_df).to_dicts()):
             feature_store.store_features(
                 instrument_id=str(default_instrument_id),
                 ts_event=mock_bars[i].ts_event,
@@ -341,7 +352,7 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_signal_generation_from_features(self, temp_data_dir: Path, default_instrument_id) -> None:
+    def test_signal_generation_from_features(self, temp_data_dir: Path, default_instrument_id: _Any) -> None:
         """
         Test ML signal generation from computed features.
         """
@@ -357,15 +368,16 @@ class TestEndToEndPipeline:
         # Use the instrument we wrote to the catalog (SPY.NYSE)
         df = bars_to_dataframe(catalog, [str(InstrumentId(Symbol("SPY"), Venue("NYSE")))])
         config = FeatureConfig(rsi_period=14)
-        engineer = FeatureEngineer(config)
+        from ml.stores.protocols import FeatureStoreStrictProtocol
+        engineer = FeatureEngineer(config, feature_store=None)
         features_df, _scaler = engineer.calculate_features(df, mode="batch", fit_scaler=True)
 
         # Create simple XGBoost model for signal generation
         n_features = len(features_df.columns)
-        _X = features_df.to_numpy()
+        X = features_df.to_numpy()
 
         # Generate synthetic labels for training
-        _y = default_rng(123).integers(0, 3, len(_X))  # 0: sell, 1: hold, 2: buy
+        _y = default_rng(123).integers(0, 3, len(X))  # 0: sell, 1: hold, 2: buy
 
         # Train model
         model = xgb.XGBClassifier(
@@ -375,7 +387,7 @@ class TestEndToEndPipeline:
             objective="multi:softprob",
             num_class=3,
         )
-        model.fit(_X, _y)
+        model.fit(X, _y)
 
         # Generate signals
         predictions = model.predict(X)
@@ -403,7 +415,12 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_persistence_verification(self, test_database, temp_data_dir: Path, default_instrument_id) -> None:
+    def test_persistence_verification(
+        self,
+        test_database: _Any,
+        temp_data_dir: Path,
+        default_instrument_id: _Any,
+    ) -> None:
         """
         Test that all data is correctly persisted to stores.
         """
@@ -454,7 +471,7 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_pipeline_error_recovery(self, temp_data_dir: Path, default_instrument_id) -> None:
+    def test_pipeline_error_recovery(self, temp_data_dir: Path, default_instrument_id: _Any) -> None:
         """
         Test pipeline error handling and recovery.
         """
@@ -471,7 +488,7 @@ class TestEndToEndPipeline:
         # Should handle empty DataFrame gracefully
         # FeatureEngineer returns an empty DataFrame for empty input
         features_df, scaler = engineer.calculate_features(df, mode="batch")
-        assert features_df.is_empty(), "Should return empty DataFrame for empty input"
+        assert _cast(_Any, features_df).is_empty(), "Should return empty DataFrame for empty input"
         assert scaler is None, "Should not fit scaler on empty data"
 
         # Test with invalid configuration
@@ -506,7 +523,13 @@ class TestEndToEndPipeline:
     @pytest.mark.database
     @pytest.mark.serial
     @pytest.mark.integration
-    def test_pipeline_scalability(self, n_bars: int, n_features: int, temp_data_dir: Path) -> None:
+    def test_pipeline_scalability(
+        self,
+        n_bars: int,
+        n_features: int,
+        temp_data_dir: Path,
+        default_instrument_id: _Any,
+    ) -> None:
         """Property test: pipeline handles various data scales."""
         # Generate scaled mock data
         catalog = ParquetDataCatalog(str(temp_data_dir))
@@ -557,7 +580,7 @@ class TestEndToEndPipeline:
 
         # Verify dataset structure
         assert dataset is not None
-        assert not dataset.is_empty() if hasattr(dataset, "is_empty") else len(dataset) > 0
+        assert not _cast(_Any, dataset).is_empty() if hasattr(dataset, "is_empty") else len(dataset) > 0
 
         # Check for TFT-specific columns
         expected_columns = [
@@ -617,7 +640,7 @@ class TestEndToEndPipeline:
     @pytest.mark.serial
     @pytest.mark.integration
     @pytest.mark.skip(reason="Online feature calculation needs Bar object handling fix")
-    def test_online_feature_parity(self, temp_data_dir: Path) -> None:
+    def test_online_feature_parity(self, temp_data_dir: Path, default_instrument_id: _Any) -> None:
         """
         Test that online and batch feature computation match.
         """

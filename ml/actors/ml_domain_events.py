@@ -217,9 +217,11 @@ class DomainEventBridge:
                 labels={"component": self._component_id, "reason": reason},
                 labelnames=("component", "reason"),
             )
-        except Exception:
-            # Never allow metrics errors to affect behavior
-            pass
+        except Exception as exc:
+            # Never allow metrics errors to affect behavior — record debug only
+            logging.getLogger(__name__).debug(
+                "Drop metric emit failed: %s", exc, exc_info=True
+            )
 
     def _record_queue_depth_metric(self) -> None:
         """Record current queue depth metric."""
@@ -266,9 +268,11 @@ class DomainEventBridge:
                 },
                 labelnames=("component", "topic_prefix", "action"),
             )
-        except Exception:
-            # Never allow metrics errors to affect behavior
-            pass
+        except Exception as exc:
+            # Never allow metrics errors to affect behavior — record debug only
+            logging.getLogger(__name__).debug(
+                "Topic metric emit failed: %s", exc, exc_info=True
+            )
 
     def _record_throttle_efficiency_metrics(self) -> None:
         """Record throttling efficiency metrics periodically."""
@@ -294,8 +298,10 @@ class DomainEventBridge:
                 labels={"component": self._component_id},
                 labelnames=("component",),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Throttle efficiency metric emit failed: %s", exc, exc_info=True
+            )
 
     def publish(self, topic: str, payload: dict[str, Any]) -> bool:
         """
@@ -411,9 +417,30 @@ def _parse_per_topic_throttles() -> dict[str, TopicThrottleConfig]:
             except ValueError:
                 continue
 
-    except Exception:
-        # Don't fail initialization on config parsing errors
-        pass
+    except Exception as exc:
+        # Don't fail initialization on config parsing errors — record warning metric
+        try:
+            from ml.common.metrics_manager import MetricsManager as _MM
+
+            _MM.default().inc(
+                "ml_pipeline_warnings_total",
+                "Pipeline warnings",
+                labels={
+                    "component": "domain_events",
+                    "op": "parse_topic_throttles",
+                    "error_type": "exception",
+                },
+                labelnames=("component", "op", "error_type"),
+            )
+        except Exception as metric_exc:
+            logging.getLogger(__name__).debug(
+                "Warning metric emit failed (parse_topic_throttles): %s",
+                metric_exc,
+                exc_info=True,
+            )
+        logging.getLogger(__name__).debug(
+            "Failed to parse ML_BUS_TOPIC_THROTTLES: %s", exc, exc_info=True
+        )
 
     return topic_throttles
 
@@ -483,13 +510,41 @@ def init_actor_bus_bridge(actor: Any) -> tuple[DomainEventBridge | None, str, st
                 if hasattr(st, "_enable_publishing"):
                     try:
                         setattr(st, "_enable_publishing", False)
-                    except Exception:
-                        pass
-        except Exception:
-            # Never impact initialization on optional convenience
-            pass
+                    except Exception as set_exc:
+                        logging.getLogger(__name__).debug(
+                            "Failed to disable store-level publishing: %s",
+                            set_exc,
+                            exc_info=True,
+                        )
+        except Exception as exc:
+            # Never impact initialization on optional convenience — log debug
+            logging.getLogger(__name__).debug(
+                "Actor bus mutual exclusion setup failed: %s", exc, exc_info=True
+            )
 
         return bridge, topic_scheme, topic_prefix
-    except Exception:
-        # Best-effort helper; keep actor hot path clean
+    except Exception as exc:
+        # Best-effort helper; keep actor hot path clean — record warning metric
+        try:
+            from ml.common.metrics_manager import MetricsManager as _MM
+
+            _MM.default().inc(
+                "ml_pipeline_warnings_total",
+                "Pipeline warnings",
+                labels={
+                    "component": "domain_events",
+                    "op": "init_actor_bus_bridge",
+                    "error_type": "exception",
+                },
+                labelnames=("component", "op", "error_type"),
+            )
+        except Exception as metric_exc:
+            logging.getLogger(__name__).debug(
+                "Warning metric emit failed (init_actor_bus_bridge): %s",
+                metric_exc,
+                exc_info=True,
+            )
+        logging.getLogger(__name__).debug(
+            "init_actor_bus_bridge failed: %s", exc, exc_info=True
+        )
         return None, topic_scheme, topic_prefix

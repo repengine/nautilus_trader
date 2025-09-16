@@ -4,13 +4,14 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from typing import Any
 
 from ml.observability.async_worker import ObservabilityAsyncWorker
 from ml.observability.service import ObservabilityService
 
 
 @pytest.mark.asyncio
-async def test_async_worker_file_sink_flush(tmp_path: Path, default_instrument_id) -> None:
+async def test_async_worker_file_sink_flush(tmp_path: Path, default_instrument_id: Any) -> None:
     """
     Async worker enqueues rows and flushes them to JSONL files.
     """

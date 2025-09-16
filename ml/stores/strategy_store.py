@@ -52,6 +52,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "StrategySignal",
+    "StrategyStore",
+]
+
 
 # Prometheus metrics are optional; type as Any for strict typing compatibility
 data_events_total: Any
@@ -226,6 +231,21 @@ class StrategyStore(
 
         # Create tables
         self.metadata.create_all(self.engine)
+
+        # Ensure default partition exists for partitioned deployments (idempotent)
+        try:
+            from sqlalchemy import text as _text
+
+            with self.engine.begin() as _conn:
+                _conn.execute(
+                    _text(
+                        "CREATE TABLE IF NOT EXISTS ml_strategy_signals_default "
+                        "PARTITION OF ml_strategy_signals DEFAULT",
+                    ),
+                )
+        except Exception as exc:
+            # Non-fatal when running against non-partitioned dev tables
+            logger.debug("Default partition ensure skipped for strategy signals: %s", exc)
 
     def write_signal(
         self,

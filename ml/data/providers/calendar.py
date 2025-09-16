@@ -11,16 +11,20 @@ from __future__ import annotations
 import calendar
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast as _cast
 
 from ml._imports import check_ml_dependencies
-from ml._imports import pl
+from ml._imports import pl as pl_runtime
 from ml.data.providers.base import BaseTimeSeriesProvider
 from ml.data.providers.utils import cyclic_encode
 
 
 if TYPE_CHECKING:
     from ml.data.sources.calendar import CalendarSource
+    import polars as _pl
+
+# Local runtime alias
+PL = _cast(Any, pl_runtime)
 
 
 logger = logging.getLogger(__name__)
@@ -57,9 +61,9 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
 
     def compute_features(
         self,
-        timestamps: pl.Series,
+        timestamps: "_pl.Series",
         exchange: str = "NYSE",
-    ) -> pl.DataFrame:
+    ) -> "_pl.DataFrame":
         """
         Compute calendar features for timestamps.
 
@@ -91,7 +95,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
             - days_to_month_end: int
 
         """
-        if pl is None:
+        if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensures helpful error if missing
 
         features: list[dict[str, Any]] = []
@@ -148,7 +152,8 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
                 # Return default features
                 features.append(self._default_features(ts, dt))
 
-        return pl.DataFrame(features)
+        from typing import cast as __cast
+        return __cast("_pl.DataFrame", PL.DataFrame(features))
 
     def _to_datetime(self, timestamp_ns: int) -> datetime:
         """
@@ -226,8 +231,8 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
     def load_timeseries(
         self,
         instruments: list[str],
-        timestamps: pl.Series,
-    ) -> pl.DataFrame:
+        timestamps: "_pl.Series",
+    ) -> "_pl.DataFrame":
         """
         Load time series calendar features.
 
@@ -248,7 +253,7 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
             Calendar features, replicated for each instrument
 
         """
-        if pl is None:
+        if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensures helpful error if missing
 
         # Compute calendar features once
@@ -257,18 +262,19 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
         # If multiple instruments, replicate features
         if len(instruments) > 1:
             # Create instrument column
-            instrument_dfs = []
+            instrument_dfs: list["_pl.DataFrame"] = []
             for instrument in instruments:
                 inst_df = calendar_df.with_columns(
-                    pl.lit(instrument).alias("instrument_id"),
+                    PL.lit(instrument).alias("instrument_id"),
                 )
                 instrument_dfs.append(inst_df)
 
-            return pl.concat(instrument_dfs)
+            from typing import cast as __cast
+            return __cast("_pl.DataFrame", PL.concat(instrument_dfs))
         elif len(instruments) == 1:
             # Single instrument
             return calendar_df.with_columns(
-                pl.lit(instruments[0]).alias("instrument_id"),
+                PL.lit(instruments[0]).alias("instrument_id"),
             )
         else:
             # No instruments specified
@@ -277,8 +283,8 @@ class MarketCalendarProvider(BaseTimeSeriesProvider):
     def _load_timeseries_impl(
         self,
         instruments: list[str],
-        timestamps: pl.Series,
-    ) -> pl.DataFrame:
+        timestamps: "_pl.Series",
+    ) -> "_pl.DataFrame":
         """
         Implement time series loading.
 

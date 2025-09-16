@@ -12,7 +12,7 @@ class _FakeWriteDeps:
         self.model_predictions_table = object()
         self.last_call: dict[str, Any] | None = None
 
-    def _execute_upsert_and_publish(self, **kwargs: Any) -> None:  # type: ignore[no-untyped-def]
+    def _execute_upsert_and_publish(self, **kwargs: Any) -> None:
         self.last_call = kwargs
 
 
@@ -72,4 +72,3 @@ def test_model_query_service_read_range_columns() -> None:
         "confidence",
         "inference_time_ms",
     ]
-

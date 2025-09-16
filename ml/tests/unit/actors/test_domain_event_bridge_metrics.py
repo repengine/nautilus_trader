@@ -26,11 +26,11 @@ class FakeMM:
         self.gauges: list[tuple[str, dict[str, Any], float]] = []
 
     # Counter-like
-    def inc(self, name: str, desc: str, *, labels: dict[str, Any] | None = None, amount: float = 1.0, labelnames: tuple[str, ...] | None = None) -> None:  # type: ignore[override]
+    def inc(self, name: str, desc: str, *, labels: dict[str, Any] | None = None, amount: float = 1.0, labelnames: tuple[str, ...] | None = None) -> None:
         self.incs.append((name, dict(labels or {})))
 
     # Gauge-like
-    def set_gauge(self, name: str, desc: str, value: float, *, labels: dict[str, Any] | None = None, labelnames: tuple[str, ...] | None = None) -> None:  # type: ignore[override]
+    def set_gauge(self, name: str, desc: str, value: float, *, labels: dict[str, Any] | None = None, labelnames: tuple[str, ...] | None = None) -> None:
         self.gauges.append((name, dict(labels or {}), float(value)))
 
 
@@ -86,4 +86,3 @@ def test_queue_depth_gauge_updates(metrics_patch: FakeMM) -> None:
 
     gauge_names = [name for name, _labels, _v in metrics_patch.gauges]
     assert "nautilus_ml_backpressure_queue_depth" in gauge_names
-

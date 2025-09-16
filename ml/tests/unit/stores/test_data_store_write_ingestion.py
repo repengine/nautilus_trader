@@ -66,7 +66,7 @@ class TestDataStoreWriteIngestion:
         model_store = cast(Any, MagicMock())
         strategy_store = cast(Any, MagicMock())
         pub = CapturePublisher()
-        store = DataStore(
+        store = cast(Any, DataStore)(
             connection_string="sqlite:///:memory:",
             registry=reg,  # use JSON backend
             feature_store=cast(Any, feature_store),
@@ -113,7 +113,7 @@ class TestDataStoreWriteIngestion:
         manifest = _make_manifest("features_ds_bad", tmp_path / "features.parquet")
         reg.register_dataset(manifest)
 
-        store = DataStore(
+        store = cast(Any, DataStore)(
             connection_string="sqlite:///:memory:",
             registry=reg,
             feature_store=cast(Any, object()),

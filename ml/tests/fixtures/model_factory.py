@@ -526,7 +526,7 @@ class TestModelFactory:
                 cast(list[str], results["issues"]).append(f"Invalid JSON: {e}")
 
         elif suffix == ".onnx":
-            if HAS_ONNX:
+            if HAS_ONNX and ort is not None:
                 try:
                     session = ort.InferenceSession(str(model_path))
                     results["valid"] = True

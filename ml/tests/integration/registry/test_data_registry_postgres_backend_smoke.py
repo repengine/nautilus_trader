@@ -15,7 +15,10 @@ pytestmark = [
 ]
 
 
-def test_data_registry_postgres_backend_smoke(tmp_path: Path, test_database) -> None:  # noqa: ANN001
+from typing import Any
+
+
+def test_data_registry_postgres_backend_smoke(tmp_path: Path, test_database: Any) -> None:
     """Smoke test that POSTGRES-backed DataRegistry can emit an event.
 
     Relies on migrations applied via TestDatabase fixture in integration suite.
@@ -39,4 +42,3 @@ def test_data_registry_postgres_backend_smoke(tmp_path: Path, test_database) -> 
         count=1,
         status=EventStatus.SUCCESS,
     )
-

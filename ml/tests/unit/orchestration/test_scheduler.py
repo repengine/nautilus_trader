@@ -11,6 +11,9 @@ import pytest
 
 from ml.orchestration import config_loader as _cfg
 from ml.orchestration.scheduler import compute_next_run, run_forever
+from ml.orchestration.scheduler import _EmitEventProtocol as _EmitProto
+from typing import cast
+from ml.config.events import Stage, Source, EventStatus
 
 
 def test_compute_next_run_daily_vs_interval() -> None:
@@ -98,8 +101,25 @@ def test_event_emission_success_and_failed(tmp_path: Path) -> None:
 
     statuses: list[str] = []
 
-    def _emit(_registry: Any, **kwargs: Any) -> None:
-        statuses.append(kwargs["status"].value)
+    def _emit(
+        _registry: Any,
+        *,
+        dataset_id: str,
+        instrument_id: str,
+        stage: Stage,
+        source: Source,
+        run_id: str,
+        ts_min: int,
+        ts_max: int,
+        count: int,
+        status: EventStatus,
+        error: str | None = None,
+        metadata: dict[str, object] | None = None,
+        dataset_type: str | None = None,
+        component: str | None = None,
+    ) -> None:
+        _ = (dataset_id, instrument_id, stage, source, run_id, ts_min, ts_max, count, error, metadata, dataset_type, component)
+        statuses.append(status.value)
 
     # Success case
     def _ok(_: list[str]) -> int:  # noqa: ARG001
@@ -107,7 +127,7 @@ def test_event_emission_success_and_failed(tmp_path: Path) -> None:
 
     sl1 = _OnceSleeper()
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _ok, sl1, emit_event=_emit)
+        run_forever(_cfg, _ok, sl1, emit_event=cast(_EmitProto, _emit))
     assert statuses[-1] == "success"
 
     # Fail case
@@ -116,7 +136,7 @@ def test_event_emission_success_and_failed(tmp_path: Path) -> None:
 
     sl2 = _OnceSleeper()
     with pytest.raises(RuntimeError):
-        run_forever(_cfg, _fail, sl2, emit_event=_emit)
+        run_forever(_cfg, _fail, sl2, emit_event=cast(_EmitProto, _emit))
     assert statuses[-1] == "failed"
 
 

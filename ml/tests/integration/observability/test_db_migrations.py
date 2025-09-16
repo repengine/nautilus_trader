@@ -4,7 +4,7 @@ import os
 
 import pandas as pd
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy import inspect
 
 from ml.observability.migrations import apply_observability_indices
@@ -17,7 +17,7 @@ def _pg_available(url: str) -> bool:
     try:
         eng = create_engine(url)
         with eng.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         return True
     except Exception:
         return False
@@ -30,11 +30,15 @@ pytestmark = [
 ]
 
 
+from typing import Any
+
 @pytest.mark.skipif(
     not _pg_available(os.getenv("DATABASE_URL", _DEFAULT_URL)),
     reason="PostgreSQL not reachable",
 )
-def test_apply_observability_indices_creates_brin_and_composites(default_instrument_id) -> None:
+
+
+def test_apply_observability_indices_creates_brin_and_composites(default_instrument_id: Any) -> None:
     url = os.getenv("DATABASE_URL", _DEFAULT_URL)
     eng = create_engine(url)
 
@@ -101,13 +105,17 @@ def test_apply_observability_indices_creates_brin_and_composites(default_instrum
     inspector = inspect(eng)
 
     # Check representative indexes exist (names are deterministic)
-    idx_names = {i["name"] for i in inspector.get_indexes("obs_event_correlation")}
+    idx_names = {
+        n for n in (i.get("name") for i in inspector.get_indexes("obs_event_correlation")) if isinstance(n, str)
+    }
     assert "obs_event_correlation_ts_event_brin" in idx_names or any(
         n.endswith("ts_event_brin") for n in idx_names
     )
     assert "obs_event_correlation_instrument_ts_idx" in idx_names
 
-    idx_names_metrics = {i["name"] for i in inspector.get_indexes("obs_metrics")}
+    idx_names_metrics = {
+        n for n in (i.get("name") for i in inspector.get_indexes("obs_metrics")) if isinstance(n, str)
+    }
     assert "obs_metrics_timestamp_brin" in idx_names_metrics or any(
         n.endswith("timestamp_brin") for n in idx_names_metrics
     )

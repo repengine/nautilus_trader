@@ -71,11 +71,11 @@ class TestTracingDefaultBehavior:
         """Verify decorators are pass-through when disabled."""
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
 
-            @trace_cold_path_decorator("test_op")
+            @trace_cold_path_decorator("test_op")  # type: ignore[misc]
             def test_func(x: int) -> int:
                 return x * 2
 
-            @trace_inference("test_inference")
+            @trace_inference("test_inference")  # type: ignore[misc]
             def inference_func(x: int) -> int:
                 return x + 1
 
@@ -87,7 +87,7 @@ class TestTracingDefaultBehavior:
         """Verify zero overhead when tracing disabled."""
         with patch.dict(os.environ, {"ML_TRACING_ENABLED": "false"}):
 
-            @trace_cold_path_decorator("perf_test")
+            @trace_cold_path_decorator("perf_test")  # type: ignore[misc]
             def performance_test() -> None:
                 # Simulate some work
                 time.sleep(0.001)
@@ -198,7 +198,7 @@ class TestTracingWithOpenTelemetry:
                 mock_tracer.start_as_current_span.return_value.__enter__.return_value = mock_span
                 mock_tracer.start_as_current_span.return_value.__exit__.return_value = None
 
-                @trace_cold_path_decorator("test_function")
+                @trace_cold_path_decorator("test_function")  # type: ignore[misc]
                 def test_func(x: int) -> int:
                     return x * 2
 

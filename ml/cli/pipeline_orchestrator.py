@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -281,8 +282,9 @@ def main(argv: list[str] | None = None) -> int:
                 feature_registry=mgr3.feature_registry,
                 auto_register=bool(args.auto_register_features),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Non-fatal: best-effort feature registration
+            logger.debug("Feature registration/refresh failed: %s", exc, exc_info=True)
 
     # Optional small feature refresh phase (emit a marker event)
     if bool(args.refresh_features):
@@ -318,11 +320,13 @@ def main(argv: list[str] | None = None) -> int:
                 dataset_type="features",
                 component="orchestrator",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Non-fatal: best-effort marker emission
+            logger.debug("Emit refresh_features marker failed: %s", exc, exc_info=True)
 
     return 0
 
 
+logger = logging.getLogger(__name__)
 if __name__ == "__main__":  # pragma: no cover - CLI
     raise SystemExit(main())

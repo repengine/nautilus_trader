@@ -15,9 +15,9 @@ class _StubEngine:
 
 def make_store_stub() -> StrategyStore:
     # Create an uninitialized instance and patch engine for _qualified_table
-    store = StrategyStore.__new__(StrategyStore)  # type: ignore[call-arg]
-    store.engine = _StubEngine()  # type: ignore[attr-defined]
-    return store  # type: ignore[return-value]
+    store: StrategyStore = object.__new__(StrategyStore)
+    setattr(store, "engine", _StubEngine())
+    return store
 
 
 def test_safe_identifier_allows_known_table() -> None:
@@ -30,4 +30,3 @@ def test_safe_identifier_blocks_unknown() -> None:
     store = make_store_stub()
     with pytest.raises(ValueError):
         store._safe_table("ml_strategy_signals;DROP TABLE")
-

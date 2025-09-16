@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Iterator, cast
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import Stage
@@ -10,7 +10,7 @@ from ml.stores.data_store import DataStore
 
 
 @contextmanager
-def env(vars: dict[str, str]) -> None:
+def env(vars: dict[str, str]) -> Iterator[None]:
     old = {k: os.environ.get(k) for k in vars}
     try:
         os.environ.update(vars)
@@ -71,10 +71,13 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-def test_data_store_stage_first_topics(tmp_path) -> None:
+from pathlib import Path
+
+
+def test_data_store_stage_first_topics(tmp_path: Path) -> None:
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_ENABLE": "1"}):
-        store = DataStore(
+        store = cast(Any, DataStore)(
             connection_string=f"sqlite:///{tmp_path}/ds.db",
             registry=StubRegistry(),
             publisher=pub,

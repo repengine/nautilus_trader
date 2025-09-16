@@ -15,11 +15,11 @@ import numpy as np
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
-from ml._imports import pl
+from ml._imports import pl as pl_runtime
 
 
 if TYPE_CHECKING:
-    import polars as pl
+    import polars as _pl
 
 
 def cyclic_encode(value: float, period: float) -> tuple[float, float]:
@@ -127,7 +127,7 @@ def time_to_event(
         raise ValueError(f"Unknown unit: {unit}. Use 'hours', 'days', or 'minutes'")
 
 
-def validate_timestamps(series: pl.Series) -> bool:
+def validate_timestamps(series: "_pl.Series") -> bool:
     """
     Validate a series of timestamps.
 
@@ -196,11 +196,11 @@ def validate_timestamps(series: pl.Series) -> bool:
 
 
 def align_timeseries(
-    df1: pl.DataFrame,
-    df2: pl.DataFrame,
+    df1: "_pl.DataFrame",
+    df2: "_pl.DataFrame",
     on: str = "timestamp",
     how: str = "inner",
-) -> tuple[pl.DataFrame, pl.DataFrame]:
+) -> tuple["_pl.DataFrame", "_pl.DataFrame"]:
     """
     Align two timeseries dataframes on a common column.
 
@@ -256,7 +256,11 @@ def align_timeseries(
 
     elif how == "outer":
         # Union of all timestamps
-        all_ts = pl.concat([ts1, ts2]).unique().sort()
+        # Use runtime alias to avoid Optional[Module] typing issues
+        from typing import cast as _cast
+        from typing import Any as _Any
+        PL = _cast(_Any, pl_runtime)
+        all_ts = PL.concat([ts1, ts2]).unique().sort()
         df1_aligned = df1.filter(df1[on].is_in(all_ts))
         df2_aligned = df2.filter(df2[on].is_in(all_ts))
 

@@ -12,12 +12,15 @@ from ml.stores.base import ModelPrediction
 from ml.stores.model_store import ModelStore
 
 
+from typing import Any
+
+
 def test_model_store_emits_event_to_data_registry_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    default_instrument_id,
-    test_timestamps,
-    sample_features,
+    default_instrument_id: Any,
+    test_timestamps: tuple[int, int],
+    sample_features: dict[str, float],
 ) -> None:
     # Shared DataRegistry (JSON backend)
     reg = DataRegistry(

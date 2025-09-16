@@ -44,7 +44,7 @@ def test_feature_store_write_explicit_args(
         instrument_id=instrument_id_str,
         features={"a": 1.0, "b": 2.0},
         ts_event=ts_event,
-        ts_init=ts_init,
+        ts_init=_ts_init,
     )
 
     assert len(rows) == 1

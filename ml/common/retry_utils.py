@@ -88,9 +88,14 @@ def retry_with_backoff(
             if on_exception is not None:
                 try:
                     on_exception(attempt, exc)
-                except Exception:
+                except Exception as log_exc:
                     # Observability must not affect control flow
-                    pass
+                    import logging as _logging
+                    _logging.getLogger(__name__).debug(
+                        "on_exception callback raised: %s",
+                        log_exc,
+                        exc_info=True,
+                    )
             if attempt >= attempts - 1:
                 raise
             delay = _compute_delay(

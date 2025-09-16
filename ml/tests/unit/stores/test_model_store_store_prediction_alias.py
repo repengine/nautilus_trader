@@ -5,12 +5,15 @@ from typing import Any
 from ml.stores.model_store import ModelStore
 
 
-def test_store_prediction_kwargs_alias_calls_write_prediction(monkeypatch) -> None:
+from pathlib import Path
+
+
+def test_store_prediction_kwargs_alias_calls_write_prediction(monkeypatch: Any) -> None:
     store = ModelStore(connection_string=None)
 
     captured: dict[str, Any] = {}
 
-    def fake_write_prediction(**kwargs: Any) -> None:  # type: ignore[no-redef]
+    def fake_write_prediction(**kwargs: Any) -> None:
         captured.update(kwargs)
 
     monkeypatch.setattr(store, "write_prediction", fake_write_prediction)
@@ -31,4 +34,3 @@ def test_store_prediction_kwargs_alias_calls_write_prediction(monkeypatch) -> No
     assert captured["confidence"] == 0.9
     assert captured["features"] == {}
     assert captured["inference_time_ms"] == 0.0
-

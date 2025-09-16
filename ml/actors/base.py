@@ -5,6 +5,9 @@ This module provides the foundation for building ML-powered actors that can perf
 real-time inference on market data while maintaining the performance requirements of
 Nautilus Trader's hot path.
 
+The module defines the public API explicitly via ``__all__`` to satisfy
+``mypy --strict`` with ``no_implicit_reexport`` behavior. Only the intended
+surface is exported; internal helpers remain private.
 """
 
 from __future__ import annotations
@@ -209,6 +212,20 @@ class HealthMonitor:
             "latency_violations": self.total_latency_violations,
             "last_prediction_time": self.last_prediction_time,
         }
+
+# Public API (explicit exports for strict typing)
+__all__ = [
+    "BaseMLInferenceActor",
+    "CircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitBreakerState",
+    "HealthMonitor",
+    "HealthStatus",
+    "MLSignal",
+    "ModelLoader",
+    "ONNXModelLoader",
+    "ProductionModelLoader",
+]
 
 
 class CircuitBreaker:
@@ -1338,9 +1355,9 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
 
                 if warm_flag and self._model is not None and input_dim > 0:
                     maybe_warm_up_model(self._model, True, input_dim)
-            except Exception:
+            except Exception as exc:
                 # Warm-up is a best-effort optimization; never fail startup
-                pass
+                self.log.debug("Model warm-up skipped due to error: %s", exc, exc_info=True)
 
             self.log.info(
                 f"Loaded model with metadata: "
@@ -1912,5 +1929,5 @@ try:  # pragma: no cover - simple import wiring
     from ml.stores.feature_store import FeatureStore as FeatureStore
     from ml.stores.model_store import ModelStore as ModelStore
     from ml.stores.strategy_store import StrategyStore as StrategyStore
-except Exception:  # Avoid import cycles or test-only env issues
-    pass
+except Exception as exc:  # Avoid import cycles or test-only env issues
+    logger.debug("Store back-compat re-exports failed: %s", exc, exc_info=True)

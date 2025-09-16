@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -21,7 +22,7 @@ def _ts_for(
     return int(dt.timestamp() * 1e9)
 
 
-def test_rotate_daily_writes_to_day_directory(tmp_path: Path, default_instrument_id) -> None:
+def test_rotate_daily_writes_to_day_directory(tmp_path: Path, default_instrument_id: Any) -> None:
     day_ts = _ts_for(2024, 1, 2, 12, 0, 0)
     df = pd.DataFrame(
         [

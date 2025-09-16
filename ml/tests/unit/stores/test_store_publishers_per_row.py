@@ -20,7 +20,10 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-def test_feature_store_per_row_publishing(tmp_path) -> None:
+from pathlib import Path
+
+
+def test_feature_store_per_row_publishing(tmp_path: Path) -> None:
     pub = CapturePublisher()
     store = FeatureStore(
         connection_string=f"sqlite:///{tmp_path}/feature.db",
@@ -30,13 +33,13 @@ def test_feature_store_per_row_publishing(tmp_path) -> None:
     )
     fd1 = FeatureData("fs1", "EURUSD.SIM", {"a": 1.0}, _ts_event=3, _ts_init=3)
     fd2 = FeatureData("fs1", "EURUSD.SIM", {"a": 2.0}, _ts_event=4, _ts_init=4)
-    store.write_batch([fd1, fd2])  # type: ignore[arg-type]
+    store.write_batch([fd1, fd2])
     # Expect two per-row publishes
     topics = [t for t, _ in pub.calls]
     assert topics.count("ml.features.updated.EURUSD.SIM") >= 2
 
 
-def test_model_store_per_row_publishing(tmp_path) -> None:
+def test_model_store_per_row_publishing(tmp_path: Path) -> None:
     pub = CapturePublisher()
     store = ModelStore(
         connection_string=f"sqlite:///{tmp_path}/model.db",
@@ -51,7 +54,7 @@ def test_model_store_per_row_publishing(tmp_path) -> None:
     assert topics.count("ml.models.created.EURUSD.SIM") >= 2
 
 
-def test_strategy_store_per_row_publishing(tmp_path) -> None:
+def test_strategy_store_per_row_publishing(tmp_path: Path) -> None:
     pub = CapturePublisher()
     store = StrategyStore(
         connection_string=f"sqlite:///{tmp_path}/strategy.db",

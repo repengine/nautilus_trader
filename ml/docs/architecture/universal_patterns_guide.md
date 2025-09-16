@@ -1658,6 +1658,43 @@ class TestUniversalPatternCompliance:
 
         # Measure performance
         latencies = []
+
+### Deployment Bootstrap (Manager + Partitions)
+
+For production‑like startup, use MLIntegrationManager to prepare the database, wire stores/registries, and run partition maintenance off the hot path.
+
+Key responsibilities
+
+- Manager (when auto_migrate=True)
+  - Verifies DB readiness and runs ML migrations idempotently
+  - Initializes 4 Stores + 4 Registries and injects a shared DataRegistry
+  - Invokes PartitionManager.run_maintenance() to ensure current + months‑ahead partitions
+- PartitionManager (source of truth)
+  - ensure_current_partition(table), create_future_partitions(), cleanup_old_partitions()
+  - Provide stats for observability/reporting
+
+Example
+
+```python
+from ml.core.integration import MLIntegrationManager
+
+# Prefer env for DATABASE_URL; enable auto_migrate for first run
+mgr = MLIntegrationManager(
+    auto_start_postgres=False,
+    auto_migrate=True,
+    ensure_healthy=True,
+)
+
+# Optional: explicit runtime maintenance (e.g., scheduled hourly)
+if mgr.partition_manager is not None:
+    mgr.partition_manager.run_maintenance()
+```
+
+Orchestration (cold‑path pipeline)
+
+- End‑to‑end pipelines (ingest → build → HPO → train) are handled by the orchestrator CLI
+- See docs/tools/CLI_Tooling.md (End‑to‑End Pipeline Orchestrator) and docs/tools/ORCHESTRATION_RUNBOOK.md for configuration and flags
+
         for _ in range(1000):
             start = time.perf_counter_ns()
             actor.on_bar(test_bar)

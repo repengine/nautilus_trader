@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 
 pytest.importorskip("pandera")
-import pandera as pa  # type: ignore[assignment]
+import pandera as pa
 from hypothesis import given
 from hypothesis import strategies as st
 from pandera.typing import Series
@@ -32,7 +32,7 @@ class LatencyWatermarkSchema(pa.DataFrameModel):
     """
 
     correlation_id: Series[str] = pa.Field(
-        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",  # type: ignore[arg-type]
         description="UUID4 correlation identifier for watermark tracking",
     )
     instrument_id: Series[str] = pa.Field(
@@ -69,7 +69,7 @@ class LatencyWatermarkSchema(pa.DataFrameModel):
         """
         Stage end timestamp must be >= stage start timestamp.
         """
-        return (df["ts_stage_end"] >= df["ts_stage_start"]).all()
+        return bool((df["ts_stage_end"] >= df["ts_stage_start"]).all())
 
     @pa.dataframe_check()
     def check_stage_latency_consistency(cls, df: pd.DataFrame) -> bool:
@@ -78,7 +78,7 @@ class LatencyWatermarkSchema(pa.DataFrameModel):
         """
         calculated_latency = df["ts_stage_end"] - df["ts_stage_start"]
         # Allow small discrepancies due to measurement precision
-        return (abs(df["stage_latency_ns"] - calculated_latency) <= 1000).all()
+        return bool((abs(df["stage_latency_ns"] - calculated_latency) <= 1000).all())
 
 
 class MetricsCollectionSchema(pa.DataFrameModel):
@@ -152,16 +152,16 @@ class EventCorrelationSchema(pa.DataFrameModel):
     """
 
     correlation_id: Series[str] = pa.Field(
-        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",  # type: ignore[arg-type]
         description="UUID4 correlation identifier for event tracing",
     )
     event_id: Series[str] = pa.Field(
-        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",  # type: ignore[arg-type]
         description="UUID4 event identifier",
     )
     parent_event_id: Series[str] = pa.Field(
         nullable=True,
-        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",  # type: ignore[arg-type]
         description="Parent event ID for lineage tracking (null for root events)",
     )
     instrument_id: Series[str] = pa.Field(
@@ -247,11 +247,11 @@ class PipelineLineageSchema(pa.DataFrameModel):
     """
 
     lineage_id: Series[str] = pa.Field(
-        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",  # type: ignore[arg-type]
         description="UUID4 identifier for this lineage graph",
     )
     root_event_id: Series[str] = pa.Field(
-        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        regex=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",  # type: ignore[arg-type]
         description="Root event that started this lineage",
     )
     total_events: Series[int] = pa.Field(

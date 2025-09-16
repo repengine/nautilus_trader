@@ -28,6 +28,14 @@ from pathlib import Path
 
 MIGRATIONS_DIR: Path = Path("ml/stores/migrations").resolve()
 
+__all__ = [
+    "MIGRATIONS_DIR",
+    "apply_migrations_via_compose",
+    "list_migration_files",
+    # Expose subprocess for tests that monkeypatch process execution
+    "subprocess",
+]
+
 
 def list_migration_files() -> list[Path]:
     """

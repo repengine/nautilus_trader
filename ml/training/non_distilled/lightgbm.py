@@ -42,8 +42,29 @@ class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):
         target_col: str = "target",
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], dict[str, Any]]:
         if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
-        assert pl is not None
+            check_ml_dependencies(["polars"])  # Will raise with install guidance
+        # Replace asserts with explicit validation to avoid stripping under -O
+        if pl is None:  # pragma: no cover - defensive
+            from ml.common.metrics_manager import MetricsManager as _MM
+
+            try:
+                _MM.default().inc(
+                    "ml_dependency_missing_total",
+                    "Missing optional dependency in training",
+                    labels={"dep": "polars", "component": "training_lightgbm"},
+                    labelnames=("dep", "component"),
+                )
+            except Exception as log_exc:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Incrementing dependency-missing metric failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
+            raise RuntimeError(
+                "Polars is required for LightGBMTrainer.prepare_data; install the 'polars' extra",
+            )
         if not isinstance(data, pl.DataFrame):
             data = pl.DataFrame(data)
         if target_col not in data.columns:

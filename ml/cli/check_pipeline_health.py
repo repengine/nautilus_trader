@@ -35,40 +35,64 @@ except ImportError:
         file=sys.stderr,
     )
 
+from typing import Protocol
+
+
+# Provide a typed tabulate symbol without importing untyped third-party stubs at type-check time.
+# We dynamically import the real implementation at runtime when available.
+HAS_TABULATE = False
+
+def _tabulate_fallback(
+    data: list[list[Any]],
+    headers: list[str],
+    tablefmt: str = "simple",
+) -> str:
+    """
+    Simple fallback table formatter.
+    """
+    _ = tablefmt
+    if not data:
+        return ""
+
+    # Calculate column widths
+    widths = [len(h) for h in headers]
+    for row in data:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(str(cell)))
+
+    # Format header
+    lines: list[str] = []
+    header_line = " | ".join(h.ljust(w) for h, w in zip(headers, widths))
+    lines.append(header_line)
+    lines.append("-" * len(header_line))
+
+    # Format data rows
+    for row in data:
+        row_line = " | ".join(str(cell).ljust(w) for cell, w in zip(row, widths))
+        lines.append(row_line)
+
+    return "\n".join(lines)
+
+class TabulateFn(Protocol):
+    def __call__(
+        self,
+        data: list[list[Any]],
+        headers: list[str],
+        tablefmt: str = "simple",
+    ) -> str: ...
+
+tabulate: TabulateFn = _tabulate_fallback
+
 try:
-    from tabulate import tabulate  # type: ignore[import-untyped]
+    import importlib
 
+    _tab_mod = importlib.import_module("tabulate")
+    # Assign real implementation at runtime if available
+    tabulate = getattr(_tab_mod, "tabulate")
     HAS_TABULATE = True
-except ImportError:
+except Exception:
+    # Keep fallback installed
     HAS_TABULATE = False
-
-    # Fallback implementation for tabulate
-    def tabulate(data: list[list[Any]], headers: list[str], tablefmt: str = "simple") -> str:
-        """
-        Simple fallback table formatter.
-        """
-        _ = tablefmt
-        if not data:
-            return ""
-
-        # Calculate column widths
-        widths = [len(h) for h in headers]
-        for row in data:
-            for i, cell in enumerate(row):
-                widths[i] = max(widths[i], len(str(cell)))
-
-        # Format header
-        lines = []
-        header_line = " | ".join(h.ljust(w) for h, w in zip(headers, widths))
-        lines.append(header_line)
-        lines.append("-" * len(header_line))
-
-        # Format data rows
-        for row in data:
-            row_line = " | ".join(str(cell).ljust(w) for cell, w in zip(row, widths))
-            lines.append(row_line)
-
-        return "\n".join(lines)
 
 
 # Health status levels

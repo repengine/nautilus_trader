@@ -7,6 +7,9 @@ JSON-backed DataRegistry instead of raising.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any, cast
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -15,7 +18,7 @@ from ml.stores.data_store import DataStore
 
 
 @pytest.mark.unit
-def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Simulate failure when initializing a POSTGRES-backed DataRegistry,
     # forcing the mixin to fall back to JSON.
     import ml.registry.data_registry as _dr
@@ -23,7 +26,7 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     _orig = _dr.DataRegistry
 
-    def _factory(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+    def _factory(*args: object, **kwargs: object) -> object:
         pc = kwargs.get("persistence_config")
         if getattr(pc, "backend", None) == _BT.POSTGRES:
             raise RuntimeError("PG backend unavailable")
@@ -45,12 +48,15 @@ def test_data_registry_fallback_to_json(monkeypatch: pytest.MonkeyPatch, tmp_pat
     # Ensure DataProcessor does not establish a real DB connection in unit tests
     import ml.stores.data_processor as _dp
     from ml.core.db_engine import EngineManager as _EM
-    monkeypatch.setattr(_dp, "create_engine", lambda *a, **k: _EM.get_engine("sqlite:///:memory:"))
-    store = DataStore(
+    def _fake_create_engine(*a: object, **k: object) -> object:
+        return _EM.get_engine("sqlite:///:memory:")
+
+    monkeypatch.setattr(_dp, "create_engine", _fake_create_engine)
+    store = cast(Any, DataStore)(
         connection_string=dsn,
-        feature_store=mock_feat,  # type: ignore[arg-type]
-        model_store=mock_model,  # type: ignore[arg-type]
-        strategy_store=mock_strat,  # type: ignore[arg-type]
+        feature_store=mock_feat,
+        model_store=mock_model,
+        strategy_store=mock_strat,
         fail_on_validation_error=False,
     )
     registry = store._get_data_registry()

@@ -491,9 +491,14 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
             system_cpu = psutil.cpu_percent()
             self.record_cpu_usage(system_cpu, "system")
 
-        except ImportError:
+        except ImportError as exc:
             # psutil not available - skip system monitoring
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "psutil unavailable; skipping system resource metrics: %s",
+                exc,
+                exc_info=False,
+            )
         except Exception:
             # Graceful degradation
             import logging as _logging
@@ -535,9 +540,14 @@ class ResourceUtilizationCollector(BaseMetricsCollector):
                     memory_total_bytes=mem_info.total,
                 )
 
-        except ImportError:
+        except ImportError as exc:
             # GPU libraries not available
-            pass
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "GPU libraries unavailable; skipping GPU metrics: %s",
+                exc,
+                exc_info=False,
+            )
         except Exception:
             # Graceful degradation
             import logging as _logging

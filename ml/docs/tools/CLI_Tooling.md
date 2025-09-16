@@ -181,6 +181,32 @@ Notes:
 
 - Dataset build, HPO, and training reuse in-process CLIs and respect all repo standards (typed, strict, and off hot paths).
 
+Bootstrap and Partitions (recommended)
+
+- For production-like runs, initialize the ML stack via MLIntegrationManager so migrations and partitions are handled off the hot path. Example:
+
+```python
+from ml.core.integration import MLIntegrationManager
+
+mgr = MLIntegrationManager(
+    auto_start_postgres=False,
+    auto_migrate=True,
+    ensure_healthy=True,
+)
+
+# Optional scheduled maintenance
+if mgr.partition_manager is not None:
+    mgr.partition_manager.run_maintenance()
+```
+
+- One-time conversion (legacy DBs): if store tables were created without partitioning, convert them once:
+
+```bash
+make db-convert-stores-to-partitioned DATABASE_URL=postgresql://postgres:postgres@localhost:5432/nautilus AHEAD=3
+```
+
+This creates partitioned parents and current/future-month partitions for `ml_feature_values`, `ml_model_predictions`, and `ml_strategy_signals`.
+
 ## 7) Pipeline Scheduler (Cold Path)
 
 Run the orchestrator on a fixed UTC schedule or interval. Uses a file lock to avoid overlapping runs and emits SUCCESS/FAILED events via the DataRegistry.

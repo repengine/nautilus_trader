@@ -59,8 +59,11 @@ def main(argv: list[str] | None = None) -> int:
             cast(Any, _orig_init)(self, *a, **kw)
 
         _integ.MLIntegrationManager.__init__ = _init  # type: ignore[method-assign]
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "MLIntegrationManager monkeypatch failed (ignored): %s", exc
+        )
 
     # Stub heavy CLIs to make smoke fast and deterministic
     try:
@@ -73,20 +76,29 @@ def main(argv: list[str] | None = None) -> int:
                     os.makedirs(out, exist_ok=True)
                     with open(os.path.join(out, "dataset.csv"), "w", encoding="utf-8") as f:
                         f.write("id,time_index\n1,1\n")
-                except Exception:
-                    pass
+                except Exception as io_exc:
+                    import logging as _logging
+                    _logging.getLogger(__name__).debug(
+                        "Writing stub dataset failed (ignored): %s", io_exc
+                    )
             return 0
 
         _build.main = _stub_build
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Stub build_tft_dataset patch failed (ignored): %s", exc
+        )
 
     try:
         import ml.training.teacher.tft_cli as _tft
 
         _tft.main = lambda argv=None: 0
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Stub tft_cli patch failed (ignored): %s", exc
+        )
 
     rc = int(_orch_main(orch_args))
     if rc != 0:

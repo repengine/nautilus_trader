@@ -9,6 +9,7 @@ registries. They are intentionally minimal and safe.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -29,9 +30,11 @@ class StageLifecycleMixin:
         if hasattr(entry, "last_modified"):
             try:
                 setattr(entry, "last_modified", float(time.time()))
-            except Exception:
+            except Exception as exc:
                 # Best effort; keep mutation safe
-                pass
+                logging.getLogger(__name__).debug(
+                    "Setting last_modified failed: %s", exc, exc_info=True
+                )
 
 
 class ArtifactMixin:
@@ -89,4 +92,3 @@ __all__ = [
     "CacheMixin",
     "StageLifecycleMixin",
 ]
-

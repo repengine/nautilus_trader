@@ -677,7 +677,10 @@ class MLSignalActorConfig(MLActorConfig):
     """Complete configuration for MLSignalActor with all features."""
 
     # === SIGNAL GENERATION ===
+    # Prefer the term "signal policy" for actor-side decision logic.
+    # `signal_policy` is an alias to `signal_strategy` for clarity.
     signal_strategy: Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] = "threshold"
+    signal_policy: Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] | None = None
     adaptive_window: int = 20              # Window size for adaptive strategies
     min_signal_separation_bars: int = 3   # Minimum bars between signals
     feature_importance_threshold: float = 0.01
@@ -692,8 +695,8 @@ class MLSignalActorConfig(MLActorConfig):
     enable_hot_reload: bool = False
     hot_reload_interval: int = 300         # Seconds between reload checks
 
-    # === CUSTOM STRATEGIES ===
-    custom_strategy: Any | None = None     # Custom SignalGenerationStrategy instance
+    # === CUSTOM POLICIES ===
+    custom_strategy: Any | None = None     # Custom SignalPolicy (alias of SignalGenerationStrategy)
 
     # === REGISTRY INTEGRATION ===
     feature_set_id: str | None = None     # Feature schema validation
@@ -782,10 +785,10 @@ class OnnxRuntimeConfig(NautilusConfig):
 - ✅ EnhancedMLInferenceActor: Minimal test implementation with null stores
 - ✅ PickleMLInferenceActor: Security stub (raises SecurityError)
 
-**Signal Generation System**:
+**Signal Generation System (Signal Policies)**:
 
 - ✅ 5 Built-in strategies: threshold, extremes, momentum, ensemble, adaptive
-- ✅ Plugin architecture for custom strategies (SignalGenerationStrategy ABC)
+- ✅ Plugin architecture for custom policies (`SignalPolicy` alias; `SignalGenerationStrategy` base type)
 - ✅ Lock-free ring buffers for zero-allocation extremes computation
 - ✅ Market regime detection with adaptive threshold adjustment
 - ✅ Configurable signal separation and filtering
@@ -995,13 +998,13 @@ config = MLSignalActorConfig(
 actor = MLSignalActor(config)
 ```
 
-### Custom Strategy Implementation
+### Custom Signal Policy Implementation
 
 ```python
-from ml.actors.signal import SignalGenerationStrategy
+from ml.actors.signal import SignalPolicy  # alias of SignalGenerationStrategy
 from ml.actors.base import MLSignal
 
-class VolatilityAwareStrategy(SignalGenerationStrategy):
+class VolatilityAwareStrategy(SignalPolicy):
     """Custom strategy that adjusts signals based on market volatility."""
 
     def __init__(self, base_threshold: float = 0.7, volatility_multiplier: float = 1.5):

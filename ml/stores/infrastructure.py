@@ -370,8 +370,8 @@ $$ LANGUAGE plpgsql;
                     """,
                 ),
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Helper function ensure failed (ignored): %s", exc, exc_info=True)
 
 
 def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
@@ -421,8 +421,28 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
                     missing_any = True
 
             if missing_any:
+                # Prefer PartitionManager as the single source of truth for partition creation
                 try:
-                    conn.execute(text("SELECT auto_create_partitions()"))
+                    pm = PartitionManager(connection_string)
+                    # Ensure current month exists for each table explicitly
+                    for table in PARTITIONED_TABLES:
+                        try:
+                            created = pm.ensure_current_partition(table)
+                            if created:
+                                pname = f"{table}_{today.year:04d}_{today.month:02d}"
+                                summary[f"partition:{pname}"] = True
+                        except Exception as ensure_exc:
+                            # Continue to future creation attempts even if single-table ensure fails
+                            logger.debug(
+                                "Ensure current partition failed for %s: %s",
+                                table,
+                                ensure_exc,
+                                exc_info=True,
+                            )
+                    # Create a few months ahead for smooth operation
+                    pm.create_future_partitions()
+
+                    # Recheck current-month partitions for accuracy
                     today2 = date.today()
                     suffix2 = f"_{today2.year:04d}_{today2.month:02d}"
                     for table in PARTITIONED_TABLES:
@@ -437,7 +457,7 @@ def check_db_prereqs(connection_string: str) -> dict[str, bool | str]:
                         if not ok2:
                             summary["ok"] = False
                 except Exception as exc:
-                    logger.warning("Partition remediation failed: %s", exc)
+                    logger.warning("Partition remediation via PartitionManager failed: %s", exc)
 
     except Exception as e:
         logger.error("DB preflight failed: %s", e)

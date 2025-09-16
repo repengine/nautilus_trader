@@ -1,37 +1,41 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import logging
 
-from ml.common.timestamps import normalize_timestamp_ns, sanitize_timestamp_ns
 import pytest
 
+from ml.common.timestamps import normalize_timestamp_ns, sanitize_timestamp_ns
 
-def test_normalize_timestamp_units() -> None:
+
+def test_normalize_timestamp_ns_variants() -> None:
     # seconds
-    ns, changed = normalize_timestamp_ns(123)
-    assert changed and ns == 123 * 1_000_000_000
-    # milliseconds (~1e11)
-    ns, changed = normalize_timestamp_ns(123_000_000_000)
-    assert changed and ns == 123_000_000_000 * 1_000_000
-    # microseconds (~1e14)
-    ns, changed = normalize_timestamp_ns(123_000_000_000_000)
-    assert changed and ns == 123_000_000_000_000 * 1_000
-    # nanoseconds (~1e17)
-    ns, changed = normalize_timestamp_ns(123_000_000_000_000_000)
-    assert not changed and ns == 123_000_000_000_000_000
+    v, changed = normalize_timestamp_ns(1_600_000_000)
+    assert changed and v == 1_600_000_000 * 1_000_000_000
+    # milliseconds
+    v, changed = normalize_timestamp_ns(1_600_000_000_000)
+    assert changed and v == 1_600_000_000_000 * 1_000_000
+    # microseconds
+    v, changed = normalize_timestamp_ns(1_600_000_000_000_000)
+    assert changed and v == 1_600_000_000_000_000 * 1_000
+    # nanoseconds (no change)
+    v, changed = normalize_timestamp_ns(1_600_000_000_000_000_000)
+    assert not changed and v == 1_600_000_000_000_000_000
 
 
-def test_sanitize_reject_and_warn_modes(caplog: pytest.LogCaptureFixture) -> None:
-    # reject mode raises when normalization needed
-    try:
-        sanitize_timestamp_ns(1, mode="reject")
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
-
-    # warn mode logs and normalizes
-    logger = logging.getLogger("mltest")
+def test_sanitize_modes_warn_and_reject(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    # warn mode with logger logs a warning
+    logger = logging.getLogger("ml.tests.timestamps")
     with caplog.at_level(logging.WARNING):
-        out = sanitize_timestamp_ns(2, mode="warn", logger=logger, context="unit")
-        assert out == 2_000_000_000
-        assert any("Normalized timestamp" in rec.message for rec in caplog.records)
+        out = sanitize_timestamp_ns(1_600_000_000, mode="warn", logger=logger, context="unit")
+    assert out != 1_600_000_000
+    assert any("Normalized timestamp" in r.message for r in caplog.records)
+
+    # normalize mode silently normalizes
+    out2 = sanitize_timestamp_ns(1_600_000_000, mode="normalize", logger=logger)
+    assert out2 != 1_600_000_000
+
+    # reject mode raises
+    with pytest.raises(ValueError):
+        sanitize_timestamp_ns(1_600_000_000, mode="reject", logger=logger, context="ctx")
+

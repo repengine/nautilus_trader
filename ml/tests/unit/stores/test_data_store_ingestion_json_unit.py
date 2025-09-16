@@ -142,4 +142,5 @@ def test_write_ingestion_updates_watermark_json(tmp_path: Path) -> None:
     key = f"{manifest.dataset_id}:EURUSD.SIM:live"
     assert key in watermarks
     # last_success_ns should reflect the maximum ts_event in records
-    assert int(watermarks[key]["last_success_ns"]) == 2000
+    # Note: 2000 is interpreted as seconds and converted to nanoseconds by sanitize_timestamp_ns
+    assert int(watermarks[key]["last_success_ns"]) == 2000 * 1_000_000_000

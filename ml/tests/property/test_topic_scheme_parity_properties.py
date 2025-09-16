@@ -18,7 +18,7 @@ from ml.config.events import Stage
 
 # Utility: safe prefix strings for stage_first scheme
 @composite
-def prefixes(draw: st.DrawFn) -> str:  # type: ignore[name-defined]
+def prefixes(draw: st.DrawFn) -> str:
     # Allow lowercase letters, numbers, dots, and dashes
     part = st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-", min_size=1, max_size=10)
     count = draw(st.integers(min_value=1, max_value=3))

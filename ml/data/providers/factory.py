@@ -395,13 +395,12 @@ class TransformProviderAdapter:
         Load data from static provider.
         """
         if hasattr(provider, "load_metadata"):
-            from typing import cast as _cast
-            return _cast(PolarsDF, provider.load_metadata(instruments))
+            return provider.load_metadata(instruments)
         else:
             logger.warning(f"Static provider {type(provider).__name__} doesn't have load method")
-            from typing import cast as _cast
             _pl = pl
             assert _pl is not None
+            from typing import cast as _cast
             return _cast(PolarsDF, _pl.DataFrame())
 
     def _load_timeseries_data(
@@ -416,15 +415,15 @@ class TransformProviderAdapter:
         """
         if timestamps is None:
             logger.warning(f"No timestamps provided for time series transform {transform.name}")
-            from typing import cast as _cast
             _pl = pl
             assert _pl is not None
+            from typing import cast as _cast
             return _cast(PolarsDF, _pl.DataFrame())
         if timestamps.is_empty():
             logger.warning(f"Empty timestamps for time series transform {transform.name}")
-            from typing import cast as _cast
             _pl = pl
             assert _pl is not None
+            from typing import cast as _cast
             return _cast(PolarsDF, _pl.DataFrame())
 
         if not hasattr(provider, "compute_features"):
@@ -438,11 +437,13 @@ class TransformProviderAdapter:
 
         # Different providers have different methods
         if transform.name == "calendar":
-            return cast(PolarsDF, provider.compute_features(timestamps))
+            from typing import cast as _cast
+            return _cast(PolarsDF, provider.compute_features(timestamps))
         elif transform.name == "event_schedule":
-            return cast(PolarsDF, provider.compute_features(timestamps, instruments=instruments))
+            from typing import cast as _cast
+            return _cast(PolarsDF, provider.compute_features(timestamps, instruments=instruments))
         else:
-            return cast(PolarsDF, provider.load_timeseries(instruments, timestamps))
+            return provider.load_timeseries(instruments, timestamps)
 
     def _load_custom_provider_data(
         self,
@@ -454,22 +455,24 @@ class TransformProviderAdapter:
         Load data from custom/mock providers.
         """
         if hasattr(provider, "compute_features"):
-            return cast(PolarsDF, provider.compute_features(timestamps, instruments=instruments))
+            from typing import cast as _cast
+            return _cast(PolarsDF, provider.compute_features(timestamps, instruments=instruments))
         elif hasattr(provider, "load_timeseries"):
             if timestamps is None:
                 logger.warning(
                     "No timestamps provided for time series provider; returning empty DataFrame",
                 )
-                from typing import cast as _cast
                 _pl = pl
                 assert _pl is not None
+                from typing import cast as _cast
                 return _cast(PolarsDF, _pl.DataFrame())
-            return cast(PolarsDF, provider.load_timeseries(instruments, timestamps))
+            from typing import cast as _cast
+            return _cast(PolarsDF, provider.load_timeseries(instruments, timestamps))
         elif hasattr(provider, "load_metadata"):
-            return cast(PolarsDF, provider.load_metadata(instruments))
+            return provider.load_metadata(instruments)
         else:
             logger.warning(f"Unknown provider type: {type(provider).__name__}")
-            from typing import cast as _cast
             _pl = pl
             assert _pl is not None
+            from typing import cast as _cast
             return _cast(PolarsDF, _pl.DataFrame())

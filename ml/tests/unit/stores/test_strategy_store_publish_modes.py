@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -28,12 +28,17 @@ def test_strategy_store_publishing_modes(mode: str, expected_extra: int, monkeyp
     # Avoid DB init
     monkeypatch.setattr(StrategyStore, "_init_engine_and_tables", lambda self: None)
     cap = CapturePublisher()
-    store = StrategyStore(connection_string=None, enable_publishing=True, publisher=cap, publish_mode=mode)
+    store = StrategyStore(
+        connection_string=None,
+        enable_publishing=True,
+        publisher=cap,
+        publish_mode=cast(Literal["batch", "row", "both"], mode),
+    )
 
     # Monkeypatch the mixin upsert to only publish
     from ml.stores.mixins import publish_batch_and_rows
 
-    def _stub_execute_write(values: list[dict[str, Any]]) -> None:  # type: ignore[no-redef]
+    def _stub_execute_write(values: list[dict[str, Any]]) -> None:
         publish_batch_and_rows(
             enable_publishing=bool(getattr(store, "_enable_publishing", False)),
             publisher=getattr(store, "publisher", None),

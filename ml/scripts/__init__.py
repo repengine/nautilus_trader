@@ -7,5 +7,5 @@ Provides compatibility for:
 """
 
 # Re-export submodules so attribute access via monkeypatch works
-from . import apply_migrations  # type: ignore  # noqa: F401
+from . import apply_migrations  # noqa: F401
 from . import build_tft_dataset  # noqa: F401

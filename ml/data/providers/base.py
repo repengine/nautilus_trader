@@ -19,11 +19,11 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
-from ml._imports import pl
+from ml._imports import pl as pl_runtime
 
 
 if TYPE_CHECKING:
-    import polars as pl
+    import polars as _pl
 
 
 # ============================================================================
@@ -46,7 +46,7 @@ class DataProvider(Protocol):
         instruments: list[str],
         start: datetime,
         end: datetime,
-    ) -> pl.DataFrame:
+    ) -> "_pl.DataFrame":
         """
         Load data for specified instruments and time range.
 
@@ -67,7 +67,7 @@ class DataProvider(Protocol):
         """
         ...
 
-    def validate_data(self, data: pl.DataFrame) -> bool:
+    def validate_data(self, data: "_pl.DataFrame") -> bool:
         """
         Validate that data meets schema requirements.
 
@@ -120,7 +120,7 @@ class CacheableProvider(Protocol):
         """
         ...
 
-    def from_cache(self, key: str) -> pl.DataFrame | None:
+    def from_cache(self, key: str) -> "_pl.DataFrame" | None:
         """
         Load data from cache if available.
 
@@ -137,7 +137,7 @@ class CacheableProvider(Protocol):
         """
         ...
 
-    def to_cache(self, key: str, data: pl.DataFrame) -> None:
+    def to_cache(self, key: str, data: "_pl.DataFrame") -> None:
         """
         Save data to cache.
 
@@ -158,7 +158,7 @@ class StaticDataProvider(Protocol):
     Protocol for providers of time-invariant data.
     """
 
-    def load_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def load_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         Load static metadata for instruments.
 
@@ -185,8 +185,8 @@ class TimeSeriesProvider(Protocol):
     def load_timeseries(
         self,
         instruments: list[str],
-        timestamps: pl.Series,
-    ) -> pl.DataFrame:
+        timestamps: "_pl.Series",
+    ) -> "_pl.DataFrame":
         """
         Load time series data.
 
@@ -244,7 +244,7 @@ class BaseDataProvider:
         """
         return defaultdict(int)
 
-    def validate_data(self, data: pl.DataFrame) -> bool:
+    def validate_data(self, data: "_pl.DataFrame") -> bool:
         """
         Validate data meets common requirements.
 
@@ -319,7 +319,7 @@ class CachedDataProvider(BaseDataProvider):
         """
         super().__init__()
         self.cache_ttl = cache_ttl_hours
-        self._cache: dict[str, pl.DataFrame] = {}
+        self._cache: dict[str, "_pl.DataFrame"] = {}
 
     def cache_key(self, params: dict[str, Any]) -> str:
         """
@@ -353,7 +353,7 @@ class CachedDataProvider(BaseDataProvider):
         params_str = json.dumps(serializable_params, sort_keys=True)
         return hashlib.sha256(params_str.encode()).hexdigest()[:16]
 
-    def from_cache(self, key: str) -> pl.DataFrame | None:
+    def from_cache(self, key: str) -> "_pl.DataFrame" | None:
         """
         Load data from cache.
 
@@ -370,7 +370,7 @@ class CachedDataProvider(BaseDataProvider):
         """
         return self._cache.get(key)
 
-    def to_cache(self, key: str, data: pl.DataFrame) -> None:
+    def to_cache(self, key: str, data: "_pl.DataFrame") -> None:
         """
         Save data to cache.
 
@@ -390,7 +390,7 @@ class CachedDataProvider(BaseDataProvider):
         instruments: list[str],
         start: datetime,
         end: datetime,
-    ) -> pl.DataFrame:
+    ) -> "_pl.DataFrame":
         """
         Template method implementing caching logic.
 
@@ -440,7 +440,7 @@ class CachedDataProvider(BaseDataProvider):
         instruments: list[str],
         start: datetime,
         end: datetime,
-    ) -> pl.DataFrame:
+    ) -> "_pl.DataFrame":
         """
         Abstract method to be implemented by subclasses.
 
@@ -469,11 +469,11 @@ class BaseStaticProvider(BaseDataProvider):
         """
         super().__init__()
         # Cache entries: key -> (inserted_at_epoch_seconds, dataframe)
-        self._metadata_cache: dict[str, tuple[float, pl.DataFrame]] = {}
+        self._metadata_cache: dict[str, tuple[float, "_pl.DataFrame"]] = {}
         self._cache_ttl_seconds = cache_ttl_seconds
         self._cache_max_entries = cache_max_entries
 
-    def load_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def load_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         Load metadata with caching.
 
@@ -545,7 +545,7 @@ class BaseStaticProvider(BaseDataProvider):
             pass
 
     @abstractmethod
-    def _load_metadata_impl(self, instruments: list[str]) -> pl.DataFrame:
+    def _load_metadata_impl(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         To be implemented by subclasses.
         """
@@ -563,8 +563,8 @@ class BaseTimeSeriesProvider(BaseDataProvider):
     def load_timeseries(
         self,
         instruments: list[str],
-        timestamps: pl.Series,
-    ) -> pl.DataFrame:
+        timestamps: "_pl.Series",
+    ) -> "_pl.DataFrame":
         """
         Load time series with validation.
 
@@ -610,8 +610,8 @@ class BaseTimeSeriesProvider(BaseDataProvider):
     def _load_timeseries_impl(
         self,
         instruments: list[str],
-        timestamps: pl.Series,
-    ) -> pl.DataFrame:
+        timestamps: "_pl.Series",
+    ) -> "_pl.DataFrame":
         """
         To be implemented by subclasses.
         """

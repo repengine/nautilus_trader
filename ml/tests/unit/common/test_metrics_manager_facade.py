@@ -11,11 +11,11 @@ class _FakeCtr:
     def __init__(self) -> None:
         self.calls: list[tuple[dict[str, Any], float]] = []
 
-    def labels(self, **kwargs: object) -> _FakeCtr:  # type: ignore[override]
+    def labels(self, **kwargs: object) -> _FakeCtr:
         self._labels = dict(kwargs)
         return self
 
-    def inc(self, amount: float = 1.0) -> None:  # type: ignore[override]
+    def inc(self, amount: float = 1.0) -> None:
         self.calls.append((getattr(self, "_labels", {}), float(amount)))
 
 
@@ -23,11 +23,11 @@ class _FakeGauge:
     def __init__(self) -> None:
         self.calls: list[tuple[dict[str, Any], float]] = []
 
-    def labels(self, **kwargs: object) -> _FakeGauge:  # type: ignore[override]
+    def labels(self, **kwargs: object) -> _FakeGauge:
         self._labels = dict(kwargs)
         return self
 
-    def set(self, value: float) -> None:  # type: ignore[override]
+    def set(self, value: float) -> None:
         self.calls.append((getattr(self, "_labels", {}), float(value)))
 
 

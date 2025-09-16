@@ -37,10 +37,12 @@ def extract_and_link_from_event(event_metadata: dict[str, Any]) -> None:
         extract_and_link_trace_context(event_metadata)
     except ImportError:
         # Graceful fallback when tracing not available
-        pass
-    except Exception:
-        # Graceful fallback on any tracing error
-        pass
+        ...
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "extract_and_link_from_event failed: %s", exc, exc_info=True
+        )
 
 
 def get_correlation_and_trace_context(
@@ -113,10 +115,14 @@ def get_correlation_and_trace_context(
         metadata = inject_trace_context(metadata)
     except ImportError:
         # Graceful fallback when tracing not available
-        pass
-    except Exception:
-        # Graceful fallback on any tracing error
-        pass
+        ...
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "inject_trace_context failed in get_correlation_and_trace_context: %s",
+            exc,
+            exc_info=True,
+        )
 
     return metadata
 

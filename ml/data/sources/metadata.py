@@ -13,14 +13,18 @@ import os
 from abc import ABC
 from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ml._imports import check_ml_dependencies
-from ml._imports import pl
+from ml._imports import pl as pl_runtime
 
 
 if TYPE_CHECKING:
     from nautilus_trader.model.instruments import Instrument
+    import polars as _pl
+
+# Local runtime alias to avoid Optional[Module] union typing at use sites
+PL: Any = cast(Any, pl_runtime)
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +36,7 @@ class MetadataSource(ABC):
     """
 
     @abstractmethod
-    def fetch_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         Fetch metadata from source.
 
@@ -72,7 +76,7 @@ class DatabentoMetadataSource(MetadataSource):
         if not self.api_key:
             logger.warning("No Databento API key found, will return defaults")
 
-    def fetch_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         Fetch metadata from Databento.
 
@@ -87,7 +91,7 @@ class DatabentoMetadataSource(MetadataSource):
             Instrument metadata
 
         """
-        if pl is None:
+        if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
 
         if not self.api_key:
@@ -129,7 +133,8 @@ class DatabentoMetadataSource(MetadataSource):
                     # Add default values
                     metadata_list.append(self._default_metadata(symbol))
 
-            return pl.DataFrame(metadata_list)
+            from typing import cast as _cast
+            return _cast("_pl.DataFrame", PL.DataFrame(metadata_list))
 
         except ImportError:
             logger.warning("Databento not installed, using mock data")
@@ -163,7 +168,7 @@ class NautilusMetadataSource(MetadataSource):
         """
         self.instruments = instruments or {}
 
-    def fetch_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         Fetch metadata from Nautilus instruments.
 
@@ -190,9 +195,10 @@ class NautilusMetadataSource(MetadataSource):
 
             metadata_list.append(metadata)
 
-        if pl is None:
+        if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
-        return pl.DataFrame(metadata_list)
+        from typing import cast as _cast
+        return _cast("_pl.DataFrame", PL.DataFrame(metadata_list))
 
     def _extract_metadata(self, instrument: Instrument) -> dict[str, Any]:
         """
@@ -250,12 +256,12 @@ class CSVMetadataSource(MetadataSource):
             logger.warning(f"CSV file not found: {self.file_path}")
             self._data = None
         else:
-            if pl is None:
+            if pl_runtime is None:
                 check_ml_dependencies(["polars"])  # Ensure Polars present when used
-            self._data = pl.read_csv(self.file_path)
+            self._data = PL.read_csv(self.file_path)
             logger.info(f"Loaded metadata for {len(self._data)} instruments from CSV")
 
-    def fetch_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         Fetch metadata from CSV.
 
@@ -270,7 +276,7 @@ class CSVMetadataSource(MetadataSource):
             Instrument metadata
 
         """
-        if pl is None:
+        if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
 
         if self._data is None:
@@ -278,7 +284,7 @@ class CSVMetadataSource(MetadataSource):
             return MockMetadataSource().fetch_metadata(instruments)
 
         # Filter to requested instruments
-        filtered = self._data.filter(pl.col("instrument_id").is_in(instruments))
+        filtered = self._data.filter(PL.col("instrument_id").is_in(instruments))
 
         # Add missing instruments with defaults
         existing = set(filtered["instrument_id"].to_list())
@@ -297,22 +303,23 @@ class CSVMetadataSource(MetadataSource):
             for col in all_columns - set(filtered.columns):
                 # Get the type from missing_df
                 col_type = missing_df[col].dtype
-                filtered = filtered.with_columns(pl.lit(None).cast(col_type).alias(col))
+                filtered = filtered.with_columns(PL.lit(None).cast(col_type).alias(col))
 
             # Add missing columns to missing_df with null values
             for col in all_columns - set(missing_df.columns):
                 # Get the type from filtered
                 col_type = filtered[col].dtype
-                missing_df = missing_df.with_columns(pl.lit(None).cast(col_type).alias(col))
+                missing_df = missing_df.with_columns(PL.lit(None).cast(col_type).alias(col))
 
             # Ensure column order matches
             column_order = sorted(all_columns)
             filtered = filtered.select(column_order)
             missing_df = missing_df.select(column_order)
 
-            filtered = pl.concat([filtered, missing_df])
+            filtered = PL.concat([filtered, missing_df])
 
-        return filtered
+        from typing import cast as _cast
+        return _cast("_pl.DataFrame", filtered)
 
 
 class MockMetadataSource(MetadataSource):
@@ -335,7 +342,7 @@ class MockMetadataSource(MetadataSource):
         """
         self.seed = seed
 
-    def fetch_metadata(self, instruments: list[str]) -> pl.DataFrame:
+    def fetch_metadata(self, instruments: list[str]) -> "_pl.DataFrame":
         """
         Generate mock metadata.
 
@@ -398,9 +405,10 @@ class MockMetadataSource(MetadataSource):
 
             metadata_list.append(metadata)
 
-        if pl is None:
+        if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
-        return pl.DataFrame(metadata_list)
+        from typing import cast as _cast
+        return _cast("_pl.DataFrame", PL.DataFrame(metadata_list))
 
 
 # ----------------------------------------------------------------------------

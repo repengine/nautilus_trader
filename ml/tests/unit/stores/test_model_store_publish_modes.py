@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -26,12 +26,17 @@ class CapturePublisher(MessagePublisherProtocol):
 ])
 def test_model_store_publishing_modes(mode: str, expected_extra: int, monkeypatch: pytest.MonkeyPatch) -> None:
     cap = CapturePublisher()
-    store = ModelStore(connection_string=None, enable_publishing=True, publisher=cap, publish_mode=mode)
+    store = ModelStore(
+        connection_string=None,
+        enable_publishing=True,
+        publisher=cap,
+        publish_mode=cast(Literal["batch", "row", "both"], mode),
+    )
 
     # Monkeypatch the upsert to avoid DB usage and only exercise publishing logic
     from ml.stores.mixins import publish_batch_and_rows
 
-    def _stub_execute_upsert_and_publish(**kwargs: Any) -> None:  # type: ignore[no-redef]
+    def _stub_execute_upsert_and_publish(**kwargs: Any) -> None:
         publish_batch_and_rows(
             enable_publishing=bool(getattr(store, "_enable_publishing", False)),
             publisher=getattr(store, "publisher", None),

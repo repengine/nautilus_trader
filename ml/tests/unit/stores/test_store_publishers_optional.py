@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, cast
+from pathlib import Path
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import Stage
@@ -21,7 +22,7 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-def test_model_store_optional_publishing(tmp_path) -> None:
+def test_model_store_optional_publishing(tmp_path: Path) -> None:
     pub = CapturePublisher()
     store = ModelStore(
         connection_string=f"sqlite:///{tmp_path}/model.db",
@@ -45,7 +46,7 @@ def test_model_store_optional_publishing(tmp_path) -> None:
     assert payload["stage"] == Stage.PREDICTION_EMITTED.value
 
 
-def test_strategy_store_optional_publishing(tmp_path) -> None:
+def test_strategy_store_optional_publishing(tmp_path: Path) -> None:
     pub = CapturePublisher()
     store = StrategyStore(
         connection_string=f"sqlite:///{tmp_path}/strategy.db",
@@ -70,7 +71,7 @@ def test_strategy_store_optional_publishing(tmp_path) -> None:
     assert payload["stage"] == Stage.SIGNAL_EMITTED.value
 
 
-def test_feature_store_optional_publishing(tmp_path) -> None:
+def test_feature_store_optional_publishing(tmp_path: Path) -> None:
     pub = CapturePublisher()
     store = FeatureStore(
         connection_string=f"sqlite:///{tmp_path}/feature.db",

@@ -99,8 +99,28 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
 
         """
         if not HAS_POLARS:
-            check_ml_dependencies(["polars"])
-        assert pl is not None
+            check_ml_dependencies(["polars"])  # Will raise with install guidance
+        if pl is None:  # pragma: no cover - defensive
+            from ml.common.metrics_manager import MetricsManager as _MM
+
+            try:
+                _MM.default().inc(
+                    "ml_dependency_missing_total",
+                    "Missing optional dependency in training",
+                    labels={"dep": "polars", "component": "training_xgboost"},
+                    labelnames=("dep", "component"),
+                )
+            except Exception as log_exc:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Incrementing dependency-missing metric failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
+            raise RuntimeError(
+                "Polars is required for XGBoostTrainer.prepare_data; install the 'polars' extra",
+            )
 
         # Ensure data is a Polars DataFrame
         if not isinstance(data, pl.DataFrame):
@@ -424,8 +444,13 @@ class XGBoostTrainer(BaseMLTrainer, ModelExportMixin):
             if tmp_path is not None:
                 try:
                     tmp_path.unlink()
-                except FileNotFoundError:
-                    pass
+                except FileNotFoundError as _exc:
+                    import logging as _logging
+                    _logging.getLogger(__name__).debug(
+                        "Temporary ONNX export file already removed: %s",
+                        _exc,
+                        exc_info=False,
+                    )
 
     def get_feature_importance(self) -> dict[str, float] | None:
         """

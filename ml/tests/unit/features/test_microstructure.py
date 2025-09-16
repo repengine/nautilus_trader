@@ -37,5 +37,6 @@ def test_aggregate_microstructure_minute_pl_basic() -> None:
     for col in MICRO_COLUMNS:
         assert col in out.columns
     # Midprice roughly between bid/ask
-    assert out["midprice"].drop_nulls().min() >= 100.0
-    assert out["midprice"].drop_nulls().max() <= 100.6
+    from typing import Any, cast
+    assert float(cast(Any, out["midprice"].drop_nulls().min())) >= 100.0
+    assert float(cast(Any, out["midprice"].drop_nulls().max())) <= 100.6

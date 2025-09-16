@@ -36,7 +36,7 @@ class FakeMM:
         labels: dict[str, Any] | None = None,
         amount: float = 1.0,
         labelnames: tuple[str, ...] | None = None,
-    ) -> None:  # type: ignore[override]
+    ) -> None:
         self.incs.append((name, dict(labels or {})))
 
     def set_gauge(
@@ -47,7 +47,7 @@ class FakeMM:
         *,
         labels: dict[str, Any] | None = None,
         labelnames: tuple[str, ...] | None = None,
-    ) -> None:  # type: ignore[override]
+    ) -> None:
         self.gauges.append((name, dict(labels or {}), float(value)))
 
 
@@ -106,4 +106,3 @@ def test_bounded_queue_backpressure_and_drain(metrics_patch: FakeMM) -> None:
     assert len(cap.calls) >= 1
     # And queue_full drop counter recorded
     assert any(labels.get("reason") == "queue_full" for name, labels in metrics_patch.incs if name == "nautilus_ml_backpressure_drops_total")
-

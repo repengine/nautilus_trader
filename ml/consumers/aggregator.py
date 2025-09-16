@@ -155,8 +155,15 @@ class AggregatingConsumer:
                 }
                 try:
                     self.downstream.publish(out_topic, payload)
-                except Exception:
+                except Exception as exc:
                     # Forwarding is best-effort; aggregator state already updated
-                    pass
+                    try:
+                        import logging as _logging
+
+                        _logging.getLogger(__name__).debug(
+                            "Downstream publish failed for %s: %s", out_topic, exc, exc_info=True
+                        )
+                    except Exception:
+                        ...
 
         return flushed

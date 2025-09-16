@@ -278,8 +278,11 @@ class Counter:
         # Allow inc on base collector for compatibility
         try:
             self._collector.inc(*args, **kwargs)
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Prometheus Counter.inc failed (ignored): %s", exc, exc_info=True
+            )
 
 
 class Gauge:
@@ -294,8 +297,11 @@ class Gauge:
     def set(self, value: float) -> None:
         try:
             self._collector.set(float(value))
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Prometheus Gauge.set failed (ignored): %s", exc, exc_info=True
+            )
 
 
 class Histogram:
@@ -317,8 +323,11 @@ class Histogram:
     def observe(self, value: float) -> None:
         try:
             self._collector.observe(float(value))
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Prometheus Histogram.observe failed (ignored): %s", exc, exc_info=True
+            )
 
 _PROM_REGISTRY = object()  # placeholder for compatibility
 

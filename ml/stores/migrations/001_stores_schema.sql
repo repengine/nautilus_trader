@@ -56,11 +56,19 @@ CREATE TABLE IF NOT EXISTS ml_feature_values (
 -- Using the helper function to create all partitions
 SELECT create_monthly_partitions('ml_feature_values', '2024-01-01'::DATE, 36);
 
+-- Default partition to catch rows outside pre-created monthly ranges
+CREATE TABLE IF NOT EXISTS ml_feature_values_default
+    PARTITION OF ml_feature_values DEFAULT;
+
 -- Indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_ml_feature_values_lookup
     ON ml_feature_values (feature_set_id, instrument_id, ts_event);
 CREATE INDEX IF NOT EXISTS idx_ml_feature_values_live
     ON ml_feature_values (is_live) WHERE is_live = TRUE;
+
+-- Ensure upsert key exists for ON CONFLICT in FeatureStore
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key
+    ON ml_feature_values (feature_set_id, instrument_id, ts_event);
 
 -- Feature computation metadata
 CREATE TABLE IF NOT EXISTS ml_feature_computation_stats (
@@ -107,6 +115,10 @@ CREATE TABLE IF NOT EXISTS ml_model_predictions (
 -- Create partitions for model predictions
 SELECT create_monthly_partitions('ml_model_predictions', '2024-01-01'::DATE, 36);
 
+-- Default partition for out-of-range or missing monthly partitions
+CREATE TABLE IF NOT EXISTS ml_model_predictions_default
+    PARTITION OF ml_model_predictions DEFAULT;
+
 -- Indexes for model predictions
 CREATE INDEX IF NOT EXISTS idx_ml_model_predictions_lookup
     ON ml_model_predictions (model_id, instrument_id, ts_event);
@@ -136,6 +148,10 @@ CREATE TABLE IF NOT EXISTS ml_strategy_signals (
 
 -- Create partitions for strategy signals
 SELECT create_monthly_partitions('ml_strategy_signals', '2024-01-01'::DATE, 36);
+
+-- Default partition for out-of-range or missing monthly partitions
+CREATE TABLE IF NOT EXISTS ml_strategy_signals_default
+    PARTITION OF ml_strategy_signals DEFAULT;
 
 -- Indexes for strategy signals
 CREATE INDEX IF NOT EXISTS idx_ml_strategy_signals_lookup

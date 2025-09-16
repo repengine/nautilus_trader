@@ -14,7 +14,12 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from ml._imports import check_ml_dependencies
-from ml._imports import pl
+from ml._imports import pl as pl_runtime
+from typing import TYPE_CHECKING, Any as _Any, cast as _cast
+
+if TYPE_CHECKING:
+    import polars as _pl
+PL = _cast(_Any, pl_runtime)
 from ml.data.providers.base import BaseTimeSeriesProvider
 
 
@@ -61,11 +66,11 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
 
     def compute_features(
         self,
-        timestamps: pl.Series,
+        timestamps: "_pl.Series",
         instruments: list[str] | None = None,
         lookback_days: int = 30,
         lookahead_days: int = 30,
-    ) -> pl.DataFrame:
+    ) -> "_pl.DataFrame":
         """
         Compute event-based features for timestamps.
 
@@ -98,7 +103,7 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
             - event_clustering_score: float
 
         """
-        if pl is None:
+        if pl_runtime is None:
             check_ml_dependencies(["polars"])  # Ensure Polars present when used
 
         if instruments is None:
@@ -141,7 +146,8 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
             feature_dict["timestamp"] = ts
             features.append(feature_dict)
 
-        return pl.DataFrame(features)
+        from typing import cast as __cast
+        return __cast("_pl.DataFrame", PL.DataFrame(features))
 
     def _load_events(
         self,
@@ -325,8 +331,8 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
     def load_timeseries(
         self,
         instruments: list[str],
-        timestamps: pl.Series,
-    ) -> pl.DataFrame:
+        timestamps: "_pl.Series",
+    ) -> "_pl.DataFrame":
         """
         Load time series event features.
 
@@ -354,7 +360,7 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
         # Add instrument column if needed
         if instruments and len(instruments) == 1:
             df = df.with_columns(
-                pl.lit(instruments[0]).alias("instrument_id"),
+                PL.lit(instruments[0]).alias("instrument_id"),
             )
 
         return df
@@ -362,8 +368,8 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
     def _load_timeseries_impl(
         self,
         instruments: list[str],
-        timestamps: pl.Series,
-    ) -> pl.DataFrame:
+        timestamps: "_pl.Series",
+    ) -> "_pl.DataFrame":
         """
         Implement time series loading.
 

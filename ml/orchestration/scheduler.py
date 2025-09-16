@@ -16,6 +16,7 @@ to be safe, typed, and easy to test.
 Non-goals: DAG engines, bus consumers, hot-path changes.
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC
@@ -31,6 +32,8 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 
+
+logger = logging.getLogger(__name__)
 
 class _ConfigLoaderProtocol(Protocol):
     def load_orchestrator_config(self, path: str | None) -> Any: ...
@@ -138,8 +141,8 @@ def _try_acquire_lock(lock_path: Path, ttl_hours: int) -> bool:
     if lock_path.exists() and _lock_is_stale(lock_path, ttl_hours):
         try:
             lock_path.unlink()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Unlink stale lock failed: %s", exc, exc_info=True)
     if lock_path.exists():
         return False
     try:
@@ -154,9 +157,9 @@ def _release_lock(lock_path: Path) -> None:
     try:
         if lock_path.exists():
             lock_path.unlink()
-    except Exception:
+    except Exception as exc:
         # best-effort
-        pass
+        logger.debug("Release lock failed: %s", exc, exc_info=True)
 
 
 def run_forever(
@@ -200,7 +203,9 @@ def run_forever(
         if hasattr(cfg, "dataset") and hasattr(cfg.dataset, "out_dir"):
             out_dir = Path(str(cfg.dataset.out_dir))
         default_lock = (out_dir / ".orch.lock") if out_dir else Path("/tmp/ml_orch.lock")
-    except Exception:
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug("Deriving default lock path failed: %s", exc)
         default_lock = Path("/tmp/ml_orch.lock")
 
     lock_path = Path(os.getenv("ORCH_LOCK_PATH", str(default_lock)))
@@ -211,7 +216,9 @@ def run_forever(
 
         mgr = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
         registry = mgr.data_registry
-    except Exception:
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug("MLIntegrationManager not available: %s", exc)
         registry = object()
 
     while True:
@@ -220,8 +227,12 @@ def run_forever(
         dry_run = os.getenv("ORCH_DRY_RUN", "").strip() in {"1", "true", "yes"}
         try:
             next_run = compute_next_run(schedule_time, interval_min, now)
-        except Exception:
+        except Exception as exc:
             # If schedule invalid, wait a minute and retry
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Invalid scheduler config; retrying in 60s: %s", exc
+            )
             sleep_fn(60.0)
             continue
 
@@ -250,8 +261,11 @@ def run_forever(
                         # Record a near-zero duration for the skipped phase
                         m.phase_latency.labels(phase="pipeline").observe(0.0)
                         continue
-                except Exception:
-                    pass
+                except Exception as exc:
+                    import logging as _logging
+                    _logging.getLogger(__name__).debug(
+                        "Output precheck failed (ignored): %s", exc
+                    )
 
             # Execute orchestrator
             if dry_run:
@@ -270,8 +284,11 @@ def run_forever(
             try:
                 m.phase_latency.labels(phase="pipeline").observe(duration)
                 m.runs_total.labels(status=status.value).inc()
-            except Exception:
-                pass
+            except Exception as exc:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Emit orchestrator event failed (ignored): %s", exc
+                )
 
             # Emit event (status only; no watermark updates in scheduler)
             try:
@@ -296,8 +313,12 @@ def run_forever(
                     dataset_type="pipeline",
                     component="scheduler",
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Emit scheduler dataset event failed (ignored): %s",
+                    exc,
+                    exc_info=True,
+                )
 
             # Always release the lock for the next schedule
             _release_lock(lock_path)

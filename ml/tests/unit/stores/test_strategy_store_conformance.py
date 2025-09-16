@@ -5,9 +5,10 @@ from sqlalchemy import select
 from sqlalchemy import text
 
 from ml.stores.strategy_store import StrategyStore
+from pathlib import Path
 
 
-def test_strategy_store_basic_write(tmp_path) -> None:
+def test_strategy_store_basic_write(tmp_path: Path) -> None:
     db_path = tmp_path / "strategy_store.db"
     store = StrategyStore(connection_string=f"sqlite:///{db_path}")
 

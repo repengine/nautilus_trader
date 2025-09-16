@@ -39,8 +39,13 @@ from datetime import date
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ml._imports import pl
+from typing import Any as _Any, cast as _cast
+from ml._imports import pl as pl_runtime
+PL = _cast(_Any, pl_runtime)
+if TYPE_CHECKING:
+    import polars as _pl
 from ml.features.l2_aggregate import L2Aggregator
 from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
@@ -127,7 +132,7 @@ class L2MinuteCache:
         df = agg.compute_for_symbol(symbol, start=start_dt, end=end_dt)
         if df.is_empty():
             # Create empty schema with timestamp to preserve partition
-            df = pl.DataFrame({"timestamp": []})
+            df = PL.DataFrame({"timestamp": []})
         df.write_parquet(str(out))
         return out
 
@@ -137,7 +142,7 @@ class L2MinuteCache:
         start: datetime,
         end: datetime,
         raw_base_dir: Path,
-    ) -> pl.DataFrame:
+    ) -> "_pl.DataFrame":
         """
         Get cached per-minute L2 features for ``symbol`` in [start, end).
 
@@ -155,15 +160,18 @@ class L2MinuteCache:
 
         """
         ensure_polars()
-        parts: list[pl.DataFrame] = []
+        parts: list["_pl.DataFrame"] = []
         for day in iter_days(start, end):
             p = self.ensure_day(symbol=symbol, day=day, raw_base_dir=raw_base_dir)
             if p.exists():
-                parts.append(pl.read_parquet(str(p)))
+                from typing import cast as __cast
+                parts.append(__cast("_pl.DataFrame", PL.read_parquet(str(p))))
         if not parts:
-            return pl.DataFrame({"timestamp": []})
-        df = pl.concat(parts, how="vertical")
+            from typing import cast as __cast
+            return __cast("_pl.DataFrame", PL.DataFrame({"timestamp": []}))
+        df = PL.concat(parts, how="vertical")
         if df.is_empty():
-            return df
+            from typing import cast as __cast
+            return __cast("_pl.DataFrame", df)
         # Filter to exact [start, end) and sort
         return filter_df_by_ns_range(df, start=start, end=end)

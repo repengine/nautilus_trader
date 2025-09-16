@@ -337,6 +337,34 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 self.metadata,
                 autoload_with=self.engine,
             )
+            # Ensure required upsert index exists (idempotent)
+            try:
+                from sqlalchemy import text as _text
+
+                with self.engine.begin() as _conn:
+                    # Create default partition to prevent partition-miss on inserts
+                    try:
+                        _conn.execute(
+                            _text(
+                                "CREATE TABLE IF NOT EXISTS ml_feature_values_default "
+                                "PARTITION OF ml_feature_values DEFAULT",
+                            ),
+                        )
+                    except Exception as exc:
+                        logger.debug(
+                            "Default partition ensure skipped for feature values: %s",
+                            exc,
+                            exc_info=True,
+                        )
+                    _conn.execute(
+                        _text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key "
+                            "ON public.ml_feature_values (feature_set_id, instrument_id, ts_event)",
+                        ),
+                    )
+            except Exception as exc:
+                # Non-fatal: migrations or test fixtures may supply the index
+                logger.debug("Upsert index ensure skipped for feature values: %s", exc)
         except Exception:
             # Fallback: create a non-partitioned compatible table for tests/dev
             from sqlalchemy import Integer

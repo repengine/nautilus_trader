@@ -51,13 +51,13 @@ class _FakeCatalog:
         self._trades: list[_FakeTrade] = []
 
     # Methods with the same names as ParquetDataCatalog
-    def bars(self, instrument_ids: list[str], start: int | None, end: int | None):
+    def bars(self, instrument_ids: list[str], start: int | None, end: int | None) -> list[_FakeBar]:
         return self._bars
 
-    def quote_ticks(self, instrument_ids: list[str], start: int | None, end: int | None):
+    def quote_ticks(self, instrument_ids: list[str], start: int | None, end: int | None) -> list[_FakeQuote]:
         return self._quotes
 
-    def trade_ticks(self, instrument_ids: list[str], start: int | None, end: int | None):
+    def trade_ticks(self, instrument_ids: list[str], start: int | None, end: int | None) -> list[_FakeTrade]:
         return self._trades
 
 

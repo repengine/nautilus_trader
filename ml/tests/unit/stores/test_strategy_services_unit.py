@@ -17,7 +17,7 @@ class _FakeWriteDeps:
         self.strategy_signals_table = object()
         self.last_call: dict[str, Any] | None = None
 
-    def _execute_upsert_and_publish(self, **kwargs: Any) -> None:  # type: ignore[no-untyped-def]
+    def _execute_upsert_and_publish(self, **kwargs: Any) -> None:
         self.last_call = kwargs
 
 
@@ -80,4 +80,3 @@ def test_strategy_query_service_uses_safe_table_allowlist() -> None:
     base, allowed = deps.safe_table_calls[0]
     assert base == "ml_strategy_signals"
     assert "ml_strategy_signals" in allowed
-

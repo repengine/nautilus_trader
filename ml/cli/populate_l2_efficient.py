@@ -254,21 +254,21 @@ def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
         for file in daily_files:
             try:
                 file.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Failed to unlink daily file %s: %s", file, exc, exc_info=True)
         size_mb = final_file.stat().st_size / (1024 * 1024)
         logger.info(f"Merged data (streaming): {size_mb:.1f} MB -> {final_file.name}")
     except Exception as e:
         try:
             if writer is not None:
                 writer.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Closing Parquet writer failed: %s", exc, exc_info=True)
         if tmp_file.exists():
             try:
                 tmp_file.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Failed to remove tmp file %s: %s", tmp_file, exc, exc_info=True)
         raise e
 
 
@@ -391,8 +391,8 @@ def _clean_stale_temp_files(symbol: str, output_dir: Path) -> None:
         for f in output_dir.glob(pattern):
             try:
                 f.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Failed to unlink stale temp file %s: %s", f, exc, exc_info=True)
 
 
 def _validate_daily_file(file_path: Path) -> bool:
@@ -480,8 +480,8 @@ def combine_daily_files(symbol: str, output_dir: Path) -> None:
         for file in daily_files:
             try:
                 file.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Failed to unlink daily file %s: %s", file, exc, exc_info=True)
 
         if output_file.exists():
             size_mb = output_file.stat().st_size / (1024 * 1024)
@@ -492,8 +492,8 @@ def combine_daily_files(symbol: str, output_dir: Path) -> None:
         if tmp_output.exists():
             try:
                 tmp_output.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Failed to unlink tmp output %s: %s", tmp_output, exc, exc_info=True)
         raise e
 
 
@@ -620,8 +620,8 @@ def main() -> int:
     try:
         signal.signal(signal.SIGTERM, _handle_sig)
         signal.signal(signal.SIGINT, _handle_sig)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Signal handler setup failed: %s", exc, exc_info=True)
 
     min_interval = 60.0 / max(1, int(args.rate_limit))
     last_call_ts = 0.0
@@ -645,8 +645,8 @@ def main() -> int:
                 logger.info("  Force mode: removing existing data")
                 try:
                     final_file.unlink()
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.debug("Failed to unlink existing final file %s: %s", final_file, exc, exc_info=True)
         elif args.check_gaps:
             # Prefer progress-based gap detection to avoid loading large files
             done_dates = set(progress.get(symbol, []))

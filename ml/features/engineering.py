@@ -1115,8 +1115,17 @@ class FeatureEngineer:
             import builtins as _b
             if hasattr(features_scaled, "to_numpy"):
                 _b.X = features_scaled.to_numpy()  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Exposing builtins.X for scaled features failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+            except Exception:
+                ...
         return features_scaled, self.scaler
 
     @overload
@@ -1378,8 +1387,17 @@ class FeatureEngineer:
             import builtins as _b
             if hasattr(features_df, "to_numpy"):
                 _b.X = features_df.to_numpy()  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Exposing builtins.X for features failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+            except Exception:
+                ...
 
         return features_df, None
 

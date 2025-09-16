@@ -185,14 +185,15 @@ def _asof_join_pandas(
 
     # Perform merge_asof
     # Return directly; typing is handled via DataFrameLike alias
-    return PD.merge_asof(
+    from typing import cast as _cast
+    return _cast("_pd.DataFrame", PD.merge_asof(
         left,
         right,
         on=on,
         by=by,
         tolerance=tolerance,
         direction=cast(Literal["backward", "forward", "nearest"], pd_direction),
-    )
+    ))
 
 
 def embargo_window(

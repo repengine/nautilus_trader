@@ -54,6 +54,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "ModelPrediction",
+    "ModelStore",
+]
+
 
 # Backwards-compat: expose a module-level create_engine symbol for tests to monkeypatch.
 def create_engine(connection_string: str, **kwargs: object) -> Engine:
@@ -204,6 +209,21 @@ class ModelStore(
 
         # Create tables
         self.metadata.create_all(self.engine)
+
+        # Ensure default partition exists for partitioned deployments (idempotent)
+        try:
+            from sqlalchemy import text as _text
+
+            with self.engine.begin() as _conn:
+                _conn.execute(
+                    _text(
+                        "CREATE TABLE IF NOT EXISTS ml_model_predictions_default "
+                        "PARTITION OF ml_model_predictions DEFAULT",
+                    ),
+                )
+        except Exception as exc:
+            # Non-fatal when running against non-partitioned dev tables
+            logger.debug("Default partition ensure skipped for model predictions: %s", exc)
 
     def write_prediction(
         self,

@@ -53,13 +53,13 @@ __all__ = [
 # Re-export security-related runtime toggles for tests to patch.
 # Tests patch ml.registry.model_registry.HAS_ONNX and .ort directly.
 try:  # Lightweight import; symbols are stubs when onnxruntime is unavailable
-    from ml.common.security import HAS_ONNX as HAS_ONNX  # type: ignore
-    from ml.common.security import check_ml_dependencies as check_ml_dependencies  # type: ignore
-    from ml.common.security import ort as ort  # type: ignore
+    from ml.common.security import HAS_ONNX as HAS_ONNX
+    from ml.common.security import check_ml_dependencies as check_ml_dependencies
+    from ml.common.security import ort as ort
 except Exception:  # pragma: no cover - fallback when security module unavailable
-    HAS_ONNX = False  # type: ignore[assignment]
-    ort = None  # type: ignore[assignment]
-    def check_ml_dependencies(_deps: list[str]) -> None:  # type: ignore[no-redef]
+    HAS_ONNX = False
+    ort = None
+    def check_ml_dependencies(_deps: list[str]) -> None:
         raise RuntimeError("Dependency check unavailable")
 
 
@@ -264,9 +264,14 @@ class ModelRegistry(AbstractRegistry):
             if self._pending_save:
                 try:
                     self._do_save()
-                except FileNotFoundError:
+                except FileNotFoundError as exc:
                     # Directory may have been deleted during cleanup
-                    pass
+                    import logging as _logging
+                    _logging.getLogger(__name__).debug(
+                        "Batch save flush: registry path missing (ignored): %s",
+                        exc,
+                        exc_info=False,
+                    )
                 except Exception as e:
                     logger.error(f"Error during batch save flush: {e}")
                 finally:
@@ -1145,14 +1150,14 @@ class ModelRegistry(AbstractRegistry):
                     # Load ONNX model using module-level re-exported symbols so tests
                     # can patch them directly.
                     if not HAS_ONNX:
-                        check_ml_dependencies(["onnxruntime"])  # type: ignore[arg-type]
+                        check_ml_dependencies(["onnxruntime"])
 
                     # Create optimized session via helper
                     from ml.config.runtime import to_session_options as _to_sess
 
                     session_options, providers = _to_sess(self._onnx_rt)
 
-                    model = ort.InferenceSession(  # type: ignore[union-attr]
+                    model = ort.InferenceSession(
                         str(model_path),
                         sess_options=session_options,
                         providers=providers,

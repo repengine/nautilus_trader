@@ -271,9 +271,36 @@ def _run_single(cfg: BuildConfig, task: BuildTask) -> int:
                 )
                 api_build(api_cfg)
                 return 0
-            except Exception:
-                # On any failure, fall back to CLI path for compatibility
-                pass
+            except Exception as exc:
+                # On any failure, fall back to CLI path for compatibility — log and metric
+                try:
+                    import logging as _logging
+
+                    from ml.common.metrics_manager import MetricsManager as _MM
+
+                    _logging.getLogger(__name__).warning(
+                        "API-based dataset build failed; falling back to CLI: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                    _MM.default().inc(
+                        "ml_pipeline_warnings_total",
+                        "Pipeline warnings",
+                        labels={
+                            "component": "build_runner",
+                            "op": "api_build_fail_fallback_cli",
+                            "error_type": "exception",
+                        },
+                        labelnames=("component", "op", "error_type"),
+                    )
+                except Exception as log_exc:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        "Logging/metrics for API-build fallback also failed: %s",
+                        log_exc,
+                        exc_info=True,
+                    )
 
         # Default: import and call the CLI main (tests monkeypatch this call)
         from ml.cli.build_tft_dataset import main as build_main

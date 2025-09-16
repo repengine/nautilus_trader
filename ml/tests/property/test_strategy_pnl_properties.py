@@ -10,13 +10,16 @@ try:  # optional dependency
 except Exception:  # pragma: no cover - hypothesis optional
     pytest.skip("hypothesis not available", allow_module_level=True)
 
-from typing import Literal, Tuple
+from typing import Tuple
+
+
+from typing import Sequence
 
 
 def _pnl_naive(
-    prices: list[float],
-    signals: list[Literal["BUY", "SELL", "HOLD"]],
-    strengths: list[float],
+    prices: Sequence[float],
+    signals: Sequence[str],
+    strengths: Sequence[float],
 ) -> float:
     """
     Compute a simple, directionally consistent PnL proxy.
@@ -45,13 +48,13 @@ def uptrend_case(
     draw: st.DrawFn,
     length_min: int = 2,
     length_max: int = 64,
-) -> tuple[list[float], list[Literal["BUY", "HOLD"]], list[float]]:  # type: ignore[name-defined]
+) -> tuple[list[float], list[str], list[float]]:
     n = draw(st.integers(min_value=length_min, max_value=length_max))
     base = draw(st.floats(min_value=1.0, max_value=1000.0, allow_nan=False, allow_infinity=False))
     step = draw(st.floats(min_value=1e-6, max_value=10.0, allow_nan=False, allow_infinity=False))
     prices = [float(base + i * step) for i in range(n)]
     # BUY or HOLD per step (n-1 deltas)
-    sigs: list[Literal["BUY", "HOLD"]] = []
+    sigs: list[str] = []
     strengths: list[float] = []
     for _ in range(n - 1):
         sig = draw(st.sampled_from(["BUY", "HOLD"]))
@@ -72,12 +75,12 @@ def downtrend_case(
     draw: st.DrawFn,
     length_min: int = 2,
     length_max: int = 64,
-) -> tuple[list[float], list[Literal["SELL", "HOLD"]], list[float]]:  # type: ignore[name-defined]
+) -> tuple[list[float], list[str], list[float]]:
     n = draw(st.integers(min_value=length_min, max_value=length_max))
     base = draw(st.floats(min_value=1.0, max_value=1000.0, allow_nan=False, allow_infinity=False))
     step = draw(st.floats(min_value=1e-6, max_value=10.0, allow_nan=False, allow_infinity=False))
     prices = [float(base - i * step) for i in range(n)]
-    sigs: list[Literal["SELL", "HOLD"]] = []
+    sigs: list[str] = []
     strengths: list[float] = []
     for _ in range(n - 1):
         sig = draw(st.sampled_from(["SELL", "HOLD"]))
@@ -95,7 +98,7 @@ def downtrend_case(
 
 @given(case=uptrend_case())
 def test_pnl_nonnegative_for_buy_only_on_uptrend(
-    case: tuple[list[float], list[Literal["BUY", "HOLD"]], list[float]],
+    case: tuple[list[float], list[str], list[float]],
 ) -> None:
     prices, signals, strengths = case
     pnl = _pnl_naive(prices, signals, strengths)
@@ -104,7 +107,7 @@ def test_pnl_nonnegative_for_buy_only_on_uptrend(
 
 @given(case=downtrend_case())
 def test_pnl_nonnegative_for_sell_only_on_downtrend(
-    case: tuple[list[float], list[Literal["SELL", "HOLD"]], list[float]],
+    case: tuple[list[float], list[str], list[float]],
 ) -> None:
     prices, signals, strengths = case
     pnl = _pnl_naive(prices, signals, strengths)

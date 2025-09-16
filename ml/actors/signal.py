@@ -12,6 +12,7 @@ Key Features:
 - Plugin architecture for custom strategies
 - Zero-allocation hot path with pre-allocated buffers
 - Atomic model hot-swapping with state preservation
+- Atomic strategy hot-swapping with a dedicated swapper
 - Comprehensive performance monitoring and metrics
 - Circuit breaker protection
 
@@ -22,6 +23,49 @@ Performance Targets:
 - Memory stable over 24h operation
 - Zero allocations in hot path
 
+Strategy Loading and Hot‑Swap
+=============================
+Where the strategy is decided:
+- Creation: ``MLSignalActor._create_strategy()`` constructs a ``SignalGenerationStrategy``.
+  This is the single factory for built‑ins and adapter‑based policies.
+- Initialization: In ``MLSignalActor.__init__`` the actor creates an initial strategy
+  using ``_create_strategy()`` and seeds a ``StrategySwapper``. The hot‑path pointer
+  ``self._signal_strategy`` is set to the current strategy.
+- Model‑driven policy: After a model is loaded (during ``on_start`` or hot reload), if
+  the model metadata contains a ``decision_policy`` adapter path, the actor builds a
+  new strategy via ``_create_strategy()`` and updates the swapper/current strategy on
+  the cold path.
+- Prepared swaps: External control planes/tests can call
+  ``MLSignalActor.prepare_strategy_swap(...)`` to stage a new strategy instance. The
+  swap is applied atomically just before signal generation.
+
+When the strategy is evaluated/updated:
+- On init: Once, to establish the initial strategy pointer.
+- On model load or hot reload: Immediately after model/metadata are available if a
+  model‑driven policy is provided, replacing the current strategy.
+- On each signal attempt: ``_try_generate_signal`` calls
+  ``_apply_strategy_swap_if_pending()``, which executes a pending swap in O(1) and
+  updates the hot‑path pointer ``self._signal_strategy``.
+
+How the strategy is chosen (priority order):
+1. ``custom_strategy`` provided on the actor config (exact instance used as‑is).
+2. Model manifest ``decision_policy`` adapter path, resolved via
+   ``ml.actors.adapters.build_strategy_from_policy`` (supports function/object/class
+   adapters with optional config).
+3. Built‑in mapping from ``config.signal_strategy`` to concrete strategies
+   (threshold/extremes/momentum/ensemble/adaptive) using parameters from
+   ``StrategyConfig`` and the actor config.
+
+Hot‑path guarantees:
+- Signal generation reads a single strategy pointer and calls ``generate_signal``.
+- All swap preparation and policy resolution happen off the hot path.
+- Ring buffer metadata for prediction history is provided in the context to avoid
+  per‑call allocations in strategies that need history (e.g., momentum).
+
+Notes:
+- The trading ``StrategyRegistry`` is unrelated to actor decision policies and is not
+  used to select the actor’s ``SignalGenerationStrategy``. Decision policies are a
+  model/actor concern and are resolved via adapters or the built‑in mapping above.
 """
 
 from __future__ import annotations
@@ -99,8 +143,11 @@ __all__ = [
     "MLSignalActorConfig",
     "OptimizationConfig",
     "OptimizationLevel",
+    "SignalPolicy",
+    "SignalPolicySwapper",
     "SignalStrategy",
     "StrategyConfig",
+    "StrategySwapper",
     "ThresholdStrategy",
 ]
 
@@ -268,6 +315,10 @@ class SignalGenerationStrategy(ABC):
         Generate a signal based on the strategy logic.
         """
         ...
+
+# Public alias to avoid confusion with trading strategies.
+# A SignalPolicy is a decision policy that maps prediction context to an MLSignal.
+SignalPolicy = SignalGenerationStrategy
 
 
 # =================================================================================================
@@ -492,12 +543,27 @@ class MomentumStrategy(SignalGenerationStrategy):
             The generated signal or None if momentum insufficient.
 
         """
-        history = context.get("prediction_history", [])
-        if len(history) < self.lookback:
-            return None
-
-        recent_predictions = history[-self.lookback :]
-        momentum = np.mean(np.diff(recent_predictions))
+        # Prefer ring-buffer history if provided for zero-allocation hot path
+        ring = context.get("_prediction_ring")
+        ring_idx = int(context.get("_prediction_ring_index", 0))
+        ring_cnt = int(context.get("_prediction_ring_count", 0))
+        look = int(self.lookback)
+        if ring is not None and ring_cnt >= look:
+            cap = int(ring.shape[0])
+            # Oldest within the lookback window
+            first_idx = (ring_idx - look) % cap
+            last_idx = (ring_idx - 1) % cap
+            first_val = float(ring[first_idx])
+            last_val = float(ring[last_idx])
+            # Telescoping sum of diffs => (last - first) / (lookback - 1)
+            denom = max(1, look - 1)
+            momentum = (last_val - first_val) / denom
+        else:
+            history = context.get("prediction_history", [])
+            if len(history) < look:
+                return None
+            recent_predictions = history[-look:]
+            momentum = np.mean(np.diff(recent_predictions))
 
         if abs(momentum) > self.momentum_threshold and confidence >= self.threshold:
             return MLSignal(
@@ -717,23 +783,30 @@ class HotPathConfig(msgspec.Struct, frozen=True):
 
 class PerformanceMonitor:
     """
-    Non-blocking performance monitoring.
+    Non-blocking performance monitoring with ring buffers (zero-alloc hot path).
     """
 
     def __init__(self, reservoir_size: int = 1000) -> None:
         """
-        Initialize the PerformanceMonitor.
+        Initialize ring buffers for timing metrics.
 
         Parameters
         ----------
         reservoir_size : int, default 1000
-            Maximum number of timing samples to store using reservoir sampling.
+            Fixed ring capacity for stored timing samples.
 
         """
-        self.feature_times: list[float] = []
-        self.inference_times: list[float] = []
-        self.total_times: list[float] = []
-        self.reservoir_size = reservoir_size
+        import numpy as _np
+
+        cap = max(1, int(reservoir_size))
+        self._cap = cap
+        self._idx = 0
+        self._count = 0
+        # Milliseconds stored as float32 to reduce footprint
+        self._feature_times_ms: npt.NDArray[np.float32] = _np.zeros(cap, dtype=_np.float32)
+        self._inference_times_ms: npt.NDArray[np.float32] = _np.zeros(cap, dtype=_np.float32)
+        self._total_times_ms: npt.NDArray[np.float32] = _np.zeros(cap, dtype=_np.float32)
+        # Counters
         self.prediction_count = 0
         self.signal_count = 0
         self.error_count = 0
@@ -745,81 +818,72 @@ class PerformanceMonitor:
         total_time_ns: int,
     ) -> None:
         """
-        Record timing measurements in nanoseconds.
+        Record timing measurements in nanoseconds using fixed-size ring buffers.
         """
-        feature_time_ms = feature_time_ns / 1_000_000
-        inference_time_ms = inference_time_ns / 1_000_000
-        total_time_ms = total_time_ns / 1_000_000
-
-        self.feature_times.append(feature_time_ms)
-        self.inference_times.append(inference_time_ms)
-        self.total_times.append(total_time_ms)
-
-        # Keep bounded
-        if len(self.feature_times) > self.reservoir_size:
-            self.feature_times = self.feature_times[-self.reservoir_size :]
-            self.inference_times = self.inference_times[-self.reservoir_size :]
-            self.total_times = self.total_times[-self.reservoir_size :]
+        i = self._idx
+        # Convert to milliseconds and store
+        self._feature_times_ms[i] = feature_time_ns / 1_000_000.0
+        self._inference_times_ms[i] = inference_time_ns / 1_000_000.0
+        self._total_times_ms[i] = total_time_ns / 1_000_000.0
+        i += 1
+        if i >= self._cap:
+            i = 0
+        self._idx = i
+        if self._count < self._cap:
+            self._count += 1
 
         self.prediction_count += 1
 
     def record_signal(self) -> None:
-        """
-        Record signal generation.
-        """
         self.signal_count += 1
 
     def record_error(self) -> None:
-        """
-        Record error.
-        """
         self.error_count += 1
 
     def get_current_stats(self) -> dict[str, Any]:
         """
-        Get current performance statistics.
+        Get current performance statistics (cold path).
         """
+        n = int(self._count)
+        ft = self._feature_times_ms[:n]
+        it = self._inference_times_ms[:n]
+        tt = self._total_times_ms[:n]
+
         stats = {
             "prediction_count": self.prediction_count,
             "signal_count": self.signal_count,
             "error_count": self.error_count,
             "signal_rate": self.signal_count / max(self.prediction_count, 1),
             "error_rate": self.error_count / max(self.prediction_count, 1),
-            "avg_feature_time_ms": np.mean(self.feature_times) if self.feature_times else 0.0,
-            "avg_inference_time_ms": np.mean(self.inference_times) if self.inference_times else 0.0,
-            "avg_total_time_ms": np.mean(self.total_times) if self.total_times else 0.0,
-            "p99_total_time_ms": np.percentile(self.total_times, 99) if self.total_times else 0.0,
+            "avg_feature_time_ms": float(np.mean(ft)) if n else 0.0,
+            "avg_inference_time_ms": float(np.mean(it)) if n else 0.0,
+            "avg_total_time_ms": float(np.mean(tt)) if n else 0.0,
+            "p99_total_time_ms": float(np.percentile(tt, 99)) if n else 0.0,
         }
 
-        if self.feature_times:
-            stats["last_feature_time_ms"] = self.feature_times[-1]
-        if self.inference_times:
-            stats["last_inference_time_ms"] = self.inference_times[-1]
-        if self.total_times:
-            stats["last_total_time_ms"] = self.total_times[-1]
+        if n:
+            last = (self._idx - 1) % self._cap
+            stats["last_feature_time_ms"] = float(self._feature_times_ms[last])
+            stats["last_inference_time_ms"] = float(self._inference_times_ms[last])
+            stats["last_total_time_ms"] = float(self._total_times_ms[last])
 
         return stats
 
     def get_latency_percentiles(self) -> dict[str, dict[float, float]]:
         """
-        Get latency percentiles for each measurement type.
+        Get latency percentiles for each measurement type (cold path).
         """
         percentiles = [50.0, 90.0, 95.0, 99.0]
-        result = {}
-
-        if self.feature_times:
-            result["feature_computation"] = {
-                p: float(np.percentile(self.feature_times, p)) for p in percentiles
-            }
-
-        if self.inference_times:
-            result["inference"] = {
-                p: float(np.percentile(self.inference_times, p)) for p in percentiles
-            }
-
-        if self.total_times:
-            result["total"] = {p: float(np.percentile(self.total_times, p)) for p in percentiles}
-
+        result: dict[str, dict[float, float]] = {}
+        n = int(self._count)
+        if not n:
+            return result
+        ft = self._feature_times_ms[:n]
+        it = self._inference_times_ms[:n]
+        tt = self._total_times_ms[:n]
+        result["feature_computation"] = {p: float(np.percentile(ft, p)) for p in percentiles}
+        result["inference"] = {p: float(np.percentile(it, p)) for p in percentiles}
+        result["total"] = {p: float(np.percentile(tt, p)) for p in percentiles}
         return result
 
 
@@ -918,6 +982,90 @@ class ModelSwapper:
         return True
 
 
+class SignalPolicySwapper:
+    """
+    Atomic signal policy swapping for runtime updates.
+
+    Mirrors the ``ModelSwapper`` pattern but for ``SignalGenerationStrategy``
+    (aka ``SignalPolicy``) instances. All swap preparation happens off the hot path;
+    reading the current policy on the hot path remains a single attribute dereference.
+    """
+
+    def __init__(self) -> None:
+        self._current_strategy: SignalGenerationStrategy | None = None
+        self._current_metadata: dict[str, Any] | None = None
+        self._next_strategy: SignalGenerationStrategy | None = None
+        self._next_metadata: dict[str, Any] | None = None
+        self._swap_pending: bool = False
+        self._load_error: Exception | None = None
+
+    @property
+    def current_strategy(self) -> SignalGenerationStrategy | None:
+        """Return the current strategy instance, or None if unset."""
+        return self._current_strategy
+
+    @property
+    def current_metadata(self) -> dict[str, Any] | None:
+        """Return metadata associated with the current strategy, if any."""
+        return self._current_metadata
+
+    @property
+    def swap_pending(self) -> bool:
+        """True if a new strategy has been prepared and not yet applied."""
+        return self._swap_pending
+
+    @property
+    def load_error(self) -> Exception | None:
+        """Any error encountered while preparing a swap (if applicable)."""
+        return self._load_error
+
+    def set_current(self, strategy: SignalGenerationStrategy, metadata: dict[str, Any] | None = None) -> None:
+        """Set the current strategy and clear any previous error state."""
+        self._current_strategy = strategy
+        self._current_metadata = metadata or {}
+        self._load_error = None
+
+    def prepare_swap(self, strategy: SignalGenerationStrategy, metadata: dict[str, Any] | None = None) -> None:
+        """
+        Prepare a swap by staging the next strategy instance and metadata.
+        """
+        self._next_strategy = strategy
+        self._next_metadata = metadata or {}
+        self._swap_pending = True
+        self._load_error = None
+
+    def prepare_swap_with_error(self, error: Exception) -> None:
+        """
+        Record an error during swap preparation and clear any pending swap.
+        """
+        self._load_error = error
+        self._swap_pending = False
+
+    def execute_swap(self) -> bool:
+        """
+        Atomically promote the prepared strategy to current, if pending.
+
+        Returns
+        -------
+        bool
+            True if a swap was applied; False otherwise.
+        """
+        if not self._swap_pending:
+            return False
+
+        old = self._current_strategy
+        self._current_strategy = self._next_strategy
+        self._current_metadata = self._next_metadata
+        self._next_strategy = None
+        self._next_metadata = None
+        self._swap_pending = False
+        del old
+        return True
+
+# Public alias for naming clarity (prefer this name going forward).
+StrategySwapper = SignalPolicySwapper
+
+
 # =================================================================================================
 # Main Actor Implementation
 # =================================================================================================
@@ -998,6 +1146,14 @@ class MLSignalActor(BaseMLInferenceActor):
         else:
             self._persist_features = bool(db_conn_val)
 
+        # Enforce hot-path rule in optimized mode: do not persist features on actor thread
+        try:
+            is_optimized = getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
+        except Exception:
+            is_optimized = False
+        if is_optimized:
+            self._persist_features = False
+
         self._feature_set_id: str | None = None
         # Optional: validate features against feature registry manifest
         if (
@@ -1075,12 +1231,16 @@ class MLSignalActor(BaseMLInferenceActor):
         self._confidence_window = np.zeros(config.adaptive_window, dtype=np.float32)
         self._volatility_window = np.zeros(config.adaptive_window, dtype=np.float32)
         self._window_index = 0
+        self._window_count = 0
         self._last_feature_time_ns: int = 0
         # Pre-allocate a reusable 2D input buffer for inference to avoid per-call reshapes
         self._predict_input_buf = np.zeros((1, n_features), dtype=np.float32)
 
-        # Initialize strategy
-        self._signal_strategy = self._create_strategy()
+        # Initialize strategy and strategy swapper (atomic swap support)
+        self._signal_policy_swapper: SignalPolicySwapper = SignalPolicySwapper()
+        initial_strategy = self._create_strategy()
+        self._signal_policy_swapper.set_current(initial_strategy, {"reason": "init"})
+        self._signal_strategy: SignalGenerationStrategy = initial_strategy
 
         # Performance monitoring
         self._performance_monitor: PerformanceMonitor
@@ -1308,7 +1468,20 @@ class MLSignalActor(BaseMLInferenceActor):
 
     def _create_strategy(self) -> SignalGenerationStrategy:
         """
-        Create signal generation strategy.
+        Construct a SignalGenerationStrategy for this actor.
+
+        Priority (first match wins):
+        1) ``config.custom_strategy`` if provided (used as‑is)
+        2) Model‑driven decision policy adapter (``_model_metadata['decision_policy']``)
+           resolved via ``ml.actors.adapters.build_strategy_from_policy`` with optional
+           ``decision_config``
+        3) Built‑in mapping based on ``config.signal_strategy`` using parameters from
+           ``StrategyConfig`` and the actor config
+
+        Returns
+        -------
+        SignalGenerationStrategy
+            The constructed strategy instance.
         """
         # Use custom strategy if provided
         if self._signal_config.custom_strategy is not None:
@@ -1324,11 +1497,16 @@ class MLSignalActor(BaseMLInferenceActor):
                 cfg = meta.get("decision_config", {}) if isinstance(meta, dict) else {}
                 return build_strategy_from_policy(policy_path=str(policy), actor=self, config=cfg)
         except Exception as exc:
-            # Silent fallback to built-ins; keep hot path clean
+            # Silent fallback to built-ins; keep hot path clean — debug only
             try:
                 self.log.debug(f"Decision policy adapter load failed: {exc}")
-            except Exception:
-                pass
+            except Exception as log_exc:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Logging decision policy adapter failure also failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
 
         # 2) Built-in strategy mapping (backwards compatibility)
         strategy_key = str(self._signal_config.signal_strategy).lower()
@@ -1452,14 +1630,51 @@ class MLSignalActor(BaseMLInferenceActor):
             if isinstance(self._model_metadata, dict) and self._model_metadata.get(
                 "decision_policy",
             ):
-                self._signal_strategy = self._create_strategy()
+                new_strategy = self._create_strategy()
+                # Model-driven strategy override is a cold-path operation
+                self._signal_policy_swapper.set_current(new_strategy, {"reason": "model_policy"})
+                self._signal_strategy = new_strategy
                 self.log.info("Applied model-driven decision policy from manifest")
         except Exception as exc:
-            # Keep running with existing strategy on adapter failure
+            # Keep running with existing strategy on adapter failure — debug only
             try:
                 self.log.debug(f"Decision policy application failed: {exc}")
-            except Exception:
-                pass
+            except Exception as log_exc:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Logging decision policy application failure also failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
+
+    def _apply_strategy_swap_if_pending(self) -> None:
+        """
+        Apply a prepared strategy swap, if any (cold-path check).
+
+        This method executes in O(1) and only mutates the current strategy
+        pointer when a swap is pending.
+        """
+        swapper = getattr(self, "_signal_policy_swapper", None)
+        if swapper is None:
+            return
+        if not swapper.swap_pending:
+            return
+        changed = swapper.execute_swap()
+        if changed:
+            current = swapper.current_strategy
+            if current is not None:
+                self._signal_strategy = current
+
+    # Optional public helper to allow external control planes/tests to request a swap
+    def prepare_strategy_swap(
+        self,
+        strategy: SignalGenerationStrategy,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Prepare a strategy swap to be applied on the next cycle.
+        """
+        self._signal_policy_swapper.prepare_swap(strategy, metadata)
 
     def _load_optimized_onnx_model(self) -> None:
         """
@@ -1778,10 +1993,17 @@ class MLSignalActor(BaseMLInferenceActor):
                         self._parity_window,
                     ):
                         self._run_parity_smoke_check()
-                except Exception:
-                    # Never impact hot path
-                    pass
-
+                except Exception as exc:
+                    # Never impact hot path — debug only
+                    try:
+                        self.log.debug(f"Ring metadata attach failed: {exc}")
+                    except Exception as log_exc:
+                        import logging as _logging
+                        _logging.getLogger(__name__).debug(
+                            "Logging ring metadata attach failure also failed: %s",
+                            log_exc,
+                            exc_info=True,
+                        )
         except Exception as e:
             self._handle_prediction_error(e)
 
@@ -1795,6 +2017,22 @@ class MLSignalActor(BaseMLInferenceActor):
         """
         Try to generate and publish a signal.
         """
+        # Apply any pending strategy swap (cold-path check; O(1))
+        try:
+            _swap = getattr(self, "_apply_strategy_swap_if_pending", None)
+            if callable(_swap):
+                _swap()
+        except Exception as exc:
+            # Never impact hot path — debug only
+            try:
+                self.log.debug("Strategy swap apply failed: %s", exc)
+            except Exception as log_exc:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Logging strategy swap failure also failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
         # Check signal separation
         if (
             self._bars_processed - self._last_signal_bar
@@ -1811,6 +2049,22 @@ class MLSignalActor(BaseMLInferenceActor):
             "timestamp_ns": self.clock.timestamp_ns(),
             "model_id": self._model_id if hasattr(self, "_model_id") else "unknown",
         }
+        # Provide ring buffer metadata for strategies to avoid per-call allocations
+        try:
+            context["_prediction_ring"] = self._prediction_window
+            context["_prediction_ring_index"] = int(self._window_index)
+            context["_prediction_ring_count"] = int(self._window_count)
+        except Exception as exc:
+            # Never impact hot path — debug only
+            try:
+                self.log.debug("Attach ring metadata failed: %s", exc)
+            except Exception as log_exc:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Logging ring metadata attach failure also failed: %s",
+                    log_exc,
+                    exc_info=True,
+                )
 
         # Generate signal using strategy
         signal = self._signal_strategy.generate_signal(
@@ -2031,13 +2285,13 @@ class MLSignalActor(BaseMLInferenceActor):
             The current bar.
 
         """
-        # Update prediction window
+        # Update prediction window (ring)
         if hasattr(self, "_prediction_window"):
-            self._prediction_window[self._window_index] = prediction
+            self._prediction_window[self._window_index] = float(prediction)
 
-        # Update confidence window
+        # Update confidence window (ring)
         if hasattr(self, "_confidence_window"):
-            self._confidence_window[self._window_index] = confidence
+            self._confidence_window[self._window_index] = float(confidence)
 
         # Update volatility window with price change
         if hasattr(self, "_volatility_window") and hasattr(self, "_last_close_price"):
@@ -2051,16 +2305,24 @@ class MLSignalActor(BaseMLInferenceActor):
         # Store current close price
         self._last_close_price = float(bar.close.as_double())
 
-        # Update window index
+        # Update window index/count
         if hasattr(self, "_window_index"):
             self._window_index = (self._window_index + 1) % int(self._signal_config.adaptive_window)
+            if hasattr(self, "_window_count"):
+                cap = int(self._signal_config.adaptive_window)
+                if self._window_count < cap:
+                    self._window_count += 1
 
-        # Add to history lists
-        if hasattr(self, "_prediction_history"):
-            self._prediction_history.append(prediction)
-
-        if hasattr(self, "_confidence_history"):
-            self._confidence_history.append(confidence)
+        # Add to history lists (cold path only) to avoid hot-path allocations in optimized mode
+        try:
+            is_optimized = getattr(self._opt_config.level, "value", str(self._opt_config.level)) == "optimized"
+        except Exception:
+            is_optimized = False
+        if not is_optimized:
+            if hasattr(self, "_prediction_history"):
+                self._prediction_history.append(prediction)
+            if hasattr(self, "_confidence_history"):
+                self._confidence_history.append(confidence)
 
     def reset_signal_state(self) -> None:
         """
@@ -2072,6 +2334,7 @@ class MLSignalActor(BaseMLInferenceActor):
         self._confidence_window.fill(0.0)
         self._volatility_window.fill(0.0)
         self._window_index = 0
+        self._window_count = 0
         self._adaptive_threshold = self._config.prediction_threshold
         self._market_regime = "unknown"
         self._last_signal_bar = -self._signal_config.min_signal_separation_bars

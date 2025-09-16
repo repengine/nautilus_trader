@@ -14,8 +14,11 @@ from ml.actors.ml_domain_events import init_actor_bus_bridge
 from ml.common.message_bus import NoopPublisher
 
 
+from typing import Any
+
+
 @pytest.mark.serial
-def test_actor_bus_bridge_disables_store_publishers(monkeypatch) -> None:
+def test_actor_bus_bridge_disables_store_publishers(monkeypatch: Any) -> None:
     # Enable actor bus and global bus
     monkeypatch.setenv("ML_BUS_FROM_ACTOR", "1")
     monkeypatch.setenv("ML_BUS_ENABLE", "1")

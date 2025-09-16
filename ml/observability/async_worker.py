@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import time
 from dataclasses import dataclass
 from dataclasses import field
@@ -132,6 +133,13 @@ class ObservabilityAsyncWorker:
         "Current depth of the observability async queue",
         ["component"],
     )
+    _ERRORS = _MM.counter(
+        "nautilus_ml_observability_errors_total",
+        "Total errors observed in observability async worker",
+        ["component", "kind"],
+    )
+
+    _LOGGER = logging.getLogger(__name__)
 
     def __post_init__(self) -> None:
         self._queue = asyncio.Queue(maxsize=int(self.queue_maxsize))
@@ -284,9 +292,9 @@ class ObservabilityAsyncWorker:
                     labels={"component": self.component_label, "reason": "queue_full"},
                     labelnames=("component", "reason"),
                 )
-            except Exception:
+            except Exception as exc:
                 # Best-effort metrics; never raise from hot path
-                pass
+                self._LOGGER.debug("Backpressure metric emit failed: %s", exc, exc_info=True)
             return False
 
     async def _run(self) -> None:
@@ -406,10 +414,21 @@ class ObservabilityAsyncWorker:
                         )
                     self._queue.task_done()
             except TimeoutError:
+                # Normal during idle periods; intentionally ignore
                 pass
-            except Exception:
-                # Swallow and continue to keep background robust
-                pass
+            except Exception as proc_exc:
+                # Swallow and continue to keep background robust — record and log
+                try:
+                    self._ERRORS.labels(component=self.component_label, kind="process").inc()
+                except Exception:
+                    self._LOGGER.debug(
+                        "Observability error counter emit failed", exc_info=True
+                    )
+                self._LOGGER.debug(
+                    "Observability async worker encountered an error: %s",
+                    proc_exc,
+                    exc_info=True,
+                )
 
             # Update queue depth gauge
             self._Q_DEPTH.labels(component=self.component_label).set(self._queue.qsize())

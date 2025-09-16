@@ -35,8 +35,11 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _ensure_parent_dir(path: Path) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Creating parent directory failed (ignored): %s", exc, exc_info=True
+        )
 
 
 def register_and_promote_model(
@@ -130,9 +133,11 @@ def register_and_promote_model(
     if auto_promote and serveable and deploy_target:
         try:
             registry.deploy_model(model_id_out, deploy_target)
-        except Exception:
-            # Non-fatal: continue emitting event below
-            pass
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Model deploy failed (continuing to emit event): %s", exc, exc_info=True
+            )
 
     # Emit SUCCESS event for registration/promotion (best-effort)
     try:
@@ -160,8 +165,11 @@ def register_and_promote_model(
             dataset_type="model",
             component="promotions",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Emit model registration event failed: %s", exc, exc_info=True
+        )
 
     return str(model_id_out)
 
@@ -230,8 +238,11 @@ def register_or_refresh_features(
             dataset_type="features",
             component="promotions",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Emit feature registration event failed: %s", exc, exc_info=True
+        )
 
     return feature_set_id
 

@@ -78,8 +78,14 @@ class ParquetCatalogRawReader(RawReaderProtocol):
 
             if HAS_POLARS and _pl is not None:
                 return cast(DataFrameLike, _pl.DataFrame({}))
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "Fallback to empty DataFrame failed in ParquetCatalogRawReader: %s",
+                exc,
+                exc_info=True,
+            )
         return cast(DataFrameLike, [])
 
 

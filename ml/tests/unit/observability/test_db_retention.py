@@ -14,7 +14,10 @@ def _ns(dt: datetime) -> int:
     return int(dt.timestamp() * 1e9)
 
 
-def test_apply_retention_deletes_old_rows(tmp_path: Path, default_instrument_id) -> None:
+from typing import Any
+
+
+def test_apply_retention_deletes_old_rows(tmp_path: Path, default_instrument_id: Any) -> None:
     now = datetime.now(UTC)
     old = now - timedelta(days=10)
     recent = now - timedelta(days=1)

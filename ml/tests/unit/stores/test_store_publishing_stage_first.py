@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from contextlib import contextmanager
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.config.events import Stage
@@ -16,7 +16,7 @@ from ml.stores.strategy_store import StrategyStore
 
 
 @contextmanager
-def env(vars: dict[str, str]) -> None:
+def env(vars: dict[str, str]) -> Iterator[None]:
     old = {k: os.environ.get(k) for k in vars}
     try:
         os.environ.update(vars)
@@ -38,7 +38,10 @@ class CapturePublisher(MessagePublisherProtocol):
         return True
 
 
-def test_model_store_stage_first_topics(tmp_path) -> None:
+from pathlib import Path
+
+
+def test_model_store_stage_first_topics(tmp_path: Path) -> None:
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_ENABLE": "1"}):
         store = ModelStore(
@@ -63,7 +66,7 @@ def test_model_store_stage_first_topics(tmp_path) -> None:
         assert payload["stage"] == Stage.PREDICTION_EMITTED.value
 
 
-def test_strategy_store_stage_first_topics(tmp_path) -> None:
+def test_strategy_store_stage_first_topics(tmp_path: Path) -> None:
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_ENABLE": "1"}):
         store = StrategyStore(
@@ -89,7 +92,7 @@ def test_strategy_store_stage_first_topics(tmp_path) -> None:
         assert payload["stage"] == Stage.SIGNAL_EMITTED.value
 
 
-def test_feature_store_stage_first_topics(tmp_path) -> None:
+def test_feature_store_stage_first_topics(tmp_path: Path) -> None:
     pub = CapturePublisher()
     with env({"ML_BUS_SCHEME": "stage_first", "ML_BUS_ENABLE": "1"}):
         store = FeatureStore(

@@ -30,12 +30,13 @@ class TestLatencyWatermarks:
             },
         ]
         df = build_latency_watermarks(rows)
-        assert (df["ts_stage_end"] >= df["ts_stage_start"]).all()
+        from typing import Any as _Any
+        assert (_cast(_Any, (df["ts_stage_end"] >= df["ts_stage_start"]))).all()
         assert (
             df["stage_latency_ns"] == (df["ts_stage_end"] - df["ts_stage_start"]).clip(lower=0)
         ).all()
-        s = df["cumulative_latency_ns"].diff().fillna(df["stage_latency_ns"])  # type: ignore[no-redef]
-        assert (_cast(Any, (s >= 0)).all())
+        s = df["cumulative_latency_ns"].diff().fillna(df["stage_latency_ns"])
+        assert (_cast(Any, s) >= 0).all()
 
 
 class TestMetricsCollection:
@@ -85,8 +86,7 @@ class TestEventCorrelation:
                 "propagation_path": ["data", "features"],
             },
         ]
-        rows = _cast(list[dict[str, Any]], rows)
-        df = build_event_correlation(rows)
+        df = build_event_correlation(_cast(list[dict[str, Any]], rows))
         assert (df["lineage_depth"] >= 0).all()
         # propagation_path is JSON string
         assert df["propagation_path"].apply(lambda s: isinstance(s, str) and json.loads(s)).all()

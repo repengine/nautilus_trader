@@ -99,9 +99,12 @@ def record_stage_boundary(
                 "row_count": str(int(row_count)),
             },
         )
-    except Exception:
+    except Exception as exc:
         # Non-blocking by design
-        pass
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "record_stage_boundary failed (ignored): %s", exc, exc_info=True
+        )
 
 
 __all__ = [
@@ -109,4 +112,3 @@ __all__ = [
     "is_observability_enabled",
     "record_stage_boundary",
 ]
-

@@ -25,6 +25,7 @@ Requires DATABENTO_API_KEY in environment and the `databento` package.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from collections.abc import Iterable
 from datetime import datetime
@@ -46,6 +47,9 @@ if TYPE_CHECKING:
 else:  # pragma: no cover - typing only
     PlDataFrame = object  # type: ignore[misc,assignment]
 from ml.data.ingest.policy import DatabentoCoveragePolicy
+
+
+logger = logging.getLogger(__name__)
 
 
 if not HAS_POLARS:
@@ -118,8 +122,8 @@ def _last_bar_timestamp(base: Path, symbol: str) -> datetime | None:
                 )
                 if col:
                     frames.append(df.select(col).rename({col: "timestamp"}))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Reading l0 parquet failed for %s: %s", symbol, exc, exc_info=True)
     # Also consider historical/recent fallback files
     for name in ("ohlcv-1m_historical.parquet", "ohlcv-1m_recent.parquet"):
         f = base / symbol / name
@@ -128,8 +132,14 @@ def _last_bar_timestamp(base: Path, symbol: str) -> datetime | None:
                 df = PL.read_parquet(str(f)).select([PL.col("timestamp").alias("timestamp")])
                 if not df.is_empty():
                     frames.append(df)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "Reading fallback parquet failed for %s (%s): %s",
+                    symbol,
+                    name,
+                    exc,
+                    exc_info=True,
+                )
     if not frames:
         return None
     dfc = PL.concat(frames, how="vertical").drop_nulls()
@@ -168,8 +178,8 @@ def _merge_save(base: Path, symbol: str, df_new: _Any) -> None:
     if "timestamp" in new_pl.columns:
         try:
             new_pl = new_pl.with_columns(PL.col("timestamp").cast(PL.Datetime("ns")))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Casting timestamp to ns failed for %s: %s", symbol, exc, exc_info=True)
     keep = [
         c for c in ["timestamp", "open", "high", "low", "close", "volume"] if c in new_pl.columns
     ]

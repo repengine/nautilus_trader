@@ -287,6 +287,7 @@ Unified ML signal actor configuration extending MLActorConfig:
 **Signal Strategy:**
 
 - `signal_strategy: Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] = "threshold"`
+- `signal_policy: Literal["threshold", "extremes", "momentum", "ensemble", "adaptive"] | None = None` (alias)
 - `adaptive_window: PositiveInt = 20`, `min_signal_separation_bars: PositiveInt = 3`
 - `feature_importance_threshold: NonNegativeFloat = 0.01`
 - `enable_regime_detection: bool = True`
@@ -419,7 +420,7 @@ actor_config = MLSignalActorConfig(
     model_id="xgb_signal_v2.1",
     bar_type=bar_type,
     instrument_id=instrument_id,
-    signal_strategy="adaptive",
+    signal_strategy="adaptive",   # or set `signal_policy="adaptive"`
     # Performance optimization
     optimization_config=OptimizationConfig(
         level="optimized",

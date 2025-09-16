@@ -39,18 +39,19 @@ The public API focuses on essential components needed for ML inference:
 
 - `MLSignalActorConfig`: Primary configuration for signal actors
 - `OptimizationConfig`: Performance optimization settings
-- `StrategyConfig`: Signal generation strategy configuration
+- `StrategyConfig`: Signal generation parameters
+- `SignalPolicy` (alias): Actor-side decision policy type used to map predictions to `MLSignal`
 
-## Signal Generation
+## Signal Policies (Actor-side)
 
-Signal generation follows a strategy pattern with built-in implementations:
+Signal generation follows a policy pattern with built-in implementations:
 - Threshold-based signaling
 - Extremes detection
 - Momentum analysis
 - Ensemble methods
 - Adaptive thresholds
 
-Custom strategies can be provided via model manifests without code changes
+Custom policies can be provided via model manifests without code changes
 (Open/Closed Principle compliance).
 
 ## Performance Requirements
@@ -91,6 +92,7 @@ from ml.actors.signal import AdaptiveSignal
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.actors.signal import OptimizationLevel
+from ml.actors.signal import SignalPolicy
 from ml.actors.signal import SignalStrategy
 from ml.config.actors import OptimizationConfig
 from ml.config.actors import StrategyConfig
@@ -105,6 +107,7 @@ __all__ = [
     "MLSignalActorConfig",
     "OptimizationConfig",
     "OptimizationLevel",
+    "SignalPolicy",
     "SignalStrategy",
     "StrategyConfig",
 ]

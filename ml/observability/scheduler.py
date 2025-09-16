@@ -87,9 +87,31 @@ class ObservabilityFlusher:
             while not stop_event.is_set():
                 try:
                     self.tick()
-                except Exception:
-                    # Keep background resilient
-                    pass
+                except Exception as exc:
+                    # Keep background resilient — log and record a counter
+                    try:
+                        import logging as _logging
+
+                        from ml.common.metrics_manager import MetricsManager as _MM
+
+                        _logging.getLogger(__name__).debug(
+                            "Observability flusher tick failed: %s", exc, exc_info=True
+                        )
+                        _MM.default().inc(
+                            "nautilus_ml_observability_errors_total",
+                            "Total errors observed in observability components",
+                            labels={"component": "observability_flusher", "kind": "tick"},
+                            labelnames=("component", "kind"),
+                        )
+                    except Exception as log_exc:
+                        # Never impact control flow on metrics/logging failures
+                        import logging as _logging
+
+                        _logging.getLogger(__name__).debug(
+                            "Logging/metrics for flusher tick also failed: %s",
+                            log_exc,
+                            exc_info=True,
+                        )
                 # Sleep a small fraction to avoid busy spinning; cap by interval
                 time.sleep(max(0.01, min(0.5, self.interval_seconds)))
 

@@ -45,7 +45,7 @@ class MLDataEventSchema(pa.DataFrameModel):
     """
 
     dataset_id: Series[str] = pa.Field(nullable=False)
-    instrument_id: Series[str] = pa.Field(nullable=False, regex=r"^[A-Z0-9]+\.[A-Z]+$")
+    instrument_id: Series[str] = pa.Field(nullable=False)
     stage: Series[str] = pa.Field(nullable=False, isin=[s.value for s in Stage])
     source: Series[str] = pa.Field(nullable=False, isin=[s.value for s in Source])
     status: Series[str] = pa.Field(nullable=False, isin=[s.value for s in EventStatus])
@@ -53,26 +53,52 @@ class MLDataEventSchema(pa.DataFrameModel):
     ts_min: Series[int] = pa.Field(nullable=False, ge=0)
     ts_max: Series[int] = pa.Field(nullable=False, ge=0)
     count: Series[int] = pa.Field(nullable=False, ge=0)
-    metadata: Series[object] = pa.Field(nullable=False, description="Nested metadata with correlation_id, ts_init, model_id")
+    metadata: Series[Any] = pa.Field(
+        nullable=False,
+        description="Nested metadata with correlation_id, ts_init, model_id",
+    )
 
     @pa.dataframe_check()
     def check_timestamp_ordering(cls, df: DataFrame[Any]) -> Series[bool]:
         """
         Ensure ts_max >= ts_min.
         """
-        return df["ts_max"] >= df["ts_min"]
+        # Pandera expects a typed Series. Cast for static typing.
+        from typing import cast
+
+        return cast(Series[bool], df["ts_max"] >= df["ts_min"])
 
     @pa.dataframe_check()
     def check_metadata_correlation_id(cls, df: DataFrame[Any]) -> Series[bool]:
         """
         Ensure metadata contains a non-empty correlation_id.
         """
+        from typing import Any, cast
+
+        def _has_corr(m: Any) -> bool:
+            if not isinstance(m, dict):
+                return False
+            cid = m.get("correlation_id")
+            return isinstance(cid, str) and len(cid) > 0
+
         try:
             meta = df["metadata"]
-            has = meta.apply(lambda m: isinstance(m, dict) and isinstance(m.get("correlation_id"), str) and len(m.get("correlation_id")) > 0)
-            return has.astype(bool)
+            has = meta.apply(_has_corr)
+            return cast(Series[bool], has.astype(bool))
         except Exception:
-            return pd.Series([False] * len(df))
+            return cast(Series[bool], pd.Series([False] * len(df)))
+
+    @pa.dataframe_check()
+    def check_instrument_id_format(cls, df: DataFrame[Any]) -> Series[bool]:
+        """
+        Ensure instrument_id matches pattern like "EURUSD.SIM".
+        """
+        import re
+        from typing import cast
+
+        pattern = re.compile(r"^[A-Z0-9]+\.[A-Z]+$")
+        result = df["instrument_id"].astype(str).apply(lambda s: bool(pattern.match(s)))
+        return cast(Series[bool], result.astype(bool))
 
 
 class MLRegistryEventSchema(pa.DataFrameModel):
@@ -253,7 +279,7 @@ class TestEventBusContracts:
         # When msgbus is None, publishing should be a no-op
         msgbus = None
 
-        def safe_publish(bus, topic: str, payload: dict[str, Any]) -> bool:
+        def safe_publish(bus: Any, topic: str, payload: dict[str, Any]) -> bool:
             """
             Safe publish that handles None bus.
             """
@@ -378,7 +404,7 @@ class TestEventOrdering:
         # Mock event log
         event_log = []
 
-        def log_event(stage: Stage, correlation_id: str, timestamp: int):
+        def log_event(stage: Stage, correlation_id: str, timestamp: int) -> None:
             event_log.append(
                 {
                     "stage": stage,

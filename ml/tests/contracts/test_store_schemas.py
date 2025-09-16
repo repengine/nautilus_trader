@@ -10,7 +10,7 @@ early and provides clear documentation of expected data formats.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -38,19 +38,17 @@ class FeatureInputSchema(pa.DataFrameModel):
     feature_set_id: Series[str] = pa.Field(
         nullable=False,
         description="Unique identifier for the feature set",
-        regex="^[a-zA-Z0-9_-]+$",
     )
     instrument_id: Series[str] = pa.Field(
         nullable=False,
         description="Nautilus instrument identifier (SYMBOL.VENUE)",
-        regex="^[A-Z0-9]+\\.[A-Z]+$",
     )
-    ts_event: Series[np.int64] = pa.Field(
+    ts_event: Series[int] = pa.Field(
         nullable=False,
         ge=0,
         description="Event timestamp in nanoseconds since epoch",
     )
-    ts_init: Series[np.int64] = pa.Field(
+    ts_init: Series[int] = pa.Field(
         nullable=False,
         ge=0,
         description="Initialization timestamp in nanoseconds since epoch",
@@ -61,20 +59,28 @@ class FeatureInputSchema(pa.DataFrameModel):
         """
         Ensure ts_init >= ts_event.
         """
-        return df["ts_init"] >= df["ts_event"]
+        return cast(Series[bool], df["ts_init"] >= df["ts_event"])
 
     @pa.check("ts_event", name="reasonable_timestamp")
-    def check_reasonable_timestamp(cls, series: Series[np.int64]) -> Series[bool]:
+    def check_reasonable_timestamp(cls, series: Series[int]) -> Series[bool]:
         """
         Ensure timestamps are within reasonable bounds (2010-2030).
         """
         min_ts = int(datetime(2010, 1, 1).timestamp() * 1e9)
         max_ts = int(datetime(2030, 1, 1).timestamp() * 1e9)
-        return (series >= min_ts) & (series <= max_ts)
+        return cast(Series[bool], (series >= min_ts) & (series <= max_ts))
 
     class Config:
         coerce = True
         strict = True
+
+    @pa.check("feature_set_id", name="feature_set_id_format")
+    def check_feature_set_id_format(cls, s: Series[str]) -> Series[bool]:
+        return cast(Series[bool], s.str.match(r"^[a-zA-Z0-9_-]+$"))
+
+    @pa.check("instrument_id", name="instrument_id_format")
+    def check_instrument_id_format(cls, s: Series[str]) -> Series[bool]:
+        return cast(Series[bool], s.str.match(r"^[A-Z0-9]+\.[A-Z]+$"))
 
 
 class FeatureValueSchema(pa.DataFrameModel):
@@ -85,7 +91,7 @@ class FeatureValueSchema(pa.DataFrameModel):
     # Dynamic feature columns - validated separately
     # All feature columns should be numeric
 
-    @pa.dataframe_check
+    @pa.dataframe_check()
     def has_feature_columns(cls, df: pd.DataFrame) -> bool:
         """
         Ensure at least one feature column exists.
@@ -94,7 +100,7 @@ class FeatureValueSchema(pa.DataFrameModel):
         feature_columns = set(df.columns) - reserved_columns
         return len(feature_columns) > 0
 
-    @pa.dataframe_check
+    @pa.dataframe_check()
     def feature_values_are_numeric(cls, df: pd.DataFrame) -> bool:
         """
         Ensure all feature values are numeric.
@@ -106,7 +112,7 @@ class FeatureValueSchema(pa.DataFrameModel):
                     return False
         return True
 
-    @pa.dataframe_check
+    @pa.dataframe_check()
     def no_infinite_values(cls, df: pd.DataFrame) -> bool:
         """
         Ensure no infinite values in features.
@@ -133,10 +139,7 @@ class PredictionSchema(pa.DataFrameModel):
         nullable=False,
         description="Unique model identifier",
     )
-    instrument_id: Series[str] = pa.Field(
-        nullable=False,
-        regex="^[A-Z0-9]+\\.[A-Z]+$",
-    )
+    instrument_id: Series[str] = pa.Field(nullable=False)
     prediction: Series[float] = pa.Field(
         nullable=False,
         ge=-1.0,
@@ -149,11 +152,11 @@ class PredictionSchema(pa.DataFrameModel):
         le=1.0,
         description="Prediction confidence score",
     )
-    ts_event: Series[np.int64] = pa.Field(
+    ts_event: Series[int] = pa.Field(
         nullable=False,
         ge=0,
     )
-    ts_init: Series[np.int64] = pa.Field(
+    ts_init: Series[int] = pa.Field(
         nullable=False,
         ge=0,
     )
@@ -163,10 +166,14 @@ class PredictionSchema(pa.DataFrameModel):
         """
         Confidence should be positive when prediction is non-zero.
         """
-        return series >= 0
+        return cast(Series[bool], series >= 0)
 
     class Config:
         coerce = True
+
+    @pa.check("instrument_id", name="instrument_id_format")
+    def check_instrument_id_format(cls, s: Series[str]) -> Series[bool]:
+        return cast(Series[bool], s.str.match(r"^[A-Z0-9]+\.[A-Z]+$"))
 
 
 class ModelMetricsSchema(pa.DataFrameModel):
@@ -180,7 +187,7 @@ class ModelMetricsSchema(pa.DataFrameModel):
         isin=["accuracy", "precision", "recall", "f1", "sharpe", "max_drawdown"],
     )
     metric_value: Series[float] = pa.Field(nullable=False)
-    evaluation_ts: Series[np.int64] = pa.Field(nullable=False, ge=0)
+    evaluation_ts: Series[int] = pa.Field(nullable=False, ge=0)
 
     @pa.check("metric_value", name="valid_percentage_metrics")
     def check_percentage_metrics(cls, df: DataFrame[Any]) -> Series[bool]:
@@ -191,8 +198,8 @@ class ModelMetricsSchema(pa.DataFrameModel):
         mask = df["metric_name"].isin(percentage_metrics)
         if mask.any():
             values = df.loc[mask, "metric_value"]
-            return (values >= 0) & (values <= 1)
-        return pd.Series([True] * len(df))
+            return cast(Series[bool], (values >= 0) & (values <= 1))
+        return cast(Series[bool], pd.Series([True] * len(df)))
 
 
 # ============================================================================
@@ -206,10 +213,7 @@ class SignalSchema(pa.DataFrameModel):
     """
 
     strategy_id: Series[str] = pa.Field(nullable=False)
-    instrument_id: Series[str] = pa.Field(
-        nullable=False,
-        regex="^[A-Z0-9]+\\.[A-Z]+$",
-    )
+    instrument_id: Series[str] = pa.Field(nullable=False)
     signal_type: Series[str] = pa.Field(
         nullable=False,
         isin=["BUY", "SELL", "HOLD", "CLOSE"],
@@ -219,8 +223,8 @@ class SignalSchema(pa.DataFrameModel):
         ge=-1.0,
         le=1.0,
     )
-    ts_event: Series[np.int64] = pa.Field(nullable=False, ge=0)
-    ts_init: Series[np.int64] = pa.Field(nullable=False, ge=0)
+    ts_event: Series[int] = pa.Field(nullable=False, ge=0)
+    ts_init: Series[int] = pa.Field(nullable=False, ge=0)
 
     @pa.dataframe_check()
     def check_signal_consistency(cls, df: DataFrame[Any]) -> Series[bool]:
@@ -233,7 +237,11 @@ class SignalSchema(pa.DataFrameModel):
         buy_check = ~buy_mask | (df["signal_strength"] >= 0)
         sell_check = ~sell_mask | (df["signal_strength"] <= 0)
 
-        return buy_check & sell_check
+        return cast(Series[bool], buy_check & sell_check)
+
+    @pa.check("instrument_id", name="instrument_id_format")
+    def check_instrument_id_format(cls, s: Series[str]) -> Series[bool]:
+        return cast(Series[bool], s.str.match(r"^[A-Z0-9]+\.[A-Z]+$"))
 
 
 class PositionSchema(pa.DataFrameModel):
@@ -247,7 +255,7 @@ class PositionSchema(pa.DataFrameModel):
     entry_price: Series[float] = pa.Field(nullable=True, gt=0)
     current_price: Series[float] = pa.Field(nullable=True, gt=0)
     unrealized_pnl: Series[float] = pa.Field(nullable=True)
-    ts_event: Series[np.int64] = pa.Field(nullable=False, ge=0)
+    ts_event: Series[int] = pa.Field(nullable=False, ge=0)
 
     @pa.check(
         "unrealized_pnl",
@@ -267,8 +275,8 @@ class PositionSchema(pa.DataFrameModel):
             )
             actual_pnl = df.loc[mask, "unrealized_pnl"]
             # Allow small floating point differences
-            return abs(expected_pnl - actual_pnl) < 0.01
-        return pd.Series([True] * len(df))
+            return cast(Series[bool], (abs(expected_pnl - actual_pnl) < 0.01))
+        return cast(Series[bool], pd.Series([True] * len(df)))
 
 
 # ============================================================================
@@ -282,9 +290,9 @@ class WatermarkSchema(pa.DataFrameModel):
     """
 
     pipeline_id: Series[str] = pa.Field(nullable=False)
-    watermark_ts: Series[np.int64] = pa.Field(nullable=False, ge=0)
+    watermark_ts: Series[int] = pa.Field(nullable=False, ge=0)
     processed_count: Series[int] = pa.Field(nullable=False, ge=0)
-    update_ts: Series[np.int64] = pa.Field(nullable=False, ge=0)
+    update_ts: Series[int] = pa.Field(nullable=False, ge=0)
 
     @pa.check("watermark_ts", "update_ts", name="watermark_progression")
     def check_watermark_progression(cls, df: DataFrame[Any]) -> Series[bool]:
@@ -292,16 +300,16 @@ class WatermarkSchema(pa.DataFrameModel):
         Watermarks should only move forward.
         """
         if len(df) <= 1:
-            return pd.Series([True] * len(df))
+            return cast(Series[bool], pd.Series([True] * len(df)))
 
         # Group by pipeline and check monotonicity
         for pipeline_id in df["pipeline_id"].unique():
             pipeline_df = df[df["pipeline_id"] == pipeline_id].sort_values("update_ts")
             watermarks = pipeline_df["watermark_ts"].to_numpy()
             if not all(watermarks[i] <= watermarks[i + 1] for i in range(len(watermarks) - 1)):
-                return pd.Series([False] * len(df))
+                return cast(Series[bool], pd.Series([False] * len(df)))
 
-        return pd.Series([True] * len(df))
+        return cast(Series[bool], pd.Series([True] * len(df)))
 
 
 class EventLogSchema(pa.DataFrameModel):
@@ -323,15 +331,15 @@ class EventLogSchema(pa.DataFrameModel):
         ],
     )
     source_id: Series[str] = pa.Field(nullable=False)
-    ts_event: Series[np.int64] = pa.Field(nullable=False, ge=0)
-    ts_process: Series[np.int64] = pa.Field(nullable=False, ge=0)
+    ts_event: Series[int] = pa.Field(nullable=False, ge=0)
+    ts_process: Series[int] = pa.Field(nullable=False, ge=0)
 
     @pa.check("ts_process", "ts_event", name="processing_latency")
     def check_processing_latency(cls, df: DataFrame[Any]) -> Series[bool]:
         """
         Processing should happen after event.
         """
-        return df["ts_process"] >= df["ts_event"]
+        return cast(Series[bool], df["ts_process"] >= df["ts_event"])
 
 
 # ============================================================================

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Any
 
 import pytest
 
@@ -14,7 +15,7 @@ pytestmark = [
 ]
 
 
-def test_create_test_partitions_minimal(clean_postgres_db, postgres_connection: str) -> None:  # type: ignore[override]
+def test_create_test_partitions_minimal(clean_postgres_db: Any, postgres_connection: str) -> None:
     pm = PartitionManager(connection_string=postgres_connection, tables=["ml_model_predictions"], months_ahead=0)
     # Create a tiny range (one month)
     created = pm.create_test_partitions(
@@ -31,4 +32,3 @@ def test_ensure_current_partition_name_format() -> None:
     now = datetime.now()
     pattern = rf"ml_strategy_signals_{now.year:04d}_{now.month:02d}"
     assert re.match(r"ml_strategy_signals_\d{4}_\d{2}", pattern)
-

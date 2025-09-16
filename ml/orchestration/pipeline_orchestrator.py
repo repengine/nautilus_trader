@@ -125,8 +125,13 @@ class MLPipelineOrchestrator:
                 )
                 api_build(api_cfg)
                 return 0
-            except Exception:  # pragma: no cover - defensive fallback to CLI path
-                pass
+            except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "API-based dataset build failed; falling back to CLI: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         # Fallback to invoking the CLI main with assembled args
         args: list[str] = [

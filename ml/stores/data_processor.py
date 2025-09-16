@@ -209,8 +209,8 @@ class DataProcessor:
         try:
             import builtins as _b
             _b.metrics = metrics  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Exposing metrics via builtins failed (ignored): %s", exc)
         return processed_data, metrics
 
     def _is_price_outlier(self, instrument_id: str, bid: float, ask: float) -> bool:
@@ -317,8 +317,14 @@ class DataProcessor:
         try:
             import builtins as _b
             _b.metrics = metrics  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Exposing builtins.metrics (features) failed: %s", exc, exc_info=True
+                )
+            except Exception:
+                ...
         return feature_data, metrics
 
     def _validate_feature_ranges(
@@ -555,8 +561,14 @@ class DataProcessor:
         try:
             import builtins as _b
             _b.metrics = metrics  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "Exposing builtins.metrics (signals) failed: %s", exc, exc_info=True
+                )
+            except Exception:
+                ...
         return signal_data, metrics
 
     def _calculate_risk_metrics(
@@ -968,6 +980,6 @@ class DataProcessor:
         try:
             import builtins as _b
             _b.metrics = total_metrics  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Exposing aggregated metrics via builtins failed: %s", exc)
         return processed, total_metrics

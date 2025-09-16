@@ -12,8 +12,11 @@ from ml.actors.ml_domain_events import init_actor_bus_bridge
 from ml.common.message_bus import NoopPublisher
 
 
+from typing import Any
+
+
 @pytest.mark.serial
-def test_actor_bus_scheme_and_prefix(monkeypatch) -> None:
+def test_actor_bus_scheme_and_prefix(monkeypatch: Any) -> None:
     # Enable actor bus and message bus with non-default scheme/prefix
     monkeypatch.setenv("ML_BUS_FROM_ACTOR", "1")
     monkeypatch.setenv("ML_BUS_ENABLE", "1")
@@ -41,4 +44,3 @@ def test_actor_bus_scheme_and_prefix(monkeypatch) -> None:
     finally:
         if bridge is not None:
             bridge.stop(drain=True)
-

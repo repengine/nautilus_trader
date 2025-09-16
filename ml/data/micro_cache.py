@@ -109,7 +109,7 @@ class MicroMinuteCache:
             return _cast(PolarsDF, _pl.DataFrame({"timestamp": []}))
         df = _pl.concat(parts, how="vertical")
         if df.is_empty():
+            from typing import cast as _cast
             return _cast(PolarsDF, df)
         # Filter to exact [start, end) and sort
-        from typing import cast as _cast
-        return _cast(PolarsDF, filter_df_by_ns_range(df, start=start, end=end))
+        return filter_df_by_ns_range(df, start=start, end=end)

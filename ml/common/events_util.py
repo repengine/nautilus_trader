@@ -119,10 +119,12 @@ def build_bus_payload(
             final_metadata = _inject(final_metadata)
         except ImportError:
             # Graceful fallback when tracing not available
-            pass
-        except Exception:
-            # Graceful fallback on any tracing error
-            pass
+            ...
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "Trace inject failed in build_bus_payload: %s", exc, exc_info=True
+            )
 
     payload: dict[str, object] = {
         "dataset_id": dataset_id,

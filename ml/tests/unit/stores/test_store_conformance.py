@@ -1,5 +1,8 @@
-# ruff: noqa: I001
+from __future__ import annotations
+
 import time
+from pathlib import Path
+from typing import Any
 
 from sqlalchemy import func, select, text
 
@@ -8,17 +11,17 @@ from ml.stores.model_store import ModelStore
 
 
 def test_modelstore_sanitizes_seconds_to_ns(
-    monkeypatch,
-    tmp_path,
-    default_instrument_id,
-    sample_features
+    monkeypatch: Any,
+    tmp_path: Path,
+    default_instrument_id: Any,
+    sample_features: dict[str, float],
 ) -> None:
-    captured: list[dict] = []
+    captured: list[dict[str, Any]] = []
 
     db_path = tmp_path / "model_store.db"
     store = ModelStore(connection_string=f"sqlite:///{db_path}", batch_size=1)
 
-    def fake_execute(values):
+    def fake_execute(values: list[dict[str, Any]]) -> None:
         captured.extend(values)
 
     monkeypatch.setattr(store, "_execute_write", fake_execute)
@@ -44,10 +47,10 @@ def test_modelstore_sanitizes_seconds_to_ns(
 
 
 def test_featurestore_upsert_idempotent(
-    tmp_path,
-    default_instrument_id,
-    test_timestamps,
-    sample_features
+    tmp_path: Path,
+    default_instrument_id: Any,
+    test_timestamps: tuple[int, int],
+    sample_features: dict[str, float],
 ) -> None:
     db_path = tmp_path / "feature_store.db"
     store = FeatureStore(connection_string=f"sqlite:///{db_path}")

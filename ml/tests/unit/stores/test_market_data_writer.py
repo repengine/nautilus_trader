@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import pytest
@@ -17,6 +17,10 @@ from ml.stores.writers import DataStoreMarketDataWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
 
 
+from ml.config.events import EventStatus, Stage
+from ml.registry.protocols import RegistryProtocol
+
+
 class _StubRegistry:
     def __init__(self, manifest: DatasetManifest, contract: DataContract) -> None:
         self.manifest = manifest
@@ -26,16 +30,15 @@ class _StubRegistry:
 
     def emit_event(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
-        stage,
-        source,
+        stage: Stage,
+        source: Source,
         run_id: str,
         ts_min: int,
         ts_max: int,
         count: int,
-        status,
+        status: EventStatus,
         error: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
@@ -43,10 +46,9 @@ class _StubRegistry:
 
     def update_watermark(
         self,
-        *,
         dataset_id: str,
         instrument_id: str,
-        source,
+        source: Source,
         last_success_ns: int,
         count: int,
         completeness_pct: float,
@@ -125,7 +127,7 @@ def test_market_data_writer_uses_datastore_and_emits_success(
 ) -> None:
     # Setup DataStore with stub registry and mock stores, plus a fake raw writer
     reg = _StubRegistry(_manifest("bars_ds"), _contract("bars_ds"))
-    ds = DataStore(
+    ds = cast(Any, DataStore)(
         connection_string="sqlite:///:memory:",
         registry=reg,
         feature_store=mock_feature_store,

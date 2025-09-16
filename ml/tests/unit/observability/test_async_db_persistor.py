@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_async_db_persistor_writes_and_validates(tmp_path: Path, default_instrument_id) -> None:
+async def test_async_db_persistor_writes_and_validates(tmp_path: Path, default_instrument_id: Any) -> None:
     """
     Persist small frames via async DB persistor using sqlite+aiosqlite backend.
 

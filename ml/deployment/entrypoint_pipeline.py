@@ -31,6 +31,8 @@ from ml.common.metrics_export import generate_latest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
+from typing import Any as _Any
+from typing import cast as _cast
 
 from ml._imports import check_ml_dependencies
 from ml.config.scheduler_config import DatabentoConfig
@@ -43,11 +45,14 @@ from ml.stores.feature_store import FeatureStore
 from ml.stores.model_store import ModelStore
 
 
+# Provide a patchable symbol for tests; resolved lazily at runtime.
+_ParquetDataCatalogRT: type[_Any] | None = None
+# Public alias for tests to patch directly (e.g., via unittest.mock.patch)
+# When None, the runtime will lazily import ParquetDataCatalog.
+ParquetDataCatalog: type[_Any] | None = None
+
 if TYPE_CHECKING:  # pragma: no cover - avoid heavy import at module import time
-    pass
-else:
-    # Provide a patchable symbol for tests; resolved lazily at runtime.
-    ParquetDataCatalog: object | None = None
+    from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC_T
 
 
 # Configure logging
@@ -189,19 +194,22 @@ class PipelineRunner:
 
         return feature_store, model_store
 
-    def _initialize_catalog(self, config: SchedulerConfig):  # -> ParquetDataCatalog
+    def _initialize_catalog(self, config: SchedulerConfig) -> _PDC_T:
         """
         Initialize the data catalog.
         """
         catalog_path = Path(os.environ.get("CATALOG_PATH", "/app/data/catalog"))
         catalog_path.mkdir(parents=True, exist_ok=True)
-        # Resolve catalog class: prefer patched module-level symbol if present
-        global ParquetDataCatalog
-        if ParquetDataCatalog is None:
+        # Resolve catalog class: prefer patched module-level alias if present
+        global _ParquetDataCatalogRT, ParquetDataCatalog
+        ctor_any: type[_Any] | None = ParquetDataCatalog or _ParquetDataCatalogRT
+        if ctor_any is None:
             # Lazy import to avoid heavy dependency at module import time
             from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC
-            ParquetDataCatalog = _PDC  # type: ignore[assignment]
-        return ParquetDataCatalog(str(catalog_path))  # type: ignore[operator]
+            _ParquetDataCatalogRT = _PDC
+            ctor_any = _ParquetDataCatalogRT
+        ctor = _cast(type["_PDC_T"], ctor_any)
+        return ctor(str(catalog_path))
 
     def run(self) -> None:
         """

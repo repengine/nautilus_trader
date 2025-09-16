@@ -42,6 +42,34 @@ def _ensure_functions_and_partitions(engine: Engine) -> None:
             # Silently ignore when function is unavailable; tests will gate DB usage
             pass
 
+        # Ensure DEFAULT partitions exist for partitioned tables so inserts do not fail
+        try:
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS ml_feature_values_default PARTITION OF ml_feature_values DEFAULT",
+            ))
+        except Exception:
+            pass
+        try:
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS ml_model_predictions_default PARTITION OF ml_model_predictions DEFAULT",
+            ))
+        except Exception:
+            pass
+        try:
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS ml_strategy_signals_default PARTITION OF ml_strategy_signals DEFAULT",
+            ))
+        except Exception:
+            pass
+
+        # Ensure required unique index for FeatureStore upserts exists
+        try:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key ON public.ml_feature_values (feature_set_id, instrument_id, ts_event)",
+            ))
+        except Exception:
+            pass
+
 
 def main() -> None:
     """Run database remediation if DATABASE_URL is set and reachable."""
