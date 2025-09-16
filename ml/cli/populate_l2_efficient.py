@@ -131,7 +131,7 @@ def validate_data_integrity(file_path: Path, symbol: str, expected_date: datetim
         return True
 
     except Exception as e:
-        logger.warning(f"  {expected_date.date()}: Error validating file: {e}")
+        logger.warning("  %s: Error validating file: %s", expected_date.date(), e, exc_info=True)
         return False
 
 
@@ -204,7 +204,7 @@ def detect_data_gaps(
         return missing_dates
 
     except Exception as e:
-        logger.warning(f"Error reading existing data for {symbol}: {e}")
+        logger.warning("Error reading existing data for %s: %s", symbol, e, exc_info=True)
         # If we can't read existing data, assume we need all dates
         return get_business_dates(start_date, end_date)
 
@@ -239,7 +239,7 @@ def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
                         table = table.select(writer.schema.names)
                     writer.write_table(table)
             except Exception as e:
-                logger.error(f"  Error appending {file.name}: {e}")
+                logger.error("  Error appending %s: %s", file.name, e, exc_info=True)
                 continue
         return writer
 
@@ -382,7 +382,7 @@ def download_l2_daily(
         )
         return int(res)
     except _NonTransientSkip as e:
-        logger.error(f"  {date.date()}: Error - {e}")
+        logger.error("  %s: Error - %s", date.date(), e, exc_info=True)
         return 0
 
 
@@ -409,7 +409,7 @@ def _validate_daily_file(file_path: Path) -> bool:
             return False
         return True
     except Exception as e:
-        logger.warning(f"  Corrupted file detected: {file_path.name} - {e}")
+        logger.warning("  Corrupted file detected: %s - %s", file_path.name, e, exc_info=True)
         return False
 
 
@@ -450,7 +450,7 @@ def _stream_merge_daily_files(daily_files: list[Path], tmp_output: Path) -> None
                         f"  Appended {idx}/{len(valid_files)} daily files (Memory: {mem_percent:.1f}%)",
                     )
             except Exception as e:
-                logger.error(f"  Error processing {file.name}: {e}")
+                logger.error("  Error processing %s: %s", file.name, e, exc_info=True)
                 # Don't fail entire operation for one bad file
                 continue
     finally:
@@ -587,7 +587,7 @@ def main() -> int:
             start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
             end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
         except ValueError as e:
-            logger.error(f"Invalid date format: {e}")
+            logger.error("Invalid date format: %s", e, exc_info=True)
         return 1
     else:
         # Default: account for EQUS.MINI delay

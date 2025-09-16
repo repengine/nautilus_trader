@@ -549,6 +549,7 @@ class MLIntegrationManager:
         table_name = os.getenv("TABLE_NAME", "market_data")
         catalog_path = os.getenv("CATALOG_PATH", "")
         api_key = os.getenv("DATABENTO_API_KEY", "")
+        also_write_catalog = os.getenv("ALSO_WRITE_CATALOG", "").lower() in {"1", "true", "yes"}
 
         # Prefer invoking CLI for simplicity and isolation
         cmd = [
@@ -580,6 +581,12 @@ class MLIntegrationManager:
             cmd += ["--catalog-path", catalog_path]
         if client_mode == "databento" and api_key:
             cmd += ["--api-key", api_key]
+        if also_write_catalog:
+            if not catalog_path:
+                raise RuntimeError(
+                    "ALSO_WRITE_CATALOG set but CATALOG_PATH is missing; provide CATALOG_PATH",
+                )
+            cmd += ["--also-write-catalog"]
 
         logger.info("Running backfill bootstrap: %s", shlex.join(cmd))
         try:

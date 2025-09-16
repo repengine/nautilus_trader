@@ -196,12 +196,42 @@ services:
       INGEST_CLIENT_MODE: "catalog"   # or 'databento'
       CATALOG_PATH: "/data/catalog"   # required if using catalog
       DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
+      # Dual-write: also persist domain objects into ParquetDataCatalog on boot backfill
+      ALSO_WRITE_CATALOG: "true"
 ```
 
 Notes:
 
 - The IntegrationManager logs the full CLI invocation and soft-fails (logs a warning) if the backfill cannot run so as not to block container startup.
 - For long-running backfills or multiple instruments, prefer running the CLI as a separate one-shot job.
+
+### Unified Ingestion via DataScheduler (Orchestrator Mode)
+
+The `DataScheduler` supports a unified ingestion path backed by the IngestionOrchestrator.
+Enable it to dual-write market data into both SQL (canonical coverage) and the
+ParquetDataCatalog (dataset builder) in one pass:
+
+```python
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from ml.config.scheduler_config import SchedulerConfig
+from ml.data import DataScheduler
+
+catalog = ParquetDataCatalog("${CATALOG_PATH}")
+config = SchedulerConfig(symbols=["SPY.XNAS", "QQQ.XNAS"], databento=DatabentoConfig(dataset="EQUS.MINI", schema="ohlcv-1m"))
+
+scheduler = DataScheduler(
+    catalog=catalog,
+    config=config,
+    use_orchestrator=True,  # unified control path
+    dual_write=True,        # SQL + Parquet in the same pass
+)
+scheduler.run_daily_update()
+```
+
+Requirements:
+- `DATABENTO_API_KEY` set in the environment
+- DB connection available via one of `feature_store_connection` in config, `DB_CONNECTION`,
+  `DATABASE_URL`, or `NAUTILUS_DB_CONNECTION` for SQL coverage/writer
 
 ### Core Trading Services
 

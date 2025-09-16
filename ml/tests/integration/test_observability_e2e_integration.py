@@ -37,7 +37,10 @@ def integration_manager_with_observability():
     """
     # Enable observability for this test
     original_value = os.environ.get("ML_OBSERVABILITY_ENABLED")
+    original_dummy = os.environ.get("ML_ALLOW_DUMMY")
     os.environ["ML_OBSERVABILITY_ENABLED"] = "1"
+    # Ensure dummy stores are allowed to avoid DB dependency in tests
+    os.environ["ML_ALLOW_DUMMY"] = "1"
 
     try:
         mgr = MLIntegrationManager(
@@ -57,6 +60,10 @@ def integration_manager_with_observability():
             os.environ.pop("ML_OBSERVABILITY_ENABLED", None)
         else:
             os.environ["ML_OBSERVABILITY_ENABLED"] = original_value
+        if original_dummy is None:
+            os.environ.pop("ML_ALLOW_DUMMY", None)
+        else:
+            os.environ["ML_ALLOW_DUMMY"] = original_dummy
 
 
 class TestObservabilityE2EIntegration:

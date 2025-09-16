@@ -151,6 +151,33 @@ These enable external APIs and DB access for schedulers/registry:
   - `ML_DATABASE_URL` — alias used by tools (mirrors `DATABASE_URL`)
   - `NAUTILUS_REGISTRY_DB_URL` — alias for registry helpers
 
+## Unified Ingestion (Dual-Write)
+
+To guarantee that the dataset builder can always read from a ParquetDataCatalog while
+preserving SQL coverage and watermarks, the ingestion control path supports dual-write:
+
+- Backfill (CLI):
+  - `python -m ml.cli.ingest_backfill ... --also-write-catalog --catalog-path $CATALOG_PATH`
+  - Writes SQL (`market_data`) and domain objects to `ParquetDataCatalog`.
+
+- Daily (Scheduler):
+  - `DataScheduler(..., use_orchestrator=True, dual_write=True).run_daily_update()`
+  - Uses `IngestionOrchestrator` under the hood for consistent behavior.
+
+IntegrationManager can pass `ALSO_WRITE_CATALOG=1` to its boot-time backfill command so
+containers start with a populated catalog.
+
+## Macro (FRED) ML-Format Parquet
+
+Dataset builder performs an as-of join against an ML-format parquet file with columns
+`timestamp`, `series_id`, `value`.
+
+- Export via loader: `FREDDataLoader.export_ml_parquet(out_path="data/fred/fred_indicators_ml_format.parquet")`
+- Or use CLI: `python -m ml.cli.fred_export_ml_parquet --out data/fred/fred_indicators_ml_format.parquet`
+
+Then enable macro in the builder (`include_macro=True`) or pass an explicit path in
+`join_fred_asof(..., fred_path=...)`.
+
 ## Architecture Overview
 
 The data pipeline follows a layered architecture with clear separation of concerns:

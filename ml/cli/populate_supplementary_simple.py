@@ -75,7 +75,7 @@ def fetch_alpha_vantage_data(symbol: str, api_key: str = "demo") -> pd.DataFrame
             return df.sort_index()
 
     except Exception as e:
-        logger.error(f"Failed to fetch {symbol}: {e}")
+        logger.error("Failed to fetch %s: %s", symbol, e, exc_info=True)
 
     return pd.DataFrame()
 

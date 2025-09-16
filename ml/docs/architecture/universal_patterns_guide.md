@@ -329,6 +329,20 @@ assert process_features(postgres_store, "EUR/USD")
 assert process_features(dummy_store, "EUR/USD")
 ```
 
+#### Ingestion: Single Control Path with Protocol Forks
+
+Unified ingestion uses a single orchestrator with protocol-based adapters at the
+boundaries. This ensures consistent event/watermark semantics and avoids drift
+between backfill/daily/live paths.
+
+- Coverage: `CoverageProviderProtocol` (e.g., `SqlCoverageProvider`, `CatalogCoverageProvider`)
+- Client: provider-specific (e.g., `DatabentoLikeClient`)
+- Writer(s): `MarketDataWriterProtocol` (SQL) plus `RawIngestionWriterProtocol` (Parquet)
+- Domain loader: `DomainWindowLoaderProtocol` (loads Nautilus domain objects for catalog writes)
+
+This preserves the Protocol-First principle and keeps the ingestion pipeline flexible
+without widening types to Any.
+
 #### Strict Store Protocols (Adoption)
 
 To strengthen public API contracts at ML boundaries, prefer the strict variants of store protocols for new and refactored code:

@@ -188,7 +188,7 @@ class ModelRegistry(AbstractRegistry):
                             self._deployments[target] = []
                         self._deployments[target].append(model_info.manifest.model_id)
             except Exception as e:
-                logger.warning(f"Error loading from database: {e}. Starting with empty registry.")
+                logger.warning("Error loading from database: %s. Starting with empty registry.", e, exc_info=True)
                 self._models = {}
                 self._ab_tests = {}
                 self._deployments = {}
@@ -254,7 +254,7 @@ class ModelRegistry(AbstractRegistry):
 
             logger.debug(f"Registry saved with {len(self._models)} models")
         except Exception as e:
-            logger.error(f"Failed to save registry: {e}")
+            logger.error("Failed to save registry: %s", e, exc_info=True)
             raise
 
     def _flush_batch_save(self) -> None:
@@ -275,7 +275,7 @@ class ModelRegistry(AbstractRegistry):
                         exc_info=False,
                     )
                 except Exception as e:
-                    logger.error(f"Error during batch save flush: {e}")
+                    logger.error("Error during batch save flush: %s", e, exc_info=True)
                 finally:
                     self._pending_save = False
                     self._save_timer = None
@@ -500,7 +500,7 @@ class ModelRegistry(AbstractRegistry):
             session.commit()
         except Exception as e:
             session.rollback()
-            logger.error(f"Failed to save model to database: {e}")
+            logger.error("Failed to save model to database: %s", e, exc_info=True)
             raise
         finally:
             session.close()
@@ -647,7 +647,7 @@ class ModelRegistry(AbstractRegistry):
                         f"Calculated SHA-256 digest for model artifact: {artifact_digest[:16]}...",
                     )
                 except (OSError, FileNotFoundError) as e:
-                    logger.error(f"Failed to calculate artifact digest: {e}")
+                    logger.error("Failed to calculate artifact digest: %s", e, exc_info=True)
                     raise ValueError(
                         f"Cannot calculate SHA-256 digest for model artifact: {e}",
                     ) from e
@@ -909,7 +909,7 @@ class ModelRegistry(AbstractRegistry):
                 self.deploy_model(manifest.model_id, target)
                 logger.info(f"Auto-deployed {manifest.model_id} to {target}")
         else:
-            logger.warning(f"Auto-deploy skipped for {manifest.model_id}: {errors}")
+            logger.warning("Auto-deploy skipped for %s: %s", manifest.model_id, errors)
 
     def deploy_model(
         self,
@@ -937,7 +937,7 @@ class ModelRegistry(AbstractRegistry):
         """
         with self._lock:
             if model_id not in self._models:
-                logger.error(f"Model {model_id} not found in registry")
+                logger.error("Model %s not found in registry", model_id)
                 return False
 
             model_info = self._models[model_id]
@@ -1039,7 +1039,7 @@ class ModelRegistry(AbstractRegistry):
                 return None
             model_path = self._models[model_id].model_path
             if not self._validate_model_path(model_path):
-                logger.error(f"Security: Invalid model path detected: {model_path}")
+                logger.error("Security: Invalid model path detected: %s", model_path)
                 return None
             return model_path if model_path.exists() else None
 
@@ -1137,11 +1137,11 @@ class ModelRegistry(AbstractRegistry):
 
             # Validate path security
             if not self._validate_model_path(model_path):
-                logger.error(f"Security: Invalid model path detected: {model_path}")
+                logger.error("Security: Invalid model path detected: %s", model_path)
                 return None
 
             if not model_path.exists():
-                logger.error(f"Model file not found: {model_path}")
+                logger.error("Model file not found: %s", model_path)
                 return None
 
             # Only support ONNX format for security
@@ -1194,7 +1194,7 @@ class ModelRegistry(AbstractRegistry):
                 # Propagate integrity failures to satisfy security contract tests
                 if isinstance(e, ValueError):
                     raise
-                logger.error(f"Failed to load model {model_id}: {e}")
+                logger.error("Failed to load model %s: %s", model_id, e, exc_info=True)
                 return None
 
     def track_performance(
@@ -1215,7 +1215,7 @@ class ModelRegistry(AbstractRegistry):
         """
         with self._lock:
             if model_id not in self._models:
-                logger.error(f"Model {model_id} not found in registry")
+                logger.error("Model %s not found in registry", model_id)
                 return
 
             # Add timestamp if not present
@@ -1265,7 +1265,7 @@ class ModelRegistry(AbstractRegistry):
         """
         with self._lock:
             if to_model_id not in self._models:
-                logger.error(f"Model {to_model_id} not found in registry")
+                logger.error("Model %s not found in registry", to_model_id)
                 return False
 
             # Deactivate current model for target
@@ -1359,7 +1359,7 @@ class ModelRegistry(AbstractRegistry):
         """
         with self._lock:
             if model_id not in self._models:
-                logger.error(f"Model {model_id} not found in registry")
+                logger.error("Model %s not found in registry", model_id)
                 return False
 
             model_info = self._models[model_id]
@@ -1408,7 +1408,7 @@ class ModelRegistry(AbstractRegistry):
         with self._lock:
             required = int(self._policy.ab_models_required)
             if len(models) != required:
-                logger.error(f"A/B test requires exactly {required} models")
+                logger.error("A/B test requires exactly %d models", required)
                 return None
 
             model_a_id, model_b_id = models
@@ -1475,7 +1475,7 @@ class ModelRegistry(AbstractRegistry):
 
             for model_id in model_ids:
                 if model_id not in self._models:
-                    logger.warning(f"Model {model_id} not found, skipping")
+                    logger.warning("Model %s not found, skipping", model_id)
                     continue
 
                 model_info = self._models[model_id]
@@ -2068,7 +2068,7 @@ class ModelRegistry(AbstractRegistry):
         """
         with self._lock:
             if new_model_id not in self._models:
-                logger.error(f"Model {new_model_id} not found")
+                logger.error("Model %s not found", new_model_id)
                 return False
 
             # Find current model for target

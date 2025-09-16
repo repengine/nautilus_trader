@@ -32,6 +32,13 @@ from ml.data.collector import DataCollector
 from ml.registry.data_registry import DataRegistry
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.stores.providers import SqlCoverageProvider
+from ml.stores.providers import SqlMarketDataWriter
+from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
+from ml.data.ingest.resume import DatabentoIngestor
+from ml.data.ingest.databento_adapter import DatabentoAPIClient
+from ml.stores.io_raw import ParquetCatalogRawWriter
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
@@ -240,6 +247,8 @@ class DataScheduler:
         metrics_port: int | None = None,
         start_metrics_server: bool = True,
         connection: str | None = None,
+        use_orchestrator: bool = False,
+        dual_write: bool = False,
     ) -> None:
         """
         Initialize data scheduler.
@@ -273,6 +282,9 @@ class DataScheduler:
         )
         self.collector = collector or DataCollector()
         self.feature_engineer = feature_engineer
+        # Unified ingestion flags
+        self._use_orchestrator: bool = bool(use_orchestrator)
+        self._dual_write: bool = bool(dual_write)
 
         # Scheduling state
         self.enabled = True
@@ -436,7 +448,10 @@ class DataScheduler:
         try:
             # Step 1: Collect latest data
             with track_pipeline_stage("data_collection"):
-                self._collect_latest_data()
+                if self._use_orchestrator:
+                    self._collect_via_orchestrator()
+                else:
+                    self._collect_latest_data()
 
             # Step 2: Compute features if configured
             if self.feature_engineer is not None:
@@ -458,6 +473,8 @@ class DataScheduler:
             pipeline_duration = time.perf_counter() - pipeline_start_time
             pipeline_runs_total.labels(status=pipeline_status).inc()
             pipeline_stage_latency.labels(stage="complete_pipeline").observe(pipeline_duration)
+
+    
 
     def _collect_latest_data(self) -> None:
         """
@@ -933,6 +950,114 @@ class DataScheduler:
             bars_timestamp_on_close=True if "ohlcv" in self.config.databento.schema else False,
             include_trades="trades" in self.config.databento.schema,
         )
+
+    def _collect_via_orchestrator(self) -> None:
+        """
+        Collect previous trading day via orchestrator with optional dual-write.
+
+        Uses SQL coverage and SQL writer, and when dual_write=True mirrors domain
+        objects into the ParquetDataCatalog using a lightweight domain loader.
+        """
+        api_key = self.config.databento.api_key or os.getenv("DATABENTO_API_KEY")
+        if not api_key:
+            logger.error("DATABENTO_API_KEY environment variable not set")
+            raise ValueError("DATABENTO_API_KEY required for orchestrator ingestion")
+
+        db_conn = (
+            self._feature_store_connection
+            or os.getenv("DB_CONNECTION")
+            or os.getenv("DATABASE_URL")
+            or os.getenv("NAUTILUS_DB_CONNECTION")
+        )
+        if not db_conn:
+            raise ValueError("DB connection required for orchestrator coverage/writer")
+
+        coverage = SqlCoverageProvider(connection_string=db_conn, table_name="market_data")
+        writer = SqlMarketDataWriter(connection_string=db_conn, table_name="market_data")
+        if self._data_registry is None:
+            raise RuntimeError("DataRegistry not initialized")
+
+        registry = self._data_registry
+        ingestor = DatabentoIngestor(client=DatabentoAPIClient(api_key=api_key))
+
+        raw_writer: ParquetCatalogRawWriter | None = None
+        domain_loader: DomainWindowLoaderProtocol | None = None
+        if getattr(self, "_dual_write", False):
+            raw_writer = ParquetCatalogRawWriter(self.catalog)
+
+            class _DomainLoader(DomainWindowLoaderProtocol):
+                def __init__(self, key: str, parent: DataScheduler) -> None:
+                    self._key = key
+                    self._parent = parent
+
+                def load(
+                    self,
+                    *,
+                    dataset_id: str,
+                    schema: str,
+                    instrument_id: str,
+                    start_ns: int,
+                    end_ns: int,
+                ) -> list[Any]:
+                    import tempfile
+                    from datetime import datetime, timezone as _tz
+                    import databento as db
+                    from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader as _DBL
+                    from nautilus_trader.model.identifiers import InstrumentId as _IID
+
+                    sym, venue = instrument_id.split(".") if "." in instrument_id else (instrument_id, "")
+                    s_dt = datetime.fromtimestamp(start_ns / 1e9, tz=_tz.utc)
+                    e_dt = datetime.fromtimestamp(end_ns / 1e9, tz=_tz.utc)
+                    client_h = db.Historical(self._key)
+                    with tempfile.TemporaryDirectory() as td:
+                        path = f"{td}/{sym}_{s_dt:%Y%m%d%H%M%S}_{schema}.dbn"
+                        resp = client_h.timeseries.get_range(
+                            dataset=dataset_id,
+                            symbols=[sym],
+                            schema=schema,
+                            start=s_dt,
+                            end=e_dt,
+                        )
+                        resp.to_file(path)
+                        venue_map = {
+                            "XNAS": "NASDAQ",
+                            "XNYS": "NYSE",
+                            "ARCX": "ARCA",
+                            "BATS": "BATS",
+                            "GLBX": "GLBX",
+                        }
+                        _venue = venue_map.get(venue, venue) if venue else ""
+                        inst = _IID.from_str(f"{sym}.{_venue}" if _venue else sym)
+                        loader = _DBL()
+                        items = loader.from_dbn_file(
+                            path=path,
+                            instrument_id=inst,
+                            price_precision=self._parent.config.databento.price_precision,
+                            bars_timestamp_on_close=True if "ohlcv" in schema or "bar" in schema else False,
+                            include_trades=True if "trade" in schema else False,
+                            as_legacy_cython=True,
+                        )
+                        return list(items) if items else []
+
+            domain_loader = _DomainLoader(api_key, self)
+
+        orch = IngestionOrchestrator(
+            coverage=coverage,
+            writer=writer,
+            registry=registry,
+            ingestor=ingestor,
+            raw_writer=raw_writer,
+            domain_loader=domain_loader,
+        )
+
+        for symbol in self.config.symbols:
+            orch.backfill_gaps(
+                dataset_id=self.config.databento.dataset,
+                schema=self.config.databento.schema,
+                instrument_id=symbol,
+                lookback_days=1,
+                state=None,
+            )
 
     def _get_previous_trading_day(self) -> datetime:
         """

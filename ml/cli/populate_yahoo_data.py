@@ -192,7 +192,7 @@ class YahooDataLoader:
                 logger.info(f"  ✓ {symbol}: {len(hist)} days")
 
             except Exception as e:
-                logger.error(f"  ✗ {symbol}: {e}")
+                logger.error("  ✗ %s: %s", symbol, e, exc_info=True)
 
         if all_data:
             combined = pd.concat(all_data)
@@ -231,7 +231,7 @@ class YahooDataLoader:
                 info_data.append(symbol_info)
 
             except Exception as e:
-                logger.error(f"Failed to get info for {symbol}: {e}")
+                logger.error("Failed to get info for %s: %s", symbol, e, exc_info=True)
 
         return pd.DataFrame(info_data)
 

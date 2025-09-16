@@ -256,7 +256,7 @@ class GrafanaClient:
         try:
             return self._make_request("GET", "/api/admin/stats")
         except GrafanaAPIError as e:
-            logger.warning(f"Failed to get server info: {e}")
+            logger.warning("Failed to get server info: %s", e, exc_info=True)
             return None
 
     def get_server_time(self) -> str | None:
@@ -320,7 +320,7 @@ class GrafanaClient:
             result = self._make_request("GET", "/api/search", params=params)
             return result if isinstance(result, list) else []
         except GrafanaAPIError as e:
-            logger.error(f"Dashboard search failed: {e}")
+            logger.error("Dashboard search failed: %s", e, exc_info=True)
             return []
 
     def get_dashboard(self, uid: str) -> dict[str, Any] | list[dict[str, Any]] | None:
@@ -344,7 +344,7 @@ class GrafanaClient:
             if e.status_code == 404:
                 logger.debug(f"Dashboard not found: {uid}")
                 return None
-            logger.error(f"Failed to get dashboard {uid}: {e}")
+            logger.error("Failed to get dashboard %s: %s", uid, e, exc_info=True)
             raise
 
     def create_dashboard(
@@ -368,7 +368,7 @@ class GrafanaClient:
         try:
             return self._make_request("POST", "/api/dashboards/db", data=dashboard_data)
         except GrafanaAPIError as e:
-            logger.error(f"Failed to create dashboard: {e}")
+            logger.error("Failed to create dashboard: %s", e, exc_info=True)
             raise
 
     def update_dashboard(
@@ -392,7 +392,7 @@ class GrafanaClient:
         try:
             return self._make_request("POST", "/api/dashboards/db", data=dashboard_data)
         except GrafanaAPIError as e:
-            logger.error(f"Failed to update dashboard: {e}")
+            logger.error("Failed to update dashboard: %s", e, exc_info=True)
             raise
 
     def delete_dashboard(self, uid: str) -> bool:
@@ -417,7 +417,7 @@ class GrafanaClient:
             if e.status_code == 404:
                 logger.debug(f"Dashboard not found for deletion: {uid}")
                 return True  # Already doesn't exist
-            logger.error(f"Failed to delete dashboard {uid}: {e}")
+            logger.error("Failed to delete dashboard %s: %s", uid, e, exc_info=True)
             return False
 
     def import_dashboard(
@@ -441,7 +441,7 @@ class GrafanaClient:
         try:
             return self._make_request("POST", "/api/dashboards/db", data=import_data)
         except GrafanaAPIError as e:
-            logger.error(f"Failed to import dashboard: {e}")
+            logger.error("Failed to import dashboard: %s", e, exc_info=True)
             raise
 
     def get_folders(self) -> list[dict[str, Any]]:
@@ -458,7 +458,7 @@ class GrafanaClient:
             result = self._make_request("GET", "/api/folders")
             return result if isinstance(result, list) else []
         except GrafanaAPIError as e:
-            logger.error(f"Failed to get folders: {e}")
+            logger.error("Failed to get folders: %s", e, exc_info=True)
             return []
 
     def create_folder(
@@ -482,7 +482,7 @@ class GrafanaClient:
         try:
             return self._make_request("POST", "/api/folders", data=folder_data)
         except GrafanaAPIError as e:
-            logger.error(f"Failed to create folder: {e}")
+            logger.error("Failed to create folder: %s", e, exc_info=True)
             return None
 
     def get_folder(self, uid: str) -> dict[str, Any] | list[dict[str, Any]] | None:
@@ -505,7 +505,7 @@ class GrafanaClient:
         except GrafanaAPIError as e:
             if e.status_code == 404:
                 return None
-            logger.error(f"Failed to get folder {uid}: {e}")
+            logger.error("Failed to get folder %s: %s", uid, e, exc_info=True)
             raise
 
     def get_datasources(self) -> list[dict[str, Any]]:
@@ -522,7 +522,7 @@ class GrafanaClient:
             result = self._make_request("GET", "/api/datasources")
             return result if isinstance(result, list) else []
         except GrafanaAPIError as e:
-            logger.error(f"Failed to get data sources: {e}")
+            logger.error("Failed to get data sources: %s", e, exc_info=True)
             return []
 
     def test_datasource(self, datasource_id: int) -> dict[str, Any] | list[dict[str, Any]] | None:
@@ -543,7 +543,7 @@ class GrafanaClient:
         try:
             return self._make_request("POST", f"/api/datasources/{datasource_id}/health")
         except GrafanaAPIError as e:
-            logger.error(f"Data source test failed: {e}")
+            logger.error("Data source test failed: %s", e, exc_info=True)
             return None
 
     def get_annotations(
@@ -601,7 +601,7 @@ class GrafanaClient:
             result = self._make_request("GET", "/api/annotations", params=params)
             return result if isinstance(result, list) else []
         except GrafanaAPIError as e:
-            logger.error(f"Failed to get annotations: {e}")
+            logger.error("Failed to get annotations: %s", e, exc_info=True)
             return []
 
     def close(self) -> None:
@@ -659,9 +659,9 @@ def main() -> None:
                 logger.info(f"Grafana version: {server_info.get('version', 'unknown')}")
 
     except GrafanaAPIError as e:
-        logger.warning(f"Could not get panels: {e}")
+        logger.warning("Could not get panels: %s", e, exc_info=True)
     except Exception as e:
-        logger.error(f"Grafana API error: {e}")
+        logger.error("Grafana API error: %s", e, exc_info=True)
 
 
 if __name__ == "__main__":

@@ -84,7 +84,7 @@ def main() -> int:
             df_pd = df
 
     except Exception as e:
-        logger.warning(f"Polars processing failed: {e}, falling back to Pandas")
+        logger.warning("Polars processing failed: %s, falling back to Pandas", e, exc_info=True)
         df = builder.build_training_dataset(
             horizon_minutes=horizon_minutes,
             min_return_threshold=min_return_threshold,
@@ -231,7 +231,7 @@ def main() -> int:
         logger.warning(f"Could not import TFT teacher module: {e}")
         logger.info("Dataset prepared successfully. You can train the model manually.")
     except Exception as e:
-        logger.error(f"Training failed: {e}")
+        logger.error("Training failed: %s", e, exc_info=True)
         logger.info("Dataset prepared successfully. Check the error and try training manually.")
         return 1
 
