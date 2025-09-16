@@ -1450,7 +1450,7 @@
         "legend": { "displayMode": "list", "placement": "bottom" },
         "tooltip": { "mode": "single" }
       },
-      "targets": [ { "expr": "nautilus_ml_observability_queue_depth{component=\\"obs_async_worker\\"}", "refId": "A" } ],
+      "targets": [ { "expr": "nautilus_ml_observability_queue_depth{component=\"obs_async_worker\"}", "refId": "A" } ],
       "title": "Async Queue Depth (Timeseries)",
       "type": "timeseries"
     }

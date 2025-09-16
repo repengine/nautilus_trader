@@ -17,4 +17,3 @@ def test_to_source_enum_and_str_roundtrip() -> None:
 def test_to_source_str_invalid_raises() -> None:
     with pytest.raises(ValueError):
         to_source_str("invalid")  # type: ignore[arg-type]
-

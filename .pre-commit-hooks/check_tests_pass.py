@@ -150,8 +150,10 @@ def main():
     # Since pass_filenames is false, we just run ML tests
     # In a real scenario, you'd use git to detect changed files
     # For now, just run all ML tests
-    print("Running all ML tests...")
-    test_files_to_run = ["ml/tests/unit"]
+    print("Running ML test suite (subset)…")
+    # Limit scope to ML tests only (avoid repo-wide tests)
+    # Keep fast markers to avoid heavy integration/perf during pre-commit
+    test_files_to_run = ["ml/tests"]
 
     # Run the tests
     if test_files_to_run:

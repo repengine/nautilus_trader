@@ -17,12 +17,13 @@ from typing import cast as _cast
 
 from ml._imports import check_ml_dependencies
 from ml._imports import pl as pl_runtime
+from ml.data.providers.base import BaseTimeSeriesProvider
 
 
 if TYPE_CHECKING:
     import polars as _pl
+
 PL = _cast(_Any, pl_runtime)
-from ml.data.providers.base import BaseTimeSeriesProvider
 
 
 if TYPE_CHECKING:

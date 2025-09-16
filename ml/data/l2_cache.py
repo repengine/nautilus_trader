@@ -44,16 +44,17 @@ from typing import Any as _Any
 from typing import cast as _cast
 
 from ml._imports import pl as pl_runtime
-
-
-PL = _cast(_Any, pl_runtime)
-if TYPE_CHECKING:
-    import polars as _pl
 from ml.data.cache_common import day_partition_path
 from ml.data.cache_common import ensure_polars
 from ml.data.cache_common import filter_df_by_ns_range
 from ml.data.cache_common import iter_days
 from ml.features.l2_aggregate import L2Aggregator
+
+
+if TYPE_CHECKING:
+    import polars as _pl
+
+PL = _cast(_Any, pl_runtime)
 
 
 def _utc_day_bounds(dt: datetime) -> tuple[datetime, datetime]:

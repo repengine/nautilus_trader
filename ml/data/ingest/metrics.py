@@ -1,10 +1,11 @@
-from __future__ import annotations
-
 """
 Helpers to record ingestion metrics for fixtures and adapters.
 
 Uses centralized metrics from ml.common.metrics to ensure consistent naming.
+
 """
+
+from __future__ import annotations
 
 from typing import Final
 

@@ -837,9 +837,27 @@ class PerformanceMonitor:
         self.prediction_count += 1
 
     def record_signal(self) -> None:
+        """
+        Record a successful signal generation event.
+
+        Notes
+        -----
+        - Hot path safe: increments an in-memory counter only.
+        - Used to derive signal rate together with ``prediction_count``.
+
+        """
         self.signal_count += 1
 
     def record_error(self) -> None:
+        """
+        Record that an error occurred during a signal attempt.
+
+        Notes
+        -----
+        - Hot path safe: increments an in-memory counter only.
+        - Used to derive error rate together with ``prediction_count``.
+
+        """
         self.error_count += 1
 
     def get_current_stats(self) -> dict[str, Any]:

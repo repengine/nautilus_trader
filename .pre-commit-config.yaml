@@ -166,14 +166,14 @@ repos:
         stages: [pre-commit]
 
       - id: check-ml-test-coverage
-        name: check ML test coverage
-        description: Ensures new ML modules have ≥90% test coverage
+        name: check ML test coverage (pre-push)
+        description: Ensures new ML modules have ≥90% test coverage (moved to pre-push)
         entry: .pre-commit-hooks/check_test_coverage.py
         language: system
         types: [python]
         files: 'ml/.*\.py$'
         pass_filenames: true
-        stages: [pre-commit]
+        stages: [pre-push]
 
       - id: check-ml-performance
         name: check ML performance
@@ -196,13 +196,13 @@ repos:
         stages: [pre-commit]
 
       - id: check-test-coverage
-        name: check test coverage (>80%)
-        description: Ensures all Python code has >80% test coverage
+        name: check test coverage (>80%) (pre-push)
+        description: Ensures all Python code has >80% test coverage (moved to pre-push)
         entry: .pre-commit-hooks/check_test_coverage_general.py
         language: system
         types: [python]
         pass_filenames: true
-        stages: [pre-commit]
+        stages: [pre-push]
 
       - id: ratchet-coverage
         name: ratchet ML coverage

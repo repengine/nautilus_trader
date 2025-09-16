@@ -33,6 +33,109 @@ This document defines the coding standards for the `ml/` package. The goals are:
 - Keep module-level side effects minimal. Avoid heavy work at import time.
 - Use `__all__` where a public API surface is intended. Keep it sorted.
 
+## Module Structure Standards
+
+All ML modules (especially actors, stores, features, monitoring) MUST follow a consistent structure for clarity, performance, and discoverability.
+
+Required elements
+
+- Module docstring: brief purpose, hot/cold path separation, performance targets (e.g., P99 < 5 ms), and integration points.
+- Imports grouped by category: stdlib → third-party → ml → nautilus; use `TYPE_CHECKING` for type-only imports.
+- Minimal import-time work: no I/O, no network, no DataFrame construction, no heavy init; only idempotent, light setup allowed.
+- Module-level metrics initialization: use `ml.common.metrics_bootstrap` via `MetricsManager` (never import `prometheus_client` directly). Initialize collectors once at import-time or during cold-path initialization; only call `.inc()/.observe()/.set()` in hot loops.
+- Explicit public API: define `__all__` and keep it alphabetically sorted; expose only intended symbols.
+- Section headers: use clear separators in code to improve scanability (e.g., “Enums”, “Metrics”, “Implementation”).
+
+Minimal template (example)
+
+```python
+"""
+<Module Name> — brief description.
+
+Key features: ...
+Performance targets: P99 < 5 ms; zero allocations in hot path
+Hot/Cold path separation: hot = <x>, cold = <y>
+"""
+
+from __future__ import annotations
+from typing import TYPE_CHECKING, Final
+
+# ===== Standard library =====
+import time
+
+# ===== Third-party =====
+import numpy as np
+
+# ===== ML imports =====
+from ml.common.metrics_manager import MetricsManager
+
+# ===== Nautilus imports =====
+from nautilus_trader.model.data import Bar
+
+if TYPE_CHECKING:
+    pass
+
+# ===== Constants =====
+MAX_LATENCY_MS: Final = 5.0
+
+# ===== Module metrics (idempotent) =====
+_metrics_init = False
+_ops_total = None
+_latency_seconds = None
+
+
+def _init_module_metrics() -> None:
+    """Initialize module-level metrics once (idempotent)."""
+    global _metrics_init, _ops_total, _latency_seconds
+    if _metrics_init:
+        return
+    mm = MetricsManager.default()
+    _ops_total = mm.counter(
+        "ml_module_operations_total",
+        "Total operations performed",
+        ["operation"],
+    )
+    _latency_seconds = mm.histogram(
+        "ml_module_latency_seconds",
+        "Operation latency (seconds)",
+        ["operation"],
+        buckets=[0.001, 0.005, 0.01, 0.05, 0.1],
+    )
+    _metrics_init = True
+
+
+_init_module_metrics()  # Import-time, light and idempotent
+
+# ===== Public API =====
+__all__ = [
+    "do_work",
+]
+
+
+def do_work(bar: Bar) -> float:
+    start = time.perf_counter()
+    # Hot path logic (no allocations, no I/O)
+    # ...
+    _latency_seconds.labels(operation="do_work").observe(time.perf_counter() - start)
+    _ops_total.labels(operation="do_work").inc()
+    return 0.0
+```
+
+Metrics rules
+
+- Never import `prometheus_client` directly; use `MetricsManager` or `ml.common.metrics_bootstrap`.
+- Keep creation/registration off the hot path; do light, idempotent initialization at import time or in actor/service initialization.
+- Use clear names/units: counters end with `_total`; histograms suffix with `_seconds` for latency/duration; gauges include units (e.g., `_bytes`).
+
+Validation checklist
+
+- [ ] Docstring documents purpose, hot/cold separation, performance targets
+- [ ] Imports grouped and `TYPE_CHECKING` used for type-only deps
+- [ ] Module-level metrics initialized via `MetricsManager`/bootstrap (no prometheus imports)
+- [ ] `__all__` defined and alphabetically sorted
+- [ ] No cold-path work at import time (I/O, DataFrames, network, training)
+- [ ] Hot-path functions avoid allocations and wrap publish/observability off-path
+
 ## Error Handling
 
 - Catch only specific exceptions. Avoid bare `except:`.

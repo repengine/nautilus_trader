@@ -75,6 +75,8 @@ def run_pytest_with_coverage(packages: list[str]) -> Path:
         tf.write(cfg)
         tf.flush()
         rcfile = tf.name
+    # Prefer passing configuration via environment to maximize CLI compatibility
+    env["COVERAGE_RCFILE"] = rcfile
 
     def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(cmd, text=True, capture_output=True, env=env)
@@ -89,7 +91,6 @@ def run_pytest_with_coverage(packages: list[str]) -> Path:
         "--active",
         "--no-sync",
         "coverage",
-        f"--rcfile={rcfile}",
         "run",
         "-m",
         "pytest",
@@ -115,7 +116,6 @@ def run_pytest_with_coverage(packages: list[str]) -> Path:
             "--active",
             "--no-sync",
             "coverage",
-            f"--rcfile={rcfile}",
             "xml",
             "-i",
         ],
