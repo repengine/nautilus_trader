@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 """
 Production ML pipeline runner.
-
 This script provides a production-ready entry point for running the ML pipeline in different modes:
 - backfill: Process historical data for a date range
 - daily: Run scheduled daily updates
@@ -17,6 +16,7 @@ import os
 import signal
 import sys
 import time
+import uuid as _uuid
 from collections.abc import Callable
 from datetime import datetime
 from datetime import timedelta
@@ -29,6 +29,8 @@ import click
 from ml._imports import HAS_DATABENTO
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.config.scheduler_config import UniverseConfig
@@ -514,14 +516,10 @@ def setup_logging(verbose: bool = False) -> None:
         Whether to enable verbose (DEBUG) logging
 
     """
-    log_level = logging.DEBUG if verbose else logging.INFO
-
-    # Configure root logger
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    if verbose:
+        configure_logging(level="DEBUG")
+    else:
+        configure_logging()
 
     # Adjust third-party loggers
     logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -643,6 +641,8 @@ def main(
     """
     # Setup logging
     setup_logging(verbose)
+    _run_id: str = f"cli_run_ml_pipeline_{_uuid.uuid4().hex[:8]}"
+    bind_log_context(run_id=_run_id, component="ml.cli.run_ml_pipeline")
 
     logger.info("ML Pipeline Runner starting...")
     logger.info(f"Mode: {mode}, Dry run: {dry_run}")

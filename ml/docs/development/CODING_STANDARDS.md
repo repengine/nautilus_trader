@@ -33,6 +33,32 @@ This document defines the coding standards for the `ml/` package. The goals are:
 - Keep module-level side effects minimal. Avoid heavy work at import time.
 - Use `__all__` where a public API surface is intended. Keep it sorted.
 
+## Logging (Structured)
+
+- Prefer structured logging with stdlib interop using `structlog`.
+- Configure logging once at process start (CLIs/entrypoints) via a central helper.
+- Hot path:
+  - Avoid logging inside tight loops; if unavoidable, keep at DEBUG and avoid allocations.
+  - Never allow logging to affect control flow. Use non-blocking best‑effort patterns.
+- Cold path:
+  - Use key/value fields for context (component, operation, run_id, correlation_id, dataset_id, instrument_id, stage, source).
+  - Use placeholders or key/value args; avoid f-string building when log level is disabled.
+- Best‑effort pattern examples:
+
+```python
+try:
+    do_optional_work()
+except Exception:
+    logger.debug("Optional work failed (ignored)", exc_info=True)
+
+# Service variant (defensive)
+except Exception:
+    try:
+        self.logger.debug("Non-blocking operation failed (ignored)", exc_info=True)
+    except Exception:
+        ...
+```
+
 ## Module Structure Standards
 
 All ML modules (especially actors, stores, features, monitoring) MUST follow a consistent structure for clarity, performance, and discoverability.
@@ -45,6 +71,7 @@ Required elements
 - Module-level metrics initialization: use `ml.common.metrics_bootstrap` via `MetricsManager` (never import `prometheus_client` directly). Initialize collectors once at import-time or during cold-path initialization; only call `.inc()/.observe()/.set()` in hot loops.
 - Explicit public API: define `__all__` and keep it alphabetically sorted; expose only intended symbols.
 - Section headers: use clear separators in code to improve scanability (e.g., “Enums”, “Metrics”, “Implementation”).
+ - Logging: acquire via `logging.getLogger(__name__)` or `structlog.get_logger(__name__)`; both route through the central config.
 
 Minimal template (example)
 

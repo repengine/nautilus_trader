@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 from ml.actors.base import BaseMLInferenceActor
 from ml.config.base import MLActorConfig
@@ -23,7 +24,6 @@ from ml.stores.adapters import FeatureStoreStrictAdapter
 from ml.stores.adapters import ModelStoreStrictAdapter
 from ml.stores.adapters import StrategyStoreStrictAdapter
 from ml.stores.base import DummyStore
-from nautilus_trader.model.data import Bar
 
 
 class EnhancedMLInferenceActor(BaseMLInferenceActor):

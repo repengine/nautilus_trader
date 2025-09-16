@@ -1131,7 +1131,8 @@ except Exception:
 
 ### Core Rules
 
-- Use DTO builders + service; never instantiate Prometheus collectors directly.
+- Metrics: use DTO builders + service; never instantiate Prometheus collectors directly.
+- Logging: prefer structured, key/value logs via `structlog` with stdlib interop.
 - Persist metrics/logs off the hot path; use `MLIntegrationManager` helpers to schedule flushes.
 - Emit fallback/degradation metrics with labels (e.g., `ml_fallback_activations_total`).
 
@@ -1153,13 +1154,60 @@ mm.inc(
 
 ## Core Conventions (Quick Reference)
 
-- Hot path: P99 < 5ms; no DataFrame/file I/O/network/training; avoid allocations; push publish/metrics to cold paths.
+- Hot path: P99 < 5ms; no DataFrame/file I/O/network/training; avoid allocations; push publish/metrics/logging to cold paths.
 - Protocol‑first: type against `Protocol`; avoid concrete coupling; prefer adapters.
 - DB engines: only via `EngineManager.get_engine(...)`; safe SQL; partition helpers centralized.
 - Security: no `pickle`/`joblib` for model artifacts; prefer ONNX + validation; never hardcode secrets.
 - Config/flags: environment‑gated toggles for gradual rollout; keep rollbacks easy.
 - Tests: property/contract/metamorphic/pairwise; deterministic profiles; mark serial integration.
 - Timestamps: nanoseconds only; normalize via `sanitize_timestamp_ns` with context.
+
+## Structured Logging (Adoption)
+
+### Goals
+
+- Consistent, machine‑readable logs (JSON/key‑value) with minimal hot‑path overhead
+- Easy propagation of context (run_id, correlation_id, component, dataset_id, instrument_id)
+- Backward‑compatible with stdlib `logging` in existing code
+
+### Practices
+
+- Configure at process start using a central helper (see coding standards):
+  - Use `structlog` with stdlib ProcessorFormatter to format both structlog and stdlib logs
+  - Keep processors minimal: `filter_by_level`, `add_log_level`, `add_logger_name`,
+    `merge_contextvars`, timestamp, `format_exc_info`, renderer (JSON in prod)
+- Bind common context with contextvars once per span:
+
+```python
+import structlog
+from structlog.contextvars import bind_contextvars
+
+bind_contextvars(run_id=run_id, component="strategy_services")
+log = structlog.get_logger(__name__)
+
+log.warning(
+    "registry emit failed",
+    operation="emit_event",
+    dataset_id="signals",
+    instrument_id=instrument_id,
+    exc_info=True,
+)
+```
+
+### Best‑Effort, Non‑Blocking Pattern
+
+- Hot path: avoid logging or keep at DEBUG (disabled in prod). Never let logging affect control flow.
+- Cold path best‑effort wrapper:
+
+```python
+try:
+    do_optional_work()
+except Exception:
+    # Do not alter control flow
+    logger.debug("Optional work failed (ignored)", exc_info=True)
+```
+
+Note: For services using `self.logger`, keep the same pattern and avoid allocations in message formatting.
 
 ## Pattern Compliance Validation
 

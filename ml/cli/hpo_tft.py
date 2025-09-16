@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Simple HPO sweep for TFT teacher (BCE).
-
 Runs a small grid over model hyperparameters using the existing teacher CLI,
 evaluates validation metrics from teacher_preds.npz, and prints a JSON summary
 with the best configuration.

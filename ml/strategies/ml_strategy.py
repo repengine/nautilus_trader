@@ -21,9 +21,10 @@ from nautilus_trader.model.enums import OrderSide
 
 
 if TYPE_CHECKING:  # typing-only imports to avoid runtime coupling
-    from nautilus_trader.model.events import OrderFilled
     from nautilus_trader.model.identifiers import ClientOrderId
     from nautilus_trader.model.position import Position
+
+    from nautilus_trader.model.events import OrderFilled
 
 
 class MLTradingStrategy(BaseMLStrategy):

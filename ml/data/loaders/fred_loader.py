@@ -1046,3 +1046,66 @@ class FREDDataLoader:
         )
 
         self.store_indicators(data_store, data_registry, data)
+
+    def export_ml_parquet(
+        self,
+        *,
+        data: dict[str, PolarsDF] | None = None,
+        out_path: Path | None = None,
+    ) -> Path:
+        """
+        Export indicators in ML long format parquet for dataset builder joins.
+
+        When ``data`` is None, fetches using current configuration. The output schema is
+        columns: ``timestamp`` (datetime[ns]), ``series_id`` (str), ``value`` (float).
+
+        Parameters
+        ----------
+        data : dict[str, PolarsDF] | None
+            Pre-fetched indicator frames keyed by series id.
+        out_path : Path | None
+            Destination path. Defaults to data/fred/fred_indicators_ml_format.parquet
+
+        Returns
+        -------
+        Path
+            The written parquet file path.
+        """
+        _pl = pl
+        assert _pl is not None
+
+        target = out_path or Path("data/fred/fred_indicators_ml_format.parquet")
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        if data is None:
+            data = self.fetch_all_indicators(use_cache=True)
+
+        # Build long format rows
+        frames: list[PolarsDF] = []
+        for series_id, df in data.items():
+            if df.is_empty():
+                continue
+            # Ensure timestamp exists
+            cur = df
+            if "timestamp" not in cur.columns and "timestamp_ns" in cur.columns:
+                cur = cur.with_columns(_pl.from_epoch("timestamp_ns", unit="ns").alias("timestamp"))
+            # Select and rename
+            if "value" not in cur.columns:
+                # Some sources might use series_id as value column name; skip those
+                continue
+            cur2 = cur.select(["timestamp", "value"]).with_columns(
+                [_pl.lit(series_id).alias("series_id")],
+            )
+            frames.append(cur2)
+
+        if not frames:
+            # Write an empty file with schema to keep downstream happy
+            empty = _pl.DataFrame({"timestamp": [], "series_id": [], "value": []})
+            empty.write_parquet(target)
+            return target
+
+        out = _pl.concat(frames, how="vertical")
+        # Sort by time for efficient asof join
+        out = out.sort("timestamp")
+        out.write_parquet(target)
+        return target

@@ -44,10 +44,10 @@ from ml.stores.services.strategy_services import StrategySignalWriteService
 
 if TYPE_CHECKING:
     import pandas as pd
+    from nautilus_trader.common.clock import Clock
 
     from ml.registry.persistence import PersistenceConfig
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.common.clock import Clock
 
 
 logger = logging.getLogger(__name__)

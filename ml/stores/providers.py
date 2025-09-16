@@ -5,6 +5,9 @@ from dataclasses import field
 from typing import Any, Final, cast
 
 import pandas as pd
+from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import TradeTick
 from sqlalchemy import BIGINT
 from sqlalchemy import Column
 from sqlalchemy import MetaData
@@ -16,9 +19,6 @@ from sqlalchemy.engine import Engine
 from ml.core.db_engine import EngineManager
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import QuoteTick
-from nautilus_trader.model.data import TradeTick
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 

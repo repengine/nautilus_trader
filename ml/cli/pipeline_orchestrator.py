@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-
 from __future__ import annotations
 
 import argparse
 import logging
 import os
+import uuid as _uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from ml.common.logging_config import bind_log_context
 from ml.orchestration.pipeline_orchestrator import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import HPOConfig
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
@@ -84,6 +85,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    _run_id: str = f"orch_{_uuid.uuid4().hex[:12]}"
+    bind_log_context(run_id=_run_id, component="ml.pipeline_orchestrator")
 
     # Coverage provider
     coverage: CoverageProviderProtocol

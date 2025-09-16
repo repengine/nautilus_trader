@@ -83,6 +83,7 @@ from typing import TYPE_CHECKING, Any, cast
 import msgspec
 import numpy as np
 import numpy.typing as npt
+from nautilus_trader.model.data import Bar
 
 from ml._imports import HAS_ONNX
 from ml._imports import check_ml_dependencies
@@ -117,7 +118,6 @@ from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.feature_registry import FeatureRegistry
 from ml.registry.utils import assert_features_compatible
-from nautilus_trader.model.data import Bar
 
 
 if TYPE_CHECKING:
@@ -1940,8 +1940,10 @@ class MLSignalActor(BaseMLInferenceActor):
                         prediction = float(outputs[0][0])
                         return prediction, 0.5
                 elif hasattr(self._model, "predict"):
-                    features_2d = features.reshape(1, -1)
-                    prediction = float(self._model.predict(features_2d)[0])
+                    # Use the same pre-allocated buffer path for mock predict
+                    size = features.shape[0]
+                    self._predict_input_buf[0, :size] = features
+                    prediction = float(self._model.predict(self._predict_input_buf)[0])
                     confidence = 0.5
                     return prediction, confidence
 
@@ -2308,18 +2310,27 @@ class MLSignalActor(BaseMLInferenceActor):
             The current bar.
 
         """
-        # Simple regime detection based on volatility
-        if hasattr(self, "_volatility_window"):
-            avg_volatility = np.mean(self._volatility_window)
-
-            if avg_volatility < 0.001:
-                self._market_regime = "low_volatility"
-            elif avg_volatility < 0.005:
-                self._market_regime = "normal"
-            else:
-                self._market_regime = "high_volatility"
-        else:
+        # Simple regime detection based on volatility (count-based warm-up)
+        if not hasattr(self, "_volatility_window") or not hasattr(self, "_window_count"):
             self._market_regime = "unknown"
+            return
+
+        # Require a minimal number of observations to avoid zero-padding bias
+        min_count = 3
+        n = int(getattr(self, "_window_count", 0))
+        if n < min_count:
+            self._market_regime = "unknown"
+            return
+
+        # Compute average over the valid prefix only (ignore zero padding)
+        avg_volatility = float(np.mean(self._volatility_window[:n]))
+
+        if avg_volatility < 0.001:
+            self._market_regime = "low_volatility"
+        elif avg_volatility < 0.005:
+            self._market_regime = "normal"
+        else:
+            self._market_regime = "high_volatility"
 
     def _update_prediction_history(self, prediction: float, confidence: float, bar: Bar) -> None:
         """

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-
 from __future__ import annotations
 
 import argparse
 import os
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from ml.data.ingest.nautilus_adapters import to_df_bars
+from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.data.ingest.resume import DatabentoIngestor
 from ml.data.ingest.resume import DatabentoLikeClient
@@ -26,6 +27,7 @@ from ml.stores.providers import SqlMarketDataWriter
 
 if TYPE_CHECKING:  # pragma: no cover
     from nautilus_trader.model.data import Bar as NautilusBar
+
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 else:  # pragma: no cover - avoid hard dependency for tools
     NautilusBar = object  # type: ignore[assignment]
@@ -111,6 +113,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--table-name", default=_env_default("TABLE_NAME", "market_data"))
     ap.add_argument("--catalog-path", default=_env_default("CATALOG_PATH"))
     ap.add_argument(
+        "--also-write-catalog",
+        action="store_true",
+        help="When set, write domain objects into ParquetDataCatalog (requires --catalog-path)",
+    )
+    ap.add_argument(
         "--state-path",
         default=_env_default("INGEST_STATE_PATH", "checkpoints/ingest_state.json"),
     )
@@ -158,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--catalog-path is required for catalog coverage")
         coverage = CatalogCoverageProvider(catalog_path=args.catalog_path)
 
-    # Writer
+    # Writer(s)
     if args.write_mode == "sql":
         if not args.db:
             raise SystemExit("--db is required for SQL write mode")
@@ -207,11 +214,103 @@ def main(argv: list[str] | None = None) -> int:
         client = _NoopClient()
 
     ingestor = DatabentoIngestor(client=client)
+
+    # Optional dual-write to catalog using domain objects
+    raw_writer = None
+    domain_loader: DomainWindowLoaderProtocol | None = None
+    if args.also_write_catalog:
+        if not args.catalog_path:
+            raise SystemExit("--also-write-catalog requires --catalog-path")
+        try:
+            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC
+        except Exception as exc:  # pragma: no cover - env dependent
+            raise SystemExit(f"ParquetDataCatalog unavailable: {exc}")
+
+        from ml.stores.io_raw import ParquetCatalogRawWriter
+
+        catalog_obj = _PDC(args.catalog_path)
+        raw_writer = ParquetCatalogRawWriter(catalog_obj)
+
+        # Domain loader using Databento DBN files → Nautilus objects
+        def _mk_loader(api_key: str) -> DomainWindowLoaderProtocol:
+            class _Loader:
+                def __init__(self, key: str) -> None:
+                    self._key = key
+
+                def load(
+                    self,
+                    *,
+                    dataset_id: str,
+                    schema: str,
+                    instrument_id: str,
+                    start_ns: int,
+                    end_ns: int,
+                ) -> list[object]:
+                    # Local import to keep optional dependency lazy
+                    import tempfile
+                    from datetime import datetime
+
+                    import databento as db
+
+                    from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader as _DBLoader
+                    # Prepare request
+                    sym, venue = instrument_id.split(".") if "." in instrument_id else (instrument_id, "")
+                    client = db.Historical(self._key)
+                    # Convert ns to aware datetimes
+                    s_dt = datetime.fromtimestamp(start_ns / 1e9, tz=UTC)
+                    e_dt = datetime.fromtimestamp(end_ns / 1e9, tz=UTC)
+                    # Write DBN to temp file once
+                    with tempfile.TemporaryDirectory() as td:
+                        path = f"{td}/{sym}_{s_dt:%Y%m%d%H%M%S}_{schema}.dbn"
+                        resp = client.timeseries.get_range(
+                            dataset=dataset_id,
+                            symbols=[sym],
+                            schema=schema,
+                            start=s_dt,
+                            end=e_dt,
+                        )
+                        resp.to_file(path)
+                        # Map venue code for InstrumentId
+                        venue_map = {
+                            "XNAS": "NASDAQ",
+                            "XNYS": "NYSE",
+                            "ARCX": "ARCA",
+                            "BATS": "BATS",
+                            "GLBX": "GLBX",
+                        }
+                        _venue = venue_map.get(venue, venue) if venue else ""
+                        from nautilus_trader.model.identifiers import InstrumentId as _IID
+
+                        inst = _IID.from_str(f"{sym}.{_venue}" if _venue else sym)
+                        loader = _DBLoader()
+                        items = loader.from_dbn_file(
+                            path=path,
+                            instrument_id=inst,
+                            price_precision=6,
+                            bars_timestamp_on_close=True if "ohlcv" in schema or "bar" in schema else False,
+                            include_trades=True if "trade" in schema else False,
+                            as_legacy_cython=True,
+                        )
+                        return list(items) if items else []
+
+            return _Loader(api_key)
+
+        # Only supported for client-mode databento
+        if args.client_mode == "databento":
+            if not args.api_key:
+                raise SystemExit("--api-key (or DATABENTO_API_KEY) required for also-write-catalog")
+            domain_loader = _mk_loader(str(args.api_key))
+        else:
+            # In catalog/noop modes we do not have a source for domain objects here
+            domain_loader = None
+
     orch = IngestionOrchestrator(
         coverage=coverage,
         writer=writer,
         registry=registry,
         ingestor=ingestor,
+        raw_writer=raw_writer,
+        domain_loader=domain_loader,
     )
 
     # State

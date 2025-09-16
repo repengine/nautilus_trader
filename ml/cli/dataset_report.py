@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Generate dataset quality report (macro null-rates, feature coverage, targets).
-
 Reads a dataset parquet (typically produced by build_tft_dataset.py) and emits
 JSON and optional Markdown summaries with the following sections:
 

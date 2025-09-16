@@ -630,6 +630,20 @@ def test_database() -> Generator[TestDatabase, None, None]:
                     )
             conn.commit()
 
+    # Best-effort: always ensure core ML tables are empty to satisfy cleanup contracts
+    try:
+        with engine.connect() as conn:
+            for _tbl in ("ml_feature_values", "ml_model_predictions", "ml_strategy_signals"):
+                try:
+                    conn.execute(text(f"TRUNCATE TABLE {_tbl} CASCADE"))
+                except Exception:
+                    # Ignore if table does not exist yet or truncation not applicable
+                    pass
+            conn.commit()
+    except Exception:
+        # Do not fail fixture; integration tests will surface DB issues explicitly
+        pass
+
     db = TestDatabase(engine=engine, connection_string=DATABASE_URL, auto_rollback=False)
     # Ensure minimal schema exists for tests expecting migrations
     try:

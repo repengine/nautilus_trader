@@ -47,7 +47,7 @@ Detailed documentation for each ML module:
 - **[context/context_features.md](context/context_features.md)** - Feature engineering (98% complete)
 - **[context/context_stores.md](context/context_stores.md)** - Storage layer with 4-store architecture (100% complete)
 - **[context/context_training.md](context/context_training.md)** - Training infrastructure with teacher-student distillation (95% complete)
-- **[context/context_registry.md](context/context_registry.md)** - Registry system with manifest-based lifecycle (100% complete)
+- **[context/context_registry.md](context/context_registry.md)** - Registry system with manifest-based lifecycle (85% complete - Universal Pattern compliance required)
 - **[context/context_actors.md](context/context_actors.md)** - ML actors framework (98% complete)
 - **[context/context_strategies.md](context/context_strategies.md)** - Trading strategies (95% complete)
 - **[context/context_deployment.md](context/context_deployment.md)** - Deployment architecture (95% complete)

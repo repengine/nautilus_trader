@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Backfill recent OHLCV-1m bars for Tier 1 (or specified) symbols via Databento.
-
 This script downloads only the required recent window and merges into a single
 per-symbol file at `data/tier1/<SYMBOL>/l0/<SYMBOL>_ohlcv.parquet` which the
 TFT builder now reads as a fallback.
@@ -46,6 +45,7 @@ if TYPE_CHECKING:
     from polars import DataFrame as PlDataFrame
 else:  # pragma: no cover - typing only
     PlDataFrame = object  # type: ignore[misc,assignment]
+
 from ml.data.ingest.policy import DatabentoCoveragePolicy
 
 

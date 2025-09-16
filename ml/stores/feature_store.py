@@ -59,10 +59,10 @@ from ml.stores.mixins import HealthMixin
 
 if TYPE_CHECKING:
     import pandas as pd
+    from nautilus_trader.model.data import Bar
     from polars import DataFrame as PlDataFrame
 
     from ml.registry.protocols import RegistryProtocol
-    from nautilus_trader.model.data import Bar
 
 
 logger = logging.getLogger(__name__)
@@ -597,7 +597,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 )
         except Exception as e:
             # Non-blocking: log but don't fail the feature computation
-            logger.warning(f"Failed to emit feature computation event: {e}")
+            logger.warning("Failed to emit feature computation event: %s", e, exc_info=True)
 
         return len(rows)
 
@@ -763,7 +763,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                         )
                 except Exception as e:
                     # Non-blocking: log but don't fail the feature computation
-                    logger.warning(f"Failed to emit realtime feature event: {e}")
+                    logger.warning("Failed to emit realtime feature event: %s", e, exc_info=True)
 
         return features
 

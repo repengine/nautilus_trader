@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Apply ML database migrations to a PostgreSQL instance.
-
 This lightweight runner executes the canonical SQL migrations for the ML system
 in a safe, idempotent manner with a concise summary.
 

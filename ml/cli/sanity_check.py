@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Lightweight codebase sanity sweep (advisory, fast, DRY/SOLID-leaning).
-
 Runs quick checks and prints a concise report:
 - Gate checks: ruff (S608/C901), mypy (ml/ strict)
 - Duplicate/drift: legacy schema references

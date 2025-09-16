@@ -12,18 +12,22 @@ import logging
 import sys
 import urllib.parse
 import urllib.request
+import uuid as _uuid
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
 
+from ml.common.logging_config import bind_log_context
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+from ml.common.logging_config import configure_logging
+
+
+configure_logging()
+_run_id: str = f"cli_populate_supplementary_simple_{_uuid.uuid4().hex[:8]}"
+bind_log_context(run_id=_run_id, component="ml.cli.populate_supplementary_simple")
 logger = logging.getLogger(__name__)
 
 # Supplementary symbols for regime detection

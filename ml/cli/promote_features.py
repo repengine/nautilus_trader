@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Promote FeatureRegistry feature sets based on quality gates and metrics.
-
 This CLI loads a metrics JSON file (e.g., from evaluate_predictions.py), updates the
 FeatureRegistry perf_digest for the given feature_set_id, and validates against a set of
 quality gates. If all required gates pass, the feature set is promoted to PROD.

@@ -17,6 +17,10 @@ from typing import Any, cast
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
+
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.config.base import MLFeatureConfig
@@ -26,9 +30,6 @@ from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.adapters.databento.factories import DatabentoLiveDataClientFactory
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
 
 
 class LocalDryRunSystem:

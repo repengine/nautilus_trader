@@ -12,20 +12,24 @@ import logging
 import os
 import signal
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, cast
 
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import TraderId
+
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 from ml.config.base import MLFeatureConfig
 from ml.core.integration import MLIntegrationManager
 from ml.observability.bootstrap import auto_start_if_configured
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.identifiers import TraderId
 
 
 class MLSignalActorNode:
@@ -197,6 +201,9 @@ def main() -> None:
     """
     Run entry point.
     """
+    configure_logging()
+    run_id: str = f"actor_{uuid.uuid4().hex[:12]}"
+    bind_log_context(run_id=run_id, component="ml.entrypoint_actor")
     # Create and run the actor node
     actor_node = MLSignalActorNode()
     actor_node.setup()

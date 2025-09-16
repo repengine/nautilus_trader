@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Unified data population script for ML universe.
-
 This script provides a single, safe, configurable interface for populating:
 - L0 data: 7 years of OHLCV bars
 - L1 data: 1 year of quotes/trades (BBO)
@@ -42,6 +41,7 @@ import json
 import logging
 import os
 import sys
+import uuid as _uuid
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
@@ -65,10 +65,13 @@ if not HAS_POLARS:
     check_ml_dependencies(["polars"])
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
+
+
+configure_logging()
+_run_id: str = f"cli_populate_universe_{_uuid.uuid4().hex[:8]}"
+bind_log_context(run_id=_run_id, component="ml.cli.populate_universe")
 logger = logging.getLogger(__name__)
 
 

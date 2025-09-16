@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Data coverage reporting and backfill planning CLI tool.
 
@@ -32,6 +31,7 @@ import os
 import sys
 import time
 import uuid
+import uuid as _uuid
 from collections.abc import Callable
 from datetime import datetime
 from datetime import timedelta
@@ -41,6 +41,10 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from sqlalchemy import text
 
+from ml.common.logging_config import bind_log_context
+
+# Configure logging
+from ml.common.logging_config import configure_logging
 from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
@@ -54,11 +58,9 @@ from ml.registry.persistence import PersistenceConfig
 from ml.registry.persistence import PersistenceManager
 
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configure_logging()
+_run_id: str = f"cli_coverage_{_uuid.uuid4().hex[:8]}"
+bind_log_context(run_id=_run_id, component="ml.cli.coverage")
 logger = logging.getLogger(__name__)
 
 # Pretty table formatting (avoid hard import for mypy/stubs)

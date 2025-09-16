@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Quick TFT training script for immediate model training.
-
 This script provides the fastest path to training a TFT teacher model using existing
 collected market data.
 
@@ -11,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import uuid as _uuid
 from pathlib import Path
 
 
@@ -21,14 +21,15 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configure_logging()
+_run_id: str = f"cli_train_tft_quick_{_uuid.uuid4().hex[:8]}"
+bind_log_context(run_id=_run_id, component="ml.cli.train_tft_quick")
 logger = logging.getLogger(__name__)
 
 

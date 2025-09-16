@@ -148,3 +148,52 @@ rules:
         - "**/ml/tests/**"
         - "**/ml/stores/protocols.py"
         - "**/ml/stores/**/compat/**"
+
+  - id: ml-no-except-pass
+    message: "Avoid silent except/pass; use best-effort debug logging"
+    severity: WARNING
+    languages: [python]
+    pattern-regex: 'except(\s+Exception)?\s*:\s*(pass|\.\.\.)'
+    paths:
+      include:
+        - "**/ml/**"
+      exclude:
+        - "**/ml/tests/**"
+
+  - id: ml-require-exc-info-in-except-logs
+    message: "Log exceptions with exc_info=True inside except blocks"
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern-inside: |
+          try:
+              ...
+          except Exception as $E:
+              ...
+      - pattern-either:
+          - pattern: $LOG.debug($MSG)
+          - pattern: $LOG.info($MSG)
+          - pattern: $LOG.warning($MSG)
+          - pattern: $LOG.error($MSG)
+          - pattern: $LOG.critical($MSG)
+      - metavariable-regex:
+          metavariable: $LOG
+          regex: "[a-zA-Z_][a-zA-Z0-9_\\.]*"
+      - pattern-not: $LOG.$F(..., exc_info=True, ...)
+    paths:
+      include:
+        - "**/ml/**"
+      exclude:
+        - "**/ml/tests/**"
+
+  - id: ml-no-basicConfig-outside-entrypoints
+    message: "Do not call logging.basicConfig outside entrypoints; use central configure_logging"
+    severity: ERROR
+    languages: [python]
+    pattern: logging.basicConfig(...)
+    paths:
+      include:
+        - "**/ml/**"
+      exclude:
+        - "**/ml/deployment/**"
+        - "**/ml/tests/**"

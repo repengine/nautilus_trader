@@ -9,11 +9,13 @@ optionally forwards flushed envelopes to a downstream publisher by prefixing top
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Final
 
+from ml.common.logging_utils import log_best_effort
 from ml.common.message_bus import MessagePublisherProtocol
 from ml.common.message_topics import build_topic_for_stage
 from ml.common.metrics import aggregator_buffer_size
@@ -158,16 +160,13 @@ class AggregatingConsumer:
                     self.downstream.publish(out_topic, payload)
                 except Exception as exc:
                     # Forwarding is best-effort; aggregator state already updated
-                    try:
-                        import logging as _logging
-
-                        _logging.getLogger(__name__).debug(
-                            "Downstream publish failed for %s: %s",
-                            out_topic,
-                            exc,
-                            exc_info=True,
-                        )
-                    except Exception:
-                        ...
+                    log_best_effort(
+                        logging.getLogger(__name__),
+                        "debug",
+                        "Downstream publish failed for %s: %s",
+                        out_topic,
+                        exc,
+                        exc_info=True,
+                    )
 
         return flushed

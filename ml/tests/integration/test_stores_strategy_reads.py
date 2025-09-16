@@ -17,6 +17,7 @@ from ml.stores.strategy_store import StrategyStore
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
+    pytest.mark.serial,
     pytest.mark.usefixtures("clean_postgres_db_module"),
 ]
 

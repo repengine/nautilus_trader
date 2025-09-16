@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Compute evaluation metrics (ROC AUC, PR AUC, logloss) from predictions.
-
 This CLI reads a NumPy NPZ file containing either calibrated probabilities or
 raw logits together with true labels, computes metrics, and writes a JSON
 summary. Intended to feed `promote_features.py` via `--metrics_json`.
@@ -43,6 +42,7 @@ from ml._imports import check_ml_dependencies
 
 if not HAS_SKLEARN:  # pragma: no cover - env guard, tests assume sklearn available
     check_ml_dependencies(["sklearn"])  # ensure clear message
+
 
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import log_loss

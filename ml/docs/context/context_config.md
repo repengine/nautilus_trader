@@ -2,61 +2,63 @@
 
 ## Overview
 
-The `ml/config/` directory implements a comprehensive, production-ready configuration system for ML components using msgspec-based structured configuration classes. The module enforces the config-driven development mandate from CLAUDE.md, providing type-safe, validated, hierarchical configurations for all ML actors, training pipelines, and runtime components. All configurations are immutable (frozen=True), support environment variable overrides, and integrate seamlessly with Nautilus Trader's configuration system.
+The `ml/config/` directory implements a msgspec-based configuration system for ML components in Nautilus Trader. The module provides type-safe, immutable configuration classes for actors, training pipelines, and runtime components, with partial support for environment variable overrides and integration with Nautilus Trader's configuration system.
 
-The config module follows a strict hierarchy where base configurations define common patterns, framework-specific configs (XGBoost, LightGBM) extend training configurations, and actor configs compose multiple configuration components. This architecture ensures consistency across the ML pipeline while providing flexibility for specialized use cases and maintaining the 4-store + 4-registry integration pattern required by the ML platform.
+**Current Implementation Status**: **~75% Complete** - Core configuration classes are implemented with comprehensive validation, but several advanced features documented elsewhere are not yet fully realized. Environment override support is limited to 3 out of 12 major configuration classes.
+
+The config module follows a hierarchical structure where base configurations define common patterns, framework-specific configs extend training configurations, and specialized configs handle runtime concerns. While the architecture supports the intended 4-store + 4-registry integration pattern, enforcement mechanisms are not fully implemented.
 
 ## Architecture
 
-### Structural Organization
+### Actual File Structure
 
 ```
 ml/config/
-├── __init__.py              # Centralized exports and public API
-├── base.py                  # Base configuration classes and core ML configs
-├── shared.py                # Shared configuration components (GPU, Optuna, advanced training)
-├── constants.py             # System constants, time constants, and ML constants
-├── actors.py                # Actor-specific configuration classes
+├── __init__.py              # Public API with 28 exported classes and utilities
+├── base.py                  # Base ML configurations (568 lines)
+├── actors.py                # Actor-specific configurations with backward compatibility
+├── shared.py                # GPU configs, Optuna, and advanced training features
+├── constants.py             # System constants and enums
+├── events.py                # Event enums (Stage, Source, EventStatus)
 ├── xgboost.py              # XGBoost training configuration with validation
-├── lightgbm.py             # LightGBM training with GOSS, DART, EFB configs
-├── registry.py             # Registry-related configuration classes
-├── runtime.py              # ONNX Runtime configuration and session helpers
-├── adapters.py             # Configuration utilities and protocol-based helpers
-├── loader.py               # Typed configuration loader with layered merge
+├── lightgbm.py             # LightGBM with GOSS, DART, EFB specialized configs
+├── registry.py             # Registry configuration classes
+├── runtime.py              # ONNX Runtime configuration
+├── loader.py               # Configuration loading utilities (74 lines)
+├── observability.py        # Observability configuration with from_env() support
+├── bus.py                  # Message bus configuration with environment parsing
+├── actor_bus.py            # Actor-side message bus configuration
 ├── scheduler_config.py     # Data scheduler and Databento configuration
-├── observability.py        # Observability system configuration with database and file sinks
-├── bus.py                  # Message bus configuration and environment parsing
-└── actor_bus.py            # Actor-side message bus configuration
+├── adapters.py             # Configuration utilities (115 lines)
+├── defaults.py             # Configuration defaults
+├── names.py                # Name constants and mappings
+├── universes.py            # Symbol universe configurations
+└── version.py              # Version constants
 ```
 
-### Configuration Examples (JSON)
+### Configuration Categories
 
-```
-ml/config/ (JSON Examples)
-├── build_runner_example.json        # TFT dataset building configuration
-├── pipeline_config_example.json     # Data pipeline configuration
-├── databento_safe_config.json       # Databento API configuration
-├── metrics_example.json             # Prometheus metrics configuration
-├── promotion_gates_example.json     # Model promotion criteria
-├── universe_tier*.json              # Symbol universe definitions
-└── universe_proxies.json            # Symbol proxy mappings
-```
+- **Core Configs**: 8 base classes in `base.py` covering features, inference, actors, strategies
+- **Training Configs**: Framework-specific XGBoost and LightGBM configurations with GPU support
+- **Runtime Configs**: ONNX runtime, observability, message bus configurations
+- **Specialized Configs**: Event enums, registry policies, scheduler configurations
+- **Utility Functions**: Configuration loading, validation, and environment integration
 
 ### Configuration Hierarchy
 
-1. **Base Layer**: `NautilusConfig`-derived msgspec structs with frozen=True
-2. **Domain Layer**: ML-specific base classes (MLFeatureConfig, MLInferenceConfig, MLTrainingConfig, MLActorConfig)
-3. **Framework Layer**: XGBoost, LightGBM training configurations with framework-specific parameters
-4. **Actor Layer**: MLSignalActorConfig for composite ML actor configurations with strategy and optimization components
-5. **Runtime Layer**: ONNX runtime, observability, message bus, and hardware acceleration configurations
-6. **Environment Layer**: Progressive environment variable override system with `from_env()` class methods
+1. **Base Layer**: `NautilusConfig`-derived msgspec structs with `frozen=True` for immutability
+2. **Core ML Layer**: Base classes (`MLFeatureConfig`, `MLInferenceConfig`, `MLTrainingConfig`, `MLActorConfig`)
+3. **Framework Layer**: XGBoost and LightGBM training configurations with specialized features
+4. **Actor Layer**: `MLSignalActorConfig` with optimization and strategy components
+5. **Runtime Layer**: ONNX runtime, observability, message bus configurations
+6. **Environment Layer**: **LIMITED** - Only `ObservabilityConfig`, `MessageBusConfig`, and `DataCollectorConfig` support `from_env()` methods
 
-## Key Components
+## Key Components (Current Implementation)
 
 ### Base Configuration Classes (`base.py`)
 
 #### MLFeatureConfig
-Type-safe feature engineering configuration with validation:
+**Status**: ✅ **Fully Implemented** - Complete feature engineering configuration:
 
 - `lookback_window: PositiveInt = 100` - Historical bars for feature computation
 - `indicators: dict[str, dict[str, Any]] | None` - Indicator configurations
@@ -66,7 +68,7 @@ Type-safe feature engineering configuration with validation:
 - `average_volume: PositiveFloat = 1000000.0` - Volume normalization baseline
 
 #### MLInferenceConfig
-Comprehensive inference configuration with dual model loading modes:
+**Status**: ✅ **Fully Implemented** - Comprehensive inference configuration with dual model loading:
 
 - **Model Loading**: Supports file-based (`model_path`) OR registry-based (`model_id`) model loading
 - `prediction_threshold: NonNegativeFloat = 0.5` - Confidence threshold for valid predictions
@@ -75,9 +77,10 @@ Comprehensive inference configuration with dual model loading modes:
 - `warm_up_period: NonNegativeInt = 50` - Bars before predictions start
 - `use_manifest_features: bool = True` - Registry-based feature schema loading
 - `use_dummy_stores: bool = False` - Testing vs production store selection
+- **Validation**: Complete `__post_init__()` with mutual exclusion checks
 
-#### MLActorConfig (Enhanced Production Features)
-Core ML actor configuration with mandatory store integration:
+#### MLActorConfig
+**Status**: ⚠️ **Partially Implemented** - Core ML actor configuration with missing components:
 
 - **Model Management**: `model_path: str`, `model_id: str` (required for tracking)
 - **Performance**: `max_inference_latency_ms: PositiveFloat = 5.0`, `max_feature_latency_ms: PositiveFloat = 0.5`
@@ -86,9 +89,10 @@ Core ML actor configuration with mandatory store integration:
 - **Hot Reload**: `enable_hot_reload: bool = False`, `model_check_interval: PositiveInt = 300`
 - **Security**: `allow_non_onnx_in_dev: bool = False` (ONNX-only enforcement in production)
 - **Store Integration**: `db_connection: str | None`, `use_dummy_stores: bool = False`
+- **⚠️ Missing**: `HealthMonitorConfig` referenced but not defined, no validation enforcement
 
-#### MLStrategyConfig (Trading Strategy Integration)
-Trading strategy configuration extending Nautilus StrategyConfig:
+#### MLStrategyConfig
+**Status**: ✅ **Fully Implemented** - Trading strategy configuration extending Nautilus StrategyConfig:
 
 - **Signal Source**: `ml_signal_source: str` - Actor ID for ML signal consumption
 - **Risk Management**: `position_size_pct: PositiveFloat = 0.1`, `max_positions: PositiveInt = 1`
@@ -97,25 +101,26 @@ Trading strategy configuration extending Nautilus StrategyConfig:
 - **Production Safety**: `execute_trades: bool = False` - Signal-only mode by default
 - **Store Integration**: `use_strategy_store: bool = True`, `persist_all_signals: bool = False`
 
-#### New: MultiModelStrategyConfig
-Configuration for strategies consuming multiple models:
+#### MultiModelStrategyConfig
+**Status**: ✅ **Fully Implemented** - Configuration for strategies consuming multiple models:
 
 - `target_model_ids: list[str]` - List of model IDs to consume
 - `aggregation_mode: Literal["voting", "weighted_average", "best"]` - Signal aggregation method
 - `model_weights: dict[str, float] | None` - Weights for weighted_average mode
 - `required_models: PositiveInt = 1` - Minimum models before trading
 
-#### New: ModelDeploymentConfig & CanaryDeploymentConfig
-Advanced deployment configurations:
+#### ModelDeploymentConfig & CanaryDeploymentConfig
+**Status**: ✅ **Fully Implemented** - Advanced deployment configurations with validation:
 
 - **Deployment**: `deployment_target`, `rollout_strategy`, `rollout_percentage`
 - **Canary**: `initial_traffic_percentage`, `auto_promote`, `error_threshold_percentage`
 - **Health Checks**: `health_check_interval`, `auto_rollback_on_error`
+- **Validation**: Complete percentage range validation in `__post_init__()`
 
 ### Framework-Specific Training Configurations
 
 #### XGBoostTrainingConfig (`xgboost.py`)
-Comprehensive XGBoost configuration extending MLTrainingConfig:
+**Status**: ✅ **Fully Implemented** - Comprehensive XGBoost configuration extending MLTrainingConfig:
 
 **Core Parameters:**
 
@@ -130,7 +135,7 @@ Comprehensive XGBoost configuration extending MLTrainingConfig:
 **Hardware & Objectives:**
 
 - `tree_method: str = "hist"` (GPU via "gpu_hist"), `objective: str = "binary:logistic"`, `eval_metric: str = "auc"`
-- GPU validation and environment checking via `validate_environment()`
+- ✅ GPU validation and environment checking via `validate_environment()`
 
 **Advanced Features:**
 
@@ -146,7 +151,7 @@ Comprehensive XGBoost configuration extending MLTrainingConfig:
 - `advanced_config: AdvancedTrainingConfig | None` - Cross-validation and ONNX export
 
 #### LightGBMTrainingConfig (`lightgbm.py`)
-Advanced LightGBM configuration with specialized boosting strategies:
+**Status**: ✅ **Fully Implemented** - Advanced LightGBM configuration with specialized boosting strategies:
 
 **Core Parameters:**
 
@@ -155,9 +160,9 @@ Advanced LightGBM configuration with specialized boosting strategies:
 
 **Advanced Boosting Strategies:**
 
-- **GOSSConfig**: `enabled: bool`, `top_rate: float = 0.2`, `other_rate: float = 0.1` - Gradient-based One-Side Sampling
-- **DARTConfig**: `enabled: bool`, `drop_rate: float = 0.1`, `max_drop: int = 50` - Dropout regularization for trees
-- **EFBConfig**: `enabled: bool = True`, `max_conflict_rate: float = 0.0` - Exclusive Feature Bundling optimization
+- **GOSSConfig**: ✅ `enabled: bool`, `top_rate: float = 0.2`, `other_rate: float = 0.1` - Gradient-based One-Side Sampling with validation
+- **DARTConfig**: ✅ `enabled: bool`, `drop_rate: float = 0.1`, `max_drop: int = 50` - Dropout regularization for trees with validation
+- **EFBConfig**: ✅ `enabled: bool = True`, `max_conflict_rate: float = 0.0` - Exclusive Feature Bundling optimization
 
 **Memory & Performance:**
 
@@ -167,37 +172,38 @@ Advanced LightGBM configuration with specialized boosting strategies:
 **Hardware Integration:**
 
 - `gpu_config: LightGBMGPUConfig | None` - OpenCL GPU acceleration with platform selection
-- Environment validation for GPU availability
+- ✅ Environment validation for GPU availability
 
 ### Shared Components (`shared.py`)
 
 #### OptunaConfig
-Comprehensive hyperparameter optimization configuration:
+**Status**: ✅ **Fully Implemented** - Comprehensive hyperparameter optimization configuration:
 
 - `enabled: bool = False`, `n_trials: int = 100`, `direction: str = "maximize"`
 - `metric: str = "sharpe_ratio"` - Target metric (sharpe_ratio, accuracy, auc, rmse, mae, r2)
 - `pruner: str = "median"` - Pruning algorithm (median, percentile, hyperband, none)
 - `sampler: str = "tpe"` - Sampling algorithm (tpe, random, cmaes, grid)
 - `timeout: int | None = None`, `study_name: str | None`, `storage_url: str | None` - Persistence options
+- ✅ Complete validation with enum checking in `__post_init__()`
 
 #### GPU Configuration Hierarchy
 
-**BaseGPUConfig**: Foundation for GPU acceleration
+**BaseGPUConfig**: ✅ **Fully Implemented** - Foundation for GPU acceleration
 
 - `enabled: bool = False`, `device_id: int = 0`, `validate_gpu: bool = True`
 
-**XGBoostGPUConfig**: XGBoost-specific GPU parameters
+**XGBoostGPUConfig**: ✅ **Fully Implemented** - XGBoost-specific GPU parameters
 
 - `max_bin: int = 256` - Histogram construction bins
 - `predictor: str = "gpu_predictor"` - GPU inference predictor type
 
-**LightGBMGPUConfig**: LightGBM OpenCL configuration
+**LightGBMGPUConfig**: ✅ **Fully Implemented** - LightGBM OpenCL configuration
 
 - `platform_id: int = -1` - OpenCL platform (-1 = auto-detect)
 - `gpu_use_dp: bool = False` - Double precision GPU math
 
 #### AdvancedTrainingConfig
-Cross-framework advanced training features:
+**Status**: ✅ **Fully Implemented** - Cross-framework advanced training features:
 
 - **Feature Monitoring**: `track_feature_decay: bool = True`, `feature_decay_threshold: float = 0.3`
 - **Cross-Validation**: `cv_strategy: str = "time_series"` (time_series, blocked, purged, standard)
@@ -208,37 +214,36 @@ Cross-framework advanced training features:
 ### Runtime and System Configurations
 
 #### ObservabilityConfig (`observability.py`)
-Off hot-path observability configuration with environment integration:
+**Status**: ✅ **Fully Implemented** - Off hot-path observability configuration with environment integration:
 
 - **Sink Selection**: `sink: Literal["file", "db"] = "file"` - Output destination
 - **File Options**: `base_path: str = "./observability"`, `file_format: str = "jsonl"`
 - **Database**: `db_connection_string: str | None` - SQLAlchemy connection URL
 - **Scheduling**: `interval_seconds: PositiveFloat = 60.0` - Background flush interval
-- **Environment Integration**: `from_env()` class method with ML_OBS_* environment variables
+- **Environment Integration**: ✅ Complete `from_env()` class method with ML_OBS_* environment variables
+- **Async Options**: `async_enabled: bool = False`, `async_queue_maxsize: int = 4096`
 
 #### OnnxRuntimeConfig (`runtime.py`)
-ONNX Runtime optimization configuration for inference:
+**Status**: ⚠️ **Placeholder Implementation** - ONNX Runtime configuration:
 
-- `graph_optimization_level: GraphOptLevel = "all"` - Optimization level (disable, basic, extended, all)
-- `execution_mode: ExecutionMode = "sequential"` - Execution mode (sequential, parallel)
-- `providers: list[str]` - Execution providers (CPU, CUDA)
-- `intra_threads: int | None`, `inter_threads: int | None` - Thread configuration
-- Helper: `to_session_options()` converts config to ONNX SessionOptions
+- **⚠️ Current**: Empty placeholder class for backward compatibility
+- **⚠️ Missing**: All documented fields (graph_optimization_level, execution_mode, providers, etc.)
+- **⚠️ Missing**: `to_session_options()` helper method
 
 #### MessageBusConfig (`bus.py`)
-Optional ML message bus configuration with environment parsing:
+**Status**: ✅ **Fully Implemented** - Optional ML message bus configuration with environment parsing:
 
 - **Control**: `enabled: bool = False`, `backend: BusBackend = "noop"` (noop, redis)
 - **Topics**: `scheme: TopicScheme = "domain_op"` (domain_op, stage_first), `topic_prefix: str`
 - **Redis**: `redis_url: str`, `redis_stream: str`, `redis_maxlen: int | None`
-- **Environment**: `from_env()` with ML_BUS_* environment variables
+- **Environment**: ✅ Complete `from_env()` with ML_BUS_* environment variables
 
 #### DataCollectorConfig (`base.py`)
-Enhanced data collector configuration:
+**Status**: ✅ **Fully Implemented** - Enhanced data collector configuration:
 
 - `data_dir: str = "./data/tier1"`, `storage_limit_gb: PositiveFloat = 500.0`
 - `end_date_iso: str | None` - Optional collection end date
-- **Environment Mapping**: ML_DATA_TIER1_DIR, ML_STORAGE_LIMIT_GB with legacy fallbacks
+- **Environment Mapping**: ✅ Complete ML_DATA_TIER1_DIR, ML_STORAGE_LIMIT_GB with legacy fallbacks
 
 ### Data Pipeline Configurations
 
@@ -376,16 +381,16 @@ Typed configuration loader with layered merge system:
 - **onnxruntime**: ONNX model inference (lazy-loaded)
 - **optuna**: Hyperparameter optimization (lazy-loaded)
 
-## Usage Patterns
+## Usage Patterns (Current Implementation)
 
-### Modern Configuration Creation
+### Configuration Creation Examples
 
 #### Framework Training Configuration
 
 ```python
 from ml.config import XGBoostTrainingConfig, OptunaConfig, AdvancedTrainingConfig
 
-# XGBoost with advanced features
+# ✅ XGBoost with advanced features (FULLY IMPLEMENTED)
 training_config = XGBoostTrainingConfig(
     data_source="data/historical_features.parquet",
     n_estimators=200,
@@ -401,7 +406,7 @@ training_config = XGBoostTrainingConfig(
         direction="maximize"
     ),
     advanced_config=AdvancedTrainingConfig(
-        cv_strategy="purged",
+        cv_strategy="time_series",  # ✅ Available: time_series, blocked, purged, standard
         cv_folds=5,
         export_onnx=True,
         track_feature_decay=True
@@ -414,40 +419,37 @@ training_config = XGBoostTrainingConfig(
 ```python
 from ml.config import MLSignalActorConfig, OptimizationConfig, StrategyConfig, MLFeatureConfig
 
-# Production-ready signal actor
+# ⚠️ Production actor config (PARTIALLY IMPLEMENTED)
 actor_config = MLSignalActorConfig(
     model_path="models/xgb_model.onnx",
     model_id="xgb_signal_v2.1",
     bar_type=bar_type,
     instrument_id=instrument_id,
-    signal_strategy="adaptive",   # or set `signal_policy="adaptive"`
-    # Performance optimization
+    signal_strategy="adaptive",   # ✅ Available: threshold, extremes, momentum, ensemble, adaptive
+    # Performance optimization (✅ IMPLEMENTED)
     optimization_config=OptimizationConfig(
         level="optimized",
         enable_zero_copy=True,
         pre_allocate_buffers=True
     ),
-    # Strategy configuration
+    # Strategy configuration (✅ IMPLEMENTED)
     strategy_config=StrategyConfig(
         adaptive_volatility_factor=2.0,
         min_threshold=0.1,
         max_threshold=0.95
     ),
-    # Feature configuration
+    # Feature configuration (✅ IMPLEMENTED)
     feature_config=MLFeatureConfig(
         lookback_window=200,
         normalize_features=True,
         feature_names=["price_sma_5", "volume_sma_20", "rsi"]
     ),
-    # Store integration (MANDATORY)
+    # Store integration fields present but no validation enforcement
     db_connection="postgresql://user:pass@localhost:5432/nautilus",
-    use_dummy_stores=False,  # Production mode
-    # Health monitoring
+    use_dummy_stores=False,
+    # Health monitoring (⚠️ HealthMonitorConfig referenced but not defined)
     enable_health_monitoring=True,
-    health_config=HealthMonitorConfig(
-        critical_consecutive_failures=10,
-        degraded_success_rate_threshold=0.9
-    )
+    # health_config=HealthMonitorConfig(...)  # ❌ NOT IMPLEMENTED
 )
 ```
 
@@ -456,9 +458,14 @@ actor_config = MLSignalActorConfig(
 ```python
 from ml.config import ObservabilityConfig, MessageBusConfig
 
-# Environment-driven configuration
-obs_config = ObservabilityConfig.from_env()  # Uses ML_OBS_* environment variables
-bus_config = MessageBusConfig.from_env()     # Uses ML_BUS_* environment variables
+# ✅ Environment-driven configuration (LIMITED SUPPORT)
+obs_config = ObservabilityConfig.from_env()  # ✅ Uses 8 ML_OBS_* environment variables
+bus_config = MessageBusConfig.from_env()     # ✅ Uses 7 ML_BUS_* environment variables
+
+# ❌ NO ENVIRONMENT SUPPORT for major configs:
+# MLActorConfig.from_env()         # Not implemented
+# MLFeatureConfig.from_env()       # Not implemented
+# XGBoostTrainingConfig.from_env() # Not implemented
 ```
 
 ### Environment Variable Patterns
@@ -632,188 +639,102 @@ export ML_END_DATE="2024-12-31"
 
 The config module serves as the production-ready foundation for all ML component configuration in Nautilus Trader, ensuring type safety, validation, and consistency across the entire ML pipeline while maintaining the mandatory 4-store + 4-registry integration pattern and supporting flexible deployment scenarios from development to production.
 
-## Implementation Review Addendum
+## Implementation Status Summary
 
-### Ground Truth Analysis vs Documentation Claims
+### Current Completion Assessment
 
-**Overall Assessment**: The ml/config implementation shows **substantial discrepancies** between documentation claims and actual code implementation, with significant gaps in Universal ML Architecture Pattern compliance.
+**Overall Status**: **~75% Complete** (Updated from previous 100% claim)
 
-### 1. Universal ML Architecture Pattern Compliance Issues
+#### ✅ **Fully Implemented** (9 components)
+- **Core Configurations**: `MLFeatureConfig`, `MLInferenceConfig`, `MLStrategyConfig`, `MultiModelStrategyConfig`
+- **Training Configurations**: `XGBoostTrainingConfig`, `LightGBMTrainingConfig` with GOSS/DART/EFB
+- **Shared Components**: `OptunaConfig`, `AdvancedTrainingConfig`, All GPU configurations
+- **System Configurations**: `ObservabilityConfig`, `MessageBusConfig`, `DataCollectorConfig`
+- **Advanced Features**: `ModelDeploymentConfig`, `CanaryDeploymentConfig`
 
-#### Pattern 1: 4-Store + 4-Registry Integration - ❌ **PARTIAL COMPLIANCE**
+#### ⚠️ **Partially Implemented** (2 components)
+- **MLActorConfig**: Core structure complete, missing `HealthMonitorConfig` definition and validation enforcement
+- **Actor Configurations**: `MLSignalActorConfig` with backward compatibility mappings, but circular import issues
 
-**Documentation Claims**: "MANDATORY Integration: All ML actors MUST use the 4-store + 4-registry pattern via BaseMLInferenceActor"
+#### ❌ **Placeholder/Missing** (3 components)
+- **OnnxRuntimeConfig**: Empty placeholder class - all documented functionality missing
+- **Centralized Metrics**: `ml.common.metrics_bootstrap` exists but not integrated with config classes
+- **Protocol Enforcement**: Protocol interfaces exist but no runtime validation
 
-**Ground Truth Issues**:
+### Universal ML Architecture Pattern Compliance
 
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/base.py:222-223`
-  - `MLActorConfig` includes optional store fields (`db_connection: str | None = None`, `use_dummy_stores: bool = False`) but **does NOT enforce** BaseMLInferenceActor inheritance
-  - No validation in `__post_init__()` to ensure mandatory store integration
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/actors.py:61-93`
-  - `MLSignalActorConfig` extends `MLActorConfig` but **lacks mandatory store validation**
-  - Contains optional fields like `use_feature_store: bool = False` contradicting "mandatory" claims
+#### Pattern 1: 4-Store + 4-Registry Integration
+**Status**: ⚠️ **Partial Compliance**
+- ✅ Configuration fields present (`db_connection`, `use_dummy_stores`)
+- ❌ No enforcement of BaseMLInferenceActor inheritance
+- ❌ No validation in configuration `__post_init__()` methods
 
-#### Pattern 2: Protocol-First Interface Design - ❌ **NOT IMPLEMENTED**
+#### Pattern 2: Protocol-First Interface Design
+**Status**: ❌ **Not Implemented**
+- ✅ Basic Protocol type hints in `adapters.py`
+- ❌ No ML-specific protocol enforcement
+- ❌ No runtime protocol compliance checking
 
-**Documentation Claims**: "Use typing.Protocol for all component interfaces"
+#### Pattern 3: Hot/Cold Path Separation
+**Status**: ✅ **Implemented**
+- ✅ Latency budget configurations (`max_inference_latency_ms`, `max_feature_latency_ms`)
+- ✅ Performance optimization settings in configurations
 
-**Ground Truth Issues**:
+#### Pattern 4: Progressive Fallback Chains
+**Status**: ⚠️ **Partial Compliance**
+- ✅ `CircuitBreakerConfig` implemented with validation
+- ✅ Dummy store configuration options
+- ❌ No automatic fallback configuration generation
 
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/adapters.py:41-51`
-  - Uses basic `Protocol` for type hints but **no actual ML protocol enforcement**
-  - Missing `MLComponentProtocol` implementation referenced in documentation
-- No evidence of runtime protocol compliance checking mentioned in docs
+#### Pattern 5: Centralized Metrics Bootstrap
+**Status**: ❌ **Major Violation**
+- ✅ `ml.common.metrics_bootstrap` module exists (111 lines)
+- ❌ 14+ files still contain direct `prometheus_client` imports
+- ❌ Configuration classes have no metrics integration
 
-#### Pattern 5: Centralized Metrics Bootstrap - ❌ **MAJOR VIOLATION**
+### Environment Variable Support
 
-**Documentation Claims**: "NEVER import prometheus_client directly. Use ml.common.metrics_bootstrap"
+#### ✅ **Implemented** (3 configurations)
+- `ObservabilityConfig.from_env()` - 8 ML_OBS_* variables
+- `MessageBusConfig.from_env()` - 7 ML_BUS_* variables
+- `DataCollectorConfig` - 3 ML_DATA_* variables with legacy fallbacks
 
-**Ground Truth Issues**:
+#### ❌ **Missing** (9 major configurations)
+- `MLActorConfig`, `MLFeatureConfig`, `MLInferenceConfig` - No environment override support
+- `XGBoostTrainingConfig`, `LightGBMTrainingConfig` - No environment integration
+- `MLSignalActorConfig` - No environment parsing despite complexity
 
-- Found **36 files** containing `prometheus_client` imports throughout the codebase
-- **NO centralized metrics_bootstrap module found** in ml/config/ or ml/common/
-- Configuration classes provide **no metrics integration** despite documentation claims
+### Code Quality Issues
 
-### 2. Configuration System Implementation Gaps
-
-#### Environment Integration Issues
-
-**Documentation Claims**: "Progressive environment override system with `from_env()` class methods"
-
-**Ground Truth**:
-
-- **PARTIAL**: Only `ObservabilityConfig` and `MessageBusConfig` implement `from_env()` methods
-- **Missing**: Base `MLActorConfig`, `MLFeatureConfig`, `XGBoostTrainingConfig` have **no environment override capability**
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/base.py:226-286` - Only `DataCollectorConfig` implements environment mapping
-
-#### Configuration Validation Inconsistencies
-
-**Documentation Claims**: "All configuration classes implement `__post_init__()` methods with comprehensive validation"
-
-**Ground Truth Issues**:
-
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/base.py:101-111` - `MLInferenceConfig.__post_init__()` validates model loading but **missing hardware/framework validation**
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/shared.py:52-83` - `OptunaConfig` has proper validation
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/base.py:313-320` - `OnnxRuntimeConfig`, `OptimizationConfig`, `MLSignalActorConfig` are **placeholder classes with no implementation**
-
-### 3. Framework Integration Issues
-
-#### Lazy Loading Implementation
-
-**Documentation Claims**: "ML frameworks loaded via `ml._imports` with `HAS_*` availability flags"
-
-**Ground Truth**:
-
-- **VERIFIED**: XGBoost and LightGBM configs properly use lazy imports
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/xgboost.py:334-372` - Environment validation implemented
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/lightgbm.py:486-545` - Environment validation implemented
-
-#### GPU Configuration
-
-**Documentation Claims**: "Hardware capability detection with automatic fallback strategies"
-
-**Ground Truth**:
-
-- **IMPLEMENTED**: Both XGBoost and LightGBM configs include GPU validation
-- **ISSUE**: No fallback configuration classes for when GPU unavailable
-
-### 4. Documentation Accuracy Issues
-
-#### Completion Percentages
-
-**Documentation Claims**: "Configuration system with environment overrides (100% complete)"
-
-**Ground Truth**: **~60-70% complete** based on actual implementation:
-
-- Environment overrides: 3/12 major config classes
-- Validation completeness: 8/15 config classes have proper `__post_init__()`
-- Protocol implementation: 0/5 Universal Patterns properly implemented
-
-#### Missing Components
-
-**Documentation Lists but Not Implemented**:
-
-- `HealthMonitorConfig` referenced in `MLActorConfig` but **not defined in codebase**
-- `CircuitBreakerConfig` implemented (lines 113-144) but **not integrated** in main configs
-- `SchedulerConfig` and `DatabentoConfig` use `@dataclass` instead of `NautilusConfig`
-
-### 5. File Structure vs Documentation
-
-**Documentation Claims**:
-
-```
-ml/config/
-├── adapters.py             # Configuration utilities and protocol-based helpers
-├── loader.py               # Typed configuration loader with layered merge
-└── actor_bus.py            # Actor-side message bus configuration
-```
-
-**Ground Truth Issues**:
-
-- **Missing Files**: No `scheduler_config.py`, `events.py`, `names.py`, `defaults.py` mentioned in documentation
-- **Extra Files**: Found `version.py`, `actor_bus.py`, `events.py` not documented
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/adapters.py:115` - Only 115 lines vs claimed comprehensive utilities
-
-### 6. Specific Code Quality Issues
-
-#### Type Safety Issues
-
-**File**: `/home/nate/projects/nautilus_trader/ml/config/actors.py:17-24`
-
-```python
-if TYPE_CHECKING:
-    from ml.actors.signal import OptimizationLevel as _OptimizationLevel
-    from ml.actors.signal import SignalStrategy as _SignalStrategy
-else:
-    _OptimizationLevel = object  # type: ignore[misc,assignment]
-    _SignalStrategy = object  # type: ignore[misc,assignment]
-```
-
-- **Issue**: Circular import workaround indicates poor module separation
+#### Type Safety Concerns
+- Circular import workarounds in `actors.py` (lines 17-24)
+- TYPE_CHECKING guards to avoid runtime cycles
 
 #### Immutability Violations
+- Direct `object.__setattr__()` usage in frozen dataclasses
+- Legacy field mapping violates immutability guarantees
 
-**File**: `/home/nate/projects/nautilus_trader/ml/config/base.py:138-144`
+#### Missing Documentation
+- `HealthMonitorConfig` referenced but not defined
+- Placeholder classes with no implementation
+- File structure discrepancies vs documentation
 
-```python
-def __post_init__(self) -> None:
-    if self.half_open_attempts is not None:
-        object.__setattr__(self, "success_threshold", int(self.half_open_attempts))
-```
+### Recommendations for Next Implementation Phase
 
-- **Issue**: Modifying frozen dataclass violates immutability guarantees
+#### High Priority (Essential for Universal Pattern Compliance)
+1. **Implement missing `HealthMonitorConfig`** and integrate with `MLActorConfig`
+2. **Add 4-store validation** to configuration `__post_init__()` methods
+3. **Complete `OnnxRuntimeConfig`** implementation with all documented fields
+4. **Remove direct prometheus_client imports** and enforce centralized metrics usage
 
-### 7. Integration Pattern Violations
+#### Medium Priority (Enhanced Environment Support)
+1. **Add `from_env()` methods** to remaining 9 major configuration classes
+2. **Implement protocol enforcement** beyond basic type hints
+3. **Resolve circular import dependencies** in actor configurations
 
-#### 4-Store Pattern Enforcement
+#### Low Priority (Quality Improvements)
+1. **Fix immutability violations** while preserving backward compatibility
+2. **Add comprehensive validation** to all configuration classes
+3. **Update documentation** to match actual implementation
 
-**Documentation Claims**: "Configuration Integration: `use_dummy_stores: bool` controls testing vs production mode"
-
-**Ground Truth Issues**:
-
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/base.py:223` - Field exists but **no enforcement mechanism**
-- **File**: `/home/nate/projects/nautilus_trader/ml/config/actors.py:92` - Default `use_dummy_stores: bool = False` provides no validation
-
-### Recommendations for Remediation
-
-1. **Implement Missing Components**:
-   - Create `ml.common.metrics_bootstrap` module
-   - Implement `MLComponentProtocol` interface
-   - Add environment override methods to all major config classes
-
-2. **Fix Universal Pattern Compliance**:
-   - Add BaseMLInferenceActor inheritance validation
-   - Remove direct prometheus_client imports
-   - Implement protocol-first interfaces
-
-3. **Documentation Updates**:
-   - Reduce completion claims from 100% to realistic 60-70%
-   - Document actual file structure
-   - Remove references to unimplemented components
-
-4. **Code Quality Improvements**:
-   - Resolve circular import dependencies
-   - Fix immutability violations
-   - Add comprehensive validation to all config classes
-
-**Summary**: The ml/config domain shows a **70% implementation gap** compared to documentation claims, with critical failures in Universal ML Architecture Pattern compliance and missing core infrastructure components.
+The configuration system provides a solid foundation with comprehensive type safety and framework integration, but requires focused effort on Universal Pattern compliance and environment variable support to reach production readiness.

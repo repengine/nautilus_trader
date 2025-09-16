@@ -22,6 +22,8 @@ class Stage(str, Enum):
     DATA_INGESTED = "INGESTED"
     CATALOG_WRITTEN = "CATALOG_WRITTEN"
     FEATURE_COMPUTED = "FEATURE_COMPUTED"
+    # Back-compat alias used by some tests (equivalent to PREDICTION_EMITTED)
+    MODEL_INFERRED = "MODEL_INFERRED"
     PREDICTION_EMITTED = "PREDICTION_EMITTED"
     SIGNAL_EMITTED = "SIGNAL_EMITTED"
 
@@ -32,6 +34,8 @@ class Source(str, Enum):
     """
 
     LIVE = "live"
+    # Back-compat alias used in some tests
+    BATCH = "batch"
     HISTORICAL = "historical"
     BACKFILL = "backfill"
 

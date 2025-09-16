@@ -1,6 +1,5 @@
 """
 Backfill observability tables from persisted JSONL files.
-
 Usage:
   uv run -m ml.scripts.observability_backfill --src ./observability --db-url postgresql://...
 

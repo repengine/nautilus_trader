@@ -60,7 +60,9 @@ dependencies = [
     "fredapi (>=0.5.2,<0.6.0)",
     # test-only/QA tools are defined under [tool.poetry.group.test.dependencies]
     "pandera (>=0.26.1,<0.27.0)",
-    "asyncio (>=4.0.0,<5.0.0)"
+    "asyncio (>=4.0.0,<5.0.0)",
+    "aiosqlite (>=0.21.0,<0.22.0)",
+    "structlog (>=25.4.0,<26.0.0)"
 ]
 
 [project.urls]

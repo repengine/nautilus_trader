@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Build TFT training dataset from tier1 data with optional macro and micro features.
-
 Outputs:
 - dataset.parquet / dataset.csv
 - features_npz.npz with {X_train, X_val, feature_names}
@@ -15,6 +14,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,8 @@ import numpy as np
 from ml._imports import HAS_PANDAS
 from ml._imports import pd
 from ml._imports import pl
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 from ml.data import DatasetBuildConfig as APICfg
 from ml.data import build_tft_dataset as api_build
 
@@ -88,9 +90,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = ap.parse_args(argv)
 
-    # Configure logging
-    log_level = logging.DEBUG if args.verbose or os.environ.get("ML_DEBUG") else logging.INFO
-    logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # Configure logging (structured) and bind run context
+    if args.verbose or os.environ.get("ML_DEBUG"):
+        configure_logging(level="DEBUG")
+    else:
+        configure_logging()
+    _run_id: str = f"cli_build_tft_dataset_{_uuid.uuid4().hex[:8]}"
+    bind_log_context(run_id=_run_id, component="ml.cli.build_tft_dataset")
 
     data_dir = Path(args.data_dir)
     out_dir = Path(args.out_dir)

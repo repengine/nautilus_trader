@@ -2138,9 +2138,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             source_enum = Source(source) if not isinstance(source, Source) else source
 
             # Use centralized helper to ensure correlation_id is attached consistently
-            from ml.common.event_emitter import emit_dataset_event
+            from ml.common.event_emitter import emit_dataset_event as _emit
 
-            emit_dataset_event(
+            _emit(
                 self.registry,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,
@@ -2181,9 +2181,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             source_enum = Source(source) if not isinstance(source, Source) else source
 
             # Use centralized helper to ensure correlation_id is attached consistently
-            from ml.common.event_emitter import emit_dataset_event
+            from ml.common.event_emitter import emit_dataset_event as _emit
 
-            emit_dataset_event(
+            _emit(
                 self.registry,
                 dataset_id=dataset_id,
                 instrument_id=instrument_id,

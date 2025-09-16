@@ -1,6 +1,5 @@
 """
 Events Consumer CLI (Redis Streams + Idempotent Gating).
-
 This CLI subscribes to a Redis stream (fields: topic, payload JSON), applies
 idempotent + watermark gating, and prints accepted events. It supports optional
 topic pattern filtering using wildcard semantics (see ml.common.topic_filters).

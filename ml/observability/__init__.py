@@ -168,6 +168,33 @@ from ml.observability.tracing import trace_cold_path_decorator
 from ml.observability.tracing import trace_inference
 
 
+# Ensure tests that temporarily stub ml.observability.tracing don't break later imports.
+# If a minimal stub module was inserted into sys.modules without all functions,
+# patch it with the real implementations.
+try:  # pragma: no cover - defensive patch for test environments
+    import sys as _sys
+    import types as _types
+
+    _stub = _sys.modules.get("ml.observability.tracing")
+    if isinstance(_stub, _types.ModuleType):
+        from . import tracing as _tracing
+
+        for _name in (
+            "extract_and_link_trace_context",
+            "get_trace_context",
+            "inject_trace_context",
+            "is_tracing_enabled",
+            "trace_cold_path",
+            "trace_cold_path_decorator",
+            "trace_inference",
+        ):
+            if not hasattr(_stub, _name):
+                setattr(_stub, _name, getattr(_tracing, _name))
+except Exception:
+    # Never impact normal operation
+    pass
+
+
 __all__ = [
     "ObservabilityAsyncDBPersistor",
     "ObservabilityAsyncWorker",

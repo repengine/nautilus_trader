@@ -7,11 +7,15 @@ ML pipeline's FRED loader and DataStore system.
 
 """
 import os
+import uuid as _uuid
 import warnings
 from datetime import datetime
 
 import pandas as pd
 import polars as pl
+
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 
 
 warnings.filterwarnings("ignore")
@@ -262,6 +266,9 @@ def main() -> None:
     """
     Main integration function.
     """
+    configure_logging()
+    _run_id: str = f"cli_fred_integration_bridge_{_uuid.uuid4().hex[:8]}"
+    bind_log_context(run_id=_run_id, component="ml.cli.fred_integration_bridge")
     print("🏦 FRED-ML Integration Bridge")
     print("=" * 50)
 

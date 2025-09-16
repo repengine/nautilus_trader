@@ -561,12 +561,14 @@ pytest-ml-coverage:  #-- Run ML tests with coverage (exclude perf), then guardra
 .PHONY: pytest
 pytest:  #-- Run Python tests with pytest in parallel with immediate failure reporting
 	$(info $(M) Running Python tests in parallel with immediate failure reporting...)
-	uv run --active --no-sync pytest --new-first --failed-first --tb=line -n logical --dist=loadgroup --maxfail=50 --durations=0 --durations-min=10.0 $(if $(filter true,$(VERBOSE)),-v,)
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
+		uv run --active --no-sync pytest --new-first --failed-first --tb=line -n logical --dist=loadgroup --maxfail=50 --durations=0 --durations-min=10.0 $(if $(filter true,$(VERBOSE)),-v,)
 
 .PHONY: pytest-green
 pytest-green:  #-- Run correctness lane only (no perf/real API), with coverage gate
 	$(info $(M) Running green lane (correctness only) with coverage gate...)
-	uv run --active --no-sync pytest -q ml/tests \
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
+		uv run --active --no-sync pytest -q ml/tests \
 		-m "not integration and not performance and not real_api and not prototype" \
 		-n auto --dist=loadscope \
 		-k "not microbench and not performance and not integration and not real_api and not strategies" \
@@ -582,7 +584,16 @@ pytest-real-api:  #-- Run real API tests (Databento/FRED) when keys are present
 	$(info $(M) Running real API tests when keys are set...)
 	@[ -n "$$DATABENTO_API_KEY" ] || echo "Warning: DATABENTO_API_KEY not set; tests may skip";
 	@[ -n "$$FRED_API_KEY" ] || echo "Warning: FRED_API_KEY not set; tests may skip";
-	uv run --active --no-sync pytest -q ml -m real_api
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" uv run --active --no-sync pytest -q ml -m real_api
+
+.PHONY: pytest-ml-all
+pytest-ml-all:  #-- Run ALL ML tests (non-integration + integration + performance + real API)
+	$(info $(M) Running ALL ML tests: core + integration + performance + real_api ...)
+	@status=0; \
+	$(MAKE) pytest-ml || status=$$?; \
+	if [ $$status -eq 0 ]; then $(MAKE) pytest-ml-perf || status=$$?; fi; \
+	if [ $$status -eq 0 ]; then $(MAKE) pytest-real-api || status=$$?; fi; \
+	exit $$status
 
 .PHONY: pytest-memory-tracking
 pytest-memory-tracking:  #-- Run Python tests with memory tracking enabled
@@ -766,15 +777,17 @@ sanity:
 
 pytest-ml:  #-- Run ML tests optimized: parallel non-integration (no perf/real API), then serial integration (no real API)
 	$(info $(M) Running ML tests: parallel non-integration (excl. perf/real_api), then serial integration (excl. real_api) ...)
-	uv run --active --no-sync pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
-	uv run --active --no-sync pytest -c ml/pytest.ini ml -m "integration and not real_api" -q -n 1 || exit $$?
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
+		uv run --active --no-sync pytest -c ml/pytest.ini ml -m "not integration and not performance and not real_api" -q -n auto --dist=loadscope || exit $$?
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" \
+		uv run --active --no-sync pytest -c ml/pytest.ini ml -m "integration and not real_api" -q -n 1 || exit $$?
 	@echo "$(GREEN)ML tests completed$(RESET)"
 
 .PHONY: pytest-ml-perf
 pytest-ml-perf:  #-- Run ML performance tests with optional relax factor (ML_BENCH_RELAX)
 	$(info $(M) Running ML performance tests...)
 	@echo "Relax factor: $${ML_BENCH_RELAX:-1.0}"
-	ML_BENCH_RELAX=$${ML_BENCH_RELAX:-1.0} uv run --active --no-sync pytest ml/tests/performance -q
+	PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API.*:UserWarning${PYTHONWARNINGS:+,$(PYTHONWARNINGS)}" ML_BENCH_RELAX=$${ML_BENCH_RELAX:-1.0} uv run --active --no-sync pytest ml/tests/performance -q
 
 .PHONY: pytest-ml-guardrails
 pytest-ml-guardrails:  #-- Run ML performance guardrails (FAILS CI if regressions detected)

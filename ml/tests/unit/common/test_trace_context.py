@@ -1,47 +1,77 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Any, Dict
-
-import builtins
+import importlib
 import sys
+from types import ModuleType
 
+from ml.common.correlation import make_correlation_id
 from ml.common.trace_context import (
     extract_and_link_from_event,
     get_correlation_and_trace_context,
 )
 
 
-def test_get_correlation_and_trace_context_injects_and_builds_correlation(monkeypatch):
-    # Fake tracing.inject_trace_context to tag metadata
-    called: dict[str, Any] = {}
+def _install_tracing_stub(record: dict[str, object]) -> None:
+    mod = ModuleType("ml.observability.tracing")
 
-    def fake_inject(md: dict[str, Any]) -> dict[str, Any]:
-        md = dict(md)
-        md["trace_injected"] = True
-        return md
+    def extract_and_link_trace_context(event_metadata):  # type: ignore[no-untyped-def]
+        record["extract_called_with"] = event_metadata
 
-    mod = SimpleNamespace(inject_trace_context=fake_inject)
-    monkeypatch.setitem(sys.modules, "ml.observability.tracing", mod)
+    def inject_trace_context(metadata):  # type: ignore[no-untyped-def]
+        metadata = dict(metadata)
+        metadata["trace_context"] = {"traceparent": "00-abc-01"}
+        record["inject_called_with"] = metadata
+        return metadata
 
-    md = get_correlation_and_trace_context(
-        run_id="runA",
+    setattr(mod, "extract_and_link_trace_context", extract_and_link_trace_context)
+    setattr(mod, "inject_trace_context", inject_trace_context)
+    sys.modules["ml.observability.tracing"] = mod
+
+
+def test_extract_and_link_from_event_calls_stub(monkeypatch) -> None:
+    record: dict[str, object] = {}
+    _install_tracing_stub(record)
+    extract_and_link_from_event({"a": 1})
+    assert "extract_called_with" in record
+
+
+def test_get_correlation_and_trace_context_happy_path(monkeypatch) -> None:
+    record: dict[str, object] = {}
+    _install_tracing_stub(record)
+    meta = get_correlation_and_trace_context(
+        run_id="rid",
         dataset_id="features",
-        instrument_id="EURUSD.SIM",
+        instrument_id="EUR/USD",
         ts_min=1,
         ts_max=2,
         count=3,
     )
+    # Correlation id matches deterministic function
+    expected = make_correlation_id(
+        run_id="rid",
+        dataset_id="features",
+        instrument_id="EUR/USD",
+        ts_min=1,
+        ts_max=2,
+        count=3,
+    )
+    assert meta["correlation_id"] == expected
+    # Stub inject added a trace_context
+    assert "trace_context" in meta
 
-    assert "correlation_id" in md
-    assert md.get("trace_injected") is True
 
+def test_get_correlation_and_trace_context_without_tracing_module(monkeypatch) -> None:
+    # Remove tracing module to exercise ImportError branch
+    sys.modules.pop("ml.observability.tracing", None)
+    meta = get_correlation_and_trace_context(
+        run_id="rid",
+        dataset_id="features",
+        instrument_id="EUR/USD",
+        ts_min=10,
+        ts_max=20,
+        count=5,
+    )
+    assert "correlation_id" in meta
+    # No trace_context injected
+    assert "trace_context" not in meta
 
-def test_extract_and_link_from_event_graceful_when_tracing_missing(monkeypatch):
-    # Ensure module import raises ImportError
-    if "ml.observability.tracing" in sys.modules:
-        del sys.modules["ml.observability.tracing"]
-
-    # Should not raise
-    extract_and_link_from_event({"trace_context": {}})

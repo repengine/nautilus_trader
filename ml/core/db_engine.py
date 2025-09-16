@@ -314,7 +314,7 @@ class EngineManager:
                     del cls._instances[connection_string]
                     logger.debug(f"Disposed engine for {connection_string[:30]}...")
                 except Exception as e:
-                    logger.warning(f"Error disposing engine for {connection_string[:30]}...: {e}")
+                    logger.warning("Error disposing engine for %s...: %s", connection_string[:30], e, exc_info=True)
 
     @classmethod
     def dispose_all(cls) -> None:

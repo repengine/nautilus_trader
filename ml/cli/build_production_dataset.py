@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Build production-grade dataset with 20M+ samples.
-
 This script orchestrates the complete data collection pipeline:
 1. Fetches 7 years of L0/L1 data for core symbols
 2. Collects rolling L2/L3 microstructure data
@@ -23,6 +22,7 @@ import argparse
 import logging
 import os
 import sys
+import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -32,16 +32,17 @@ from typing import cast
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import polars as pl
-
 from ml.data.collectors.production_collector import ProductionDataCollector
+
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 from ml.data.tft_dataset_builder import TFTDatasetBuilder
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configure_logging()
+_run_id: str = f"cli_build_production_dataset_{_uuid.uuid4().hex[:8]}"
+bind_log_context(run_id=_run_id, component="ml.cli.build_production_dataset")
 logger = logging.getLogger(__name__)
 
 

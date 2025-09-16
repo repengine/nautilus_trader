@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-The `ml/features/` directory contains a sophisticated, production-ready feature engineering system that guarantees mathematical parity between batch (training) and real-time (inference) computation paths. This is one of the most mature and complete modules in the ML infrastructure, implementing hot/cold path separation, zero-allocation online processing, and comprehensive validation with <1e-10 tolerance.
+The `ml/features/` directory contains a sophisticated, production-ready feature engineering system that provides mathematical parity between batch (training) and real-time (inference) computation paths. This module implements hot/cold path separation, zero-allocation online processing, and comprehensive parity validation with <1e-10 tolerance.
 
 ### Key Architectural Principles
 
@@ -11,8 +11,8 @@ The `ml/features/` directory contains a sophisticated, production-ready feature 
 3. **Zero-Allocation Online Processing**: Pre-allocated buffers for real-time performance
 4. **Comprehensive Validation**: Built-in parity validation with detailed reporting
 5. **Nautilus Integration**: Seamless integration with Nautilus Trader indicators
-6. **Mandatory 4-Store + 4-Registry Integration**: Universal ML architecture pattern compliance
-7. **Protocol-First Design**: Structural typing without implementation coupling
+6. **Pipeline Framework**: Declarative feature transform system with data requirements gating
+7. **Protocol-First Design**: Structural typing for feature transforms and components
 
 ## Module Structure
 
@@ -321,9 +321,14 @@ def _normalize_atr(atr: float, close: float) -> float:
 ### 5. Performance Monitoring Integration
 
 ```python
-# Centralized metrics bootstrap (never import prometheus_client directly)
-from ml.common.metrics_bootstrap import get_counter, get_histogram
-feature_counter = get_counter("ml_features_computed_total", "Features computed")
+# Optional metrics collector integration
+from ml.monitoring.collectors.features import FeatureEngineeringCollector
+
+# Initialize with metrics collector
+metrics_collector = FeatureEngineeringCollector()
+engineer = FeatureEngineer(config=config, metrics_collector=metrics_collector)
+
+# Metrics are collected automatically during feature computation
 ```
 
 ## Parity Validation System

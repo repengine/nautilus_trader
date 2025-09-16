@@ -8,6 +8,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.database,
+    pytest.mark.serial,
     pytest.mark.usefixtures("clean_postgres_db_module"),
 ]
 

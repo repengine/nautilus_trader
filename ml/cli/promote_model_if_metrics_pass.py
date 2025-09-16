@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Simple promotion gate for teacher predictions.
-
 Reads a ``teacher_preds.npz`` file (as produced by the TFT teacher CLI) and
 evaluates validation metrics (AUC, PR-AUC, LogLoss, Brier). If the metrics pass
 the configured gates, exits with code 0; otherwise exits with code 2.

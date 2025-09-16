@@ -15,6 +15,7 @@ import signal
 import sys
 import threading
 import time
+import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
@@ -23,6 +24,8 @@ from flask import Flask
 from flask import Response
 from flask import jsonify
 
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 from ml.common.metrics_export import CONTENT_TYPE_LATEST
 from ml.common.metrics_export import generate_latest
 
@@ -55,26 +58,9 @@ if TYPE_CHECKING:  # pragma: no cover - avoid heavy import at module import time
     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _PDC_T
 
 
-# Configure logging
-def _get_log_handlers() -> list[logging.Handler]:
-    """
-    Get logging handlers based on environment.
-    """
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
-    log_file = os.environ.get("LOG_FILE")
-    if log_file:
-        # Only add file handler if LOG_FILE is explicitly set
-        log_dir = Path(log_file).parent
-        log_dir.mkdir(parents=True, exist_ok=True)
-        handlers.append(logging.FileHandler(log_file))
-    return handlers
-
-
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=_get_log_handlers(),
-)
+configure_logging()
+_run_id: str = f"pipeline_{_uuid.uuid4().hex[:12]}"
+bind_log_context(run_id=_run_id, component="ml.entrypoint_pipeline")
 logger = logging.getLogger(__name__)
 
 

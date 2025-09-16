@@ -22,6 +22,7 @@ import argparse
 import json
 import logging
 import sys
+import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -34,6 +35,8 @@ from typing import TYPE_CHECKING
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml._imports import pl
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 
 
 if TYPE_CHECKING:  # type-only import for annotations
@@ -54,10 +57,9 @@ pl = _cast(_Any, pl)
 PL = pl
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configure_logging()
+_run_id: str = f"cli_populate_alternative_data_{_uuid.uuid4().hex[:8]}"
+bind_log_context(run_id=_run_id, component="ml.cli.populate_alternative_data")
 logger = logging.getLogger(__name__)
 
 

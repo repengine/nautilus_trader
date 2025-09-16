@@ -35,7 +35,11 @@ except ImportError:
         file=sys.stderr,
     )
 
+import uuid as _uuid
 from typing import Protocol
+
+from ml.common.logging_config import bind_log_context
+from ml.common.logging_config import configure_logging
 
 
 # Provide a typed tabulate symbol without importing untyped third-party stubs at type-check time.
@@ -801,6 +805,9 @@ def main() -> int:
         Exit code (0=healthy, 1=warning, 2=critical)
 
     """
+    configure_logging()
+    _run_id: str = f"cli_check_pipeline_health_{_uuid.uuid4().hex[:8]}"
+    bind_log_context(run_id=_run_id, component="ml.cli.check_pipeline_health")
     if not HAS_PSYCOPG2:
         print(
             "Error: psycopg2 is required. Install with: pip install psycopg2-binary",
