@@ -123,6 +123,19 @@ CATALOG_PATH: "${CATALOG_PATH:-}"     # required for catalog coverage/client
 - Pipeline status tracking with error reporting
 - Graceful shutdown handling via signal handlers
 
+**Daily Trigger Behavior (Implemented):**
+
+- On startup in daily mode, the pipeline immediately executes a `run_daily_update()`.
+- Subsequent runs follow `PIPELINE_SCHEDULE` (UTC). Accepts "HH:MM" or cron-like "M H * * *".
+- If `PIPELINE_SCHEDULE` is unset or invalid, falls back to `REALTIME_INTERVAL` seconds (default 300) between runs.
+- `last_run` in `/health` reflects UTC time of last successful invocation.
+
+**Unified Ingestion Flags:**
+
+- `USE_ORCHESTRATOR=1|true|yes|on` (enable unified orchestrator path)
+- `DUAL_WRITE=1|true|yes|on` (dual-write SQL coverage/watermarks + Parquet catalog)
+- Entrypoint wires these to `DataScheduler(..., use_orchestrator=..., dual_write=...)`.
+
 **Backfill Bootstrap (Orchestrator)**:
 
 - For canonical market data storage, run a one-time or periodic gap backfill at startup using the orchestrator with SQL coverage + writer implementations.
@@ -256,7 +269,7 @@ Requirements:
 DB_CONNECTION: postgresql://postgres:postgres@postgres:5432/nautilus
 DATABENTO_API_KEY: "${DATABENTO_API_KEY}"
 DATABENTO_DATASET: "${DATABENTO_DATASET:-EQUS.MINI}"
-MODEL_PATH: /app/models/model.pkl  # Legacy path, supports multiple formats
+MODEL_PATH: /app/models/model.onnx  # ONNX-only in production
 INSTRUMENT_ID: SPY.XNAS
 BAR_TYPE: SPY.XNAS-1-MINUTE-LAST-EXTERNAL
 ACTOR_ID: MLSignalActor-001
@@ -605,7 +618,7 @@ DB_CONNECTION=postgresql://postgres:postgres@postgres:5432/nautilus  # Auto-fall
 ```bash
 # Pipeline Modes
 PIPELINE_MODE=daily                                 # daily|backfill|realtime
-PIPELINE_SCHEDULE=0 17 * * *                      # Cron for daily mode
+PIPELINE_SCHEDULE=0 17 * * *                      # Daily time (UTC); runs immediately on start then on schedule
 REALTIME_INTERVAL=300                              # Seconds for realtime mode
 
 # Universe & Instruments

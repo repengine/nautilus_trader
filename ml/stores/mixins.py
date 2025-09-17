@@ -645,6 +645,23 @@ class SQLUpsertMixin:
         source: str,
         logger: Any,
     ) -> None:
+        """
+        Upsert rows and publish events with optional circuit-breaker protection.
+
+        This method remains generic across stores. When a store sets a
+        `_circuit_breaker` attribute implementing `CircuitBreakerProtocol`, the
+        write is gated by the breaker and success/failure outcomes are tracked.
+        """
+        # Resolve optional circuit breaker dynamically to avoid import cycles
+        try:
+            from typing import cast as _cast
+
+            from ml.stores.protocols import CircuitBreakerProtocol as _CBP
+
+            _cb = _cast("_CBP | None", getattr(self, "_circuit_breaker", None))
+        except Exception:  # pragma: no cover - defensive
+            _cb = None
+
         if not values:
             return
 
@@ -656,14 +673,33 @@ class SQLUpsertMixin:
             key_fields=key_fields,
         )
 
+        # Fast gate when circuit is OPEN
+        if _cb is not None and not _cb.can_execute():
+            return
+
         stmt = insert(table)
         excluded = stmt.excluded
         set_map = {col: getattr(excluded, col) for col in update_cols}
         stmt = stmt.on_conflict_do_update(index_elements=list(conflict_cols), set_=set_map)
 
         engine = getattr(self, "engine")
-        with engine.begin() as conn:
-            conn.execute(stmt, values)
+        try:
+            with engine.begin() as conn:
+                conn.execute(stmt, values)
+        except Exception:
+            # Record breaker failure then propagate
+            try:
+                if _cb is not None:
+                    _cb.record_failure()
+            except Exception:
+                pass
+            raise
+        else:
+            try:
+                if _cb is not None:
+                    _cb.record_success()
+            except Exception:
+                pass
 
         publish_batch_and_rows(
             enable_publishing=bool(getattr(self, "_enable_publishing", False)),

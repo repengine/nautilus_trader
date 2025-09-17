@@ -216,7 +216,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         else:
             self.pipeline_runner_offline = None
             self.pipeline_runner_online = None
-            self.pipeline_hash = self._compute_config_hash()
+        self.pipeline_hash = self._compute_config_hash()
 
         # Lightweight write buffer for compatibility with older tests
         # (FeatureStore writes synchronously by default; buffer is only used
@@ -232,6 +232,12 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             publisher=publisher,
             publish_mode=publish_mode,
         )
+
+        # Optional circuit breaker injected by actors/services
+
+        from ml.stores.protocols import CircuitBreakerProtocol as _CBP
+
+        self._circuit_breaker: _CBP | None = None
 
     def _get_data_registry(self) -> RegistryProtocol | None:
         """
@@ -331,40 +337,14 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
 
         """
         try:
-            # Prefer reflecting the migrated table
+            # Prefer reflecting the migrated table. Avoid opportunistic DDL here to
+            # prevent lock contention with concurrent writers in tests/integration;
+            # migrations and test fixtures are responsible for indexes/partitions.
             self.feature_values_table = Table(
                 "ml_feature_values",
                 self.metadata,
                 autoload_with=self.engine,
             )
-            # Ensure required upsert index exists (idempotent)
-            try:
-                from sqlalchemy import text as _text
-
-                with self.engine.begin() as _conn:
-                    # Create default partition to prevent partition-miss on inserts
-                    try:
-                        _conn.execute(
-                            _text(
-                                "CREATE TABLE IF NOT EXISTS ml_feature_values_default "
-                                "PARTITION OF ml_feature_values DEFAULT",
-                            ),
-                        )
-                    except Exception as exc:
-                        logger.debug(
-                            "Default partition ensure skipped for feature values: %s",
-                            exc,
-                            exc_info=True,
-                        )
-                    _conn.execute(
-                        _text(
-                            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ml_feature_values_key "
-                            "ON public.ml_feature_values (feature_set_id, instrument_id, ts_event)",
-                        ),
-                    )
-            except Exception as exc:
-                # Non-fatal: migrations or test fixtures may supply the index
-                logger.debug("Upsert index ensure skipped for feature values: %s", exc)
         except Exception:
             # Fallback: create a non-partitioned compatible table for tests/dev
             from sqlalchemy import Integer
@@ -667,7 +647,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             scaler=None,
         )
 
-        # Optionally store for future training
+        # Optionally store for future training (with circuit-breaker protection)
         if store and features.size > 0:
             feature_names = self._get_feature_names_online()
             values_map = {
@@ -705,20 +685,37 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 # created_at omitted: DB default
             }
 
-            with self.engine.begin() as conn:
+            cb = self._circuit_breaker
+            if cb is not None and not cb.can_execute():
+                return features
 
-                stmt: Any = insert(self.feature_values_table)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["feature_set_id", "instrument_id", "ts_event"],
-                    set_={
-                        "values": stmt.excluded["values"],
-                        "ts_init": stmt.excluded.ts_init,
-                        "is_live": stmt.excluded.is_live,
-                        "source": stmt.excluded.source,
-                        # created_at kept as existing/default
-                    },
-                )
-                conn.execute(stmt, row)
+            try:
+                with self.engine.begin() as conn:
+                    stmt: Any = insert(self.feature_values_table)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["feature_set_id", "instrument_id", "ts_event"],
+                        set_={
+                            "values": stmt.excluded["values"],
+                            "ts_init": stmt.excluded.ts_init,
+                            "is_live": stmt.excluded.is_live,
+                            "source": stmt.excluded.source,
+                            # created_at kept as existing/default
+                        },
+                    )
+                    conn.execute(stmt, row)
+            except Exception:
+                try:
+                    if cb is not None:
+                        cb.record_failure()
+                except Exception:
+                    pass
+                raise
+            else:
+                try:
+                    if cb is not None:
+                        cb.record_success()
+                except Exception:
+                    pass
 
                 # Emit FEATURE_COMPUTED event for successful realtime computation with storage
                 try:
@@ -1251,8 +1248,35 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 "source": stmt.excluded.source,
             },
         )
-        with self.engine.begin() as conn:
-            conn.execute(stmt)
+        cb = None
+        try:
+            from typing import cast as _cast
+
+            from ml.stores.protocols import CircuitBreakerProtocol as _CBP
+
+            cb = _cast("_CBP | None", getattr(self, "_circuit_breaker", None))
+        except Exception:  # pragma: no cover - defensive
+            cb = None
+
+        if cb is not None and not cb.can_execute():
+            return
+
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(stmt)
+        except Exception:
+            try:
+                if cb is not None:
+                    cb.record_failure()
+            except Exception:
+                pass
+            raise
+        else:
+            try:
+                if cb is not None:
+                    cb.record_success()
+            except Exception:
+                pass
 
         # Optional per-row publish when enabled
         if (

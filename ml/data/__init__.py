@@ -163,6 +163,8 @@ from ml.data.ingest.common import BackoffPolicy
 # Ingestion utilities
 from ml.data.ingest.common import IngestState
 from ml.data.ingest.common import RateLimiter
+from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
+from ml.data.ingest.orchestrator import IngestionOrchestrator
 
 # Performance and caching
 from ml.data.l2_cache import L2MinuteCache
@@ -202,12 +204,14 @@ __all__ = [
     "DataScheduler",
     "DatabentoMetadataSource",
     "DatasetBuildConfig",
+    "DomainWindowLoaderProtocol",
     "EventScheduleProvider",
     "FREDConfig",
     "FREDDataLoader",
     "FREDIndicator",
     "FixtureManifest",
     "IngestState",
+    "IngestionOrchestrator",
     "InstrumentMetadataProvider",
     "L2MinuteCache",
     "MarketCalendarProvider",

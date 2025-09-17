@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The event-driven ML pipeline implementation is **substantially complete** across most phases, with strong foundations in message bus integration, observability, and testing infrastructure. Key gaps remain in circuit breakers, performance monitoring, and some advanced features.
+The event-driven ML pipeline implementation is **substantially complete** across most phases, with strong foundations in message bus integration, observability, and testing infrastructure. Key gaps remain in performance monitoring and some advanced features.
 
 **Overall Progress: ~75% Complete**
 
@@ -22,7 +22,6 @@ The event-driven ML pipeline implementation is **substantially complete** across
 
 ### Key Gaps
 
-- Circuit breaker integration incomplete (skeleton only)
 - Performance budget enforcement not in CI as hard gates
 - Schema evolution and intelligent automation features missing
 - Limited backpressure policy implementation
@@ -101,14 +100,14 @@ The event-driven ML pipeline implementation is **substantially complete** across
 | Inference P99 < 2ms | ❌ **NOT IMPLEMENTED** | No P99 gates found | No inference benchmarks in CI |
 | End-to-end P99 < 5ms | ❌ **NOT IMPLEMENTED** | No E2E gates found | Integration tests exist but no timing |
 | **Circuit Breakers** |
-| Circuit breaker implementation | 🟡 **PARTIAL** | `/ml/actors/base.py` | `CircuitBreaker` class exists |
-| Actor/store integration | ❌ **NOT IMPLEMENTED** | Only skeleton test found | Not integrated into stores |
-| Health hooks | 🟡 **PARTIAL** | `MLComponentProtocol` exists | Health interface defined but limited usage |
+| Circuit breaker implementation | ✅ **COMPLETE** | `/ml/actors/base.py` | `CircuitBreaker` with metrics and state transitions |
+| Actor/store integration | ✅ **COMPLETE** | Stores gate writes via CB | `SQLUpsertMixin` + FeatureStore guarded writes |
+| Health hooks | 🟡 **PARTIAL** | `MLComponentProtocol` exists | Health interface used in actors; stores report health
 | **Tests** |
 | CI perf jobs | ❌ **NOT IMPLEMENTED** | No CI perf gates | Performance tests exist but not in CI |
 | CB state transitions | 🟡 **PARTIAL** | `/ml/tests/unit/actors/test_circuit_breaker_skeleton.py` | Basic CB test, needs fault injection |
 
-**Phase 3 Score: 25% Complete**
+**Phase 3 Score: 55% Complete**
 
 ### Phase 4 — Intelligent Automation
 

@@ -59,6 +59,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
     from ml.registry.protocols import RegistryProtocol
+    from ml.stores.protocols import CircuitBreakerProtocol
 
     # Type-only bases to satisfy mypy when follow_imports=skip
     class _MLComponentBase(Protocol):
@@ -325,6 +326,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         schema_migration_window_hours: int = 24,
         raw_writer: RawIngestionWriterProtocol | None = None,
         raw_reader: RawReaderProtocol | None = None,
+        circuit_breaker: CircuitBreakerProtocol | None = None,
     ) -> None:
         """
         Initialize DataStore with registry and underlying stores.
@@ -355,6 +357,9 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         self.registry: RegistryProtocol
         # Expose connection_string for DataRegistryMixin
         self.connection_string = connection_string
+
+        # Optional circuit breaker for orchestration contexts (propagated to stores)
+        self._circuit_breaker: CircuitBreakerProtocol | None = circuit_breaker
 
         # Raw IO adapters (optional)
         self._raw_writer = raw_writer
@@ -415,6 +420,21 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         self.feature_store = feature_store or FeatureStore(connection_string)
         self.model_store = model_store or ModelStore(connection_string)
         self.strategy_store = strategy_store or StrategyStore(connection_string)
+
+        # Propagate circuit breaker to created stores if provided
+        if self._circuit_breaker is not None:
+            try:
+                setattr(self.feature_store, "_circuit_breaker", self._circuit_breaker)
+            except Exception:
+                pass
+            try:
+                setattr(self.model_store, "_circuit_breaker", self._circuit_breaker)
+            except Exception:
+                pass
+            try:
+                setattr(self.strategy_store, "_circuit_breaker", self._circuit_breaker)
+            except Exception:
+                pass
         # Optional message bus publisher (no-op by default if None)
         self.publisher: MessagePublisherProtocol | None = publisher
 

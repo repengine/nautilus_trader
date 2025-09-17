@@ -2,9 +2,9 @@
 """
 Entrypoint for ML Signal Actor container.
 
-Run the ML Signal Actor with Databento data feed and optional PostgreSQL persistence in
-a containerized environment.
-
+Cold-path orchestration for the ML Signal Actor process. Exposes minimal
+HTTP endpoints for health and metrics and enforces ONNX-only model artifacts
+for security compliance.
 """
 
 import asyncio
@@ -12,6 +12,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, cast
@@ -26,6 +27,8 @@ from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.base import MLFeatureConfig
 from ml.core.integration import MLIntegrationManager
+from ml.deployment.metrics_http import build_app
+from ml.deployment.security import assert_allowed_model_path
 from ml.observability.bootstrap import auto_start_if_configured
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.config import TradingNodeConfig
@@ -41,6 +44,7 @@ class MLSignalActorNode:
         self.node: TradingNode | None = None
         self.running: bool = False
         self._tasks: list[asyncio.Task[Any]] = []
+        self._healthy: bool = False
 
     def setup(self) -> None:
         """
@@ -54,7 +58,7 @@ class MLSignalActorNode:
         )
         databento_api_key = os.getenv("DATABENTO_API_KEY")
 
-        model_path = os.getenv("MODEL_PATH", "/app/models/model.pkl")
+        model_path = os.getenv("MODEL_PATH", "/app/models/model.onnx")
         instrument_str = os.getenv("INSTRUMENT_ID", "BTC-USDT.DATABENTO")
         bar_type_str = os.getenv("BAR_TYPE", "BTC-USDT.DATABENTO-1-MINUTE")
         actor_id = os.getenv("ACTOR_ID", "MLSignalActor-001")
@@ -70,10 +74,15 @@ class MLSignalActorNode:
             print("Please set your Databento API key to connect to market data")
             sys.exit(1)
 
-        # Check model exists
+        # Enforce ONNX-only and existence
+        try:
+            assert_allowed_model_path(model_path)
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(1)
         if not Path(model_path).exists():
             print(f"ERROR: Model not found at {model_path}")
-            print("Provide a valid ONNX or framework-native model path.")
+            print("Provide a valid ONNX model path.")
             sys.exit(1)
 
         print("=" * 80)
@@ -147,6 +156,8 @@ class MLSignalActorNode:
 
         print("\nML Signal Actor configured and ready")
         print("Waiting for market data...")
+        # Mark healthy after successful setup
+        self._healthy = True
 
     def _create_dummy_model(self, model_path: str) -> None:  # pragma: no cover - deprecated
         raise RuntimeError("Dummy pickle models are no longer supported.")
@@ -186,6 +197,7 @@ class MLSignalActorNode:
             print("\nShutting down...")
 
         self.running = False
+        self._healthy = False
 
         if self.node:
             await self.node.stop_async()
@@ -207,6 +219,18 @@ def main() -> None:
     # Create and run the actor node
     actor_node = MLSignalActorNode()
     actor_node.setup()
+
+    # Start lightweight HTTP endpoints in background
+    try:
+        port = int(os.getenv("METRICS_PORT", "8000"))
+    except ValueError:
+        port = 8000
+    app = build_app(lambda: actor_node._healthy)
+    http_thread = threading.Thread(
+        target=lambda: app.run(host="0.0.0.0", port=port, debug=False),  # noqa: S104
+        daemon=True,
+    )
+    http_thread.start()
 
     # Auto-start observability flushing if configured via env
     try:

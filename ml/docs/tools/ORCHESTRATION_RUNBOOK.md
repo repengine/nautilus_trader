@@ -160,3 +160,30 @@ volumes:
 ```
 
 This starts the scheduler alongside a PostgreSQL container. Provide `CATALOG_PATH` via a bind mount when using `parquet` writers.
+- Pre‑ingestion (Unified Ingestion) via config:
+  - Prefer the config file to enable unified ingestion before dataset build:
+
+```toml
+# ml/config/pipeline_scheduler_example.toml (excerpt)
+
+[dataset]
+data_dir = "/data/catalog" # ParquetDataCatalog path
+symbols = "SPY.XNAS,QQQ.XNAS"
+out_dir = "ml_out"
+include_macro = true
+
+[pre_ingestion]
+symbols = ["SPY.XNAS","QQQ.XNAS"]
+retention_days = 90
+[pre_ingestion.databento]
+dataset = "EQUS.MINI"
+schema = "ohlcv-1m"
+
+[pre_ingestion_options]
+use_orchestrator = true
+dual_write = true
+start_metrics_server = false
+```
+
+The orchestrator reads this config and automatically runs `DataScheduler` in orchestrator
+mode before dataset build, ensuring both SQL coverage and ParquetDataCatalog are populated.

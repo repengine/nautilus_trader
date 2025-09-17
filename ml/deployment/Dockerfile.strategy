@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir \
     sqlalchemy \
     psycopg2-binary \
     prometheus-client \
-    requests
+    requests \
+    flask
 
 # Copy entrypoint script
 COPY ml/deployment/entrypoint_strategy.py /app/entrypoint.py

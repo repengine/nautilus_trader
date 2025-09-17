@@ -169,6 +169,12 @@ class ModelStore(
         self._event_service = ModelEventService(self, logger)
         self._clear_service = ModelClearService(self)
 
+        # Optional circuit breaker injected by actors/services
+
+        from ml.stores.protocols import CircuitBreakerProtocol as _CBP
+
+        self._circuit_breaker: _CBP | None = None
+
     def _get_data_registry(self) -> RegistryProtocol | None:
         # Delegate to shared mixin
         return DataRegistryMixin._get_data_registry(self)

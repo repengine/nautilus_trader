@@ -30,7 +30,7 @@ For common workflows, import directly from `ml.data` to avoid hunting files:
 
 ```
 from ml.data import (
-    DataCollector, DataScheduler, TFTDatasetBuilder,
+    DataCollector, DataScheduler, IngestionOrchestrator, TFTDatasetBuilder,
     InstrumentMetadataProvider, MarketCalendarProvider, EventScheduleProvider,
     MockCalendarSource, SimpleCalendarSource, PandasCalendarSource,
     DatabentoMetadataSource, NautilusMetadataSource,

@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import uuid as _uuid
+from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
@@ -28,6 +29,10 @@ from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.common.metrics_export import CONTENT_TYPE_LATEST
 from ml.common.metrics_export import generate_latest
+from ml.deployment.scheduling_utils import DailyTime
+from ml.deployment.scheduling_utils import compute_next_utc_run
+from ml.deployment.scheduling_utils import parse_bool_env
+from ml.deployment.scheduling_utils import parse_daily_spec
 
 
 # Add the parent directory to the path
@@ -152,8 +157,8 @@ class PipelineRunner:
             databento=databento_config,
             feature_store_enabled=True,
             feature_store_connection=os.environ.get(
-                "FEATURE_STORE_CONNECTION",
-                os.environ.get("DATABASE_URL"),
+                "DB_CONNECTION",
+                os.environ.get("FEATURE_STORE_CONNECTION", os.environ.get("DATABASE_URL")),
             ),
         )
 
@@ -165,8 +170,11 @@ class PipelineRunner:
         """
         # Initialize feature store
         fs_conn = config.feature_store_connection or os.environ.get(
-            "FEATURE_STORE_CONNECTION",
-            os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/nautilus"),
+            "DB_CONNECTION",
+            os.environ.get(
+                "FEATURE_STORE_CONNECTION",
+                os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/nautilus"),
+            ),
         )
         assert fs_conn is not None
         feature_store = FeatureStore(connection_string=fs_conn)
@@ -174,7 +182,7 @@ class PipelineRunner:
         # Initialize model store
         ms_conn = os.environ.get(
             "MODEL_STORE_CONNECTION",
-            os.environ.get("DATABASE_URL", fs_conn),
+            os.environ.get("DB_CONNECTION", os.environ.get("DATABASE_URL", fs_conn)),
         )
         model_store = ModelStore(connection_string=ms_conn)
 
@@ -218,8 +226,15 @@ class PipelineRunner:
             _feature_store, _model_store = self._initialize_stores(config)
             catalog = self._initialize_catalog(config)
 
-            # Create scheduler
-            self.scheduler = DataScheduler(catalog=catalog, config=config)
+            # Create scheduler with unified ingestion flags (env truthy: 1,true,yes,on)
+            use_orchestrator = parse_bool_env(os.environ.get("USE_ORCHESTRATOR"))
+            dual_write = parse_bool_env(os.environ.get("DUAL_WRITE"))
+            self.scheduler = DataScheduler(
+                catalog=catalog,
+                config=config,
+                use_orchestrator=use_orchestrator,
+                dual_write=dual_write,
+            )
 
             # Update health status
             pipeline_status["healthy"] = True
@@ -260,16 +275,48 @@ class PipelineRunner:
         """
         logger.info("Running daily scheduled mode")
         self.running = True
-
-        # Configure schedule (no-op placeholder for now)
         assert self.scheduler is not None
-        cron = os.environ.get("PIPELINE_SCHEDULE", "0 17 * * *")
-        self.scheduler.schedule_updates(cron)
 
-        # Keep running until shutdown signal
+        # Always perform an immediate daily update on entering daily mode
+        try:
+            self.scheduler.run_daily_update()
+            pipeline_status["last_run"] = datetime.now(UTC).isoformat()
+        except Exception as exc:
+            logger.error("Initial daily update failed: %s", exc, exc_info=True)
+            pipeline_status["errors"].append(str(exc))
+
+        # Resolve schedule spec; allow HH:MM or crontab-like "M H * * *"
+        schedule_raw = os.environ.get("PIPELINE_SCHEDULE")
+        interval_seconds = int(os.environ.get("REALTIME_INTERVAL", "300"))
+
         while self.running and not self._shutdown_event.is_set():
-            time.sleep(60)  # Check every minute
-            pipeline_status["last_run"] = datetime.now().isoformat()
+            sleep_seconds: float
+            if schedule_raw:
+                try:
+                    daily: DailyTime = parse_daily_spec(schedule_raw)
+                    now = datetime.now(UTC)
+                    next_run = compute_next_utc_run(now, daily)
+                    sleep_seconds = max(0.0, (next_run - now).total_seconds())
+                except ValueError:
+                    # Bad spec; fall back to interval mode
+                    sleep_seconds = float(interval_seconds)
+            else:
+                sleep_seconds = float(interval_seconds)
+
+            # Sleep in short chunks to honor shutdown quickly
+            end_time = time.monotonic() + sleep_seconds
+            while time.monotonic() < end_time:
+                if self._shutdown_event.wait(timeout=min(1.0, end_time - time.monotonic())):
+                    break
+            if self._shutdown_event.is_set() or not self.running:
+                break
+
+            try:
+                self.scheduler.run_daily_update()
+                pipeline_status["last_run"] = datetime.now(UTC).isoformat()
+            except Exception as exc:
+                logger.error("Scheduled daily update failed: %s", exc, exc_info=True)
+                pipeline_status["errors"].append(str(exc))
 
         logger.info("Daily scheduler stopped")
 

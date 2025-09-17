@@ -245,10 +245,10 @@ class LightGBMStudentDistiller:
 
 ### Architecture Gaps Identified
 
-1. **Circuit Breaker Implementation**: ⚠️ **INCOMPLETE**
-   - **Evidence**: Pattern mentioned in architecture docs but implementation missing
-   - **Impact**: Reduced resilience to component failures
-   - **Recommendation**: Implement circuit breaker pattern for external dependencies
+1. **Circuit Breaker Implementation**: ✅ **COMPLETE (Actors) / PARTIAL (Stores → Integrated)**
+   - **Evidence**: `CircuitBreaker` with metrics/states in `/ml/actors/base.py`; store write paths gated via `SQLUpsertMixin` and FeatureStore guarded inserts
+   - **Impact**: Improved resilience for prediction/feature persistence; breaker prevents cascades
+   - **Recommendation**: Extend CB coverage to any remaining cold-path utilities and document breaker propagation in orchestration
 
 2. **Event-Driven Pipeline**: ⚠️ **BASIC IMPLEMENTATION**
    - **Evidence**: Event emission stubs exist but full event-driven architecture incomplete
@@ -282,7 +282,7 @@ Based on FreqAI analysis findings:
 
 ### Components Needing Attention ⚠️
 
-1. **Circuit Breaker Pattern**: Not implemented despite architecture requirement
+1. **Circuit Breaker Pattern**: Implemented for actors and stores; expand documentation and coverage in ancillary paths
 2. **Event Bus**: Basic event emission, needs full pub-sub implementation
 3. **Automated Pipelines**: Manual CLI tools, lacking background automation
 4. **Advanced Model Lifecycle**: Missing automated expiration and retraining
@@ -291,10 +291,10 @@ Based on FreqAI analysis findings:
 
 ### High Priority (Critical Path)
 
-1. **Implement Circuit Breaker Pattern**
-   - Add circuit breaker for PostgreSQL connections
-   - Implement fallback strategies for external model serving
-   - Add health-based request throttling
+1. **Harden Circuit Breaker Usage**
+   - Ensure CB available in all orchestration scenarios (DataStore now propagates CB to created stores)
+   - Implement targeted backoff/policies where appropriate
+   - Continue adding fault-injection tests for CB transitions
 
 2. **Complete Event-Driven Architecture**
    - Implement proper message bus with pub-sub

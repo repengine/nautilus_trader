@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir \
     psycopg2-binary \
     prometheus-client \
     requests \
+    flask \
     onnxruntime \
     onnx
 

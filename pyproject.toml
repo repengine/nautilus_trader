@@ -62,7 +62,8 @@ dependencies = [
     "pandera (>=0.26.1,<0.27.0)",
     "asyncio (>=4.0.0,<5.0.0)",
     "aiosqlite (>=0.21.0,<0.22.0)",
-    "structlog (>=25.4.0,<26.0.0)"
+    "structlog (>=25.4.0,<26.0.0)",
+    "flask (>=3.1.2,<4.0.0)"
 ]
 
 [project.urls]
@@ -139,6 +140,9 @@ python-dotenv = ">=1.0.0,<2.0.0"
 pandas-market-calendars = ">=5.1.1,<6.0.0"
 databento = ">=0.62.0,<0.63.0"
 fredapi = ">=0.5.2,<0.6.0"
+opentelemetry-api = ">=1.27.0,<2.0.0"
+opentelemetry-sdk = ">=1.27.0,<2.0.0"
+opentelemetry-exporter-otlp-proto-grpc = ">=1.27.0,<2.0.0"
 [tool.poetry.group.dev.dependencies]
 pandera = "^0.26.1"
 allpairspy = "^2.5.1"

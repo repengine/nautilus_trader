@@ -196,3 +196,19 @@ class DataStoreFacadeProtocol(Protocol):
     """
 
     def flush(self) -> None: ...
+
+
+class CircuitBreakerProtocol(Protocol):
+    """
+    Minimal protocol for circuit breaker integration in stores.
+
+    Stores use this protocol to gate potentially unstable operations and to record
+    success/failure outcomes without importing actor modules. This keeps typing
+    explicit and avoids concrete coupling.
+    """
+
+    def can_execute(self) -> bool: ...
+
+    def record_success(self) -> None: ...
+
+    def record_failure(self) -> None: ...

@@ -12,6 +12,7 @@ The Nautilus Trader ML stores infrastructure implements a sophisticated three-ti
 - **Centralized Engine Management**: Thread-safe singleton EngineManager for connection pooling and lifecycle management (✅ **IMPLEMENTED**)
 - **Protocol-Based Architecture**: Structural typing with Protocol classes for type safety and testing compatibility (✅ **IMPLEMENTED**)
 - **Progressive Fallback Systems**: PostgreSQL → DummyStore fallback chains for resilience (✅ **IMPLEMENTED**)
+- **Circuit Breaker Gating**: Store writes protected by a typed circuit‑breaker protocol (✅ **IMPLEMENTED**)
 - **Message Bus Integration**: Optional real-time event publishing with configurable topics and modes (✅ **IMPLEMENTED**)
 - **Advanced Data Processing**: Quality tracking, validation, enrichment, and comprehensive metrics (✅ **IMPLEMENTED**)
 - **Intelligent Partitioning**: Time-based partitioning with PartitionManager and disabled race-prone triggers (✅ **IMPLEMENTED**)
@@ -156,6 +157,7 @@ def _init_stores_and_registries(self) -> None:
 - **Clock Synchronization**: Optional Nautilus Clock integration for timestamp consistency
 - **Message Bus Publishing**: Configurable real-time signal distribution with topic routing
 - **Registry Integration**: PersistenceManager support for unified configuration
+- **Circuit Breakers**: Actors propagate their `CircuitBreaker` to stores; stores gate writes and record success/failure via `SQLUpsertMixin` (FeatureStore guarded inserts)
 - **Analytics Interface**: Rich query methods for strategy performance analysis and signal distribution
 
 #### DataStore (`ml/stores/data_store.py`) — Unified Data Façade (Off Hot Path)

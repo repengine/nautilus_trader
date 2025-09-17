@@ -14,11 +14,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
+
+
+if TYPE_CHECKING:  # pragma: no cover - type-only imports
+    from ml.config.scheduler_config import SchedulerConfig
 
 
 class _CliMain(Protocol):
@@ -64,6 +68,9 @@ class OrchestratorConfig:
     teacher: TeacherTrainConfig
     # Optional promotions/feature refresh settings (used by config-driven scheduler)
     promotions: PromotionsConfig | None = None
+    # Optional data ingestion pre-stage before dataset build
+    pre_ingestion: SchedulerConfig | None = None
+    pre_ingestion_options: PreIngestionOptions | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -89,6 +96,38 @@ class MLPipelineOrchestrator:
     build_main: _CliMain
     hpo_main: _CliMain | None
     teacher_main: _CliMain
+
+    # ---------------------------------------------------------------------
+    # Pre-ingestion (unified orchestrator path)
+    # ---------------------------------------------------------------------
+
+    def run_pre_ingestion(
+        self,
+        *,
+        catalog_path: Path,
+        scheduler_cfg: SchedulerConfig,
+        options: PreIngestionOptions | None = None,
+    ) -> None:
+        """
+        Run a data ingestion pre-stage using DataScheduler in orchestrator mode.
+
+        Always cold path. Dual-write (SQL + Parquet) can be enabled in options to
+        guarantee the dataset builder has catalog data while preserving SQL coverage.
+        """
+        from ml.data import DataScheduler
+        from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+        opts = options or PreIngestionOptions()
+        catalog = ParquetDataCatalog(str(catalog_path))
+        scheduler = DataScheduler(
+            catalog=catalog,
+            config=scheduler_cfg,
+            use_orchestrator=opts.use_orchestrator,
+            dual_write=opts.dual_write,
+            start_metrics_server=opts.start_metrics_server,
+            metrics_port=opts.metrics_port,
+        )
+        scheduler.run_daily_update()
 
     def backfill(
         self,
@@ -204,6 +243,19 @@ class MLPipelineOrchestrator:
         return self.teacher_main(args)
 
     def run(self, cfg: OrchestratorConfig) -> int:
+        # 0) Optional pre-ingestion stage (unified orchestrator path)
+        if cfg.pre_ingestion is not None:
+            # Prefer environment CATALOG_PATH to keep configs portable
+            import os
+
+            catalog_path_env = os.getenv("CATALOG_PATH")
+            if catalog_path_env:
+                self.run_pre_ingestion(
+                    catalog_path=Path(catalog_path_env),
+                    scheduler_cfg=cfg.pre_ingestion,
+                    options=cfg.pre_ingestion_options,
+                )
+
         # 1) Build dataset
         rc = self.build_dataset(cfg.dataset)
         if rc != 0:
@@ -219,3 +271,15 @@ class MLPipelineOrchestrator:
         # 3) Train teacher / calibration
         rc = self.train_teacher(cfg.teacher, dataset_csv=dataset_csv, out_dir=out_dir)
         return rc
+
+
+@dataclass(slots=True, frozen=True)
+class PreIngestionOptions:
+    """
+    Options for the pre-ingestion scheduler stage.
+    """
+
+    use_orchestrator: bool = True
+    dual_write: bool = True
+    start_metrics_server: bool = False
+    metrics_port: int | None = None

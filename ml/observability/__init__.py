@@ -179,6 +179,7 @@ try:  # pragma: no cover - defensive patch for test environments
     if isinstance(_stub, _types.ModuleType):
         from . import tracing as _tracing
 
+        # Ensure function symbols exist on any stubbed module
         for _name in (
             "extract_and_link_trace_context",
             "get_trace_context",
@@ -190,6 +191,11 @@ try:  # pragma: no cover - defensive patch for test environments
         ):
             if not hasattr(_stub, _name):
                 setattr(_stub, _name, getattr(_tracing, _name))
+
+        # Ensure constant flags are available for tests which monkeypatch them
+        for _const in ("HAS_OPENTELEMETRY",):
+            if not hasattr(_stub, _const) and hasattr(_tracing, _const):
+                setattr(_stub, _const, getattr(_tracing, _const))
 except Exception:
     # Never impact normal operation
     pass

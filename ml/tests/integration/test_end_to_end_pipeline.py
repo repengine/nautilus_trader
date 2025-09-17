@@ -679,7 +679,7 @@ class TestEndToEndPipeline:
         engineer = FeatureEngineer(config)
 
         # Batch computation
-        batch_features, scaler = engineer.calculate_features(
+        _batch_features, scaler = engineer.calculate_features(
             df,
             mode="batch",
             fit_scaler=True,

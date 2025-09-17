@@ -863,6 +863,34 @@ class BaseMLInferenceActor(MLComponentMixin, NautilusActor, ABC):
         self._persistence_manager = None
         self.log.info("Stores and registries initialized (runtime facade)")
 
+        # Propagate circuit breaker to underlying stores when available
+        try:
+            cb = getattr(self, "_circuit_breaker", None)
+            if cb is not None:
+                # Adapters expose `_store`; set on underlying stores for gating writes
+                for adapter in (self._feature_store, self._model_store, self._strategy_store):
+                    try:
+                        raw = getattr(adapter, "_store", None)
+                        if raw is not None:
+                            setattr(raw, "_circuit_breaker", cb)
+                        else:
+                            # Fallback: set on adapter (harmless if not consumed)
+                            setattr(adapter, "_circuit_breaker", cb)
+                    except Exception:
+                        continue
+                # Data store may also support breaker if underlying implementation honors it
+                try:
+                    raw_ds = getattr(self._data_store, "_store", None)
+                    if raw_ds is not None:
+                        setattr(raw_ds, "_circuit_breaker", cb)
+                    else:
+                        setattr(self._data_store, "_circuit_breaker", cb)
+                except Exception:
+                    pass
+        except Exception:
+            # Never impact actor initialization
+            self.log.debug("Store circuit breaker propagation failed", exc_info=True)
+
     @property
     def feature_store(self) -> FeatureStoreStrictProtocol:
         """

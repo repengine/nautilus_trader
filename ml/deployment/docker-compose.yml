@@ -59,7 +59,7 @@ services:
       DATABENTO_DATASET: "${DATABENTO_DATASET:-EQUS.MINI}"
 
       # Model configuration
-      MODEL_PATH: /app/models/model.pkl
+      MODEL_PATH: /app/models/dummy_bullish_model.onnx
       INSTRUMENT_ID: SPY.XNAS
       BAR_TYPE: SPY.XNAS-1-MINUTE-LAST-EXTERNAL
 
@@ -77,6 +77,8 @@ services:
     networks:
       - nautilus-ml
     restart: unless-stopped
+    ports:
+      - "8000:8000"
 
   # ML Trading Strategy Container
   ml_strategy:
@@ -122,6 +124,8 @@ services:
     networks:
       - nautilus-ml
     restart: unless-stopped
+    ports:
+      - "8001:8001"
 
   # ML Pipeline Service for data collection and feature computation
   ml_pipeline:
@@ -195,7 +199,7 @@ services:
 
   # Prometheus for metrics
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.53.0
     ports:
       - "9090:9090"
     volumes:
@@ -210,7 +214,7 @@ services:
 
   # Grafana for visualization
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.3.3
     ports:
       - "3000:3000"
     environment:

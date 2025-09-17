@@ -36,6 +36,7 @@ from ml.orchestration.pipeline_orchestrator import DatasetBuildConfig
 from ml.orchestration.pipeline_orchestrator import HPOConfig
 from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 from ml.orchestration.pipeline_orchestrator import OrchestratorConfig
+from ml.orchestration.pipeline_orchestrator import PreIngestionOptions
 from ml.orchestration.pipeline_orchestrator import PromotionsConfig
 from ml.orchestration.pipeline_orchestrator import TeacherTrainConfig
 
@@ -53,6 +54,7 @@ __all__ = [
     "HPOConfig",
     "MLPipelineOrchestrator",
     "OrchestratorConfig",
+    "PreIngestionOptions",
     "PromotionsConfig",
     "TeacherTrainConfig",
     "compute_next_run",

@@ -2,9 +2,8 @@
 """
 Entrypoint for ML Trading Strategy container.
 
-Run the ML Trading Strategy that consumes signals from the ML Signal Actor and makes
-trading decisions (dry run by default).
-
+Cold-path orchestration for the ML Strategy process. Exposes minimal HTTP
+endpoints for health and metrics used by Prometheus scraping.
 """
 
 import asyncio
@@ -12,6 +11,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import uuid
 from typing import Any, cast
 
@@ -22,6 +22,7 @@ from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.base import MLStrategyConfig
 from ml.core.integration import MLIntegrationManager
+from ml.deployment.metrics_http import build_app
 from ml.observability.bootstrap import auto_start_if_configured
 from ml.strategies.ml_strategy import MLTradingStrategy
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
@@ -38,6 +39,7 @@ class MLStrategyNode:
         self.node: TradingNode | None = None
         self.running: bool = False
         self._tasks: list[asyncio.Task[Any]] = []
+        self._healthy: bool = False
 
     def setup(self) -> None:
         """
@@ -171,6 +173,7 @@ class MLStrategyNode:
         print("- Signals Received: 0")
         print("- Dry Run Trades: 0")
         print("- Active Positions: 0")
+        self._healthy = True
 
     async def run(self) -> None:
         """
@@ -210,6 +213,7 @@ class MLStrategyNode:
             print("\nShutting down...")
 
         self.running = False
+        self._healthy = False
 
         if self.node:
             # Always print final statistics header for test visibility
@@ -258,6 +262,18 @@ def main() -> None:
     # Create and run the strategy node
     strategy_node = MLStrategyNode()
     strategy_node.setup()
+
+    # Start lightweight HTTP endpoints in background
+    try:
+        port = int(os.getenv("METRICS_PORT", "8001"))
+    except ValueError:
+        port = 8001
+    app = build_app(lambda: strategy_node._healthy)
+    http_thread = threading.Thread(
+        target=lambda: app.run(host="0.0.0.0", port=port, debug=False),  # noqa: S104
+        daemon=True,
+    )
+    http_thread.start()
 
     # Auto-start observability flushing if configured via env
     try:
