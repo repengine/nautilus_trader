@@ -69,6 +69,47 @@ class DataStoreMarketDataWriter(MarketDataWriterProtocol):
         return len(df.index)
 
 
+class CatalogWriteFacade:
+    """
+    Lightweight facade exposing a DataStore-like `write_ingestion` for catalog writers.
+
+    Used in file-backed fallback when PostgreSQL is unavailable. The facade converts
+    record lists to DataFrame if necessary and delegates to a MarketDataWriterProtocol
+    implementation (e.g., ParquetCatalogMarketDataWriter) for persistence.
+    """
+
+    def __init__(self, writer: MarketDataWriterProtocol) -> None:
+        self._writer = writer
+
+    def write_ingestion(
+        self,
+        *,
+        dataset_id: str,
+        records: list[dict[str, Any]] | pd.DataFrame,
+        source: str,
+        run_id: str,
+        instrument_id: str | None = None,
+    ) -> object:
+        _ = (source, run_id)  # Parameters kept for interface parity; not used here
+        if isinstance(records, list):
+            if len(records) == 0:
+                # Nothing to write
+                return object()
+            df = pd.DataFrame.from_records(records)
+        else:
+            df = records
+        if instrument_id is None:
+            instrument_id = "UNKNOWN"
+        # Default schema token for bars; writer may not require it strictly
+        self._writer.write(
+            dataset_id=dataset_id,
+            schema="ohlcv",
+            instrument_id=str(instrument_id),
+            df=df,
+        )
+        return object()
+
+
 @dataclass(slots=True)
 class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
     """
@@ -144,6 +185,42 @@ class LiveDataRecorder:
         self._flush_task: asyncio.Task[None] | None = None
         self._running = False
 
+        # Initialize module metrics via centralized bootstrap (no direct prometheus imports)
+        try:
+            from ml.common.metrics_manager import MetricsManager as _MM
+
+            _mm = _MM.default()
+            self._flush_total = _mm.counter(
+                "ml_live_recorder_flush_total",
+                "Total number of LiveDataRecorder flushes",
+                ["dataset_id"],
+            )
+            self._records_total = _mm.counter(
+                "ml_live_recorder_records_total",
+                "Total number of records seen by LiveDataRecorder",
+                ["dataset_id"],
+            )
+            self._flush_seconds = _mm.histogram(
+                "ml_live_recorder_flush_seconds",
+                "LiveDataRecorder flush duration (seconds)",
+                ["dataset_id"],
+            )
+        except Exception:
+            # No-op fallbacks if metrics backend is unavailable
+            class _NoMetric:
+                def labels(self, *_: object, **__: object) -> _NoMetric:  # pragma: no cover - trivial
+                    return self
+
+                def inc(self, *_: object, **__: object) -> None:  # pragma: no cover - trivial
+                    return None
+
+                def observe(self, *_: object, **__: object) -> None:  # pragma: no cover - trivial
+                    return None
+
+            self._flush_total = _NoMetric()
+            self._records_total = _NoMetric()
+            self._flush_seconds = _NoMetric()
+
     async def start(self) -> None:
         self._running = True
         self._flush_task = asyncio.create_task(self._periodic_flush())
@@ -190,6 +267,11 @@ class LiveDataRecorder:
         metadata["ts_max"] = max(metadata["ts_max"], data.ts_event)
         metadata["count"] += 1
 
+        try:
+            self._records_total.labels(dataset_id=dataset_id).inc()
+        except Exception:
+            logger.debug("Recorder metrics increment failed (ignored)", exc_info=True)
+
         if len(self.buffers[dataset_id]) >= self.buffer_size:
             asyncio.create_task(self.flush_dataset(dataset_id))
 
@@ -204,35 +286,21 @@ class LiveDataRecorder:
         self.buffer_metadata[dataset_id] = {}
 
         try:
+            import time as _time
+            _t0 = _time.perf_counter()
             if dataset_id == "quotes":
                 await self._persist_quotes(buffer, metadata)
             elif dataset_id == "trades":
                 await self._persist_trades(buffer, metadata)
             elif dataset_id == "bars":
                 await self._persist_bars(buffer, metadata)
-
-            for instrument_id in metadata["instrument_ids"]:
-                try:
-                    _emit_wm = getattr(_event_emitter, "emit_dataset_event_and_watermark", None)
-                    if callable(_emit_wm):
-                        _emit_wm(
-                            self.data_registry,
-                            dataset_id=dataset_id,
-                            instrument_id=instrument_id,
-                            stage=Stage.CATALOG_WRITTEN,
-                            source=Source.LIVE,
-                            run_id=f"live_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
-                            ts_min=metadata["ts_min"],
-                            ts_max=metadata["ts_max"],
-                            count=metadata["count"],
-                            status=EventStatus.SUCCESS,
-                            dataset_type=dataset_id,
-                            component=self.__class__.__name__,
-                        )
-                    else:
-                        _emit = getattr(_event_emitter, "emit_dataset_event", None)
-                        if callable(_emit):
-                            _emit(
+            # Emit dataset event/watermark only if persistence path didn't handle emission
+            if not metadata.get("emitted_by_store", False):
+                for instrument_id in metadata["instrument_ids"]:
+                    try:
+                        _emit_wm = getattr(_event_emitter, "emit_dataset_event_and_watermark", None)
+                        if callable(_emit_wm):
+                            _emit_wm(
                                 self.data_registry,
                                 dataset_id=dataset_id,
                                 instrument_id=instrument_id,
@@ -246,11 +314,35 @@ class LiveDataRecorder:
                                 dataset_type=dataset_id,
                                 component=self.__class__.__name__,
                             )
-                except Exception:
-                    logger.warning(
-                        "Failed to emit dataset event/watermark in LiveDataRecorder",
-                        exc_info=True,
-                    )
+                        else:
+                            _emit = getattr(_event_emitter, "emit_dataset_event", None)
+                            if callable(_emit):
+                                _emit(
+                                    self.data_registry,
+                                    dataset_id=dataset_id,
+                                    instrument_id=instrument_id,
+                                    stage=Stage.CATALOG_WRITTEN,
+                                    source=Source.LIVE,
+                                    run_id=f"live_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
+                                    ts_min=metadata["ts_min"],
+                                    ts_max=metadata["ts_max"],
+                                    count=metadata["count"],
+                                    status=EventStatus.SUCCESS,
+                                    dataset_type=dataset_id,
+                                    component=self.__class__.__name__,
+                                )
+                    except Exception:
+                        logger.warning(
+                            "Failed to emit dataset event/watermark in LiveDataRecorder",
+                            exc_info=True,
+                        )
+
+            # Record flush metrics (best-effort)
+            try:
+                self._flush_total.labels(dataset_id=dataset_id).inc()
+                self._flush_seconds.labels(dataset_id=dataset_id).observe(_time.perf_counter() - _t0)
+            except Exception:
+                logger.debug("Recorder flush metrics observe failed (ignored)", exc_info=True)
 
         except Exception as e:
             try:
@@ -277,28 +369,146 @@ class LiveDataRecorder:
             raise
 
     async def _persist_quotes(self, quotes: list[QuoteTick], metadata: dict[str, Any]) -> None:
+        if not quotes:
+            return
         by_instrument: dict[InstrumentId, list[QuoteTick]] = defaultdict(list)
-        for quote in quotes:
-            by_instrument[quote.instrument_id].append(quote)
-        for instrument_id, instrument_quotes in by_instrument.items():
-            date = datetime.fromtimestamp(metadata["ts_min"] / 1e9).date()
-            path = self.storage_path / "quotes" / str(date) / f"{instrument_id}.parquet"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            print(f"Would write {len(instrument_quotes)} quotes to {path}")
+        for q in quotes:
+            by_instrument[q.instrument_id].append(q)
+
+        run_id = f"live_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+        for instrument_id, items in by_instrument.items():
+            records: list[dict[str, Any]] = []
+            def _price_like(obj: Any, *names: str) -> float | None:
+                for name in names:
+                    val = getattr(obj, name, None)
+                    if val is not None:
+                        try:
+                            return float(val.as_double())
+                        except Exception:
+                            continue
+                return None
+
+            for q in items:
+                bid_v = _price_like(q, "bid_price", "bid")
+                ask_v = _price_like(q, "ask_price", "ask")
+                bsz_v = _price_like(q, "bid_size")
+                asz_v = _price_like(q, "ask_size")
+                if bid_v is None or ask_v is None:
+                    logger.debug("Skipping quote lacking bid/ask for %s", instrument_id)
+                    continue
+                records.append(
+                    {
+                        "instrument_id": str(instrument_id),
+                        "ts_event": int(q.ts_event),
+                        "ts_init": int(q.ts_init),
+                        "bid": bid_v,
+                        "ask": ask_v,
+                        "bid_size": float(bsz_v or 0.0),
+                        "ask_size": float(asz_v or 0.0),
+                    },
+                )
+            if not records:
+                continue
+            self.data_store.write_ingestion(
+                dataset_id="quotes",
+                records=records,
+                source=Source.LIVE.value,
+                run_id=run_id,
+                instrument_id=str(instrument_id),
+            )
+        # Mark as emitted only when using a real DataStore (facade does not emit events)
+        try:
+            if isinstance(self.data_store, DataStore):
+                metadata["emitted_by_store"] = True
+        except Exception:
+            logger.debug("Recorder metadata mark failed (ignored)", exc_info=True)
 
     async def _persist_trades(self, trades: list[TradeTick], metadata: dict[str, Any]) -> None:
-        # Placeholder to mirror quotes/bars; extend as needed
-        _ = (trades, metadata)
+        if not trades:
+            return
+        by_instrument: dict[InstrumentId, list[TradeTick]] = defaultdict(list)
+        for t in trades:
+            by_instrument[t.instrument_id].append(t)
+
+        run_id = f"live_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+        for instrument_id, items in by_instrument.items():
+            records: list[dict[str, Any]] = []
+            for t in items:
+                # Compose record; skip if required fields missing
+                price_obj = getattr(t, "price", None)
+                size_obj = getattr(t, "size", None)
+                if price_obj is None or size_obj is None:
+                    logger.debug("Skipping trade lacking price/size for %s", instrument_id)
+                    continue
+                rec: dict[str, Any] = {
+                    "instrument_id": str(instrument_id),
+                    "ts_event": int(t.ts_event),
+                    "ts_init": int(t.ts_init),
+                    "price": float(price_obj.as_double()),
+                    "size": float(size_obj.as_double()),
+                }
+                trade_id = getattr(t, "trade_id", None)
+                if trade_id is not None:
+                    rec["trade_id"] = str(trade_id)
+                aggr = getattr(t, "aggressor_side", None)
+                if aggr is not None:
+                    rec["aggressor_side"] = str(aggr)
+                records.append(rec)
+            if not records:
+                continue
+            self.data_store.write_ingestion(
+                dataset_id="trades",
+                records=records,
+                source=Source.LIVE.value,
+                run_id=run_id,
+                instrument_id=str(instrument_id),
+            )
+        try:
+            if isinstance(self.data_store, DataStore):
+                metadata["emitted_by_store"] = True
+        except Exception:
+            logger.debug("Recorder metadata mark failed (ignored)", exc_info=True)
 
     async def _persist_bars(self, bars: list[Bar], metadata: dict[str, Any]) -> None:
+        # Persist bars via DataStore.write_ingestion; DataStore emits events/watermarks.
+        if not bars:
+            return
+
         by_instrument: dict[InstrumentId, list[Bar]] = defaultdict(list)
         for bar in bars:
             by_instrument[bar.bar_type.instrument_id].append(bar)
+
+        run_id = f"live_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
         for instrument_id, instrument_bars in by_instrument.items():
-            date = datetime.fromtimestamp(metadata["ts_min"] / 1e9).date()
-            path = self.storage_path / "bars" / str(date) / f"{instrument_id}.parquet"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            print(f"Would write {len(instrument_bars)} bars to {path}")
+            records: list[dict[str, Any]] = []
+            for b in instrument_bars:
+                # Use primitive conversions to avoid object allocations
+                records.append(
+                    {
+                        "instrument_id": str(b.bar_type.instrument_id),
+                        "ts_event": int(b.ts_event),
+                        "ts_init": int(b.ts_init),
+                        "open": float(b.open.as_double()),
+                        "high": float(b.high.as_double()),
+                        "low": float(b.low.as_double()),
+                        "close": float(b.close.as_double()),
+                        "volume": float(b.volume.as_double()),
+                    },
+                )
+
+            self.data_store.write_ingestion(
+                dataset_id="bars",
+                records=records,
+                source=Source.LIVE.value,
+                run_id=run_id,
+                instrument_id=str(instrument_id),
+            )
+        try:
+            if isinstance(self.data_store, DataStore):
+                # Mark emission handled to prevent duplicate events from recorder layer
+                metadata["emitted_by_store"] = True
+        except Exception:
+            logger.debug("Recorder metadata mark failed (ignored)", exc_info=True)
 
     async def flush_all(self) -> None:
         tasks = []

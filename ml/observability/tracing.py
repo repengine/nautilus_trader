@@ -107,8 +107,17 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
-from ml._imports import HAS_OPENTELEMETRY
 from ml._imports import check_ml_dependencies
+
+
+try:
+    # Expose a patchable module attribute used by tests
+    from ml._imports import HAS_OPENTELEMETRY as _HAS_OPENTELEMETRY  # type: ignore
+except Exception:  # pragma: no cover - defensive
+    _HAS_OPENTELEMETRY = False
+
+# Ensure a patchable module-level attribute exists regardless of import outcome
+HAS_OPENTELEMETRY: bool = bool(_HAS_OPENTELEMETRY)
 
 
 # Type variables for decorator preservation
@@ -217,17 +226,12 @@ def is_tracing_enabled() -> bool:
       backend; honor that by treating tracing as enabled in that case.
 
     """
-    # Primary path: respect the explicit environment toggle
-    if _enabled():
-        return _ensure_tracing_backend()
+    # Explicit environment toggle takes precedence: when disabled, remain off.
+    if not _enabled():
+        return False
 
-    # Secondary path: if a backend has already been provided (e.g., tests
-    # monkeypatch `_propagate` or `_tracer`), allow trace context operations
-    # to proceed to support propagation tests without flipping the env var.
-    if _tracer is not None or _propagate is not None:
-        return True
-
-    return False
+    # Enabled via environment; ensure backend is initialized (or pre-provisioned).
+    return _ensure_tracing_backend()
 
 
 @contextmanager
@@ -534,6 +538,8 @@ if not HAS_OPENTELEMETRY and _enabled():
 
 
 __all__ = [
+    # Expose patchable flag for tests
+    "HAS_OPENTELEMETRY",
     "extract_and_link_trace_context",
     "get_trace_context",
     "inject_trace_context",
@@ -542,3 +548,6 @@ __all__ = [
     "trace_cold_path_decorator",
     "trace_inference",
 ]
+
+# Ensure a patchable module-level attribute exists regardless of import outcome
+HAS_OPENTELEMETRY: bool = bool(_HAS_OPENTELEMETRY)

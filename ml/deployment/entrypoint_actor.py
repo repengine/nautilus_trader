@@ -21,6 +21,7 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import TraderId
 
+from ml.actors.recorder import RecorderActor
 from ml.actors.signal import MLSignalActor
 from ml.actors.signal import MLSignalActorConfig
 from ml.common.logging_config import bind_log_context
@@ -30,6 +31,12 @@ from ml.core.integration import MLIntegrationManager
 from ml.deployment.metrics_http import build_app
 from ml.deployment.security import assert_allowed_model_path
 from ml.observability.bootstrap import auto_start_if_configured
+from ml.registry.data_registry import DataRegistry
+from ml.registry.persistence import BackendType
+from ml.registry.persistence import PersistenceConfig
+from ml.stores.writers import CatalogWriteFacade
+from ml.stores.writers import LiveDataRecorder
+from ml.stores.writers import ParquetCatalogMarketDataWriter
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.adapters.databento.factories import DatabentoLiveDataClientFactory
 from nautilus_trader.config import LiveDataEngineConfig
@@ -168,15 +175,16 @@ class MLSignalActorNode:
                         bar: _Bar,
                         prediction: float,
                         confidence: float,
-                        features: _np.ndarray,
+                        features: object,
                         context: MutableMapping[str, Any],
                     ) -> _MLSignal:
+                        feat32 = _np.asarray(features, dtype=_np.float32)
                         return _MLSignal(
                             instrument_id=bar.bar_type.instrument_id,
                             model_id=str(context.get("model_id", "test_model")),
                             prediction=float(prediction),
                             confidence=float(confidence),
-                            features=features if context.get("log_predictions", False) else None,
+                            features=feat32 if context.get("log_predictions", False) else None,
                             ts_event=bar.ts_event,
                             ts_init=int(context.get("timestamp_ns", 0)),
                         )
@@ -239,6 +247,140 @@ class MLSignalActorNode:
         # Subscribe to market data when using real feed
         if not use_mock_data:
             actor.subscribe_bars(bar_type)
+
+        # Optional: attach a lightweight RecorderActor to persist live bars
+        live_record_enable = os.getenv("ML_LIVE_RECORD_ENABLE", "1").strip().lower() in {"1", "true", "yes"}
+        if live_record_enable:
+            datasets_csv = os.getenv("ML_LIVE_RECORD_DATASETS", "bars").strip()
+            dataset_tokens = {t.strip().lower() for t in datasets_csv.split(",") if t.strip()}
+            record_bars = "bars" in dataset_tokens
+            record_quotes = "quotes" in dataset_tokens
+            record_trades = "trades" in dataset_tokens
+
+            try:
+                mgr = MLIntegrationManager(
+                    db_connection=db_connection,
+                    auto_start_postgres=False,
+                    auto_migrate=False,
+                    ensure_healthy=False,
+                    strict_protocol_validation=False,
+                )
+                recorder = LiveDataRecorder(
+                    data_store=mgr.data_store,  # type: ignore[arg-type]
+                    data_registry=mgr.data_registry,  # type: ignore[arg-type]
+                    buffer_size=int(os.getenv("ML_LIVE_RECORD_BUFFER", "1000")),
+                    flush_interval_ms=int(os.getenv("ML_LIVE_RECORD_FLUSH_MS", "1000")),
+                )
+                rec_actor = RecorderActor(
+                    recorder=recorder,
+                    record_bars=record_bars,
+                    record_quotes=record_quotes,
+                    record_trades=record_trades,
+                )
+                self.node.trader.add_actor(rec_actor)
+                if not use_mock_data and record_bars:
+                    rec_actor.subscribe_bars(bar_type)
+                # Best-effort start of periodic flush inside node loop when available
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(recorder.start())
+                except Exception:
+                    # Recorder still flushes on size thresholds and shutdown
+                    logging.getLogger(__name__).debug("Recorder start task not scheduled", exc_info=True)
+            except Exception as exc:
+                # JSON/catalog fallback when PostgreSQL is unavailable
+                try:
+                    catalog_path = os.getenv("CATALOG_PATH", "").strip()
+                    if not catalog_path:
+                        raise RuntimeError("CATALOG_PATH is required for file-backed live recording fallback")
+                    from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+                    catalog = ParquetDataCatalog(catalog_path)
+                    writer = ParquetCatalogMarketDataWriter(catalog)
+                    data_store_fallback = CatalogWriteFacade(writer)
+
+                    # JSON DataRegistry for events/watermarks (bootstrap manifests/contracts)
+                    registry_path = Path.home() / ".nautilus" / "ml" / "registry"
+                    persistence = PersistenceConfig(backend=BackendType.JSON, json_path=registry_path)
+                    try:
+                        from ml.registry.bootstrap_datasets import bootstrap_datasets
+
+                        bootstrap_datasets(backend=BackendType.JSON, registry_path=registry_path)
+                    except Exception:
+                        logging.getLogger(__name__).debug("Bootstrap datasets skipped in fallback", exc_info=True)
+                    data_registry = DataRegistry(registry_path=registry_path, persistence_config=persistence)
+
+                    recorder = LiveDataRecorder(
+                        data_store=data_store_fallback,  # type: ignore[arg-type]
+                        data_registry=data_registry,
+                        buffer_size=int(os.getenv("ML_LIVE_RECORD_BUFFER", "1000")),
+                        flush_interval_ms=int(os.getenv("ML_LIVE_RECORD_FLUSH_MS", "1000")),
+                    )
+                    rec_actor = RecorderActor(
+                        recorder=recorder,
+                        record_bars=record_bars,
+                        record_quotes=record_quotes,
+                        record_trades=record_trades,
+                    )
+                    self.node.trader.add_actor(rec_actor)
+                    if not use_mock_data and record_bars:
+                        rec_actor.subscribe_bars(bar_type)
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            loop.create_task(recorder.start())
+                    except Exception:
+                        logging.getLogger(__name__).debug("Recorder start task not scheduled (fallback)", exc_info=True)
+
+                    # Optional: backfill on start in fallback mode (catalog-only)
+                    if os.getenv("ML_BACKFILL_ON_START", "").lower() in {"1", "true", "yes"}:
+                        import shlex
+                        import subprocess
+
+                        from ml.config.coverage import CoveragePolicy
+                        from ml.config.coverage import get_max_lookback_days
+
+                        lookback = os.getenv("BACKFILL_LOOKBACK_DAYS")
+                        if not lookback:
+                            lookback = str(get_max_lookback_days("bars", CoveragePolicy.from_env()))
+                        dataset_id_env = os.getenv("BACKFILL_DATASET_ID", "EQUS.MINI")
+                        instruments_env = os.getenv("BACKFILL_INSTRUMENTS", str(instrument_id))
+                        schema_env = os.getenv("BACKFILL_SCHEMA", "bars")
+                        cmd = [
+                            "python",
+                            "-m",
+                            "ml.cli.ingest_backfill",
+                            "--db",
+                            db_connection,
+                            "--dataset-id",
+                            dataset_id_env,
+                            "--schema",
+                            schema_env,
+                            "--instruments",
+                            instruments_env,
+                            "--lookback-days",
+                            lookback,
+                            "--coverage-mode",
+                            "catalog",
+                            "--write-mode",
+                            "sql",
+                            "--client-mode",
+                            "catalog",
+                            "--catalog-path",
+                            catalog_path,
+                        ]
+                        logging.getLogger(__name__).info("Running fallback backfill: %s", shlex.join(cmd))
+                        try:
+                            subprocess.run(cmd, check=True)
+                        except Exception as bf_exc:
+                            logging.getLogger(__name__).warning("Fallback backfill failed: %s", bf_exc)
+                except Exception as inner:
+                    logging.getLogger(__name__).warning(
+                        "Live recording disabled (no fallback available): %s; root=%s",
+                        inner,
+                        exc,
+                    )
 
         # Build the node BEFORE entering async context
         # This is critical for proper event loop initialization

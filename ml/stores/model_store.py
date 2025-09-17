@@ -293,6 +293,7 @@ class ModelStore(
             inference_time_ms=inference_time_ms,
             _ts_event=ts_event_norm,
             _ts_init=ts_init,
+            is_live=bool(is_live),
         )
 
         self._write_buffer.append(data)

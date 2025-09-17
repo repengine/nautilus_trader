@@ -73,6 +73,78 @@ def create_standard_manifests() -> list[DatasetManifest]:
     )
     manifests.append(bars_manifest)
 
+    # QUOTES dataset
+    quotes_manifest = DatasetManifest(
+        dataset_id="quotes",
+        dataset_type=DatasetType.QUOTES,
+        storage_kind=StorageKind.PARQUET,
+        location="catalog/quotes/",
+        partitioning={"by": ["date", "instrument_id"]},
+        retention_days=365,
+        schema={
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "instrument_id": "str",
+            "bid": "float64",
+            "ask": "float64",
+            "bid_size": "float64",
+            "ask_size": "float64",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ts_event", "instrument_id"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["ts_event", "ts_init", "instrument_id", "bid", "ask"],
+            "nullable_fields": ["bid_size", "ask_size"],
+            "ranges": {
+                "bid": {"min": 0.0, "max": 1e12},
+                "ask": {"min": 0.0, "max": 1e12},
+                "bid_size": {"min": 0.0, "max": 1e12},
+                "ask_size": {"min": 0.0, "max": 1e12},
+            },
+        },
+        lineage=[],
+        pipeline_signature="databento_scheduler_v1",
+        version="1.0.0",
+    )
+    manifests.append(quotes_manifest)
+
+    # TRADES dataset
+    trades_manifest = DatasetManifest(
+        dataset_id="trades",
+        dataset_type=DatasetType.TRADES,
+        storage_kind=StorageKind.PARQUET,
+        location="catalog/trades/",
+        partitioning={"by": ["date", "instrument_id"]},
+        retention_days=365,
+        schema={
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "instrument_id": "str",
+            "price": "float64",
+            "size": "float64",
+            "aggressor_side": "str",
+            "trade_id": "str",
+        },
+        ts_field="ts_event",
+        seq_field=None,
+        primary_keys=["ts_event", "instrument_id", "trade_id"],
+        schema_hash="",
+        constraints={
+            "required_fields": ["ts_event", "ts_init", "instrument_id", "price", "size"],
+            "nullable_fields": ["trade_id", "aggressor_side"],
+            "ranges": {
+                "price": {"min": 0.0, "max": 1e12},
+                "size": {"min": 0.0, "max": 1e12},
+            },
+        },
+        lineage=[],
+        pipeline_signature="databento_scheduler_v1",
+        version="1.0.0",
+    )
+    manifests.append(trades_manifest)
+
     # FEATURES dataset
     features_manifest = DatasetManifest(
         dataset_id="features",
@@ -211,6 +283,50 @@ def create_standard_contracts() -> dict[str, DataContract]:
         last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:bars.modified"),
     )
     contracts["bars"] = bars_contract
+
+    # Quotes contract - lenient mode for market data
+    quotes_contract = DataContract(
+        contract_id="quotes_contract_v1",
+        dataset_id="quotes",
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "bid", min=0.0),
+            make_rule(ValidationRuleType.RANGE, "ask", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:quotes.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:quotes.modified"),
+    )
+    contracts["quotes"] = quotes_contract
+
+    # Trades contract - lenient mode for market data
+    trades_contract = DataContract(
+        contract_id="trades_contract_v1",
+        dataset_id="trades",
+        version="1.0.0",
+        enforcement_mode="lenient",
+        validation_rules=[
+            make_rule(ValidationRuleType.TYPE_CHECK),
+            make_rule(ValidationRuleType.NULLABILITY),
+            make_rule(ValidationRuleType.RANGE, "price", min=0.0),
+            make_rule(ValidationRuleType.RANGE, "size", min=0.0),
+            make_rule(ValidationRuleType.MONOTONICITY, "ts_event", direction="increasing"),
+        ],
+        quality_thresholds={
+            "null_rate": 0.05,
+            "duplicate_rate": 0.01,
+        },
+        created_at=_sanitize(int(time.time_ns()), context="registry.bootstrap:trades.created"),
+        last_modified=_sanitize(int(time.time_ns()), context="registry.bootstrap:trades.modified"),
+    )
+    contracts["trades"] = trades_contract
 
     # Features contract - strict mode for ML features
     features_contract = DataContract(

@@ -190,19 +190,27 @@ class MockMLSignalActorNode(MLSignalActorNode):
             self._inject_thread = threading.Thread(target=_loop, daemon=True)
             self._inject_thread.start()
 
-            # Start background flusher for strategy store
+            # Start background flusher for stores (strategy + model)
             try:
                 sstore = getattr(actor, "_strategy_store", None)
-                if sstore is not None:
-                    def _flush_loop() -> None:
-                        while not self._inject_stop.is_set():
-                            try:
+                mstore = getattr(actor, "_model_store", None)
+
+                def _flush_loop() -> None:
+                    while not self._inject_stop.is_set():
+                        try:
+                            if sstore is not None:
                                 sstore.flush()
-                            except Exception:
-                                pass
-                            time.sleep(0.5)
-                    self._flush_thread = threading.Thread(target=_flush_loop, daemon=True)
-                    self._flush_thread.start()
+                        except Exception:
+                            pass
+                        try:
+                            if mstore is not None:
+                                mstore.flush()
+                        except Exception:
+                            pass
+                        time.sleep(0.5)
+
+                self._flush_thread = threading.Thread(target=_flush_loop, daemon=True)
+                self._flush_thread.start()
             except Exception:
                 pass
 
@@ -254,9 +262,10 @@ def main() -> None:
                     setattr(act, "subscribe_bars", lambda *args, **kwargs: None)
                 except Exception:
                     pass
-                # Make strategy store flush on every write in test mode
+                # Make stores flush on every write in test mode
                 try:
                     sstore = getattr(act, "_strategy_store", None)
+                    mstore = getattr(act, "_model_store", None)
                     if sstore is not None:
                         # Set on adapter (no-op for buffer) and underlying store
                         try:
@@ -269,6 +278,19 @@ def main() -> None:
                             if raw is not None:
                                 setattr(raw, "batch_size", 1)
                                 setattr(raw, "flush_interval_ms", 10)
+                        except Exception:
+                            pass
+                    if mstore is not None:
+                        try:
+                            setattr(mstore, "batch_size", 1)
+                            setattr(mstore, "flush_interval_ms", 10)
+                        except Exception:
+                            pass
+                        try:
+                            rawm = getattr(mstore, "_store", None)
+                            if rawm is not None:
+                                setattr(rawm, "batch_size", 1)
+                                setattr(rawm, "flush_interval_ms", 10)
                         except Exception:
                             pass
                 except Exception:

@@ -173,6 +173,7 @@ class ModelPrediction(NautilusData):
     inference_time_ms: float
     _ts_event: int
     _ts_init: int
+    is_live: bool = False
 
     @property
     def ts_event(self) -> int:

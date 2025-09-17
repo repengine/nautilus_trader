@@ -73,7 +73,7 @@ services:
       LOG_FILE: /app/logs/ml_actor_test.log
       METRICS_HOST: 0.0.0.0
       ML_LOG_LEVEL: DEBUG
-      FORCE_SIGNAL_MODE: "true"
+      FORCE_SIGNAL_MODE: "false"
 
       # Performance settings for testing
       WARM_UP_PERIOD: "5"  # Reduced for faster testing

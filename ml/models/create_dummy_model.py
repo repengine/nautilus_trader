@@ -24,85 +24,61 @@ except ImportError:
     from onnx import TensorProto
     from onnx import helper
 
-def create_dummy_model():
+def create_dummy_model() -> "onnx.ModelProto":
     """
     Create a dummy ONNX model that:
     - Takes 30 features as input
     - Outputs 3 values: [probability, direction, confidence]
     - Uses random weights for testing
     """
-    # Define input/output
-    num_features = 30
+    # Define inputs/outputs (26-feature model with separate pred/conf outputs)
+    num_features = 26
 
-    # Create random weights for a simple linear model
-    weights = np.random.randn(num_features, 3).astype(np.float32) * 0.1
-    bias = np.array([0.5, 0.0, 0.5], dtype=np.float32)  # Default to 50% probability, neutral, 50% confidence
+    # Create random weights for simple linear outputs (pred, conf)
+    w_pred = np.random.randn(num_features, 1).astype(np.float32) * 0.05
+    b_pred = np.array([0.0], dtype=np.float32)
+    w_conf = np.random.randn(num_features, 1).astype(np.float32) * 0.05
+    b_conf = np.array([0.5], dtype=np.float32)
 
-    # Create ONNX graph
-    input_tensor = helper.make_tensor_value_info(
-        "features", TensorProto.FLOAT, [1, num_features]
-    )
-    output_tensor = helper.make_tensor_value_info(
-        "predictions", TensorProto.FLOAT, [1, 3]
-    )
+    # IO tensors
+    input_tensor = helper.make_tensor_value_info("features", TensorProto.FLOAT, [1, num_features])
+    out_pred = helper.make_tensor_value_info("pred", TensorProto.FLOAT, [1])
+    out_conf = helper.make_tensor_value_info("conf", TensorProto.FLOAT, [1])
 
-    # Create weight and bias initializers
-    weight_initializer = helper.make_tensor(
-        "weights",
-        TensorProto.FLOAT,
-        [num_features, 3],
-        weights.flatten().tolist()
-    )
-    bias_initializer = helper.make_tensor(
-        "bias",
-        TensorProto.FLOAT,
-        [3],
-        bias.tolist()
-    )
+    # Initializers
+    t_w_pred = helper.make_tensor("W_pred", TensorProto.FLOAT, [num_features, 1], w_pred.flatten().tolist())
+    t_b_pred = helper.make_tensor("b_pred", TensorProto.FLOAT, [1], b_pred.flatten().tolist())
+    t_w_conf = helper.make_tensor("W_conf", TensorProto.FLOAT, [num_features, 1], w_conf.flatten().tolist())
+    t_b_conf = helper.make_tensor("b_conf", TensorProto.FLOAT, [1], b_conf.flatten().tolist())
 
-    # Create MatMul and Add nodes
-    matmul_node = helper.make_node(
-        "MatMul",
-        inputs=["features", "weights"],
-        outputs=["matmul_output"]
-    )
+    # Nodes: prediction path (sigmoid)
+    n_mm_p = helper.make_node("MatMul", inputs=["features", "W_pred"], outputs=["mm_p"])
+    n_add_p = helper.make_node("Add", inputs=["mm_p", "b_pred"], outputs=["add_p"])
+    n_sq_p = helper.make_node("Squeeze", inputs=["add_p"], outputs=["sq_p"], axes=[1])
+    n_sig_p = helper.make_node("Sigmoid", inputs=["sq_p"], outputs=["pred"])
 
-    add_node = helper.make_node(
-        "Add",
-        inputs=["matmul_output", "bias"],
-        outputs=["add_output"]
-    )
+    # Nodes: confidence path (sigmoid)
+    n_mm_c = helper.make_node("MatMul", inputs=["features", "W_conf"], outputs=["mm_c"])
+    n_add_c = helper.make_node("Add", inputs=["mm_c", "b_conf"], outputs=["add_c"])
+    n_sq_c = helper.make_node("Squeeze", inputs=["add_c"], outputs=["sq_c"], axes=[1])
+    n_sig_c = helper.make_node("Sigmoid", inputs=["sq_c"], outputs=["conf"])
 
-    # Apply sigmoid to get probabilities
-    sigmoid_node = helper.make_node(
-        "Sigmoid",
-        inputs=["add_output"],
-        outputs=["predictions"]
-    )
-
-    # Create the graph
     graph_def = helper.make_graph(
-        [matmul_node, add_node, sigmoid_node],
-        "dummy_ml_model",
+        [n_mm_p, n_add_p, n_sq_p, n_sig_p, n_mm_c, n_add_c, n_sq_c, n_sig_c],
+        "dummy_ml_model_26",
         [input_tensor],
-        [output_tensor],
-        [weight_initializer, bias_initializer]
+        [out_pred, out_conf],
+        [t_w_pred, t_b_pred, t_w_conf, t_b_conf],
     )
 
-    # Create the model
     model_def = helper.make_model(graph_def, producer_name="ml_pipeline_test")
-    model_def.opset_import[0].version = 11  # Use version 11 for compatibility
+    # Compatibility for onnxruntime versions shipped in images
+    model_def.opset_import[0].version = 11  # opset 11
+    model_def.ir_version = 7               # IR v7
 
-    # Set IR version for compatibility with older ONNX Runtime
-    model_def.ir_version = 7  # Use IR version 7 for compatibility
-
-    # Add metadata
-    model_def.metadata_props.append(
-        onnx.StringStringEntryProto(key="model_type", value="dummy_classifier")
-    )
-    model_def.metadata_props.append(
-        onnx.StringStringEntryProto(key="description", value="Dummy model for ML pipeline testing")
-    )
+    # Metadata hints
+    model_def.metadata_props.append(onnx.StringStringEntryProto(key="model_type", value="dummy_classifier_v26"))
+    model_def.metadata_props.append(onnx.StringStringEntryProto(key="description", value="Dummy 26-feature model for ML pipeline testing"))
 
     return model_def
 
@@ -121,22 +97,16 @@ def verify_model(model_path):
     return True
 
 if __name__ == "__main__":
-    # Create model directory
-    model_dir = Path("/home/nate/projects/nautilus_trader/ml/models")
-    model_dir.mkdir(exist_ok=True)
+    # Repository-relative output path used by Docker compose mounts
+    model_dir = Path("ml/models")
+    model_dir.mkdir(exist_ok=True, parents=True)
 
-    # Create and save the model
-    model_path = model_dir / "dummy_model.onnx"
+    model_path = model_dir / "dummy_bullish_model.onnx"
     model = create_dummy_model()
-
-    # Save model
     onnx.save(model, str(model_path))
-    print(f"Dummy model saved to: {model_path}")
-
-    # Verify it works
-    if verify_model(str(model_path)):
-        print("✓ Model verification successful!")
-        print("\nModel details:")
-        print("- Input: 30 features (float32)")
-        print("- Output: 3 values [probability, direction, confidence]")
-        print("- Type: Simple linear classifier with sigmoid activation")
+    # Verify with onnxruntime if available
+    try:
+        verify_model(str(model_path))
+    except Exception:
+        pass
+    print(f"Dummy 26-feature model saved to: {model_path}")

@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ml.config.coverage import CoveragePolicy
+from ml.config.coverage import get_max_lookback_days
 from ml.data.ingest.orchestrator import IngestionOrchestrator
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
@@ -148,6 +150,28 @@ class MLPipelineOrchestrator:
             schema=schema,
             instrument_id=instrument_id,
             lookback_days=lookback_days,
+        )
+
+    def backfill_coverage(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        policy: CoveragePolicy | None = None,
+    ) -> list[tuple[int, int]]:
+        """
+        Backfill gaps bounded by subscription coverage policy.
+
+        Determines the maximum lookback window from CoveragePolicy for the given
+        dataset identifier and delegates to IngestionOrchestrator.
+        """
+        days = get_max_lookback_days(dataset_id, policy)
+        return self.backfill(
+            dataset_id=dataset_id,
+            schema=schema,
+            instrument_id=instrument_id,
+            lookback_days=days,
         )
 
     def build_dataset(self, cfg: DatasetBuildConfig) -> int:

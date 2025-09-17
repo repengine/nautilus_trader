@@ -2030,6 +2030,33 @@ class MLSignalActor(BaseMLInferenceActor):
             if self._signal_config.enable_regime_detection:
                 self._detect_market_regime(bar)
 
+            # Persist prediction (model store) before signal generation
+            try:
+                # Build a lightweight feature mapping for storage (names if available)
+                feature_dict: dict[str, float]
+                names = []
+                try:
+                    names = list(getattr(self._feature_engineer.config, "get_feature_names")())
+                except Exception:
+                    names = []
+                if names and len(names) == features.shape[0]:
+                    feature_dict = {names[i]: float(features[i]) for i in range(len(names))}
+                else:
+                    feature_dict = {f"feature_{i}": float(features[i]) for i in range(int(features.shape[0]))}
+                self._model_store.write_prediction(
+                    model_id=self._model_id,
+                    instrument_id=str(bar.bar_type.instrument_id),
+                    prediction=float(prediction),
+                    confidence=float(confidence),
+                    features=feature_dict,
+                    inference_time_ms=(time.perf_counter() - start_time) * 1000.0,
+                    ts_event=bar.ts_event,
+                    is_live=True,
+                )
+            except Exception:
+                # Non-fatal; continue to signal generation
+                pass
+
             # Try to generate signal
             self._try_generate_signal(bar, prediction, confidence, features)
 
