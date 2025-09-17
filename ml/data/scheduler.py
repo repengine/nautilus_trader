@@ -30,6 +30,9 @@ from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
 from ml.registry.data_registry import DataRegistry
+from ml.registry.dataclasses import DatasetManifest
+from ml.registry.dataclasses import DatasetType
+from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
 from ml.stores.providers import SqlCoverageProvider
@@ -311,6 +314,75 @@ class DataScheduler:
             f"feature_store={'enabled' if self.config.feature_store_enabled else 'disabled'}"
             f"{f', metrics_port={metrics_port or 8000}' if start_metrics_server else ''}",
         )
+
+    def _ensure_dataset_registered(
+        self,
+        dataset_id: str,
+        dataset_type_label: str,
+        location: str,
+    ) -> None:
+        """Ensure a dataset manifest exists in the registry (Postgres backend).
+
+        Parameters
+        ----------
+        dataset_id : str
+            The dataset identifier (e.g., "ohlcv_spy_xnas").
+        dataset_type_label : str
+            High-level dataset type label ("bars", "trades", "tbbo", "mbp1").
+        location : str
+            Storage location for the dataset (e.g., catalog path).
+        """
+        if self._data_registry is None:
+            return
+
+        # Map label to DatasetType enum
+        dt_map = {
+            "bars": DatasetType.BARS,
+            "trades": DatasetType.TRADES,
+            "tbbo": DatasetType.TBBO,
+            "mbp1": DatasetType.MBP1,
+        }
+        dataset_type = dt_map.get(dataset_type_label, DatasetType.BARS)
+
+        # Basic schema for bars; satisfies registry validation
+        schema = {
+            "instrument_id": "str",
+            "ts_event": "int64",
+            "ts_init": "int64",
+            "open": "float64",
+            "high": "float64",
+            "low": "float64",
+            "close": "float64",
+            "volume": "float64",
+        }
+
+        try:
+            # If manifest exists, this will succeed
+            self._data_registry.get_manifest(dataset_id)
+            return
+        except Exception:
+            # Register a minimal manifest
+            try:
+                manifest = DatasetManifest(
+                    dataset_id=dataset_id,
+                    dataset_type=dataset_type,
+                    storage_kind=StorageKind.PARQUET,
+                    location=location,
+                    partitioning={"by": "ts_event", "interval": "daily"},
+                    retention_days=int(getattr(self.config, "retention_days", 90)),
+                    schema=schema,
+                    ts_field="ts_event",
+                    seq_field=None,
+                    primary_keys=["instrument_id", "ts_event"],
+                    schema_hash="",
+                    constraints={},
+                    lineage=[],
+                    pipeline_signature="data_scheduler_v1",
+                    version="1.0.0",
+                )
+                self._data_registry.register_dataset(manifest)
+            except Exception:
+                logger.debug("Dataset registration skipped or failed", exc_info=True)
 
     def _init_data_registry(self) -> None:
         """
@@ -743,6 +815,13 @@ class DataScheduler:
 
                                 # Metric labels prepared above (dataset_type_label, schema_name)
 
+                                # Ensure dataset manifest exists before emitting events/watermarks
+                                self._ensure_dataset_registered(
+                                    dataset_id=dataset_id,
+                                    dataset_type_label=dataset_type_label,
+                                    location=os.getenv("CATALOG_PATH", "/app/data/catalog"),
+                                )
+
                                 # Emit the event
                                 self._data_registry.emit_event(
                                     dataset_id=dataset_id,
@@ -848,7 +927,7 @@ class DataScheduler:
                     ).inc(len(data))
                     data_collection_latency.labels(
                         source="databento",
-                        instrument=symbol,
+                        schema=self.config.databento.schema,
                     ).observe(collection_duration)
 
                     # Calculate and record data freshness

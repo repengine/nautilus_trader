@@ -71,6 +71,7 @@ Notes:
 
 from __future__ import annotations
 
+import os
 import time
 from abc import ABC
 from abc import abstractmethod
@@ -1860,9 +1861,12 @@ class MLSignalActor(BaseMLInferenceActor):
             # Fall back to local feature engineer on any store failure
             self.log.debug(f"FeatureStore compute_realtime failed; falling back: {exc}")
 
-        # Always use feature engineering (base class handles persistence)
+        # Ensure indicator manager is initialized (may not have been if on_start hasn't run yet)
         if self._indicator_manager is None:
-            return None
+            self._initialize_features()
+            if self._indicator_manager is None:
+                self.log.error("Failed to initialize indicator manager")
+                return None
 
         start_time = time.perf_counter()
         self._indicator_manager.update_from_bar(bar)
@@ -2012,8 +2016,11 @@ class MLSignalActor(BaseMLInferenceActor):
             if self._should_hot_reload():
                 self._execute_hot_reload()
 
-            # Get prediction
-            prediction, confidence = self._predict(features)
+            # Get prediction (or force in test mode)
+            if os.getenv("FORCE_SIGNAL_MODE", "false").lower() == "true":
+                prediction, confidence = 1.0, 1.0
+            else:
+                prediction, confidence = self._predict(features)
             self._prediction_count += 1
 
             # Update history

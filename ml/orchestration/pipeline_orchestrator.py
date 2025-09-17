@@ -114,7 +114,7 @@ class MLPipelineOrchestrator:
         Always cold path. Dual-write (SQL + Parquet) can be enabled in options to
         guarantee the dataset builder has catalog data while preserving SQL coverage.
         """
-        from ml.data import DataScheduler
+        from ml.data.scheduler import DataScheduler
         from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
         opts = options or PreIngestionOptions()

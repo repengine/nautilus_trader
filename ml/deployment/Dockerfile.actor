@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir \
     numpy \
     pandas \
     msgspec \
+    structlog \
     sqlalchemy \
     psycopg2-binary \
     prometheus-client \
@@ -31,8 +32,11 @@ RUN pip install --no-cache-dir \
 # Create models directory
 RUN mkdir -p /app/models
 
-# Copy entrypoint script
+# Copy entrypoint scripts (regular and mock)
 COPY ml/deployment/entrypoint_actor.py /app/entrypoint.py
+COPY ml/deployment/entrypoint_actor.py /app/entrypoint_actor.py
+COPY ml/deployment/entrypoint_mock.py /app/entrypoint_mock.py
+COPY ml/deployment/mock_databento.py /app/mock_databento.py
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

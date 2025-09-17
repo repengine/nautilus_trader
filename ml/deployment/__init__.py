@@ -102,7 +102,8 @@ from ml.deployment.migrations import apply_migrations_via_compose
 from ml.deployment.migrations import list_migration_files
 
 # Dry Run and Testing Systems
-from ml.deployment.run_backtest_dry_run import run_backtest_dry_run
+# Note: run_backtest_dry_run commented out due to executable stack issues in Docker
+# from ml.deployment.run_backtest_dry_run import run_backtest_dry_run
 from ml.deployment.run_local_dry_run import LocalDryRunSystem
 
 
@@ -121,6 +122,6 @@ __all__ = [
     "check_service_health",
     "check_views",
     "list_migration_files",
-    "run_backtest_dry_run",
+    # "run_backtest_dry_run",  # Commented out due to executable stack issues in Docker
     "wait_for_postgres",
 ]

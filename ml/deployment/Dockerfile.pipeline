@@ -20,6 +20,7 @@ COPY ml ./ml
 RUN pip install --no-cache-dir \
     flask \
     requests \
+    structlog \
     sqlalchemy \
     psycopg2-binary \
     pandas \

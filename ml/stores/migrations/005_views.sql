@@ -3,6 +3,8 @@
 -- and qualifies base tables with public schema explicitly.
 
 -- Helper functions for time conversion
+CREATE SCHEMA IF NOT EXISTS ml;
+
 CREATE OR REPLACE FUNCTION ns_to_timestamp(ns BIGINT)
 RETURNS TIMESTAMPTZ AS $$
 BEGIN
@@ -142,4 +144,3 @@ SELECT
     END as signal_quality
 FROM signal_stats
 ORDER BY date DESC, strategy_id, instrument_id;
-

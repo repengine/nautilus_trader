@@ -60,8 +60,8 @@ services:
 
       # Model configuration
       MODEL_PATH: /app/models/dummy_bullish_model.onnx
-      INSTRUMENT_ID: SPY.XNAS
-      BAR_TYPE: SPY.XNAS-1-MINUTE-LAST-EXTERNAL
+      INSTRUMENT_ID: SPY.EQUS
+      BAR_TYPE: SPY.EQUS-1-MINUTE-LAST-EXTERNAL
 
       # Actor configuration
       ACTOR_ID: MLSignalActor-001
@@ -78,7 +78,7 @@ services:
       - nautilus-ml
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${ML_ACTOR_HOST_PORT:-8000}:8000"
 
   # ML Trading Strategy Container
   ml_strategy:
@@ -97,7 +97,7 @@ services:
       # Strategy configuration
       STRATEGY_ID: MLStrategy-DRY-001
       ML_SIGNAL_SOURCE: MLSignalActor-001
-      INSTRUMENT_ID: SPY.XNAS
+      INSTRUMENT_ID: SPY.EQUS
 
       # DRY RUN MODE
       EXECUTE_TRADES: "false"  # DRY RUN - NO REAL TRADES!
@@ -125,7 +125,7 @@ services:
       - nautilus-ml
     restart: unless-stopped
     ports:
-      - "8001:8001"
+      - "${ML_STRATEGY_HOST_PORT:-8001}:8001"
 
   # ML Pipeline Service for data collection and feature computation
   ml_pipeline:

@@ -165,6 +165,10 @@ class MLStrategyNode:
                 exc_info=True,
             )
 
+        # Build the node BEFORE entering async context
+        # This is critical for proper event loop initialization
+        self.node.build()
+
         print("\nML Trading Strategy configured and ready")
         print(f"Listening for signals from {ml_signal_source}...")
 
@@ -177,40 +181,108 @@ class MLStrategyNode:
 
     async def run(self) -> None:
         """
-        Run the strategy node.
+        Run the strategy node asynchronously.
+
+        Tests can await this method; it delegates to TradingNode.run_async when
+        available and falls back to the synchronous runner otherwise.
         """
         self.running = True
 
-        # Set up graceful shutdown
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            if self.node is None:
+                raise RuntimeError("Trading node not initialized")
+            run_async = getattr(self.node, "run_async", None)
+            if callable(run_async):
+                try:
+                    await run_async()
+                except asyncio.CancelledError:
+                    pass
+            else:
+                self.node.run()
+        finally:
+            self.running = False
 
-            def _handler(sig_local: signal.Signals = sig) -> None:
-                task = asyncio.create_task(self.shutdown(sig_local))
-                self._tasks.append(task)
+    def run_sync(self) -> None:
+        """
+        Run the strategy node synchronously (container/default path).
+        """
+        self.running = True
 
-            loop.add_signal_handler(sig, _handler)
+        # Set up graceful shutdown handlers
+        def signal_handler(signum: int, frame: Any) -> None:
+            print(f"\nReceived signal {signal.Signals(signum).name}, shutting down...")
+            self.shutdown()
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
 
         # Run the node
         try:
             if self.node is None:
                 raise RuntimeError("Trading node not initialized")
-            await self.node.run_async()
-        except asyncio.CancelledError:
-            # Graceful shutdown triggered; suppress cancellation as error
-            await self.shutdown()
+            # Node was already built in setup()
+            # Use node.run() which manages its own event loop
+            self.node.run()
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt received")
+            self.shutdown()
         except Exception as e:
             print(f"Error running node: {e}")
-            await self.shutdown()
+            self.shutdown()
+            sys.exit(1)
 
-    async def shutdown(self, sig: signal.Signals | None = None) -> None:
+    async def shutdown(self) -> None:
         """
-        Gracefully shutdown the node.
+        Gracefully shutdown the node (async-capable).
         """
-        if sig:
-            print(f"\nReceived signal {sig.name}, shutting down...")
-        else:
-            print("\nShutting down...")
+        print("\nShutting down...")
+
+        self.running = False
+        self._healthy = False
+
+        if self.node:
+            # Print final statistics (best-effort) then stop
+            print("\n" + "=" * 80)
+            print("FINAL STATISTICS")
+            print("=" * 80)
+            try:
+                node_any = cast(Any, self.node)
+                trader = getattr(node_any, "trader", None)
+                strategies = None
+                if trader is not None and hasattr(trader, "strategies"):
+                    strategies = trader.strategies()
+                strategies_dict: dict[str, Any] = strategies if isinstance(strategies, dict) else {}
+                if strategies_dict:
+                    strategy = next(iter(strategies_dict.values()))
+                    print(f"Signals Received: {getattr(strategy, '_signals_received', 0)}")
+                    print(f"Dry Run Trades: {getattr(strategy, '_dry_run_trades', 0)}")
+                    print(
+                        f"Execute Trades Setting: {getattr(strategy._config, 'execute_trades', False)}",
+                    )
+                else:
+                    print("Signals Received: 0")
+                    print("Dry Run Trades: 0")
+            except Exception:
+                print("Signals Received: 0")
+                print("Dry Run Trades: 0")
+
+            stop_async = getattr(self.node, "stop_async", None)
+            if callable(stop_async):
+                try:
+                    await stop_async()
+                except Exception:
+                    self.node.dispose()
+            else:
+                self.node.dispose()
+
+        print("\nML Trading Strategy shutdown complete")
+
+    def shutdown_sync(self) -> None:
+        """
+        Gracefully shutdown the node synchronously.
+        """
+        print("\nShutting down...")
 
         self.running = False
         self._healthy = False
@@ -226,8 +298,6 @@ class MLStrategyNode:
                 strategies = None
                 if trader is not None and hasattr(trader, "strategies"):
                     strategies = trader.strategies()
-                    if asyncio.iscoroutine(strategies):
-                        strategies = await strategies
                 strategies_dict: dict[str, Any] = strategies if isinstance(strategies, dict) else {}
                 if strategies_dict:
                     strategy = next(iter(strategies_dict.values()))
@@ -244,10 +314,47 @@ class MLStrategyNode:
                 print("Signals Received: 0")
                 print("Dry Run Trades: 0")
 
-            await self.node.stop_async()
-            node_any = cast(Any, self.node)
-            if hasattr(node_any, "dispose_async"):
-                await node_any.dispose_async()
+            # Synchronous dispose
+            self.node.dispose()
+
+        print("\nML Trading Strategy shutdown complete")
+        """
+        Gracefully shutdown the node.
+        """
+        print("\nShutting down...")
+
+        self.running = False
+        self._healthy = False
+
+        if self.node:
+            # Always print final statistics header for test visibility
+            print("\n" + "=" * 80)
+            print("FINAL STATISTICS")
+            print("=" * 80)
+            try:
+                node_any = cast(Any, self.node)
+                trader = getattr(node_any, "trader", None)
+                strategies = None
+                if trader is not None and hasattr(trader, "strategies"):
+                    strategies = trader.strategies()
+                strategies_dict: dict[str, Any] = strategies if isinstance(strategies, dict) else {}
+                if strategies_dict:
+                    strategy = next(iter(strategies_dict.values()))
+                    print(f"Signals Received: {getattr(strategy, '_signals_received', 0)}")
+                    print(f"Dry Run Trades: {getattr(strategy, '_dry_run_trades', 0)}")
+                    print(
+                        f"Execute Trades Setting: {getattr(strategy._config, 'execute_trades', False)}",
+                    )
+                else:
+                    print("Signals Received: 0")
+                    print("Dry Run Trades: 0")
+            except Exception:
+                # Fallback if strategy access is mocked or unavailable
+                print("Signals Received: 0")
+                print("Dry Run Trades: 0")
+
+            # Synchronous dispose
+            self.node.dispose()
 
         print("\nML Trading Strategy shutdown complete")
 
@@ -285,9 +392,9 @@ def main() -> None:
             exc_info=True,
         )
 
-    # Run async event loop
+    # Run the node (it manages its own event loop)
     try:
-        asyncio.run(strategy_node.run())
+        strategy_node.run_sync()
     except KeyboardInterrupt:
         print("\nShutdown requested")
     except Exception as e:

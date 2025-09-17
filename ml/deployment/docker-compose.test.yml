@@ -1,0 +1,124 @@
+# Docker Compose configuration for testing with mock data
+# Uses synthetic data generation to test the full ML pipeline
+name: ml-test
+
+services:
+  # Test PostgreSQL Database (separate from production)
+  postgres-test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: nautilus_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"  # Different port to avoid conflicts
+    volumes:
+      - ../stores/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nautilus-ml-test
+
+  # Redis for test message bus
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"  # Different port
+    networks:
+      - nautilus-ml-test
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ML Signal Actor with Mock Data
+  ml_signal_actor_test:
+    build:
+      context: ../..
+      dockerfile: ml/deployment/Dockerfile.actor
+    environment:
+      # Mock data configuration
+      USE_MOCK_DATA: "true"
+      MOCK_DATA_RATE: "10"  # 10 bars per second
+      MOCK_INITIAL_PRICE: "650.0"
+      MOCK_VOLATILITY: "0.002"
+
+      # Test database
+      DB_CONNECTION: postgresql://postgres:postgres@postgres-test:5432/nautilus_test
+      USE_TEST_DATABASE: "true"
+
+      # Skip real Databento
+      DATABENTO_API_KEY: "mock-key-for-testing"
+
+      # Model configuration
+      MODEL_PATH: /app/models/dummy_bullish_model.onnx
+      INSTRUMENT_ID: SPY.EQUS
+      BAR_TYPE: SPY.EQUS-1-MINUTE-LAST-INTERNAL  # Use INTERNAL for mock
+
+      # Actor configuration
+      ACTOR_ID: MLSignalActor-TEST-001
+      USE_DUMMY_STORES: "false"  # Use real test DB
+
+      # Enhanced logging for testing
+      LOG_LEVEL: DEBUG
+      LOG_PREDICTIONS: "true"
+      LOG_FEATURES: "true"
+      LOG_SIGNALS: "true"
+
+      # Persist logs inside the container and expose metrics
+      LOG_FILE: /app/logs/ml_actor_test.log
+      METRICS_HOST: 0.0.0.0
+      ML_LOG_LEVEL: DEBUG
+      FORCE_SIGNAL_MODE: "true"
+
+      # Performance settings for testing
+      WARM_UP_PERIOD: "5"  # Reduced for faster testing
+      PREDICTION_THRESHOLD: "0.0"  # Force signals for persistence testing
+
+    volumes:
+      - ../models:/app/models:ro
+      - ./configs:/app/configs:ro
+      - ./mock_databento.py:/app/mock_databento.py:ro
+      - logs-test:/app/logs
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks:
+      - nautilus-ml-test
+    command: ["python", "/app/entrypoint_mock.py"]
+    ports:
+      - "8002:8000"  # Different port for test metrics
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Test monitoring with Prometheus
+  prometheus-test:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9091:9090"  # Different port
+    volumes:
+      - ./prometheus.test.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_test_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - nautilus-ml-test
+
+volumes:
+  prometheus_test_data:
+  logs-test:
+
+networks:
+  nautilus-ml-test:
+    driver: bridge
+    name: nautilus-ml-test

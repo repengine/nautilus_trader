@@ -820,8 +820,9 @@ class DataRegistry(MLComponentMixin):
                     if result is None:
                         raise ValueError(f"Dataset '{dataset_id}' not found")
 
-                    # Convert to manifest
-                    manifest_data = dict(result)
+                    # Convert to manifest using RowMapping for SQLAlchemy 1.4/2.0
+                    # `Row` iterates over values; use the mapping view to build a dict.
+                    manifest_data = dict(getattr(result, "_mapping", result))
                     manifest_data["seq_field"] = manifest_data.get("metadata", {}).get("seq_field")
                     manifest_data["ts_field"] = manifest_data.get("metadata", {}).get(
                         "ts_field",
@@ -1349,7 +1350,8 @@ class DataRegistry(MLComponentMixin):
                     if result is None:
                         return None
 
-                    watermark = Watermark(**dict(result))
+                    # Build Watermark from row mapping to avoid tuple-to-dict errors
+                    watermark = Watermark(**dict(getattr(result, "_mapping", result)))
 
                     # Cache for future use
                     self._watermarks[watermark_key] = watermark

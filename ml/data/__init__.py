@@ -103,7 +103,7 @@ collector.run_collection()  # Collect L2, trades, quotes, bars
 
 ### Scheduled Data Pipeline
 ```python
-from ml.data import DataScheduler
+from ml.data.scheduler import DataScheduler
 from ml.config.scheduler_config import SchedulerConfig
 
 config = SchedulerConfig(
@@ -163,8 +163,8 @@ from ml.data.ingest.common import BackoffPolicy
 # Ingestion utilities
 from ml.data.ingest.common import IngestState
 from ml.data.ingest.common import RateLimiter
-from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
-from ml.data.ingest.orchestrator import IngestionOrchestrator
+# Note: DomainWindowLoaderProtocol and IngestionOrchestrator moved to avoid circular imports
+# Import directly from ml.data.ingest.orchestrator when needed
 
 # Performance and caching
 from ml.data.l2_cache import L2MinuteCache
@@ -182,7 +182,8 @@ from ml.data.providers.events import EventScheduleProvider
 
 # Data providers (protocol-based)
 from ml.data.providers.metadata import InstrumentMetadataProvider
-from ml.data.scheduler import DataScheduler
+# Note: DataScheduler moved to avoid circular imports
+# Import directly from ml.data.scheduler when needed
 
 # Data sources (mocks and implementations)
 from ml.data.sources.calendar import MockCalendarSource
@@ -201,7 +202,7 @@ __all__ = [
     "CacheableProvider",
     "DataCollector",
     "DataProvider",
-    "DataScheduler",
+    # "DataScheduler",  # Moved to avoid circular imports - import from ml.data.scheduler
     "DatabentoMetadataSource",
     "DatasetBuildConfig",
     "DomainWindowLoaderProtocol",
