@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Protocol
 from ml.config.coverage import CoveragePolicy
 from ml.config.coverage import get_max_lookback_days
 from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 
@@ -40,9 +41,20 @@ class DatasetBuildConfig:
     macro_lag_days: int = 1
     include_micro: bool = False
     include_l2: bool = False
+    include_events: bool = False
+    include_calendar: bool = False
     horizon_minutes: int = 15
     threshold: float = 0.001
     lookback_periods: int = 30
+    emit_dataset_events: bool = False
+    # Optional time window and chunking for memory/perf control
+    start_iso: str | None = None
+    end_iso: str | None = None
+    chunk_days: int = 0
+    # Optional feature registration
+    register_features: bool = False
+    feature_registry_dir: str | None = None
+    feature_role: str = "teacher"
 
 
 @dataclass(slots=True, frozen=True)
@@ -94,6 +106,7 @@ class MLPipelineOrchestrator:
     writer: MarketDataWriterProtocol
     registry: object  # RegistryProtocol at runtime; kept lax to avoid import cycles
     ingestor: object  # DatabentoIngestor or similar
+    raw_writer: RawIngestionWriterProtocol | None = None
 
     build_main: _CliMain
     hpo_main: _CliMain | None
@@ -144,6 +157,7 @@ class MLPipelineOrchestrator:
             writer=self.writer,
             registry=self.registry,  # type: ignore[arg-type]
             ingestor=self.ingestor,  # type: ignore[arg-type]
+            raw_writer=self.raw_writer,
         )
         return orchestrator.backfill_gaps(
             dataset_id=dataset_id,
@@ -175,35 +189,56 @@ class MLPipelineOrchestrator:
         )
 
     def build_dataset(self, cfg: DatasetBuildConfig) -> int:
-        # Prefer the public API when CLI main is not provided (keeps tests stubbing CLI intact)
-        if self.build_main is None:
+        # Prefer the public API to capture BuildResult (feature_set_id). Fallback to CLI if it fails.
+        try:
+            from ml.data import DatasetBuildConfig as APICfg
+            from ml.data import build_tft_dataset as api_build
+
+            symbols_list = [s.strip().upper() for s in cfg.symbols.split(",") if s.strip()]
+            api_cfg = APICfg(
+                data_dir=Path(cfg.data_dir),
+                out_dir=Path(cfg.out_dir),
+                symbols=symbols_list,
+                include_macro=cfg.include_macro,
+                macro_lag_days=cfg.macro_lag_days,
+                include_micro=cfg.include_micro,
+                include_l2=cfg.include_l2,
+                include_events=cfg.include_events,
+                include_calendar=cfg.include_calendar,
+                horizon_minutes=cfg.horizon_minutes,
+                threshold=cfg.threshold,
+                lookback_periods=cfg.lookback_periods,
+                start=(None if not cfg.start_iso else __import__("datetime").datetime.fromisoformat(cfg.start_iso)),
+                end=(None if not cfg.end_iso else __import__("datetime").datetime.fromisoformat(cfg.end_iso)),
+                chunk_days=int(cfg.chunk_days or 0),
+                emit_dataset_events=cfg.emit_dataset_events,
+                register_features=cfg.register_features,
+                feature_registry_dir=(None if cfg.feature_registry_dir is None else Path(cfg.feature_registry_dir)),
+                feature_role=cfg.feature_role,
+            )
+            result = api_build(api_cfg)
+            # Persist feature registration metadata for HPO
             try:
-                from ml.data import DatasetBuildConfig as APICfg
-                from ml.data import build_tft_dataset as api_build
+                meta_path = Path(cfg.out_dir) / "feature_registration.json"
+                import json as _json
 
-                symbols_list = [s.strip().upper() for s in cfg.symbols.split(",") if s.strip()]
-                api_cfg = APICfg(
-                    data_dir=Path(cfg.data_dir),
-                    out_dir=Path(cfg.out_dir),
-                    symbols=symbols_list,
-                    include_macro=cfg.include_macro,
-                    macro_lag_days=cfg.macro_lag_days,
-                    include_micro=cfg.include_micro,
-                    include_l2=cfg.include_l2,
-                    horizon_minutes=cfg.horizon_minutes,
-                    threshold=cfg.threshold,
-                    lookback_periods=cfg.lookback_periods,
-                )
-                api_build(api_cfg)
-                return 0
-            except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
-                import logging as _logging
+                payload = {
+                    "feature_set_id": result.feature_set_id,
+                    "feature_registry_dir": cfg.feature_registry_dir,
+                    "feature_role": cfg.feature_role,
+                }
+                meta_path.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+            return 0
+        except Exception as exc:  # pragma: no cover - defensive fallback to CLI path
+            import logging as _logging
 
-                _logging.getLogger(__name__).debug(
-                    "API-based dataset build failed; falling back to CLI: %s",
-                    exc,
-                    exc_info=True,
-                )
+            _logging.getLogger(__name__).debug(
+                "API-based dataset build failed; falling back to CLI: %s",
+                exc,
+                exc_info=True,
+            )
 
         # Fallback to invoking the CLI main with assembled args
         args: list[str] = [
@@ -226,6 +261,22 @@ class MLPipelineOrchestrator:
             args += ["--include_micro"]
         if cfg.include_l2:
             args += ["--include_l2"]
+        if getattr(cfg, "include_events", False):
+            args += ["--include_events"]
+        if getattr(cfg, "include_calendar", False):
+            args += ["--include_calendar"]
+        if getattr(cfg, "start_iso", None):
+            args += ["--start", str(cfg.start_iso)]
+        if getattr(cfg, "end_iso", None):
+            args += ["--end", str(cfg.end_iso)]
+        if int(getattr(cfg, "chunk_days", 0) or 0) > 0:
+            args += ["--chunk_days", str(int(cfg.chunk_days))]
+        if cfg.emit_dataset_events:
+            args += ["--emit_dataset_events"]
+        if cfg.register_features:
+            args += ["--register_features"]
+            reg_dir = cfg.feature_registry_dir or str(Path.home() / ".nautilus" / "ml" / "features")
+            args += ["--feature_registry_dir", reg_dir]
         return self.build_main(args)
 
     def run_hpo(self, cfg: HPOConfig, dataset_csv: Path, out_dir: Path) -> int:

@@ -58,6 +58,8 @@ from ml.stores.mixins import HealthMixin
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import pandas as pd
     from nautilus_trader.model.data import Bar
     from polars import DataFrame as PlDataFrame
@@ -980,11 +982,60 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         Derive a stable feature_set_id for storage.
 
         Prefer pipeline signature; otherwise use config hash prefix.
-
         """
         if self.pipeline_hash:
             return f"fs_{self.pipeline_hash[:12]}"
         return f"fs_{self._compute_config_hash()[:12]}"
+
+    def get_latest_at_or_before(self, instrument_id: str, ts_event: int) -> dict[str, float] | None:
+        """
+        Return the latest feature row at or before the given timestamp.
+
+        Parameters
+        ----------
+        instrument_id : str
+            Instrument identifier.
+        ts_event : int
+            Event timestamp in nanoseconds.
+
+        Returns
+        -------
+        dict[str, float] | None
+            Mapping of feature name to value, or None when not found.
+        """
+        from typing import Any, cast
+
+        from sqlalchemy import desc
+
+        from ml.common.timestamps import sanitize_timestamp_ns
+
+        ts_norm = sanitize_timestamp_ns(int(ts_event), context="feature_store.get_latest_at_or_before")
+        feature_set_id = self._get_feature_set_id()
+        query = (
+            select(self.feature_values_table.c["values"])
+            .where(
+                (self.feature_values_table.c.feature_set_id == feature_set_id)
+                & (self.feature_values_table.c.instrument_id == instrument_id)
+                & (self.feature_values_table.c.ts_event <= ts_norm),
+            )
+            .order_by(desc(self.feature_values_table.c.ts_event))
+            .limit(1)
+        )
+        with self.engine.connect() as conn:
+            row = conn.execute(query).fetchone()
+        if not row:
+            return None
+        mapping: Any = row[0]
+        if isinstance(mapping, str):
+            import json as _json
+            try:
+                mapping = _json.loads(mapping)
+            except Exception:
+                mapping = {}
+        try:
+            return {str(k): float(v) for k, v in cast(dict[str, Any], mapping or {}).items()}
+        except Exception:
+            return {}
 
     def clear_features(
         self,
@@ -1021,10 +1072,12 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         self,
         feature_set_id: str | None = None,
         instrument_id: str | None = None,
-        features: dict[str, float] | None = None,
+        features: Mapping[str, float] | None = None,
         ts_event: int | None = None,
         ts_init: int | None = None,
         data: Any | None = None,
+        *,
+        publish_bus: bool = True,
     ) -> None:
         """
         Write computed features to storage.
@@ -1047,6 +1100,13 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             Initialization timestamp in nanoseconds (explicit mode)
         data : Any | None
             Backwards-compat: a FeatureData or list[FeatureData]
+
+        Parameters
+        ----------
+        publish_bus : bool, keyword-only, default True
+            When True and publishing is enabled, publish a summary payload to the
+            configured message bus. Set to False to suppress publishing when
+            orchestrated by a higher-level facade (e.g., DataStore).
 
         """
         # Backwards compatibility: support write_features([FeatureData]) / (batch)
@@ -1095,6 +1155,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
                 and self.publisher is not None
                 and batch
                 and self._publish_mode in ("batch", "both")
+                and publish_bus
             ):
                 try:
                     stage = Stage.FEATURE_COMPUTED
@@ -1132,6 +1193,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
         ts_init_val = int(ts_init) if ts_init is not None else int(ts_event)
 
         # Normalize features mapping defensively
+
         features_payload: dict[str, float] = {
             str(k): float(v) for k, v in dict(features or {}).items()
         }
@@ -1154,6 +1216,7 @@ class FeatureStore(HealthMixin, BusPublisherMixin, DataRegistryMixin):
             and instrument_id is not None
             and ts_event is not None
             and self._publish_mode in ("batch", "both")
+            and publish_bus
         ):
             try:
                 stage = Stage.FEATURE_COMPUTED

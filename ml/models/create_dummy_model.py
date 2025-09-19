@@ -82,7 +82,7 @@ def create_dummy_model() -> "onnx.ModelProto":
 
     return model_def
 
-def verify_model(model_path):
+def verify_model(model_path: str) -> bool:
     """Verify the model works with ONNX Runtime."""
     session = ort.InferenceSession(model_path)
 

@@ -43,6 +43,9 @@ from ml.stores.services.strategy_services import StrategySignalWriteService
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from collections.abc import Sequence
+
     import pandas as pd
     from nautilus_trader.common.clock import Clock
 
@@ -259,9 +262,9 @@ class StrategyStore(
         instrument_id: str,
         signal_type: str,
         strength: float,
-        model_predictions: dict[str, float],
-        risk_metrics: dict[str, float],
-        execution_params: dict[str, Any],
+        model_predictions: Mapping[str, float],
+        risk_metrics: Mapping[str, float],
+        execution_params: Mapping[str, Any],
         ts_event: int,
         is_live: bool = False,
     ) -> None:
@@ -311,9 +314,9 @@ class StrategyStore(
             instrument_id=instrument_id,
             signal_type=signal_type,
             strength=strength,
-            model_predictions=model_predictions,
-            risk_metrics=risk_metrics,
-            execution_params=execution_params,
+            model_predictions=dict(model_predictions) if not isinstance(model_predictions, dict) else model_predictions,
+            risk_metrics=dict(risk_metrics) if not isinstance(risk_metrics, dict) else risk_metrics,
+            execution_params=dict(execution_params) if not isinstance(execution_params, dict) else execution_params,
             _ts_event=ts_event_norm,
             _ts_init=ts_init,
         )
@@ -327,7 +330,7 @@ class StrategyStore(
             self.flush()
 
     @override
-    def write_batch(self, data: list[StrategySignal]) -> None:
+    def write_batch(self, data: Sequence[StrategySignal], emit_events: bool = True, publish_bus: bool = True) -> None:
         """
         Write batch of strategy signals.
 
@@ -349,7 +352,7 @@ class StrategyStore(
         ts_stage_start = time.time_ns()
 
         # Delegate to write service to avoid duplication and preserve patch points
-        self._write_service.write_batch(data)
+        self._write_service.write_batch(list(data), publish_bus=publish_bus)
 
         # Record observability data (off hot path - background processing only)
         ts_stage_end = time.time_ns()
@@ -787,3 +790,6 @@ class StrategyStore(
     connection_string: str | None
     persistence: object | None
     _last_flush_ns: int
+    # SQLAlchemy tables created in _setup_tables; typed loosely for protocol conformance
+    strategy_signals_table: Any
+    strategy_performance_table: Any

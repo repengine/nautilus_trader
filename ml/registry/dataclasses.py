@@ -102,6 +102,7 @@ class ValidationRuleType(Enum):
     MONOTONICITY = "monotonicity"
     NULLABILITY = "nullability"
     LATENESS = "lateness"
+    REGEX = "regex"
 
 
 class QualityFlag(Enum):
@@ -192,6 +193,9 @@ class ValidationRule:
         elif self.rule_type == ValidationRuleType.LATENESS:
             if "max_lateness_ns" not in self.parameters:
                 raise ValueError("Lateness rule requires 'max_lateness_ns' parameter")
+        elif self.rule_type == ValidationRuleType.REGEX:
+            if "pattern" not in self.parameters or not isinstance(self.parameters["pattern"], str):
+                raise ValueError("Regex rule requires 'pattern' string parameter")
 
 
 @dataclass(frozen=True)

@@ -62,16 +62,31 @@ except Exception:  # pragma: no cover - prometheus optional
 _METRICS: dict[str, Any] = {}
 
 
-def _key(name: str, labelnames: Iterable[str] | None) -> str:
-    labels_tuple: tuple[str, ...] = tuple(labelnames) if labelnames is not None else tuple()
+def _labels_tuple(
+    labelnames: Iterable[str] | None,
+    labels: Iterable[str] | None,
+) -> tuple[str, ...]:
+    names = labels if labels is not None else labelnames
+    return tuple(names) if names is not None else tuple()
+
+
+def _key(name: str, labelnames: Iterable[str] | None, labels: Iterable[str] | None = None) -> str:
+    labels_tuple: tuple[str, ...] = _labels_tuple(labelnames, labels)
     return f"{name}||{labels_tuple!r}"
 
 
-def get_counter(name: str, description: str, labelnames: Iterable[str] | None = None) -> Any:
-    k = _key(name, labelnames)
+def get_counter(
+    name: str,
+    description: str,
+    labelnames: Iterable[str] | None = None,
+    *,
+    labels: Iterable[str] | None = None,
+) -> Any:
+    k = _key(name, labelnames, labels)
     metric = _METRICS.get(k)
     if metric is None:
-        metric = _CounterCls(name, description, list(labelnames or ()))
+        names = list((labels or labelnames) or ())
+        metric = _CounterCls(name, description, names)
         _METRICS[k] = metric
     return metric
 
@@ -82,28 +97,37 @@ def get_histogram(
     labelnames: Iterable[str] | None = None,
     *,
     buckets: Iterable[float] | None = None,
+    labels: Iterable[str] | None = None,
 ) -> Any:
-    k = _key(name, labelnames)
+    k = _key(name, labelnames, labels)
     metric = _METRICS.get(k)
     if metric is None:
+        names = list((labels or labelnames) or ())
         if buckets is None:
-            metric = _HistogramCls(name, description, list(labelnames or ()))
+            metric = _HistogramCls(name, description, names)
         else:
             metric = _HistogramCls(
                 name,
                 description,
-                list(labelnames or ()),
+                names,
                 buckets=tuple(buckets),
             )
         _METRICS[k] = metric
     return metric
 
 
-def get_gauge(name: str, description: str, labelnames: Iterable[str] | None = None) -> Any:
-    k = _key(name, labelnames)
+def get_gauge(
+    name: str,
+    description: str,
+    labelnames: Iterable[str] | None = None,
+    *,
+    labels: Iterable[str] | None = None,
+) -> Any:
+    k = _key(name, labelnames, labels)
     metric = _METRICS.get(k)
     if metric is None:
-        metric = _GaugeCls(name, description, list(labelnames or ()))
+        names = list((labels or labelnames) or ())
+        metric = _GaugeCls(name, description, names)
         _METRICS[k] = metric
     return metric
 

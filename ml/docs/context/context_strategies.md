@@ -47,6 +47,25 @@ The following classes are exported from `ml.strategies`:
 
 All strategies inherit from `BaseMLStrategy` and extend Nautilus Trader's `Strategy` class.
 
+### Centralized Wiring and Events
+
+- Decision publisher service: `ml.strategies.services.StrategyDecisionPublisher` provides a typed `DecisionEvent` DTO and publishes decision events via the configured message bus. Topics are constructed with `ml.common.message_topics.build_topic_for_stage` and honor `MessageBusConfig.scheme`/`topic_prefix`.
+- DI for stores/registries: Strategies accept a container from `init_ml_stores_and_registries(config)`; when not provided and `use_strategy_store=True`, the container is created centrally.
+- Publisher attachment: When not injected explicitly, strategies create a best‑effort publisher from `MessageBusConfig.from_env()`. Tests can inject `ml.common.in_memory_bus.InMemoryPublisher` with wildcard subscriptions.
+
+### Circuit Breaker & Backpressure
+
+- Enable a strategy‑level breaker via `MLStrategyConfig.circuit_breaker_config`.
+  - Store writes: On repeated failures the breaker opens; the strategy emits a guardrail event with `Stage.SIGNAL_EMITTED.value` and `status=partial`, and increments `ml_fallback_activations_total` with labels `{component="strategy_store_write", level="open"}`. Writes are skipped until recovery.
+  - Order submission: When open, the strategy degrades to DRY‑RUN (no submits) and publishes a partial decision event to signal backpressure.
+
+### Event Contracts
+
+- Decision events always include `stage=Stage.SIGNAL_EMITTED.value` and `status=EventStatus.*.value`.
+- Topic scheme parity:
+  - `domain_op`: `ml.strategies.created.{instrument_id}`
+  - `stage_first`: `{prefix}.SIGNAL_EMITTED.{instrument_id}`
+
 ## Base Class Hierarchy
 
 ### BaseMLStrategy (Abstract Base Class)
@@ -83,6 +102,63 @@ The foundational abstract class that all ML strategies inherit from. Extends Nau
 - **Signal Aggregation**: `aggregation_mode` ("voting", "weighted_average"), `required_models`
 - **Timing Control**: `time_window_ms` - Signal synchronization window for aggregation
 - **Performance Tracking**: `track_performance` - Per-model performance attribution
+
+### Component Sub‑Configs (Typed)
+
+Strategies accept optional component sub‑configs on `MLStrategyConfig` to precisely control sizing, risk, portfolio allocation, execution, and analytics. These are imported from `ml.strategies` and remain optional — defaults are applied when not specified.
+
+Example (typed usage):
+
+```python
+from ml.config.base import MLStrategyConfig
+from ml.strategies import (
+    SizingConfig,
+    RiskConfig,
+    ExecutionConfig,
+    PortfolioConfig,
+    AnalyticsConfig,
+)
+from ml.strategies import MLTradingStrategy
+from nautilus_trader.model.identifiers import InstrumentId
+
+cfg = MLStrategyConfig(
+    strategy_id="ML-STRAT-001",
+    instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
+    ml_signal_source="MLSignalActor-001",
+    execute_trades=False,  # safe default in staging
+    # Sub‑configs (all optional)
+    sizing_config=SizingConfig(
+        kelly_fraction=0.25,
+        target_volatility=0.12,
+        min_position_pct=0.01,
+        max_position_pct=0.15,
+    ),
+    risk_config=RiskConfig(
+        max_total_exposure=0.7,
+        daily_loss_limit_pct=0.05,
+        max_position_pct=0.15,
+    ),
+    execution_config=ExecutionConfig(
+        market_order_threshold=0.95,
+        limit_order_threshold=0.7,
+        prefer_maker_orders=True,
+        use_time_in_force_ioc=True,
+    ),
+    portfolio_config=PortfolioConfig(
+        allocation_method="risk_parity",
+        use_correlation_adjustment=True,
+        max_correlated_weight=0.4,
+    ),
+    analytics_config=AnalyticsConfig(
+        track_execution_quality=True,
+        report_frequency_minutes=60,
+    ),
+)
+
+strategy = MLTradingStrategy(cfg)
+```
+
+The base strategy wires these sub‑configs into concrete components at initialization time using protocol‑first interfaces, keeping the hot path allocation‑free and testable.
 - **Dynamic Weighting**: `model_weights` - Static or dynamic model weight allocation
 - **Source Filtering**: `signal_client_id` - Filter signals by source actor client ID
 - **Confidence Thresholds**: `min_confidence` - Minimum signal confidence for trading

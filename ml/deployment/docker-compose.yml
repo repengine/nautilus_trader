@@ -62,11 +62,17 @@ services:
       MODEL_PATH: /app/models/dummy_bullish_model.onnx
       INSTRUMENT_ID: SPY.EQUS
       BAR_TYPE: SPY.EQUS-1-MINUTE-LAST-EXTERNAL
+      # Optional multi-instrument universe (comma-separated symbols)
+      UNIVERSE_SYMBOLS: "${UNIVERSE_SYMBOLS:-}"
 
       # Actor configuration
       ACTOR_ID: MLSignalActor-001
       USE_DUMMY_STORES: "false"  # Use real PostgreSQL
       LOG_LEVEL: INFO
+      # Multi-instrument batching (optional)
+      MAX_BATCH_SIZE: "${MAX_BATCH_SIZE:-128}"
+      FEATURE_DIM: "${FEATURE_DIM:-64}"
+      FLUSH_MAX_LATENCY_MS: "${FLUSH_MAX_LATENCY_MS:-0}"
 
     volumes:
       - ../models:/app/models:ro  # Mount models directory
@@ -228,6 +234,31 @@ services:
       - prometheus
     networks:
       - nautilus-ml
+
+  # Dashboard Control Plane (cold path)
+  ml_dashboard:
+    build:
+      context: ../..
+      dockerfile: ml/deployment/Dockerfile.pipeline
+    environment:
+      ML_DASHBOARD_USE_COMPOSE: "${ML_DASHBOARD_USE_COMPOSE:-0}"
+      ML_DASHBOARD_TIMEOUT: "${ML_DASHBOARD_TIMEOUT:-2.5}"
+      ML_DASHBOARD_HOST: "0.0.0.0"
+      ML_ACTOR_HOST_PORT: "${ML_ACTOR_HOST_PORT:-8000}"
+      ML_STRATEGY_HOST_PORT: "${ML_STRATEGY_HOST_PORT:-8001}"
+      ML_PIPELINE_HOST_PORT: "${ML_PIPELINE_HOST_PORT:-8081}"
+      PROMETHEUS_HOST_PORT: "${PROMETHEUS_HOST_PORT:-9090}"
+      GRAFANA_HOST_PORT: "${GRAFANA_HOST_PORT:-3000}"
+      ML_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    command: ["python", "-m", "ml.dashboard.serve"]
+    depends_on:
+      - prometheus
+      - grafana
+    networks:
+      - nautilus-ml
+    restart: unless-stopped
+    ports:
+      - "${ML_DASHBOARD_HOST_PORT:-8010}:8010"
 
 volumes:
   postgres_data:

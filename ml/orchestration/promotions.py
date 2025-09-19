@@ -13,7 +13,7 @@ They avoid expanding orchestrator complexity and keep all work off hot paths.
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ml.common.event_emitter import emit_dataset_event
 from ml.config.events import EventStatus
@@ -128,6 +128,24 @@ def register_and_promote_model(
         quality_gates=gates,
         enforce_quality=True,
     )
+
+    # Attach optional metadata fields into registry metadata (best-effort)
+    try:
+        meta_update: dict[str, object] = {}
+        td = data.get("training_dataset_id")
+        if isinstance(td, str) and td:
+            meta_update["training_dataset_id"] = td
+        uids = data.get("universe_instrument_ids")
+        if isinstance(uids, list):
+            meta_update["universe_instrument_ids"] = [str(x) for x in uids]
+        usyms = data.get("universe_symbols")
+        if isinstance(usyms, list):
+            meta_update["universe_symbols"] = [str(x) for x in usyms]
+        if meta_update:
+            registry.update_metadata(model_id_out, meta_update)
+    except Exception:
+        # Non-fatal advisory metadata update
+        pass
 
     # Track numeric metrics in performance history
     perf_metrics = {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
@@ -272,4 +290,240 @@ def register_or_refresh_features(
     return feature_set_id
 
 
-__all__ = ["register_and_promote_model", "register_or_refresh_features"]
+from collections.abc import Mapping
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Literal
+
+from ml.orchestration.stage2_engine import Stage2Result
+from ml.orchestration.stage2_engine import build_engine
+
+
+@dataclass(slots=True, frozen=True)
+class Stage2Config:
+    """
+    Configuration for promotion stage 2 (walk-forward + backtest, cold path).
+
+    All inputs are cold-path friendly. This stage operates on dataset artifacts and
+    training outputs to compute trading metrics with simple cost modeling, then applies
+    quality gates and optionally deploys the model to a target.
+    """
+
+    out_dir: str
+    dataset_csv: str
+    data_dir: str
+    horizon_minutes: int
+    # Engine selection: 'returns' (default) or 'backtest' (advisory)
+    engine_mode: Literal["returns", "backtest"] = "returns"
+    # Cost model knobs (bps) — applied in returns engine and advisory for backtest
+    cost_bps: float = 0.0
+    commission_bps: float = 0.0
+    slippage_bps: float = 0.0
+    model_id_hint: str | None = None
+    gates: Sequence[QualityGate] = ()
+    auto_promote: bool = False
+    deploy_target: str | None = None
+
+
+def _load_json_safe(path: Path) -> dict[str, object] | None:
+    try:
+        return _load_json(path)
+    except Exception:
+        return None
+
+
+def _resolve_model_id_from_artifacts(cfg: Stage2Config) -> str | None:
+    # Priority: explicit hint → model_metrics.json → teacher_meta.json
+    if cfg.model_id_hint:
+        return cfg.model_id_hint
+    mm = _load_json_safe(Path(cfg.out_dir) / "model_metrics.json")
+    if mm and isinstance(mm.get("model_id"), str):
+        return cast(str, mm["model_id"])
+    tm = _load_json_safe(Path(cfg.out_dir) / "teacher_meta.json")
+    if tm and isinstance(tm.get("model_id"), str):
+        return cast(str, tm["model_id"])
+    return None
+
+
+def _evaluate_gates(metrics: Mapping[str, float], gates: Sequence[QualityGate]) -> tuple[bool, list[str]]:
+    failures: list[str] = []
+    for g in gates:
+        val = metrics.get(g.metric_name)
+        if val is None:
+            if g.required:
+                failures.append(f"missing:{g.metric_name}")
+            continue
+        ok = True
+        cmp = (g.comparison or "gte").lower()
+        if cmp == "gte":
+            ok = float(val) >= float(g.threshold)
+        elif cmp == "lte":
+            ok = float(val) <= float(g.threshold)
+        elif cmp == "gt":
+            ok = float(val) > float(g.threshold)
+        elif cmp == "lt":
+            ok = float(val) < float(g.threshold)
+        else:
+            ok = float(val) >= float(g.threshold)
+        if not ok and g.required:
+            failures.append(f"{g.metric_name}:{val} !{cmp} {g.threshold}")
+    return (len(failures) == 0, failures)
+
+
+def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
+    """
+    Run walk-forward style validation on the held-out window and compute trading metrics,
+    then apply quality gates and optionally promote the model.
+
+    Returns a summary dict and writes stage2_metrics.json in out_dir.
+    """
+    # Choose engine and run
+    engine = build_engine(cfg.engine_mode)
+    result: Stage2Result
+    if isinstance(engine, object):
+        result = engine.run(cfg)
+        # If backtest engine is unavailable or skipped, fall back to returns engine
+        if result.status == "skipped" and str(cfg.engine_mode) == "backtest":
+            result = build_engine("returns").run(cfg)
+    else:
+        result = Stage2Result(status="skipped", metrics={}, reason="invalid engine")
+
+    # Persist stage2 metrics
+    out = Path(cfg.out_dir) / "stage2_metrics.json"
+    _ensure_parent_dir(out)
+    import json as _json
+
+    out.write_text(_json.dumps(result.metrics, indent=2), encoding="utf-8")
+
+    # 5) Apply gates and optionally promote
+    ok, failures = _evaluate_gates(result.metrics, list(cfg.gates))
+    model_id = _resolve_model_id_from_artifacts(cfg)
+
+    # Track performance in registry and optionally deploy
+    try:
+        from typing import Any as _Any
+
+        from ml.core.integration import MLIntegrationManager
+
+        mgr = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+        reg_any = cast(_Any, mgr.model_registry)
+        if model_id:
+            reg_any.track_performance(model_id, result.metrics)
+            if ok and cfg.auto_promote and cfg.deploy_target:
+                reg_any.deploy_model(model_id, cfg.deploy_target)
+    except Exception as exc:  # pragma: no cover - best-effort integration
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug("Stage2 registry integration failed: %s", exc, exc_info=True)
+
+    # Emit event (best-effort)
+    try:
+        from typing import Any as _Any
+
+        from ml.core.integration import MLIntegrationManager
+
+        mgr2 = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+        emit_dataset_event(
+            cast(_Any, mgr2.data_registry),
+            dataset_id="model",
+            instrument_id="GLOBAL",
+            stage=Stage.SIGNAL_EMITTED,
+            source=Source.HISTORICAL,
+            run_id=f"stage2_{model_id or 'unknown'}",
+            ts_min=0,
+            ts_max=0,
+            count=1,
+            status=EventStatus.SUCCESS if ok else EventStatus.FAILED,
+            metadata={"failures": failures, "model_id": model_id or ""},
+            dataset_type="model",
+            component="promotions.stage2",
+        )
+    except Exception:
+        pass
+
+    summary: dict[str, object] = {
+        "status": cast(object, "passed" if ok else "failed"),
+        "model_id": cast(object, model_id),
+        "metrics": cast(object, result.metrics),
+        "failures": cast(object, failures),
+        "promoted": cast(object, bool(ok and cfg.auto_promote and cfg.deploy_target and model_id)),
+    }
+
+    # Write promotion report consolidating gates and config
+    try:
+        report = {
+            **summary,
+            "engine_mode": str(cfg.engine_mode),
+            "cost_bps": float(cfg.cost_bps),
+            "commission_bps": float(cfg.commission_bps),
+            "slippage_bps": float(cfg.slippage_bps),
+            "dataset_csv": str(cfg.dataset_csv),
+            "data_dir": str(cfg.data_dir),
+            "horizon_minutes": int(cfg.horizon_minutes),
+            "gates": [
+                {
+                    "metric": g.metric_name,
+                    "threshold": g.threshold,
+                    "comparison": g.comparison,
+                    "required": g.required,
+                }
+                for g in cfg.gates
+            ],
+        }
+        (Path(cfg.out_dir) / "promotion_report.json").write_text(_json.dumps(report, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    return summary
+
+
+def run_promotion_stage2_backtest(cfg: Stage2Config) -> dict[str, object]:
+    """
+    Advisory backtest integration.
+
+    Attempts to use Nautilus Trader BacktestEngine if available; otherwise falls back
+    to the returns-based implementation. Cost knobs (commission/slippage) are advisory
+    and may be folded into the effective bps when BacktestEngine is unavailable.
+    """
+    try:
+        # Lazy import to avoid hard dependency
+        from nautilus_trader.backtest.engine import BacktestEngine
+        from nautilus_trader.backtest.engine import BacktestEngineConfig
+
+        _ = BacktestEngine, BacktestEngineConfig
+    except Exception:
+        # Fall back to returns path
+        return run_promotion_stage2(dataclass_replace(cfg, engine_mode="returns"))
+
+    # Engine present; until full parity (instrument/model/features) is wired, reuse
+    # the deterministic returns-based computation to produce stable metrics.
+    return run_promotion_stage2(dataclass_replace(cfg, engine_mode="returns"))
+
+
+def dataclass_replace(cfg: Stage2Config, **updates: object) -> Stage2Config:
+    """
+    Create a new Stage2Config with specified fields updated.
+    """
+    return Stage2Config(
+        out_dir=cast(str, updates.get("out_dir", cfg.out_dir)),
+        dataset_csv=cast(str, updates.get("dataset_csv", cfg.dataset_csv)),
+        data_dir=cast(str, updates.get("data_dir", cfg.data_dir)),
+        horizon_minutes=cast(int, updates.get("horizon_minutes", cfg.horizon_minutes)),
+        engine_mode=cast(Literal["returns", "backtest"], updates.get("engine_mode", cfg.engine_mode)),
+        cost_bps=cast(float, updates.get("cost_bps", cfg.cost_bps)),
+        commission_bps=cast(float, updates.get("commission_bps", cfg.commission_bps)),
+        slippage_bps=cast(float, updates.get("slippage_bps", cfg.slippage_bps)),
+        model_id_hint=cast(str | None, updates.get("model_id_hint", cfg.model_id_hint)),
+        gates=cast(Sequence[QualityGate], updates.get("gates", cfg.gates)),
+        auto_promote=cast(bool, updates.get("auto_promote", cfg.auto_promote)),
+        deploy_target=cast(str | None, updates.get("deploy_target", cfg.deploy_target)),
+    )
+
+
+__all__ = [
+    "Stage2Config",
+    "register_and_promote_model",
+    "register_or_refresh_features",
+    "run_promotion_stage2",
+    "run_promotion_stage2_backtest",
+]

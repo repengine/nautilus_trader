@@ -698,10 +698,26 @@ class BaseMLTrainer(ABC):
 
         self._log_info(f"Starting {n_folds}-fold {cv_strategy} cross-validation")
 
-        if cv_strategy == "time_series":
+        # Time-series safe strategies only
+        if cv_strategy in ("time_series", "standard", "blocked"):
+            # Map any non-purged strategy to time_series for safety
+            if cv_strategy == "standard":
+                self._log_warning(
+                    "cv_strategy 'standard' is deprecated; using time_series CV",
+                )
+            if cv_strategy == "blocked":
+                self._log_warning(
+                    "cv_strategy 'blocked' not implemented; using time_series CV",
+                )
             return self._time_series_cv(X, y, n_folds, **kwargs)
-        else:
-            return self._standard_cv(X, y, n_folds, **kwargs)
+        if cv_strategy == "purged":
+            return self._purged_cv(X, y, n_folds, **kwargs)
+
+        # Unknown strategies default to time-series safe behavior
+        self._log_warning(
+            f"Unknown cv_strategy '{cv_strategy}'; using time_series CV",
+        )
+        return self._time_series_cv(X, y, n_folds, **kwargs)
 
     def _time_series_cv(
         self,
@@ -778,7 +794,44 @@ class BaseMLTrainer(ABC):
         **kwargs: Any,
     ) -> list[dict[str, float]]:
         """
-        Perform standard k-fold cross-validation.
+        Deprecated: Use time-series aware CV. This method forwards to
+        time-series CV to avoid unsafe shuffling on temporal data.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Features.
+        y : np.ndarray
+            Targets.
+        n_folds : int
+            Number of folds.
+        **kwargs : Any
+            Additional parameters.
+
+        Returns
+        -------
+        list[dict[str, float]]
+            CV results.
+
+        """
+        self._log_warning(
+            "cv_strategy 'standard' is deprecated; using time_series CV for safety",
+        )
+        return self._time_series_cv(X, y, n_folds, **kwargs)
+
+    def _purged_cv(
+        self,
+        X: npt.NDArray[np.float64],
+        y: npt.NDArray[np.float64],
+        n_folds: int,
+        **kwargs: Any,
+    ) -> list[dict[str, float]]:
+        """
+        Purged/embargoed walk-forward cross-validation (time-series safe).
+
+        Uses ml.preprocessing.stationarity.PurgedCrossValidator to generate
+        train/test indices which respect a purge gap and optional embargo
+        window to prevent temporal leakage.
 
         Parameters
         ----------
@@ -798,51 +851,65 @@ class BaseMLTrainer(ABC):
 
         """
         try:
-            if not HAS_SKLEARN:
-                raise ImportError
-            from sklearn.model_selection import KFold
-
-            # Ensure valid n_splits
-            n_splits: int = int(min(max(2, n_folds), len(X)))
-            if n_splits < 2:
-                self._log_warning("Insufficient samples for KFold; skipping CV")
-                return []
-            kf: KFold = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-            results: list[dict[str, float]] = []
-
-            for train_idx, val_idx in kf.split(X):
-                X_train_cv = X[train_idx]
-                y_train_cv = y[train_idx]
-                X_val_cv = X[val_idx]
-                y_val_cv = y[val_idx]
-
-                # Train model for this fold
-                model = self._create_model(self._get_model_params())
-                if hasattr(model, "fit"):
-                    model.fit(
-                        X_train_cv,
-                        y_train_cv,
-                        eval_set=[(X_val_cv, y_val_cv)],
-                        verbose=False,
-                    )
-                else:
-                    model = self._train_with_params(
-                        X_train_cv,
-                        y_train_cv,
-                        X_val_cv,
-                        y_val_cv,
-                        kwargs,
-                    )
-
-                # Evaluate
-                fold_metrics = self.evaluate(model, X_val_cv, y_val_cv)
-                results.append(fold_metrics)
-
-            return results
-
-        except ImportError:
-            self._log_warning("scikit-learn not available, falling back to simple CV")
+            from ml.preprocessing.stationarity import PurgedCrossValidator
+        except Exception as exc:  # pragma: no cover - defensive
+            self._log_warning(
+                f"PurgedCrossValidator unavailable ({exc}); falling back to time_series CV",
+            )
             return self._time_series_cv(X, y, n_folds, **kwargs)
+
+        n_samples: int = len(X)
+        if n_folds > n_samples:
+            n_folds = n_samples
+        if n_folds < 2 or n_samples < 2:
+            self._log_warning("Insufficient samples for purged CV; skipping CV")
+            return []
+
+        purge_gap: int = int(getattr(self._config, "purge_gap", 0) or 0)
+        embargo_pct: float = float(getattr(self._config, "embargo_pct", 0.0) or 0.0)
+
+        cv = PurgedCrossValidator(
+            n_splits=int(n_folds),
+            purge_gap=purge_gap,
+            embargo_pct=embargo_pct,
+        )
+
+        results: list[dict[str, float]] = []
+        for train_idx, val_idx in cv.split(X, y):
+            X_train_cv = X[train_idx]
+            y_train_cv = y[train_idx]
+            X_val_cv = X[val_idx]
+            y_val_cv = y[val_idx]
+
+            model = self._create_model(self._get_model_params())
+            if hasattr(model, "fit"):
+                model.fit(
+                    X_train_cv,
+                    y_train_cv,
+                    eval_set=[(X_val_cv, y_val_cv)],
+                    verbose=False,
+                )
+            else:
+                model = self._train_with_params(
+                    X_train_cv,
+                    y_train_cv,
+                    X_val_cv,
+                    y_val_cv,
+                    kwargs,
+                )
+
+            fold_metrics = self.evaluate(model, X_val_cv, y_val_cv)
+            results.append(fold_metrics)
+
+        # Optional: log aggregate
+        if results:
+            avg_metrics: dict[str, float] = {}
+            for key in results[0].keys():
+                avg_metrics[f"cv_{key}_mean"] = float(np.mean([r[key] for r in results]))
+                avg_metrics[f"cv_{key}_std"] = float(np.std([r[key] for r in results]))
+            self._log_info(f"Purged CV results: {avg_metrics}")
+
+        return results
 
     def _start_mlflow_run(self) -> None:
         """

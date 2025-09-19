@@ -21,9 +21,9 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import TraderId
 
+from ml.actors.multi_signal import MultiInstrumentSignalActor
+from ml.actors.multi_signal import MultiInstrumentSignalActorConfig
 from ml.actors.recorder import RecorderActor
-from ml.actors.signal import MLSignalActor
-from ml.actors.signal import MLSignalActorConfig
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
 from ml.config.base import MLFeatureConfig
@@ -140,8 +140,8 @@ class MLSignalActorNode:
             fill_missing_with=0.0,
         )
 
-        # Actor configuration
-        actor_kwargs = {
+        # Actor configuration (base kwargs shared with multi-instrument config)
+        actor_kwargs: dict[str, Any] = {
             "model_id": actor_id.replace("Actor", "Model"),
             "component_id": actor_id,
             "model_path": model_path,
@@ -149,6 +149,7 @@ class MLSignalActorNode:
             "instrument_id": instrument_id,
             "prediction_threshold": _get_float("PREDICTION_THRESHOLD", 0.5),
             "max_inference_latency_ms": _get_float("MAX_INFERENCE_LATENCY_MS", 5.0),
+            "max_feature_latency_ms": _get_float("MAX_FEATURE_LATENCY_MS", 0.5),
             "feature_config": feature_config,
             "warm_up_period": _get_int("WARM_UP_PERIOD", 20),
             "publish_signals": _get_bool("PUBLISH_SIGNALS", True),
@@ -195,7 +196,40 @@ class MLSignalActorNode:
             except Exception:
                 # Non-fatal; fall back to configured strategy
                 pass
-        actor_config = MLSignalActorConfig(**actor_kwargs)
+        # Multi-instrument extensions (batching + universe)
+        def _get_list(name: str) -> list[str] | None:
+            raw = os.getenv(name)
+            if not raw:
+                return None
+            items = [t.strip() for t in raw.split(",") if t.strip()]
+            return items or None
+
+        universe: list[str] | None = (
+            _get_list("ACTOR_UNIVERSE")
+            or _get_list("UNIVERSE_SYMBOLS")
+        )
+        if not universe:
+            # Default multi-instrument universe aligned with common US listings
+            # ETFs use EQUS aggregated venue; equities use XNAS symbols
+            universe = [
+                "SPY.EQUS",
+                "QQQ.EQUS",
+                "AAPL.XNAS",
+                "MSFT.XNAS",
+                "NVDA.XNAS",
+            ]
+
+        max_batch_size = _get_int("MAX_BATCH_SIZE", 128)
+        feature_dim = _get_int("FEATURE_DIM", 64)
+        flush_max_latency_ms = _get_int("FLUSH_MAX_LATENCY_MS", 0)
+
+        actor_config = MultiInstrumentSignalActorConfig(
+            **actor_kwargs,
+            max_batch_size=max_batch_size,
+            feature_dim=feature_dim,
+            initial_universe=universe,
+            flush_max_latency_ms=flush_max_latency_ms,
+        )
 
         # Trading node configuration
         data_engine_cfg: LiveDataEngineConfig = LiveDataEngineConfig(
@@ -240,13 +274,26 @@ class MLSignalActorNode:
             # This must happen after node creation but before build()
             self.node.add_data_client_factory("DATABENTO", DatabentoLiveDataClientFactory)
 
-        # Add ML Signal Actor
-        actor = MLSignalActor(config=actor_config)
+        # Add Multi‑Instrument ML Signal Actor by default
+        actor = MultiInstrumentSignalActor(config=actor_config)
         self.node.trader.add_actor(actor)
 
         # Subscribe to market data when using real feed
         if not use_mock_data:
-            actor.subscribe_bars(bar_type)
+            # If a universe is defined, subscribe each instrument to the same bar parameters
+            try:
+                bars_suffix = "-".join(str(bar_type).split("-")[1:])
+            except Exception:
+                bars_suffix = None
+            if universe:
+                for sym in universe:
+                    bt_str = f"{sym}-{bars_suffix}" if bars_suffix else str(bar_type)
+                    try:
+                        actor.subscribe_bars(BarType.from_str(bt_str))
+                    except Exception:
+                        actor.subscribe_bars(bar_type)
+            else:
+                actor.subscribe_bars(bar_type)
 
         # Optional: attach a lightweight RecorderActor to persist live bars
         live_record_enable = os.getenv("ML_LIVE_RECORD_ENABLE", "1").strip().lower() in {"1", "true", "yes"}

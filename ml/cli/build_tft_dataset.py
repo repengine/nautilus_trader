@@ -79,6 +79,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--macro_lag_days", type=int, default=1)
     ap.add_argument("--include_micro", action="store_true")
     ap.add_argument("--include_l2", action="store_true")
+    ap.add_argument("--include_events", action="store_true")
+    ap.add_argument("--include_calendar", action="store_true")
+    # Optional dataset events via DataRegistry (cold path)
+    ap.add_argument(
+        "--emit_dataset_events",
+        action="store_true",
+        help="Emit a SUCCESS dataset event (DataRegistry) with counts and time bounds",
+    )
     # Optional FeatureRegistry export
     ap.add_argument("--register_features", action="store_true")
     ap.add_argument("--feature_registry_dir", required=False)
@@ -117,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         macro_lag_days=args.macro_lag_days,
         include_micro=args.include_micro,
         include_l2=args.include_l2,
+        include_events=bool(args.include_events),
+        include_calendar=bool(args.include_calendar),
         horizon_minutes=args.horizon_minutes,
         threshold=args.threshold,
         lookback_periods=args.lookback_periods,
@@ -126,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         register_features=bool(args.register_features),
         feature_registry_dir=Path(args.feature_registry_dir) if args.feature_registry_dir else None,
         feature_role=str(args.feature_role),
+        emit_dataset_events=bool(args.emit_dataset_events),
     )
 
     result = api_build(cfg)

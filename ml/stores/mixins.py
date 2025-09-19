@@ -472,7 +472,7 @@ class ReadQueryMixin:
             else:
                 # Detect mocks returned by test doubles and degrade to engine path
                 try:
-                    from unittest.mock import MagicMock as _MM  # type: ignore
+                    from unittest.mock import MagicMock as _MM
 
                     if isinstance(rows, _MM) or (rows and isinstance(rows[0], _MM)):
                         rows = []
@@ -676,6 +676,7 @@ class SQLUpsertMixin:
         run_id_row: str,
         source: str,
         logger: Any,
+        publish_bus: bool = True,
     ) -> None:
         """
         Upsert rows and publish events with optional circuit-breaker protection.
@@ -734,7 +735,7 @@ class SQLUpsertMixin:
                 pass
 
         publish_batch_and_rows(
-            enable_publishing=bool(getattr(self, "_enable_publishing", False)),
+            enable_publishing=bool(getattr(self, "_enable_publishing", False) and publish_bus),
             publisher=getattr(self, "publisher", None),
             publish_mode=getattr(self, "_publish_mode", "batch"),
             topic_scheme=getattr(self, "_topic_scheme", "domain_op"),

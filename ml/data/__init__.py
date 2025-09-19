@@ -163,9 +163,9 @@ from ml.data.ingest.common import BackoffPolicy
 # Ingestion utilities
 from ml.data.ingest.common import IngestState
 from ml.data.ingest.common import RateLimiter
+
 # Note: DomainWindowLoaderProtocol and IngestionOrchestrator moved to avoid circular imports
 # Import directly from ml.data.ingest.orchestrator when needed
-
 # Performance and caching
 from ml.data.l2_cache import L2MinuteCache
 
@@ -182,9 +182,9 @@ from ml.data.providers.events import EventScheduleProvider
 
 # Data providers (protocol-based)
 from ml.data.providers.metadata import InstrumentMetadataProvider
+
 # Note: DataScheduler moved to avoid circular imports
 # Import directly from ml.data.scheduler when needed
-
 # Data sources (mocks and implementations)
 from ml.data.sources.calendar import MockCalendarSource
 from ml.data.sources.calendar import PandasCalendarSource
@@ -260,6 +260,8 @@ class DatasetBuildConfig:
     macro_lag_days: int = 1
     include_micro: bool = False
     include_l2: bool = False
+    include_events: bool = False
+    include_calendar: bool = False
     # Builder params
     horizon_minutes: int = 15
     threshold: float = 0.001
@@ -272,6 +274,8 @@ class DatasetBuildConfig:
     register_features: bool = False
     feature_registry_dir: Path | None = None
     feature_role: str = "teacher"  # teacher|student|inference_support
+    # Optional lineage/events (cold path only)
+    emit_dataset_events: bool = False
 
 
 @dataclass(frozen=True)
@@ -326,6 +330,8 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         macro_lag_days=cfg.macro_lag_days,
         include_micro=cfg.include_micro,
         include_l2=cfg.include_l2,
+        include_events=cfg.include_events,
+        include_calendar=cfg.include_calendar,
         micro_base_dir=str(cfg.data_dir),
         l2_base_dir=str(cfg.data_dir),
     )
@@ -444,6 +450,75 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
             flags=flags,
             cfg=reg_cfg,
         )
+
+    # Optional dataset event emission (best-effort; cold path only)
+    if cfg.emit_dataset_events:
+        try:
+            from ml.common.event_emitter import emit_dataset_event
+            from ml.config.events import EventStatus
+            from ml.config.events import Source
+            from ml.config.events import Stage
+            from ml.core.integration import MLIntegrationManager
+
+            mgr = MLIntegrationManager(
+                auto_start_postgres=False,
+                auto_migrate=False,
+                ensure_healthy=False,
+            )
+            data_registry = mgr.data_registry
+            # Derive basic stats
+            count = len(df_pd_sorted) if "df_pd_sorted" in locals() else 0
+            # Attempt to extract time bounds (ns) from available columns
+            ts_min_ns = 0
+            ts_max_ns = 0
+            try:
+                if "timestamp" in df_pd_sorted.columns:  # pandas path
+                    ts_col = df_pd_sorted["timestamp"]
+                    # Support ints or pandas datetime
+                    if hasattr(ts_col, "dt"):
+                        ts_min_ns = int(getattr(ts_col.min(), "value", ts_col.min()))
+                        ts_max_ns = int(getattr(ts_col.max(), "value", ts_col.max()))
+                    else:
+                        ts_min_ns = int(ts_col.min())
+                        ts_max_ns = int(ts_col.max())
+                elif "ts_event" in df_pd_sorted.columns:
+                    ts_min_ns = int(df_pd_sorted["ts_event"].min())
+                    ts_max_ns = int(df_pd_sorted["ts_event"].max())
+            except Exception:
+                ts_min_ns = 0
+                ts_max_ns = 0
+
+            # Emit a single SUCCESS event capturing lineage/flags
+            emit_dataset_event(
+                data_registry,
+                dataset_id="tft_dataset",
+                instrument_id="GLOBAL",
+                stage=Stage.FEATURE_COMPUTED,
+                source=Source.HISTORICAL,
+                run_id=f"build_tft_{int(__import__('time').time()*1e6):d}",
+                ts_min=ts_min_ns,
+                ts_max=ts_max_ns,
+                count=count,
+                status=EventStatus.SUCCESS,
+                metadata={
+                    "symbols": ",".join(cfg.symbols),
+                    "include_macro": bool(cfg.include_macro),
+                    "include_micro": bool(cfg.include_micro),
+                    "include_l2": bool(cfg.include_l2),
+                    "horizon_minutes": int(cfg.horizon_minutes),
+                    "lookback_periods": int(cfg.lookback_periods),
+                },
+                dataset_type="dataset",
+                component="dataset_builder",
+            )
+        except Exception:
+            # Best-effort; never fail the dataset build on event emission
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "Emit dataset event failed (ignored)",
+                exc_info=True,
+            )
 
     return BuildResult(
         dataset_parquet=dataset_parquet,

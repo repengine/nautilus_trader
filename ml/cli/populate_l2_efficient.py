@@ -153,12 +153,15 @@ def detect_data_gaps(
     output_dir: Path,
     start_date: datetime,
     end_date: datetime,
+    *,
+    schema: str,
 ) -> list[datetime]:
     """
     Detect missing dates in existing L2 data for a symbol, including integrity
     validation.
     """
-    final_file = output_dir / f"{symbol}_mbp-10.parquet"
+    final_tag = "mbp-10" if schema == "mbp-10" else schema
+    final_file = output_dir / f"{symbol}_{final_tag}.parquet"
 
     if not final_file.exists():
         # No existing data - need all dates
@@ -196,7 +199,8 @@ def detect_data_gaps(
                 missing_dates.append(date)
             else:
                 # Date exists in data, but validate daily integrity if we have daily files
-                daily_file = output_dir / f"{symbol}_mbp10_{date.strftime('%Y%m%d')}.parquet"
+                tag = "mbp10" if schema == "mbp-10" else schema.replace("-", "")
+                daily_file = output_dir / f"{symbol}_{tag}_{date.strftime('%Y%m%d')}.parquet"
                 if daily_file.exists() and not validate_data_integrity(daily_file, symbol, date):
                     logger.info(f"Re-downloading {date.date()} due to integrity issues")
                     missing_dates.append(date)
@@ -209,19 +213,21 @@ def detect_data_gaps(
         return get_business_dates(start_date, end_date)
 
 
-def merge_new_with_existing(symbol: str, output_dir: Path) -> None:
+def merge_new_with_existing(symbol: str, output_dir: Path, *, schema: str) -> None:
     """
     Merge new daily files with existing L2 data using streaming writes.
 
     Avoids loading the entire final file into memory.
 
     """
-    daily_files = sorted(output_dir.glob(f"{symbol}_mbp10_*.parquet"))
+    tag = "mbp10" if schema == "mbp-10" else schema.replace("-", "")
+    daily_files = sorted(output_dir.glob(f"{symbol}_{tag}_*.parquet"))
     if not daily_files:
         return
 
-    final_file = output_dir / f"{symbol}_mbp-10.parquet"
-    tmp_file = output_dir / f"{symbol}_mbp-10.tmp.parquet"
+    final_tag = "mbp-10" if schema == "mbp-10" else schema
+    final_file = output_dir / f"{symbol}_{final_tag}.parquet"
+    tmp_file = output_dir / f"{symbol}_{final_tag}.tmp.parquet"
 
     def _append_files_to_writer(
         writer: pq.ParquetWriter | None,
@@ -297,6 +303,9 @@ def download_l2_daily(
     symbol: str,
     date: datetime,
     output_dir: Path,
+    *,
+    dataset: str,
+    schema: str,
 ) -> int:
     """
     Download L2 data for a single day with basic retries.
@@ -318,9 +327,9 @@ def download_l2_daily(
     def _attempt() -> int:
         # Get the data stream first
         data_stream = client.timeseries.get_range(
-            dataset="EQUS.MINI",
+            dataset=dataset,
             symbols=[symbol],
-            schema="mbp-10",
+            schema=schema,
             start=start,
             end=end,
         )
@@ -345,7 +354,9 @@ def download_l2_daily(
             logger.warning(f"  {date.date()}: Only {len(df)} records (may be incomplete)")
 
         date_str = date.strftime("%Y%m%d")
-        output_file = output_dir / f"{symbol}_mbp10_{date_str}.parquet"
+        # Preserve mbp10 tag when schema is mbp-10; otherwise include schema
+        tag = "mbp10" if schema == "mbp-10" else schema.replace("-", "")
+        output_file = output_dir / f"{symbol}_{tag}_{date_str}.parquet"
         df.to_parquet(output_file)
 
         size_mb = output_file.stat().st_size / (1024 * 1024)
@@ -458,13 +469,14 @@ def _stream_merge_daily_files(daily_files: list[Path], tmp_output: Path) -> None
             writer.close()
 
 
-def combine_daily_files(symbol: str, output_dir: Path) -> None:
+def combine_daily_files(symbol: str, output_dir: Path, *, schema: str) -> None:
     """
     Combine daily L2 files into a single Parquet via streaming writes.
     """
     _clean_stale_temp_files(symbol, output_dir)
 
-    daily_files = sorted(output_dir.glob(f"{symbol}_mbp10_*.parquet"))
+    tag = "mbp10" if schema == "mbp-10" else schema.replace("-", "")
+    daily_files = sorted(output_dir.glob(f"{symbol}_{tag}_*.parquet"))
     if not daily_files:
         return
 
@@ -472,8 +484,9 @@ def combine_daily_files(symbol: str, output_dir: Path) -> None:
     total_size_mb = sum(f.stat().st_size for f in daily_files) / (1024 * 1024)
     logger.info(f"  Total size: {total_size_mb:.1f} MB; streaming merge")
 
-    output_file = output_dir / f"{symbol}_mbp-10.parquet"
-    tmp_output = output_dir / f"{symbol}_mbp-10.tmp.parquet"
+    final_tag = "mbp-10" if schema == "mbp-10" else schema
+    output_file = output_dir / f"{symbol}_{final_tag}.parquet"
+    tmp_output = output_dir / f"{symbol}_{final_tag}.tmp.parquet"
 
     try:
         _stream_merge_daily_files(daily_files, tmp_output)
@@ -555,6 +568,8 @@ def main() -> int:
         help="Shuffle symbol order to spread progress",
     )
     parser.add_argument("--rate-limit", type=int, default=60, help="API calls per minute throttle")
+    parser.add_argument("--dataset", type=str, default="DBEQ.BASIC", help="Databento dataset (default: DBEQ.BASIC)")
+    parser.add_argument("--schema", type=str, default="mbp-10", help="Depth schema: mbp-10|mbp-1|mbo (default: mbp-10)")
     parser.add_argument(
         "--sleep-between-symbols",
         type=float,
@@ -605,6 +620,7 @@ def main() -> int:
 
     logger.info(f"Downloading L2 data for {len(symbols_work)} symbols")
     logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
+    logger.info(f"Dataset: {args.dataset} | Schema: {args.schema}")
     logger.info("=" * 50)
 
     total_records = 0
@@ -636,7 +652,9 @@ def main() -> int:
         output_dir = args.data_dir / symbol / "l2"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        final_file = output_dir / f"{symbol}_mbp-10.parquet"
+        # Final file naming preserves mbp-10 tag; otherwise include schema name
+        final_tag = "mbp-10" if args.schema == "mbp-10" else args.schema
+        final_file = output_dir / f"{symbol}_{final_tag}.parquet"
 
         # Handle force mode or gap detection
         dates_to_download: list[datetime] = []
@@ -665,7 +683,13 @@ def main() -> int:
                 ]
             else:
                 # Fallback: inspect existing files
-                dates_to_download = detect_data_gaps(symbol, output_dir, start_date, end_date)
+                dates_to_download = detect_data_gaps(
+                    symbol,
+                    output_dir,
+                    start_date,
+                    end_date,
+                    schema=args.schema,
+                )
             if not dates_to_download:
                 if final_file.exists():
                     size_mb = final_file.stat().st_size / (1024 * 1024)
@@ -700,7 +724,14 @@ def main() -> int:
             elapsed = now - last_call_ts
             if elapsed < min_interval:
                 time.sleep(min_interval - elapsed)
-            records = download_l2_daily(client, symbol, date, output_dir)
+            records = download_l2_daily(
+                client,
+                symbol,
+                date,
+                output_dir,
+                dataset=args.dataset,
+                schema=args.schema,
+            )
             last_call_ts = time.time()
             symbol_records += records
             if records > 0:
@@ -711,10 +742,10 @@ def main() -> int:
         if symbol_records > 0:
             if args.check_gaps and final_file.exists():
                 # Merge new data with existing
-                merge_new_with_existing(symbol, output_dir)
+                merge_new_with_existing(symbol, output_dir, schema=args.schema)
             else:
                 # Fresh download - combine daily files normally
-                combine_daily_files(symbol, output_dir)
+                combine_daily_files(symbol, output_dir, schema=args.schema)
 
             if final_file.exists():
                 size_mb = final_file.stat().st_size / (1024 * 1024)

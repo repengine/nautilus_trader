@@ -1230,6 +1230,40 @@ class ModelRegistry(AbstractRegistry):
 
             logger.debug(f"Tracked performance for model {model_id}: {metrics}")
 
+    # --------------------------- metadata management ---------------------------
+    def update_metadata(self, model_id: str, metadata: dict[str, Any]) -> None:
+        """
+        Update arbitrary metadata for a registered model and persist.
+
+        This method is cold-path only and intended for orchestrator/promotions flows
+        to attach auxiliary information such as `training_dataset_id`,
+        `universe_instrument_ids`, or `universe_symbols`.
+
+        Parameters
+        ----------
+        model_id : str
+            Model ID whose metadata to update.
+        metadata : dict[str, Any]
+            Key/value pairs to merge into the model metadata.
+        """
+        with self._lock:
+            if model_id not in self._models:
+                logger.error("Model %s not found in registry", model_id)
+                return
+
+            try:
+                current = self._models[model_id].metadata
+                if not isinstance(current, dict):
+                    current = {}
+                    self._models[model_id].metadata = current
+                # Merge shallowly to avoid surprising overwrites
+                current.update({k: v for k, v in metadata.items()})
+                self._models[model_id].manifest.last_modified = time.time()
+                self._save_registry()
+                logger.debug("Updated metadata for model %s: keys=%s", model_id, list(metadata.keys()))
+            except Exception as exc:
+                logger.error("Failed updating metadata for %s: %s", model_id, exc, exc_info=True)
+
     def get_performance_history(
         self,
         model_id: str,

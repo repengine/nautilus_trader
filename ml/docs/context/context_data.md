@@ -905,3 +905,11 @@ The ml/data module provides a solid, well-architected foundation for ML data wor
 **Maintainer**: ML Data Pipeline Team
 **Status**: Implementation Complete - Cold Path Data Utilities
 **Changes**: Comprehensive accuracy review and Universal ML Architecture Pattern compliance analysis. Corrected documentation to accurately reflect current implementation state, clarified appropriate pattern exemptions for data utilities, and aligned with cold path design patterns.
+
+
+### Canonical Ingestion Path and Dual-Write Guidance
+
+- Prefer a single canonical ingestion writer for raw datasets per run: either SQL via `SqlMarketDataWriter` (canonical `market_data`)
+  or Parquet via `ParquetCatalogRawWriter` (for cold-path training convenience), orchestrated by DataStore for validation + eventing.
+- Avoid configuring multiple raw writers to the same dataset concurrently to prevent duplicated artifacts.
+- When DataStore is configured with a raw writer, it emits events and updates watermarks only after successful writes.

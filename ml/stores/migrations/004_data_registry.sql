@@ -550,17 +550,17 @@ VALUES
      '{"feature_set_id": "str", "instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "values": "jsonb"}'::jsonb,
      '', '{}'::jsonb, '["bars_1m"]'::jsonb, 'feature_engineer_v1'),
 
-    -- Prediction datasets
-    ('predictions_xgboost', 'XGBoost Model Predictions', '1.0.0', 'PREDICTIONS', 'postgres',
+    -- Prediction datasets (canonical)
+    ('predictions', 'Model Predictions', '1.0.0', 'PREDICTIONS', 'postgres',
      'ml_model_predictions', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 90,
-     '{"model_id": "str", "instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "prediction": "float64", "confidence": "float64"}'::jsonb,
+     '{"model_id": "str", "instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "prediction": "float64", "confidence": "float64", "is_live": "bool"}'::jsonb,
      '', '{}'::jsonb, '["features_microstructure"]'::jsonb, 'model_inference_v1'),
 
     -- Signal datasets
     ('signals_momentum', 'Momentum Strategy Signals', '1.0.0', 'SIGNALS', 'postgres',
      'ml_strategy_signals', '{"by": "ts_event", "interval": "monthly"}'::jsonb, 90,
      '{"strategy_id": "str", "instrument_id": "str", "ts_event": "int64", "ts_init": "int64", "signal_type": "str", "strength": "float64"}'::jsonb,
-     '', '{}'::jsonb, '["predictions_xgboost"]'::jsonb, 'strategy_executor_v1')
+     '', '{}'::jsonb, '["predictions"]'::jsonb, 'strategy_executor_v1')
 ON CONFLICT (dataset_id) DO NOTHING;
 
 -- ============================================================================

@@ -186,7 +186,11 @@ class MLTradingStrategy(BaseMLStrategy):
             The signal triggering the entry.
 
         """
-        quantity = self._calculate_position_size()
+        # Determine quantity via sizer + risk gate (fallback to legacy sizing for test doubles)
+        try:
+            quantity = self.size_and_validate(signal)
+        except AttributeError:
+            quantity = self._calculate_position_size()
         if quantity is None:
             self.log.warning(
                 f"Cannot enter position due to sizing failure for {signal.instrument_id}",
@@ -203,7 +207,16 @@ class MLTradingStrategy(BaseMLStrategy):
             return
 
         # Place the order
-        order_id = self._place_market_order(side, quantity)
+        try:
+            order_id = self._submit_smart_order(side, quantity, signal)
+        except AttributeError:
+            try:
+                order_id = self._place_market_order(side, quantity)
+            except AttributeError:
+                order_id = None
+        if order_id is None:
+            self.log.error("Order submission failed")
+            return
         self._active_positions += 1
 
         # Track the signal that triggered this trade
@@ -258,12 +271,24 @@ class MLTradingStrategy(BaseMLStrategy):
         )
 
         # Open new position in opposite direction
-        quantity = self._calculate_position_size()
+        try:
+            quantity = self.size_and_validate(signal)
+        except AttributeError:
+            quantity = self._calculate_position_size()
         if quantity is None:
             self.log.warning("Closed position but cannot open new one due to sizing failure")
             return
 
-        order_id = self._place_market_order(target_side, quantity)
+        try:
+            order_id = self._submit_smart_order(target_side, quantity, signal)
+        except AttributeError:
+            try:
+                order_id = self._place_market_order(target_side, quantity)
+            except AttributeError:
+                order_id = None
+        if order_id is None:
+            self.log.error("Order submission failed during reversal")
+            return
 
         # Track the reversal
         model_id = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
@@ -388,17 +413,20 @@ class MultiModelMLStrategy(MLTradingStrategy):
 
     """
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: Any, stores: object | None = None) -> None:
         """
-        Initialize multi-model strategy.
+        Initialize multi-model strategy with dependency injection support.
 
         Parameters
         ----------
         config : MLStrategyConfig
             The strategy configuration.
+        stores : ActorStoresRegistries, optional
+            Container with all 4 stores and 4 registries from init_ml_stores_and_registries.
+            If not provided, stores may be initialized based on config.
 
         """
-        super().__init__(config)
+        super().__init__(config, stores)
 
         # Enable performance tracking for dynamic weighting
         self.track_performance = True

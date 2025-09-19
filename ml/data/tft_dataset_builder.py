@@ -61,6 +61,7 @@ class TFTDatasetBuilder:
         fred_path: str | None = None,
         include_micro: bool = False,
         micro_base_dir: str | None = None,
+        include_calendar: bool = False,
         include_events: bool = False,
         include_l2: bool = False,
         l2_base_dir: str | None = None,
@@ -89,6 +90,7 @@ class TFTDatasetBuilder:
         self.fred_path = fred_path
         self.include_micro = include_micro
         self.micro_base_dir = micro_base_dir
+        self.include_calendar = include_calendar
         self.include_events = include_events
         self.include_l2 = include_l2
         self.l2_base_dir = l2_base_dir
@@ -999,9 +1001,9 @@ class TFTDatasetBuilder:
         if self.include_events:
             try:
                 from ml.data.providers.events import EventScheduleProvider
-                from ml.data.sources.events import MockEventSource
+                from ml.data.sources.events import SimpleEventSource
 
-                provider = EventScheduleProvider(MockEventSource())
+                provider = EventScheduleProvider(SimpleEventSource())
                 ts_series = dataset.select(pl.col("timestamp").cast(pl.Int64))["timestamp"]
                 ev = provider.compute_features(ts_series, [symbol])
                 if not ev.is_empty():
@@ -1098,9 +1100,9 @@ class TFTDatasetBuilder:
         if self.include_events:
             try:
                 from ml.data.providers.events import EventScheduleProvider
-                from ml.data.sources.events import MockEventSource
+                from ml.data.sources.events import SimpleEventSource
 
-                provider = EventScheduleProvider(MockEventSource())
+                provider = EventScheduleProvider(SimpleEventSource())
                 if "timestamp" in dataset.columns:
                     ts_series = pl.Series(
                         "timestamp",
@@ -1322,7 +1324,7 @@ class TFTDatasetBuilder:
 
     def _add_known_future_features_polars(self, df: _pl.DataFrame) -> _pl.DataFrame:
         """
-        Add known-future time features using Polars.
+        Add known-future time and calendar features using Polars.
         """
         # Create hour and minute from time_index (assuming minute bars)
         df = df.with_columns(
@@ -1371,11 +1373,35 @@ class TFTDatasetBuilder:
             ],
         )
 
+        # Optional: precise market calendar features (known-future)
+        if self.include_calendar:
+            try:
+                from ml.data.providers.calendar import MarketCalendarProvider
+                from ml.data.sources.calendar import PandasCalendarSource
+
+                # Determine instrument(s) for this frame; expect single instrument per symbol
+                instruments = (
+                    df.select(pl.col("instrument_id")).unique()["instrument_id"].to_list()
+                    if "instrument_id" in df.columns
+                    else ["GLOBAL"]
+                )
+                provider = MarketCalendarProvider(PandasCalendarSource())
+                ts_series = df.select(pl.col("timestamp").cast(pl.Int64))["timestamp"]
+                cal = provider.load_timeseries(instruments, ts_series)
+                if not cal.is_empty():
+                    cal = cal.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                    join_keys: list[str] = ["timestamp"]
+                    if "instrument_id" in df.columns and "instrument_id" in cal.columns:
+                        join_keys.append("instrument_id")
+                    df = df.join(cal, on=join_keys, how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Calendar feature join skipped: {exc}")
+
         return df
 
     def _add_known_future_features_pandas(self, df: _pd.DataFrame) -> _pd.DataFrame:
         """
-        Add known-future time features using Pandas.
+        Add known-future time and calendar features using Pandas.
         """
         # Create hour and minute from time_index (assuming minute bars)
         df["hour"] = (df["time_index"] // 60) % 24
@@ -1399,5 +1425,29 @@ class TFTDatasetBuilder:
         df["is_market_open"] = ((df["hour"] >= 9) & (df["hour"] < 16)).astype(int)
         df["is_premarket"] = ((df["hour"] >= 4) & (df["hour"] < 9)).astype(int)
         df["is_aftermarket"] = ((df["hour"] >= 16) & (df["hour"] < 20)).astype(int)
+
+        # Optional: precise market calendar features via provider (converted to pandas)
+        if self.include_calendar:
+            try:
+                import polars as _pl
+
+                from ml.data.providers.calendar import MarketCalendarProvider
+                from ml.data.sources.calendar import PandasCalendarSource
+
+                provider = MarketCalendarProvider(PandasCalendarSource())
+                ts_series = _pl.Series(df["timestamp"].astype("int64").to_numpy())
+                instruments = (
+                    list({str(v) for v in df["instrument_id"].astype(str).tolist()})
+                    if "instrument_id" in df.columns
+                    else ["GLOBAL"]
+                )
+                cal_pl = provider.load_timeseries(instruments, ts_series)
+                if cal_pl.shape[0] > 0:
+                    cal_pl = cal_pl.with_columns(_pl.col("timestamp").cast(_pl.Datetime("ns", "UTC")))
+                    cal_pd = cal_pl.to_pandas()
+                    join_cols = ["timestamp"] + (["instrument_id"] if "instrument_id" in df.columns else [])
+                    df = df.merge(cal_pd, on=join_cols, how="left")
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"Calendar feature join skipped: {exc}")
 
         return df

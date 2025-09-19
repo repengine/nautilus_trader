@@ -10,7 +10,7 @@ container of services for the actor to attach.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
@@ -39,29 +39,38 @@ def init_actor_services(config: Any) -> ActorServices:
     """
     Initialize actor services using centralized integration helpers.
 
-    This function delegates to `ml.core.integration.init_actor_stores_and_registries`
+    This function delegates to `ml.core.integration.init_ml_stores_and_registries`
     which implements progressive fallback, registry wiring, and shared DataRegistry
     injection. The actor attaches these to instance attributes and proceeds without
     importing any concrete stores directly.
 
     """
-    from ml.core.integration import init_actor_stores_and_registries
+    from ml.core.integration import init_ml_stores_and_registries
 
-    result = init_actor_stores_and_registries(config)
+    result = init_ml_stores_and_registries(config)
 
-    # Wrap legacy stores with strict adapters for protocol‑typed actor surfaces
+    # Prefer direct attachment if stores already conform to strict protocols; otherwise use adapters
     from ml.stores.adapters import FeatureStoreStrictAdapter
     from ml.stores.adapters import ModelStoreStrictAdapter
     from ml.stores.adapters import StrategyStoreStrictAdapter
+    from ml.stores.protocols import FeatureStoreStrictProtocol as _FSP
+    from ml.stores.protocols import ModelStoreStrictProtocol as _MSP
+    from ml.stores.protocols import StrategyStoreStrictProtocol as _SSP
 
-    wrapped_feature = FeatureStoreStrictAdapter(result.feature_store)
-    wrapped_model = ModelStoreStrictAdapter(result.model_store)
-    wrapped_strategy = StrategyStoreStrictAdapter(result.strategy_store)
+    feature_store = (
+        result.feature_store if isinstance(result.feature_store, _FSP) else FeatureStoreStrictAdapter(result.feature_store)
+    )
+    model_store = (
+        result.model_store if isinstance(result.model_store, _MSP) else ModelStoreStrictAdapter(result.model_store)
+    )
+    strategy_store = (
+        result.strategy_store if isinstance(result.strategy_store, _SSP) else StrategyStoreStrictAdapter(result.strategy_store)
+    )
 
     return ActorServices(
-        feature_store=cast(_FeatureStoreT, wrapped_feature),
-        model_store=cast(_ModelStoreT, wrapped_model),
-        strategy_store=cast(_StrategyStoreT, wrapped_strategy),
+        feature_store=feature_store,
+        model_store=model_store,
+        strategy_store=strategy_store,
         data_store=result.data_store,
         feature_registry=result.feature_registry,
         model_registry=result.model_registry,

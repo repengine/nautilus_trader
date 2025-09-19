@@ -233,6 +233,7 @@ ml-pipeline-orchestrator:  #-- Run cold-path pipeline: optional ingestion + data
 		$(if $(MACRO_LAG_DAYS),--macro_lag_days $(MACRO_LAG_DAYS),) \
 		$(if $(INCLUDE_MICRO),--include_micro,) \
 		$(if $(INCLUDE_L2),--include_l2,) \
+		$(if $(EMIT_DATASET_EVENTS),--emit_dataset_events,) \
 		$(if $(HORIZON_MINUTES),--horizon_minutes $(HORIZON_MINUTES),) \
 		$(if $(THRESHOLD),--threshold $(THRESHOLD),) \
 		$(if $(LOOKBACK_PERIODS),--lookback_periods $(LOOKBACK_PERIODS),) \
@@ -246,6 +247,39 @@ ml-pipeline-orchestrator:  #-- Run cold-path pipeline: optional ingestion + data
 		$(if $(FEATURE_REGISTRY_DIR),--feature_registry_dir $(FEATURE_REGISTRY_DIR),) \
 		$(if $(FEATURE_SET_ID),--feature_set_id $(FEATURE_SET_ID),) \
 		$(if $(MAX_EPOCHS),--max_epochs $(MAX_EPOCHS),)
+
+.PHONY: ml-nightly-orchestrator
+ml-nightly-orchestrator:  #-- Opinionated nightly run: 90d L2+micro+macro, fast HPO, emit dataset events
+	$(info $(M) Running nightly ML pipeline (opinionated config)...)
+	$Q $(MAKE) ml-pipeline-orchestrator \
+		INGEST=$(if $(INGEST),$(INGEST),) \
+		DATASET_ID=$(if $(DATASET_ID),$(DATASET_ID),EQUS.MINI) \
+		SCHEMA=$(if $(SCHEMA),$(SCHEMA),bars) \
+		INSTRUMENTS=$(if $(INSTRUMENTS),$(INSTRUMENTS),SPY.NYSE,QQQ.NASDAQ) \
+		LOOKBACK_DAYS=$(if $(LOOKBACK_DAYS),$(LOOKBACK_DAYS),7) \
+		COVERAGE_MODE=$(if $(COVERAGE_MODE),$(COVERAGE_MODE),catalog) \
+		CATALOG_PATH=$(CATALOG_PATH) \
+		DATA_DIR=$(if $(DATA_DIR),$(DATA_DIR),data/tier1) \
+		SYMBOLS=$(if $(SYMBOLS),$(SYMBOLS),SPY,QQQ) \
+		OUT_DIR=$(if $(OUT_DIR),$(OUT_DIR),ml_out/90d_l2_micro) \
+		INCLUDE_MACRO=1 \
+		MACRO_LAG_DAYS=$(if $(MACRO_LAG_DAYS),$(MACRO_LAG_DAYS),1) \
+		INCLUDE_MICRO=1 \
+		INCLUDE_L2=1 \
+		EMIT_DATASET_EVENTS=1 \
+		HORIZON_MINUTES=$(if $(HORIZON_MINUTES),$(HORIZON_MINUTES),15) \
+		THRESHOLD=$(if $(THRESHOLD),$(THRESHOLD),0.001) \
+		LOOKBACK_PERIODS=$(if $(LOOKBACK_PERIODS),$(LOOKBACK_PERIODS),30) \
+		HPO=$(if $(HPO),$(HPO),1) \
+		HPO_EPOCHS=$(if $(HPO_EPOCHS),$(HPO_EPOCHS),2) \
+		HPO_BATCH_SIZE=$(if $(HPO_BATCH_SIZE),$(HPO_BATCH_SIZE),256) \
+		HPO_TAIL_ROWS=$(if $(HPO_TAIL_ROWS),$(HPO_TAIL_ROWS),30000) \
+		HPO_LIMIT_GROUPS=$(if $(HPO_LIMIT_GROUPS),$(HPO_LIMIT_GROUPS),50) \
+		TRAIN=$(if $(TRAIN),$(TRAIN),1) \
+		TEACHER_MODEL_ID=$(if $(TEACHER_MODEL_ID),$(TEACHER_MODEL_ID),tft_teacher_90d_l2) \
+		FEATURE_REGISTRY_DIR=$(FEATURE_REGISTRY_DIR) \
+		FEATURE_SET_ID=$(FEATURE_SET_ID) \
+		MAX_EPOCHS=$(if $(MAX_EPOCHS),$(MAX_EPOCHS),3)
 
 .PHONY: ml-pipeline-scheduler
 ml-pipeline-scheduler:  #-- Run the scheduler for the cold-path orchestrator (env-driven)
@@ -831,3 +865,31 @@ test-integration:  #-- Integration tests only (real Postgres; serial where neede
 	uv run --active --no-sync pytest -c ml/pytest.ini -q -m integration -n 1 \
 		ml/tests/integration \
 		--junitxml=ml/tests/validation_reports/junit-integration.xml
+.PHONY: docker-orchestrator-smoke
+docker-orchestrator-smoke:  #-- Build pipeline image and run a one-shot orchestrator (returns engine, minimal epochs)
+	$(info $(M) Building pipeline image...)
+	docker build -f ml/deployment/Dockerfile.pipeline -t nautilus-ml-pipeline .
+	$(info $(M) Starting postgres via compose (if not running) ...)
+	- docker compose -f ml/deployment/docker-compose.yml up -d postgres redis
+	$(info $(M) Running orchestrator inside container...)
+	# Requires CATALOG_PATH mounted; pass DATABENTO_API_KEY in environment for ingestion
+	@docker run --rm \
+	  --network ml_nautilus-ml \
+	  -e CATALOG_PATH=/app/data/catalog \
+	  -e NAUTILUS_DB=postgresql://postgres:postgres@postgres:5432/nautilus \
+	  -v $(PWD)/data:/app/data \
+	  -v $(PWD)/ml_registry:/app/ml_registry \
+	  nautilus-ml-pipeline \
+	  python -m ml.cli.pipeline_orchestrator \
+	    --ingest --dataset_id EQUS.MINI --schema bars --instruments SPY.NYSE --lookback_days 3 \
+	    --coverage_mode catalog --catalog_path /app/data/catalog \
+	    --write_mode parquet \
+	    --data_dir /app/data \
+	    --symbols SPY,QQQ \
+	    --out_dir /app/data/out_smoke \
+	    --include_macro --macro_lag_days 1 \
+	    --horizon_minutes 15 --threshold 0.001 --lookback_periods 30 \
+	    --hpo --hpo_epochs 1 --hpo_batch_size 64 --hpo_tail_rows 5000 \
+	    --train --teacher_model_id tft_teacher_smoke --max_epochs 1 \
+	    --promote_stage2 --stage2_engine returns --stage2_cost_bps 0.5 || true
+	$(info $(GREEN)Docker orchestrator smoke complete. Inspect /data/out_smoke in the mounted volume.$(RESET))

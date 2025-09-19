@@ -23,6 +23,11 @@ from ml.config.actors import MLSignalActorConfig
 from ml.config.base import MLActorConfig
 from ml.config.base import MLFeatureConfig
 from ml.config.base import MLStrategyConfig
+from ml.strategies.analytics import AnalyticsConfig as _AnalyticsConfig
+from ml.strategies.execution import ExecutionConfig as _ExecutionConfig
+from ml.strategies.portfolio import PortfolioConfig as _PortfolioConfig
+from ml.strategies.risk import RiskConfig as _RiskConfig
+from ml.strategies.sizing import SizingConfig as _SizingConfig
 from ml.config.registry import ModelRegistryConfig
 from ml.registry.feature_registry import FeatureManifest
 from ml.registry.model_registry import ModelManifest
@@ -129,7 +134,9 @@ class MLConfigBuilder:
         return MLSignalActorConfig(**config_dict)
 
     @staticmethod
-    def strategy_config(**overrides: Any) -> MLStrategyConfig:
+    def strategy_config(
+        **overrides: Any,
+    ) -> MLStrategyConfig:
         """
         Create MLStrategyConfig with defaults and optional overrides.
 
@@ -158,7 +165,18 @@ class MLConfigBuilder:
             "persist_all_signals": True,
         }
 
-        config_dict = {**defaults, **overrides}
+        # Allow explicit typed sub-configs; fall back to overrides for backward compatibility
+        for key in (
+            "sizing_config",
+            "risk_config",
+            "execution_config",
+            "portfolio_config",
+            "analytics_config",
+        ):
+            if key in overrides and overrides[key] is None:
+                del overrides[key]
+
+        config_dict: dict[str, Any] = {**defaults, **overrides}
 
         return MLStrategyConfig(**config_dict)
 

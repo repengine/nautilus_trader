@@ -881,6 +881,29 @@ class DataRegistry(MLComponentMixin):
                         ),
                     )
 
+        # Regex constraints (e.g., IDs)
+        if "regex" in constraints:
+            for field, pattern in constraints["regex"].items():
+                if isinstance(pattern, str) and pattern:
+                    rules.append(
+                        ValidationRule(
+                            rule_type=ValidationRuleType.REGEX,
+                            field_name=str(field),
+                            parameters={"pattern": pattern},
+                            severity=QualityFlag.FAIL,
+                            description=f"Regex validation for {field}",
+                        ),
+                    )
+
+        # Per-dataset null-rate threshold
+        quality_thresholds: dict[str, float] = {}
+        try:
+            thr = constraints.get("null_rate_threshold")
+            if isinstance(thr, (int, float)) and 0.0 <= float(thr) <= 1.0:
+                quality_thresholds["null_rate"] = float(thr)
+        except Exception:
+            quality_thresholds = {}
+
         # Create default rule if no rules defined
         if not rules:
             rules.append(
@@ -898,7 +921,7 @@ class DataRegistry(MLComponentMixin):
             dataset_id=manifest.dataset_id,
             version="1.0.0",
             validation_rules=rules,
-            quality_thresholds={},
+            quality_thresholds=quality_thresholds,
             enforcement_mode="strict",
             created_at=manifest.created_at,
             last_modified=manifest.last_modified,

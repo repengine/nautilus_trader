@@ -149,28 +149,37 @@ class MLIntegrationManager:
         self.auto_migrate = auto_migrate or env_migrate
 
         # Initialize components with progressive fallback when enabled
+        self._json_fallback: bool = False
         if not self._is_postgres_running():
             if self.auto_start_postgres:
                 self._start_postgres_container()
-            elif self._allow_dummy:
-                logger.warning(
-                    "PostgreSQL unavailable; ML_ALLOW_DUMMY enabled — using Dummy stores/registries (no persistence)",
-                )
-                self._init_dummy_components()
-                if ensure_healthy:
-                    self.ensure_healthy()
-                self._validate_protocol_compliance(strict=strict_protocol_validation)
-                return
             else:
-                raise RuntimeError(
-                    "PostgreSQL is not running. Start it or set ML_ALLOW_DUMMY=1 for in-memory fallback",
+                # DB not available and auto-start disabled: prefer JSON for registries
+                # and dummy stores for cold-path safety (no persistence).
+                self._json_fallback = True
+                logger.warning(
+                    "PostgreSQL unavailable — falling back to JSON registries and dummy stores",
                 )
+                try:
+                    from ml.common.metrics_manager import MetricsManager as _MM
 
-        # Normal path (PostgreSQL available)
-        self._init_database()
+                    mm = _MM.default()
+                    mm.inc(
+                        "ml_fallback_activations_total",
+                        "Fallback activations",
+                        labels={"component": "ml_integration_manager", "level": "json"},
+                        labelnames=("component", "level"),
+                    )
+                except Exception:
+                    pass
+
+        # Initialize according to selected mode
+        if not self._json_fallback:
+            self._init_database()
         self._init_stores()
         self._init_registries()
-        self._init_partition_manager()
+        if not self._json_fallback:
+            self._init_partition_manager()
 
         # Ensure everything is healthy
         if ensure_healthy:
@@ -232,31 +241,40 @@ class MLIntegrationManager:
         from ml.registry.persistence import BackendType
         from ml.registry.persistence import PersistenceConfig
 
-        # Create persistence config
-        persistence_config = PersistenceConfig(
-            backend=BackendType.POSTGRES,
-            connection_string=self.db_connection,
-        )
+        if self._json_fallback:
+            # Dummy stores for fallback (no persistence available for SQL-backed stores)
+            from ml.stores.base import DummyStore
 
-        # Initialize stores with automatic persistence
-        self.feature_store = FeatureStore(
-            connection_string=self.db_connection,
-            batch_size=1000,
-            enable_batching=True,
-        )
+            self.feature_store = DummyStore()
+            self.model_store = DummyStore()
+            self.strategy_store = DummyStore()
+            self.data_store = DummyStore()
+        else:
+            # Create persistence config (DB-first)
+            persistence_config = PersistenceConfig(
+                backend=BackendType.POSTGRES,
+                connection_string=self.db_connection,
+            )
 
-        self.model_store = ModelStore(
-            persistence_config=persistence_config,
-            batch_size=1000,
-        )
+            # Initialize stores with automatic persistence
+            self.feature_store = FeatureStore(
+                connection_string=self.db_connection,
+                batch_size=1000,
+                enable_batching=True,
+            )
 
-        self.strategy_store = StrategyStore(
-            persistence_config=persistence_config,
-            batch_size=1000,
-        )
+            self.model_store = ModelStore(
+                persistence_config=persistence_config,
+                batch_size=1000,
+            )
 
-        # Initialize DataStore after registries are available (will be set in _init_registries)
-        self.data_store = None
+            self.strategy_store = StrategyStore(
+                persistence_config=persistence_config,
+                batch_size=1000,
+            )
+
+            # Initialize DataStore after registries are available (will be set in _init_registries)
+            self.data_store = None
 
     def _init_registries(self) -> None:
         """
@@ -270,17 +288,20 @@ class MLIntegrationManager:
         from ml.registry.persistence import BackendType
         from ml.registry.persistence import PersistenceConfig
 
-        # Create persistence config for registries
-        persistence_config = PersistenceConfig(
-            backend=BackendType.POSTGRES,
-            connection_string=self.db_connection,
-        )
+        # Create persistence config for registries (DB-first; fallback to JSON)
+        if self._json_fallback:
+            persistence_config = PersistenceConfig(backend=BackendType.JSON, json_path=Path("./ml_registry"))
+        else:
+            persistence_config = PersistenceConfig(
+                backend=BackendType.POSTGRES,
+                connection_string=self.db_connection,
+            )
 
         # Create a registry path (for file storage)
         registry_path = Path("./ml_registry")
         registry_path.mkdir(parents=True, exist_ok=True)
 
-        # Initialize registries with PostgreSQL backend
+        # Initialize registries
         self.feature_registry = FeatureRegistry(
             registry_path=registry_path / "features",
             persistence_config=persistence_config,
@@ -300,7 +321,11 @@ class MLIntegrationManager:
             persistence_config=persistence_config,
         )
 
-        # Now initialize DataStore with the registry
+        if self._json_fallback:
+            # Stores are dummy in fallback; nothing more to wire
+            return
+
+        # Now initialize DataStore with the registry (DB path)
         # Optionally attach raw adapters when a catalog path is provided
         raw_reader = None
         raw_writer = None
@@ -451,54 +476,80 @@ class MLIntegrationManager:
 
     def _run_migrations(self) -> None:
         """
-        Run all database migrations using a robust SQL splitter.
+        Run database migrations using the shared CLI plan builder.
         """
         logger.info("Running database migrations...")
 
-        migrations = [
-            "ml/registry/migrations/001_initial_schema.sql",
-            "ml/stores/migrations/001_stores_schema.sql",
-            "ml/stores/migrations/002_auto_partitioning.sql",
-            "ml/stores/migrations/003_market_data.sql",
-            "ml/stores/migrations/004_data_registry.sql",
-            "ml/stores/migrations/007_add_event_metadata.sql",
-        ]
+        # Decide plan from environment
+        import os
+
+        env_full = os.getenv("ML_MIGRATIONS_FULL", "").lower() in {"1", "true", "yes"}
+        # Prefer full migrations in production-like environments
+        env_mode = os.getenv("ML_ENV", "").lower()
+        full = env_full or env_mode in {"prod", "production"}
+        schema = os.getenv("ML_MIGRATIONS_SCHEMA", "both").lower()
+        if schema not in {"stores", "registry", "both"}:
+            schema = "both"
 
         engine = EngineManager.get_engine(self.db_connection)
 
-        # Use the same splitter as the CLI migration runner to respect dollar-quoted bodies
+        # Prefer the CLI helpers to keep in sync
         try:
-            from ml.cli.apply_migrations import _split_statements as _splitter
-        except Exception:
+            from ml.cli.apply_migrations import apply_files as _apply
+            from ml.cli.apply_migrations import build_plan as _build
 
-            def _splitter(sql: str) -> Iterable[str]:
-                return [s for s in sql.split(";") if s.strip()]
+            plan = _build(full, schema)
+            result = _apply(engine, plan, dry_run=False)
+            logger.info(
+                "Migrations applied=%d skipped=%d warnings=%d errors=%d",
+                result.applied,
+                result.skipped,
+                result.warnings,
+                result.errors,
+            )
+        except Exception as exc:
+            # Fallback to the former inlined list with simple splitting
+            logger.warning("CLI migration helpers unavailable (%s); using fallback plan", exc)
+            migrations = [
+                "ml/registry/migrations/001_initial_schema.sql",
+                "ml/stores/migrations/001_stores_schema.sql",
+                "ml/stores/migrations/002_auto_partitioning.sql",
+                "ml/stores/migrations/003_market_data.sql",
+                "ml/stores/migrations/004_data_registry.sql",
+                "ml/stores/migrations/007_add_event_metadata.sql",
+            ]
 
-        for migration_path in migrations:
-            migration_file = Path(migration_path)
-            if not migration_file.exists():
-                continue
-
-            logger.info("Applying migration: %s", migration_path)
-            sql = migration_file.read_text(encoding="utf-8")
+            # Use the same splitter as the CLI when available
             try:
-                with engine.begin() as conn:
-                    for statement in _splitter(sql):
-                        try:
-                            conn.execute(text(statement))
-                        except Exception as e:
-                            msg = str(e).lower()
-                            if (
-                                "already exists" in msg
-                                or "does not exist" in msg
-                                or "duplicate" in msg
-                            ):
-                                logger.debug("Migration notice (%s): %s", migration_path, e)
-                            else:
-                                logger.warning("Warning in migration %s: %s", migration_path, e)
-            except Exception as exc:
-                logger.error("Migration failed for %s: %s", migration_path, exc)
+                from ml.cli.apply_migrations import _split_statements as _splitter
+            except Exception:
+                def _splitter(sql: str) -> Iterable[str]:
+                    return [s for s in sql.split(";") if s.strip()]
 
+            for migration_path in migrations:
+                migration_file = Path(migration_path)
+                if not migration_file.exists():
+                    continue
+
+                logger.info("Applying migration: %s", migration_path)
+                sql = migration_file.read_text(encoding="utf-8")
+                try:
+                    with engine.begin() as conn:
+                        for statement in _splitter(sql):
+                            try:
+                                conn.execute(text(statement))
+                            except Exception as e:
+                                msg = str(e).lower()
+                                if (
+                                    "already exists" in msg
+                                    or "does not exist" in msg
+                                    or "duplicate" in msg
+                                ):
+                                    logger.debug("Migration notice (%s): %s", migration_path, e)
+                                else:
+                                    logger.warning("Warning in migration %s: %s", migration_path, e)
+                except Exception as exc2:
+                    logger.error("Migration failed for %s: %s", migration_path, exc2)
         # Best-effort: proactively create current/future partitions via PartitionManager
         try:
             if self.partition_manager is None:
@@ -1374,12 +1425,54 @@ class ActorStoresRegistries:
     connection_string: str | None
 
 
-def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
+def init_ml_stores_and_registries(config: Any) -> ActorStoresRegistries:
     """
-    Initialize stores and registries for an actor with progressive fallback.
+    Initialize ML stores and registries with progressive fallback chains.
 
-    Honors `use_dummy_stores` (fast path for tests) and `allow_dummy_fallback`.
-    Attempts to probe PostgreSQL if no connection string is provided.
+    This function implements the Universal ML Architecture Pattern 1 by providing
+    centralized initialization of all 4 stores (Feature, Model, Strategy, Data) and
+    4 registries with automatic fallback handling.
+
+    The function supports dependency injection for any ML component that needs
+    access to stores and registries, not just actors. This enables clean separation
+    of concerns without forcing inheritance hierarchies.
+
+    Parameters
+    ----------
+    config : Any
+        Configuration object with the following optional attributes:
+        - use_dummy_stores (bool): Use dummy stores for testing (fast path)
+        - db_connection (str | None): PostgreSQL connection string
+        - allow_dummy_fallback (bool): Allow fallback to dummy stores on connection failure
+
+    Returns
+    -------
+    ActorStoresRegistries
+        Dataclass containing all 4 stores and 4 registries, along with
+        persistence configuration and connection information.
+
+    Progressive Fallback Chain
+    --------------------------
+    1. PRIMARY: PostgreSQL with full persistence
+    2. CACHED: Local cache with periodic sync (future)
+    3. FILE: File-based storage (future)
+    4. DUMMY: In-memory stores for testing/development
+
+    Examples
+    --------
+    >>> # Direct usage in any component
+    >>> stores = init_ml_stores_and_registries(config)
+    >>> feature_store = stores.feature_store
+
+    >>> # Dependency injection in FeatureEngineer
+    >>> class FeatureEngineer:
+    ...     def __init__(self, config, stores=None):
+    ...         self.stores = stores or init_ml_stores_and_registries(config)
+
+    Notes
+    -----
+    This function was renamed from init_actor_stores_and_registries to better
+    reflect its general-purpose nature for all ML components, not just actors.
 
     """
     # Local imports to avoid import-time cycles
@@ -1525,6 +1618,11 @@ def init_actor_stores_and_registries(config: Any) -> ActorStoresRegistries:
         persistence_config=persistence_config,
         connection_string=db_connection,
     )
+
+
+# Backward compatibility alias (deprecated)
+init_actor_stores_and_registries = init_ml_stores_and_registries
+"""Deprecated: Use init_ml_stores_and_registries instead."""
 
 
 # ----------------------------------------------------------------------------

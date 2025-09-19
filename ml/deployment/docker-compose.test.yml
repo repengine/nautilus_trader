@@ -46,6 +46,9 @@ services:
       MOCK_DATA_RATE: "10"  # 10 bars per second
       MOCK_INITIAL_PRICE: "650.0"
       MOCK_VOLATILITY: "0.002"
+      # Multi-actor batching (ensure flush in tests)
+      MAX_BATCH_SIZE: "8"
+      FLUSH_MAX_LATENCY_MS: "2"
 
       # Test database
       DB_CONNECTION: postgresql://postgres:postgres@postgres-test:5432/nautilus_test
@@ -78,6 +81,7 @@ services:
       # Performance settings for testing
       WARM_UP_PERIOD: "5"  # Reduced for faster testing
       PREDICTION_THRESHOLD: "0.0"  # Force signals for persistence testing
+      MAX_FEATURE_LATENCY_MS: "5.0"  # Relax warnings in tests to realistic budget
 
     volumes:
       - ../models:/app/models:ro

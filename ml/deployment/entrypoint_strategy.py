@@ -211,7 +211,10 @@ class MLStrategyNode:
         # Set up graceful shutdown handlers
         def signal_handler(signum: int, frame: Any) -> None:
             print(f"\nReceived signal {signal.Signals(signum).name}, shutting down...")
-            self.shutdown()
+            try:
+                asyncio.run(self.shutdown())
+            except Exception:
+                pass
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, signal_handler)
@@ -226,10 +229,16 @@ class MLStrategyNode:
             self.node.run()
         except KeyboardInterrupt:
             print("\nKeyboard interrupt received")
-            self.shutdown()
+            try:
+                asyncio.run(self.shutdown())
+            except Exception:
+                pass
         except Exception as e:
             print(f"Error running node: {e}")
-            self.shutdown()
+            try:
+                asyncio.run(self.shutdown())
+            except Exception:
+                pass
             sys.exit(1)
 
     async def shutdown(self) -> None:
@@ -281,45 +290,6 @@ class MLStrategyNode:
     def shutdown_sync(self) -> None:
         """
         Gracefully shutdown the node synchronously.
-        """
-        print("\nShutting down...")
-
-        self.running = False
-        self._healthy = False
-
-        if self.node:
-            # Always print final statistics header for test visibility
-            print("\n" + "=" * 80)
-            print("FINAL STATISTICS")
-            print("=" * 80)
-            try:
-                node_any = cast(Any, self.node)
-                trader = getattr(node_any, "trader", None)
-                strategies = None
-                if trader is not None and hasattr(trader, "strategies"):
-                    strategies = trader.strategies()
-                strategies_dict: dict[str, Any] = strategies if isinstance(strategies, dict) else {}
-                if strategies_dict:
-                    strategy = next(iter(strategies_dict.values()))
-                    print(f"Signals Received: {getattr(strategy, '_signals_received', 0)}")
-                    print(f"Dry Run Trades: {getattr(strategy, '_dry_run_trades', 0)}")
-                    print(
-                        f"Execute Trades Setting: {getattr(strategy._config, 'execute_trades', False)}",
-                    )
-                else:
-                    print("Signals Received: 0")
-                    print("Dry Run Trades: 0")
-            except Exception:
-                # Fallback if strategy access is mocked or unavailable
-                print("Signals Received: 0")
-                print("Dry Run Trades: 0")
-
-            # Synchronous dispose
-            self.node.dispose()
-
-        print("\nML Trading Strategy shutdown complete")
-        """
-        Gracefully shutdown the node.
         """
         print("\nShutting down...")
 

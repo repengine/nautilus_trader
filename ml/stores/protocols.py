@@ -10,9 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from collections.abc import Sequence
-from typing import Any, Protocol, TypeAlias
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, runtime_checkable
 
 import pandas as pd
+
+
+if TYPE_CHECKING:
+    from ml.registry.protocols import RegistryProtocol
 
 
 # Phase 1: introduce aliases for read/write frames to retain flexibility
@@ -142,6 +147,7 @@ class MarketDataWriterProtocol(Protocol):
 # Optional stricter protocols for new components (adopt incrementally)
 
 
+@runtime_checkable
 class FeatureStoreStrictProtocol(Protocol):
     def write_features(
         self,
@@ -154,6 +160,7 @@ class FeatureStoreStrictProtocol(Protocol):
     def flush(self) -> None: ...
 
 
+@runtime_checkable
 class ModelStoreStrictProtocol(Protocol):
     def write_prediction(
         self,
@@ -170,6 +177,7 @@ class ModelStoreStrictProtocol(Protocol):
     def flush(self) -> None: ...
 
 
+@runtime_checkable
 class StrategyStoreStrictProtocol(Protocol):
     def write_signal(
         self,
@@ -212,3 +220,206 @@ class CircuitBreakerProtocol(Protocol):
     def record_success(self) -> None: ...
 
     def record_failure(self) -> None: ...
+
+
+# ============================================================================
+# Strict Service Dependency Protocols (Phase 1)
+# ============================================================================
+
+
+@runtime_checkable
+class TableLike(Protocol):
+    """
+    Minimal table interface used by services.
+
+    Avoid importing SQLAlchemy types in hot modules; keep the surface small.
+    """
+
+    # Column namespace (e.g., table.c.<column>) — kept loose on purpose
+    c: Any
+
+    def delete(self) -> Any: ...
+
+
+@runtime_checkable
+class LoggerLike(Protocol):
+    """
+    Logger protocol to avoid Any in services.
+
+    Accepts "object" for msg to match stdlib logging.Logger signature.
+    """
+
+    def debug(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
+
+    def info(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
+
+    def warning(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
+
+    def error(
+        self,
+        msg: object,
+        *args: object,
+        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        stack_info: bool = ...,
+        stacklevel: int = ...,
+        extra: Mapping[str, object] | None = ...,
+    ) -> None: ...
+
+
+# Model service deps ---------------------------------------------------------
+
+
+class ModelWriteDepsStrict(Protocol):
+    """Strict dependency surface for model write service."""
+
+    model_predictions_table: TableLike
+
+    def _execute_upsert_and_publish(
+        self,
+        *,
+        values: list[dict[str, object]],
+        ts_event_field: str,
+        ts_init_field: str,
+        context: str,
+        key_fields: tuple[str, str, str],
+        table: TableLike,
+        conflict_cols: Sequence[str],
+        update_cols: Sequence[str],
+        dataset_id: str,
+        stage: object,
+        instrument_key: str,
+        ts_field: str,
+        run_id_batch: str,
+        run_id_row: str,
+        source: str,
+        logger: LoggerLike,
+        publish_bus: bool = True,
+    ) -> None: ...
+
+
+class ModelReadDepsStrict(Protocol):
+    """Strict dependency surface for model read/stats services."""
+
+    def _qualified_table(self, base: str) -> str: ...
+
+    def _execute_read(
+        self,
+        sql: object,
+        params: Mapping[str, object],
+        *,
+        columns: Sequence[str],
+    ) -> object: ...
+
+    def _fetch_one(self, sql: object, params: Mapping[str, object]) -> tuple[object, ...] | None: ...
+
+
+class ModelEventDepsStrict(Protocol):
+    def _get_data_registry(self) -> RegistryProtocol | None: ...
+
+
+class ModelClearDepsStrict(Protocol):
+    engine: Any
+    model_predictions_table: TableLike
+
+
+# Strategy service deps ------------------------------------------------------
+
+
+class StrategyWriteDepsStrict(Protocol):
+    strategy_signals_table: TableLike
+
+    def _execute_upsert_and_publish(
+        self,
+        *,
+        values: list[dict[str, object]],
+        ts_event_field: str,
+        ts_init_field: str,
+        context: str,
+        key_fields: tuple[str, str, str],
+        table: TableLike,
+        conflict_cols: Sequence[str],
+        update_cols: Sequence[str],
+        dataset_id: str,
+        stage: object,
+        instrument_key: str,
+        ts_field: str,
+        run_id_batch: str,
+        run_id_row: str,
+        source: str,
+        logger: LoggerLike,
+        publish_bus: bool = True,
+    ) -> None: ...
+
+
+class StrategyReadDepsStrict(Protocol):
+    def _safe_table(self, base: str, allowed: set[str]) -> str: ...
+
+    def _execute_read(
+        self,
+        sql: object,
+        params: Mapping[str, object],
+        *,
+        columns: Sequence[str],
+    ) -> object: ...
+
+    def _fetch_one(self, sql: object, params: Mapping[str, object]) -> tuple[object, ...] | None: ...
+
+    def _fetch_all(self, sql: object, params: Mapping[str, object]) -> list[tuple[object, ...]]: ...
+
+
+class StrategyEventDepsStrict(Protocol):
+    def _get_data_registry(self) -> RegistryProtocol | None: ...
+
+
+class StrategyClearDepsStrict(Protocol):
+    engine: Any
+    strategy_signals_table: TableLike
+
+
+__all__ = [
+    "BaseStoreProtocol",
+    "CircuitBreakerProtocol",
+    "CoverageProviderProtocol",
+    "DataStoreFacadeProtocol",
+    "FeatureStoreProtocol",
+    "FeatureStoreStrictProtocol",
+    "LoggerLike",
+    "MarketDataWriterProtocol",
+    "ModelClearDepsStrict",
+    "ModelEventDepsStrict",
+    "ModelReadDepsStrict",
+    "ModelStoreProtocol",
+    "ModelStoreStrictProtocol",
+    "ModelWriteDepsStrict",
+    "StrategyClearDepsStrict",
+    "StrategyEventDepsStrict",
+    "StrategyReadDepsStrict",
+    "StrategyStoreProtocol",
+    "StrategyStoreStrictProtocol",
+    "StrategyWriteDepsStrict",
+    "TableLike",
+]

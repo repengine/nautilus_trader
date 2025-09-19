@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import databento as db
+import pandas as pd
 
 
 # Add parent to path
@@ -540,22 +541,91 @@ class UniversePopulator:
         """
         output_file = output_dir / f"{symbol}_ohlcv.parquet"
 
+        # If file exists, extend to cover the full free dataset window (gap-aware)
+        def _ensure_utc(ts: pd.Timestamp | None) -> pd.Timestamp | None:
+            if ts is None:
+                return None
+            if ts.tzinfo is None:
+                return ts.tz_localize("UTC")
+            return ts.tz_convert("UTC")
+
+        existing_min: pd.Timestamp | None = None
+        existing_max: pd.Timestamp | None = None
         if output_file.exists():
-            logger.info(f"OHLCV file already exists for {symbol}, skipping")
-            return
+            try:
+                df_old = pd.read_parquet(output_file)
+                if not df_old.empty and "timestamp" in df_old.columns:
+                    existing_min = _ensure_utc(pd.to_datetime(df_old["timestamp"]).min())
+                    existing_max = _ensure_utc(pd.to_datetime(df_old["timestamp"]).max())
+            except Exception:
+                df_old = pd.DataFrame()
+        else:
+            df_old = pd.DataFrame()
 
-        # Use EQUS.MINI for US equities standard subscription
-        df = self.client.timeseries.get_range(
-            dataset="EQUS.MINI",
-            symbols=[symbol],
-            schema="ohlcv-1m",
-            start=start,
-            end=end,
-        ).to_df()
+        # Clamp end to dataset end to avoid 422 when now > available end
+        # Determine safe dataset window (clamped by provider)
+        try:
+            rng = self.client.metadata.get_dataset_range("EQUS.MINI")
+            ds_start = _ensure_utc(pd.to_datetime(rng.get("start", start)))  # type: ignore[arg-type]
+            ds_end = _ensure_utc(pd.to_datetime(rng.get("end", end)))  # type: ignore[arg-type]
+        except Exception:
+            ds_start = _ensure_utc(pd.to_datetime(start))
+            ds_end = _ensure_utc(pd.to_datetime(end))
 
-        if not df.empty:
-            df.to_parquet(output_file)
-            logger.info(f"Saved {len(df)} OHLCV records for {symbol}")
+        # Target full available window
+        target_start = max(_ensure_utc(pd.to_datetime(start)), ds_start)  # type: ignore[arg-type]
+        target_end = min(_ensure_utc(pd.to_datetime(end)), ds_end)  # type: ignore[arg-type]
+
+        parts: list[pd.DataFrame] = []
+        if not df_old.empty:
+            parts.append(df_old)
+
+        # Fetch missing left segment
+        if existing_min is None or existing_min > target_start:
+            left_end = existing_min if existing_min is not None else target_end
+            try:
+                df_left = self.client.timeseries.get_range(
+                    dataset="EQUS.MINI",
+                    symbols=[symbol],
+                    schema="ohlcv-1m",
+                    start=target_start,
+                    end=left_end,
+                ).to_df()
+                if not df_left.empty:
+                    parts.append(df_left)
+            except Exception:
+                pass
+
+        # Fetch missing right segment
+        if existing_max is None or existing_max < target_end:
+            right_start = existing_max if existing_max is not None else target_start
+            try:
+                df_right = self.client.timeseries.get_range(
+                    dataset="EQUS.MINI",
+                    symbols=[symbol],
+                    schema="ohlcv-1m",
+                    start=right_start,
+                    end=target_end,
+                ).to_df()
+                if not df_right.empty:
+                    parts.append(df_right)
+            except Exception:
+                pass
+
+        if parts:
+            df_new = pd.concat(parts, ignore_index=True)
+            # Normalize time column; ensure uniqueness and ordering
+            tcol = "timestamp" if "timestamp" in df_new.columns else (
+                "ts_event" if "ts_event" in df_new.columns else None
+            )
+            if tcol is not None and tcol != "timestamp":
+                df_new = df_new.rename(columns={tcol: "timestamp"})
+            if "timestamp" in df_new.columns:
+                df_new = df_new.drop_duplicates(subset=["timestamp"]).sort_values("timestamp")
+            df_new.to_parquet(output_file)
+            logger.info(
+                f"Saved {len(df_new)} OHLCV records for {symbol} (gap-aware merge)",
+            )
 
     async def _download_l1(
         self,
@@ -567,6 +637,13 @@ class UniversePopulator:
         """
         Download L1 (quotes and trades) data.
         """
+        # Clamp end to dataset end to avoid 422
+        try:
+            rng = self.client.metadata.get_dataset_range("EQUS.MINI")
+            end_safe = rng.get("end", None) or end
+        except Exception:
+            end_safe = end
+
         # Download trades
         trades_file = output_dir / f"{symbol}_trades.parquet"
         if not trades_file.exists():
@@ -575,7 +652,7 @@ class UniversePopulator:
                 symbols=[symbol],
                 schema="trades",
                 start=start,
-                end=end,
+                end=end_safe,
             ).to_df()
 
             if not df_trades.empty:
@@ -590,7 +667,7 @@ class UniversePopulator:
                 symbols=[symbol],
                 schema="bbo-1s",
                 start=start,
-                end=end,
+                end=end_safe,
             ).to_df()
 
             if not df_quotes.empty:

@@ -21,7 +21,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
@@ -264,6 +264,24 @@ class ValidationViolation:
     description: str
 
 
+class PredictionRecord(TypedDict):
+    """Typed view of a model prediction row (minimal fields)."""
+
+    model_id: str
+    ts_event: int
+    prediction: float
+    confidence: float
+
+
+class SignalRecord(TypedDict):
+    """Typed view of a strategy signal row (minimal fields)."""
+
+    strategy_id: str
+    ts_event: int
+    signal_type: str
+    strength: float
+
+
 # ========================================================================
 # DataStore Implementation
 # ========================================================================
@@ -451,6 +469,128 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             fail_on_validation_error,
             batch_size,
             allow_schema_migration,
+        )
+
+    # ---------------------------------------------------------------------
+    # Typed, minimal read facades (cold-path only; for actors/services)
+    # ---------------------------------------------------------------------
+
+    def get_features_at_or_before(
+        self,
+        *,
+        instrument_id: str,
+        ts_event: int,
+    ) -> dict[str, float] | None:
+        """
+        Return latest feature values at or before the given timestamp.
+
+        Notes
+        -----
+        This is a thin façade over FeatureStore.get_latest_at_or_before.
+        """
+        return self.feature_store.get_latest_at_or_before(instrument_id, int(ts_event))
+
+    def get_latest_prediction_at_or_before(
+        self,
+        *,
+        instrument_id: str,
+        ts_event: int,
+        model_id: str | None = None,
+    ) -> PredictionRecord | None:
+        """
+        Return latest prediction at or before ts_event (optionally filtered by model_id).
+
+        Returns
+        -------
+        PredictionRecord | None
+            Minimal typed record or None when not found.
+        """
+        # Lazy imports to keep import-time overhead minimal
+        from sqlalchemy import and_ as _and
+        from sqlalchemy import desc as _desc
+        from sqlalchemy import select as _select
+
+        table = getattr(self.model_store, "model_predictions_table", None)
+        engine = getattr(self.model_store, "engine", None)
+        if table is None or engine is None:
+            return None
+
+        where = [table.c.instrument_id == instrument_id, table.c.ts_event <= int(ts_event)]
+        if model_id is not None:
+            where.append(table.c.model_id == model_id)
+
+        stmt = (
+            _select(
+                table.c.model_id,
+                table.c.ts_event,
+                table.c.prediction,
+                table.c.confidence,
+            )
+            .where(_and(*where))
+            .order_by(_desc(table.c.ts_event))
+            .limit(1)
+        )
+
+        with engine.connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        if row is None:
+            return None
+        return PredictionRecord(
+            model_id=str(row[0]),
+            ts_event=int(row[1]),
+            prediction=float(row[2]) if row[2] is not None else 0.0,
+            confidence=float(row[3]) if row[3] is not None else 0.0,
+        )
+
+    def get_latest_signal_at_or_before(
+        self,
+        *,
+        instrument_id: str,
+        ts_event: int,
+        strategy_id: str | None = None,
+    ) -> SignalRecord | None:
+        """
+        Return latest strategy signal at or before ts_event (optionally by strategy_id).
+
+        Returns
+        -------
+        SignalRecord | None
+            Minimal typed record or None when not found.
+        """
+        from sqlalchemy import and_ as _and
+        from sqlalchemy import desc as _desc
+        from sqlalchemy import select as _select
+
+        table = getattr(self.strategy_store, "strategy_signals_table", None)
+        engine = getattr(self.strategy_store, "engine", None)
+        if table is None or engine is None:
+            return None
+
+        where = [table.c.instrument_id == instrument_id, table.c.ts_event <= int(ts_event)]
+        if strategy_id is not None:
+            where.append(table.c.strategy_id == strategy_id)
+
+        stmt = (
+            _select(
+                table.c.strategy_id,
+                table.c.ts_event,
+                table.c.signal_type,
+                table.c.strength,
+            )
+            .where(_and(*where))
+            .order_by(_desc(table.c.ts_event))
+            .limit(1)
+        )
+
+        with engine.connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        if row is None:
+            return None
+        return SignalRecord(
+            strategy_id=str(row[0]),
+            ts_event=int(row[1]),
+            signal_type=str(row[2]),
+            strength=float(row[3]) if row[3] is not None else 0.0,
         )
 
     # ---------------------------------------------------------------------
@@ -1127,12 +1267,15 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
             elif manifest.dataset_type == DatasetType.PREDICTIONS:
                 # Convert to ModelPrediction format and write
                 predictions = self._df_to_predictions(df)
-                self.model_store.write_batch(predictions)
+                try:
+                    self.model_store.write_batch(predictions, emit_events=False, publish_bus=False)
+                except TypeError:
+                    self.model_store.write_batch(predictions)
 
             elif manifest.dataset_type == DatasetType.SIGNALS:
                 # Convert to StrategySignal format and write
                 signals = self._df_to_signals(df)
-                self.strategy_store.write_batch(signals)
+                self.strategy_store.write_batch(signals, emit_events=False, publish_bus=False)
 
             else:
                 # Raw dataset types: delegate to optional writer if configured
@@ -1469,6 +1612,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 features=feature.values,
                 ts_event=feature.ts_event,
                 ts_init=feature.ts_init,
+                publish_bus=False,
             )
 
         # Calculate timestamp range
@@ -1557,7 +1701,10 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         )
 
         # Store predictions
-        self.model_store.write_batch(predictions)
+        try:
+            self.model_store.write_batch(predictions, emit_events=False, publish_bus=False)
+        except TypeError:
+            self.model_store.write_batch(predictions)
 
         # Calculate timestamp range
         ts_min = min(p.ts_event for p in predictions)
@@ -1651,7 +1798,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         )
 
         # Store signals
-        self.strategy_store.write_batch(signals)
+        self.strategy_store.write_batch(signals, emit_events=False, publish_bus=False)
 
         # Calculate timestamp range
         ts_min = min(s.ts_event for s in signals)
@@ -2300,6 +2447,8 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 return self._validate_nullability(rule, df)
             elif rule.rule_type == ValidationRuleType.LATENESS:
                 return self._validate_lateness(rule, df, manifest)
+            elif rule.rule_type == ValidationRuleType.REGEX:
+                return self._validate_regex(rule, df)
             else:
                 logger.warning("Unknown validation rule type: %s", rule.rule_type)
                 return None
@@ -2348,6 +2497,81 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
                 description=f"Type mismatches found in {violations} columns",
             )
 
+        return None
+
+    def _validate_regex(
+        self,
+        rule: ValidationRule,
+        df: object,
+    ) -> ValidationViolation | None:
+        """
+        Validate a column against a regex pattern.
+        """
+        import re as _re
+
+        df_any = cast(Any, df)
+        field_name = rule.field_name
+        params = rule.parameters
+        pattern = str(params.get("pattern", ""))
+        if not pattern or not hasattr(df_any, "columns") or field_name not in df_any.columns:
+            return None
+
+        try:
+            regex = _re.compile(pattern)
+        except Exception:
+            # Treat invalid regex as configuration issue (warn)
+            return ValidationViolation(
+                rule_type=rule.rule_type,
+                field_name=field_name,
+                severity=QualityFlag.WARN,
+                violation_count=1,
+                sample_values=[pattern],
+                description="Invalid regex pattern",
+            )
+
+        col = df_any[field_name]
+        violations = 0
+        samples: list[str] = []
+
+        # Polars series path
+        if hasattr(col, "__module__") and "polars" in str(col.__module__):
+            try:
+                mismatches = [not bool(regex.match(str(v))) for v in col.to_list()]
+                violations = int(sum(1 for b in mismatches if b))
+                if violations:
+                    # collect first 5 mismatches
+                    for v, bad in zip(col.to_list(), mismatches):
+                        if bad:
+                            samples.append(str(v))
+                        if len(samples) >= 5:
+                            break
+            except Exception:
+                violations = 0
+        else:
+            # pandas/iterable path
+            try:
+                # Convert to iterable of python values
+                if hasattr(col, "tolist"):
+                    values_iter = cast(Any, col).tolist()
+                else:
+                    values_iter = list(cast(Any, col))
+                for v in values_iter:
+                    if not bool(regex.match(str(v))):
+                        violations += 1
+                        if len(samples) < 5:
+                            samples.append(str(v))
+            except Exception:
+                violations = 0
+
+        if violations > 0:
+            return ValidationViolation(
+                rule_type=rule.rule_type,
+                field_name=field_name,
+                severity=rule.severity,
+                violation_count=violations,
+                sample_values=samples,
+                description=f"{field_name} failed regex pattern",
+            )
         return None
 
     def _validate_range(self, rule: ValidationRule, df: object) -> ValidationViolation | None:

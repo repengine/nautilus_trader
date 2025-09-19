@@ -10,7 +10,8 @@ machine learning operations.
 ### Integration Management
 - `MLIntegrationManager`: Automatic wiring of all ML components with progressive fallback
 - `ActorStoresRegistries`: Structured initialization of stores and registries for actors
-- `init_actor_stores_and_registries`: Factory function for actor component initialization
+- `init_ml_stores_and_registries`: Factory function for ML component initialization with dependency injection
+- `init_actor_stores_and_registries`: (Deprecated) Legacy alias for backward compatibility
 
 ### High-Performance Data Structures
 - `LockFreeRingBuffer`: Zero-allocation ring buffer for hot path time series operations
@@ -73,13 +74,18 @@ feature_cache = PreAllocatedFeatureCache(n_features=10, history_size=1000)
 current_buffer = feature_cache.get_current_buffer()  # Zero-copy access
 ```
 
-### Actor Integration
+### Dependency Injection for ML Components
 ```python
-from ml.core import init_actor_stores_and_registries
+from ml.core import init_ml_stores_and_registries
 
-# Progressive fallback initialization for actors
-stores_registries = init_actor_stores_and_registries(config)
+# Progressive fallback initialization for any ML component
+stores_registries = init_ml_stores_and_registries(config)
 # Returns all 4 stores + 4 registries with automatic fallback handling
+
+# Use with dependency injection pattern
+class FeatureEngineer:
+    def __init__(self, config, stores=None):
+        self.stores = stores or init_ml_stores_and_registries(config)
 ```
 
 ## Performance Guarantees
@@ -119,7 +125,8 @@ __all__ = [
     "MLIntegrationManager",
     "PreAllocatedFeatureCache",
     "ReservoirSampler",
-    "init_actor_stores_and_registries",
+    "init_actor_stores_and_registries",  # Deprecated alias
+    "init_ml_stores_and_registries",
 ]
 
 
@@ -131,6 +138,7 @@ def __getattr__(name: str) -> object:
         "ActorStoresRegistries",
         "MLIntegrationManager",
         "init_actor_stores_and_registries",
+        "init_ml_stores_and_registries",
     }:
         from ml.core import integration as _integration
 

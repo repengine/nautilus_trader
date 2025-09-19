@@ -112,7 +112,7 @@ from ml._imports import check_ml_dependencies
 
 try:
     # Expose a patchable module attribute used by tests
-    from ml._imports import HAS_OPENTELEMETRY as _HAS_OPENTELEMETRY  # type: ignore
+    from ml._imports import HAS_OPENTELEMETRY as _HAS_OPENTELEMETRY
 except Exception:  # pragma: no cover - defensive
     _HAS_OPENTELEMETRY = False
 
@@ -226,12 +226,18 @@ def is_tracing_enabled() -> bool:
       backend; honor that by treating tracing as enabled in that case.
 
     """
-    # Explicit environment toggle takes precedence: when disabled, remain off.
-    if not _enabled():
+    # Three states:
+    # - Explicitly disabled via env -> always False
+    # - Explicitly enabled via env -> ensure backend and return status
+    # - Unset env (auto) -> treat as disabled unless a backend has been provisioned
+    env_val = os.getenv("ML_TRACING_ENABLED")
+    if env_val is not None and env_val.lower() == "false":
         return False
+    if env_val is not None and env_val.lower() == "true":
+        return _ensure_tracing_backend()
 
-    # Enabled via environment; ensure backend is initialized (or pre-provisioned).
-    return _ensure_tracing_backend()
+    # Auto mode: enabled only if a backend has already been provisioned (e.g., tests patch)
+    return bool(_tracer is not None or _propagate is not None)
 
 
 @contextmanager
@@ -549,5 +555,4 @@ __all__ = [
     "trace_inference",
 ]
 
-# Ensure a patchable module-level attribute exists regardless of import outcome
-HAS_OPENTELEMETRY: bool = bool(_HAS_OPENTELEMETRY)
+# Note: HAS_OPENTELEMETRY declared once at module top

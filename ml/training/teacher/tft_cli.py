@@ -536,14 +536,22 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
         # Optionally register teacher as non-serveable with artifact saved under registry
-        if args.register_teacher and args.model_registry_dir:
+        if args.register_teacher:
+            from sqlalchemy.exc import OperationalError as _OpErr
+
+            from ml.core.db_engine import EngineManager as _EM
             from ml.registry.base import DataRequirements
             from ml.registry.base import ModelManifest
             from ml.registry.base import ModelRole
             from ml.registry.model_registry import ModelRegistry
+
+            # Persistence preference: Database → JSON
+            from ml.registry.persistence import BackendType as _BT
+            from ml.registry.persistence import PersistenceConfig as _PC
             from ml.training.export import save_model_with_metadata
 
-            reg_dir = Path(args.model_registry_dir)
+            # Resolve registry path (used for artifacts); default if not provided
+            reg_dir = Path(args.model_registry_dir) if args.model_registry_dir else Path.home() / ".nautilus" / "ml_registry"
             artifacts_dir = reg_dir / "artifacts" / "teachers"
             artifacts_dir.mkdir(parents=True, exist_ok=True)
 
@@ -691,7 +699,20 @@ def main(argv: list[str] | None = None) -> int:
                 decision_policy=(args.decision_policy or None),
                 decision_config=decision_cfg,
             )
-            mreg = ModelRegistry(reg_dir)
+            # Prefer DB when available; fallback to JSON
+            db_url = None
+            try:
+                import os as _os
+
+                db_url = _os.getenv("NAUTILUS_DB") or _os.getenv("DB_CONNECTION") or "postgresql://postgres:postgres@localhost:5432/nautilus"
+                engine = _EM.get_engine(db_url)
+                with engine.connect() as conn:
+                    conn.exec_driver_sql("SELECT 1")
+                persistence = _PC(backend=_BT.POSTGRES, connection_string=str(db_url))
+            except (_OpErr, Exception):
+                persistence = _PC(backend=_BT.JSON, json_path=reg_dir)
+
+            mreg = ModelRegistry(reg_dir, persistence_config=persistence)
             reg_id = mreg.register_model(model_path, manifest, auto_deploy=False)
             mreg.flush()
             print(f"Registered teacher model {reg_id} at {model_path}")
@@ -796,6 +817,178 @@ def main(argv: list[str] | None = None) -> int:
         json.dump(meta, f, indent=2)
 
     print(f"Saved: {preds_path}\nMeta: {meta_path}")
+
+    # ---------------------------------------------------------------------
+    # Predictive metrics summary (Phase-1 gating inputs)
+    # ---------------------------------------------------------------------
+    # Compute core predictive metrics from q_val/y_val_true and, when available,
+    # basic stability diagnostics across instruments and calendar weeks.
+    try:
+        # Ensure arrays available
+        q = (q_val if q_val is not None else np.array([], dtype=np.float32)).astype(np.float64).reshape(-1)
+        y = (y_val_true if y_val_true is not None else np.array([], dtype=np.float64)).astype(np.float64).reshape(-1)
+        if q.size and y.size and q.size == y.size:
+            # Clip for numeric stability
+            p = np.clip(q, 1e-6, 1.0 - 1e-6)
+            # Lightweight metrics (avoid heavy deps by default)
+            try:
+                from ml.evaluation.metrics import binary_logloss as _ll
+                from ml.evaluation.metrics import pr_auc as _pra
+                from ml.evaluation.metrics import roc_auc as _ra
+
+                roc_auc = float(_ra(y, p))
+                pr_auc = float(_pra(y, p))
+                logloss = float(_ll(y, p))
+            except Exception:
+                # Fallback via sklearn if available in training env
+                try:
+                    from sklearn.metrics import average_precision_score
+                    from sklearn.metrics import log_loss
+                    from sklearn.metrics import roc_auc_score
+
+                    roc_auc = float(roc_auc_score(y.astype(int), p))
+                    pr_auc = float(average_precision_score(y.astype(int), p))
+                    logloss = float(log_loss(y.astype(int), p))
+                except Exception:
+                    roc_auc = 0.0
+                    pr_auc = 0.0
+                    logloss = float("nan")
+            # Brier
+            try:
+                brier = float(np.mean((p - y) ** 2))
+            except Exception:
+                brier = float("nan")
+            # ECE (10-bin)
+            try:
+                bins = np.linspace(0.0, 1.0, 11)
+                inds = np.digitize(p, bins) - 1
+                ece = 0.0
+                n = len(p)
+                for b in range(10):
+                    mask = inds == b
+                    if np.any(mask):
+                        conf = float(np.mean(p[mask]))
+                        acc = float(np.mean(y[mask]))
+                        ece += (np.sum(mask) / n) * abs(acc - conf)
+                ece = float(ece)
+            except Exception:
+                ece = float("nan")
+
+            prev = float(y.mean()) if y.size > 0 else 0.0
+            prx = float(pr_auc / prev) if prev > 0.0 else 0.0
+
+            # Stability across instruments/weeks when validation DataFrame is available
+            stability_inst_std = float("nan")
+            stability_week_std = float("nan")
+            uniq_instruments: list[str] | None = None
+            if "df_val" in locals() and df_val is not None:
+                try:
+                    dfv = df_val.reset_index(drop=True)
+                    if "instrument_id" in dfv.columns:
+                        uniq_instruments = sorted({str(x) for x in dfv["instrument_id"].astype(str).tolist()})
+                        # align lengths defensively
+                        m = min(len(dfv), len(p))
+                        dfp = dfv.iloc[:m]
+                        pv = p[:m]
+                        yv = y[:m]
+                        aucs: list[float] = []
+                        for inst, sub in dfp.groupby("instrument_id"):
+                            idx = sub.index.to_numpy()
+                            yy = yv[idx]
+                            pp = pv[idx]
+                            if (yy.sum() > 0) and (len(yy) - yy.sum() > 0):
+                                try:
+                                    from ml.evaluation.metrics import roc_auc as _ra2
+
+                                    aucs.append(float(_ra2(yy, pp)))
+                                except Exception:
+                                    pass
+                        if aucs:
+                            stability_inst_std = float(np.std(np.asarray(aucs, dtype=np.float64)))
+                    # Weekly grouping if timestamp available
+                    if "timestamp" in dfv.columns:
+                        import pandas as _pd
+
+                        ts = _pd.to_datetime(dfv["timestamp"], errors="coerce")
+                        dfp2 = dfv.assign(_ts=ts)
+                        m2 = min(len(dfp2), len(p))
+                        pv2 = p[:m2]
+                        yv2 = y[:m2]
+                        aucs_w: list[float] = []
+                        for _, sub in dfp2.iloc[:m2].groupby(_pd.Grouper(key="_ts", freq="W")):
+                            if len(sub) == 0:
+                                continue
+                            idx = sub.index.to_numpy()
+                            yy = yv2[idx]
+                            pp = pv2[idx]
+                            if (yy.sum() > 0) and (len(yy) - yy.sum() > 0):
+                                try:
+                                    from ml.evaluation.metrics import roc_auc as _ra3
+
+                                    aucs_w.append(float(_ra3(yy, pp)))
+                                except Exception:
+                                    pass
+                        if aucs_w:
+                            stability_week_std = float(np.std(np.asarray(aucs_w, dtype=np.float64)))
+                except Exception:
+                    stability_inst_std = float("nan")
+                    stability_week_std = float("nan")
+
+            # Universe derivation (best-effort): prefer instrument_ids from validation frame
+            universe_instrument_ids: list[str] | None = None
+            if uniq_instruments is not None and len(uniq_instruments) > 0:
+                universe_instrument_ids = uniq_instruments
+            else:
+                # Fallback: try training DataFrame if available
+                if "df_sorted" in locals() and isinstance(df_sorted, object) and hasattr(df_sorted, "columns"):
+                    try:
+                        from typing import Any as _Any
+                        from typing import cast as _cast
+
+                        df_any = _cast(_Any, df_sorted)
+                        if "instrument_id" in df_any.columns:
+                            universe_instrument_ids = sorted(
+                                {str(x) for x in df_any["instrument_id"].astype(str).tolist()}
+                            )
+                    except Exception:
+                        universe_instrument_ids = None
+
+            # Build JSON payload for promotions wiring
+            metrics_out: dict[str, Any] = {
+                "model_id": args.model_id,
+                "architecture": "TFT",
+                "feature_set_id": args.feature_set_id,
+                "feature_schema_hash": fman.schema_hash,
+                "serveable": False,
+                "version": "1.0.0",
+                # Metrics (lowercase to align with gates examples)
+                "roc_auc": roc_auc,
+                "pr_auc": pr_auc,
+                "logloss": logloss,
+                "brier": brier,
+                "ece": ece,
+                "prx": prx,
+                "prevalence": prev,
+                # Stability diagnostics (stddev across groups)
+                "stability_auc_by_instrument_std": stability_inst_std,
+                "stability_auc_by_week_std": stability_week_std,
+                # Advisory identifiers for actor auto-universe
+                "training_dataset_id": "tft_dataset",
+            }
+            if universe_instrument_ids:
+                metrics_out["universe_instrument_ids"] = universe_instrument_ids
+
+            # Include artifact path if available from training branch
+            try:
+                if "model_path" in locals() and model_path is not None:
+                    metrics_out["model_path"] = str(model_path)
+            except Exception:
+                pass
+
+            (out_dir / "model_metrics.json").write_text(json.dumps(metrics_out, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Writing model_metrics.json failed: %s", exc, exc_info=True)
+
     return 0
 
 

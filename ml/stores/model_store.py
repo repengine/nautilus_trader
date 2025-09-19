@@ -45,6 +45,9 @@ from ml.stores.services.model_services import ModelWriteService
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from collections.abc import Sequence
+
     import pandas as pd
     from nautilus_trader.common.clock import Clock
 
@@ -237,7 +240,7 @@ class ModelStore(
         instrument_id: str,
         prediction: float,
         confidence: float,
-        features: dict[str, float],
+        features: Mapping[str, float],
         inference_time_ms: float,
         ts_event: int,
         is_live: bool = False,
@@ -284,12 +287,13 @@ class ModelStore(
             context="ModelStore.write_prediction",
         )
 
+
         data = ModelPrediction(
             model_id=model_id,
             instrument_id=instrument_id,
             prediction=prediction,
             confidence=confidence,
-            features_used=features,
+            features_used=dict(features) if not isinstance(features, dict) else features,
             inference_time_ms=inference_time_ms,
             _ts_event=ts_event_norm,
             _ts_init=ts_init,
@@ -305,7 +309,7 @@ class ModelStore(
             self.flush()
 
     @override
-    def write_batch(self, data: list[ModelPrediction], emit_events: bool = True) -> None:
+    def write_batch(self, data: Sequence[ModelPrediction], emit_events: bool = True, publish_bus: bool = True) -> None:
         """
         Write batch of model predictions.
 
@@ -327,11 +331,12 @@ class ModelStore(
         ts_stage_start = time.time_ns()
 
         # Delegate to write service to avoid duplication and preserve patch points
-        self._write_service.write_batch(data)
+        # Accept any Sequence-compatible input and delegate a list to the service
+        self._write_service.write_batch(list(data), publish_bus=publish_bus)
 
         # Emit events after successful write if this is a direct call (not from flush)
         if emit_events:
-            self._emit_prediction_events(data)
+            self._emit_prediction_events(list(data))
 
         # Record observability data (off hot path - background processing only)
         ts_stage_end = time.time_ns()
@@ -713,3 +718,5 @@ class ModelStore(
     connection_string: str | None
     persistence: object | None
     _last_flush_ns: int
+    # SQLAlchemy table created in _setup_tables; typed loosely for protocol conformance
+    model_predictions_table: Any

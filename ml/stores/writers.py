@@ -385,7 +385,8 @@ class LiveDataRecorder:
                         try:
                             return float(val.as_double())
                         except Exception:
-                            continue
+                            logger.debug("Failed to extract price-like value for %s", name, exc_info=True)
+                            return None
                 return None
 
             for q in items:

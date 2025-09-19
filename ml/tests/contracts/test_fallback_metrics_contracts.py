@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from ml.core.integration import init_actor_stores_and_registries
+from ml.core.integration import init_ml_stores_and_registries
 
 
 class _LabelsCapture:
@@ -50,7 +50,7 @@ def test_fallback_activation_emits_metric(monkeypatch: pytest.MonkeyPatch) -> No
         lambda *_args, **_kwargs: counter,
     )
 
-    _ = init_actor_stores_and_registries(_Cfg())
+    _ = init_ml_stores_and_registries(_Cfg())
 
     # One or more fallback metric emissions should have occurred
     assert counter.labels_obj.calls, "Expected fallback activation metric to be emitted"

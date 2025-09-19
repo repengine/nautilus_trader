@@ -8,7 +8,7 @@ and training components, following Nautilus conventions.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from msgspec import ValidationError
 from nautilus_trader.model.data import BarType
@@ -370,6 +370,14 @@ class MLStrategyConfig(StrategyConfig, kw_only=True, frozen=True):
     strategy_store_config: dict[str, Any] | None = None
     persist_all_signals: bool = False
     execute_trades: bool = False
+    # Optional sub-configs for strategy components (protocol-first)
+    sizing_config: _SizingConfig | None = None
+    risk_config: _RiskConfig | None = None
+    execution_config: _ExecutionConfig | None = None
+    portfolio_config: _PortfolioConfig | None = None
+    analytics_config: _AnalyticsConfig | None = None
+    # Optional circuit breaker for strategy-level operations (store writes/orders)
+    circuit_breaker_config: CircuitBreakerConfig | None = None
 
 
 class MLTrainingConfig(NautilusConfig, kw_only=True, frozen=True):
@@ -565,3 +573,9 @@ class StatsConfig(NautilusConfig, kw_only=True, frozen=True):
     small_sample_df_threshold: PositiveInt = 30
     conservative_critical_value: PositiveFloat = 2.0
     z_alpha_default: PositiveFloat = 1.96
+if TYPE_CHECKING:  # typing-only to avoid runtime import cycles
+    from ml.strategies.analytics import AnalyticsConfig as _AnalyticsConfig
+    from ml.strategies.execution import ExecutionConfig as _ExecutionConfig
+    from ml.strategies.portfolio import PortfolioConfig as _PortfolioConfig
+    from ml.strategies.risk import RiskConfig as _RiskConfig
+    from ml.strategies.sizing import SizingConfig as _SizingConfig

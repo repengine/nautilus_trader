@@ -47,6 +47,10 @@ OPTIONAL_MIGRATIONS: list[str] = [
     "ml/stores/migrations/007_brin_indexes.sql",
     # Registry extension
     "ml/registry/migrations/002_add_cold_path_fields.sql",
+    "ml/registry/migrations/003_add_artifact_digest.sql",
+    # Canonicalize predictions dataset id and lineage
+    "ml/stores/migrations/008_predictions_alias.sql",
+    "ml/stores/migrations/009_update_parents_predictions.sql",
     # Emergency fixes
     "ml/migrations/999_fix_partitions_immediate.sql",
 ]

@@ -116,6 +116,49 @@ def main(argv: list[str] | None = None) -> int:
         default="32",
         help="Training precision to pass to teacher CLI (e.g., 32, 16, 16-mixed, bf16)",
     )
+    # Search space controls (comma-separated lists)
+    ap.add_argument(
+        "--hidden_sizes",
+        type=str,
+        default="32,64",
+        help="Comma-separated hidden sizes (e.g., 32,64,128)",
+    )
+    ap.add_argument(
+        "--lstm_layers_list",
+        type=str,
+        default="2,3",
+        help="Comma-separated LSTM layer counts (e.g., 1,2,3)",
+    )
+    ap.add_argument(
+        "--attention_heads",
+        type=str,
+        default="2,4",
+        help="Comma-separated attention head sizes (e.g., 2,4,8)",
+    )
+    ap.add_argument(
+        "--dropouts",
+        type=str,
+        default="0.1,0.2",
+        help="Comma-separated dropout values (e.g., 0.1,0.2,0.3)",
+    )
+    ap.add_argument(
+        "--learning_rates",
+        type=str,
+        default="0.0003,0.001",
+        help="Comma-separated learning rates (e.g., 0.0003,0.001)",
+    )
+    ap.add_argument(
+        "--max_encoder_lengths",
+        type=str,
+        default="30,60",
+        help="Comma-separated encoder lengths (e.g., 30,60,120)",
+    )
+    ap.add_argument(
+        "--seeds",
+        type=str,
+        default="",
+        help="Optional comma-separated seeds (e.g., 1,2,3) to repeat runs",
+    )
     args = ap.parse_args(argv)
 
     out = Path(args.out_dir)
@@ -134,12 +177,23 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: one of --dataset_parquet or --dataset_csv is required", file=sys.stderr)
         return 2
 
-    # Small grid
-    hidden_sizes = [32, 64]
-    lstm_layers = [2, 3]
-    attn_heads = [2, 4]
-    dropouts = [0.1, 0.2]
-    lrs = [3e-4, 1e-3]
+    # Parse grids
+    def _parse_ints(s: str) -> list[int]:
+        return [int(x.strip()) for x in s.split(",") if x.strip()]
+
+    def _parse_floats(s: str) -> list[float]:
+        vals: list[float] = []
+        for tok in [t for t in s.split(",") if t.strip()]:
+            vals.append(float(tok))
+        return vals
+
+    hidden_sizes = _parse_ints(args.hidden_sizes)
+    lstm_layers = _parse_ints(args.lstm_layers_list)
+    attn_heads = _parse_ints(args.attention_heads)
+    dropouts = _parse_floats(args.dropouts)
+    lrs = _parse_floats(args.learning_rates)
+    enc_lengths = _parse_ints(args.max_encoder_lengths)
+    seeds: list[int] = _parse_ints(args.seeds) if args.seeds else [None]  # type: ignore[list-item]
 
     results: list[dict[str, Any]] = []
     train_args_common = [
@@ -182,124 +236,141 @@ def main(argv: list[str] | None = None) -> int:
             for ah in attn_heads:
                 for dr in dropouts:
                     for lr in lrs:
-                        run_id += 1
-                        model_id = f"tft_hpo_h{hs}_l{ll}_a{ah}_d{str(dr).replace('.', '')}_lr{str(lr).replace('.', '')}_r{run_id}"
-                        run_dir = out / model_id
-                        run_dir.mkdir(parents=True, exist_ok=True)
-                        t0 = time.perf_counter()
-                        rc: int
-                        if args.inproc:
-                            # In-process path (tests/debug): import main and call directly
-                            from ml.training.teacher.tft_cli import main as train_main
-
-                            rc = train_main(
-                                [
-                                    *train_flag,
-                                    train_path,
-                                    "--out_dir",
-                                    str(run_dir),
-                                    "--model_id",
-                                    model_id,
-                                    "--feature_registry_dir",
-                                    args.feature_registry_dir,
-                                    "--feature_set_id",
-                                    args.feature_set_id,
-                                    "--max_epochs",
-                                    str(args.epochs),
-                                    "--val_days",
-                                    str(int(args.val_days)),
-                                    "--loss",
-                                    "bce",
-                                    "--dataloader_workers",
-                                    str(args.workers),
-                                    "--pos_weight",
-                                    "auto",
-                                    "--batch_size",
-                                    str(args.batch_size),
-                                    "--accelerator",
-                                    str(args.accelerator),
-                                    "--devices",
-                                    str(int(args.devices)),
-                                    "--precision",
-                                    str(args.precision),
-                                    "--hidden_size",
-                                    str(hs),
-                                    "--lstm_layers",
-                                    str(ll),
-                                    "--attention_head_size",
-                                    str(ah),
-                                    "--dropout",
-                                    str(dr),
-                                    "--learning_rate",
-                                    str(lr),
-                                ]
-                                + (
-                                    []
-                                    if int(args.tail_rows or 0) <= 0
-                                    else ["--tail_rows", str(int(args.tail_rows))]
+                        for mel in enc_lengths:
+                            for seed in seeds:
+                                run_id += 1
+                                seed_tag = f"_s{seed}" if seed is not None else ""
+                                model_id = (
+                                    f"tft_hpo_h{hs}_l{ll}_a{ah}_d{str(dr).replace('.', '')}"
+                                    f"_lr{str(lr).replace('.', '')}_e{mel}_r{run_id}{seed_tag}"
                                 )
-                                + (
-                                    []
-                                    if int(args.limit_groups or 0) <= 0
-                                    else [
-                                        "--limit_groups",
-                                        str(int(args.limit_groups)),
+                                run_dir = out / model_id
+                                run_dir.mkdir(parents=True, exist_ok=True)
+                                t0 = time.perf_counter()
+                                rc: int
+                                if args.inproc:
+                                    # In-process path (tests/debug): import main and call directly
+                                    from ml.training.teacher.tft_cli import main as train_main
+
+                                    rc = train_main(
+                                        [
+                                            *train_flag,
+                                            train_path,
+                                            "--out_dir",
+                                            str(run_dir),
+                                            "--model_id",
+                                            model_id,
+                                            "--feature_registry_dir",
+                                            args.feature_registry_dir,
+                                            "--feature_set_id",
+                                            args.feature_set_id,
+                                            "--max_epochs",
+                                            str(args.epochs),
+                                            "--max_encoder_length",
+                                            str(mel),
+                                            "--val_days",
+                                            str(int(args.val_days)),
+                                            "--loss",
+                                            "bce",
+                                            "--dataloader_workers",
+                                            str(args.workers),
+                                            "--pos_weight",
+                                            "auto",
+                                            "--batch_size",
+                                            str(args.batch_size),
+                                            "--accelerator",
+                                            str(args.accelerator),
+                                            "--devices",
+                                            str(int(args.devices)),
+                                            "--precision",
+                                            str(args.precision),
+                                        ]
+                                        + ([] if seed is None else ["--seed", str(int(seed))])
+                                        + [
+                                            "--hidden_size",
+                                            str(hs),
+                                            "--lstm_layers",
+                                            str(ll),
+                                            "--attention_head_size",
+                                            str(ah),
+                                            "--dropout",
+                                            str(dr),
+                                            "--learning_rate",
+                                            str(lr),
+                                        ]
+                                        + (
+                                            []
+                                            if int(args.tail_rows or 0) <= 0
+                                            else ["--tail_rows", str(int(args.tail_rows))]
+                                        )
+                                        + (
+                                            []
+                                            if int(args.limit_groups or 0) <= 0
+                                            else [
+                                                "--limit_groups",
+                                                str(int(args.limit_groups)),
+                                            ]
+                                        ),
+                                    )
+                                else:
+                                    # Subprocess isolation to prevent memory from accumulating across runs
+                                    cmd = [
+                                        sys.executable,
+                                        *train_args_common,
+                                        "--out_dir",
+                                        str(run_dir),
+                                        "--model_id",
+                                        model_id,
+                                        "--max_encoder_length",
+                                        str(mel),
+                                        "--hidden_size",
+                                        str(hs),
+                                        "--lstm_layers",
+                                        str(ll),
+                                        "--attention_head_size",
+                                        str(ah),
+                                        "--dropout",
+                                        str(dr),
+                                        "--learning_rate",
+                                        str(lr),
                                     ]
-                                ),
-                            )
-                        else:
-                            # Subprocess isolation to prevent memory from accumulating across runs
-                            cmd = [
-                                sys.executable,
-                                *train_args_common,
-                                "--out_dir",
-                                str(run_dir),
-                                "--model_id",
-                                model_id,
-                                "--hidden_size",
-                                str(hs),
-                                "--lstm_layers",
-                                str(ll),
-                                "--attention_head_size",
-                                str(ah),
-                                "--dropout",
-                                str(dr),
-                                "--learning_rate",
-                                str(lr),
-                            ]
-                            log_path = run_dir / "train.log"
-                            try:
-                                with open(log_path, "wb") as lf:
-                                    proc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT)
-                                rc = int(proc.returncode)
-                            except Exception:
-                                # Fallback to default capture when file open fails (should be rare)
-                                proc = subprocess.run(cmd, capture_output=True)
-                                rc = int(proc.returncode)
-                            # Best-effort: free any buffers
-                            gc.collect()
-                            # If process was killed by OOM, annotate in metrics later
-                        dur = time.perf_counter() - t0
-                        npz = run_dir / "teacher_preds.npz"
-                        err_msg: str | None = None
-                        try:
-                            metrics = _score(npz)
-                        except Exception as exc:  # pragma: no cover
-                            metrics = {}
-                            err_msg = str(exc)
-                        rec: dict[str, Any] = {
-                            "model_id": model_id,
-                            "rc": rc,
-                            "duration_sec": dur,
-                            "hidden_size": hs,
-                            "lstm_layers": ll,
-                            "attention_heads": ah,
-                            "dropout": dr,
-                            "metrics": metrics,
-                        }
-                        if err_msg is not None:
-                            rec["error"] = err_msg
-                        results.append(rec)
+                                    if seed is not None:
+                                        cmd += ["--seed", str(int(seed))]
+                                    log_path = run_dir / "train.log"
+                                    try:
+                                        with open(log_path, "wb") as lf:
+                                            proc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT)
+                                        rc = int(proc.returncode)
+                                    except Exception:
+                                        # Fallback to default capture when file open fails (should be rare)
+                                        proc = subprocess.run(cmd, capture_output=True)
+                                        rc = int(proc.returncode)
+                                    # Best-effort: free any buffers
+                                    gc.collect()
+                                    # If process was killed by OOM, annotate in metrics later
+                                dur = time.perf_counter() - t0
+                                npz = run_dir / "teacher_preds.npz"
+                                err_msg: str | None = None
+                                try:
+                                    metrics = _score(npz)
+                                except Exception as exc:  # pragma: no cover
+                                    metrics = {}
+                                    err_msg = str(exc)
+                                rec: dict[str, Any] = {
+                                    "model_id": model_id,
+                                    "rc": rc,
+                                    "duration_sec": dur,
+                                    "hidden_size": hs,
+                                    "lstm_layers": ll,
+                                    "attention_heads": ah,
+                                    "dropout": dr,
+                                    "max_encoder_length": mel,
+                                    "seed": seed,
+                                    "metrics": metrics,
+                                }
+                                if err_msg is not None:
+                                    rec["error"] = err_msg
+                                results.append(rec)
 
     # Pick best by PRx then AUC
     def keyfn(r: dict[str, Any]) -> tuple[float, float]:

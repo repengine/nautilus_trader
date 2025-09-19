@@ -11,15 +11,10 @@ import os
 import sys
 import threading
 import time
-from pathlib import Path
-
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
 
 # Import the regular entrypoint components
-from entrypoint_actor import MLSignalActorNode
-from mock_databento import MockDatabentoClient
+from ml.deployment.entrypoint_actor import MLSignalActorNode
+from ml.deployment.mock_databento import MockDatabentoClient
 
 
 class MockMLSignalActorNode(MLSignalActorNode):
@@ -29,8 +24,8 @@ class MockMLSignalActorNode(MLSignalActorNode):
 
     def __init__(self) -> None:
         super().__init__()
-        self.mock_client = None
-        self.mock_task = None
+        self.mock_client: MockDatabentoClient | None = None
+        self.mock_task: asyncio.Task[object] | None = None
         self._inject_thread: threading.Thread | None = None
         self._inject_stop = threading.Event()
         self._flush_thread: threading.Thread | None = None
@@ -59,14 +54,14 @@ class MockMLSignalActorNode(MLSignalActorNode):
             self.mock_volatility = float(os.getenv("MOCK_VOLATILITY", "0.002"))
 
             # Create mock client
-            self.mock_client = MockDatabentoClient(
+            client = MockDatabentoClient(
                 instrument_id=instrument_str,
-                enable_logging=True
+                enable_logging=True,
             )
-
-            # Modify the generator parameters
-            self.mock_client.generator.current_price = self.mock_initial_price
-            self.mock_client.generator.volatility = self.mock_volatility
+            # Modify the generator parameters using local variable for type narrowing
+            client.generator.current_price = self.mock_initial_price
+            client.generator.volatility = self.mock_volatility
+            self.mock_client = client
 
         # Call parent setup
         super().setup()
@@ -77,7 +72,7 @@ class MockMLSignalActorNode(MLSignalActorNode):
         """
         use_mock = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
 
-        if use_mock and self.mock_client:
+        if use_mock and self.mock_client is not None:
             print("\nStarting mock data generation...")
 
             # Get the actor to send bars to
@@ -90,20 +85,24 @@ class MockMLSignalActorNode(MLSignalActorNode):
                 except Exception:
                     actor = None
 
-                async def inject_mock_bars():
+                client = self.mock_client
+                assert client is not None
+
+                async def inject_mock_bars() -> None:
                     """Inject mock bars into the actor."""
                     try:
-                        async for bar in self.mock_client.generator.generate_stream(
+                        target = actor
+                        async for bar in client.generator.generate_stream(
                             rate_hz=self.mock_rate,
                             duration_seconds=3600  # Run for 1 hour max
                         ):
                             # Inject bar directly into actor
-                            if hasattr(actor, "on_bar"):
-                                actor.on_bar(bar)
+                            if target is not None and hasattr(target, "on_bar"):
+                                target.on_bar(bar)
 
                             # Also log metrics periodically
-                            if self.mock_client.generator.bar_count % 50 == 0:
-                                print(f"📊 Mock: {self.mock_client.generator.bar_count} bars generated")
+                            if client.generator.bar_count % 50 == 0:
+                                print(f"📊 Mock: {client.generator.bar_count} bars generated")
 
                     except asyncio.CancelledError:
                         print("Mock data generation cancelled")
@@ -137,7 +136,8 @@ class MockMLSignalActorNode(MLSignalActorNode):
         use_mock = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
 
         def start_injection_thread() -> None:
-            if not use_mock or not self.mock_client:
+            client = self.mock_client
+            if not use_mock or client is None:
                 return
             # Resolve actor reference
             actor = None
@@ -159,7 +159,8 @@ class MockMLSignalActorNode(MLSignalActorNode):
                 count = 0
                 while not self._inject_stop.is_set():
                     try:
-                        bar = self.mock_client.generator.generate_bar()
+                        assert client is not None
+                        bar = client.generator.generate_bar()
                         if hasattr(actor, "on_bar"):
                             actor.on_bar(bar)
                         # Optional: force persist a simple signal in test mode

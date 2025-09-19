@@ -15,6 +15,7 @@ from ml.orchestration.pipeline_orchestrator import MLPipelineOrchestrator
 from ml.orchestration.pipeline_orchestrator import OrchestratorConfig
 from ml.orchestration.pipeline_orchestrator import TeacherTrainConfig
 from ml.orchestration.pipeline_orchestrator import _CliMain as _CliMain
+from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.providers import CatalogCoverageProvider
@@ -50,9 +51,19 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--macro_lag_days", type=int, default=1)
     ap.add_argument("--include_micro", action="store_true")
     ap.add_argument("--include_l2", action="store_true")
+    ap.add_argument("--include_events", action="store_true")
+    ap.add_argument("--include_calendar", action="store_true")
+    ap.add_argument(
+        "--emit_dataset_events",
+        action="store_true",
+        help="Emit dataset events via DataRegistry for the TFT build",
+    )
     ap.add_argument("--horizon_minutes", type=int, default=15)
     ap.add_argument("--threshold", type=float, default=0.001)
     ap.add_argument("--lookback_periods", type=int, default=30)
+    ap.add_argument("--start_iso", default=None, help="Optional start date ISO (YYYY-MM-DD)")
+    ap.add_argument("--end_iso", default=None, help="Optional end date ISO (YYYY-MM-DD)")
+    ap.add_argument("--chunk_days", type=int, default=0, help="Chunk build by N days (0=disabled)")
 
     # HPO
     ap.add_argument("--hpo", action="store_true")
@@ -65,6 +76,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--train", action="store_true")
     ap.add_argument("--teacher_model_id", default="teacher_model")
     ap.add_argument("--feature_registry_dir", default=None)
+    ap.add_argument("--dataset_register_features", action="store_true",
+                    help="If set, register features during dataset build using feature_registry_dir")
     ap.add_argument("--feature_set_id", default=None)
     ap.add_argument("--max_epochs", type=int, default=5)
 
@@ -79,6 +92,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # Optional small feature refresh phase
     ap.add_argument("--refresh_features", action="store_true")
+
+    # Promotion stage 2 (walk-forward + cost-aware backtest)
+    ap.add_argument("--promote_stage2", action="store_true")
+    ap.add_argument("--stage2_gates_json", default=None)
+    ap.add_argument("--stage2_cost_bps", type=float, default=0.0)
+    ap.add_argument(
+        "--stage2_engine",
+        choices=["returns", "backtest"],
+        default="returns",
+        help="Stage 2 engine: returns (default) or backtest (advisory)",
+    )
+    ap.add_argument("--stage2_commission_bps", type=float, default=0.0)
+    ap.add_argument("--stage2_slippage_bps", type=float, default=0.0)
+    ap.add_argument("--final_model_id", default=None, help="Model ID to promote in stage 2 (optional)")
 
     return ap.parse_args(argv)
 
@@ -99,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Writer selection
     writer: MarketDataWriterProtocol
+    raw_writer = None
     if args.write_mode == "datastore":
         # Use IntegrationManager to get DataStore with adapters (CATALOG_PATH recommended)
         from ml.core.integration import MLIntegrationManager
@@ -107,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
             db_connection=args.db,
             auto_start_postgres=False,
             auto_migrate=False,
+            ensure_healthy=False,
         )
         if mgr.data_store is None:
             raise SystemExit("DataStore unavailable; use parquet write_mode or set CATALOG_PATH")
@@ -122,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("catalog_path is required for parquet write_mode")
         catalog = ParquetDataCatalog(args.catalog_path)
         writer = ParquetCatalogMarketDataWriter(catalog=catalog)
+        # Enable dual-write of raw bars/quotes/trades directly to catalog
+        raw_writer = ParquetCatalogRawWriter(catalog)
         # Registry for event emission (IntegrationManager provides one easily)
         from ml.core.integration import MLIntegrationManager
 
@@ -129,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             db_connection=args.db,
             auto_start_postgres=False,
             auto_migrate=False,
+            ensure_healthy=False,
         )
         registry = mgr.data_registry
 
@@ -162,35 +194,58 @@ def main(argv: list[str] | None = None) -> int:
         coverage=coverage,
         writer=writer,
         registry=registry,  # RegistryProtocol instance
-        ingestor=ingestor if ingestor is not None else object(),
+        ingestor=ingestor if ingestor is not None else None,
+        raw_writer=raw_writer,
         build_main=build_main,
         hpo_main=hpo_main_cli,
         teacher_main=teacher_main,
     )
 
     # Optional ingestion
-    if args.ingest:
+    if args.ingest and ingestor is not None:
+        # Map CLI schema aliases to provider schema tokens
+        schema_map = {
+            "bars": "ohlcv-1m",
+            "tbbo": "tbbo",
+            "trades": "trades",
+        }
+        provider_schema = schema_map.get(str(args.schema).lower(), str(args.schema))
         instruments = [s.strip() for s in str(args.instruments).split(",") if s.strip()]
         for inst in instruments:
             orch.backfill(
                 dataset_id=args.dataset_id,
-                schema=args.schema,
+                schema=provider_schema,
                 instrument_id=inst,
                 lookback_days=int(args.lookback_days),
             )
 
     # Dataset build / HPO / teacher train
+    # Prefer using catalog_path as the dataset source when the caller provided it,
+    # unless data_dir was explicitly set to a non-default value.
+    _data_dir_effective = str(args.data_dir)
+    if args.catalog_path and str(args.data_dir) == "data/tier1":
+        _data_dir_effective = str(args.catalog_path)
+
     ds_cfg = DatasetBuildConfig(
-        data_dir=str(args.data_dir),
+        data_dir=_data_dir_effective,
         symbols=str(args.symbols),
         out_dir=str(args.out_dir),
         include_macro=bool(args.include_macro),
         macro_lag_days=int(args.macro_lag_days),
         include_micro=bool(args.include_micro),
         include_l2=bool(args.include_l2),
+        include_events=bool(args.include_events),
+        include_calendar=bool(args.include_calendar),
         horizon_minutes=int(args.horizon_minutes),
         threshold=float(args.threshold),
         lookback_periods=int(args.lookback_periods),
+        emit_dataset_events=bool(args.emit_dataset_events),
+        start_iso=(str(args.start_iso) if args.start_iso else None),
+        end_iso=(str(args.end_iso) if args.end_iso else None),
+        chunk_days=int(args.chunk_days or 0),
+        register_features=bool(args.dataset_register_features),
+        feature_registry_dir=(str(args.feature_registry_dir) if args.feature_registry_dir else str(Path.home() / ".nautilus" / "ml" / "features")) if bool(args.dataset_register_features) else None,
+        feature_role="teacher",
     )
     hpo_cfg = HPOConfig(
         enabled=bool(args.hpo),
@@ -294,6 +349,51 @@ def main(argv: list[str] | None = None) -> int:
             # Non-fatal for orchestrator
             model_id = None
             _ = model_id
+
+    # Promotion stage 2 (walk-forward + cost-aware backtest)
+    if bool(getattr(args, "promote_stage2", False)):
+        from typing import Any
+
+        from ml.orchestration.promotions import Stage2Config
+        from ml.orchestration.promotions import run_promotion_stage2
+        from ml.registry.dataclasses import QualityGate
+
+        # Build gates from stage2_gates_json if provided, else reuse --gates_json
+        gates_src = args.stage2_gates_json or args.gates_json
+        sgates: list[QualityGate] = []
+        if gates_src:
+            try:
+                import json as _json
+                gj = _json.loads(Path(str(gates_src)).read_text(encoding="utf-8"))
+                for g in gj.get("gates", []):
+                    sgates.append(
+                        QualityGate(
+                            metric_name=str(g["metric"]),
+                            threshold=float(g["threshold"]),
+                            comparison=str(g.get("comparison", "gte")),
+                            required=bool(g.get("required", True)),
+                        ),
+                    )
+            except Exception:
+                sgates = []
+
+        from typing import Literal as _Lit
+        from typing import cast as _cast
+        s2_cfg = Stage2Config(
+            out_dir=str(args.out_dir),
+            dataset_csv=str(Path(str(args.out_dir)) / "dataset.csv"),
+            data_dir=str(args.data_dir),
+            horizon_minutes=int(args.horizon_minutes),
+            engine_mode=_cast(_Lit["returns", "backtest"], str(args.stage2_engine)),
+            cost_bps=float(args.stage2_cost_bps),
+            commission_bps=float(args.stage2_commission_bps),
+            slippage_bps=float(args.stage2_slippage_bps),
+            model_id_hint=(str(args.final_model_id) if args.final_model_id else None),
+            gates=sgates,
+            auto_promote=bool(args.auto_promote),
+            deploy_target=(str(args.deploy_target) if args.deploy_target else None),
+        )
+        _ = run_promotion_stage2(s2_cfg)
 
     # Feature registration/refresh (small optional phase)
     if register_or_refresh_features is not None and (

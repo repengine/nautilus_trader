@@ -90,6 +90,7 @@ DATABENTO_DATASET=EQUS.MINI
 INSTRUMENT_ID=SPY.EQUS
 BAR_TYPE=SPY.EQUS-1-MINUTE-LAST-EXTERNAL
 ACTOR_ID=MLSignalActor-001
+UNIVERSE_SYMBOLS=SPY.XNAS,AAPL.XNAS,MSFT.XNAS  # Optional multi‑instrument universe
 
 # Database
 DB_CONNECTION=postgresql://postgres:postgres@postgres:5432/nautilus
@@ -104,6 +105,11 @@ ML_STRATEGY_HOST_PORT=8001
 ML_PIPELINE_HOST_PORT=8081
 POSTGRES_HOST_PORT=5433
 REDIS_HOST_PORT=6380
+
+# Multi‑instrument batching (optional)
+MAX_BATCH_SIZE=128
+FEATURE_DIM=64
+FLUSH_MAX_LATENCY_MS=0
 ```
 
 ## Monitoring
@@ -176,6 +182,56 @@ docker logs ml-ml_signal_actor-1 --tail 50 | grep -E "Signal|Prediction"
 # Check metrics
 curl -s http://localhost:8000/metrics | grep ml_
 ```
+
+### Off‑Hours / Mock Data Mode
+
+If you need to validate the end‑to‑end stack outside market hours, use the mock data profile. It spins up a separate project (`ml-test`) with synthetic bars and a dedicated metrics port.
+
+```bash
+# Bring up the mock stack (postgres-test, redis-test, actor in mock mode)
+docker compose -f ml/deployment/docker-compose.test.yml up -d --build
+
+# Tail the actor logs
+docker compose -f ml/deployment/docker-compose.test.yml logs -f ml_signal_actor_test
+
+# Check metrics (exposed on 8002)
+curl -s http://localhost:8002/metrics | grep ml_
+
+# Tear down when finished
+docker compose -f ml/deployment/docker-compose.test.yml down -v
+```
+
+Environment knobs (defaults shown):
+
+- `USE_MOCK_DATA=true` enables synthetic bar stream
+- `MOCK_DATA_RATE=10` bars/sec, `MOCK_INITIAL_PRICE=650.0`, `MOCK_VOLATILITY=0.002`
+- Test DB: `postgres-test` on `5434`; actor metrics on `8002`
+
+Default universe behavior
+
+- If `UNIVERSE_SYMBOLS` is not set, the actor enables a default US‑centric universe:
+  - `SPY.EQUS, QQQ.EQUS, AAPL.XNAS, MSFT.XNAS, NVDA.XNAS`
+- Set `UNIVERSE_SYMBOLS` (comma‑separated) to override.
+
+## Orchestrator Smoke Test (Docker)
+
+Run a one‑shot MLPipelineOrchestrator inside a container to validate end‑to‑end dataset build → HPO → train → stage‑2 promotion gates (returns engine):
+
+```bash
+# Optional: export DATABENTO_API_KEY for ingestion (otherwise builder uses existing catalog)
+export DATABENTO_API_KEY=...  # optional
+
+# Build and run the smoke (starts Postgres/Redis via compose if needed)
+make docker-orchestrator-smoke
+
+# Inspect outputs under ./data/out_smoke and ml_registry (mounted into the container)
+ls -la data/out_smoke
+```
+
+Flags used in the smoke run can be adjusted by editing the `docker-orchestrator-smoke` target in the Makefile.
+
+Notes
+- Stage 2 `--stage2_engine backtest` attempts to use Nautilus Trader BacktestEngine. If unavailable or parity is incomplete in the container, the orchestrator automatically falls back to the returns‑based engine for stable gating metrics.
 
 ## Support
 

@@ -26,6 +26,21 @@ This document defines the coding standards for the `ml/` package. The goals are:
 - Existing components may continue to use the non‑strict variants for compatibility, but prefer adapters when adding new behavior.
 - Avoid widening types to `Any` at these boundaries. Keep enums for events and narrow mappings for features/metrics.
 
+### Service Protocols (Strict)
+
+- Use strict service dependency protocols for services under `ml/stores/services/`.
+  - Definitions live in `ml/stores/protocols.py`:
+    - `ModelWriteDepsStrict`, `ModelReadDepsStrict`, `ModelEventDepsStrict`, `ModelClearDepsStrict`
+    - `StrategyWriteDepsStrict`, `StrategyReadDepsStrict`, `StrategyEventDepsStrict`, `StrategyClearDepsStrict`
+  - Also provided: `LoggerLike` and `TableLike` helper protocols to avoid `Any`.
+- Migration rules (typing-only):
+  - Update service `deps` annotations to the strict protocols; keep method bodies identical.
+  - Narrow `values`, `params`, and `columns` to `list[dict[str, object]]`, `Mapping[str, object]`, and `Sequence[str]`.
+  - Return types from `_execute_read(...)` should be `object` to avoid forcing heavy imports in cold paths.
+- Registry typing:
+  - Event services should expose `_get_data_registry() -> RegistryProtocol | None`.
+- Performance: No runtime changes. These are type-level contracts only.
+
 ## Imports, Layout, and Style
 
 - Use Ruff + Black formatting. Run `make ruff` locally.

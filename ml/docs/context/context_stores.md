@@ -1513,3 +1513,14 @@ After comprehensive review of all 19 Python files totaling 10,293 lines in `/hom
 - **Monitoring**: See `context_monitoring.md` for observability
 - **Actors**: See `context_actors.md` for inference actors
 - **Models**: See `context_models.md` for model implementations
+
+
+### Event/Watermark Ownership and Bus Publishing (Centralization)
+
+- DataStore owns event emission and watermark updates across data, features, predictions, and signals.
+- Store-level bus publishing is optional and intended for standalone usage. When DataStore orchestrates writes,
+  it suppresses store-level event emission and bus publishing to avoid duplication.
+- Migration plans: the integration manager now shares the CLI plan builder.
+  - Env: `ML_MIGRATIONS_FULL=1` to include optional hardening/views/BRIN/artifact fields; `ML_MIGRATIONS_SCHEMA=stores|registry|both` to scope.
+  - In production, `ML_ENV=prod` defaults to full migrations.
+

@@ -135,6 +135,30 @@ class YourCustomActor(BaseMLInferenceActor):
         self.custom_logic = self._initialize_custom_logic()
 ```
 
+#### Alternative: Dependency Injection Pattern
+
+For non-actor components (utilities, strategies, feature engineers), use dependency injection instead of inheritance:
+
+```python
+from ml.core.integration import init_ml_stores_and_registries
+from ml.features.engineering import FeatureEngineer
+
+# Initialize stores and registries once
+stores = init_ml_stores_and_registries(config)
+
+# Inject into components
+engineer = FeatureEngineer(
+    config=feature_config,
+    stores=stores  # Pass entire container
+)
+
+# Components can access all stores via properties
+features = engineer.feature_store.get_latest_features(...)
+model = engineer.model_registry.get_model(model_id)
+```
+
+This approach avoids forcing non-actor components to inherit from `BaseMLInferenceActor` while still providing access to all 4 stores and 4 registries.
+
 #### Store Access Pattern
 
 ```python
@@ -419,6 +443,32 @@ Enforcement and tooling
 - Semgrep rule `ml-prefer-strict-store-protocol` (in `tools/semgrep/ml-rules.yml`) flags new public code using non‑strict protocols.
 - Type checking: run `poetry run mypy ml --strict` (or `uv run --active --no-sync mypy ml --strict`).
 - Keep hot-path safe: strict typing has no runtime overhead; avoid conversions/copies in tight loops.
+
+#### Strict Service Protocols (Adoption)
+
+Services in `ml/stores/services/` should depend on strict dependency protocols declared in `ml/stores/protocols.py`:
+
+- Model services: `ModelWriteDepsStrict`, `ModelReadDepsStrict`, `ModelEventDepsStrict`, `ModelClearDepsStrict`
+- Strategy services: `StrategyWriteDepsStrict`, `StrategyReadDepsStrict`, `StrategyEventDepsStrict`, `StrategyClearDepsStrict`
+- Helpers: `LoggerLike` (stdlib-compatible) and `TableLike` (SQLAlchemy-light)
+
+Migration guidance
+
+- Update only annotations (no behavior change): narrow `values` to `list[dict[str, object]]`, `params` to `Mapping[str, object]`, `columns` to `Sequence[str]`.
+- Return `object` from `_execute_read(...)` to avoid pulling DataFrame types into cold modules.
+- For registries, use `_get_data_registry() -> RegistryProtocol | None`.
+
+Validation
+
+- Run `uv run --active --no-sync mypy ml/stores --strict` to validate service typings.
+- Add unit tests with lightweight dummy deps implementing the protocols to prove the surface.
+
+Adapter retirement in ActorServices
+
+- Actor service wiring prefers direct attachment when stores already conform to strict protocols:
+  - At runtime: `isinstance(store, FeatureStoreStrictProtocol)` (protocols are `@runtime_checkable`).
+  - If conforming, attach the store directly; otherwise, wrap with the thin strict adapter.
+- This avoids unnecessary adapter indirection once concrete stores match the strict surfaces.
 
 #### Protocol Validation
 

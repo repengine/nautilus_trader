@@ -1,25 +1,12 @@
 {
   "datasets": [
-    "DBEQ.BASIC"
+    "DBEQ.BASIC",
+    "EQUS.MINI"
   ],
   "date_ranges": {
     "L0": "7 years (safe)",
     "L1": "1 year (safe)",
     "L2": "30 days (safe)"
-  },
-  "ranges": {
-    "L0": {
-      "days": 365,
-      "schemas": ["ohlcv-1d", "ohlcv-1h"]
-    },
-    "L1": {
-      "days": 30,
-      "schemas": ["trades", "tbbo"]
-    },
-    "L2": {
-      "days": 7,
-      "schemas": ["mbp-1"]
-    }
   },
   "schemas": {},
   "warnings": []

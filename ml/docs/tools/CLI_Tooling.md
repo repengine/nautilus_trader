@@ -184,6 +184,24 @@ Notes:
 
 - Dataset build, HPO, and training reuse in-process CLIs and respect all repo standards (typed, strict, and off hot paths).
 
+Promotion stage 2 (walk-forward + backtest)
+
+Add the following flags to enable a post-train promotion stage with trading gates:
+
+```bash
+  --promote_stage2 \
+  --stage2_engine returns \  # or backtest (advisory; falls back to returns)
+  --stage2_cost_bps 1.0 \
+  --stage2_commission_bps 0.5 \
+  --stage2_slippage_bps 0.5
+```
+
+- Engine modes:
+  - `returns` (default): Computes realized forward returns from catalog bars aligned to
+    the teacher validation window and applies a threshold policy with cost modeling.
+  - `backtest`: Attempts to use Nautilus Trader BacktestEngine if available; if not,
+    the orchestrator automatically falls back to `returns` for stable metrics.
+
 Bootstrap and Partitions (recommended)
 
 - For production-like runs, initialize the ML stack via MLIntegrationManager so migrations and partitions are handled off the hot path. Example:

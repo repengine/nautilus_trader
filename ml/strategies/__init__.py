@@ -182,15 +182,54 @@ When upgrading from older ML strategy implementations:
 
 """
 
+# Position sizing and risk management
+from ml.strategies.analytics import AnalyticsConfig
+from ml.strategies.analytics import PerformanceTracker
+from ml.strategies.analytics import SignalRecord
 from ml.strategies.base import BaseMLStrategy
 from ml.strategies.base import SimpleMLStrategy
+from ml.strategies.execution import ExecutionConfig
+from ml.strategies.execution import OrderExecutor
 from ml.strategies.ml_strategy import MLTradingStrategy
 from ml.strategies.ml_strategy import MultiModelMLStrategy
+from ml.strategies.portfolio import PortfolioConfig
+from ml.strategies.portfolio import PortfolioManager
+
+# Type protocols
+from ml.strategies.protocols import OrderExecutorProtocol
+from ml.strategies.protocols import PerformanceTrackerProtocol
+from ml.strategies.protocols import PortfolioManagerProtocol
+from ml.strategies.protocols import PositionSizerProtocol
+from ml.strategies.protocols import RiskManagerProtocol
+from ml.strategies.risk import RiskConfig
+from ml.strategies.risk import RiskManager
+from ml.strategies.sizing import CompositeSizer
+from ml.strategies.sizing import KellySizer
+from ml.strategies.sizing import SizingConfig
+from ml.strategies.sizing import VolatilitySizer
 
 
 __all__ = [
+    "AnalyticsConfig",
     "BaseMLStrategy",
+    "CompositeSizer",
+    "ExecutionConfig",
+    "KellySizer",
     "MLTradingStrategy",
     "MultiModelMLStrategy",
+    "OrderExecutor",
+    "OrderExecutorProtocol",
+    "PerformanceTracker",
+    "PerformanceTrackerProtocol",
+    "PortfolioConfig",
+    "PortfolioManager",
+    "PortfolioManagerProtocol",
+    "PositionSizerProtocol",
+    "RiskConfig",
+    "RiskManager",
+    "RiskManagerProtocol",
+    "SignalRecord",
     "SimpleMLStrategy",
+    "SizingConfig",
+    "VolatilitySizer",
 ]

@@ -29,6 +29,10 @@ This directory contains comprehensive documentation for the Nautilus Trader ML s
 
 - **[development/CODING_STANDARDS.md](development/CODING_STANDARDS.md)** - Comprehensive coding standards and quality requirements
 
+### 🧭 Operations & Dashboard
+
+- **[architecture/dashboard_control_plane.md](architecture/dashboard_control_plane.md)** - Dashboard control-plane API, deployment, and usage
+
 ### 🧰 CLI Tooling
 
 - **[tools/CLI_Tooling.md](tools/CLI_Tooling.md)** - Build runner, dataset report, and feature promotion CLI usage
@@ -236,10 +240,25 @@ cfg = DatasetBuildConfig(
     data_dir=Path("catalog"),
     out_dir=Path("ml_out/datasets/spy"),
     symbols=["SPY"],
+    include_macro=True,
+    include_events=True,
+    include_calendar=True,
+    include_l2=True,
+    lookback_periods=30,
 )
 result = build_tft_dataset(cfg)
 print(result.dataset_parquet)
 ```
+
+Notes:
+- Canonical market data store: use a Nautilus `ParquetDataCatalog` (e.g., `./catalog`) as the single source of truth for bars/quotes/trades. Configure ingestion to write here (either directly via `ParquetCatalogMarketDataWriter` or dual‑write alongside the SQL `DataStore`).
+- In orchestrated runs, if `--catalog_path` is provided and `--data_dir` is left at its default, the dataset builder will automatically read from `--catalog_path` to keep ingestion and training aligned.
+- Calendar/events flags add known‑future features (session, holidays; Fed/CPI/earnings proximity) safely on the cold path.
+- Use `start`, `end`, and `chunk_days` in `DatasetBuildConfig` for windowed builds when scaling to 60–90 days.
+
+For orchestrated runs, use `python -m ml.cli.pipeline_orchestrator` with:
+- `--include_calendar`, `--include_events`, `--include_macro`, `--include_l2` to enable richer features
+- `--start_iso`, `--end_iso`, `--chunk_days` to control the build window and memory footprint
 
 For full design rationale and rules, see [architecture/universal_patterns_guide.md](architecture/universal_patterns_guide.md) → “Public API Facades”.
 

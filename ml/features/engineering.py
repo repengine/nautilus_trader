@@ -729,9 +729,14 @@ class FeatureEngineer:
         config: FeatureConfig | None = None,
         metrics_collector: FeatureEngineeringCollector | None = None,
         feature_store: FeatureStoreStrictProtocol | None = None,
+        stores: object | None = None,
     ) -> None:
         """
-        Initialize feature engineer.
+        Initialize feature engineer with dependency injection support.
+
+        This constructor supports the Universal ML Architecture Pattern 1 by accepting
+        either individual stores or a complete stores/registries container via dependency
+        injection. This enables clean integration without forcing inheritance hierarchies.
 
         Parameters
         ----------
@@ -739,11 +744,49 @@ class FeatureEngineer:
             Configuration for feature engineering. If None, uses default configuration.
         metrics_collector : FeatureEngineeringCollector, optional
             Optional metrics collector for monitoring feature engineering performance.
+        feature_store : FeatureStoreStrictProtocol, optional
+            Individual feature store (legacy parameter for backward compatibility).
+        stores : ActorStoresRegistries, optional
+            Container with all 4 stores and 4 registries from init_ml_stores_and_registries.
+            If provided, supersedes individual feature_store parameter.
+
+        Examples
+        --------
+        >>> # Traditional usage with individual store
+        >>> engineer = FeatureEngineer(config, feature_store=my_store)
+
+        >>> # Dependency injection with all stores
+        >>> from ml.core.integration import init_ml_stores_and_registries
+        >>> stores = init_ml_stores_and_registries(config)
+        >>> engineer = FeatureEngineer(config, stores=stores)
+
+        >>> # Dependency injection with lazy initialization
+        >>> engineer = FeatureEngineer(config)  # stores initialized on demand
 
         """
         self.config = config or FeatureConfig()
         self.scaler: StandardScalerT | None = None
         self._metrics = metrics_collector
+
+        # Handle dependency injection for stores
+        self._stores: object | None = None
+        self._feature_store: FeatureStoreStrictProtocol | None = None
+
+        if stores is not None:
+            # Full dependency injection with all stores/registries
+            self._stores = stores
+            # Extract feature store from the container
+            if hasattr(stores, "feature_store"):
+                self._feature_store = stores.feature_store
+        elif feature_store is not None:
+            # Legacy single store parameter
+            self._feature_store = feature_store
+        else:
+            # Lazy initialization - stores will be created on demand if needed
+            self._feature_store = None
+
+        # Public property for backward compatibility
+        self.feature_store = self._feature_store
 
         # Pre-allocate feature buffer for hot path performance
         # IMPORTANT: Online (hot-path) schema must reflect L1-only capability until
@@ -822,6 +865,83 @@ class FeatureEngineer:
 
         # Zero the preallocated feature buffer
         self.feature_buffer.fill(0)
+
+    @property
+    def model_store(self) -> object | None:
+        """
+        Access the model store from the injected stores container.
+
+        Returns None if stores were not injected or if the container doesn't have a model_store.
+        """
+        if self._stores is not None and hasattr(self._stores, "model_store"):
+            return cast(object, self._stores.model_store)
+        return None
+
+    @property
+    def strategy_store(self) -> object | None:
+        """
+        Access the strategy store from the injected stores container.
+
+        Returns None if stores were not injected or if the container doesn't have a strategy_store.
+        """
+        if self._stores is not None and hasattr(self._stores, "strategy_store"):
+            return cast(object, self._stores.strategy_store)
+        return None
+
+    @property
+    def data_store(self) -> object | None:
+        """
+        Access the data store from the injected stores container.
+
+        Returns None if stores were not injected or if the container doesn't have a data_store.
+        """
+        if self._stores is not None and hasattr(self._stores, "data_store"):
+            return cast(object, self._stores.data_store)
+        return None
+
+    @property
+    def feature_registry(self) -> object | None:
+        """
+        Access the feature registry from the injected stores container.
+
+        Returns None if stores were not injected or if the container doesn't have a feature_registry.
+        """
+        if self._stores is not None and hasattr(self._stores, "feature_registry"):
+            return cast(object, self._stores.feature_registry)
+        return None
+
+    @property
+    def model_registry(self) -> object | None:
+        """
+        Access the model registry from the injected stores container.
+
+        Returns None if stores were not injected or if the container doesn't have a model_registry.
+        """
+        if self._stores is not None and hasattr(self._stores, "model_registry"):
+            return cast(object, self._stores.model_registry)
+        return None
+
+    @property
+    def strategy_registry(self) -> object | None:
+        """
+        Access the strategy registry from the injected stores container.
+
+        Returns None if stores were not injected or if the container doesn't have a strategy_registry.
+        """
+        if self._stores is not None and hasattr(self._stores, "strategy_registry"):
+            return cast(object, self._stores.strategy_registry)
+        return None
+
+    @property
+    def data_registry(self) -> object | None:
+        """
+        Access the data registry from the injected stores container.
+
+        Returns None if stores were not injected or if the container doesn't have a data_registry.
+        """
+        if self._stores is not None and hasattr(self._stores, "data_registry"):
+            return cast(object, self._stores.data_registry)
+        return None
 
     # ===== Manifest & Pipeline helpers =====
     def build_pipeline_spec_from_config(self) -> PipelineSpec:

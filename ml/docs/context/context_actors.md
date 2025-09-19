@@ -1366,6 +1366,62 @@ After reviewing the actual implementation code against the documentation claims,
 - **NO EVIDENCE** of actual performance validation or enforcement
 - Metrics collection but no SLA enforcement in code
 
+## Multi‑Instrument Batched Actor
+
+The MultiInstrumentSignalActor provides O(1) hot‑path, multi‑instrument batched inference on top of MLSignalActor. It pre‑allocates a fixed batch tensor and accumulates feature rows across instruments, flushing by capacity or time.
+
+- Class: ml/actors/multi_signal.py (MultiInstrumentSignalActor)
+- Hot path: on_bar copies features into a pre‑allocated ndarray and returns
+- Flush path: _flush_batch runs vectorized ONNXRuntime when available, else per‑row
+- Universe filter: only bars for configured instruments are batched
+
+Configuration (minimal):
+
+```python
+from ml.actors.multi_signal import MultiInstrumentSignalActor, MultiInstrumentSignalActorConfig
+
+cfg = MultiInstrumentSignalActorConfig(
+    actor_id="multi-actor",
+    model_path="model.onnx",
+    model_id="model_v1",
+    instrument_id=InstrumentId.from_str("X.TEST"),
+    bar_type=BarType.from_str("X.TEST-1-MINUTE-LAST-EXTERNAL"),
+    # Multi-instrument settings
+    max_batch_size=128,
+    feature_dim=64,
+    initial_universe=["EURUSD", "BTCUSD"],
+    flush_max_latency_ms=2,  # best-effort time guard
+)
+actor = MultiInstrumentSignalActor(cfg)
+```
+
+Behavior and APIs:
+
+- ORT vectorized inference: Uses model metadata input/output names; supports 1‑ or 2‑output graphs (prediction[, confidence]); falls back to per‑row _predict on any error.
+- Universe management (cold path): add_instrument, remove_instrument, set_universe, clear_universe.
+- Feature dim alignment (startup): Resizes the pre‑allocated batch tensor to FeatureEngineer.n_features or manifest feature count.
+- Time‑based flush: If flush_max_latency_ms > 0 and batch non‑empty, triggers a best‑effort flush using time.time_ns() without impacting the hot path.
+
+Metrics and observability:
+
+- Counters/Histograms via MetricsManager only:
+  - ml_multi_infer_batch_total{actor}
+  - ml_multi_infer_batch_size{actor}
+  - ml_multi_infer_batch_seconds{actor}
+  - ml_universe_size_gauge{actor}
+- Optional OTel span around _flush_batch: ml.multi_infer.batch (best‑effort).
+
+Hot‑path guarantees:
+
+- No I/O/DF/network/training in on_bar; only a slice copy into the pre‑allocated batch array and list appends for metadata.
+- Publish/log/metrics on the cold path; logging is structured and best‑effort.
+- P99 < 5 ms target preserved by keeping model execution and storage off the hot path.
+
+Notes:
+
+- Use enums for events and centralized topic builders as with other actors if publishing is enabled elsewhere in the pipeline.
+- Keep labels low‑cardinality (actor id) and never import prometheus_client directly.
+
 ### Conclusion
 
 The ml/actors implementation achieves approximately **75% fidelity** to documentation claims:
