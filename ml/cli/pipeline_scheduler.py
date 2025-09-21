@@ -5,6 +5,7 @@ import argparse
 import os
 import time
 from collections.abc import Callable
+from collections.abc import Sequence
 from typing import cast
 
 from ml.orchestration import config_loader as _config_loader
@@ -63,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _run_forever(
         config_loader=_config_loader,
-        invoke_pipeline=cast(Callable[[list[str]], int], _orch_main),
+        invoke_pipeline=cast(Callable[[Sequence[str] | None], int], _orch_main),
         sleep_fn=time.sleep,
     )
     return 0

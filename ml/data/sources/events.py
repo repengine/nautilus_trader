@@ -8,16 +8,21 @@ releases, earnings announcements, and Fed meetings.
 
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from numpy.random import default_rng
+
+from ml._imports import pl
 
 
 logger = logging.getLogger(__name__)
@@ -775,3 +780,129 @@ class SimpleEventSource(EventSource):
                 unique_events.append(event)
 
         return unique_events
+
+
+class FileEventSource(EventSource):
+    """
+    Event source backed by normalized event parquet produced by ingestion.
+    """
+
+    def __init__(self, events_path: str | Path) -> None:
+        super().__init__()
+        self._events: list[dict[str, Any]] = []
+        self._load(Path(events_path))
+
+    def _load(self, path: Path) -> None:
+        try:
+            if pl is not None:
+                table = pl.read_parquet(str(path))
+                records = table.to_dicts()
+            else:  # pragma: no cover - polars optional fallback
+                import pandas as _pd
+
+                frame = _pd.read_parquet(path)
+                records = frame.to_dict(orient="records")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error("Failed to load events from %s: %s", path, exc)
+            records = []
+
+        events: list[dict[str, Any]] = []
+        for record in records:
+            try:
+                raw_ts = record.get("event_timestamp")
+                ts_obj = (
+                    raw_ts if isinstance(raw_ts, datetime) else datetime.fromisoformat(str(raw_ts))
+                )
+                ts = (
+                    ts_obj if ts_obj.tzinfo is None else ts_obj.astimezone(UTC).replace(tzinfo=None)
+                )
+                metadata_raw = record.get("metadata") or "{}"
+                metadata: dict[str, Any]
+                if isinstance(metadata_raw, dict):
+                    metadata = metadata_raw
+                else:
+                    metadata = json.loads(str(metadata_raw))
+                events.append(
+                    {
+                        "event_timestamp": ts,
+                        "event_type": str(record.get("event_type", "")),
+                        "name": str(record.get("name", "")),
+                        "instrument_id": record.get("instrument_id") or None,
+                        "importance": str(record.get("importance", "MEDIUM")),
+                        "metadata": metadata,
+                    },
+                )
+            except Exception:
+                continue
+
+        events.sort(key=lambda r: r.get("event_timestamp", datetime.min))
+        self._events = events
+
+    def get_economic_events(
+        self,
+        start: datetime,
+        end: datetime,
+    ) -> list[EconomicEvent]:
+        events: list[EconomicEvent] = []
+        for record in self._events:
+            ts = record.get("event_timestamp")
+            if ts is None or not (start <= ts <= end):
+                continue
+            etype = record.get("event_type")
+            if etype not in {"fed_meeting", "economic_release", "options_expiry", "holiday"}:
+                continue
+            metadata = record.get("metadata", {})
+            events.append(
+                EconomicEvent(
+                    event_id=f"{etype.upper()}_{ts.strftime('%Y%m%d%H%M')}",
+                    timestamp=ts,
+                    name=str(record.get("name", "Economic Event")),
+                    country=str(metadata.get("country", "US")),
+                    importance=str(record.get("importance", "MEDIUM")),
+                    forecast=metadata.get("forecast"),
+                    previous=metadata.get("previous"),
+                    actual=metadata.get("actual"),
+                ),
+            )
+        return events
+
+    def get_earnings_events(
+        self,
+        instruments: list[str],
+        start: datetime,
+        end: datetime,
+    ) -> list[EarningsEvent]:
+        if not instruments:
+            return []
+        wanted = {instrument.upper() for instrument in instruments}
+        events: list[EarningsEvent] = []
+        for record in self._events:
+            ts = record.get("event_timestamp")
+            if ts is None or not (start <= ts <= end):
+                continue
+            etype = record.get("event_type")
+            if etype not in {"earnings", "dividend"}:
+                continue
+            instrument_id = record.get("instrument_id")
+            if instrument_id is None or instrument_id.upper() not in wanted:
+                continue
+            metadata = record.get("metadata", {})
+            quarter = str(metadata.get("quarter", "Q1"))
+            fiscal_year = int(metadata.get("year", ts.year))
+            events.append(
+                EarningsEvent(
+                    event_id=f"{instrument_id}_{quarter}_{fiscal_year}",
+                    timestamp=ts,
+                    instrument_id=instrument_id,
+                    fiscal_quarter=quarter,
+                    fiscal_year=fiscal_year,
+                    eps_forecast=metadata.get("eps_forecast"),
+                    eps_previous=metadata.get("eps_previous"),
+                    revenue_forecast=metadata.get("revenue_forecast"),
+                    revenue_previous=metadata.get("revenue_previous"),
+                    eps_actual=metadata.get("eps_actual"),
+                    revenue_actual=metadata.get("revenue_actual"),
+                    timing=str(metadata.get("timing", "AMC")),
+                ),
+            )
+        return events

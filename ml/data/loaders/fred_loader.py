@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
+from nautilus_trader.model.identifiers import InstrumentId
 
 from ml._imports import HAS_FREDAPI
 from ml._imports import HAS_POLARS
@@ -39,7 +40,6 @@ from ml.registry.dataclasses import StorageKind
 from ml.registry.dataclasses import ValidationRule
 from ml.registry.dataclasses import ValidationRuleType
 from ml.stores.data_store import DataStore
-from nautilus_trader.model.identifiers import InstrumentId
 
 
 if TYPE_CHECKING:
@@ -1070,6 +1070,7 @@ class FREDDataLoader:
         -------
         Path
             The written parquet file path.
+
         """
         _pl = pl
         assert _pl is not None

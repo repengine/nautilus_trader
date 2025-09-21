@@ -24,7 +24,6 @@ from ml.training.export import ModelExportMixin
 if TYPE_CHECKING:
     import lightgbm as lgb
     import optuna
-    import polars as pl
 
 
 class LightGBMTrainer(BaseMLTrainer, ModelExportMixin):

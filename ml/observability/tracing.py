@@ -232,11 +232,11 @@ def is_tracing_enabled() -> bool:
     # - Unset env (auto) -> treat as disabled unless a backend has been provisioned
     env_val = os.getenv("ML_TRACING_ENABLED")
     if env_val is not None and env_val.lower() == "false":
-        return False
+        return bool(_tracer is not None or _propagate is not None)
     if env_val is not None and env_val.lower() == "true":
-        return _ensure_tracing_backend()
+        return _ensure_tracing_backend() or bool(_tracer is not None or _propagate is not None)
 
-    # Auto mode: enabled only if a backend has already been provisioned (e.g., tests patch)
+    # Auto mode: enabled when a backend has already been provisioned (e.g., tests patch)
     return bool(_tracer is not None or _propagate is not None)
 
 
@@ -275,14 +275,17 @@ def trace_cold_path(
     ...     features = compute_features(data)
 
     """
-    if not is_tracing_enabled():
-        # No-op when disabled
-        yield None
-        return
+    tracer = _tracer
+    if tracer is None:
+        if not is_tracing_enabled():
+            yield None
+            return
+        tracer = _tracer
+        if tracer is None:
+            yield None
+            return
 
-    # Help static analysis: _tracer is set by _ensure_tracing_backend when enabled
-    assert _tracer is not None
-    with _tracer.start_as_current_span(operation_name) as span:
+    with tracer.start_as_current_span(operation_name) as span:
         # Set standard attributes
         if correlation_id:
             span.set_attribute("correlation_id", correlation_id)
@@ -331,13 +334,10 @@ def trace_cold_path_decorator(
     """
 
     def decorator(func: F) -> F:
-        if not _enabled():
-            # Return function unchanged when tracing disabled
-            return func
-
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not is_tracing_enabled():
+            tracer = _tracer
+            if tracer is None and not is_tracing_enabled():
                 return func(*args, **kwargs)
 
             # Extract correlation_id if parameter specified
@@ -386,12 +386,10 @@ def trace_inference(operation_name: str) -> Callable[[F], F]:
     """
 
     def decorator(func: F) -> F:
-        if not _enabled():
-            return func
-
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not is_tracing_enabled():
+            tracer = _tracer
+            if tracer is None and not is_tracing_enabled():
                 return func(*args, **kwargs)
 
             # Extract attributes from common actor patterns
@@ -434,16 +432,17 @@ def get_trace_context() -> dict[str, str]:
     >>> emit_dataset_event(..., metadata=metadata)
 
     """
-    # If tracing is disabled, do not inject any context regardless of _propagate state
-    if not is_tracing_enabled():
-        return {}
+    propagate = _propagate
+    if propagate is None:
+        if not is_tracing_enabled():
+            return {}
+        propagate = _propagate
+        if propagate is None:
+            return {}
 
     try:
-        # Extract W3C trace context from current span
         carrier: dict[str, str] = {}
-        if _propagate is None:
-            return {}
-        _propagate.inject(carrier)
+        propagate.inject(carrier)
         return carrier
     except Exception:
         # Graceful fallback on any propagation error

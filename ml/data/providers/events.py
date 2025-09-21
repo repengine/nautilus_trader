@@ -9,6 +9,9 @@ announcements, and their temporal relationships.
 from __future__ import annotations
 
 import logging
+from bisect import bisect_left
+from bisect import bisect_right
+from datetime import date
 from datetime import datetime
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -51,6 +54,15 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
         Cache of loaded events by date range
 
     """
+
+    _DEFAULT_EVENT_TYPES: tuple[str, ...] = (
+        "fed_meeting",
+        "economic_release",
+        "earnings",
+        "options_expiry",
+    )
+    _DEFAULT_HORIZON_HOURS: tuple[int, ...] = (1, 4, 24, 72)
+    _EARNINGS_SEASON_MONTHS: set[int] = {1, 4, 7, 10}
 
     def __init__(self, event_source: EventSource) -> None:
         """
@@ -136,6 +148,11 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
         else:
             econ_events, earnings_events = [], []
 
+        event_index, options_flags = self._prepare_event_lookup(econ_events, earnings_events)
+        fomc_weeks = self._week_set(event_index.get("fed_meeting", []))
+        holiday_weeks = self._week_set(event_index.get("holiday", []))
+        triple_dates = {ts.date() for ts, flag in options_flags.items() if flag}
+
         # Process each timestamp
         for ts in timestamps:
             dt = datetime.fromtimestamp(ts / 1e9)
@@ -145,6 +162,11 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
                 dt,
                 econ_events,
                 earnings_events,
+                event_index,
+                options_flags,
+                fomc_weeks,
+                holiday_weeks,
+                triple_dates,
             )
             feature_dict["timestamp"] = ts
             features.append(feature_dict)
@@ -216,6 +238,11 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
         dt: datetime,
         econ_events: list[EconomicEvent],
         earnings_events: list[EarningsEvent],
+        event_index: dict[str, list[datetime]],
+        options_flags: dict[datetime, bool],
+        fomc_weeks: set[tuple[int, int]],
+        holiday_weeks: set[tuple[int, int]],
+        triple_dates: set[date],
     ) -> dict[str, Any]:
         """
         Compute features for a single timestamp.
@@ -330,7 +357,103 @@ class EventScheduleProvider(BaseTimeSeriesProvider):
         clustering_score = len(nearby_events) * 0.5 + len(nearby_earnings) * 0.3
         features["event_clustering_score"] = min(clustering_score, 10.0)
 
+        all_events = event_index.get("all", [])
+        total_events_24h = self._count_within_hours(all_events, dt, 24)
+        total_events_week = self._count_within_hours(all_events, dt, 24 * 7)
+        features["total_events_24h"] = total_events_24h
+        features["total_events_week"] = total_events_week
+        features["event_density_24h"] = total_events_24h / 24.0
+        features["event_density_week"] = total_events_week / (24.0 * 7.0)
+        features["days_to_next_holiday"] = self._days_to_next(event_index.get("holiday", []), dt)
+
+        iso_week = dt.isocalendar()
+        features["is_fomc_week"] = int((iso_week.year, iso_week.week) in fomc_weeks)
+        features["is_holiday_week"] = int((iso_week.year, iso_week.week) in holiday_weeks)
+        features["is_triple_witching"] = int(dt.date() in triple_dates)
+        features["is_earnings_season"] = int(dt.month in self._EARNINGS_SEASON_MONTHS)
+
+        for event_type in self._DEFAULT_EVENT_TYPES:
+            hours_to = self._hours_to_next(event_index.get(event_type, []), dt)
+            features[f"hours_to_{event_type}"] = hours_to
+            features[f"has_{event_type}_in_24h"] = int(0 <= hours_to <= 24)
+            features[f"has_{event_type}_in_week"] = int(0 <= hours_to <= 24 * 7)
+            for horizon in self._DEFAULT_HORIZON_HOURS:
+                features[f"{event_type}_within_{horizon}h"] = int(0 <= hours_to <= horizon)
+
         return features
+
+    def _prepare_event_lookup(
+        self,
+        econ_events: list[EconomicEvent],
+        earnings_events: list[EarningsEvent],
+    ) -> tuple[dict[str, list[datetime]], dict[datetime, bool]]:
+        event_lists: dict[str, list[datetime]] = {
+            "fed_meeting": [],
+            "economic_release": [],
+            "options_expiry": [],
+            "holiday": [],
+            "earnings": [],
+        }
+        options_flags: dict[datetime, bool] = {}
+
+        for event in econ_events:
+            name_lower = event.name.lower()
+            ts = event.timestamp
+            if "fed" in name_lower:
+                event_lists["fed_meeting"].append(ts)
+            elif "option" in name_lower or "witch" in name_lower:
+                event_lists["options_expiry"].append(ts)
+                options_flags[ts] = "triple" in name_lower or "witch" in name_lower
+            elif "holiday" in name_lower:
+                event_lists["holiday"].append(ts)
+            else:
+                event_lists["economic_release"].append(ts)
+
+        for earning_event in earnings_events:
+            event_lists["earnings"].append(earning_event.timestamp)
+
+        for key in event_lists:
+            event_lists[key].sort()
+
+        all_events = sorted({ts for lst in event_lists.values() for ts in lst})
+        event_lists["all"] = all_events
+        return event_lists, options_flags
+
+    @staticmethod
+    def _hours_to_next(events: list[datetime], dt: datetime) -> float:
+        if not events:
+            return -1.0
+        idx = bisect_left(events, dt)
+        if idx < len(events):
+            delta = events[idx] - dt
+            return delta.total_seconds() / 3600.0
+        return -1.0
+
+    @staticmethod
+    def _count_within_hours(events: list[datetime], dt: datetime, horizon: int) -> int:
+        if not events:
+            return 0
+        start_idx = bisect_left(events, dt)
+        end_idx = bisect_right(events, dt + timedelta(hours=horizon))
+        return max(end_idx - start_idx, 0)
+
+    @staticmethod
+    def _days_to_next(events: list[datetime], dt: datetime) -> int:
+        if not events:
+            return -1
+        idx = bisect_left(events, dt)
+        if idx < len(events):
+            delta = events[idx] - dt
+            return max(int(delta.total_seconds() // (3600 * 24)), 0)
+        return -1
+
+    @staticmethod
+    def _week_set(events: list[datetime]) -> set[tuple[int, int]]:
+        weeks: set[tuple[int, int]] = set()
+        for ts in events:
+            iso = ts.isocalendar()
+            weeks.add((iso.year, iso.week))
+        return weeks
 
     def load_timeseries(
         self,

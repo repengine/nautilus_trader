@@ -75,12 +75,15 @@ except Exception:
         try:
             from nautilus_trader.indicators.average_true_range import AverageTrueRange
         except Exception:
+
             class _FallbackAverageTrueRange:
                 """
-                Minimal ATR fallback to keep services operational when indicators are unavailable.
+                Minimal ATR fallback to keep services operational when indicators are
+                unavailable.
 
                 Implements the subset used by FeatureEngineer: update_raw/high-low-close,
                 handle_bar(bar), value, initialized, and reset().
+
                 """
 
                 def __init__(self, period: int) -> None:
@@ -114,6 +117,7 @@ except Exception:
                     self._prev_close = None
                     self.value = 0.0
                     self.initialized = False
+
             # Alias fallback under expected name
             AverageTrueRange = _FallbackAverageTrueRange
 
@@ -253,6 +257,8 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
     enable_technical: bool | None = None
     ma_periods: list[int] | None = None
 
+    data_requirements: DataRequirements = DataRequirements.L1_ONLY
+
     def __post_init__(self) -> None:
         """
         Post-initialization validation and setup.
@@ -293,6 +299,14 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
 
         # Note: Do not mutate fields in frozen msgspec.Struct. Compatibility
         # handling for `ma_periods` occurs in pipeline spec construction.
+        if (
+            self.include_microstructure or self.include_trade_flow
+        ) and self.data_requirements == DataRequirements.L1_ONLY:
+            msg = (
+                "Microstructure or trade flow features require data_requirements >= L1_L2; "
+                "set data_requirements accordingly."
+            )
+            raise ValueError(msg)
 
     def get_feature_names(self) -> list[str]:
         """
@@ -308,10 +322,9 @@ class FeatureConfig(MLFeatureConfig, kw_only=True, frozen=True):
         """
         # Build a PipelineSpec mirroring the config and compute names via PipelineRunner
         spec = build_pipeline_spec_from_feature_config(self)
-        allowable = (
-            DataRequirements.L1_L2
-            if (self.include_microstructure or self.include_trade_flow)
-            else DataRequirements.L1_ONLY
+        allowable = cast(
+            DataRequirements,
+            getattr(self, "data_requirements", DataRequirements.L1_ONLY),
         )
         runner = PipelineRunner(spec, allowable=allowable)
         return runner.compute_feature_names()
@@ -687,7 +700,9 @@ class IndicatorManager:
         """
         # Treat missing indicators (fallback None) as initialized to avoid blocking.
         # Actual update loops guard against None entries.
-        return all((ind is None) or getattr(ind, "initialized", False) for ind in self.indicators.values())
+        return all(
+            (ind is None) or getattr(ind, "initialized", False) for ind in self.indicators.values()
+        )
 
     def reset(self) -> None:
         """
@@ -871,7 +886,9 @@ class FeatureEngineer:
         """
         Access the model store from the injected stores container.
 
-        Returns None if stores were not injected or if the container doesn't have a model_store.
+        Returns None if stores were not injected or if the container doesn't have a
+        model_store.
+
         """
         if self._stores is not None and hasattr(self._stores, "model_store"):
             return cast(object, self._stores.model_store)
@@ -882,7 +899,9 @@ class FeatureEngineer:
         """
         Access the strategy store from the injected stores container.
 
-        Returns None if stores were not injected or if the container doesn't have a strategy_store.
+        Returns None if stores were not injected or if the container doesn't have a
+        strategy_store.
+
         """
         if self._stores is not None and hasattr(self._stores, "strategy_store"):
             return cast(object, self._stores.strategy_store)
@@ -893,7 +912,9 @@ class FeatureEngineer:
         """
         Access the data store from the injected stores container.
 
-        Returns None if stores were not injected or if the container doesn't have a data_store.
+        Returns None if stores were not injected or if the container doesn't have a
+        data_store.
+
         """
         if self._stores is not None and hasattr(self._stores, "data_store"):
             return cast(object, self._stores.data_store)
@@ -904,7 +925,9 @@ class FeatureEngineer:
         """
         Access the feature registry from the injected stores container.
 
-        Returns None if stores were not injected or if the container doesn't have a feature_registry.
+        Returns None if stores were not injected or if the container doesn't have a
+        feature_registry.
+
         """
         if self._stores is not None and hasattr(self._stores, "feature_registry"):
             return cast(object, self._stores.feature_registry)
@@ -915,7 +938,9 @@ class FeatureEngineer:
         """
         Access the model registry from the injected stores container.
 
-        Returns None if stores were not injected or if the container doesn't have a model_registry.
+        Returns None if stores were not injected or if the container doesn't have a
+        model_registry.
+
         """
         if self._stores is not None and hasattr(self._stores, "model_registry"):
             return cast(object, self._stores.model_registry)
@@ -926,7 +951,9 @@ class FeatureEngineer:
         """
         Access the strategy registry from the injected stores container.
 
-        Returns None if stores were not injected or if the container doesn't have a strategy_registry.
+        Returns None if stores were not injected or if the container doesn't have a
+        strategy_registry.
+
         """
         if self._stores is not None and hasattr(self._stores, "strategy_registry"):
             return cast(object, self._stores.strategy_registry)
@@ -937,7 +964,9 @@ class FeatureEngineer:
         """
         Access the data registry from the injected stores container.
 
-        Returns None if stores were not injected or if the container doesn't have a data_registry.
+        Returns None if stores were not injected or if the container doesn't have a
+        data_registry.
+
         """
         if self._stores is not None and hasattr(self._stores, "data_registry"):
             return cast(object, self._stores.data_registry)
@@ -959,7 +988,7 @@ class FeatureEngineer:
         name: str,
         version: str,
         role: FeatureRole,
-        data_requirements: DataRequirements,
+        data_requirements: DataRequirements | None = None,
         pipeline_version: str = "1.0.0",
         capability_flags: dict[str, Any] | None = None,
         constraints: dict[str, Any] | None = None,
@@ -973,7 +1002,13 @@ class FeatureEngineer:
         Create a FeatureManifest from the current engineer configuration.
         """
         spec = self.build_pipeline_spec_from_config()
-        runner = PipelineRunner(spec, allowable=data_requirements)
+        requirements_value = (
+            data_requirements
+            if data_requirements is not None
+            else getattr(self.config, "data_requirements", DataRequirements.L1_ONLY)
+        )
+        requirements = cast(DataRequirements, requirements_value)
+        runner = PipelineRunner(spec, allowable=requirements)
         names = runner.compute_feature_names()
         dtypes = ["float32"] * len(names)
         signature = runner.compute_signature()
@@ -985,7 +1020,7 @@ class FeatureEngineer:
             name=name,
             version=version,
             role=role,
-            data_requirements=data_requirements,
+            data_requirements=requirements,
             feature_names=names,
             feature_dtypes=dtypes,
             schema_hash=schema_hash,

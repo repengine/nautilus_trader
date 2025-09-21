@@ -361,6 +361,10 @@ def mock_data_store() -> MagicMock:
     mock_store.read_predictions = MagicMock(return_value=[])
     mock_store.read_signals = MagicMock(return_value=[])
 
+    mock_store.get_features_at_or_before = MagicMock(return_value=None)
+    mock_store.get_latest_prediction_at_or_before = MagicMock(return_value=None)
+    mock_store.get_latest_signal_at_or_before = MagicMock(return_value=None)
+
     return mock_store
 
 

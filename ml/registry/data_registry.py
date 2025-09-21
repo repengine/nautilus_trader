@@ -16,6 +16,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, overload
@@ -28,6 +29,7 @@ from ml.config.events import EventStatus
 from ml.config.events import Source
 from ml.config.events import Stage
 from ml.registry.dataclasses import DataContract
+from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
@@ -328,6 +330,93 @@ class DataRegistry(MLComponentMixin):
             "completeness_pct": watermark.completeness_pct,
             "updated_at": watermark.updated_at,
         }
+
+    def _manifest_from_row(self, row: Any) -> DatasetManifest:
+        """
+        Convert a database row to a dataset manifest.
+        """
+        manifest_data = dict(getattr(row, "_mapping", row))
+
+        def _ensure_json(value: Any) -> Any:
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except json.JSONDecodeError:
+                    return value
+            return value
+
+        metadata = _ensure_json(manifest_data.get("metadata") or {}) or {}
+        manifest_data["metadata"] = metadata
+        manifest_data["partitioning"] = _ensure_json(manifest_data.get("partitioning") or {}) or {}
+        manifest_data["constraints"] = _ensure_json(manifest_data.get("constraints") or {}) or {}
+        manifest_data["schema"] = _ensure_json(manifest_data.get("schema") or {}) or {}
+        manifest_data["lineage"] = _ensure_json(manifest_data.get("lineage") or []) or []
+
+        manifest_data["seq_field"] = metadata.get("seq_field")
+        manifest_data["ts_field"] = metadata.get(
+            "ts_field",
+            manifest_data.get("ts_field", "ts_event"),
+        )
+        manifest_data["primary_keys"] = metadata.get(
+            "primary_keys",
+            manifest_data.get("primary_keys", ["instrument_id", "ts_event"]),
+        )
+
+        return self._dict_to_manifest(manifest_data)
+
+    @staticmethod
+    def _watermark_from_row(row: Any) -> Watermark:
+        """
+        Convert a database row to a watermark instance.
+        """
+        data = dict(getattr(row, "_mapping", row))
+        return Watermark(
+            dataset_id=str(data.get("dataset_id", "")),
+            instrument_id=str(data.get("instrument_id", "")),
+            source=str(data.get("source", "")),
+            last_success_ns=int(data.get("last_success_ns", 0)),
+            last_attempt_ns=int(data.get("last_attempt_ns", 0)),
+            last_count=int(data.get("last_count", 0)),
+            completeness_pct=float(data.get("completeness_pct", 0.0)),
+            updated_at=float(data.get("updated_at", 0.0)),
+        )
+
+    @staticmethod
+    def _lineage_from_row(row: Any) -> DatasetLineageRecord:
+        """
+        Convert a database row to a dataset lineage record.
+        """
+        data = dict(getattr(row, "_mapping", row))
+
+        ts_range_raw = data.get("ts_range") or {}
+        if isinstance(ts_range_raw, str):
+            try:
+                ts_range = json.loads(ts_range_raw)
+            except json.JSONDecodeError:
+                ts_range = {}
+        else:
+            ts_range = dict(ts_range_raw)
+
+        params_raw = data.get("parameters") or {}
+        if isinstance(params_raw, str):
+            try:
+                parameters = json.loads(params_raw)
+            except json.JSONDecodeError:
+                parameters = {}
+        else:
+            parameters = dict(params_raw)
+
+        created_at_raw = data.get("created_at", 0.0)
+        created_at = float(created_at_raw) if created_at_raw is not None else 0.0
+
+        return DatasetLineageRecord(
+            transform_id=str(data.get("transform_id", "")),
+            child_dataset_id=str(data.get("child_dataset_id", "")),
+            parent_dataset_id=str(data.get("parent_dataset_id", "")),
+            ts_range={str(k): int(v) for k, v in ts_range.items()},
+            parameters={str(k): v for k, v in parameters.items()},
+            created_at=created_at,
+        )
 
     def _save_registry(self, immediate: bool = False) -> None:
         """
@@ -761,6 +850,44 @@ class DataRegistry(MLComponentMixin):
 
             logger.info("Deprecated dataset '%s'", dataset_id)
 
+    def list_manifests(self) -> list[DatasetManifest]:
+        """
+        Return all dataset manifests known to the registry.
+        """
+        with self._lock:
+            if self.backend == BackendType.JSON:
+                return [self._manifests[dataset_id] for dataset_id in sorted(self._manifests)]
+
+            session = self.persistence.get_session()
+            if session is None:
+                return list(self._manifests.values())
+
+            try:
+                query = text(
+                    """
+                    SELECT dataset_id, dataset_type, storage_kind, location,
+                           partitioning, retention_days, schema, schema_hash,
+                           constraints, parents AS lineage, pipeline_signature,
+                           version,
+                           EXTRACT(EPOCH FROM created_at) * 1000000000 AS created_at,
+                           EXTRACT(EPOCH FROM last_modified) * 1000000000 AS last_modified,
+                           metadata
+                    FROM ml_dataset_registry
+                    ORDER BY dataset_id
+                    """,
+                )
+                rows = session.execute(query).fetchall()
+            finally:
+                session.close()
+
+            manifests: list[DatasetManifest] = []
+            for row in rows:
+                manifest = self._manifest_from_row(row)
+                self._manifests[manifest.dataset_id] = manifest
+                manifests.append(manifest)
+
+            return manifests
+
     def get_manifest(self, dataset_id: str) -> DatasetManifest:
         """
         Get a dataset manifest by ID.
@@ -822,18 +949,7 @@ class DataRegistry(MLComponentMixin):
 
                     # Convert to manifest using RowMapping for SQLAlchemy 1.4/2.0
                     # `Row` iterates over values; use the mapping view to build a dict.
-                    manifest_data = dict(getattr(result, "_mapping", result))
-                    manifest_data["seq_field"] = manifest_data.get("metadata", {}).get("seq_field")
-                    manifest_data["ts_field"] = manifest_data.get("metadata", {}).get(
-                        "ts_field",
-                        "ts_event",
-                    )
-                    manifest_data["primary_keys"] = manifest_data.get("metadata", {}).get(
-                        "primary_keys",
-                        ["instrument_id", "ts_event"],
-                    )
-
-                    manifest = self._dict_to_manifest(manifest_data)
+                    manifest = self._manifest_from_row(result)
 
                     # Cache for future use
                     self._manifests[dataset_id] = manifest
@@ -1373,8 +1489,7 @@ class DataRegistry(MLComponentMixin):
                     if result is None:
                         return None
 
-                    # Build Watermark from row mapping to avoid tuple-to-dict errors
-                    watermark = Watermark(**dict(getattr(result, "_mapping", result)))
+                    watermark = self._watermark_from_row(result)
 
                     # Cache for future use
                     self._watermarks[watermark_key] = watermark
@@ -1383,6 +1498,91 @@ class DataRegistry(MLComponentMixin):
 
                 finally:
                     session.close()
+
+    def iter_watermarks(
+        self,
+        *,
+        dataset_id: str | None = None,
+        instrument_id: str | None = None,
+        source: Source | str | None = None,
+        limit: int | None = None,
+    ) -> Iterator[Watermark]:
+        """
+        Yield watermarks optionally filtered by dataset, instrument, or source.
+        """
+        limit_value = None if limit is None else max(0, int(limit))
+        source_value = (
+            source.value
+            if isinstance(source, Source)
+            else (str(source) if source is not None else None)
+        )
+
+        with self._lock:
+            records: list[Watermark] = []
+
+            if self.backend == BackendType.JSON:
+                candidates = list(self._watermarks.values())
+                if dataset_id is not None:
+                    candidates = [wm for wm in candidates if wm.dataset_id == dataset_id]
+                if instrument_id is not None:
+                    candidates = [wm for wm in candidates if wm.instrument_id == instrument_id]
+                if source_value is not None:
+                    candidates = [wm for wm in candidates if wm.source == source_value]
+
+                candidates.sort(key=lambda wm: wm.updated_at, reverse=True)
+
+                if limit_value is not None:
+                    candidates = candidates[:limit_value]
+
+                records = candidates
+            else:
+                session = self.persistence.get_session()
+                if session is None:
+                    raise RuntimeError("Failed to get database session")
+
+                try:
+                    conditions: list[str] = []
+                    params: dict[str, Any] = {}
+                    if dataset_id is not None:
+                        conditions.append("dataset_id = :dataset_id")
+                        params["dataset_id"] = dataset_id
+                    if instrument_id is not None:
+                        conditions.append("instrument_id = :instrument_id")
+                        params["instrument_id"] = instrument_id
+                    if source_value is not None:
+                        conditions.append("source = :source")
+                        params["source"] = source_value
+
+                    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+                    limit_clause = ""
+                    if limit_value is not None:
+                        limit_clause = " LIMIT :limit"
+                        params["limit"] = limit_value
+
+                    query = text(
+                        """
+                        SELECT dataset_id, instrument_id, source,
+                               last_success_ns, last_attempt_ns, last_count,
+                               completeness_pct, EXTRACT(EPOCH FROM updated_at) AS updated_at
+                        FROM ml_data_watermarks
+                        """
+                        + where_clause
+                        + " ORDER BY updated_at DESC"
+                        + limit_clause,
+                    )
+
+                    rows = session.execute(query, params).fetchall()
+                finally:
+                    session.close()
+
+                records = []
+                for row in rows:
+                    watermark = self._watermark_from_row(row)
+                    key = f"{watermark.dataset_id}:{watermark.instrument_id}:{watermark.source}"
+                    self._watermarks[key] = watermark
+                    records.append(watermark)
+
+        yield from records
 
     def link_lineage(
         self,
@@ -1481,6 +1681,98 @@ class DataRegistry(MLComponentMixin):
                 parent_ids,
                 transform_id,
             )
+
+    def iter_lineage(
+        self,
+        *,
+        child: str | None = None,
+        parent: str | None = None,
+        limit: int | None = None,
+    ) -> Iterator[DatasetLineageRecord]:
+        """
+        Yield lineage records filtered by optional child or parent identifiers.
+        """
+        limit_value = None if limit is None else max(0, int(limit))
+
+        with self._lock:
+            records: list[DatasetLineageRecord] = []
+
+            if self.backend == BackendType.JSON:
+                entries = list(self._lineage)
+                entries.sort(key=lambda entry: float(entry.get("created_at", 0.0)), reverse=True)
+
+                for entry in entries:
+                    if child is not None and entry.get("child_dataset_id") != child:
+                        continue
+                    if parent is not None and entry.get("parent_dataset_id") != parent:
+                        continue
+
+                    ts_range = entry.get("ts_range") or {}
+                    if isinstance(ts_range, str):
+                        try:
+                            ts_range = json.loads(ts_range)
+                        except json.JSONDecodeError:
+                            ts_range = {}
+
+                    parameters = entry.get("parameters") or {}
+                    if isinstance(parameters, str):
+                        try:
+                            parameters = json.loads(parameters)
+                        except json.JSONDecodeError:
+                            parameters = {}
+
+                    record = DatasetLineageRecord(
+                        transform_id=str(entry.get("transform_id", "")),
+                        child_dataset_id=str(entry.get("child_dataset_id", "")),
+                        parent_dataset_id=str(entry.get("parent_dataset_id", "")),
+                        ts_range={str(k): int(v) for k, v in dict(ts_range).items()},
+                        parameters={str(k): v for k, v in dict(parameters).items()},
+                        created_at=float(entry.get("created_at", 0.0)),
+                    )
+                    records.append(record)
+
+                    if limit_value is not None and len(records) >= limit_value:
+                        break
+            else:
+                session = self.persistence.get_session()
+                if session is None:
+                    raise RuntimeError("Failed to get database session")
+
+                try:
+                    conditions: list[str] = []
+                    params: dict[str, Any] = {}
+                    if child is not None:
+                        conditions.append("child_dataset_id = :child")
+                        params["child"] = child
+                    if parent is not None:
+                        conditions.append("parent_dataset_id = :parent")
+                        params["parent"] = parent
+
+                    where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+                    limit_clause = ""
+                    if limit_value is not None:
+                        limit_clause = " LIMIT :limit"
+                        params["limit"] = limit_value
+
+                    query = text(
+                        """
+                        SELECT transform_id, child_dataset_id, parent_dataset_id,
+                               ts_range, parameters,
+                               EXTRACT(EPOCH FROM created_at) AS created_at
+                        FROM ml_data_lineage
+                        """
+                        + where_clause
+                        + " ORDER BY created_at DESC"
+                        + limit_clause,
+                    )
+
+                    rows = session.execute(query, params).fetchall()
+                finally:
+                    session.close()
+
+                records = [self._lineage_from_row(row) for row in rows]
+
+        yield from records
 
     def __del__(self) -> None:
         """

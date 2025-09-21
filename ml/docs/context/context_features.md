@@ -142,6 +142,7 @@ class FeatureConfig(MLFeatureConfig):
     enable_volatility: bool | None = None
     enable_technical: bool | None = None
     ma_periods: list[int] | None = None
+    data_requirements: DataRequirements = DataRequirements.L1_ONLY
 ```
 
 #### Validation Features
@@ -149,6 +150,7 @@ class FeatureConfig(MLFeatureConfig):
 - **Runtime Constraints**: All parameter ranges validated in `__post_init__()`
 - **Dependency Validation**: EMA slow period must exceed fast period
 - **Backward Compatibility**: Legacy test toggles supported without affecting normal operation
+- **Student/Teacher Gating**: `data_requirements` gates transforms (`L1_ONLY` for student, `L1_L2`/`L1_L2_L3` for teacher pipelines).
 
 ## Feature Categories
 

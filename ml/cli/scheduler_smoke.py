@@ -14,6 +14,7 @@ sets ML_ALLOW_DUMMY=1 so integration falls back to in-memory components.
 
 import argparse
 import os
+from collections.abc import Sequence
 from typing import Any, cast
 
 from ml.cli.pipeline_orchestrator import main as _orch_main
@@ -70,9 +71,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         import ml.cli.build_tft_dataset as _build
 
-        def _stub_build(argv: list[str] | None = None) -> int:
+        def _stub_build(argv: Sequence[str] | None = None) -> int:
             if argv and "--out_dir" in argv:
-                out = argv[argv.index("--out_dir") + 1]
+                argv_list = list(argv)
+                out = argv_list[argv_list.index("--out_dir") + 1]
                 try:
                     os.makedirs(out, exist_ok=True)
                     with open(os.path.join(out, "dataset.csv"), "w", encoding="utf-8") as f:

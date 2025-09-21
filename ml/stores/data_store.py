@@ -21,7 +21,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from ml._imports import HAS_PROMETHEUS
 from ml.common.correlation import make_correlation_id
@@ -52,6 +52,8 @@ from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.mixins import DataRegistryMixin
 from ml.stores.model_store import ModelStore
+from ml.stores.protocols import PredictionRecord
+from ml.stores.protocols import SignalRecord
 from ml.stores.strategy_store import StrategyStore
 
 
@@ -264,24 +266,6 @@ class ValidationViolation:
     description: str
 
 
-class PredictionRecord(TypedDict):
-    """Typed view of a model prediction row (minimal fields)."""
-
-    model_id: str
-    ts_event: int
-    prediction: float
-    confidence: float
-
-
-class SignalRecord(TypedDict):
-    """Typed view of a strategy signal row (minimal fields)."""
-
-    strategy_id: str
-    ts_event: int
-    signal_type: str
-    strength: float
-
-
 # ========================================================================
 # DataStore Implementation
 # ========================================================================
@@ -487,6 +471,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         Notes
         -----
         This is a thin façade over FeatureStore.get_latest_at_or_before.
+
         """
         return self.feature_store.get_latest_at_or_before(instrument_id, int(ts_event))
 
@@ -498,12 +483,14 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         model_id: str | None = None,
     ) -> PredictionRecord | None:
         """
-        Return latest prediction at or before ts_event (optionally filtered by model_id).
+        Return latest prediction at or before ts_event (optionally filtered by
+        model_id).
 
         Returns
         -------
         PredictionRecord | None
             Minimal typed record or None when not found.
+
         """
         # Lazy imports to keep import-time overhead minimal
         from sqlalchemy import and_ as _and
@@ -556,6 +543,7 @@ class DataStore(_MLComponentBase, _BusPublisherBase, _DataRegistryBase):
         -------
         SignalRecord | None
             Minimal typed record or None when not found.
+
         """
         from sqlalchemy import and_ as _and
         from sqlalchemy import desc as _desc

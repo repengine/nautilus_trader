@@ -314,6 +314,29 @@ class StrategyRegistry(AbstractRegistry):
 
         return None
 
+    def list_strategies(self) -> list[StrategyInfo]:
+        """
+        Return all registered strategies.
+        """
+        if self.backend == BackendType.JSON:
+            registry = self._load_registry()
+            strategies: list[StrategyInfo] = []
+            for strategy_id in sorted(registry.keys()):
+                info = self.get_strategy(strategy_id)
+                if info is not None:
+                    strategies.append(info)
+            return strategies
+
+        session = self.persistence.get_session()
+        if session is None:
+            return []
+
+        try:
+            rows = session.query(StrategyTable).order_by(StrategyTable.strategy_id).all()
+            return [self._db_to_strategy_info(row) for row in rows]
+        finally:
+            session.close()
+
     def is_registered(self, strategy_id: str) -> bool:
         """
         Check if strategy is registered.

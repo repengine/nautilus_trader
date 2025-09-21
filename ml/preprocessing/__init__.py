@@ -199,6 +199,14 @@ def __getattr__(name: str) -> Any:
                 f"Import directly: 'from ml.preprocessing.joins import {name}'. "
                 f"Original error: {e}",
             ) from e
+    elif name == "EventIngestionConfig":
+        from ml.preprocessing.event_ingestion import EventIngestionConfig
+
+        return EventIngestionConfig
+    elif name == "EventIngestionUtility":
+        from ml.preprocessing.event_ingestion import EventIngestionUtility
+
+        return EventIngestionUtility
 
     # If attribute not found, raise AttributeError
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
@@ -211,6 +219,8 @@ if TYPE_CHECKING:
 # Public API - sorted alphabetically
 __all__ = [
     "DataNormalizer",
+    "EventIngestionConfig",
+    "EventIngestionUtility",
     "FeatureLagGenerator",
     "MarketMicrostructureFeatures",
     "PurgedCrossValidator",

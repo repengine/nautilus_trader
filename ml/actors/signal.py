@@ -1211,9 +1211,13 @@ class MLSignalActor(BaseMLInferenceActor):
                 freg = FeatureRegistry(Path(config.registry_path))
                 feature_info = freg.get_feature_set(config.feature_set_id)
                 manifest = feature_info.manifest if feature_info else None
-            except Exception as e:  # pragma: no cover - safety
+            except Exception as exc:  # pragma: no cover - safety
                 manifest = None
-                self.log.warning(f"Feature registry load failed: {e}")
+                self.log.warning(
+                    "ml_actor.feature_registry_load_failed "
+                    f"registry_path={config.registry_path} "
+                    f"feature_set_id={config.feature_set_id} error={exc!r}",
+                )
             if manifest is not None:
                 expected = list(manifest.feature_names)
                 actual = self._feature_engineer.config.get_feature_names()
@@ -1542,17 +1546,10 @@ class MLSignalActor(BaseMLInferenceActor):
                 cfg = meta.get("decision_config", {}) if isinstance(meta, dict) else {}
                 return build_strategy_from_policy(policy_path=str(policy), actor=self, config=cfg)
         except Exception as exc:
-            # Silent fallback to built-ins; keep hot path clean — debug only
-            try:
-                self.log.debug(f"Decision policy adapter load failed: {exc}")
-            except Exception as log_exc:
-                import logging as _logging
-
-                _logging.getLogger(__name__).debug(
-                    "Logging decision policy adapter failure also failed: %s",
-                    log_exc,
-                    exc_info=True,
-                )
+            # Silent fallback to built-ins; keep hot path clean — telemetry debug
+            self.log.debug(
+                f"ml_actor.decision_policy_load_failed error={exc!r}",
+            )
 
         # 2) Built-in strategy mapping (backwards compatibility)
         strategy_key = str(self._signal_config.signal_strategy).lower()
@@ -2042,7 +2039,9 @@ class MLSignalActor(BaseMLInferenceActor):
                 if names and len(names) == features.shape[0]:
                     feature_dict = {names[i]: float(features[i]) for i in range(len(names))}
                 else:
-                    feature_dict = {f"feature_{i}": float(features[i]) for i in range(int(features.shape[0]))}
+                    feature_dict = {
+                        f"feature_{i}": float(features[i]) for i in range(int(features.shape[0]))
+                    }
                 self._model_store.write_prediction(
                     model_id=self._model_id,
                     instrument_id=str(bar.bar_type.instrument_id),
@@ -2109,7 +2108,7 @@ class MLSignalActor(BaseMLInferenceActor):
         except Exception as exc:
             # Never impact hot path — debug only
             try:
-                self.log.debug("Strategy swap apply failed: %s", exc)
+                self.log.debug(f"Strategy swap apply failed: {exc!r}")
             except Exception as log_exc:
                 import logging as _logging
 
@@ -2142,7 +2141,7 @@ class MLSignalActor(BaseMLInferenceActor):
         except Exception as exc:
             # Never impact hot path — debug only
             try:
-                self.log.debug("Attach ring metadata failed: %s", exc)
+                self.log.debug(f"Attach ring metadata failed: {exc!r}")
             except Exception as log_exc:
                 import logging as _logging
 
@@ -2286,7 +2285,7 @@ class MLSignalActor(BaseMLInferenceActor):
                 return
 
             # Load new model
-            self.log.info("Hot reloading model from %s", self._config.model_path)
+            self.log.info(f"Hot reloading model from {self._config.model_path}")
             self._load_model_with_metadata()
             self._model_mtime = current_mtime
 

@@ -510,6 +510,41 @@ class DatasetManifest:
 
 
 # ========================================================================
+# Derived Registry Records
+# ========================================================================
+
+
+@dataclass(slots=True, frozen=True)
+class DatasetLineageRecord:
+    """
+    Immutable representation of a dataset lineage link.
+
+    Attributes
+    ----------
+    transform_id : str
+        Identifier for the transform establishing the lineage edge.
+    child_dataset_id : str
+        Identifier of the downstream (child) dataset.
+    parent_dataset_id : str
+        Identifier of the upstream (parent) dataset.
+    ts_range : dict[str, int]
+        Nanosecond epoch window describing the source data interval.
+    parameters : dict[str, Any]
+        Parameters applied during the transform.
+    created_at : float
+        Unix timestamp (seconds) at which the lineage entry was captured.
+
+    """
+
+    transform_id: str
+    child_dataset_id: str
+    parent_dataset_id: str
+    ts_range: dict[str, int]
+    parameters: dict[str, Any]
+    created_at: float
+
+
+# ========================================================================
 # Existing Registry Types
 # ========================================================================
 

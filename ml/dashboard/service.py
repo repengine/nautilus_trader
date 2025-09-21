@@ -1,8 +1,9 @@
 """
 Dashboard service implementation providing health aggregation and control actions.
 
-All operations are cold-path only. Metrics are recorded via the centralized
-metrics bootstrap. Logging uses structlog configuration from ml.common.
+All operations are cold-path only. Metrics are recorded via the centralized metrics
+bootstrap. Logging uses structlog configuration from ml.common.
+
 """
 
 from __future__ import annotations
@@ -38,11 +39,13 @@ from ml.dashboard.grafana import GrafanaConfig
 from ml.dashboard.grafana import provision_dashboard
 from ml.registry import BackendType
 from ml.registry import DataRegistry
+from ml.registry import DatasetLineageRecord
 from ml.registry import FeatureRegistry
 from ml.registry import ModelInfo
 from ml.registry import ModelRegistry
 from ml.registry import PersistenceConfig
 from ml.registry import StrategyRegistry
+from ml.registry import Watermark
 from ml.registry.dataclasses import QualityGate
 from ml.registry.feature_registry import FeatureStage
 
@@ -105,6 +108,7 @@ class DashboardService:
         Aggregate health across core services and dependencies.
 
         This is a read-only aggregation that pings known endpoints for liveness.
+
         """
         start = time.perf_counter()
         route = "/api/health/system"
@@ -126,10 +130,12 @@ class DashboardService:
 
             # Observability
             ok_prom, code_prom = _safe_get(
-                f"http://localhost:{cfg.prometheus_port}/-/healthy", cfg.request_timeout_seconds
+                f"http://localhost:{cfg.prometheus_port}/-/healthy",
+                cfg.request_timeout_seconds,
             )
             ok_graf, code_graf = _safe_get(
-                f"http://localhost:{cfg.grafana_port}/api/health", cfg.request_timeout_seconds
+                f"http://localhost:{cfg.grafana_port}/api/health",
+                cfg.request_timeout_seconds,
             )
             health["dependencies"]["prometheus"] = {"healthy": ok_prom, "status_code": code_prom}
             health["dependencies"]["grafana"] = {"healthy": ok_graf, "status_code": code_graf}
@@ -144,17 +150,26 @@ class DashboardService:
             {
                 "name": "ml_signal_actor",
                 "ports": {"http": cfg.actor_port},
-                "endpoints": {"health": _to_url(cfg.actor_port, "/health"), "metrics": _to_url(cfg.actor_port, "/metrics")},
+                "endpoints": {
+                    "health": _to_url(cfg.actor_port, "/health"),
+                    "metrics": _to_url(cfg.actor_port, "/metrics"),
+                },
             },
             {
                 "name": "ml_strategy",
                 "ports": {"http": cfg.strategy_port},
-                "endpoints": {"health": _to_url(cfg.strategy_port, "/health"), "metrics": _to_url(cfg.strategy_port, "/metrics")},
+                "endpoints": {
+                    "health": _to_url(cfg.strategy_port, "/health"),
+                    "metrics": _to_url(cfg.strategy_port, "/metrics"),
+                },
             },
             {
                 "name": "ml_pipeline",
                 "ports": {"http": cfg.pipeline_port},
-                "endpoints": {"health": _to_url(cfg.pipeline_port, "/health"), "metrics": _to_url(cfg.pipeline_port, "/metrics")},
+                "endpoints": {
+                    "health": _to_url(cfg.pipeline_port, "/health"),
+                    "metrics": _to_url(cfg.pipeline_port, "/metrics"),
+                },
             },
         ]
 
@@ -166,13 +181,17 @@ class DashboardService:
             return self._model_registry
         # Prefer DB if available in env, otherwise JSON under ./ml_registry/models
         import os
+
         db = os.getenv("DB_CONNECTION") or os.getenv("DATABASE_URL")
         if db:
             pc = PersistenceConfig(backend=BackendType.POSTGRES, connection_string=db)
         else:
             from pathlib import Path as _Path
 
-            pc = PersistenceConfig(backend=BackendType.JSON, json_path=_Path("./ml_registry/models"))
+            pc = PersistenceConfig(
+                backend=BackendType.JSON,
+                json_path=_Path("./ml_registry/models"),
+            )
         reg_path = pc.json_path if pc.backend == BackendType.JSON else None
         if reg_path is None:
             from pathlib import Path as _Path
@@ -185,6 +204,7 @@ class DashboardService:
         if self._feature_registry is not None:
             return self._feature_registry
         import os
+
         db = os.getenv("DB_CONNECTION") or os.getenv("DATABASE_URL")
         from pathlib import Path as _Path
 
@@ -200,6 +220,7 @@ class DashboardService:
         if self._strategy_registry is not None:
             return self._strategy_registry
         import os
+
         db = os.getenv("DB_CONNECTION") or os.getenv("DATABASE_URL")
         from pathlib import Path as _Path
 
@@ -215,6 +236,7 @@ class DashboardService:
         if self._data_registry is not None:
             return self._data_registry
         import os
+
         db = os.getenv("DB_CONNECTION") or os.getenv("DATABASE_URL")
         from pathlib import Path as _Path
 
@@ -241,7 +263,7 @@ class DashboardService:
                     "deployed_to": list(mi.deployed_to),
                     "architecture": mi.manifest.architecture,
                     "feature_schema_hash": mi.manifest.feature_schema_hash,
-                }
+                },
             )
         return out
 
@@ -289,7 +311,9 @@ class DashboardService:
     ) -> list[dict[str, Any]]:
         """
         Return recent events from Redis Streams when bus is enabled.
+
         Best-effort; returns empty list if disabled or unavailable.
+
         """
         cfg = MessageBusConfig.from_env()
         if not cfg.enabled or cfg.backend != "redis":
@@ -299,7 +323,10 @@ class DashboardService:
 
             client: Any = redis.Redis.from_url(cfg.redis_url, decode_responses=True)
             # Newest-first range; fetch extra and filter locally
-            rows: list[tuple[str, dict[str, str]]] = client.xrevrange(cfg.redis_stream, count=max(1, int(limit)))
+            rows: list[tuple[str, dict[str, str]]] = client.xrevrange(
+                cfg.redis_stream,
+                count=max(1, int(limit)),
+            )
         except Exception:
             return []
 
@@ -315,7 +342,11 @@ class DashboardService:
             if source is not None and str(payload.get("source")) != source:
                 continue
             if instrument_substr:
-                instr = payload.get("params", {}).get("instrument") if isinstance(payload.get("params"), dict) else None
+                instr = (
+                    payload.get("params", {}).get("instrument")
+                    if isinstance(payload.get("params"), dict)
+                    else None
+                )
                 if not instr or instrument_substr not in str(instr):
                     # Try topic suffix match
                     if instrument_substr not in topic:
@@ -332,7 +363,12 @@ class DashboardService:
     # -----------------
     # Feature/Strategy/Data registry listings
     # -----------------
-    def list_features(self, *, role: str | None = None, stage: str | None = None) -> list[dict[str, Any]]:
+    def list_features(
+        self,
+        *,
+        role: str | None = None,
+        stage: str | None = None,
+    ) -> list[dict[str, Any]]:
         reg = self._get_feature_registry()
         infos = reg.list_all()
         out: list[dict[str, Any]] = []
@@ -348,52 +384,39 @@ class DashboardService:
                     "stage": fi.manifest.stage.value,
                     "schema_hash": fi.manifest.schema_hash,
                     "version": fi.manifest.version,
-                }
+                },
             )
         return out
 
     def list_strategies(self) -> list[dict[str, Any]]:
         reg = self._get_strategy_registry()
-        # StrategyRegistry does not expose list_all; use JSON registry listing where available
+        strategies = reg.list_strategies()
         result: list[dict[str, Any]] = []
-        try:
-            # For JSON backend, iterate registry dict
-            registry = reg._load_registry()
-            for sid in registry:
-                sinfo = reg.get_strategy(sid)
-                if not sinfo:
-                    continue
-                m = sinfo.manifest
-                result.append(
-                    {
-                        "strategy_id": m.strategy_id,
-                        "type": m.strategy_type.value,
-                        "version": m.version,
-                        "required_models": m.required_models or [],
-                    }
-                )
-        except Exception:
-            # Best effort only
-            return result
+        for sinfo in strategies:
+            manifest = sinfo.manifest
+            result.append(
+                {
+                    "strategy_id": manifest.strategy_id,
+                    "type": manifest.strategy_type.value,
+                    "version": manifest.version,
+                    "required_models": manifest.required_models or [],
+                },
+            )
         return result
 
     def list_datasets(self) -> list[dict[str, Any]]:
         reg = self._get_data_registry()
+        manifests = reg.list_manifests()
         result: list[dict[str, Any]] = []
-        try:
-            # For JSON backend, DataRegistry stores manifests internally
-            manifests = getattr(reg, "_manifests", {})
-            for ds_id, manifest in manifests.items():
-                result.append(
-                    {
-                        "dataset_id": ds_id,
-                        "dataset_type": manifest.dataset_type.value,
-                        "location": manifest.location,
-                        "version": manifest.version,
-                    }
-                )
-        except Exception:
-            return result
+        for manifest in manifests:
+            result.append(
+                {
+                    "dataset_id": manifest.dataset_id,
+                    "dataset_type": manifest.dataset_type.value,
+                    "location": manifest.location,
+                    "version": manifest.version,
+                },
+            )
         return result
 
     def get_feature_lineage(self, feature_set_id: str) -> list[dict[str, Any]]:
@@ -414,7 +437,7 @@ class DashboardService:
                     "stage": m.stage.value,
                     "version": m.version,
                     "schema_hash": m.schema_hash,
-                }
+                },
             )
         return out
 
@@ -427,57 +450,48 @@ class DashboardService:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """
-        Return dataset watermarks. Best‑effort for JSON backend; single lookup for DB.
+        Return dataset watermarks.
+
+        Best‑effort for JSON backend; single lookup for DB.
+
         """
         reg = self._get_data_registry()
-        out: list[dict[str, Any]] = []
+        limit_value = max(0, int(limit)) if limit >= 0 else 0
+
+        def _serialize(wm: Watermark) -> dict[str, Any]:
+            return {
+                "dataset_id": wm.dataset_id,
+                "instrument_id": wm.instrument_id,
+                "source": wm.source,
+                "last_success_ns": wm.last_success_ns,
+                "last_attempt_ns": wm.last_attempt_ns,
+                "last_count": wm.last_count,
+                "completeness_pct": wm.completeness_pct,
+                "updated_at": wm.updated_at,
+            }
+
         if instrument and source:
             try:
-                wm = reg.get_watermark(dataset_id, instrument, source)
-                if wm is not None:
-                    out.append(
-                        {
-                            "dataset_id": wm.dataset_id,
-                            "instrument_id": wm.instrument_id,
-                            "source": wm.source,
-                            "last_success_ns": wm.last_success_ns,
-                            "last_attempt_ns": wm.last_attempt_ns,
-                            "last_count": wm.last_count,
-                            "completeness_pct": wm.completeness_pct,
-                            "updated_at": wm.updated_at,
-                        }
-                    )
+                watermark = reg.get_watermark(dataset_id, instrument, source)
             except Exception:
                 return []
-            return out
+            if watermark is None:
+                return []
+            return [_serialize(watermark)]
 
-        # JSON backend: scan cached dict for dataset matches
         try:
-            cached: dict[str, Any] = getattr(reg, "_watermarks", {})
-            for key, wm in cached.items():
-                if not key.startswith(f"{dataset_id}:"):
-                    continue
-                if instrument and f":{instrument}:" not in key:
-                    continue
-                if source and key.split(":")[-1] != source:
-                    continue
-                out.append(
-                    {
-                        "dataset_id": wm.dataset_id,
-                        "instrument_id": wm.instrument_id,
-                        "source": wm.source,
-                        "last_success_ns": wm.last_success_ns,
-                        "last_attempt_ns": wm.last_attempt_ns,
-                        "last_count": wm.last_count,
-                        "completeness_pct": wm.completeness_pct,
-                        "updated_at": wm.updated_at,
-                    }
-                )
-                if len(out) >= limit:
-                    break
+            records: list[Watermark] = list(
+                reg.iter_watermarks(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument,
+                    source=source,
+                    limit=limit_value,
+                ),
+            )
         except Exception:
             return []
-        return out
+
+        return [_serialize(wm) for wm in records]
 
     def list_dataset_lineage(
         self,
@@ -487,32 +501,36 @@ class DashboardService:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """
-        Return dataset lineage entries filtered by child/parent (JSON backend only).
+        Return dataset lineage entries filtered by child/parent identifiers.
         """
         reg = self._get_data_registry()
+        limit_value = max(0, int(limit)) if limit >= 0 else 0
+
         try:
-            entries: list[dict[str, Any]] = getattr(reg, "_lineage", [])
+            records: list[DatasetLineageRecord] = list(
+                reg.iter_lineage(
+                    child=child,
+                    parent=parent,
+                    limit=limit_value,
+                ),
+            )
         except Exception:
             return []
-        out: list[dict[str, Any]] = []
-        for e in reversed(entries):
-            if child and e.get("child_dataset_id") != child:
-                continue
-            if parent and e.get("parent_dataset_id") != parent:
-                continue
-            out.append(
+
+        result: list[dict[str, Any]] = []
+        for record in records:
+            result.append(
                 {
-                    "transform_id": e.get("transform_id", ""),
-                    "child_dataset_id": e.get("child_dataset_id", ""),
-                    "parent_dataset_id": e.get("parent_dataset_id", ""),
-                    "ts_range": e.get("ts_range", {}),
-                    "parameters": e.get("parameters", {}),
-                    "created_at": e.get("created_at", 0.0),
-                }
+                    "transform_id": record.transform_id,
+                    "child_dataset_id": record.child_dataset_id,
+                    "parent_dataset_id": record.parent_dataset_id,
+                    "ts_range": record.ts_range,
+                    "parameters": record.parameters,
+                    "created_at": record.created_at,
+                },
             )
-            if len(out) >= limit:
-                break
-        return out
+        return result
+
     def get_strategy_details(self, strategy_id: str) -> dict[str, Any] | None:
         """
         Return strategy manifest details if available.
@@ -588,7 +606,12 @@ class DashboardService:
             pass
         return {"ok": ok, "feature_set_id": feature_set_id, "stage": new_stage}
 
-    def deprecate_feature(self, feature_set_id: str, *, reason: str | None = None) -> dict[str, Any]:
+    def deprecate_feature(
+        self,
+        feature_set_id: str,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
         reg = self._get_feature_registry()
         ok = False
         try:
@@ -635,7 +658,10 @@ class DashboardService:
         start = time.perf_counter()
         try:
             bind_log_context(component="ml.dashboard", action=action, service=name)
-            if not isinstance(self.controller, ServiceControllerProtocol):  # runtime check for protocols
+            if not isinstance(
+                self.controller,
+                ServiceControllerProtocol,
+            ):  # runtime check for protocols
                 raise ServiceControlUnsupportedError("service control unavailable")
             result = False
             if action == "start":
@@ -655,33 +681,50 @@ class DashboardService:
         finally:
             _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
 
-    def trigger_pipeline(self, mode: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def trigger_pipeline(
+        self,
+        mode: str,
+        params: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Best-effort trigger notification for a pipeline run.
 
         This does not execute the run directly; instead it emits a bus event so an
-        external orchestrator can react. For local use, you can wire this to a
-        Compose controller or CLI runner in a follow-up iteration.
+        external orchestrator can react. For local use, you can wire this to a Compose
+        controller or CLI runner in a follow-up iteration.
+
         """
         start = time.perf_counter()
         route = "/api/pipeline/run"
         params_json = json.loads(json.dumps(params or {}))  # ensure JSON-serializable
+        ok = False
+        topic = ""
+        status_label = "error"
         try:
             cfg = MessageBusConfig.from_env()
             pub = publisher_from_config(cfg)
             stage = Stage.DATA_INGESTED if mode == "backfill" else Stage.CATALOG_WRITTEN
-            topic = build_topic_for_stage(stage, instrument_id=params_json.get("instrument", "UNKNOWN"), scheme=cfg.scheme, prefix=cfg.topic_prefix)
+            topic = build_topic_for_stage(
+                stage,
+                instrument_id=params_json.get("instrument", "UNKNOWN"),
+                scheme=cfg.scheme,
+                prefix=cfg.topic_prefix,
+            )
             payload = {
                 "mode": mode,
                 "params": params_json,
                 "source": Source.BACKFILL.value if mode == "backfill" else Source.LIVE.value,
                 "status": EventStatus.SUCCESS.value,
             }
-            ok = pub.publish(topic, payload)
-            _REQS_TOTAL.labels(route=route, method="POST", status=("success" if ok else "noop")).inc()
-            return {"ok": ok, "topic": topic}
+            ok = bool(pub.publish(topic, payload))
+            status_label = "success" if ok else "noop"
+        except Exception:
+            logger.debug("pipeline trigger publish failed", exc_info=True)
+            status_label = "error"
         finally:
+            _REQS_TOTAL.labels(route=route, method="POST", status=status_label).inc()
             _LATENCY_SECONDS.labels(route=route).observe(time.perf_counter() - start)
+        return {"ok": ok, "topic": topic}
 
 
 def _bootstrap_logging() -> None:

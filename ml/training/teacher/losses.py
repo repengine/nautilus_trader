@@ -19,17 +19,22 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 
 try:  # pragma: no cover - optional heavy dep guard
     import torch
-    from pytorch_forecasting.metrics import MultiHorizonMetric
+    from pytorch_forecasting.metrics import MultiHorizonMetric as _MultiHorizonMetricRuntime
 except Exception as exc:  # pragma: no cover
     raise ImportError("PyTorch + pytorch-forecasting are required for BCEWithLogitsLossPF") from exc
 
+if TYPE_CHECKING:
+    from pytorch_forecasting.metrics import MultiHorizonMetric as MultiHorizonMetricBase
+else:
+    MultiHorizonMetricBase = cast(type[torch.nn.Module], _MultiHorizonMetricRuntime)
 
-class BCEWithLogitsLossPF(MultiHorizonMetric):  # type: ignore[misc]
+
+class BCEWithLogitsLossPF(MultiHorizonMetricBase):
     """
     BCE-with-logits loss as a Pytorch Forecasting Metric.
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
 from ml._imports import check_ml_dependencies
@@ -21,6 +22,7 @@ from ml.data.providers.events import EventScheduleProvider
 from ml.data.providers.metadata import InstrumentMetadataProvider
 from ml.data.sources.calendar import MockCalendarSource
 from ml.data.sources.calendar import PandasCalendarSource
+from ml.data.sources.events import FileEventSource
 from ml.data.sources.events import MockEventSource
 from ml.data.sources.metadata import MockMetadataSource
 from ml.ml_types import PolarsDF
@@ -95,7 +97,22 @@ class ProviderFactory:
         else:
             self._calendar_source = calendar_source
 
-        self._event_source = event_source or MockEventSource()
+        if event_source is not None:
+            self._event_source = event_source
+        else:
+            candidate = Path("data/events/events.parquet")
+            if candidate.exists():
+                try:
+                    self._event_source = FileEventSource(candidate)
+                    logger.info("Using FileEventSource for event schedule data")
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    logger.warning(
+                        "Failed to initialize FileEventSource (%s); falling back to mock",
+                        exc,
+                    )
+                    self._event_source = MockEventSource()
+            else:
+                self._event_source = MockEventSource()
 
         # Creator registry (Open/Closed): name -> zero-arg factory
         self._creators: dict[str, Callable[[], DataProvider]] = {

@@ -33,8 +33,12 @@ from ml._imports import HAS_PANDAS
 from ml._imports import check_ml_dependencies
 from ml._imports import pd
 from ml.registry.feature_registry import FeatureRegistry
+from ml.tasks.datasets.splits import create_purged_splits
 from ml.training.teacher.base import BaseTeacher
 from ml.training.teacher.base import TeacherConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class CalibratingTeacher(BaseTeacher):
@@ -106,6 +110,34 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=0,
         help="If >0 and timestamp column exists, use last N days for validation",
+    )
+    ap.add_argument(
+        "--embargo_hours",
+        required=False,
+        type=float,
+        default=24.0,
+        help="Embargo window in hours for purged splits",
+    )
+    ap.add_argument(
+        "--purge_gap",
+        required=False,
+        type=int,
+        default=0,
+        help="Gap in samples between train and validation folds",
+    )
+    ap.add_argument(
+        "--cv_splits",
+        required=False,
+        type=int,
+        default=5,
+        help="Number of purged cross-validation splits",
+    )
+    ap.add_argument(
+        "--test_fraction",
+        required=False,
+        type=float,
+        default=0.2,
+        help="Fraction of data reserved as hold-out test",
     )
     ap.add_argument("--hidden_size", required=False, type=int, default=16)
     ap.add_argument("--lstm_layers", required=False, type=int, default=1)
@@ -298,7 +330,10 @@ def main(argv: list[str] | None = None) -> int:
         # Prefer time-based validation window if requested and timestamp is available
         _df_train = None
         df_val = None
-        if int(getattr(args, "val_days", 0) or 0) > 0 and args.timestamp_col in df_sorted.columns:
+        use_time_window = (
+            int(getattr(args, "val_days", 0) or 0) > 0 and args.timestamp_col in df_sorted.columns
+        )
+        if use_time_window:
             try:
                 ts = pd.to_datetime(df_sorted[args.timestamp_col], errors="coerce")
                 df_sorted = df_sorted.assign(_ts=ts)
@@ -311,9 +346,28 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:
                 _df_train = None
                 df_val = None
+
+        if (_df_train is None or df_val is None or len(df_val) == 0) and not use_time_window:
+            try:
+                split_info = create_purged_splits(
+                    df_sorted,
+                    timestamp_col=args.timestamp_col,
+                    test_fraction=float(args.test_fraction),
+                    n_splits=int(args.cv_splits),
+                    purge_gap=int(args.purge_gap),
+                    embargo_hours=float(args.embargo_hours),
+                )
+                if split_info["cv_splits"]:
+                    train_idx, val_idx = split_info["cv_splits"][-1]
+                    _df_train = df_sorted.iloc[train_idx]
+                    df_val = df_sorted.iloc[val_idx]
+            except Exception:
+                _df_train = None
+                df_val = None
+
         if _df_train is None or df_val is None or len(df_val) == 0:
             n_total = len(df_sorted)
-            min_val_len = 5000
+            min_val_len = max(int(n_total * 0.2), 1)
             cutoff = max(int(n_total * 0.8), n_total - min_val_len)
             _df_train = df_sorted.iloc[:cutoff]
             df_val = df_sorted.iloc[cutoff:]
@@ -551,7 +605,11 @@ def main(argv: list[str] | None = None) -> int:
             from ml.training.export import save_model_with_metadata
 
             # Resolve registry path (used for artifacts); default if not provided
-            reg_dir = Path(args.model_registry_dir) if args.model_registry_dir else Path.home() / ".nautilus" / "ml_registry"
+            reg_dir = (
+                Path(args.model_registry_dir)
+                if args.model_registry_dir
+                else Path.home() / ".nautilus" / "ml_registry"
+            )
             artifacts_dir = reg_dir / "artifacts" / "teachers"
             artifacts_dir.mkdir(parents=True, exist_ok=True)
 
@@ -704,7 +762,11 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 import os as _os
 
-                db_url = _os.getenv("NAUTILUS_DB") or _os.getenv("DB_CONNECTION") or "postgresql://postgres:postgres@localhost:5432/nautilus"
+                db_url = (
+                    _os.getenv("NAUTILUS_DB")
+                    or _os.getenv("DB_CONNECTION")
+                    or "postgresql://postgres:postgres@localhost:5432/nautilus"
+                )
                 engine = _EM.get_engine(db_url)
                 with engine.connect() as conn:
                     conn.exec_driver_sql("SELECT 1")
@@ -825,8 +887,16 @@ def main(argv: list[str] | None = None) -> int:
     # basic stability diagnostics across instruments and calendar weeks.
     try:
         # Ensure arrays available
-        q = (q_val if q_val is not None else np.array([], dtype=np.float32)).astype(np.float64).reshape(-1)
-        y = (y_val_true if y_val_true is not None else np.array([], dtype=np.float64)).astype(np.float64).reshape(-1)
+        q = (
+            (q_val if q_val is not None else np.array([], dtype=np.float32))
+            .astype(np.float64)
+            .reshape(-1)
+        )
+        y = (
+            (y_val_true if y_val_true is not None else np.array([], dtype=np.float64))
+            .astype(np.float64)
+            .reshape(-1)
+        )
         if q.size and y.size and q.size == y.size:
             # Clip for numeric stability
             p = np.clip(q, 1e-6, 1.0 - 1e-6)
@@ -885,7 +955,9 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     dfv = df_val.reset_index(drop=True)
                     if "instrument_id" in dfv.columns:
-                        uniq_instruments = sorted({str(x) for x in dfv["instrument_id"].astype(str).tolist()})
+                        uniq_instruments = sorted(
+                            {str(x) for x in dfv["instrument_id"].astype(str).tolist()},
+                        )
                         # align lengths defensively
                         m = min(len(dfv), len(p))
                         dfp = dfv.iloc[:m]
@@ -901,8 +973,13 @@ def main(argv: list[str] | None = None) -> int:
                                     from ml.evaluation.metrics import roc_auc as _ra2
 
                                     aucs.append(float(_ra2(yy, pp)))
-                                except Exception:
-                                    pass
+                                except Exception as auc_exc:
+                                    logger.debug(
+                                        "tft_cli.instrument_auc_failed instrument=%s error=%s",
+                                        inst,
+                                        auc_exc,
+                                        exc_info=True,
+                                    )
                         if aucs:
                             stability_inst_std = float(np.std(np.asarray(aucs, dtype=np.float64)))
                     # Weekly grouping if timestamp available
@@ -926,11 +1003,20 @@ def main(argv: list[str] | None = None) -> int:
                                     from ml.evaluation.metrics import roc_auc as _ra3
 
                                     aucs_w.append(float(_ra3(yy, pp)))
-                                except Exception:
-                                    pass
+                                except Exception as auc_exc:
+                                    logger.debug(
+                                        "tft_cli.weekly_auc_failed error=%s",
+                                        auc_exc,
+                                        exc_info=True,
+                                    )
                         if aucs_w:
                             stability_week_std = float(np.std(np.asarray(aucs_w, dtype=np.float64)))
-                except Exception:
+                except Exception as stability_exc:
+                    logger.warning(
+                        "tft_cli.stability_metrics_failed error=%s",
+                        stability_exc,
+                        exc_info=True,
+                    )
                     stability_inst_std = float("nan")
                     stability_week_std = float("nan")
 
@@ -940,7 +1026,11 @@ def main(argv: list[str] | None = None) -> int:
                 universe_instrument_ids = uniq_instruments
             else:
                 # Fallback: try training DataFrame if available
-                if "df_sorted" in locals() and isinstance(df_sorted, object) and hasattr(df_sorted, "columns"):
+                if (
+                    "df_sorted" in locals()
+                    and isinstance(df_sorted, object)
+                    and hasattr(df_sorted, "columns")
+                ):
                     try:
                         from typing import Any as _Any
                         from typing import cast as _cast
@@ -948,9 +1038,14 @@ def main(argv: list[str] | None = None) -> int:
                         df_any = _cast(_Any, df_sorted)
                         if "instrument_id" in df_any.columns:
                             universe_instrument_ids = sorted(
-                                {str(x) for x in df_any["instrument_id"].astype(str).tolist()}
+                                {str(x) for x in df_any["instrument_id"].astype(str).tolist()},
                             )
-                    except Exception:
+                    except Exception as universe_exc:
+                        logger.debug(
+                            "tft_cli.universe_build_failed error=%s",
+                            universe_exc,
+                            exc_info=True,
+                        )
                         universe_instrument_ids = None
 
             # Build JSON payload for promotions wiring
@@ -982,12 +1077,23 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 if "model_path" in locals() and model_path is not None:
                     metrics_out["model_path"] = str(model_path)
-            except Exception:
-                pass
+            except Exception as path_exc:
+                logger.debug(
+                    "tft_cli.metrics_model_path_attach_failed error=%s",
+                    path_exc,
+                    exc_info=True,
+                )
 
-            (out_dir / "model_metrics.json").write_text(json.dumps(metrics_out, indent=2), encoding="utf-8")
+            (out_dir / "model_metrics.json").write_text(
+                json.dumps(metrics_out, indent=2),
+                encoding="utf-8",
+            )
     except Exception as exc:
-        logging.getLogger(__name__).debug("Writing model_metrics.json failed: %s", exc, exc_info=True)
+        logging.getLogger(__name__).debug(
+            "Writing model_metrics.json failed: %s",
+            exc,
+            exc_info=True,
+        )
 
     return 0
 

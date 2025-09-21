@@ -2,9 +2,9 @@
 """
 Entrypoint for ML Signal Actor container.
 
-Cold-path orchestration for the ML Signal Actor process. Exposes minimal
-HTTP endpoints for health and metrics and enforces ONNX-only model artifacts
-for security compliance.
+Cold-path orchestration for the ML Signal Actor process. Exposes minimal HTTP endpoints
+for health and metrics and enforces ONNX-only model artifacts for security compliance.
+
 """
 
 import asyncio
@@ -44,6 +44,11 @@ from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
 
 
+# Backwards compatibility for legacy import paths used in tests and scripts.
+MLSignalActor = MultiInstrumentSignalActor
+MLSignalActorConfig = MultiInstrumentSignalActorConfig
+
+
 class MLSignalActorNode:
     """
     Container-ready ML Signal Actor node.
@@ -75,6 +80,7 @@ class MLSignalActorNode:
         bar_type_str = os.getenv("BAR_TYPE", "SPY.EQUS-1-MINUTE-LAST-EXTERNAL")
         actor_id = os.getenv("ACTOR_ID", "MLSignalActor-001")
         use_dummy_stores = os.getenv("USE_DUMMY_STORES", "false").lower() == "true"
+
         # Optional behavior overrides for testing/ops
         def _get_bool(name: str, default: bool) -> bool:
             val = os.getenv(name)
@@ -196,6 +202,7 @@ class MLSignalActorNode:
             except Exception:
                 # Non-fatal; fall back to configured strategy
                 pass
+
         # Multi-instrument extensions (batching + universe)
         def _get_list(name: str) -> list[str] | None:
             raw = os.getenv(name)
@@ -204,10 +211,7 @@ class MLSignalActorNode:
             items = [t.strip() for t in raw.split(",") if t.strip()]
             return items or None
 
-        universe: list[str] | None = (
-            _get_list("ACTOR_UNIVERSE")
-            or _get_list("UNIVERSE_SYMBOLS")
-        )
+        universe: list[str] | None = _get_list("ACTOR_UNIVERSE") or _get_list("UNIVERSE_SYMBOLS")
         if not universe:
             # Default multi-instrument universe aligned with common US listings
             # ETFs use EQUS aggregated venue; equities use XNAS symbols
@@ -223,7 +227,7 @@ class MLSignalActorNode:
         feature_dim = _get_int("FEATURE_DIM", 64)
         flush_max_latency_ms = _get_int("FLUSH_MAX_LATENCY_MS", 0)
 
-        actor_config = MultiInstrumentSignalActorConfig(
+        actor_config = MLSignalActorConfig(
             **actor_kwargs,
             max_batch_size=max_batch_size,
             feature_dim=feature_dim,
@@ -275,7 +279,7 @@ class MLSignalActorNode:
             self.node.add_data_client_factory("DATABENTO", DatabentoLiveDataClientFactory)
 
         # Add Multi‑Instrument ML Signal Actor by default
-        actor = MultiInstrumentSignalActor(config=actor_config)
+        actor = MLSignalActor(config=actor_config)
         self.node.trader.add_actor(actor)
 
         # Subscribe to market data when using real feed
@@ -296,7 +300,11 @@ class MLSignalActorNode:
                 actor.subscribe_bars(bar_type)
 
         # Optional: attach a lightweight RecorderActor to persist live bars
-        live_record_enable = os.getenv("ML_LIVE_RECORD_ENABLE", "1").strip().lower() in {"1", "true", "yes"}
+        live_record_enable = os.getenv("ML_LIVE_RECORD_ENABLE", "1").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
         if live_record_enable:
             datasets_csv = os.getenv("ML_LIVE_RECORD_DATASETS", "bars").strip()
             dataset_tokens = {t.strip().lower() for t in datasets_csv.split(",") if t.strip()}
@@ -334,13 +342,18 @@ class MLSignalActorNode:
                         loop.create_task(recorder.start())
                 except Exception:
                     # Recorder still flushes on size thresholds and shutdown
-                    logging.getLogger(__name__).debug("Recorder start task not scheduled", exc_info=True)
+                    logging.getLogger(__name__).debug(
+                        "Recorder start task not scheduled",
+                        exc_info=True,
+                    )
             except Exception as exc:
                 # JSON/catalog fallback when PostgreSQL is unavailable
                 try:
                     catalog_path = os.getenv("CATALOG_PATH", "").strip()
                     if not catalog_path:
-                        raise RuntimeError("CATALOG_PATH is required for file-backed live recording fallback")
+                        raise RuntimeError(
+                            "CATALOG_PATH is required for file-backed live recording fallback",
+                        )
                     from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
                     catalog = ParquetDataCatalog(catalog_path)
@@ -349,14 +362,23 @@ class MLSignalActorNode:
 
                     # JSON DataRegistry for events/watermarks (bootstrap manifests/contracts)
                     registry_path = Path.home() / ".nautilus" / "ml" / "registry"
-                    persistence = PersistenceConfig(backend=BackendType.JSON, json_path=registry_path)
+                    persistence = PersistenceConfig(
+                        backend=BackendType.JSON,
+                        json_path=registry_path,
+                    )
                     try:
                         from ml.registry.bootstrap_datasets import bootstrap_datasets
 
                         bootstrap_datasets(backend=BackendType.JSON, registry_path=registry_path)
                     except Exception:
-                        logging.getLogger(__name__).debug("Bootstrap datasets skipped in fallback", exc_info=True)
-                    data_registry = DataRegistry(registry_path=registry_path, persistence_config=persistence)
+                        logging.getLogger(__name__).debug(
+                            "Bootstrap datasets skipped in fallback",
+                            exc_info=True,
+                        )
+                    data_registry = DataRegistry(
+                        registry_path=registry_path,
+                        persistence_config=persistence,
+                    )
 
                     recorder = LiveDataRecorder(
                         data_store=data_store_fallback,  # type: ignore[arg-type]
@@ -378,7 +400,10 @@ class MLSignalActorNode:
                         if loop.is_running():
                             loop.create_task(recorder.start())
                     except Exception:
-                        logging.getLogger(__name__).debug("Recorder start task not scheduled (fallback)", exc_info=True)
+                        logging.getLogger(__name__).debug(
+                            "Recorder start task not scheduled (fallback)",
+                            exc_info=True,
+                        )
 
                     # Optional: backfill on start in fallback mode (catalog-only)
                     if os.getenv("ML_BACKFILL_ON_START", "").lower() in {"1", "true", "yes"}:
@@ -417,11 +442,17 @@ class MLSignalActorNode:
                             "--catalog-path",
                             catalog_path,
                         ]
-                        logging.getLogger(__name__).info("Running fallback backfill: %s", shlex.join(cmd))
+                        logging.getLogger(__name__).info(
+                            "Running fallback backfill: %s",
+                            shlex.join(cmd),
+                        )
                         try:
                             subprocess.run(cmd, check=True)
                         except Exception as bf_exc:
-                            logging.getLogger(__name__).warning("Fallback backfill failed: %s", bf_exc)
+                            logging.getLogger(__name__).warning(
+                                "Fallback backfill failed: %s",
+                                bf_exc,
+                            )
                 except Exception as inner:
                     logging.getLogger(__name__).warning(
                         "Live recording disabled (no fallback available): %s; root=%s",
@@ -445,8 +476,9 @@ class MLSignalActorNode:
         """
         Run the actor node asynchronously.
 
-        Uses the TradingNode async API when available so tests can await
-        concurrent startup and controlled cancellation.
+        Uses the TradingNode async API when available so tests can await concurrent
+        startup and controlled cancellation.
+
         """
         self.running = True
 

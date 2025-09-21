@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """
-Build TFT training dataset from tier1 data with optional macro and micro features.
-Outputs:
-- dataset.parquet / dataset.csv
-- features_npz.npz with {X_train, X_val, feature_names}
-
-This CLI avoids heavy training dependencies and focuses on dataset preparation.
-
+CLI wrapper for building TFT datasets via :mod:`ml.tasks.datasets`.
 """
 
 from __future__ import annotations
@@ -15,138 +9,114 @@ import argparse
 import logging
 import os
 import uuid as _uuid
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
-from typing import Any as _Any
-from typing import cast as _cast
 
-import numpy as np
-
-from ml._imports import HAS_PANDAS
-from ml._imports import pd
-from ml._imports import pl
 from ml.common.logging_config import bind_log_context
 from ml.common.logging_config import configure_logging
-from ml.data import DatasetBuildConfig as APICfg
-from ml.data import build_tft_dataset as api_build
+from ml.tasks.datasets import TFTDatasetTaskConfig
+from ml.tasks.datasets import build_tft_dataset
 
 
-pl = _cast(_Any, pl)
+LOGGER = logging.getLogger(__name__)
 
 
-def _infer_feature_columns(df: Any) -> list[str]:
-    if pl is not None:
-        PLDF = getattr(pl, "DataFrame", None)
-        if PLDF is not None and isinstance(df, PLDF):
-            numeric = [c for c in df.columns if df[c].dtype.is_numeric()]
-            exclude = {"y", "time_index"}
-            # Keep timestamp and instrument_id out of feature matrix
-            exclude |= {"timestamp", "instrument_id", "ts_event"}
-            return [c for c in numeric if c not in exclude]
-    if HAS_PANDAS:
-        PDDF = getattr(pd, "DataFrame", None)
-        if PDDF is not None and isinstance(df, PDDF):  # pragma: no cover
-            numeric = df.select_dtypes(include=[np.number]).columns.tolist()
-            exclude = {"y", "time_index", "timestamp", "instrument_id", "ts_event"}
-            return [c for c in numeric if c not in exclude]
-    return []
+def _parse_symbols(value: str) -> list[str]:
+    symbols = [item.strip() for item in value.split(",") if item.strip()]
+    if not symbols:
+        msg = "At least one symbol is required"
+        raise argparse.ArgumentTypeError(msg)
+    return symbols
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--data_dir", default="data/tier1")
-    ap.add_argument("--symbols", required=True, help="Comma-separated symbols, e.g., SPY,QQQ,AAPL")
-    ap.add_argument("--out_dir", required=True)
-    ap.add_argument("--horizon_minutes", type=int, default=15)
-    ap.add_argument("--threshold", type=float, default=0.001)
-    ap.add_argument("--lookback_periods", type=int, default=30)
-    ap.add_argument("--start", required=False, help="Start date (YYYY-MM-DD)")
-    ap.add_argument("--end", required=False, help="End date (YYYY-MM-DD)")
-    ap.add_argument(
-        "--chunk_days",
-        type=int,
-        default=0,
-        help="If >0, build in date chunks of this many days and concatenate",
-    )
-    # Macro now on by default; --no_macro disables it
-    ap.add_argument("--include_macro", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument(
-        "--no_macro",
-        action="store_true",
-        help="Disable FRED macro join (enabled by default)",
-    )
-    ap.add_argument("--macro_lag_days", type=int, default=1)
-    ap.add_argument("--include_micro", action="store_true")
-    ap.add_argument("--include_l2", action="store_true")
-    ap.add_argument("--include_events", action="store_true")
-    ap.add_argument("--include_calendar", action="store_true")
-    # Optional dataset events via DataRegistry (cold path)
-    ap.add_argument(
-        "--emit_dataset_events",
-        action="store_true",
-        help="Emit a SUCCESS dataset event (DataRegistry) with counts and time bounds",
-    )
-    # Optional FeatureRegistry export
-    ap.add_argument("--register_features", action="store_true")
-    ap.add_argument("--feature_registry_dir", required=False)
-    ap.add_argument(
+def _parse_optional_date(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:  # pragma: no cover - argparse ensures format
+        msg = f"Invalid date '{value}'. Expected YYYY-MM-DD."
+        raise argparse.ArgumentTypeError(msg) from exc
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build TFT dataset artifacts")
+    parser.add_argument("--data_dir", default="data/tier1")
+    parser.add_argument("--symbols", required=True, type=_parse_symbols)
+    parser.add_argument("--out_dir", required=True)
+    parser.add_argument("--horizon_minutes", type=int, default=15)
+    parser.add_argument("--threshold", type=float, default=0.001)
+    parser.add_argument("--lookback_periods", type=int, default=30)
+    parser.add_argument("--start", help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", help="End date (YYYY-MM-DD)")
+    parser.add_argument("--chunk_days", type=int, default=0)
+    parser.add_argument("--macro_lag_days", type=int, default=1)
+    parser.add_argument("--include_micro", action="store_true")
+    parser.add_argument("--include_l2", action="store_true")
+    parser.add_argument("--include_events", action="store_true")
+    parser.add_argument("--include_calendar", action="store_true")
+    parser.add_argument("--student_mode", action="store_true")
+    parser.add_argument("--emit_dataset_events", action="store_true")
+    parser.add_argument("--fred_vintage_dir")
+    parser.add_argument("--events_dir")
+    parser.add_argument("--register_features", action="store_true")
+    parser.add_argument("--feature_registry_dir")
+    parser.add_argument(
         "--feature_role",
         choices=["teacher", "student", "inference_support"],
         default="teacher",
     )
-    ap.add_argument("--verbose", action="store_true", help="Enable debug logging")
-    args = ap.parse_args(argv)
+    parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument("--no_macro", action="store_true", help="Disable FRED macro join")
+    args = parser.parse_args(argv)
 
-    # Configure logging (structured) and bind run context
     if args.verbose or os.environ.get("ML_DEBUG"):
         configure_logging(level="DEBUG")
     else:
         configure_logging()
-    _run_id: str = f"cli_build_tft_dataset_{_uuid.uuid4().hex[:8]}"
-    bind_log_context(run_id=_run_id, component="ml.cli.build_tft_dataset")
+    run_id = f"cli_build_tft_dataset_{_uuid.uuid4().hex[:8]}"
+    bind_log_context(run_id=run_id, component="ml.cli.build_tft_dataset")
 
-    data_dir = Path(args.data_dir)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    include_macro = not bool(getattr(args, "no_macro", False))
-    # Parse optional start/end
-    start_dt = datetime.fromisoformat(args.start) if args.start else None
-    end_dt = datetime.fromisoformat(args.end) if args.end else None
-
-    logging.info("Initializing dataset API build at %s", data_dir)
-    cfg = APICfg(
-        data_dir=data_dir,
+    cfg = TFTDatasetTaskConfig(
+        data_dir=Path(args.data_dir),
         out_dir=out_dir,
-        symbols=symbols,
-        include_macro=include_macro,
-        macro_lag_days=args.macro_lag_days,
-        include_micro=args.include_micro,
-        include_l2=args.include_l2,
-        include_events=bool(args.include_events),
-        include_calendar=bool(args.include_calendar),
+        symbols=args.symbols,
         horizon_minutes=args.horizon_minutes,
         threshold=args.threshold,
         lookback_periods=args.lookback_periods,
-        start=start_dt,
-        end=end_dt,
+        include_macro=not bool(args.no_macro),
+        macro_lag_days=args.macro_lag_days,
+        include_micro=args.include_micro,
+        include_l2=args.include_l2,
+        include_events=args.include_events,
+        include_calendar=args.include_calendar,
         chunk_days=args.chunk_days,
-        register_features=bool(args.register_features),
+        start=_parse_optional_date(args.start),
+        end=_parse_optional_date(args.end),
+        register_features=args.register_features,
         feature_registry_dir=Path(args.feature_registry_dir) if args.feature_registry_dir else None,
-        feature_role=str(args.feature_role),
-        emit_dataset_events=bool(args.emit_dataset_events),
+        feature_role=args.feature_role,
+        emit_dataset_events=args.emit_dataset_events,
+        fred_vintage_dir=Path(args.fred_vintage_dir) if args.fred_vintage_dir else None,
+        events_base_dir=Path(args.events_dir) if args.events_dir else None,
+        student_mode=args.student_mode,
     )
 
-    result = api_build(cfg)
+    LOGGER.info("Building TFT dataset %s", cfg)
+    result = build_tft_dataset(cfg)
+
     print(
-        f"Saved dataset to {result.dataset_parquet} and {result.dataset_csv}\nSaved features to {result.features_npz}",
+        "Saved dataset to"
+        f" {result.dataset_parquet} and {result.dataset_csv}\nSaved features to {result.features_npz}",
     )
     if result.feature_set_id:
-        print(f"Registered feature set: {result.feature_set_id} in {args.feature_registry_dir}")
+        print(f"Registered feature set: {result.feature_set_id} in {cfg.feature_registry_dir}")
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - CLI entrypoint
     raise SystemExit(main())

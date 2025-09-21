@@ -42,6 +42,7 @@ from ml.registry.base import ModelInfo
 from ml.registry.base import ModelManifest
 from ml.registry.base import ModelRole
 from ml.registry.data_registry import DataRegistry
+from ml.registry.data_registry import Watermark
 
 # =============================================================================
 # DEPLOYMENT & TESTING SUPPORT
@@ -52,6 +53,7 @@ from ml.registry.dataclasses import CanaryDeployment
 
 # Data Registry Types
 from ml.registry.dataclasses import DataContract
+from ml.registry.dataclasses import DatasetLineageRecord
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import QualityFlag
@@ -115,6 +117,7 @@ __all__ = [
     "DataContract",
     "DataRegistry",
     "DataRequirements",
+    "DatasetLineageRecord",
     "DatasetManifest",
     "DatasetType",
     "DeploymentStatus",
@@ -144,6 +147,7 @@ __all__ = [
     "ValidationResult",
     "ValidationRule",
     "ValidationRuleType",
+    "Watermark",
     "assert_features_compatible",
     "build_feature_schema",
     "build_student_manifest",

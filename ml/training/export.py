@@ -317,7 +317,7 @@ def convert_to_torchscript(
     def _jit_trace(mod: object, example: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.
         # mypy: torch.jit.trace is untyped in stubs; this is a deliberate runtime call.
-        return torch.jit.trace(mod, example)  # type: ignore[no-untyped-call]
+        return torch.jit.trace(mod, example)
 
     def _jit_script(mod: object) -> Any:
         # Wrapper to keep mypy strict happy around untyped torch APIs.

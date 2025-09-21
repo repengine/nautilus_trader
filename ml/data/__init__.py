@@ -163,6 +163,13 @@ from ml.data.ingest.common import BackoffPolicy
 # Ingestion utilities
 from ml.data.ingest.common import IngestState
 from ml.data.ingest.common import RateLimiter
+from ml.data.ingest.service import CostViolationError
+from ml.data.ingest.service import DatabentoIngestionService
+from ml.data.ingest.service import IngestionChunk
+from ml.data.ingest.service import IngestionError
+from ml.data.ingest.service import IngestionRequest
+from ml.data.ingest.service import IngestionWindow
+from ml.data.ingest.service import SymbolIngestionSummary
 
 # Note: DomainWindowLoaderProtocol and IngestionOrchestrator moved to avoid circular imports
 # Import directly from ml.data.ingest.orchestrator when needed
@@ -196,13 +203,15 @@ from ml.data.tft_dataset_builder import TFTDatasetBuilder
 
 
 __all__ = [
-    # Core data conversion utilities
+    "ALFREDConfig",
+    "ALFREDDataLoader",
     "BackoffPolicy",
     "BuildResult",
     "CacheableProvider",
+    "CostViolationError",
     "DataCollector",
     "DataProvider",
-    # "DataScheduler",  # Moved to avoid circular imports - import from ml.data.scheduler
+    "DatabentoIngestionService",
     "DatabentoMetadataSource",
     "DatasetBuildConfig",
     "DomainWindowLoaderProtocol",
@@ -210,9 +219,15 @@ __all__ = [
     "FREDConfig",
     "FREDDataLoader",
     "FREDIndicator",
+    "FileEventSource",
     "FixtureManifest",
     "IngestState",
+    "IngestionChunk",
+    "IngestionError",
+    "IngestionJob",
     "IngestionOrchestrator",
+    "IngestionRequest",
+    "IngestionWindow",
     "InstrumentMetadataProvider",
     "L2MinuteCache",
     "MarketCalendarProvider",
@@ -224,15 +239,19 @@ __all__ = [
     "RateLimiter",
     "SimpleCalendarSource",
     "StaticDataProvider",
+    "SymbolIngestionSummary",
     "TFTDatasetBuilder",
     "TimeSeriesProvider",
     "bars_to_dataframe",
     "build_tft_dataset",
     "compute_schema_hash",
+    "ensure_service",
+    "fetch_symbol_data",
     "make_mbp10_fixture",
     "make_tbbo_fixture",
     "make_trades_fixture",
     "quotes_to_dataframe",
+    "run_jobs",
     "trades_to_dataframe",
 ]
 
@@ -242,7 +261,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -262,6 +281,9 @@ class DatasetBuildConfig:
     include_l2: bool = False
     include_events: bool = False
     include_calendar: bool = False
+    fred_vintage_dir: Path | None = None
+    events_base_dir: Path | None = None
+    student_mode: bool = False
     # Builder params
     horizon_minutes: int = 15
     threshold: float = 0.001
@@ -332,6 +354,9 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         include_l2=cfg.include_l2,
         include_events=cfg.include_events,
         include_calendar=cfg.include_calendar,
+        vintage_base_dir=cfg.fred_vintage_dir,
+        events_base_dir=cfg.events_base_dir,
+        student_mode=cfg.student_mode,
         micro_base_dir=str(cfg.data_dir),
         l2_base_dir=str(cfg.data_dir),
     )
@@ -459,13 +484,14 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
             from ml.config.events import Source
             from ml.config.events import Stage
             from ml.core.integration import MLIntegrationManager
+            from ml.registry.protocols import RegistryProtocol
 
             mgr = MLIntegrationManager(
                 auto_start_postgres=False,
                 auto_migrate=False,
                 ensure_healthy=False,
             )
-            data_registry = mgr.data_registry
+            data_registry = cast(RegistryProtocol, mgr.data_registry)
             # Derive basic stats
             count = len(df_pd_sorted) if "df_pd_sorted" in locals() else 0
             # Attempt to extract time bounds (ns) from available columns
@@ -541,4 +567,12 @@ def __getattr__(name: str) -> object:
         from ml.data.loaders import fred_loader as _fred
 
         return getattr(_fred, name)
+    if name in {"ALFREDConfig", "ALFREDDataLoader"}:
+        from ml.data.loaders import alfred_loader as _alfred
+
+        return getattr(_alfred, name)
+    if name == "FileEventSource":
+        from ml.data.sources import events as _events
+
+        return getattr(_events, name)
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

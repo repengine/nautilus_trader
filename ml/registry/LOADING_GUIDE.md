@@ -5,6 +5,7 @@ This guide provides comprehensive documentation on how to load and query items f
 ## Table of Contents
 
 - [Model Registry](#model-registry)
+- [Data Registry](#data-registry)
 - [Feature Registry](#feature-registry)
 - [Strategy Registry](#strategy-registry)
 - [Practical Examples](#practical-examples)
@@ -77,6 +78,57 @@ model_info.manifest.deployment_constraints # {"max_latency_ms": 5}
 model_info.deployment_status           # DeploymentStatus.ACTIVE
 model_info.deployed_to                 # ["ml_signal_actor"]
 model_info.file_path                   # Path("models/lgb_student_v1.onnx")
+```
+
+## Data Registry
+
+### Primary Loading Methods
+
+```python
+from pathlib import Path
+from ml.registry.data_registry import DataRegistry
+
+registry = DataRegistry(Path("registry/datasets"))
+
+# 1. Load a manifest (DatasetManifest)
+manifest = registry.get_manifest("features_iter")
+
+# 2. Fetch a specific watermark (Watermark)
+watermark = registry.get_watermark("features_iter", "EUR/USD", "historical")
+```
+
+### Secondary Query Methods
+
+```python
+# Enumerate manifests (list[DatasetManifest])
+all_manifests = registry.list_manifests()
+
+# Iterate watermarks (yields Watermark dataclasses)
+for wm in registry.iter_watermarks(dataset_id="features_iter", limit=5):
+    print(wm.dataset_id, wm.last_success_ns)
+
+# Lineage traversal (DatasetLineageRecord)
+lineage = list(
+    registry.iter_lineage(child="features_iter", parent="bars_iter", limit=10)
+)
+```
+
+### Watermark / Lineage Structures
+
+```python
+from ml.registry import Watermark, DatasetLineageRecord
+
+watermark: Watermark = next(registry.iter_watermarks(dataset_id="features_iter"))
+lineage_record: DatasetLineageRecord = next(
+    registry.iter_lineage(child="features_iter")
+)
+
+watermark.source            # "historical"
+watermark.completeness_pct  # 100.0
+
+lineage_record.transform_id     # "unit_pipeline"
+lineage_record.ts_range         # {"start_ns": 1, "end_ns": 2}
+lineage_record.parameters       # {"lag": 1}
 ```
 
 ## Feature Registry

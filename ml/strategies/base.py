@@ -133,7 +133,7 @@ _initialize_metrics()
 
 # Note: Upstream `Strategy` lacks complete typing; inheriting from it triggers a mypy
 # miscellaneous error in strict mode. This is safe and expected here.
-class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
+class BaseMLStrategy(Strategy, ABC):
     """
     Base class for ML-driven trading strategies.
 
@@ -233,12 +233,17 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 from ml.core.integration import init_ml_stores_and_registries as _init_stores
 
                 stores = _init_stores(self._config)
-                self.strategy_store = cast("StrategyStoreProtocol | None", getattr(stores, "strategy_store", None))
+                self.strategy_store = cast(
+                    "StrategyStoreProtocol | None",
+                    getattr(stores, "strategy_store", None),
+                )
             except Exception as exc:
-                try:
-                    self.log.warning("StrategyStore unavailable; proceeding without persistence: %s", exc)
-                except Exception:
-                    ...
+                self.log.warning(
+                    "ml_strategy.strategy_store_unavailable",
+                    strategy_id=str(self.id),
+                    exc_info=True,
+                    error=str(exc),
+                )
                 self.strategy_store = None
 
         # Optional message bus publisher (injectable for tests)
@@ -292,10 +297,12 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         except Exception as exc:
             # Do not fail strategy startup if any optional component cannot be created.
             # Components can be injected later or remain None; hot-path keeps working.
-            try:
-                self.log.debug("Optional strategy components unavailable: %s", exc)
-            except Exception:
-                ...
+            self.log.debug(
+                "ml_strategy.optional_components_unavailable",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(exc),
+            )
 
         # Initialize optional circuit breakers (defensive; no hard dependency)
         try:
@@ -309,9 +316,15 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 getattr(self._config, "circuit_breaker_config", None),
                 component_id="order_submission",
             )
-        except Exception:
+        except Exception as exc:
             self._store_breaker = None
             self._order_breaker = None
+            self.log.debug(
+                "ml_strategy.breaker_init_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(exc),
+            )
 
         # Best-effort env-backed bus publisher when not injected
         try:
@@ -320,9 +333,14 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 from ml.config.bus import MessageBusConfig as _MBCfg
 
                 self._bus_publisher = _pfc(_MBCfg.from_env())
-        except Exception:
+        except Exception as exc:
             # Keep hot path resilient; publisher remains None
-            ...
+            self.log.debug(
+                "ml_strategy.bus_publisher_init_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(exc),
+            )
 
     # --- Common decision helpers (to reduce duplication across strategies) ---
     def target_side_from_prediction(self, prediction: float, threshold: float = 0.5) -> OrderSide:
@@ -361,49 +379,63 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
 
     @property
     def feature_store(self) -> object | None:
-        """Access the feature store from the injected stores container."""
+        """
+        Access the feature store from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "feature_store"):
             return cast(object, self._stores.feature_store)
         return None
 
     @property
     def model_store(self) -> object | None:
-        """Access the model store from the injected stores container."""
+        """
+        Access the model store from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "model_store"):
             return cast(object, self._stores.model_store)
         return None
 
     @property
     def data_store(self) -> object | None:
-        """Access the data store from the injected stores container."""
+        """
+        Access the data store from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "data_store"):
             return cast(object, self._stores.data_store)
         return None
 
     @property
     def feature_registry(self) -> object | None:
-        """Access the feature registry from the injected stores container."""
+        """
+        Access the feature registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "feature_registry"):
             return cast(object, self._stores.feature_registry)
         return None
 
     @property
     def model_registry(self) -> object | None:
-        """Access the model registry from the injected stores container."""
+        """
+        Access the model registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "model_registry"):
             return cast(object, self._stores.model_registry)
         return None
 
     @property
     def strategy_registry(self) -> object | None:
-        """Access the strategy registry from the injected stores container."""
+        """
+        Access the strategy registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "strategy_registry"):
             return cast(object, self._stores.strategy_registry)
         return None
 
     @property
     def data_registry(self) -> object | None:
-        """Access the data registry from the injected stores container."""
+        """
+        Access the data registry from the injected stores container.
+        """
         if self._stores is not None and hasattr(self._stores, "data_registry"):
             return cast(object, self._stores.data_registry)
         return None
@@ -482,8 +514,14 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             try:
                 if self.performance is not None:
                     self.performance.record_signal(data)
-            except Exception:
-                ...
+            except Exception as exc:
+                self.log.debug(
+                    "ml_strategy.performance_record_failed",
+                    strategy_id=str(self.id),
+                    signal_model=str(getattr(data, "model_id", "")),
+                    exc_info=True,
+                    error=str(exc),
+                )
 
             # Handle aggregation if configured
             if self.aggregation_mode:
@@ -521,21 +559,36 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             # No store configured/available: publish event directly (best‑effort)
             try:
                 is_live = not getattr(self.cache, "is_backtesting", False)
-            except Exception:
+            except Exception as cache_exc:
+                self.log.debug(
+                    "ml_strategy.cache_state_unknown",
+                    strategy_id=str(self.id),
+                    exc_info=True,
+                    error=str(cache_exc),
+                )
                 is_live = True
             try:
                 from ml.config.events import EventStatus as _ES
+
                 pub = self._get_decision_publisher()
                 # Build model predictions payload from the signal and any aggregated context
-                mid = getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")
+                mid = getattr(signal, "model_id", None) or signal.metadata.get(
+                    "model_id",
+                    "unknown",
+                )
                 mp_local: dict[str, float] = {str(mid): float(signal.prediction)}
                 try:
                     if hasattr(signal, "metadata") and "aggregated_from" in signal.metadata:
                         for _mid in signal.metadata["aggregated_from"]:
                             if _mid in self._model_signals:
                                 mp_local[str(_mid)] = float(self._model_signals[_mid].prediction)
-                except Exception:
-                    ...
+                except Exception as agg_exc:
+                    self.log.debug(
+                        "ml_strategy.aggregated_predictions_build_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(agg_exc),
+                    )
                 pub.publish(
                     strategy_id=str(self.id),
                     instrument_id=str(signal.instrument_id),
@@ -548,8 +601,15 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                     is_live=bool(is_live),
                     status=_ES.SUCCESS,
                 )
-            except Exception:
-                ...
+            except Exception as pub_exc:
+                self.log.warning(
+                    "ml_strategy.strategy_decision_publish_failed",
+                    strategy_id=str(self.id),
+                    instrument_id=str(signal.instrument_id),
+                    decision_type=decision_type,
+                    exc_info=True,
+                    error=str(pub_exc),
+                )
             return
 
         # Skip HOLD signals unless configured to persist them
@@ -612,8 +672,13 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                         "Fallback activations",
                         labelnames=("component", "level"),
                     ).labels(component="strategy_store_write", level="open").inc()
-                except Exception:
-                    ...
+                except Exception as metrics_exc:
+                    self.log.debug(
+                        "ml_strategy.fallback_metric_emit_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(metrics_exc),
+                    )
                 # Publish guardrail event with PARTIAL status
                 try:
                     from ml.config.events import EventStatus as _ES
@@ -631,11 +696,25 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                         is_live=not getattr(self.cache, "is_backtesting", False),
                         status=_ES.PARTIAL,
                     )
-                except Exception:
-                    ...
+                except Exception as pub_exc:
+                    self.log.warning(
+                        "ml_strategy.partial_publish_failed",
+                        strategy_id=str(self.id),
+                        instrument_id=str(signal.instrument_id),
+                        decision_type=decision_type,
+                        exc_info=True,
+                        error=str(pub_exc),
+                    )
                 return
-        except Exception:
-            ...
+        except Exception as breaker_exc:
+            self.log.warning(
+                "ml_strategy.breaker_guard_failed",
+                strategy_id=str(self.id),
+                instrument_id=str(signal.instrument_id),
+                decision_type=decision_type,
+                exc_info=True,
+                error=str(breaker_exc),
+            )
 
         # Write to store with timing
         import time
@@ -656,14 +735,18 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                     execution_params=execution_params,
                     ts_event=signal.ts_event,
                     is_live=(
-                        not self.cache.is_backtesting if hasattr(self.cache, "is_backtesting") else True
+                        not self.cache.is_backtesting
+                        if hasattr(self.cache, "is_backtesting")
+                        else True
                     ),
                 )
                 try:
                     if self._store_breaker is not None:
                         self._store_breaker.record_success()
-                except Exception:
-                    ...
+                except Exception as breaker_exc:
+                    self.log.debug(
+                        f"ml_strategy.breaker_record_success_failed strategy={self.id} error={breaker_exc!r}",
+                    )
 
                 # Update metrics
                 write_latency = time.perf_counter() - start_time
@@ -677,13 +760,15 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                     self._strategy_store_batch_size.labels(
                         strategy_id=str(self.id),
                     ).set(len(store._write_buffer))
-        except Exception as e:
+        except Exception as exc:
             # Record breaker failure and publish PARTIAL guardrail event
             try:
                 if self._store_breaker is not None:
                     self._store_breaker.record_failure()
-            except Exception:
-                ...
+            except Exception as breaker_exc:
+                self.log.debug(
+                    f"ml_strategy.breaker_record_failure_failed strategy={self.id} error={breaker_exc!r}",
+                )
             try:
                 from ml.config.events import EventStatus as _ES
 
@@ -700,9 +785,17 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                     is_live=not getattr(self.cache, "is_backtesting", False),
                     status=_ES.PARTIAL,
                 )
-            except Exception:
-                ...
-            self.log.error(f"Failed to persist strategy decision: {e}")
+            except Exception as pub_exc:
+                self.log.warning(
+                    "ml_strategy.partial_publish_failed "
+                    f"strategy={self.id} instrument={signal.instrument_id} "
+                    f"decision_type={decision_type} error={pub_exc!r}",
+                )
+            self.log.error(
+                "ml_strategy.strategy_store_write_failed "
+                f"strategy={self.id} instrument={signal.instrument_id} "
+                f"decision_type={decision_type} error={exc!r}",
+            )
 
     def on_stop(self) -> None:
         """
@@ -712,8 +805,10 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         if self.strategy_store:
             try:
                 self.strategy_store.flush()
-            except Exception as e:
-                self.log.error(f"Failed to flush strategy store on stop: {e}")
+            except Exception as exc:
+                self.log.error(
+                    f"ml_strategy.strategy_store_flush_failed strategy={self.id} error={exc!r}",
+                )
 
         win_rate = self._winning_trades / max(self._trades_executed, 1) * 100
 
@@ -861,6 +956,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         -------
         Quantity | None
             Final quantity to trade, or None if trade should not proceed.
+
         """
         # Resolve instrument and account
         instrument = self.cache.instrument(self._config.instrument_id)
@@ -885,7 +981,12 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
             try:
                 proposed_value_qty = self.position_sizer.calculate(signal, account, positions)
             except Exception as exc:
-                self.log.debug("PositionSizer failed; falling back: %s", exc)
+                self.log.debug(
+                    "ml_strategy.position_sizer_failed",
+                    strategy_id=str(self.id),
+                    exc_info=True,
+                    error=str(exc),
+                )
 
         if proposed_value_qty is None:
             # Conservative fallback: reuse legacy percent-of-balance method
@@ -904,7 +1005,12 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                     portfolio=self.portfolio,
                 )
             except Exception as exc:
-                self.log.debug("RiskManager.check_position failed: %s", exc)
+                self.log.debug(
+                    "ml_strategy.risk_manager_failed",
+                    strategy_id=str(self.id),
+                    exc_info=True,
+                    error=str(exc),
+                )
                 return None
 
         if approved_value_qty is None:
@@ -966,8 +1072,13 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 self.log.info("Order submission suppressed by circuit breaker (DRY-RUN)")
                 # Return a fresh client order id without submitting
                 return self.cache.client_order_id()
-        except Exception:
-            ...
+        except Exception as breaker_exc:
+            self.log.debug(
+                "ml_strategy.order_breaker_check_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(breaker_exc),
+            )
 
         order = MarketOrder(
             trader_id=self.trader_id,
@@ -1010,6 +1121,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         Create and submit an order using the smart executor when available.
 
         Falls back to market orders when executor is not configured or declines.
+
         """
         # Backpressure via circuit breaker (degrade to dry-run)
         try:
@@ -1018,6 +1130,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                 self._dry_run_trades += 1
                 try:
                     from ml.config.events import EventStatus as _ES
+
                     pub = self._get_decision_publisher()
                     pub.publish(
                         strategy_id=str(self.id),
@@ -1025,8 +1138,10 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                         signal_type=side.name,
                         strength=float(signal.confidence),
                         model_predictions={
-                            (getattr(signal, "model_id", None) or signal.metadata.get("model_id", "unknown")):
-                            float(signal.prediction)
+                            (
+                                getattr(signal, "model_id", None)
+                                or signal.metadata.get("model_id", "unknown")
+                            ): float(signal.prediction),
                         },
                         risk_metrics={"backpressure": 1.0},
                         execution_params={"degraded": True},
@@ -1034,11 +1149,23 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                         is_live=not getattr(self.cache, "is_backtesting", False),
                         status=_ES.PARTIAL,
                     )
-                except Exception:
-                    ...
+                except Exception as pub_exc:
+                    self.log.warning(
+                        "ml_strategy.degraded_publish_failed",
+                        strategy_id=str(self.id),
+                        instrument_id=str(signal.instrument_id),
+                        order_side=side.name,
+                        exc_info=True,
+                        error=str(pub_exc),
+                    )
                 return None
-        except Exception:
-            ...
+        except Exception as breaker_exc:
+            self.log.debug(
+                "ml_strategy.order_breaker_guard_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(breaker_exc),
+            )
         instrument = self.cache.instrument(self._config.instrument_id)
         if instrument is None:
             return None
@@ -1079,12 +1206,23 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
                     try:
                         if self.performance is not None:
                             self.performance.record_order(order, signal)
-                    except Exception:
-                        ...
+                    except Exception as perf_exc:
+                        self.log.debug(
+                            "ml_strategy.performance_record_order_failed",
+                            strategy_id=str(self.id),
+                            exc_info=True,
+                            error=str(perf_exc),
+                        )
                     return order.client_order_id
             except Exception as exc:
                 # Log and continue to fallback
-                self.log.error(f"Smart order creation failed: {exc}")
+                self.log.error(
+                    "ml_strategy.smart_order_creation_failed",
+                    strategy_id=str(self.id),
+                    order_side=side.name,
+                    exc_info=True,
+                    error=str(exc),
+                )
 
         # Fallback to existing market order helper (outside try to avoid masking errors)
         return self._place_market_order(side=side, quantity=quantity, reduce_only=reduce_only)
@@ -1146,6 +1284,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         Lazily create and return the decision publisher.
 
         Uses the env-backed publisher unless explicitly injected.
+
         """
         if self._decision_publisher is None:
             from ml.strategies.services import StrategyDecisionPublisher as _SDP
@@ -1362,6 +1501,7 @@ class BaseMLStrategy(Strategy, ABC):  # type: ignore[misc]
         Publish a strategy decision event using the configured message bus.
 
         Publishing is best-effort and non-blocking; failures are ignored.
+
         """
         try:
             from ml.common.message_topics import build_topic_for_stage
@@ -1534,15 +1674,26 @@ class SimpleMLStrategy(BaseMLStrategy):
                         pnl = last_px - avg_px
                     else:
                         pnl = avg_px - last_px
-                except Exception:
+                except Exception as pnl_exc:
                     pnl = 0.0
+                    self.log.debug(
+                        "ml_strategy.fill_pnl_calc_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(pnl_exc),
+                    )
 
             # Update risk daily PnL
             if self.risk_manager is not None:
                 try:
                     self.risk_manager.update_daily_pnl(pnl)
-                except Exception:
-                    ...
+                except Exception as risk_exc:
+                    self.log.debug(
+                        "ml_strategy.risk_daily_update_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(risk_exc),
+                    )
             # Update sizer performance
             if self.position_sizer is not None:
                 try:
@@ -1550,7 +1701,17 @@ class SimpleMLStrategy(BaseMLStrategy):
                     updater = getattr(self.position_sizer, "update_performance", None)
                     if callable(updater):
                         updater(pnl)
-                except Exception:
-                    ...
-        except Exception:
-            ...
+                except Exception as sizer_exc:
+                    self.log.debug(
+                        "ml_strategy.sizer_performance_update_failed",
+                        strategy_id=str(self.id),
+                        exc_info=True,
+                        error=str(sizer_exc),
+                    )
+        except Exception as analytics_exc:
+            self.log.debug(
+                "ml_strategy.post_fill_analytics_failed",
+                strategy_id=str(self.id),
+                exc_info=True,
+                error=str(analytics_exc),
+            )

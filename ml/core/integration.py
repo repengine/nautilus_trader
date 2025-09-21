@@ -20,13 +20,16 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from ml.common.metrics_bootstrap import get_counter
 from ml.common.protocols import MLComponentProtocol
 from ml.core.db_engine import EngineManager
+from ml.tasks.db import MigrationSchema
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pandas import DataFrame as PdDataFrame
 
+    from ml.preprocessing.event_ingestion import EventIngestionConfig
     from ml.stores.feature_store import FeatureStore
     from ml.stores.infrastructure import PartitionManager
     from ml.stores.io_raw import ParquetCatalogRawReader
@@ -45,6 +48,12 @@ from ml.stores.strategy_store import StrategyStore
 
 
 logger = logging.getLogger(__name__)
+
+_EVENT_INGEST_COUNTER = get_counter(
+    "ml_event_ingestion_total",
+    "Event ingestion attempts",
+    ["status"],
+)
 
 
 @runtime_checkable
@@ -196,6 +205,60 @@ class MLIntegrationManager:
         except Exception as exc:
             logger.warning("Backfill bootstrap skipped: %s", exc)
 
+    def ingest_events(self, config: EventIngestionConfig) -> Path:
+        """
+        Run the normalized event ingestion pipeline.
+
+        Parameters
+        ----------
+        config : EventIngestionConfig
+            Configuration describing the ingestion window, output directory, and
+            optional data sources.
+
+        Returns
+        -------
+        Path
+            Location of the generated ``events.parquet`` artifact.
+
+        Examples
+        --------
+        >>> from datetime import UTC, datetime
+        >>> from pathlib import Path
+        >>> cfg = EventIngestionConfig(
+        ...     start=datetime(2024, 1, 1, tzinfo=UTC),
+        ...     end=datetime(2024, 1, 31, tzinfo=UTC),
+        ...     out_dir=Path("./data/events"),
+        ... )
+        >>> integration = MLIntegrationManager(ensure_healthy=False)
+        >>> integration.ingest_events(cfg)
+        PosixPath('data/events/events.parquet')
+
+        """
+        logger.info(
+            "Starting event ingestion (start=%s end=%s out_dir=%s)",
+            config.start,
+            config.end,
+            config.out_dir,
+        )
+        try:
+            from ml.preprocessing.event_ingestion import EventIngestionUtility
+        except Exception as exc:  # pragma: no cover - import guard
+            _EVENT_INGEST_COUNTER.labels(status="error").inc()
+            logger.error("Event ingestion utility unavailable: %s", exc, exc_info=True)
+            raise
+
+        utility = EventIngestionUtility(config)
+        try:
+            target = utility.ingest()
+        except Exception as exc:  # pragma: no cover - runtime failure path
+            _EVENT_INGEST_COUNTER.labels(status="error").inc()
+            logger.error("Event ingestion failed: %s", exc, exc_info=True)
+            raise
+
+        _EVENT_INGEST_COUNTER.labels(status="success").inc()
+        logger.info("Completed event ingestion: %s", target)
+        return target
+
     def _init_database(self) -> None:
         """
         Initialize database connection and run migrations.
@@ -290,7 +353,10 @@ class MLIntegrationManager:
 
         # Create persistence config for registries (DB-first; fallback to JSON)
         if self._json_fallback:
-            persistence_config = PersistenceConfig(backend=BackendType.JSON, json_path=Path("./ml_registry"))
+            persistence_config = PersistenceConfig(
+                backend=BackendType.JSON,
+                json_path=Path("./ml_registry"),
+            )
         else:
             persistence_config = PersistenceConfig(
                 backend=BackendType.POSTGRES,
@@ -487,9 +553,11 @@ class MLIntegrationManager:
         # Prefer full migrations in production-like environments
         env_mode = os.getenv("ML_ENV", "").lower()
         full = env_full or env_mode in {"prod", "production"}
-        schema = os.getenv("ML_MIGRATIONS_SCHEMA", "both").lower()
-        if schema not in {"stores", "registry", "both"}:
-            schema = "both"
+        schema_env = os.getenv("ML_MIGRATIONS_SCHEMA", MigrationSchema.BOTH.value)
+        try:
+            schema_enum = MigrationSchema(schema_env)
+        except ValueError:
+            schema_enum = MigrationSchema.BOTH
 
         engine = EngineManager.get_engine(self.db_connection)
 
@@ -498,7 +566,7 @@ class MLIntegrationManager:
             from ml.cli.apply_migrations import apply_files as _apply
             from ml.cli.apply_migrations import build_plan as _build
 
-            plan = _build(full, schema)
+            plan = _build(include_optional=full, schema=schema_enum)
             result = _apply(engine, plan, dry_run=False)
             logger.info(
                 "Migrations applied=%d skipped=%d warnings=%d errors=%d",
@@ -521,8 +589,9 @@ class MLIntegrationManager:
 
             # Use the same splitter as the CLI when available
             try:
-                from ml.cli.apply_migrations import _split_statements as _splitter
+                from ml.cli.apply_migrations import split_statements as _splitter
             except Exception:
+
                 def _splitter(sql: str) -> Iterable[str]:
                     return [s for s in sql.split(";") if s.strip()]
 

@@ -12,6 +12,7 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
+from ml.features.engineering import FeatureConfig
 from ml.features.pipeline import PipelineRunner
 from ml.features.pipeline import PipelineSpec
 from ml.features.pipeline import TransformSpec
@@ -248,6 +249,22 @@ class TestEventScheduleTransform:
 
         # Should have at least the expected number
         assert len(features) >= expected_min
+
+
+def test_pipeline_runner_blocks_l2_transforms_for_student_mode() -> None:
+    spec = PipelineSpec(transforms=[TransformSpec(name="microstructure", params={})])
+    with pytest.raises(ValueError):
+        PipelineRunner(spec, allowable=DataRequirements.L1_ONLY)
+
+
+def test_feature_config_upgrades_requirements_for_microstructure() -> None:
+    with pytest.raises(ValueError):
+        FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.L1_ONLY)
+
+
+def test_feature_config_allows_teacher_requirements() -> None:
+    cfg = FeatureConfig(include_microstructure=True, data_requirements=DataRequirements.L1_L2)
+    assert cfg.data_requirements == DataRequirements.L1_L2
 
 
 class TestMacroIndicatorsTransform:

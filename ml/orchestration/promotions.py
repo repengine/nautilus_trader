@@ -12,8 +12,49 @@ These helpers compose existing registries and the centralized event emitter.
 They avoid expanding orchestrator complexity and keep all work off hot paths.
 """
 
+import sys
 from pathlib import Path
 from typing import Any, cast
+
+
+def _ensure_nautilus_numeric_factories() -> None:
+    """
+    Provide compatibility shims for older nautilus_trader numeric factories.
+    """
+    try:
+        from nautilus_trader.model.objects import Price as _Price
+        from nautilus_trader.model.objects import Quantity as _Quantity
+    except Exception:
+        return
+
+    objects_mod = sys.modules.get("nautilus_trader.model.objects")
+    if objects_mod is None:
+        return
+
+    if not hasattr(_Price, "from_double"):
+
+        class _PriceCompat(_Price):
+            @staticmethod
+            def from_double(value: float) -> Any:
+                return _Price.from_str(f"{value}")
+
+        _PriceCompat.__name__ = _Price.__name__
+        _PriceCompat.__qualname__ = _Price.__qualname__
+        setattr(objects_mod, "Price", _PriceCompat)
+
+    if not hasattr(_Quantity, "from_double"):
+
+        class _QuantityCompat(_Quantity):
+            @staticmethod
+            def from_double(value: float) -> Any:
+                return _Quantity.from_str(f"{value}")
+
+        _QuantityCompat.__name__ = _Quantity.__name__
+        _QuantityCompat.__qualname__ = _Quantity.__qualname__
+        setattr(objects_mod, "Quantity", _QuantityCompat)
+
+
+_ensure_nautilus_numeric_factories()
 
 from ml.common.event_emitter import emit_dataset_event
 from ml.config.events import EventStatus
@@ -307,6 +348,7 @@ class Stage2Config:
     All inputs are cold-path friendly. This stage operates on dataset artifacts and
     training outputs to compute trading metrics with simple cost modeling, then applies
     quality gates and optionally deploys the model to a target.
+
     """
 
     out_dir: str
@@ -345,7 +387,10 @@ def _resolve_model_id_from_artifacts(cfg: Stage2Config) -> str | None:
     return None
 
 
-def _evaluate_gates(metrics: Mapping[str, float], gates: Sequence[QualityGate]) -> tuple[bool, list[str]]:
+def _evaluate_gates(
+    metrics: Mapping[str, float],
+    gates: Sequence[QualityGate],
+) -> tuple[bool, list[str]]:
     failures: list[str] = []
     for g in gates:
         val = metrics.get(g.metric_name)
@@ -372,10 +417,11 @@ def _evaluate_gates(metrics: Mapping[str, float], gates: Sequence[QualityGate]) 
 
 def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
     """
-    Run walk-forward style validation on the held-out window and compute trading metrics,
-    then apply quality gates and optionally promote the model.
+    Run walk-forward style validation on the held-out window and compute trading
+    metrics, then apply quality gates and optionally promote the model.
 
     Returns a summary dict and writes stage2_metrics.json in out_dir.
+
     """
     # Choose engine and run
     engine = build_engine(cfg.engine_mode)
@@ -395,26 +441,42 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
 
     out.write_text(_json.dumps(result.metrics, indent=2), encoding="utf-8")
 
-    # 5) Apply gates and optionally promote
-    ok, failures = _evaluate_gates(result.metrics, list(cfg.gates))
+    # Apply gates when the engine produced metrics; otherwise record skip reason
+    failures: list[str] = []
+    if result.status == "skipped":
+        ok = False
+        if result.reason:
+            failures.append(result.reason)
+    else:
+        ok, failures = _evaluate_gates(result.metrics, list(cfg.gates))
+
     model_id = _resolve_model_id_from_artifacts(cfg)
 
     # Track performance in registry and optionally deploy
-    try:
-        from typing import Any as _Any
+    if result.status != "skipped":
+        try:
+            from typing import Any as _Any
 
-        from ml.core.integration import MLIntegrationManager
+            from ml.core.integration import MLIntegrationManager
 
-        mgr = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
-        reg_any = cast(_Any, mgr.model_registry)
-        if model_id:
-            reg_any.track_performance(model_id, result.metrics)
-            if ok and cfg.auto_promote and cfg.deploy_target:
-                reg_any.deploy_model(model_id, cfg.deploy_target)
-    except Exception as exc:  # pragma: no cover - best-effort integration
-        import logging as _logging
+            mgr = MLIntegrationManager(
+                auto_start_postgres=False,
+                auto_migrate=False,
+                ensure_healthy=False,
+            )
+            reg_any = cast(_Any, mgr.model_registry)
+            if model_id:
+                reg_any.track_performance(model_id, result.metrics)
+                if ok and cfg.auto_promote and cfg.deploy_target:
+                    reg_any.deploy_model(model_id, cfg.deploy_target)
+        except Exception as exc:  # pragma: no cover - best-effort integration
+            import logging as _logging
 
-        _logging.getLogger(__name__).debug("Stage2 registry integration failed: %s", exc, exc_info=True)
+            _logging.getLogger(__name__).debug(
+                "Stage2 registry integration failed: %s",
+                exc,
+                exc_info=True,
+            )
 
     # Emit event (best-effort)
     try:
@@ -422,7 +484,14 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
 
         from ml.core.integration import MLIntegrationManager
 
-        mgr2 = MLIntegrationManager(auto_start_postgres=False, auto_migrate=False, ensure_healthy=False)
+        mgr2 = MLIntegrationManager(
+            auto_start_postgres=False,
+            auto_migrate=False,
+            ensure_healthy=False,
+        )
+        event_status = EventStatus.SUCCESS if ok else EventStatus.FAILED
+        if result.status == "skipped":
+            event_status = EventStatus.PARTIAL
         emit_dataset_event(
             cast(_Any, mgr2.data_registry),
             dataset_id="model",
@@ -433,7 +502,7 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
             ts_min=0,
             ts_max=0,
             count=1,
-            status=EventStatus.SUCCESS if ok else EventStatus.FAILED,
+            status=event_status,
             metadata={"failures": failures, "model_id": model_id or ""},
             dataset_type="model",
             component="promotions.stage2",
@@ -441,12 +510,21 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
     except Exception:
         pass
 
+    final_status: str
+    if result.status == "skipped":
+        final_status = "skipped"
+    else:
+        final_status = "passed" if ok else "failed"
+
     summary: dict[str, object] = {
-        "status": cast(object, "passed" if ok else "failed"),
+        "status": cast(object, final_status),
         "model_id": cast(object, model_id),
         "metrics": cast(object, result.metrics),
         "failures": cast(object, failures),
-        "promoted": cast(object, bool(ok and cfg.auto_promote and cfg.deploy_target and model_id)),
+        "promoted": cast(
+            object,
+            bool(final_status == "passed" and cfg.auto_promote and cfg.deploy_target and model_id),
+        ),
     }
 
     # Write promotion report consolidating gates and config
@@ -470,7 +548,10 @@ def run_promotion_stage2(cfg: Stage2Config) -> dict[str, object]:
                 for g in cfg.gates
             ],
         }
-        (Path(cfg.out_dir) / "promotion_report.json").write_text(_json.dumps(report, indent=2), encoding="utf-8")
+        (Path(cfg.out_dir) / "promotion_report.json").write_text(
+            _json.dumps(report, indent=2),
+            encoding="utf-8",
+        )
     except Exception:
         pass
 
@@ -481,9 +562,10 @@ def run_promotion_stage2_backtest(cfg: Stage2Config) -> dict[str, object]:
     """
     Advisory backtest integration.
 
-    Attempts to use Nautilus Trader BacktestEngine if available; otherwise falls back
-    to the returns-based implementation. Cost knobs (commission/slippage) are advisory
-    and may be folded into the effective bps when BacktestEngine is unavailable.
+    Attempts to use Nautilus Trader BacktestEngine if available; otherwise falls back to
+    the returns-based implementation. Cost knobs (commission/slippage) are advisory and
+    may be folded into the effective bps when BacktestEngine is unavailable.
+
     """
     try:
         # Lazy import to avoid hard dependency
@@ -509,7 +591,10 @@ def dataclass_replace(cfg: Stage2Config, **updates: object) -> Stage2Config:
         dataset_csv=cast(str, updates.get("dataset_csv", cfg.dataset_csv)),
         data_dir=cast(str, updates.get("data_dir", cfg.data_dir)),
         horizon_minutes=cast(int, updates.get("horizon_minutes", cfg.horizon_minutes)),
-        engine_mode=cast(Literal["returns", "backtest"], updates.get("engine_mode", cfg.engine_mode)),
+        engine_mode=cast(
+            Literal["returns", "backtest"],
+            updates.get("engine_mode", cfg.engine_mode),
+        ),
         cost_bps=cast(float, updates.get("cost_bps", cfg.cost_bps)),
         commission_bps=cast(float, updates.get("commission_bps", cfg.commission_bps)),
         slippage_bps=cast(float, updates.get("slippage_bps", cfg.slippage_bps)),

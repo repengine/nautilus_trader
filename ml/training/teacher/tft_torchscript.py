@@ -95,8 +95,8 @@ def export_tft_to_torchscript_from_batch(
     adapter = TFTScriptAdapter(tft_module, input_keys)
 
     def _jit_trace(mod: object, example: object) -> Any:
-        # Torch JIT APIs are untyped in stubs; safe to ignore here.
-        return torch.jit.trace(mod, example)  # type: ignore[no-untyped-call]
+        trace_fn = cast(Any, torch.jit.trace)
+        return trace_fn(mod, example)
 
     with torch.inference_mode():
         scripted = _jit_trace(adapter, example_args)

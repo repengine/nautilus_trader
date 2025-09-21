@@ -3,11 +3,25 @@
     "DBEQ.BASIC",
     "EQUS.MINI"
   ],
-  "date_ranges": {
-    "L0": "7 years (safe)",
-    "L1": "1 year (safe)",
-    "L2": "30 days (safe)"
+  "schemas": {
+    "ohlcv-1m": {
+      "max_days": 1095
+    },
+    "trades": {
+      "max_days": 365
+    },
+    "bbo-1s": {
+      "max_days": 365
+    },
+    "mbp-10": {
+      "max_days": 31
+    },
+    "mbp-1": {
+      "max_days": 31
+    }
   },
-  "schemas": {},
-  "warnings": []
+  "global": {
+    "max_cost_usd": 0.0,
+    "max_symbols": 100
+  }
 }

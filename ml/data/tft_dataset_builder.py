@@ -65,6 +65,9 @@ class TFTDatasetBuilder:
         include_events: bool = False,
         include_l2: bool = False,
         l2_base_dir: str | None = None,
+        vintage_base_dir: str | _Path | None = None,
+        events_base_dir: str | _Path | None = None,
+        student_mode: bool = False,
     ) -> None:
         """
         Initialize TFT dataset builder.
@@ -94,6 +97,17 @@ class TFTDatasetBuilder:
         self.include_events = include_events
         self.include_l2 = include_l2
         self.l2_base_dir = l2_base_dir
+        self.vintage_base_dir = _Path(vintage_base_dir).expanduser() if vintage_base_dir else None
+        self.events_base_dir = (
+            _Path(events_base_dir).expanduser() if events_base_dir else _Path("data/events")
+        )
+        self._event_provider: Any | None = None
+        self.student_mode = student_mode
+
+        if self.student_mode:
+            self.include_macro = False
+            self.include_events = False
+            self.include_l2 = False
 
         logger.info(
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
@@ -258,6 +272,7 @@ class TFTDatasetBuilder:
                     timestamp_col="ts_event",
                     lag_days=self.macro_lag_days,
                     fred_path=self.fred_path,
+                    vintage_base_dir=self.vintage_base_dir,
                 ),
             )
         logger.info(
@@ -370,6 +385,7 @@ class TFTDatasetBuilder:
                     timestamp_col=ts_col,
                     lag_days=self.macro_lag_days,
                     fred_path=self.fred_path,
+                    vintage_base_dir=self.vintage_base_dir,
                 )
                 macro_cols = [c for c in direct_df.columns if c not in before_cols]
                 if macro_cols:
@@ -412,6 +428,7 @@ class TFTDatasetBuilder:
                     timestamp_col=ts_col,
                     lag_days=self.macro_lag_days,
                     fred_path=self.fred_path,
+                    vintage_base_dir=self.vintage_base_dir,
                 )
                 try:  # pragma: no cover
                     import pandas as _pd
@@ -512,6 +529,33 @@ class TFTDatasetBuilder:
             start=start,
             end=end,
         )
+
+    def _get_event_provider(self) -> Any | None:
+        """
+        Lazily initialize the event schedule provider.
+        """
+        if not self.include_events:
+            return None
+        if self._event_provider is not None:
+            return self._event_provider
+
+        try:
+            from ml.data.providers.events import EventScheduleProvider
+            from ml.data.sources.events import FileEventSource
+            from ml.data.sources.events import SimpleEventSource
+
+            events_path = None
+            if self.events_base_dir is not None:
+                candidate = self.events_base_dir / "events.parquet"
+                if candidate.exists():
+                    events_path = candidate
+
+            source = FileEventSource(events_path) if events_path else SimpleEventSource()
+            self._event_provider = EventScheduleProvider(source)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Event provider initialization failed: %s", exc, exc_info=True)
+            self._event_provider = None
+        return self._event_provider
 
     def _build_training_dataset_direct(
         self,
@@ -999,18 +1043,16 @@ class TFTDatasetBuilder:
 
         # Optionally add event-based known-future features
         if self.include_events:
-            try:
-                from ml.data.providers.events import EventScheduleProvider
-                from ml.data.sources.events import SimpleEventSource
-
-                provider = EventScheduleProvider(SimpleEventSource())
-                ts_series = dataset.select(pl.col("timestamp").cast(pl.Int64))["timestamp"]
-                ev = provider.compute_features(ts_series, [symbol])
-                if not ev.is_empty():
-                    ev = ev.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
-                    dataset = dataset.join(ev, on="timestamp", how="left")
-            except Exception as exc:  # pragma: no cover
-                logger.debug(f"Event feature join failed for {symbol}: {exc}")
+            provider = self._get_event_provider()
+            if provider is not None:
+                try:
+                    ts_series = dataset.select(pl.col("timestamp").cast(pl.Int64))["timestamp"]
+                    ev = provider.compute_features(ts_series, [symbol])
+                    if not ev.is_empty():
+                        ev = ev.with_columns(pl.col("timestamp").cast(pl.Datetime("ns", "UTC")))
+                        dataset = dataset.join(ev, on="timestamp", how="left")
+                except Exception as exc:  # pragma: no cover
+                    logger.debug(f"Event feature join failed for {symbol}: {exc}")
 
         return dataset
 
@@ -1443,9 +1485,13 @@ class TFTDatasetBuilder:
                 )
                 cal_pl = provider.load_timeseries(instruments, ts_series)
                 if cal_pl.shape[0] > 0:
-                    cal_pl = cal_pl.with_columns(_pl.col("timestamp").cast(_pl.Datetime("ns", "UTC")))
+                    cal_pl = cal_pl.with_columns(
+                        _pl.col("timestamp").cast(_pl.Datetime("ns", "UTC")),
+                    )
                     cal_pd = cal_pl.to_pandas()
-                    join_cols = ["timestamp"] + (["instrument_id"] if "instrument_id" in df.columns else [])
+                    join_cols = ["timestamp"] + (
+                        ["instrument_id"] if "instrument_id" in df.columns else []
+                    )
                     df = df.merge(cal_pd, on=join_cols, how="left")
             except Exception as exc:  # pragma: no cover
                 logger.debug(f"Calendar feature join skipped: {exc}")

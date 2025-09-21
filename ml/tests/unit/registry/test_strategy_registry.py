@@ -227,6 +227,47 @@ def test_strategy_registry_register_and_query() -> None:
 # =================================================================================================
 
 
+def test_list_strategies_returns_registered_entries(tmp_path: Path) -> None:
+    reg = StrategyRegistry(tmp_path)
+
+    strategy_file = tmp_path / "list_strategy.py"
+    _write_dummy_strategy(strategy_file)
+
+    manifest = RegistryBuilder.strategy_manifest(
+        strategy_id="list_strategy",
+        strategy_type=StrategyType.MOMENTUM,
+        version="1.0.0",
+        required_models=[],
+        required_features=[],
+        suitable_regimes=[MarketRegime.TRENDING_UP],
+        instrument_types=["FX"],
+        timeframe_range=("1m", "5m"),
+        max_position_size=100.0,
+        max_leverage=1.0,
+        max_drawdown=0.1,
+        stop_loss_type="fixed",
+        min_sharpe_ratio=0.5,
+        min_win_rate=0.5,
+        max_correlation_with_portfolio=0.9,
+        parent_strategy_id=None,
+        incompatible_strategies=[],
+        config_schema={},
+        default_config={},
+        backtest_metrics={"sharpe": 1.0},
+        live_metrics=None,
+        created_at=0.0,
+        last_modified=0.0,
+        author="tester",
+        description="list test",
+    )
+
+    reg.register_strategy(strategy_file, manifest)
+
+    strategies = reg.list_strategies()
+    strategy_ids = {info.manifest.strategy_id for info in strategies}
+    assert "list_strategy" in strategy_ids
+
+
 class TestStrategyRegistry:
     """
     Test suite for StrategyRegistry.

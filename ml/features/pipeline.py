@@ -506,6 +506,14 @@ class PipelineRunner:
     Compile-time utilities for feature pipelines.
     """
 
+    _REQ_ORDER: dict[DataRequirements, int] = {
+        DataRequirements.L1_ONLY: 0,
+        DataRequirements.L1_L2: 1,
+        DataRequirements.L1_L2_L3: 2,
+        DataRequirements.HISTORICAL: 0,
+        DataRequirements.STREAMING: 0,
+    }
+
     def __init__(self, spec: PipelineSpec, allowable: DataRequirements) -> None:
         self._spec = spec
         self._allowable = allowable
@@ -521,7 +529,7 @@ class PipelineRunner:
             t = _CATALOG[ts.name]
             # Gate by data requirements (simple lattice: L1_ONLY < L1_L2 < L1_L2_L3)
             req = t.requires()
-            if self._allowable == DataRequirements.L1_ONLY and req != DataRequirements.L1_ONLY:
+            if self._requirement_level(req) > self._requirement_level(self._allowable):
                 msg = f"Transform {ts.name} requires {req.value}, not allowed for {self._allowable.value}"
                 raise ValueError(msg)
             self._transforms.append(t)
@@ -534,3 +542,7 @@ class PipelineRunner:
 
     def compute_signature(self) -> str:
         return _hash_pipeline(self._spec.transforms)
+
+    @classmethod
+    def _requirement_level(cls, requirement: DataRequirements) -> int:
+        return cls._REQ_ORDER.get(requirement, 0)

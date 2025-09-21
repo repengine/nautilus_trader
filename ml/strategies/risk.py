@@ -1,9 +1,10 @@
 """
 Risk management for ML trading strategies.
 
-This module provides unified risk management including per-trade checks,
-portfolio-level limits, and dynamic adjustments. Designed for capital
-preservation with <5ms hot path checks.
+This module provides unified risk management including per-trade checks, portfolio-level
+limits, and dynamic adjustments. Designed for capital preservation with <5ms hot path
+checks.
+
 """
 
 from __future__ import annotations
@@ -55,10 +56,13 @@ exposure_gauge = get_gauge(
     labels=[],
 )
 
+
 # ===== Configuration =====
 @dataclass(frozen=True)
 class RiskConfig:
-    """Configuration for risk management."""
+    """
+    Configuration for risk management.
+    """
 
     # Per-trade limits
     max_loss_per_trade_pct: float = 0.02  # 2% of account balance max loss per trade
@@ -83,8 +87,9 @@ class RiskManager:
     """
     Unified risk management with all checks in one place.
 
-    Handles per-trade validation, portfolio limits, correlation checks,
-    and dynamic adjustments based on performance.
+    Handles per-trade validation, portfolio limits, correlation checks, and dynamic
+    adjustments based on performance.
+
     """
 
     def __init__(self, config: RiskConfig | None = None) -> None:
@@ -195,7 +200,7 @@ class RiskManager:
 
         finally:
             risk_check_latency_seconds.labels(check_type="full").observe(
-                time.perf_counter() - start_time
+                time.perf_counter() - start_time,
             )
 
     def _check_trade_limits(self, position_value: float, balance: float) -> bool:
@@ -223,7 +228,7 @@ class RiskManager:
         # Check max position size
         if position_pct > self.config.max_position_pct:
             logger.warning(
-                f"Position size {position_pct:.1%} exceeds max {self.config.max_position_pct:.1%}"
+                f"Position size {position_pct:.1%} exceeds max {self.config.max_position_pct:.1%}",
             )
             return False
 
@@ -283,15 +288,25 @@ class RiskManager:
         # Update metric (handle zero-label gauge gracefully)
         try:
             exposure_gauge.labels().set(exposure_pct)
-        except Exception:
+        except Exception as gauge_exc:
             try:
                 exposure_gauge.set(exposure_pct)
-            except Exception:
-                ...
+            except Exception as fallback_exc:
+                logger.debug(
+                    "risk.exposure_metric_failed error=%s",
+                    fallback_exc,
+                    exc_info=True,
+                )
+            else:
+                logger.debug(
+                    "risk.exposure_metric_labels_missing error=%s",
+                    gauge_exc,
+                    exc_info=True,
+                )
 
         if exposure_pct > self.config.max_total_exposure:
             logger.warning(
-                f"Total exposure {exposure_pct:.1%} would exceed max {self.config.max_total_exposure:.1%}"
+                f"Total exposure {exposure_pct:.1%} would exceed max {self.config.max_total_exposure:.1%}",
             )
             return False
 
@@ -329,7 +344,7 @@ class RiskManager:
 
         if correlated_count >= self.config.max_correlated_positions:
             logger.warning(
-                f"Already have {correlated_count} correlated positions, limit is {self.config.max_correlated_positions}"
+                f"Already have {correlated_count} correlated positions, limit is {self.config.max_correlated_positions}",
             )
             return False
 
@@ -388,16 +403,28 @@ class RiskManager:
 
         # Check daily loss limit
         if self._daily_pnl < 0:
-            daily_loss_pct = abs(self._daily_pnl / self._current_equity) if self._current_equity > 0 else 0
+            daily_loss_pct = (
+                abs(self._daily_pnl / self._current_equity) if self._current_equity > 0 else 0
+            )
 
             # Update metric (handle zero-label gauge gracefully)
             try:
                 daily_loss_gauge.labels().set(daily_loss_pct)
-            except Exception:
+            except Exception as gauge_exc:
                 try:
                     daily_loss_gauge.set(daily_loss_pct)
-                except Exception:
-                    ...
+                except Exception as fallback_exc:
+                    logger.debug(
+                        "risk.daily_loss_metric_failed error=%s",
+                        fallback_exc,
+                        exc_info=True,
+                    )
+                else:
+                    logger.debug(
+                        "risk.daily_loss_metric_labels_missing error=%s",
+                        gauge_exc,
+                        exc_info=True,
+                    )
 
             if daily_loss_pct >= self.config.daily_loss_limit_pct:
                 self._trading_halted = True
@@ -468,7 +495,9 @@ class RiskManager:
         self.check_daily_limits()
 
     def _check_daily_reset(self) -> None:
-        """Check if daily counters should be reset."""
+        """
+        Check if daily counters should be reset.
+        """
         now = datetime.now()
         if now >= self._daily_reset_time:
             self._daily_pnl = 0.0
@@ -480,7 +509,9 @@ class RiskManager:
             logger.info("Daily risk counters reset")
 
     def _get_next_reset_time(self) -> datetime:
-        """Get next daily reset time (midnight)."""
+        """
+        Get next daily reset time (midnight).
+        """
         now = datetime.now()
         tomorrow = now.date() + timedelta(days=1)
         return datetime.combine(tomorrow, datetime.min.time())

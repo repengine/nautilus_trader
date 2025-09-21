@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from collections.abc import Sequence
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypedDict, runtime_checkable
 
 import pandas as pd
 
@@ -195,6 +195,29 @@ class StrategyStoreStrictProtocol(Protocol):
     def flush(self) -> None: ...
 
 
+class PredictionRecord(TypedDict):
+    """
+    Typed view over a model prediction row.
+    """
+
+    model_id: str
+    ts_event: int
+    prediction: float
+    confidence: float
+
+
+class SignalRecord(TypedDict):
+    """
+    Typed view over a strategy signal row.
+    """
+
+    strategy_id: str
+    ts_event: int
+    signal_type: str
+    strength: float
+
+
+@runtime_checkable
 class DataStoreFacadeProtocol(Protocol):
     """
     Minimal facade for actor-attached data store.
@@ -205,14 +228,38 @@ class DataStoreFacadeProtocol(Protocol):
 
     def flush(self) -> None: ...
 
+    def get_features_at_or_before(
+        self,
+        *,
+        instrument_id: str,
+        ts_event: int,
+    ) -> Mapping[str, float] | None: ...
+
+    def get_latest_prediction_at_or_before(
+        self,
+        *,
+        instrument_id: str,
+        ts_event: int,
+        model_id: str | None = ...,
+    ) -> PredictionRecord | None: ...
+
+    def get_latest_signal_at_or_before(
+        self,
+        *,
+        instrument_id: str,
+        ts_event: int,
+        strategy_id: str | None = ...,
+    ) -> SignalRecord | None: ...
+
 
 class CircuitBreakerProtocol(Protocol):
     """
     Minimal protocol for circuit breaker integration in stores.
 
     Stores use this protocol to gate potentially unstable operations and to record
-    success/failure outcomes without importing actor modules. This keeps typing
-    explicit and avoids concrete coupling.
+    success/failure outcomes without importing actor modules. This keeps typing explicit
+    and avoids concrete coupling.
+
     """
 
     def can_execute(self) -> bool: ...
@@ -233,6 +280,7 @@ class TableLike(Protocol):
     Minimal table interface used by services.
 
     Avoid importing SQLAlchemy types in hot modules; keep the surface small.
+
     """
 
     # Column namespace (e.g., table.c.<column>) — kept loose on purpose
@@ -247,13 +295,20 @@ class LoggerLike(Protocol):
     Logger protocol to avoid Any in services.
 
     Accepts "object" for msg to match stdlib logging.Logger signature.
+
     """
 
     def debug(
         self,
         msg: object,
         *args: object,
-        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
         stack_info: bool = ...,
         stacklevel: int = ...,
         extra: Mapping[str, object] | None = ...,
@@ -263,7 +318,13 @@ class LoggerLike(Protocol):
         self,
         msg: object,
         *args: object,
-        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
         stack_info: bool = ...,
         stacklevel: int = ...,
         extra: Mapping[str, object] | None = ...,
@@ -273,7 +334,13 @@ class LoggerLike(Protocol):
         self,
         msg: object,
         *args: object,
-        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
         stack_info: bool = ...,
         stacklevel: int = ...,
         extra: Mapping[str, object] | None = ...,
@@ -283,7 +350,13 @@ class LoggerLike(Protocol):
         self,
         msg: object,
         *args: object,
-        exc_info: bool | tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | BaseException | None = ...,
+        exc_info: (
+            bool
+            | tuple[type[BaseException], BaseException, TracebackType | None]
+            | tuple[None, None, None]
+            | BaseException
+            | None
+        ) = ...,
         stack_info: bool = ...,
         stacklevel: int = ...,
         extra: Mapping[str, object] | None = ...,
@@ -294,7 +367,9 @@ class LoggerLike(Protocol):
 
 
 class ModelWriteDepsStrict(Protocol):
-    """Strict dependency surface for model write service."""
+    """
+    Strict dependency surface for model write service.
+    """
 
     model_predictions_table: TableLike
 
@@ -322,7 +397,9 @@ class ModelWriteDepsStrict(Protocol):
 
 
 class ModelReadDepsStrict(Protocol):
-    """Strict dependency surface for model read/stats services."""
+    """
+    Strict dependency surface for model read/stats services.
+    """
 
     def _qualified_table(self, base: str) -> str: ...
 
@@ -334,7 +411,11 @@ class ModelReadDepsStrict(Protocol):
         columns: Sequence[str],
     ) -> object: ...
 
-    def _fetch_one(self, sql: object, params: Mapping[str, object]) -> tuple[object, ...] | None: ...
+    def _fetch_one(
+        self,
+        sql: object,
+        params: Mapping[str, object],
+    ) -> tuple[object, ...] | None: ...
 
 
 class ModelEventDepsStrict(Protocol):
@@ -386,7 +467,11 @@ class StrategyReadDepsStrict(Protocol):
         columns: Sequence[str],
     ) -> object: ...
 
-    def _fetch_one(self, sql: object, params: Mapping[str, object]) -> tuple[object, ...] | None: ...
+    def _fetch_one(
+        self,
+        sql: object,
+        params: Mapping[str, object],
+    ) -> tuple[object, ...] | None: ...
 
     def _fetch_all(self, sql: object, params: Mapping[str, object]) -> list[tuple[object, ...]]: ...
 
@@ -415,6 +500,8 @@ __all__ = [
     "ModelStoreProtocol",
     "ModelStoreStrictProtocol",
     "ModelWriteDepsStrict",
+    "PredictionRecord",
+    "SignalRecord",
     "StrategyClearDepsStrict",
     "StrategyEventDepsStrict",
     "StrategyReadDepsStrict",

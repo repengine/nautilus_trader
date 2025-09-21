@@ -14,6 +14,7 @@ Hot path guarantees:
 This scaffold reuses BaseMLInferenceActor for model/feature plumbing and defers
 heavy work to the cold path. It emits basic batch metrics and integrates with
 existing structured logging.
+
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ class MultiInstrumentSignalActorConfig(_BaseCfg, kw_only=True, frozen=True):
         Expected feature vector length. Used to pre-allocate the batch tensor.
     initial_universe:
         Optional list of instrument IDs to seed the universe.
+
     """
 
     max_batch_size: int = 128
@@ -92,8 +94,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
     """
     Batched ML inference actor for multiple instruments.
 
-    Hot path collects feature vectors for instruments into a pre-allocated
-    tensor, and performs batched inference when the batch reaches capacity.
+    Hot path collects feature vectors for instruments into a pre-allocated tensor, and
+    performs batched inference when the batch reaches capacity.
+
     """
 
     def __init__(self, config: MultiInstrumentSignalActorConfig) -> None:
@@ -146,7 +149,11 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 "Current size of the actor instrument universe",
                 ["actor"],
             )
-        except Exception:  # pragma: no cover - best-effort metrics
+        except Exception as exc:  # pragma: no cover - best-effort metrics
+            self.log.debug(
+                f"multi_signal.metrics_init_failed actor={self.id} error={exc!r}",
+            )
+
             class _NoMetric:
                 def labels(self, *_: object, **__: object) -> _NoMetric:
                     return self
@@ -168,31 +175,45 @@ class MultiInstrumentSignalActor(MLSignalActor):
     # ------------------------ Universe management (cold path) ------------------------
     def add_instrument(self, instrument_id: str) -> None:
         self._universe.add(instrument_id)
-        self.log.info(f"Instrument added to universe: {instrument_id}")
+        self.log.info(
+            "multi_signal.universe_add " f"instrument={instrument_id} size={self._universe.size()}",
+        )
         self._set_universe_metric()
 
     def remove_instrument(self, instrument_id: str) -> None:
         self._universe.remove(instrument_id)
-        self.log.info(f"Instrument removed from universe: {instrument_id}")
+        self.log.info(
+            "multi_signal.universe_remove "
+            f"instrument={instrument_id} size={self._universe.size()}",
+        )
         self._set_universe_metric()
 
     def set_universe(self, instruments: Iterable[str]) -> None:
-        """Replace the active universe with the provided instruments (cold path)."""
+        """
+        Replace the active universe with the provided instruments (cold path).
+        """
         self._universe.set_all(instruments)
-        self.log.info(f"Universe set to {self._universe.size()} instruments")
+        self.log.info(
+            "multi_signal.universe_set "
+            f"size={self._universe.size()} instruments={tuple(instruments)}",
+        )
         self._set_universe_metric()
 
     def clear_universe(self) -> None:
-        """Clear the active universe (cold path)."""
+        """
+        Clear the active universe (cold path).
+        """
         self._universe.clear()
-        self.log.info("Universe cleared")
+        self.log.info("multi_signal.universe_clear")
         self._set_universe_metric()
 
     def _set_universe_metric(self) -> None:
         try:
             self._universe_size_gauge.labels(actor=self.id).set(self._universe.size())
-        except Exception:
-            pass
+        except Exception as exc:
+            self.log.debug(
+                f"multi_signal.universe_metric_set_failed actor={self.id} error={exc!r}",
+            )
 
     # --------------------------------- Hot path ---------------------------------
     def on_bar(self, bar: Bar) -> None:
@@ -221,6 +242,7 @@ class MultiInstrumentSignalActor(MLSignalActor):
             self._batch_size += 1
             if self._batch_size == 1:
                 import time as _time
+
                 self._batch_started_ns = _time.time_ns()
 
         # Flush when batch is full
@@ -234,9 +256,11 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 elapsed_ns = _time.time_ns() - self._batch_started_ns
                 if elapsed_ns >= int(self._cfg.flush_max_latency_ms) * 1_000_000:
                     self._flush_batch()
-            except Exception:
+            except Exception as exc:
                 # Never impact hot path on timer errors
-                pass
+                self.log.debug(
+                    f"multi_signal.latency_timer_failed actor={self.id} error={exc!r}",
+                )
 
     # --------------------------------- Cold path ---------------------------------
     def _flush_batch(self) -> None:
@@ -254,7 +278,10 @@ class MultiInstrumentSignalActor(MLSignalActor):
 
                 tracer = _trace.get_tracer(__name__)
                 span_ctx = tracer.start_as_current_span("ml.multi_infer.batch")
-            except Exception:
+            except Exception as span_exc:
+                self.log.debug(
+                    f"multi_signal.span_init_failed actor={self.id} error={span_exc!r}",
+                )
                 span_ctx = nullcontext()
 
             with span_ctx:
@@ -268,15 +295,20 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 except Exception as exc:
                     # Best-effort; do not break other instruments
                     self.log.warning(
-                        f"Prediction pipeline failed for instrument {self._batch_instruments[i]}: {exc}",
+                        "multi_signal.prediction_pipeline_failed "
+                        f"instrument={self._batch_instruments[i]} index={i} "
+                        f"batch_size={self._batch_size} error={exc!r}",
                     )
             # Observability (best-effort)
             try:
                 self._batch_total.labels(actor=self.id).inc()
                 self._batch_size_hist.labels(actor=self.id).observe(self._batch_size)
                 self._batch_seconds.labels(actor=self.id).observe(_time.perf_counter() - t0)
-            except Exception:
-                self.log.debug("Batch metrics observe failed (ignored)")
+            except Exception as metric_exc:
+                self.log.debug(
+                    "multi_signal.metrics_emit_failed "
+                    f"actor={self.id} batch_size={self._batch_size} error={metric_exc!r}",
+                )
         finally:
             # Reset batch in O(1)
             self._batch_instruments.clear()
@@ -304,13 +336,15 @@ class MultiInstrumentSignalActor(MLSignalActor):
                 new_dim = inferred
                 self._batch_features = np.zeros((self._max_batch, new_dim), dtype=np.float32)
                 # Record within a non-final shadow for debug (keep Final intact)
-                try:
-                    self.log.info(f"Adjusted feature_dim to {new_dim} from manifest/engineer")
-                except Exception:
-                    pass
+                self.log.info(
+                    "multi_signal.feature_dim_adjusted "
+                    f"previous_dim={self._feature_dim} inferred_dim={new_dim}",
+                )
         except Exception as exc:
             # Never fail startup due to alignment; metrics/parity checks will surface problems
-            self.log.debug(f"Feature dimension alignment skipped due to error: {exc}")
+            self.log.debug(
+                f"multi_signal.feature_dim_alignment_failed actor={self.id} error={exc!r}",
+            )
 
         # Advisory: auto-set universe from model registry metadata when not provided
         try:
@@ -324,11 +358,22 @@ class MultiInstrumentSignalActor(MLSignalActor):
                     usyms: list[str] | None = None
                     if info is not None and isinstance(getattr(info, "metadata", {}), dict):
                         md = info.metadata
-                        uids = md.get("universe_instrument_ids") if isinstance(md.get("universe_instrument_ids"), list) else None
-                        usyms = md.get("universe_symbols") if isinstance(md.get("universe_symbols"), list) else None
+                        uids = (
+                            md.get("universe_instrument_ids")
+                            if isinstance(md.get("universe_instrument_ids"), list)
+                            else None
+                        )
+                        usyms = (
+                            md.get("universe_symbols")
+                            if isinstance(md.get("universe_symbols"), list)
+                            else None
+                        )
                     if uids and len(uids) > 0:
                         self.set_universe(uids)
-                        self.log.info(f"Universe loaded from model metadata (instrument_ids): {len(uids)} instruments")
+                        self.log.info(
+                            "multi_signal.universe_metadata_load mode=instrument_ids "
+                            f"instrument_count={len(uids)}",
+                        )
                     elif usyms and len(usyms) > 0:
                         # Map bare symbols to instrument ids using configured bar_type venue as fallback
                         try:
@@ -336,14 +381,25 @@ class MultiInstrumentSignalActor(MLSignalActor):
                             bt = getattr(self._config, "bar_type", None)
                             if bt is not None:
                                 venue = str(getattr(bt.instrument_id, "venue", "")) or None
-                        except Exception:
+                        except Exception as venue_exc:
+                            self.log.debug(
+                                "multi_signal.universe_metadata_venue_lookup_failed "
+                                f"actor={self.id} error={venue_exc!r}",
+                            )
                             venue = None
-                        mapped = [f"{s}.{venue}" if venue and "." not in str(s) else str(s) for s in usyms]
+                        mapped = [
+                            f"{s}.{venue}" if venue and "." not in str(s) else str(s) for s in usyms
+                        ]
                         self.set_universe(mapped)
-                        self.log.info(f"Universe loaded from model metadata (symbols→ids): {len(mapped)} instruments")
+                        self.log.info(
+                            "multi_signal.universe_metadata_load mode=symbols "
+                            f"instrument_count={len(mapped)}",
+                        )
         except Exception as exc:
             # Best-effort behavior; never fail actor startup due to metadata
-            self.log.debug(f"Auto-universe load skipped: {exc}")
+            self.log.debug(
+                f"multi_signal.universe_metadata_failed actor={self.id} error={exc!r}",
+            )
 
     # ----------------------------- Inference backend -----------------------------
     def _infer_batch(
@@ -353,8 +409,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
         """
         Run batched model inference.
 
-        Returns (predictions, confidences) shaped (N,). Attempts ONNXRuntime
-        vectorized inference when available; falls back to per-row predictions.
+        Returns (predictions, confidences) shaped (N,). Attempts ONNXRuntime vectorized
+        inference when available; falls back to per-row predictions.
+
         """
         n = int(features.shape[0])
         preds = np.zeros((n,), dtype=np.float32)
@@ -378,7 +435,9 @@ class MultiInstrumentSignalActor(MLSignalActor):
                     return preds, confs
         except Exception as exc:
             # Fall through to per-row inference on any failure
-            self.log.debug(f"ONNX batch run failed; using per-row predictions: {exc}")
+            self.log.debug(
+                f"multi_signal.onnx_batch_run_failed actor={self.id} error={exc!r}",
+            )
 
         # Fallback: per-row predictions using inherited predictor
         for i in range(n):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Unified data population script for ML universe.
+
 This script provides a single, safe, configurable interface for populating:
 - L0 data: 7 years of OHLCV bars
 - L1 data: 1 year of quotes/trades (BBO)
@@ -39,16 +40,14 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 import uuid as _uuid
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
-import databento as db
 import pandas as pd
 
 
@@ -58,8 +57,11 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from ml._imports import HAS_POLARS
 from ml._imports import check_ml_dependencies
 from ml.config.universes import TIER1_CORE
+from ml.data.ingest.api import ensure_service
+from ml.data.ingest.api import fetch_symbol_data
 from ml.data.ingest.common import load_progress_json
 from ml.data.ingest.common import save_progress_json
+from ml.data.ingest.service import DatabentoIngestionService
 
 
 if not HAS_POLARS:
@@ -121,6 +123,20 @@ class DataLevel:
     L2 = "L2"  # Market depth (order book)
     L3 = "L3"  # Full depth
 
+    _DATASET_MAP: ClassVar[dict[str, str]] = {
+        L0: "EQUS.MINI",
+        L1: "EQUS.MINI",
+        L2: "DBEQ.BASIC",
+        L3: "DBEQ.BASIC",
+    }
+
+    _SCHEMA_MAP: ClassVar[dict[str, str]] = {
+        L0: "ohlcv-1m",
+        L1: "trades",  # Quotes handled separately via bbo-1s
+        L2: "mbp-10",
+        L3: "mbo",
+    }
+
     @classmethod
     def all(cls) -> list[str]:
         return [cls.L0, cls.L1, cls.L2, cls.L3]
@@ -130,13 +146,18 @@ class DataLevel:
         """
         Get Databento schema for level.
         """
-        mapping = {
-            cls.L0: "ohlcv-1m",
-            cls.L1: "trades",  # Will also fetch "bbo-1s"
-            cls.L2: "mbp-10",
-            cls.L3: "mbp-1",
-        }
-        return mapping.get(level, "trades")
+        if level not in cls._SCHEMA_MAP:
+            raise ValueError(f"Unsupported level for schema mapping: {level}")
+        return cls._SCHEMA_MAP[level]
+
+    @classmethod
+    def get_dataset(cls, level: str) -> str:
+        """
+        Return dataset identifier for a given level.
+        """
+        if level not in cls._DATASET_MAP:
+            raise ValueError(f"Unsupported level for dataset mapping: {level}")
+        return cls._DATASET_MAP[level]
 
     @classmethod
     def get_date_range(cls, level: str, config: UniverseConfig) -> tuple[datetime, datetime]:
@@ -238,19 +259,18 @@ class UniversePopulator:
 
     def __init__(self, config: UniverseConfig):
         self.config = config
-        self.client = self._init_client()
+        self.service = self._init_service()
         self.tracker = ProgressTracker(config)
         self.symbols = self._load_symbols()
 
-    def _init_client(self) -> db.Historical:
+    def _init_service(self) -> DatabentoIngestionService:
         """
-        Initialize Databento client.
+        Initialize Databento ingestion service.
         """
-        api_key = os.getenv("DATABENTO_API_KEY")
-        if not api_key:
-            raise ValueError("DATABENTO_API_KEY not found in environment")
-
-        return db.Historical(api_key)
+        try:
+            return ensure_service()
+        except Exception as exc:
+            raise ValueError("Failed to initialise Databento ingestion service") from exc
 
     def _load_symbols(self) -> list[str]:
         """
@@ -296,7 +316,7 @@ class UniversePopulator:
             "TLT",
             "GLD",
             "SLV",
-            "VIX",
+            "VIXY",  # Proxy for VIX index (free Databento coverage)
             # Additional large caps and ETFs
             "GOOGL",
             "BRK.B",
@@ -370,6 +390,42 @@ class UniversePopulator:
                 ordered.append(sym)
         return ordered
 
+    def _clamp_dataset_window(
+        self,
+        *,
+        dataset: str,
+        schema: str,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[datetime, datetime]:
+        """
+        Clamp requested window to the provider's available range.
+        """
+        start_ts = pd.to_datetime(start, utc=True)
+        end_ts = pd.to_datetime(end, utc=True)
+        try:
+            rng = self.service.metadata_client.get_dataset_range(dataset)
+            schema_rng = rng.get("schema", {}).get(schema)
+            ds_start_raw = None
+            ds_end_raw = None
+            if schema_rng:
+                ds_start_raw = schema_rng.get("start")
+                ds_end_raw = schema_rng.get("end")
+            ds_start_raw = ds_start_raw or rng.get("start")
+            ds_end_raw = ds_end_raw or rng.get("end")
+            if ds_start_raw:
+                ds_start = pd.to_datetime(ds_start_raw, utc=True)
+                start_ts = max(start_ts, ds_start)
+            if ds_end_raw:
+                ds_end = pd.to_datetime(ds_end_raw, utc=True)
+                end_ts = min(end_ts, ds_end)
+        except Exception:
+            pass
+
+        if end_ts <= start_ts:
+            end_ts = start_ts + pd.Timedelta(seconds=1)
+        return (start_ts.to_pydatetime(), end_ts.to_pydatetime())
+
     async def estimate_costs(self) -> dict[str, Any]:
         """
         Estimate costs for data download.
@@ -379,6 +435,7 @@ class UniversePopulator:
         for level in self.config.levels:
             schema = DataLevel.get_schema(level)
             start_date, end_date = DataLevel.get_date_range(level, self.config)
+            dataset = DataLevel.get_dataset(level)
 
             # Count symbols not yet completed
             pending_symbols = [s for s in self.symbols if not self.tracker.is_completed(level, s)]
@@ -391,54 +448,49 @@ class UniversePopulator:
                 }
                 continue
 
-            try:
-                # Get cost estimate from Databento
-                if level == DataLevel.L1:
-                    # L1 needs both trades and quotes
-                    cost_trades = self.client.metadata.get_cost(
-                        dataset="GLBX.MDP3",  # Using CME for estimate
-                        symbols=pending_symbols[:5],  # Sample
-                        schema="trades",
-                        start=start_date,
-                        end=end_date,
-                    )
-                    cost_quotes = self.client.metadata.get_cost(
-                        dataset="GLBX.MDP3",
-                        symbols=pending_symbols[:5],
-                        schema="bbo-1s",
-                        start=start_date,
-                        end=end_date,
-                    )
-                    # Extrapolate
-                    cost_per_symbol = (cost_trades + cost_quotes) / 5
-                    total_cost = cost_per_symbol * len(pending_symbols)
-                else:
-                    cost = self.client.metadata.get_cost(
-                        dataset="GLBX.MDP3",
-                        symbols=pending_symbols[:5],
-                        schema=schema,
-                        start=start_date,
-                        end=end_date,
-                    )
-                    cost_per_symbol = cost / 5
-                    total_cost = cost_per_symbol * len(pending_symbols)
+            sample_symbols = pending_symbols[:5]
+            if not sample_symbols:
+                sample_symbols = pending_symbols
 
-                estimates[level] = {
-                    "symbols": len(pending_symbols),
-                    "cost_usd": float(total_cost),
-                    "date_range": f"{start_date.date()} to {end_date.date()}",
-                    "schema": schema,
-                }
+            schemas = [schema]
+            if level == DataLevel.L1:
+                schemas = ["trades", "bbo-1s"]
 
-            except Exception:
-                # For EQUS.MINI (US equities standard), everything should be $0
-                estimates[level] = {
-                    "symbols": len(pending_symbols),
-                    "cost_usd": 0.0,
-                    "date_range": f"{start_date.date()} to {end_date.date()}",
-                    "schema": schema,
-                    "note": "Using EQUS.MINI subscription (no additional cost)",
-                }
+            total_cost = 0.0
+            schema_notes: list[str] = []
+            for schema_name in schemas:
+                window_start, window_end = self._clamp_dataset_window(
+                    dataset=dataset,
+                    schema=schema_name,
+                    start=start_date,
+                    end=end_date,
+                )
+                if window_end <= window_start:
+                    schema_notes.append(f"{schema_name}: empty window")
+                    continue
+                try:
+                    raw_cost = self.service.metadata_client.get_cost(
+                        dataset=dataset,
+                        symbols=sample_symbols,
+                        schema=schema_name,
+                        start=window_start,
+                        end=window_end,
+                    )
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    schema_notes.append(f"{schema_name}: {exc}")
+                    continue
+                per_symbol_cost = float(raw_cost) / max(1, len(sample_symbols))
+                total_cost += per_symbol_cost * len(pending_symbols)
+
+            estimates[level] = {
+                "symbols": len(pending_symbols),
+                "cost_usd": float(total_cost),
+                "date_range": f"{start_date.date()} to {end_date.date()}",
+                "schemas": schemas,
+                "dataset": dataset,
+            }
+            if schema_notes:
+                estimates[level]["notes"] = schema_notes
 
         # Sum cost across level entries only
         total_cost = 0.0
@@ -542,15 +594,14 @@ class UniversePopulator:
         output_file = output_dir / f"{symbol}_ohlcv.parquet"
 
         # If file exists, extend to cover the full free dataset window (gap-aware)
-        def _ensure_utc(ts: pd.Timestamp | None) -> pd.Timestamp | None:
+        def _ensure_utc(ts: pd.Timestamp | None) -> datetime | None:
             if ts is None:
                 return None
-            if ts.tzinfo is None:
-                return ts.tz_localize("UTC")
-            return ts.tz_convert("UTC")
+            ts_local = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+            return ts_local.to_pydatetime()
 
-        existing_min: pd.Timestamp | None = None
-        existing_max: pd.Timestamp | None = None
+        existing_min: datetime | None = None
+        existing_max: datetime | None = None
         if output_file.exists():
             try:
                 df_old = pd.read_parquet(output_file)
@@ -564,17 +615,22 @@ class UniversePopulator:
 
         # Clamp end to dataset end to avoid 422 when now > available end
         # Determine safe dataset window (clamped by provider)
+        dataset = DataLevel.get_dataset(DataLevel.L0)
         try:
-            rng = self.client.metadata.get_dataset_range("EQUS.MINI")
-            ds_start = _ensure_utc(pd.to_datetime(rng.get("start", start)))  # type: ignore[arg-type]
-            ds_end = _ensure_utc(pd.to_datetime(rng.get("end", end)))  # type: ignore[arg-type]
+            rng = self.service.metadata_client.get_dataset_range(dataset)
+            ds_start = _ensure_utc(pd.to_datetime(rng.get("start", start)))
+            ds_end = _ensure_utc(pd.to_datetime(rng.get("end", end)))
         except Exception:
             ds_start = _ensure_utc(pd.to_datetime(start))
             ds_end = _ensure_utc(pd.to_datetime(end))
 
         # Target full available window
-        target_start = max(_ensure_utc(pd.to_datetime(start)), ds_start)  # type: ignore[arg-type]
-        target_end = min(_ensure_utc(pd.to_datetime(end)), ds_end)  # type: ignore[arg-type]
+        start_dt = _ensure_utc(pd.to_datetime(start))
+        end_dt = _ensure_utc(pd.to_datetime(end))
+        if start_dt is None or end_dt is None or ds_start is None or ds_end is None:
+            return
+        target_start = max(start_dt, ds_start)
+        target_end = min(end_dt, ds_end)
 
         parts: list[pd.DataFrame] = []
         if not df_old.empty:
@@ -584,13 +640,16 @@ class UniversePopulator:
         if existing_min is None or existing_min > target_start:
             left_end = existing_min if existing_min is not None else target_end
             try:
-                df_left = self.client.timeseries.get_range(
-                    dataset="EQUS.MINI",
-                    symbols=[symbol],
-                    schema="ohlcv-1m",
+                df_left = fetch_symbol_data(
+                    service=self.service,
+                    dataset=dataset,
+                    schema=DataLevel.get_schema(DataLevel.L0),
+                    symbol=symbol,
                     start=target_start,
                     end=left_end,
-                ).to_df()
+                    rate_limit_per_min=self.config.rate_limit_per_min,
+                    reason="universe_l0_left",
+                )
                 if not df_left.empty:
                     parts.append(df_left)
             except Exception:
@@ -600,13 +659,16 @@ class UniversePopulator:
         if existing_max is None or existing_max < target_end:
             right_start = existing_max if existing_max is not None else target_start
             try:
-                df_right = self.client.timeseries.get_range(
-                    dataset="EQUS.MINI",
-                    symbols=[symbol],
-                    schema="ohlcv-1m",
+                df_right = fetch_symbol_data(
+                    service=self.service,
+                    dataset=dataset,
+                    schema=DataLevel.get_schema(DataLevel.L0),
+                    symbol=symbol,
                     start=right_start,
                     end=target_end,
-                ).to_df()
+                    rate_limit_per_min=self.config.rate_limit_per_min,
+                    reason="universe_l0_right",
+                )
                 if not df_right.empty:
                     parts.append(df_right)
             except Exception:
@@ -615,8 +677,10 @@ class UniversePopulator:
         if parts:
             df_new = pd.concat(parts, ignore_index=True)
             # Normalize time column; ensure uniqueness and ordering
-            tcol = "timestamp" if "timestamp" in df_new.columns else (
-                "ts_event" if "ts_event" in df_new.columns else None
+            tcol = (
+                "timestamp"
+                if "timestamp" in df_new.columns
+                else ("ts_event" if "ts_event" in df_new.columns else None)
             )
             if tcol is not None and tcol != "timestamp":
                 df_new = df_new.rename(columns={tcol: "timestamp"})
@@ -637,24 +701,26 @@ class UniversePopulator:
         """
         Download L1 (quotes and trades) data.
         """
-        # Clamp end to dataset end to avoid 422
-        try:
-            rng = self.client.metadata.get_dataset_range("EQUS.MINI")
-            end_safe = rng.get("end", None) or end
-        except Exception:
-            end_safe = end
-
+        dataset = DataLevel.get_dataset(DataLevel.L1)
         # Download trades
         trades_file = output_dir / f"{symbol}_trades.parquet"
         if not trades_file.exists():
-            df_trades = self.client.timeseries.get_range(
-                dataset="EQUS.MINI",
-                symbols=[symbol],
+            trade_start, trade_end = self._clamp_dataset_window(
+                dataset=dataset,
                 schema="trades",
                 start=start,
-                end=end_safe,
-            ).to_df()
-
+                end=end,
+            )
+            df_trades = fetch_symbol_data(
+                service=self.service,
+                dataset=dataset,
+                schema=DataLevel.get_schema(DataLevel.L1),
+                symbol=symbol,
+                start=trade_start,
+                end=trade_end,
+                rate_limit_per_min=self.config.rate_limit_per_min,
+                reason="universe_l1_trades",
+            )
             if not df_trades.empty:
                 df_trades.to_parquet(trades_file)
                 logger.info(f"Saved {len(df_trades)} trades for {symbol}")
@@ -662,14 +728,22 @@ class UniversePopulator:
         # Download BBO quotes
         quotes_file = output_dir / f"{symbol}_bbo.parquet"
         if not quotes_file.exists():
-            df_quotes = self.client.timeseries.get_range(
-                dataset="EQUS.MINI",
-                symbols=[symbol],
+            quote_start, quote_end = self._clamp_dataset_window(
+                dataset=dataset,
                 schema="bbo-1s",
                 start=start,
-                end=end_safe,
-            ).to_df()
-
+                end=end,
+            )
+            df_quotes = fetch_symbol_data(
+                service=self.service,
+                dataset=dataset,
+                schema="bbo-1s",
+                symbol=symbol,
+                start=quote_start,
+                end=quote_end,
+                rate_limit_per_min=self.config.rate_limit_per_min,
+                reason="universe_l1_bbo",
+            )
             if not df_quotes.empty:
                 df_quotes.to_parquet(quotes_file)
                 logger.info(f"Saved {len(df_quotes)} BBO quotes for {symbol}")
@@ -685,22 +759,30 @@ class UniversePopulator:
         """
         Download market depth data.
         """
-        schema = "mbp-10" if level == DataLevel.L2 else "mbp-1"
+        dataset = DataLevel.get_dataset(level)
+        schema = DataLevel.get_schema(level)
         output_file = output_dir / f"{symbol}_{schema}.parquet"
 
         if output_file.exists():
             logger.info(f"Depth file already exists for {symbol}, skipping")
             return
 
-        # Note: L2/L3 may not be available in EQUS.MINI
-        # This will fail gracefully and be caught by error handling
-        df = self.client.timeseries.get_range(
-            dataset="EQUS.MINI",
-            symbols=[symbol],
+        depth_start, depth_end = self._clamp_dataset_window(
+            dataset=dataset,
             schema=schema,
             start=start,
             end=end,
-        ).to_df()
+        )
+        df = fetch_symbol_data(
+            service=self.service,
+            dataset=dataset,
+            schema=schema,
+            symbol=symbol,
+            start=depth_start,
+            end=depth_end,
+            rate_limit_per_min=self.config.rate_limit_per_min,
+            reason=f"universe_{level.lower()}",
+        )
 
         if not df.empty:
             df.to_parquet(output_file)

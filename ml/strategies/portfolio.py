@@ -2,8 +2,9 @@
 Portfolio management for ML trading strategies.
 
 This module provides portfolio-level coordination including capital allocation,
-correlation tracking, and multi-instrument position management. Designed for
-small accounts with focus on diversification and risk-adjusted allocation.
+correlation tracking, and multi-instrument position management. Designed for small
+accounts with focus on diversification and risk-adjusted allocation.
+
 """
 
 from __future__ import annotations
@@ -55,10 +56,13 @@ active_positions_gauge = get_gauge(
     labels=[],
 )
 
+
 # ===== Configuration =====
 @dataclass(frozen=True)
 class PortfolioConfig:
-    """Configuration for portfolio management."""
+    """
+    Configuration for portfolio management.
+    """
 
     # Allocation limits
     max_positions: int = 10  # Max concurrent positions
@@ -86,8 +90,9 @@ class PortfolioManager:
     """
     Portfolio-level management for multi-instrument trading.
 
-    Handles capital allocation, correlation tracking, rebalancing,
-    and performance attribution across instruments.
+    Handles capital allocation, correlation tracking, rebalancing, and performance
+    attribution across instruments.
+
     """
 
     def __init__(self, config: PortfolioConfig | None = None) -> None:
@@ -110,7 +115,8 @@ class PortfolioManager:
         # Correlation matrix (pre-allocated for efficiency)
         self._max_instruments: Final[int] = 50
         self._correlation_matrix: npt.NDArray[np.float32] = np.eye(
-            self._max_instruments, dtype=np.float32
+            self._max_instruments,
+            dtype=np.float32,
         )
         self._instrument_indices: dict[InstrumentId, int] = {}
         self._next_index: int = 0
@@ -174,18 +180,17 @@ class PortfolioManager:
 
             # Update tracking
             self._target_weights = {
-                inst: alloc / available_capital
-                for inst, alloc in allocations.items()
+                inst: alloc / available_capital for inst, alloc in allocations.items()
             }
 
             # Update metrics
             try:
-                active_positions_gauge.labels().set(len(allocations))
+                active_positions_gauge.set(len(allocations))
             except Exception:
-                try:
-                    active_positions_gauge.set(len(allocations))
-                except Exception:
-                    ...
+                logger.debug(
+                    "portfolio.active_positions_metric_failed",
+                    exc_info=True,
+                )
             self._update_concentration_metric()
 
             return allocations
@@ -193,7 +198,7 @@ class PortfolioManager:
         finally:
             allocation_calculations_total.labels(method=self.config.allocation_method).inc()
             allocation_latency_seconds.labels(method=self.config.allocation_method).observe(
-                time.perf_counter() - start_time
+                time.perf_counter() - start_time,
             )
 
     def _filter_signals(self, signals: list[MLSignal]) -> list[MLSignal]:
@@ -569,7 +574,9 @@ class PortfolioManager:
 
         # Update with exponential decay
         old_corr = self._correlation_matrix[idx1, idx2]
-        new_corr = self.config.correlation_decay * old_corr + (1 - self.config.correlation_decay) * corr
+        new_corr = (
+            self.config.correlation_decay * old_corr + (1 - self.config.correlation_decay) * corr
+        )
 
         # Update symmetric matrix
         self._correlation_matrix[idx1, idx2] = new_corr
@@ -706,26 +713,28 @@ class PortfolioManager:
 
             if deviation > self.config.rebalance_threshold:
                 logger.info(
-                    f"Rebalance triggered: {inst} deviation {deviation:.1%} > {self.config.rebalance_threshold:.1%}"
+                    f"Rebalance triggered: {inst} deviation {deviation:.1%} > {self.config.rebalance_threshold:.1%}",
                 )
                 return True
 
         return False
 
     def _update_concentration_metric(self) -> None:
-        """Update portfolio concentration metric (HHI)."""
+        """
+        Update portfolio concentration metric (HHI).
+        """
         if not self._target_weights:
             return
 
         # Calculate Herfindahl-Hirschman Index
-        hhi = sum(w ** 2 for w in self._target_weights.values())
+        hhi = sum(w**2 for w in self._target_weights.values())
         try:
-            portfolio_concentration_gauge.labels().set(hhi)
+            portfolio_concentration_gauge.set(hhi)
         except Exception:
-            try:
-                portfolio_concentration_gauge.set(hhi)
-            except Exception:
-                ...
+            logger.debug(
+                "portfolio.concentration_metric_failed",
+                exc_info=True,
+            )
 
     def get_portfolio_metrics(self) -> dict[str, float]:
         """
@@ -739,10 +748,14 @@ class PortfolioManager:
         """
         total_pnl = sum(self._instrument_pnl.values())
         n_positions = len(self._current_weights)
-        avg_sharpe = float(np.mean(list(self._instrument_sharpe.values()))) if self._instrument_sharpe else 0.0
+        avg_sharpe = (
+            float(np.mean(list(self._instrument_sharpe.values())))
+            if self._instrument_sharpe
+            else 0.0
+        )
 
         # Calculate concentration (HHI)
-        hhi = sum(w ** 2 for w in self._current_weights.values()) if self._current_weights else 0.0
+        hhi = sum(w**2 for w in self._current_weights.values()) if self._current_weights else 0.0
 
         return {
             "total_pnl": total_pnl,
@@ -753,7 +766,9 @@ class PortfolioManager:
         }
 
     def _get_max_correlation(self) -> float:
-        """Get maximum correlation among active positions."""
+        """
+        Get maximum correlation among active positions.
+        """
         if len(self._current_weights) < 2:
             return 0.0
 

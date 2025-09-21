@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
+"""
+Thin wrapper delegating ML integration health aggregation to tasks.
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from typing import Any
 
-from ml.core.integration import MLIntegrationManager
+from ml.tasks.monitoring import aggregate_integration_health
 
 
-def main() -> None:
+__all__ = ["main"]
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ML system health summary")
     parser.add_argument(
         "--db-connection",
@@ -23,19 +31,18 @@ def main() -> None:
         action="store_true",
         help="Raise on protocol validation failures",
     )
-    args = parser.parse_args()
+    return parser.parse_args(list(argv) if argv is not None else None)
 
-    mgr = MLIntegrationManager(
-        db_connection=args.db_connection,
-        auto_start_postgres=False,
-        auto_migrate=False,
-        ensure_healthy=False,
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    summary: dict[str, Any] = aggregate_integration_health(
+        args.db_connection,
         strict_protocol_validation=args.strict,
     )
-
-    summary: dict[str, Any] = mgr.aggregate_health()
     print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":  # pragma: no cover - CLI entrypoint
+    raise SystemExit(main())

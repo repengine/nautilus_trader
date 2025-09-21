@@ -27,12 +27,14 @@ The Nautilus Trader ML stores infrastructure implements a sophisticated three-ti
 The ML infrastructure is built around **three core stores** that form the "vaults" of the system plus **one unified facade** (DataStore) that provides contract validation and event emission. Every ML actor inherits from `BaseMLInferenceActor`, which acquires all four stores and four registries via a centralized integration helper rather than constructing them directly. This keeps the actor hot path clean and enforces consistent wiring.
 
 **✅ Current Implementation:**
+
 - **FeatureStore**: ✅ Implemented in `/home/nate/projects/nautilus_trader/ml/stores/feature_store.py` (1,553 lines)
 - **ModelStore**: ✅ Implemented in `/home/nate/projects/nautilus_trader/ml/stores/model_store.py` (708 lines)
 - **StrategyStore**: ✅ Implemented in `/home/nate/projects/nautilus_trader/ml/stores/strategy_store.py` (783 lines)
 - **DataStore**: ✅ Implemented in `/home/nate/projects/nautilus_trader/ml/stores/data_store.py` (3,102 lines) - Unified facade
 
 **✅ Actor Integration via BaseMLInferenceActor:**
+
 ```python
 # Real implementation in ml.actors.base.BaseMLInferenceActor (lines 836-865)
 def _init_stores_and_registries(self) -> None:
@@ -60,6 +62,42 @@ def _init_stores_and_registries(self) -> None:
   - `BusPublisherMixin` and `DataRegistryMixin` avoid duplicated config in stores
 - ✅ Progressive fallback chains implemented: PostgreSQL → DummyStore (base.py:350-485)
 - ✅ Protocol-first design with strict protocols for new components (protocols.py:145-188)
+
+### Persistence & Events Flow (✅ **CURRENT IMPLEMENTATION**)
+
+The DataStore manages persistence fan-out and observability as a single control point. The diagram below highlights the write path and associated emitters that guard against duplicate events or bus payloads.
+
+```mermaid
+flowchart LR
+    subgraph Actor Hot Path
+        A[Inference Actor]
+    end
+    subgraph Data Facade
+        DS[DataStore]
+    end
+    subgraph Cold Stores
+        FS[FeatureStore]
+        MS[ModelStore]
+        SS[StrategyStore]
+    end
+    subgraph Observability
+        DR[DataRegistry]
+        BUS[Message Bus]
+    end
+
+    A -->|write_features / predictions / signals| DS
+    DS -->|validated writes| FS
+    DS -->|validated writes| MS
+    DS -->|validated writes| SS
+    DS -->|emit_event & watermark| DR
+    DS -->|publish_bus (single payload)| BUS
+```
+
+Key guarantees:
+
+- Exactly one dataset event and watermark update per orchestrated batch.
+- Message bus publish happens once per write call (guarded via `publish_bus=False` on underlying stores).
+- Registry and bus operations are wrapped in resilience helpers to keep hot paths non-blocking.
 
 #### FeatureStore (`ml/stores/feature_store.py`)
 
@@ -1172,6 +1210,7 @@ elif self.clock and self._should_flush_by_time():
 ### Universal ML Architecture Pattern Compliance ✅
 
 **Pattern 1: Mandatory 4-Store + 4-Registry Integration** - ✅ **FULLY COMPLIANT**
+
 - All ML actors inherit from BaseMLInferenceActor (ml/actors/base.py:729)
 - Automatic store initialization via ml.actors.actor_services.init_actor_services()
 - Protocol-typed properties: feature_store, model_store, strategy_store, data_store
@@ -1179,24 +1218,28 @@ elif self.clock and self._should_flush_by_time():
 - Progressive fallback: PostgreSQL → DummyStore with comprehensive error handling
 
 **Pattern 2: Protocol-First Interface Design** - ✅ **FULLY COMPLIANT**
+
 - Complete protocol definitions in ml/stores/protocols.py (198 lines)
 - Structural typing with Protocol classes for all store interfaces
 - Strict protocol variants: FeatureStoreStrictProtocol, ModelStoreStrictProtocol, StrategyStoreStrictProtocol
 - DummyStore implements all protocols for testing compatibility (base.py:350-485)
 
 **Pattern 3: Hot/Cold Path Separation** - ✅ **MOSTLY COMPLIANT**
+
 - Hot path: Pre-allocated arrays, <5ms inference, protocol-typed stores
 - Cold path: DataProcessor, migration management, analytics
 - Actor flush() operations kept minimal (DataStoreFacadeProtocol)
 - Some validation still occurs in write paths (opportunity for optimization)
 
 **Pattern 4: Progressive Fallback Chains** - ✅ **FULLY COMPLIANT**
+
 - PostgreSQL → DummyStore automatic fallback implemented
 - EngineManager handles connection failures gracefully
 - Registry fallback: PostgreSQL → JSON → RuntimeError with guidance
 - Circuit breaker integration in BaseMLInferenceActor
 
 **Pattern 5: Centralized Metrics Bootstrap** - ⚠️ **PARTIALLY COMPLIANT**
+
 - MetricsManager available and used in some components
 - Mixed usage: some stores still use direct prometheus_client imports
 - Need to standardize on ml.common.metrics_bootstrap across all stores
@@ -1461,12 +1504,14 @@ After comprehensive review of all 19 Python files totaling 10,293 lines in `/hom
 ### ✅ Corrected Status Assessment
 
 **BaseMLInferenceActor Integration** - ✅ **CONFIRMED IMPLEMENTED**
+
 - BaseMLInferenceActor exists in `/home/nate/projects/nautilus_trader/ml/actors/base.py:729`
 - Complete 4-store + 4-registry integration via `_init_stores_and_registries()` (lines 836-865)
 - Protocol-typed store properties available to all inheriting actors
 - Real implementation using `ml.actors.actor_services.init_actor_services()`
 
 **Store Architecture** - ✅ **CORRECTLY DOCUMENTED**
+
 - FeatureStore: 1,553 lines - Comprehensive feature computation and storage
 - ModelStore: 708 lines - Model predictions with performance tracking
 - StrategyStore: 783 lines - Strategy signals and risk management
@@ -1474,12 +1519,14 @@ After comprehensive review of all 19 Python files totaling 10,293 lines in `/hom
 - DummyStore: Implemented in base.py:350-485 with full protocol compliance
 
 **Progressive Fallback** - ✅ **FULLY IMPLEMENTED**
+
 - PostgreSQL → DummyStore fallback chains implemented
 - EngineManager provides centralized connection management
 - DataRegistryMixin handles registry fallback (PostgreSQL → JSON)
 - Circuit breaker integration in BaseMLInferenceActor
 
 **Protocol-First Design** - ✅ **COMPREHENSIVE IMPLEMENTATION**
+
 - Complete protocols in protocols.py (198 lines)
 - Strict protocol variants for new components
 - Structural typing throughout
@@ -1514,7 +1561,6 @@ After comprehensive review of all 19 Python files totaling 10,293 lines in `/hom
 - **Actors**: See `context_actors.md` for inference actors
 - **Models**: See `context_models.md` for model implementations
 
-
 ### Event/Watermark Ownership and Bus Publishing (Centralization)
 
 - DataStore owns event emission and watermark updates across data, features, predictions, and signals.
@@ -1523,4 +1569,3 @@ After comprehensive review of all 19 Python files totaling 10,293 lines in `/hom
 - Migration plans: the integration manager now shares the CLI plan builder.
   - Env: `ML_MIGRATIONS_FULL=1` to include optional hardening/views/BRIN/artifact fields; `ML_MIGRATIONS_SCHEMA=stores|registry|both` to scope.
   - In production, `ML_ENV=prod` defaults to full migrations.
-

@@ -13,10 +13,13 @@ import os
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
+
+from nautilus_trader.model.identifiers import InstrumentId
 
 from ml._imports import HAS_PROMETHEUS
 from ml._imports import Counter
@@ -29,21 +32,20 @@ from ml.config.events import Stage as _stage
 from ml.config.scheduler_config import DatabentoConfig
 from ml.config.scheduler_config import SchedulerConfig
 from ml.data.collector import DataCollector
+from ml.data.ingest.databento_adapter import DatabentoAPIClient
+from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
+from ml.data.ingest.orchestrator import IngestionOrchestrator
+from ml.data.ingest.resume import DatabentoIngestor
 from ml.registry.data_registry import DataRegistry
 from ml.registry.dataclasses import DatasetManifest
 from ml.registry.dataclasses import DatasetType
 from ml.registry.dataclasses import StorageKind
 from ml.registry.persistence import BackendType
 from ml.registry.persistence import PersistenceConfig
+from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.providers import SqlMarketDataWriter
-from ml.data.ingest.orchestrator import IngestionOrchestrator
-from ml.data.ingest.orchestrator import DomainWindowLoaderProtocol
-from ml.data.ingest.resume import DatabentoIngestor
-from ml.data.ingest.databento_adapter import DatabentoAPIClient
-from ml.stores.io_raw import ParquetCatalogRawWriter
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
-from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -321,7 +323,8 @@ class DataScheduler:
         dataset_type_label: str,
         location: str,
     ) -> None:
-        """Ensure a dataset manifest exists in the registry (Postgres backend).
+        """
+        Ensure a dataset manifest exists in the registry (Postgres backend).
 
         Parameters
         ----------
@@ -331,6 +334,7 @@ class DataScheduler:
             High-level dataset type label ("bars", "trades", "tbbo", "mbp1").
         location : str
             Storage location for the dataset (e.g., catalog path).
+
         """
         if self._data_registry is None:
             return
@@ -545,8 +549,6 @@ class DataScheduler:
             pipeline_duration = time.perf_counter() - pipeline_start_time
             pipeline_runs_total.labels(status=pipeline_status).inc()
             pipeline_stage_latency.labels(stage="complete_pipeline").observe(pipeline_duration)
-
-    
 
     def _collect_latest_data(self) -> None:
         """
@@ -1036,6 +1038,7 @@ class DataScheduler:
 
         Uses SQL coverage and SQL writer, and when dual_write=True mirrors domain
         objects into the ParquetDataCatalog using a lightweight domain loader.
+
         """
         api_key = self.config.databento.api_key or os.getenv("DATABENTO_API_KEY")
         if not api_key:
@@ -1079,14 +1082,18 @@ class DataScheduler:
                     end_ns: int,
                 ) -> list[Any]:
                     import tempfile
-                    from datetime import datetime, timezone as _tz
+                    from datetime import datetime
+
                     import databento as db
-                    from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader as _DBL
                     from nautilus_trader.model.identifiers import InstrumentId as _IID
 
-                    sym, venue = instrument_id.split(".") if "." in instrument_id else (instrument_id, "")
-                    s_dt = datetime.fromtimestamp(start_ns / 1e9, tz=_tz.utc)
-                    e_dt = datetime.fromtimestamp(end_ns / 1e9, tz=_tz.utc)
+                    from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader as _DBL
+
+                    sym, venue = (
+                        instrument_id.split(".") if "." in instrument_id else (instrument_id, "")
+                    )
+                    s_dt = datetime.fromtimestamp(start_ns / 1e9, tz=UTC)
+                    e_dt = datetime.fromtimestamp(end_ns / 1e9, tz=UTC)
                     client_h = db.Historical(self._key)
                     with tempfile.TemporaryDirectory() as td:
                         path = f"{td}/{sym}_{s_dt:%Y%m%d%H%M%S}_{schema}.dbn"
@@ -1112,7 +1119,9 @@ class DataScheduler:
                             path=path,
                             instrument_id=inst,
                             price_precision=self._parent.config.databento.price_precision,
-                            bars_timestamp_on_close=True if "ohlcv" in schema or "bar" in schema else False,
+                            bars_timestamp_on_close=(
+                                True if "ohlcv" in schema or "bar" in schema else False
+                            ),
                             include_trades=True if "trade" in schema else False,
                             as_legacy_cython=True,
                         )
@@ -1190,10 +1199,11 @@ class DataScheduler:
         logger.info("Starting feature computation for new data...")
 
         # Import required modules
-        from ml._imports import HAS_POLARS
-        from ml._imports import check_ml_dependencies
         from nautilus_trader.model.data import Bar
         from nautilus_trader.model.identifiers import InstrumentId
+
+        from ml._imports import HAS_POLARS
+        from ml._imports import check_ml_dependencies
 
         if not HAS_POLARS:
             check_ml_dependencies(["polars"])

@@ -86,6 +86,7 @@ This section documents the latest backfills, gap fills, macro refresh, and datas
 
 - FRED refresh (90d):
   - Set `FRED_API_KEY` then refresh via `FREDDataLoader` or `ml/scripts/fred_integration_bridge.py`.
+  - Vintage snapshots land via `ALFREDDataLoader`, which persists per-series releases under `data/fred/vintages/<series>/<yyyymmdd>.parquet` and a normalized `release_calendar.parquet` used for strict point-in-time joins.
 
 - Builds:
   - 60d: `python -m ml.pipelines.build_runner --config ml/config/build_universe_60d.json`
@@ -379,7 +380,8 @@ Provider Layer
 
 - `InstrumentMetadataProvider`: Static instrument information
 - `MarketCalendarProvider`: Calendar features (trading hours, holidays)
-- `EventScheduleProvider`: Corporate actions and earnings
+- `EventScheduleProvider`: Corporate actions and earnings sourced from normalized event archives in `data/events/` (populated by `ml.preprocessing.event_ingestion`).
+- `ml.preprocessing.event_ingestion.EventIngestionUtility` centralizes feed ingestion (FRED/ALFRED vintages, corporate schedules, exchange calendars) and emits a single `events.parquet` archive consumed by file-backed event sources.
 
 **Key Features**:
 
@@ -657,6 +659,13 @@ dataset = builder.prepare_training_data(
     horizon_minutes=15,
     use_polars=True
 )
+
+# Student-mode build (L1-only real-time parity)
+student_builder = TFTDatasetBuilder(
+    catalog=catalog,
+    symbols=["SPY"],
+    student_mode=True,
+)
 ```
 
 ### Data Collection and Scheduling
@@ -802,6 +811,7 @@ feature_set_id = export_feature_manifest(
 **Pattern 1: Mandatory 4-Store + 4-Registry Integration**
 
 ✅ **APPROPRIATELY EXEMPT**: Data layer components are cold path utilities, not ML actors
+
 - **Rationale**: ml/data provides foundational data utilities that serve ML actors, not actors themselves
 - **Partial Integration**: FeatureStore integration in TFTDatasetBuilder, DataStore in FRED loader
 - **Proper Scope**: Components focus on data collection, processing, and preparation for ML actors
@@ -809,6 +819,7 @@ feature_set_id = export_feature_manifest(
 **Pattern 2: Protocol-First Interface Design**
 
 ✅ **COMPLIANT**: Strong protocol-based architecture in providers
+
 - **Implementation**: `DataProvider`, `StaticDataProvider`, `TimeSeriesProvider` protocols
 - **Location**: `/ml/data/providers/base.py` with runtime-checkable protocols
 - **Benefits**: Enables structural typing and duck typing for testing
@@ -817,6 +828,7 @@ feature_set_id = export_feature_manifest(
 **Pattern 3: Hot/Cold Path Separation**
 
 ✅ **FULLY COMPLIANT**: Exclusively cold path operations
+
 - **Design Intent**: Data collection, processing, and caching are inherently cold path
 - **No Hot Path Constraints**: Appropriate use of DataFrames, file I/O, heavy computation
 - **Clear Documentation**: Module docstring explicitly states cold path focus
@@ -825,6 +837,7 @@ feature_set_id = export_feature_manifest(
 **Pattern 4: Progressive Fallback Chains**
 
 ✅ **APPROPRIATELY IMPLEMENTED**: Graceful degradation where applicable
+
 - **DataRegistry Fallback**: PostgreSQL → JSON backend fallback implemented
 - **Dependency Handling**: Optional dependency checks with clear error messages
 - **Scope-Appropriate**: Circuit breakers not required for cold path data utilities
@@ -833,6 +846,7 @@ feature_set_id = export_feature_manifest(
 **Pattern 5: Centralized Metrics Bootstrap**
 
 ✅ **MOSTLY COMPLIANT**: Consistent use of metrics_bootstrap
+
 - **Primary Components**: DataScheduler and FRED loader use `ml.common.metrics_bootstrap`
 - **No Direct Imports**: No direct prometheus_client usage found
 - ⚠️ **Minor Inconsistency**: build_runner.py uses MetricsManager instead of metrics_bootstrap
@@ -843,18 +857,21 @@ feature_set_id = export_feature_manifest(
 #### Core Strengths
 
 **Data Collection & Processing**
+
 - ✅ **DataCollector**: Configurable storage management with Databento integration
 - ✅ **TFTDatasetBuilder**: Dual-source architecture (FeatureStore + direct computation)
 - ✅ **FRED Integration**: Complete economic data loader with caching and rate limiting
 - ✅ **Feature Caching**: Efficient L2 and microstructure per-minute caches
 
 **Architecture & Design**
+
 - ✅ **Protocol-First Design**: Well-implemented provider architecture
 - ✅ **Public API**: Clean `__init__.py` with proper exports and lazy imports
 - ✅ **Separation of Concerns**: Clear distinction between sources, providers, and builders
 - ✅ **Nautilus Integration**: Effective use of ParquetDataCatalog and native types
 
 **Observability & Operations**
+
 - ✅ **Metrics Integration**: Proper use of metrics_bootstrap in key components
 - ✅ **Structured Logging**: Appropriate logging with context information
 - ✅ **Error Handling**: Per-symbol error isolation with detailed logging
@@ -863,28 +880,33 @@ feature_set_id = export_feature_manifest(
 #### Areas for Enhancement
 
 **Consistency Improvements**
+
 - ⚠️ **Metrics Standardization**: Ensure all components use metrics_bootstrap uniformly
 - ⚠️ **Protocol Expansion**: Could extend Protocol usage to additional components
 
 **Documentation Clarity**
+
 - ⚠️ **Pattern Exemption**: Better document why data utilities are exempt from ML actor patterns
 - ⚠️ **Scope Emphasis**: More clearly emphasize cold path nature and appropriate scope
 
 ### Architectural Assessment
 
 **Design Excellence:**
+
 - Clean separation between data utilities and ML actors
 - Appropriate cold path patterns with efficient processing
 - Well-designed provider architecture with Protocol-based interfaces
 - Effective integration with Nautilus native components
 
 **Production Readiness:**
+
 - Functional data collection and processing capabilities
 - Proper error handling and observability integration
 - Progressive fallback strategies where applicable
 - Comprehensive feature integration (macro, micro, L2, events)
 
 **Universal Pattern Alignment:**
+
 - Appropriate exemptions for data utilities vs ML actors
 - Strong compliance with applicable patterns
 - Good architectural foundations for ML workflow support
@@ -905,7 +927,6 @@ The ml/data module provides a solid, well-architected foundation for ML data wor
 **Maintainer**: ML Data Pipeline Team
 **Status**: Implementation Complete - Cold Path Data Utilities
 **Changes**: Comprehensive accuracy review and Universal ML Architecture Pattern compliance analysis. Corrected documentation to accurately reflect current implementation state, clarified appropriate pattern exemptions for data utilities, and aligned with cold path design patterns.
-
 
 ### Canonical Ingestion Path and Dual-Write Guidance
 

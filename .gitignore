@@ -17,7 +17,7 @@ logs/
 lightning_logs/
 
 # ML artifacts and datasets
-data/
+data/tier1/
 performance_results/
 checkpoints/
 ml_registry/models/

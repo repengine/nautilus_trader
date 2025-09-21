@@ -134,9 +134,11 @@ from ml.stores.protocols import FeatureStoreStrictProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from ml.stores.protocols import ModelStoreProtocol
 from ml.stores.protocols import ModelStoreStrictProtocol
+from ml.stores.protocols import PredictionRecord
 
 # Type aliases for read/write flexibility
 from ml.stores.protocols import ReadFrame
+from ml.stores.protocols import SignalRecord
 from ml.stores.protocols import StrategyStoreProtocol
 from ml.stores.protocols import StrategyStoreStrictProtocol
 from ml.stores.protocols import WriteRecords
@@ -190,11 +192,13 @@ __all__ = [
     "ParquetCatalogRawReader",
     "ParquetCatalogRawWriter",
     "PartitionManager",
+    "PredictionRecord",
     "RawIngestionWriterProtocol",
     "RawReaderProtocol",
     "ReadFrame",
     "ReadQueryMixin",
     "SQLUpsertMixin",
+    "SignalRecord",
     "SqlCoverageProvider",
     "SqlMarketDataWriter",
     "StoreInitMixin",

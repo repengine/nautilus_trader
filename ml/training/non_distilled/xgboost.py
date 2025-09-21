@@ -27,7 +27,6 @@ from ml.training.export import ModelExportMixin
 
 if TYPE_CHECKING:
     import optuna
-    import polars as pl
     import xgboost as xgb
 
 

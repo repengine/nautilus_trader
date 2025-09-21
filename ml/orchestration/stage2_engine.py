@@ -3,7 +3,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402  # Allow module docstring before imports per project style
 
-
 """
 Stage 2 promotion engines (cold path only).
 
@@ -19,6 +18,7 @@ gates. Two engines are exposed:
 All logic here is cold-path. No hot-path imports or work occur in this module.
 """
 
+import os
 from dataclasses import dataclass
 from datetime import UTC
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
@@ -45,7 +45,9 @@ class Stage2Engine(Protocol):
 def _load_validation_arrays(out_dir: str) -> tuple[NDArray[np.float64], NDArray[np.float64]] | None:
     """
     Load q_val and y_val_true arrays from teacher_preds.npz under out_dir.
+
     Returns (q_val, y_val_true) or None if unavailable.
+
     """
     try:
         from pathlib import Path as _Path
@@ -68,7 +70,9 @@ def _load_validation_arrays(out_dir: str) -> tuple[NDArray[np.float64], NDArray[
 def _load_validation_tail(dataset_csv: str, n_tail: int) -> tuple[Any, Any] | None:
     """
     Load last n_tail rows from dataset_csv sorted by time_index.
+
     Returns (df_tail: pandas.DataFrame, pandas_module) or None.
+
     """
     try:
         from ml._imports import pd as _pd
@@ -93,10 +97,14 @@ def _load_validation_tail(dataset_csv: str, n_tail: int) -> tuple[Any, Any] | No
 
 class ReturnsStage2Engine:
     """
-    Computes trading metrics using a returns-based decision policy on the validation tail.
+    Computes trading metrics using a returns-based decision policy on the validation
+    tail.
     """
 
-    def run(self, cfg: _Stage2Config) -> Stage2Result:  # pragma: no cover - exercised via promotions
+    def run(
+        self,
+        cfg: _Stage2Config,
+    ) -> Stage2Result:  # pragma: no cover - exercised via promotions
         arrays = _load_validation_arrays(cfg.out_dir)
         if arrays is None:
             return Stage2Result(status="skipped", metrics={}, reason="teacher_preds.npz missing")
@@ -114,7 +122,11 @@ class ReturnsStage2Engine:
         try:
             from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _Cat
         except Exception as exc:
-            return Stage2Result(status="skipped", metrics={}, reason=f"catalog import failed: {exc}")
+            return Stage2Result(
+                status="skipped",
+                metrics={},
+                reason=f"catalog import failed: {exc}",
+            )
 
         cat = _Cat(str(cfg.data_dir))
         by_inst = df_val.groupby("instrument_id")
@@ -142,22 +154,30 @@ class ReturnsStage2Engine:
 
                 if not isinstance(bars_pl, _pl.DataFrame):
                     bars_pl = _pl.DataFrame(bars_pl)
-                bdf = bars_pl.select([
-                    _pl.col("timestamp").cast(_pl.Int64).alias("ts"),
-                    _pl.col("close").alias("close"),
-                ])
+                bdf = bars_pl.select(
+                    [
+                        _pl.col("timestamp").cast(_pl.Int64).alias("ts"),
+                        _pl.col("close").alias("close"),
+                    ],
+                )
                 ts_list = bdf["ts"].to_list()
                 close_list = bdf["close"].to_list()
                 m_ts_to_close = dict(zip(ts_list, close_list))
             except Exception:
-                bpdf = bars_pl.to_pandas() if hasattr(bars_pl, "to_pandas") else pd_mod.DataFrame(bars_pl)
+                bpdf = (
+                    bars_pl.to_pandas()
+                    if hasattr(bars_pl, "to_pandas")
+                    else pd_mod.DataFrame(bars_pl)
+                )
                 bpdf["ts"] = pd_mod.to_datetime(bpdf["timestamp"]).astype("int64")
                 m_ts_to_close = dict(zip(bpdf["ts"].tolist(), bpdf["close"].tolist()))
 
             for ts in ts_ns.tolist():
                 c0 = m_ts_to_close.get(int(ts))
                 c1 = m_ts_to_close.get(int(ts + horizon_ns))
-                realized.append(0.0 if (c0 is None or c1 is None or c0 == 0) else float((c1 - c0) / c0))
+                realized.append(
+                    0.0 if (c0 is None or c1 is None or c0 == 0) else float((c1 - c0) / c0),
+                )
 
         # Align and compute strategy returns
         if len(realized) != int(q_val.size):
@@ -168,7 +188,11 @@ class ReturnsStage2Engine:
         # Apply cost model (bps) on entries and turns
         costs = np.zeros_like(signals)
         # Combine cost components (bps) into a single effective rate
-        eff_bps = float(getattr(cfg, "cost_bps", 0.0) or 0.0) + float(getattr(cfg, "commission_bps", 0.0) or 0.0) + float(getattr(cfg, "slippage_bps", 0.0) or 0.0)
+        eff_bps = (
+            float(getattr(cfg, "cost_bps", 0.0) or 0.0)
+            + float(getattr(cfg, "commission_bps", 0.0) or 0.0)
+            + float(getattr(cfg, "slippage_bps", 0.0) or 0.0)
+        )
         if eff_bps > 0.0:
             bp = float(eff_bps) / 10_000.0
             costs += (abs(signals) > 0).astype(np.float64) * bp
@@ -186,7 +210,11 @@ class ReturnsStage2Engine:
         mu = float(np.mean(strat_ret))
         sigma = float(np.std(strat_ret))
         n = int(strat_ret.size)
-        periods_per_year = 252.0 * 390.0 if int(cfg.horizon_minutes) <= 1 else 252.0 * (390.0 / int(cfg.horizon_minutes))
+        periods_per_year = (
+            252.0 * 390.0
+            if int(cfg.horizon_minutes) <= 1
+            else 252.0 * (390.0 / int(cfg.horizon_minutes))
+        )
         sharpe = float((math.sqrt(periods_per_year) * mu / sigma) if sigma > 0 else 0.0)
         cum = np.cumprod(1.0 + strat_ret)
         run_max = np.maximum.accumulate(cum)
@@ -210,10 +238,16 @@ class ReturnsStage2Engine:
 
 class BacktestStage2EngineRunner:
     """
-    Advisory backtest engine. Validates environment and may fall back in promotions.
+    Advisory backtest engine.
+
+    Validates environment and may fall back in promotions.
+
     """
 
-    def run(self, cfg: _Stage2Config) -> Stage2Result:  # pragma: no cover - exercised via integration
+    def run(
+        self,
+        cfg: _Stage2Config,
+    ) -> Stage2Result:  # pragma: no cover - exercised via integration
         # Load arrays and validation tail
         arrays = _load_validation_arrays(cfg.out_dir)
         if arrays is None:
@@ -262,11 +296,18 @@ class BacktestStage2EngineRunner:
             from nautilus_trader.model.enums import PriceType
             from nautilus_trader.test_kit.providers import TestInstrumentProvider
         except Exception as exc:
-            return Stage2Result(status="skipped", metrics={}, reason=f"backtest engine unavailable: {exc}")
+            return Stage2Result(
+                status="skipped",
+                metrics={},
+                reason=f"backtest engine unavailable: {exc}",
+            )
 
         # Build engine (use MARGIN to allow shorting)
         engine = BacktestEngine(
-            config=BacktestEngineConfig(trader_id=TraderId("STAGE2"), logging=LoggingConfig(log_level="ERROR")),
+            config=BacktestEngineConfig(
+                trader_id=TraderId("STAGE2"),
+                logging=LoggingConfig(log_level="ERROR"),
+            ),
         )
         venue = Venue("SIM")
         starting_money = Money(100_000, USD)
@@ -297,6 +338,7 @@ class BacktestStage2EngineRunner:
 
         # Load bars from catalog and replay into engine
         from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog as _Cat
+
         cat = _Cat(str(cfg.data_dir))
         # Define bar types per instrument (1-minute LAST)
         bar_types: dict[str, Any] = {}
@@ -313,7 +355,11 @@ class BacktestStage2EngineRunner:
         for inst, instrument in inst_obj_map.items():
             try:
                 # Catalog accepts InstrumentId; use API to read a wide window and filter
-                bars_iter = cat.bars(instrument_ids=[instrument.id], start=ts_tail_min, end=ts_tail_max)
+                bars_iter = cat.bars(
+                    instrument_ids=[instrument.id],
+                    start=ts_tail_min,
+                    end=ts_tail_max,
+                )
                 # cat.bars returns iterable of Bar; ensure list
                 seq = list(bars_iter)
                 # If catalog returned objects not Bar, reconstruct from dict-like (fallback)
@@ -343,7 +389,9 @@ class BacktestStage2EngineRunner:
                                     high=Price.from_double(float(r[cix["high"]])),
                                     low=Price.from_double(float(r[cix["low"]])),
                                     close=Price.from_double(float(r[cix["close"]])),
-                                    volume=Quantity.from_double(float(r[cix.get("volume", -1)] if "volume" in cix else 0.0)),
+                                    volume=Quantity.from_double(
+                                        float(r[cix.get("volume", -1)] if "volume" in cix else 0.0),
+                                    ),
                                     ts_event=ts_ns,
                                     ts_init=ts_ns,
                                 ),
@@ -366,9 +414,17 @@ class BacktestStage2EngineRunner:
                                     ),
                                 )
                         except Exception:
-                            return Stage2Result(status="skipped", metrics={}, reason="unsupported df iterator")
+                            return Stage2Result(
+                                status="skipped",
+                                metrics={},
+                                reason="unsupported df iterator",
+                            )
                 except Exception as exc2:
-                    return Stage2Result(status="skipped", metrics={}, reason=f"bar replay failed: {exc2}")
+                    return Stage2Result(
+                        status="skipped",
+                        metrics={},
+                        reason=f"bar replay failed: {exc2}",
+                    )
                 continue
 
             to_replay.extend(seq)
@@ -383,7 +439,7 @@ class BacktestStage2EngineRunner:
         from nautilus_trader.model.enums import OrderSide
         from nautilus_trader.model.enums import TimeInForce
 
-        class _QThresholdStrategy(Strategy):  # type: ignore[misc]
+        class _QThresholdStrategy(Strategy):
             def __init__(self, qmap: dict[str, dict[int, float]], starting_balance: float) -> None:
                 super().__init__()
                 self._qmap = qmap
@@ -396,7 +452,11 @@ class BacktestStage2EngineRunner:
                 inst_id_obj = bar.bar_type.instrument_id
                 inst = str(inst_id_obj)
                 ts = int(bar.ts_event)
-                close = float(bar.close.as_double()) if hasattr(bar.close, "as_double") else float(bar.close)
+                close = (
+                    float(bar.close.as_double())
+                    if hasattr(bar.close, "as_double")
+                    else float(bar.close)
+                )
                 q = self._qmap.get(inst, {}).get(ts)
                 desired = 1 if (q is not None and q >= 0.5) else -1
                 current = self._last_side.get(inst, 0)
@@ -443,7 +503,9 @@ class BacktestStage2EngineRunner:
                             try:
                                 total_pnl += float(m)
                             except Exception:
-                                total_pnl += float(m.as_double()) if hasattr(m, "as_double") else 0.0
+                                total_pnl += (
+                                    float(m.as_double()) if hasattr(m, "as_double") else 0.0
+                                )
                     equity = float(starting_money) + float(total_pnl)
                     self._equity.append(equity)
                     self._flip_marks.append(flip)
@@ -466,11 +528,19 @@ class BacktestStage2EngineRunner:
         eq = getattr(strat, "_equity", [])
         flips = getattr(strat, "_flip_marks", [])
         if not eq or len(eq) < 2:
-            return Stage2Result(status="skipped", metrics={}, reason="no equity snapshots collected")
+            return Stage2Result(
+                status="skipped",
+                metrics={},
+                reason="no equity snapshots collected",
+            )
         arr = np.diff(np.asarray(eq, dtype=np.float64)) / np.asarray(eq[:-1], dtype=np.float64)
         # Apply cost on flips
         try:
-            total_bps = float(getattr(cfg, "cost_bps", 0.0) or 0.0) + float(getattr(cfg, "commission_bps", 0.0) or 0.0) + float(getattr(cfg, "slippage_bps", 0.0) or 0.0)
+            total_bps = (
+                float(getattr(cfg, "cost_bps", 0.0) or 0.0)
+                + float(getattr(cfg, "commission_bps", 0.0) or 0.0)
+                + float(getattr(cfg, "slippage_bps", 0.0) or 0.0)
+            )
             bp = float(total_bps) / 10_000.0
             if flips and len(flips) == arr.size:
                 arr = arr - (np.asarray(flips, dtype=np.float64) * bp)
@@ -481,7 +551,11 @@ class BacktestStage2EngineRunner:
         mu = float(np.mean(arr))
         sigma = float(np.std(arr))
         n = int(arr.size)
-        periods_per_year = 252.0 * 390.0 if int(cfg.horizon_minutes) <= 1 else 252.0 * (390.0 / int(cfg.horizon_minutes))
+        periods_per_year = (
+            252.0 * 390.0
+            if int(cfg.horizon_minutes) <= 1
+            else 252.0 * (390.0 / int(cfg.horizon_minutes))
+        )
         sharpe = float((math.sqrt(periods_per_year) * mu / sigma) if sigma > 0 else 0.0)
         cum = np.cumprod(1.0 + arr)
         run_max = np.maximum.accumulate(cum)
@@ -503,7 +577,10 @@ class BacktestStage2EngineRunner:
         return Stage2Result(status="passed", metrics=metrics)
 
 
+_BACKTEST_ENABLED = os.environ.get("ML_ENABLE_STAGE2_BACKTEST", "0") == "1"
+
+
 def build_engine(mode: Literal["returns", "backtest"]) -> Stage2Engine:
-    if mode == "backtest":
+    if mode == "backtest" and _BACKTEST_ENABLED:
         return BacktestStage2EngineRunner()
     return ReturnsStage2Engine()

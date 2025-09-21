@@ -21,6 +21,32 @@ from typing import Any
 
 
 def main(argv: list[str] | None = None) -> int:
+    """
+    Run the TFT teacher+student training pipeline.
+
+    Parameters
+    ----------
+    argv : list[str] | None, optional
+        Command-line style arguments. When ``None`` (default) the current
+        process arguments are used.
+
+    Returns
+    -------
+    int
+        Zero on success; non-zero when any stage fails.
+
+    Examples
+    --------
+    >>> main([
+    ...     "--symbols", "SPY.NYSE",
+    ...     "--out_dir", "./ml_out",
+    ...     "--teacher_model_id", "tft_teacher_v1",
+    ...     "--student_model_id", "tft_student_v1",
+    ...     "--model_registry_dir", "./ml_registry",
+    ... ])
+    0
+
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default="data/tier1")
     ap.add_argument("--symbols", required=True)
@@ -29,6 +55,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--macro_lag_days", type=int, default=1)
     ap.add_argument("--include_micro", action="store_true")
     ap.add_argument("--include_l2", action="store_true")
+    ap.add_argument("--include_events", action="store_true")
+    ap.add_argument("--include_calendar", action="store_true")
+    ap.add_argument("--fred_vintage_dir", default=None)
+    ap.add_argument("--events_dir", default=None)
+    ap.add_argument("--student_mode", action="store_true")
     ap.add_argument("--horizon_minutes", type=int, default=15)
     ap.add_argument("--threshold", type=float, default=0.001)
     ap.add_argument("--lookback_periods", type=int, default=30)
@@ -45,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--model_registry_dir", required=True)
     ap.add_argument("--student_model_id", required=True)
+    ap.add_argument(
+        "--emit_teacher_predictions",
+        action="store_true",
+        help="Emit placeholder teacher logits from feature NPZ when skipping training",
+    )
     args = ap.parse_args(argv)
 
     out_dir = Path(args.out_dir)
@@ -74,9 +110,44 @@ def main(argv: list[str] | None = None) -> int:
         build_args += ["--include_micro"]
     if args.include_l2:
         build_args += ["--include_l2"]
+    if args.include_events:
+        build_args += ["--include_events"]
+    if args.include_calendar:
+        build_args += ["--include_calendar"]
+    if args.fred_vintage_dir:
+        build_args += ["--fred_vintage_dir", str(args.fred_vintage_dir)]
+    if args.events_dir:
+        build_args += ["--events_dir", str(args.events_dir)]
+    if args.student_mode:
+        build_args += ["--student_mode"]
     rc = build_main(build_args)
     if rc != 0:
         return rc
+
+    features_npz = out_dir / "features_npz.npz"
+    if args.emit_teacher_predictions and args.train_teacher:
+        import logging as _logging
+
+        _logging.getLogger(__name__).info(
+            "Skipping --emit_teacher_predictions because --train_teacher is enabled",
+        )
+    elif args.emit_teacher_predictions:
+        try:
+            from ml.cli.emit_teacher_predictions import main as emit_main
+        except Exception as exc:  # pragma: no cover - dependency issue
+            raise SystemExit(f"emit_teacher_predictions CLI unavailable: {exc}")
+        if not features_npz.exists():
+            raise SystemExit("features_npz.npz missing after dataset build")
+        emit_args = [
+            "--features_npz",
+            str(features_npz),
+            "--out_npz",
+            str(out_dir / "teacher_preds.npz"),
+            "--overwrite",
+        ]
+        rc = emit_main(emit_args)
+        if rc != 0:
+            return rc
 
     # 2) Train teacher and calibrate
     teacher_npz = out_dir / "teacher_preds.npz"
@@ -222,7 +293,6 @@ def main(argv: list[str] | None = None) -> int:
     # 3) Distill student and register
     from ml.training.distillation.cli import main as distill_main
 
-    features_npz = out_dir / "features_npz.npz"
     distill_args = [
         "--features_npz",
         str(features_npz),
