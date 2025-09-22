@@ -654,6 +654,9 @@ builder = TFTDatasetBuilder(
     catalog=catalog,
     symbols=["SPY", "AAPL"],
     feature_store=feature_store,  # Enables training/inference parity
+    # When MLIntegrationManager is available:
+    # data_store=manager.data_store,
+    # market_dataset_id="EQUS.MINI",
     include_macro=True,  # FRED economic indicators
     include_micro=True,  # Microstructure features
     include_l2=True,     # L2 order book features

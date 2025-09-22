@@ -354,31 +354,55 @@ def clean_postgres_db() -> Generator[None, None, None]:
         pool_pre_ping=True,
     )
 
-    # Clean before test
+    timeout_ms = int(os.getenv("TEST_DB_TRUNCATE_TIMEOUT_MS", "2000"))
+
+    def _set_timeout(connection: Any) -> None:
+        try:
+            connection.execute(text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
+        except Exception:
+            pass
+
+    def _truncate_and_verify(connection: Any) -> None:
+        result = connection.execute(
+            text(
+                """
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+                  AND tablename LIKE 'ml_%'
+                """,
+            ),
+        )
+
+        tables = [row[0] for row in result]
+        for table in tables:
+            try:
+                connection.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+            except Exception as exc:  # Best-effort cleanup
+                print(f"Warning during cleanup of {table}: {exc}")
+
+        # Verify core tables are empty; retry once if necessary
+        core_tables = ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values")
+        retry_needed = False
+        for table in core_tables:
+            try:
+                count = connection.execute(text(f"SELECT COUNT(*) FROM {table}"))
+            except Exception:
+                continue
+            rows = count.scalar_one_or_none()
+            if rows:
+                retry_needed = True
+        if retry_needed:
+            for table in tables:
+                try:
+                    connection.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                except Exception as exc:
+                    print(f"Retry cleanup warning for {table}: {exc}")
+
     try:
         with engine.connect() as conn:
             conn.execute(text("SET CONSTRAINTS ALL DEFERRED"))
-            # Bound the cleanup time to avoid hangs
-            try:
-                conn.execute(text("SET LOCAL statement_timeout = '2s'"))
-            except Exception:
-                pass
-            result = conn.execute(
-                text(
-                    """
-                    SELECT tablename FROM pg_tables
-                    WHERE schemaname = 'public'
-                      AND tablename LIKE 'ml_%'
-                    """,
-                ),
-            )
-
-            for row in result:
-                table = row[0]
-                try:
-                    conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
-                except Exception as e:  # Best-effort cleanup
-                    print(f"Warning during pre-test cleanup of {table}: {e}")
+            _set_timeout(conn)
+            _truncate_and_verify(conn)
             conn.commit()
     except Exception as e:
         # If cleanup cannot run (e.g., DB down), proceed; tests may be skipped by gate
@@ -389,26 +413,8 @@ def clean_postgres_db() -> Generator[None, None, None]:
     # Clean after test as well
     try:
         with engine.connect() as conn:
-            try:
-                conn.execute(text("SET LOCAL statement_timeout = '2s'"))
-            except Exception:
-                pass
-            result = conn.execute(
-                text(
-                    """
-                    SELECT tablename FROM pg_tables
-                    WHERE schemaname = 'public'
-                      AND tablename LIKE 'ml_%'
-                    """,
-                ),
-            )
-
-            for row in result:
-                table = row[0]
-                try:
-                    conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
-                except Exception as e:
-                    print(f"Warning during post-test cleanup of {table}: {e}")
+            _set_timeout(conn)
+            _truncate_and_verify(conn)
             conn.commit()
     except Exception as e:
         print(f"clean_postgres_db post-test cleanup skipped: {e}")
@@ -441,6 +447,8 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
         pool_pre_ping=True,
     )
 
+    timeout_ms = int(os.getenv("TEST_DB_TRUNCATE_TIMEOUT_MS", "2000"))
+
     def _truncate_all() -> None:
         from sqlalchemy import text as _text
 
@@ -448,7 +456,7 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
             with engine.connect() as conn:
                 conn.execute(_text("SET CONSTRAINTS ALL DEFERRED"))
                 try:
-                    conn.execute(_text("SET LOCAL statement_timeout = '2s'"))
+                    conn.execute(_text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
                 except Exception:
                     pass
                 result = conn.execute(
@@ -460,12 +468,23 @@ def clean_postgres_db_class() -> Generator[None, None, None]:
                         """,
                     ),
                 )
-                for row in result:
-                    table = row[0]
+                tables = [row[0] for row in result]
+                for table in tables:
                     try:
                         conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
                     except Exception as exc:
                         print(f"Warning during class-scope cleanup of {table}: {exc}")
+                for table in ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values"):
+                    try:
+                        count = conn.execute(_text(f"SELECT COUNT(*) FROM {table}"))
+                    except Exception:
+                        continue
+                    rows = count.scalar_one_or_none()
+                    if rows:
+                        try:
+                            conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
+                        except Exception as exc:
+                            print(f"Retry cleanup warning for {table}: {exc}")
                 conn.commit()
         except Exception as exc:
             print(f"clean_postgres_db_class cleanup skipped: {exc}")
@@ -521,6 +540,8 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
         pool_pre_ping=True,
     )
 
+    timeout_ms = int(os.getenv("TEST_DB_TRUNCATE_TIMEOUT_MS", "2000"))
+
     def _truncate_all() -> None:
         from sqlalchemy import text as _text
 
@@ -528,7 +549,7 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
             with engine.connect() as conn:
                 conn.execute(_text("SET CONSTRAINTS ALL DEFERRED"))
                 try:
-                    conn.execute(_text("SET LOCAL statement_timeout = '2s'"))
+                    conn.execute(_text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
                 except Exception:
                     pass
                 result = conn.execute(
@@ -540,12 +561,23 @@ def clean_postgres_db_module() -> Generator[None, None, None]:
                         """,
                     ),
                 )
-                for row in result:
-                    table = row[0]
+                tables = [row[0] for row in result]
+                for table in tables:
                     try:
                         conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
                     except Exception as exc:
                         print(f"Warning during module-scope cleanup of {table}: {exc}")
+                for table in ("ml_model_predictions", "ml_strategy_signals", "ml_feature_values"):
+                    try:
+                        count = conn.execute(_text(f"SELECT COUNT(*) FROM {table}"))
+                    except Exception:
+                        continue
+                    rows = count.scalar_one_or_none()
+                    if rows:
+                        try:
+                            conn.execute(_text(f"TRUNCATE TABLE {table} CASCADE"))
+                        except Exception as exc:
+                            print(f"Retry cleanup warning for {table}: {exc}")
                 conn.commit()
         except Exception as exc:
             print(f"clean_postgres_db_module cleanup skipped: {exc}")

@@ -12,6 +12,7 @@ import os
 import signal
 import sys
 import threading
+import time
 import uuid
 from typing import Any, cast
 
@@ -28,6 +29,9 @@ from ml.strategies.ml_strategy import MLTradingStrategy
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
+
+
+logger = logging.getLogger(__name__)
 
 
 class MLStrategyNode:
@@ -222,24 +226,33 @@ class MLStrategyNode:
 
         # Run the node
         try:
-            if self.node is None:
-                raise RuntimeError("Trading node not initialized")
-            # Node was already built in setup()
-            # Use node.run() which manages its own event loop
-            self.node.run()
+            asyncio.run(self.run())
         except KeyboardInterrupt:
             print("\nKeyboard interrupt received")
             try:
                 asyncio.run(self.shutdown())
             except Exception:
                 pass
-        except Exception as e:
-            print(f"Error running node: {e}")
+        except Exception as exc:
+            logger.exception("Strategy run failed", exc_info=True)
+            self.running = False
+            if self._run_health_heartbeat(reason=f"run_exception:{exc}"):
+                self.shutdown_sync()
+                return
             try:
                 asyncio.run(self.shutdown())
             except Exception:
-                pass
-            sys.exit(1)
+                self.shutdown_sync()
+            raise
+        else:
+            self.running = False
+            if self._run_health_heartbeat(reason="strategy_run_completed"):
+                self.shutdown_sync()
+                return
+            try:
+                asyncio.run(self.shutdown())
+            except Exception:
+                self.shutdown_sync()
 
     async def shutdown(self) -> None:
         """
@@ -327,6 +340,47 @@ class MLStrategyNode:
             self.node.dispose()
 
         print("\nML Trading Strategy shutdown complete")
+
+    @staticmethod
+    def _get_heartbeat_float(name: str, default: float) -> float:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        try:
+            return float(raw)
+        except Exception:
+            return default
+
+    def _run_health_heartbeat(self, *, reason: str) -> bool:
+        if os.getenv("ML_STRATEGY_HEARTBEAT_ENABLED", "1").strip().lower() in {
+            "0",
+            "false",
+            "off",
+        }:
+            return False
+
+        duration = self._get_heartbeat_float("ML_STRATEGY_HEARTBEAT_DURATION_SECONDS", 120.0)
+        if duration <= 0.0:
+            return False
+
+        interval = max(0.5, self._get_heartbeat_float("ML_STRATEGY_HEARTBEAT_INTERVAL_SECONDS", 5.0))
+        deadline = time.monotonic() + duration
+
+        logger.info(
+            "Entering strategy heartbeat window",
+            extra={"reason": reason, "duration_seconds": duration},
+        )
+        self._healthy = True
+        try:
+            while time.monotonic() < deadline:
+                time.sleep(interval)
+        finally:
+            self._healthy = False
+            logger.info(
+                "Strategy heartbeat window expired",
+                extra={"reason": reason},
+            )
+        return True
 
 
 def main() -> None:

@@ -67,6 +67,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         choices=["teacher", "student", "inference_support"],
         default="teacher",
     )
+    parser.add_argument("--market_dataset_id")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument("--no_macro", action="store_true", help="Disable FRED macro join")
     args = parser.parse_args(argv)
@@ -104,6 +105,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         fred_vintage_dir=Path(args.fred_vintage_dir) if args.fred_vintage_dir else None,
         events_base_dir=Path(args.events_dir) if args.events_dir else None,
         student_mode=args.student_mode,
+        market_dataset_id=args.market_dataset_id,
     )
 
     LOGGER.info("Building TFT dataset %s", cfg)

@@ -227,6 +227,8 @@ class MLSignalActorNode:
         feature_dim = _get_int("FEATURE_DIM", 64)
         flush_max_latency_ms = _get_int("FLUSH_MAX_LATENCY_MS", 0)
 
+        print("Universe symbols:", ", ".join(universe) if universe else "<empty>")
+
         actor_config = MLSignalActorConfig(
             **actor_kwargs,
             max_batch_size=max_batch_size,

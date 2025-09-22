@@ -44,7 +44,11 @@ The scheduler invokes the orchestrator: `python -m ml.cli.pipeline_orchestrator`
 Key flags:
 
 - Ingestion/backfill (optional): `--ingest`, `--dataset_id`, `--schema`, `--instruments`, `--lookback_days`
-- Coverage/Writer: `--coverage_mode catalog|sql`, `--catalog_path`, `--db`, `--write_mode parquet|datastore`
+- Coverage/Writer: `--coverage_mode catalog|sql`, `--catalog_path`, `--db`
+    - The DataStore/Registry stack is mandatory. The orchestrator always writes
+      via `DataStoreMarketDataWriter`. `--write_mode parquet` enables an
+      additional mirror into the Parquet catalog; `--write_mode datastore`
+      keeps writes confined to the store.
   - Macro refresh: `--skip_macro_refresh`, `--macro_freshness_hours`, `--macro_series_ids`, `--macro_fred_path`
   - Vintage policy: `--vintage_policy real_time|final`, `--vintage_as_of <ISO8601>` to control ALFRED revisions
   - Instrument resolution: `--instrument_ids`

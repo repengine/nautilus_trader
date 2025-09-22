@@ -54,10 +54,13 @@ from ml.registry.protocols import RegistryProtocol
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.io_raw import RawIngestionWriterProtocol
 from ml.stores.protocols import CoverageProviderProtocol
+from ml.stores.protocols import DataStoreFacadeProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
+from ml.stores.providers import DAY_NS
 from ml.stores.providers import CatalogCoverageProvider
 from ml.stores.providers import SqlCoverageProvider
 from ml.stores.writers import DataStoreMarketDataWriter
+from ml.stores.writers import FanoutMarketDataWriter
 from ml.stores.writers import ParquetCatalogMarketDataWriter
 from ml.tasks.ingest import PopulateL2TaskConfig
 from ml.tasks.ingest import populate_l2_efficient
@@ -101,6 +104,7 @@ class DatasetBuildConfig:
     symbols: str
     out_dir: str
     dataset_id: str = "tft_dataset"
+    market_dataset_id: str | None = None
     instrument_ids: tuple[str, ...] | None = None
     include_macro: bool = False
     macro_lag_days: int = 1
@@ -514,11 +518,18 @@ class MLPipelineOrchestrator:
                 lookback_days=lookback_days,
             )
             if gaps:
-                status = "error"
-                raise RuntimeError(
-                    "Auto-fill completed with unresolved coverage gaps "
-                    f"(dataset={dataset_id} schema={schema} instrument={instrument_id} gaps={len(gaps)})",
+                unresolved = self._remaining_coverage_gaps(
+                    dataset_id=dataset_id,
+                    schema=schema,
+                    instrument_id=instrument_id,
+                    lookback_days=lookback_days,
                 )
+                if unresolved:
+                    status = "error"
+                    raise RuntimeError(
+                        "Auto-fill completed with unresolved coverage gaps "
+                        f"(dataset={dataset_id} schema={schema} instrument={instrument_id} gaps={len(unresolved)})",
+                    )
             logger.info(
                 "Auto-fill %s complete | instrument=%s dataset=%s gaps=%d lookback_days=%d",
                 schema,
@@ -544,6 +555,32 @@ class MLPipelineOrchestrator:
             metrics.latency_seconds.labels(schema=schema).observe(
                 time.perf_counter() - start_time,
             )
+
+    def _remaining_coverage_gaps(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        lookback_days: int,
+    ) -> list[tuple[int, int]]:
+        now_ns = int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
+        start_ns = now_ns - int(lookback_days) * DAY_NS
+        covered = self.coverage.read_bucket_coverage(
+            dataset_id=dataset_id,
+            schema=schema,
+            instrument_id=instrument_id,
+            start_ns=start_ns,
+            end_ns=now_ns,
+        )
+        start_bucket = start_ns // DAY_NS
+        end_bucket_candidate = ((now_ns - DAY_NS) // DAY_NS) - 1
+        end_bucket = int(start_bucket) if end_bucket_candidate < start_bucket else int(end_bucket_candidate)
+        gaps: list[tuple[int, int]] = []
+        for bucket in range(int(start_bucket), end_bucket + 1):
+            if bucket not in covered:
+                gaps.append((bucket * DAY_NS, (bucket + 1) * DAY_NS))
+        return gaps
 
     def _auto_fill_l2(
         self,
@@ -906,6 +943,7 @@ class MLPipelineOrchestrator:
                     None if cfg.feature_registry_dir is None else Path(cfg.feature_registry_dir)
                 ),
                 feature_role=cfg.feature_role,
+                market_dataset_id=cfg.market_dataset_id,
                 auto_refresh_macro=cfg.auto_refresh_macro,
                 macro_staleness_hours=cfg.macro_staleness_hours,
                 macro_series_ids=cfg.macro_series_ids,
@@ -924,7 +962,10 @@ class MLPipelineOrchestrator:
                 bool(cfg.fred_vintage_dir),
                 bool(cfg.events_dir),
             )
-            result = api_build(api_cfg)
+            result = api_build(
+                api_cfg,
+                data_store=cast("DataStoreFacadeProtocol | None", self.data_store),
+            )
             if not result.feature_names:
                 raise ValueError("API dataset build returned no features; falling back to CLI")
             manifest_id = self._export_feature_manifest(cfg, result)
@@ -1010,6 +1051,8 @@ class MLPipelineOrchestrator:
             args += ["--student_mode"]
         if cfg.instrument_ids:
             args += ["--instrument_ids", ",".join(cfg.instrument_ids)]
+        if cfg.market_dataset_id:
+            args += ["--market_dataset_id", cfg.market_dataset_id]
         if not cfg.auto_refresh_macro:
             args += ["--skip_macro_refresh"]
         if cfg.macro_staleness_hours != 24:
@@ -1818,7 +1861,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
 
     # Writer mode for ingestion
-    parser.add_argument("--write_mode", default="parquet", choices=["parquet", "datastore"])
+    parser.add_argument(
+        "--write_mode",
+        default="parquet",
+        choices=["parquet", "datastore"],
+        help="Mirror DataStore writes to Parquet (parquet) or keep datastore-only persistence",
+    )
 
     # Dataset build
     parser.add_argument("--data_dir", default="data/tier1")
@@ -1834,6 +1882,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--instrument_ids",
         default=None,
         help="Comma-separated instrument identifiers (symbol.exchange)",
+    )
+    parser.add_argument(
+        "--market_dataset_id",
+        default=None,
+        help="Identifier for the canonical market data dataset (defaults to auto-fill dataset)",
     )
     parser.add_argument(
         "--skip_macro_refresh",
@@ -2100,59 +2153,62 @@ def main(argv: Sequence[str] | None = None) -> int:
     _run_id: str = f"orch_{_uuid.uuid4().hex[:12]}"
     bind_log_context(run_id=_run_id, component="ml.pipeline_orchestrator")
 
-    # Coverage provider
+    from ml.core.integration import MLIntegrationManager
+
+    mgr = MLIntegrationManager(
+        db_connection=args.db,
+        auto_start_postgres=False,
+        auto_migrate=False,
+        ensure_healthy=False,
+    )
+    if mgr.data_store is None:
+        raise SystemExit("DataStore unavailable; configure ML_DB_CONNECTION for pipeline orchestration")
+    if mgr.data_registry is None:
+        raise SystemExit("DataRegistry unavailable; configure ML_DB_CONNECTION for pipeline orchestration")
+
+    registry = mgr.data_registry
+    manifest_resolver = None
+    if registry is not None and hasattr(registry, "get_manifest"):
+        manifest_resolver = cast(RegistryProtocol, registry).get_manifest
+
+    parquet_catalog: Any | None = None
+    raw_writer: RawIngestionWriterProtocol | None = None
+    if args.catalog_path:
+        try:
+            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+
+            parquet_catalog = ParquetDataCatalog(args.catalog_path)
+        except Exception as exc:  # pragma: no cover - import env issue
+            raise SystemExit(f"ParquetDataCatalog unavailable: {exc}")
+        raw_writer = ParquetCatalogRawWriter(parquet_catalog)
+
     coverage: CoverageProviderProtocol
     if args.coverage_mode == "catalog":
-        if not args.catalog_path:
+        if parquet_catalog is None:
             raise SystemExit("catalog_path is required for catalog coverage mode")
         coverage = CatalogCoverageProvider(catalog_path=args.catalog_path)
     else:
         coverage = SqlCoverageProvider(connection_string=args.db)
 
-    # Writer selection
-    writer: MarketDataWriterProtocol
-    raw_writer: RawIngestionWriterProtocol | None = None
-    integration_factory: Callable[..., IntegrationManagerProtocol] | None = None
-    if args.write_mode == "datastore":
-        from ml.core.integration import MLIntegrationManager
-
-        mgr = MLIntegrationManager(
-            db_connection=args.db,
-            auto_start_postgres=False,
-            auto_migrate=False,
-            ensure_healthy=False,
+    primary_writer = DataStoreMarketDataWriter(store=mgr.data_store)  # type: ignore[arg-type]
+    mirror_writers: tuple[MarketDataWriterProtocol, ...]
+    if args.write_mode == "parquet":
+        if parquet_catalog is None:
+            raise SystemExit("catalog_path is required when write_mode=parquet")
+        mirror_writers = (
+            ParquetCatalogMarketDataWriter(
+                catalog=parquet_catalog,
+                manifest_resolver=manifest_resolver,
+            ),
         )
-        if mgr.data_store is None:
-            raise SystemExit("DataStore unavailable; use parquet write_mode or set CATALOG_PATH")
-        writer = DataStoreMarketDataWriter(store=mgr.data_store)  # type: ignore[arg-type]
-        registry = mgr.data_registry
-        integration_factory = cast(Callable[..., IntegrationManagerProtocol], MLIntegrationManager)
     else:
-        try:
-            from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-        except Exception as exc:  # pragma: no cover - import env issue
-            raise SystemExit(f"ParquetDataCatalog unavailable: {exc}")
-        if not args.catalog_path:
-            raise SystemExit("catalog_path is required for parquet write_mode")
-        catalog = ParquetDataCatalog(args.catalog_path)
-        from ml.core.integration import MLIntegrationManager
+        mirror_writers = ()
 
-        mgr = MLIntegrationManager(
-            db_connection=args.db,
-            auto_start_postgres=False,
-            auto_migrate=False,
-            ensure_healthy=False,
-        )
-        registry = mgr.data_registry
-        manifest_resolver = None
-        if registry is not None and hasattr(registry, "get_manifest"):
-            manifest_resolver = cast(RegistryProtocol, registry).get_manifest
-        writer = ParquetCatalogMarketDataWriter(
-            catalog=catalog,
-            manifest_resolver=manifest_resolver,
-        )
-        raw_writer = ParquetCatalogRawWriter(catalog)
-        integration_factory = cast(Callable[..., IntegrationManagerProtocol], MLIntegrationManager)
+    writer = FanoutMarketDataWriter(primary=primary_writer, mirrors=mirror_writers)
+    integration_factory: Callable[..., IntegrationManagerProtocol] | None = cast(
+        Callable[..., IntegrationManagerProtocol],
+        MLIntegrationManager,
+    )
 
     ingestor: object | None = None
     ingestion_service: DatabentoIngestionService | None = None
@@ -2285,11 +2341,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as exc:
         raise SystemExit(f"Invalid vintage_policy: {args.vintage_policy}") from exc
 
+    market_dataset_id = (
+        args.market_dataset_id
+        or getattr(args, "auto_fill_dataset_id", None)
+        or getattr(args, "dataset_id", "")
+    )
+
     ds_cfg = DatasetBuildConfig(
         data_dir=str(data_dir_effective),
         symbols=str(args.symbols),
         out_dir=str(args.out_dir),
         dataset_id=str(getattr(args, "dataset_id", "tft_dataset")),
+        market_dataset_id=str(market_dataset_id) if market_dataset_id else None,
         include_macro=bool(args.include_macro),
         macro_lag_days=int(args.macro_lag_days),
         include_micro=bool(args.include_micro),

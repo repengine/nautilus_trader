@@ -205,7 +205,8 @@ Notes:
 - Ingestion:
   - `--coverage_mode catalog` uses Parquet catalog coverage (requires `--catalog_path`).
   - `--coverage_mode sql` uses SQL coverage (requires `--db`).
-  - `--write_mode parquet` writes raw data to Parquet; `--write_mode datastore` uses `DataStore` (with adapters when `CATALOG_PATH` is set via `MLIntegrationManager`).
+- `--write_mode parquet` mirrors writes to both DataStore and Parquet; `--write_mode datastore`
+  keeps writes in the store only.
   - Set `DATABENTO_API_KEY` to enable Databento API; when missing, ingestion is skipped.
 
 - Dataset build, HPO, and training reuse in-process CLIs and respect all repo standards (typed, strict, and off hot paths).

@@ -33,7 +33,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ml.preprocessing.event_ingestion import EventIngestionConfig
     from ml.stores.feature_store import FeatureStore
     from ml.stores.infrastructure import PartitionManager
-    from ml.stores.io_raw import ParquetCatalogRawReader
     from ml.stores.io_raw import ParquetCatalogRawWriter
     from ml.stores.model_store import ModelStore
     from ml.stores.strategy_store import StrategyStore
@@ -46,9 +45,9 @@ from ml.stores.file_backed import FileFeatureStore
 from ml.stores.file_backed import FileModelStore
 from ml.stores.file_backed import FileStrategyStore
 from ml.stores.infrastructure import PartitionManager
-from ml.stores.io_raw import ParquetCatalogRawReader
 from ml.stores.io_raw import ParquetCatalogRawWriter
 from ml.stores.model_store import ModelStore
+from ml.stores.providers import SqlMarketDataReader
 from ml.stores.strategy_store import StrategyStore
 
 
@@ -443,18 +442,19 @@ class MLIntegrationManager:
             return
 
         # Now initialize DataStore with the registry (DB path)
-        # Optionally attach raw adapters when a catalog path is provided
-        raw_reader = None
+        # Attach SQL reader by default and optionally mirror to Parquet catalog
+        table_name = os.getenv("TABLE_NAME", "market_data")
+        raw_reader = SqlMarketDataReader(
+            connection_string=self.db_connection,
+            table_name=table_name,
+        )
         raw_writer = None
         try:  # best-effort; keep init resilient
-            import os
-
             from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
             catalog_path = os.getenv("CATALOG_PATH", "").strip()
             if catalog_path:
                 catalog = ParquetDataCatalog(catalog_path)
-                raw_reader = ParquetCatalogRawReader(catalog)
                 raw_writer = ParquetCatalogRawWriter(catalog)
         except Exception:
             logger.debug("Parquet catalog adapters not attached", exc_info=True)

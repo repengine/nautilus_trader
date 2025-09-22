@@ -182,6 +182,66 @@ class ParquetCatalogMarketDataWriter(MarketDataWriterProtocol):
         return self.default_bar_type_template
 
 
+@dataclass(slots=True)
+class FanoutMarketDataWriter(MarketDataWriterProtocol):
+    """
+    Route market data writes to a primary writer with optional mirror writers.
+
+    Examples
+    --------
+    >>> primary = DataStoreMarketDataWriter(store=data_store)
+    >>> mirror = ParquetCatalogMarketDataWriter(catalog=catalog)
+    >>> writer = FanoutMarketDataWriter(primary=primary, mirrors=(mirror,))
+    >>> writer.write(
+    ...     dataset_id="EQUS.MINI",
+    ...     schema="ohlcv-1m",
+    ...     instrument_id="SPY.NYSE",
+    ...     df=pd.DataFrame(...),
+    ... )
+    42
+    """
+
+    primary: MarketDataWriterProtocol
+    mirrors: tuple[MarketDataWriterProtocol, ...] = ()
+
+    def write(
+        self,
+        *,
+        dataset_id: str,
+        schema: str,
+        instrument_id: str,
+        df: pd.DataFrame,
+    ) -> int:
+        result = self.primary.write(
+            dataset_id=dataset_id,
+            schema=schema,
+            instrument_id=instrument_id,
+            df=df,
+        )
+        if not self.mirrors or df is None or df.empty:
+            return result
+        for mirror in self.mirrors:
+            try:
+                mirror.write(
+                    dataset_id=dataset_id,
+                    schema=schema,
+                    instrument_id=instrument_id,
+                    df=df,
+                )
+            except Exception:
+                logger.warning(
+                    "Mirror market data write failed",
+                    exc_info=True,
+                    extra={
+                        "dataset_id": dataset_id,
+                        "schema": schema,
+                        "instrument_id": instrument_id,
+                        "mirror": mirror.__class__.__name__,
+                    },
+                )
+        return result
+
+
 class LiveDataRecorder:
     """
     Automatically records all live data flowing through the system.
@@ -562,6 +622,7 @@ class LiveDataInterceptor:
 
 __all__ = [
     "DataStoreMarketDataWriter",
+    "FanoutMarketDataWriter",
     "LiveDataInterceptor",
     "LiveDataRecorder",
     "ParquetCatalogMarketDataWriter",

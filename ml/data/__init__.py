@@ -289,6 +289,7 @@ import numpy as np
 from ml.data.vintage import VintagePolicy
 from ml.data.vintage import format_dt
 from ml.data.vintage import parse_dt
+from ml.stores.protocols import DataStoreFacadeProtocol
 
 
 # (Avoid importing optional deps here; import lazily inside functions)
@@ -306,6 +307,7 @@ class DatasetBuildConfig:
     out_dir: Path
     symbols: list[str]
     dataset_id: str = "tft_dataset"
+    market_dataset_id: str | None = None
     instrument_ids: list[str] | None = None
     # Feature options
     include_macro: bool = True
@@ -691,9 +693,22 @@ def _validate_dataset_metadata(metadata: DatasetMetadata) -> None:
         if end and overall_end and end > overall_end:
             raise ValueError(f"{label}_window ends after overall window")
 
-def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
+def build_tft_dataset(
+    cfg: DatasetBuildConfig,
+    *,
+    data_store: DataStoreFacadeProtocol | None = None,
+) -> BuildResult:
     """
     Build a TFT dataset and persist artifacts under `cfg.out_dir`.
+
+    Parameters
+    ----------
+    cfg : DatasetBuildConfig
+        Dataset configuration describing the output location and build options.
+    data_store : DataStoreFacadeProtocol, optional
+        Canonical DataStore for loading raw market data. When provided, the
+        builder reads OHLCV data via the store and falls back to the catalog
+        only if the store returns no rows.
     """
     from ml._imports import check_ml_dependencies
     from ml._imports import pl
@@ -762,6 +777,8 @@ def build_tft_dataset(cfg: DatasetBuildConfig) -> BuildResult:
         macro_series_ids=cfg.macro_series_ids,
         vintage_policy=cfg.vintage_policy,
         vintage_as_of=vintage_as_of,
+        data_store=data_store,
+        market_dataset_id=cfg.market_dataset_id,
     )
 
     # Optional chunked build (date slices)

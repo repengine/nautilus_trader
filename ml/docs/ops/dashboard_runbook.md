@@ -100,6 +100,16 @@ endpoints. All workflows rely on the existing infra components described in
   P95, Grafana provisioning success rate, and registry latency P95. Use
   `evaluate_success_criteria()` to receive a pass/fail summary against the
   roadmap thresholds.
+- Strategy heartbeat fallback: the dry-run strategy container now advertises a
+  temporary heartbeat (`ML_STRATEGY_HEARTBEAT_DURATION_SECONDS`, default 120)
+  before marking `/health` unhealthy and shutting down. Use
+  `ML_STRATEGY_HEARTBEAT_INTERVAL_SECONDS` to tune the sleep cadence or set
+  `ML_STRATEGY_HEARTBEAT_ENABLED=0` to disable the behavior entirely.
+- One-shot bootstrap: run `python -m ml.cli.dashboard_welcome` to start the
+  docker-compose stack (`ml/deployment/docker-compose.yml`) and display a
+  consolidated health summary / quick links for the dashboard UI, Grafana, and
+  Prometheus. Pass `--status-only` to skip `docker compose up` and inspect an
+  already running deployment.
 
 ## Troubleshooting
 

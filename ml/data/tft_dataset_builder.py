@@ -26,6 +26,7 @@ from ml.data.micro_cache import MicroMinuteCache
 from ml.data.providers.utils import cyclic_encode
 from ml.data.vintage import VintagePolicy
 from ml.stores.feature_store import FeatureStore
+from ml.stores.protocols import DataStoreFacadeProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
@@ -60,6 +61,8 @@ class TFTDatasetBuilder:
         feature_config: MLFeatureConfig | None = None,
         feature_store: FeatureStore | None = None,
         *,
+        data_store: DataStoreFacadeProtocol | None = None,
+        market_dataset_id: str | None = None,
         include_macro: bool = False,
         macro_lag_days: int = 1,
         fred_path: str | None = None,
@@ -89,6 +92,13 @@ class TFTDatasetBuilder:
             Feature engineering configuration
         feature_store : FeatureStore, optional
             Feature store for reading pre-computed features (ensures training/inference parity)
+        data_store : DataStoreFacadeProtocol, optional
+            Canonical DataStore for reading raw market data. When provided, the builder
+            reads OHLCV from the store and only falls back to the catalog or on-disk
+            parquet files when the store lacks data.
+        market_dataset_id : str | None, optional
+            Dataset identifier registered in the DataRegistry that represents the raw
+            market data. Required when `data_store` is provided.
 
         """
         self.catalog = catalog
@@ -103,6 +113,8 @@ class TFTDatasetBuilder:
                 self._symbol_instrument_map.setdefault(inst, []).append(inst)
         self.feature_config = feature_config or MLFeatureConfig()
         self.feature_store = feature_store
+        self.data_store = data_store
+        self.market_dataset_id = market_dataset_id
         self.include_macro = include_macro
         self.macro_lag_days = macro_lag_days
         self.fred_path = fred_path
@@ -136,6 +148,107 @@ class TFTDatasetBuilder:
             f"Initialized TFTDatasetBuilder with {len(symbols)} symbols "
             f"(FeatureStore: {'enabled' if feature_store else 'disabled'})",
         )
+
+    def _store_enabled(self) -> bool:
+        return self.data_store is not None and bool(self.market_dataset_id)
+
+    @staticmethod
+    def _datetime_to_ns(value: datetime | None, *, fallback: int) -> int:
+        if value is None:
+            return fallback
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        else:
+            value = value.astimezone(UTC)
+        return int(value.timestamp() * 1_000_000_000)
+
+    @staticmethod
+    def _now_ns() -> int:
+        return int(datetime.now(tz=UTC).timestamp() * 1_000_000_000)
+
+    def _to_polars(self, data: Any) -> _pl.DataFrame:
+        if pl is not None and isinstance(data, pl.DataFrame):
+            return data
+        if pd is not None and isinstance(data, pd.DataFrame):
+            return pl.from_pandas(data)
+        raise TypeError(f"Unsupported data type for Polars conversion: {type(data)!r}")
+
+    def _load_bars_dataframe(
+        self,
+        instrument_id: str,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> _pl.DataFrame:
+        if self._store_enabled():
+            try:
+                start_ns = self._datetime_to_ns(start, fallback=0)
+                end_ns = self._datetime_to_ns(end, fallback=self._now_ns())
+                assert self.data_store is not None
+                dataset_id = cast(str, self.market_dataset_id)
+                raw = self.data_store.read_range(
+                    dataset_id=dataset_id,
+                    instrument_id=instrument_id,
+                    start_ns=start_ns,
+                    end_ns=end_ns,
+                )
+                frame = self._to_polars(raw)
+                if not frame.is_empty():
+                    if "timestamp" not in frame.columns and "ts_event" in frame.columns:
+                        frame = frame.rename({"ts_event": "timestamp"})
+                    keep = [
+                        col
+                        for col in (
+                            "instrument_id",
+                            "timestamp",
+                            "ts_init",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "volume",
+                            "bid",
+                            "ask",
+                            "bid_size",
+                            "ask_size",
+                            "last",
+                            "trade_count",
+                            "vwap",
+                        )
+                        if col in frame.columns
+                    ]
+                    frame = frame.select(keep)
+                    return frame
+            except Exception:
+                logger.warning(
+                    "DataStore read_range failed; falling back to catalog",
+                    exc_info=True,
+                    extra={"instrument_id": instrument_id},
+                )
+
+        try:
+            return bars_to_dataframe(
+                self.catalog,
+                [instrument_id],
+                start=start,
+                end=end,
+            )
+        except Exception:  # pragma: no cover - catalog fallback path
+            logger.debug(
+                "Parquet catalog read failed",
+                exc_info=True,
+                extra={"instrument_id": instrument_id},
+            )
+            return pl.DataFrame(
+                {
+                    "instrument_id": [],
+                    "timestamp": [],
+                    "open": [],
+                    "high": [],
+                    "low": [],
+                    "close": [],
+                    "volume": [],
+                },
+            )
 
     def _resolve_instrument_ids(self, override: list[str] | None = None) -> list[str]:
         if override:
@@ -247,11 +360,10 @@ class TFTDatasetBuilder:
                 )
 
                 # Load corresponding bars for target generation and additional features
-                bars_df = bars_to_dataframe(
-                    self.catalog,
-                    [instrument_id],
-                    start=start,
-                    end=end,
+                bars_df = self._load_bars_dataframe(
+                    instrument_id,
+                    start,
+                    end,
                 )
 
                 if bars_df.is_empty():
@@ -667,7 +779,7 @@ class TFTDatasetBuilder:
                     instrument_candidates = [f"{symbol}.{venue}" for venue in candidate_venues]
                 for instrument_id in instrument_candidates:
                     try:
-                        df = bars_to_dataframe(self.catalog, [instrument_id], start=start, end=end)
+                        df = self._load_bars_dataframe(instrument_id, start, end)
                         if not df.is_empty():
                             break
                     except Exception as e_inner:  # pragma: no cover - catalog differences

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any, Final, cast
@@ -17,12 +18,15 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from ml.core.db_engine import EngineManager
+from ml.registry.dataclasses import DatasetType
+from ml.stores.io_raw import RawReaderProtocol
 from ml.stores.protocols import CoverageProviderProtocol
 from ml.stores.protocols import MarketDataWriterProtocol
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 
 DAY_NS: Final[int] = 86_400_000_000_000
+logger = logging.getLogger(__name__)
 
 
 def _schema_to_dataclass(schema: str) -> type[Any]:
@@ -214,9 +218,143 @@ class SqlMarketDataWriter(MarketDataWriterProtocol):
         return len(records)
 
 
+@dataclass(slots=True)
+class SqlMarketDataReader(RawReaderProtocol):
+    """Read market data ranges from the canonical SQL store."""
+
+    connection_string: str
+    table_name: str = "market_data"
+    _engine: Engine = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._engine = EngineManager.get_engine(self.connection_string)
+
+    def read_range(
+        self,
+        *,
+        dataset_type: DatasetType,
+        instrument_id: str,
+        start_ns: int,
+        end_ns: int,
+    ) -> Any:
+        if start_ns >= end_ns:
+            raise ValueError(
+                f"Invalid range for SQL market data read ({start_ns=} >= {end_ns=})",
+            )
+
+        query = text(
+            f"""
+            SELECT
+                instrument_id,
+                ts_event,
+                ts_init,
+                open,
+                high,
+                low,
+                close,
+                volume,
+                bid,
+                ask,
+                bid_size,
+                ask_size,
+                last,
+                trade_count,
+                vwap
+            FROM {self.table_name}
+            WHERE instrument_id = :instrument_id
+              AND ts_event >= :start_ns
+              AND ts_event < :end_ns
+            ORDER BY ts_event
+            """,
+        )
+        params = {
+            "instrument_id": instrument_id,
+            "start_ns": int(start_ns),
+            "end_ns": int(end_ns),
+        }
+
+        with self._engine.connect() as conn:
+            frame = pd.read_sql_query(query, conn, params=params)
+
+        if frame.empty:
+            return self._empty_frame()
+
+        numeric_cols = [
+            col
+            for col in (
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "bid",
+                "ask",
+                "bid_size",
+                "ask_size",
+                "last",
+                "trade_count",
+                "vwap",
+            )
+            if col in frame.columns
+        ]
+        if numeric_cols:
+            frame[numeric_cols] = frame[numeric_cols].apply(pd.to_numeric, errors="coerce")
+
+        frame = frame.rename(columns={"ts_event": "timestamp"})
+        frame["instrument_id"] = frame["instrument_id"].astype(str)
+
+        try:
+            from ml._imports import HAS_POLARS
+            from ml._imports import pl
+
+            if not HAS_POLARS or pl is None:
+                raise ImportError
+        except ImportError:
+            return frame
+
+        if frame.empty:
+            return pl.DataFrame(schema={col: frame.dtypes[col] for col in frame.columns})
+
+        try:
+            return pl.from_pandas(frame, include_index=False)
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("Failed to convert SQL market data frame to polars", exc_info=True)
+            return frame
+
+    def _empty_frame(self) -> Any:
+        columns = [
+            "instrument_id",
+            "timestamp",
+            "ts_init",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "bid",
+            "ask",
+            "bid_size",
+            "ask_size",
+            "last",
+            "trade_count",
+            "vwap",
+        ]
+        empty = pd.DataFrame({col: [] for col in columns})
+        try:
+            from ml._imports import HAS_POLARS
+            from ml._imports import pl
+
+            if not HAS_POLARS or pl is None:
+                raise ImportError
+            return pl.DataFrame({col: [] for col in columns})
+        except Exception:
+            return empty
+
+
 __all__ = [
     "DAY_NS",
     "CatalogCoverageProvider",
     "SqlCoverageProvider",
+    "SqlMarketDataReader",
     "SqlMarketDataWriter",
 ]

@@ -53,6 +53,7 @@ class TFTDatasetTaskConfig:
     macro_series_ids: tuple[str, ...] | None = None
     macro_fred_path: Path | None = None
     validation: DatasetValidationConfig | None = None
+    market_dataset_id: str | None = None
 
 
 def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
@@ -88,6 +89,7 @@ def build_tft_dataset(cfg: TFTDatasetTaskConfig) -> BuildResult:
         macro_series_ids=cfg.macro_series_ids,
         macro_fred_path=cfg.macro_fred_path,
         validation=cfg.validation,
+        market_dataset_id=cfg.market_dataset_id,
     )
     return _build_tft_dataset(dataset_cfg)
 

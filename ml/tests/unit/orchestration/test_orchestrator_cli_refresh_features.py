@@ -23,12 +23,29 @@ def test_orchestrator_cli_refresh_features(monkeypatch: object, tmp_path: Path) 
     import ml.cli.pipeline_orchestrator as orch_mod
     import ml.core.integration as core_integ
 
+    class _Store:
+        def write_ingestion(
+            self,
+            *,
+            dataset_id: str,
+            records: object,
+            source: str,
+            run_id: str,
+            instrument_id: str,
+        ) -> None:
+            return None
+
     class _Mgr:
         def __init__(self, *args: object, **kwargs: object) -> None:
             self.data_registry = object()
             self.model_registry = object()
             self.feature_registry = object()
-            self.data_store = object()
+            self.strategy_registry = object()
+            self.feature_store = object()
+            self.model_store = object()
+            self.strategy_store = object()
+            self.partition_manager = object()
+            self.data_store = _Store()
 
     cast(Any, orch_mod).MLIntegrationManager = _Mgr
     cast(Any, core_integ).MLIntegrationManager = _Mgr

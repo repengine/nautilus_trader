@@ -62,12 +62,40 @@ def test_orchestrator_cli_promotions(monkeypatch: object, tmp_path: Path) -> Non
     import ml.cli.pipeline_orchestrator as orch_cli_mod
 
     # Stub IntegrationManager used by CLI to avoid DB dependencies
+    class _StubStore:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def write_ingestion(
+            self,
+            *,
+            dataset_id: str,
+            records: object,
+            source: str,
+            run_id: str,
+            instrument_id: str,
+        ) -> None:
+            self.calls.append(
+                {
+                    "dataset_id": dataset_id,
+                    "records": records,
+                    "source": source,
+                    "run_id": run_id,
+                    "instrument_id": instrument_id,
+                },
+            )
+
     class _StubMgr:
         def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: D401 - simple stub
             self.data_registry = object()
             self.model_registry = object()
             self.feature_registry = object()
-            self.data_store = object()
+            self.strategy_registry = object()
+            self.feature_store = object()
+            self.model_store = object()
+            self.strategy_store = object()
+            self.partition_manager = object()
+            self.data_store = _StubStore()
 
     cast(Any, orch_cli_mod).MLIntegrationManager = _StubMgr
     import ml.core.integration as core_integ
